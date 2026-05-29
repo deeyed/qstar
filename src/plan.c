@@ -12,6 +12,13 @@ struct qstar_plan {
 	size_t cap;
 };
 
+/** profile 문자열이 없을 때 explain dump에 쓸 기본값을 반환한다. */
+static const char *
+profile_or_default(const char *s, const char *fallback)
+{
+	return s && *s ? s : fallback;
+}
+
 /** 문자열 list를 command-plan dump 형식으로 출력한다. */
 static void
 dump_list(FILE *out, const struct qstar_string_list *list)
@@ -40,6 +47,19 @@ target_index(const struct qstar_graph *graph, const char *label)
 	return -1;
 }
 
+/** external dependency가 alias map에서 resolve되는지 확인한다. */
+static int
+external_dep_resolved(const struct qstar_graph *graph, const char *dep,
+    const struct qstar_package_alias **pkg_out)
+{
+	char alias[QSTAR_PATH_MAX];
+
+	if (qstar_label_package_alias(dep, alias, sizeof(alias)) < 0)
+		return 0;
+	*pkg_out = qstar_graph_find_package_alias(graph, alias);
+	return *pkg_out != NULL;
+}
+
 /** closure order list에 target을 추가한다. */
 static int
 plan_push(struct qstar_graph *graph, struct qstar_plan *plan, const struct qstar_target *target)
@@ -64,6 +84,7 @@ static int
 visit_target(struct qstar_graph *graph, struct qstar_plan *plan, size_t index)
 {
 	const struct qstar_target *target;
+	const struct qstar_package_alias *pkg;
 	const char *dep;
 	size_t i;
 	int dep_index;
@@ -82,10 +103,13 @@ visit_target(struct qstar_graph *graph, struct qstar_plan *plan, size_t index)
 			    target->label);
 		dep_index = target_index(graph, dep);
 		if (dep_index < 0) {
-			if (dep[0] == '@')
+			if (dep[0] == '@') {
+				if (external_dep_resolved(graph, dep, &pkg))
+					continue;
 				return qstar_set_error(graph,
 				    "qstar: unresolved package dependency '%s' referenced by '%s'",
 				    dep, target->label);
+			}
 			return qstar_set_error(graph,
 			    "qstar: unknown dependency label '%s' referenced by '%s'",
 			    dep, target->label);
@@ -190,9 +214,46 @@ dump_closure_order(FILE *out, const struct qstar_plan *plan)
 	fputs("]\n", out);
 }
 
+/** profile input과 package alias map을 command-plan header에 출력한다. */
+static void
+dump_plan_inputs(FILE *out, const struct qstar_graph *graph)
+{
+	size_t i;
+
+	fprintf(out, "profile name=%s target=%s toolchain=%s stdlib=%s\n",
+	    profile_or_default(graph->profile.name, "default"),
+	    profile_or_default(graph->profile.target, "host"),
+	    profile_or_default(graph->profile.toolchain, "default"),
+	    profile_or_default(graph->profile.stdlib_policy, "default"));
+	fputs("package_aliases [", out);
+	for (i = 0; i < graph->package_len; i++) {
+		if (i)
+			fputs(", ", out);
+		fprintf(out, "%s=%s", graph->packages[i].alias, graph->packages[i].root);
+	}
+	fputs("]\n", out);
+}
+
+/** target dependency list 중 resolved external package dependency를 출력한다. */
+static void
+dump_external_deps(FILE *out, const struct qstar_plan *plan, const struct qstar_target *target)
+{
+	const struct qstar_package_alias *pkg;
+	size_t i;
+
+	for (i = 0; i < target->deps.len; i++) {
+		if (target->deps.items[i][0] != '@')
+			continue;
+		if (external_dep_resolved(plan->graph, target->deps.items[i], &pkg))
+			fprintf(out, "  external_dep %s alias=%s root=%s\n",
+			    target->deps.items[i], pkg->alias, pkg->root);
+	}
+}
+
 /** target 하나의 non-executing command-plan record를 출력한다. */
 static void
-dump_target_plan(FILE *out, const struct qstar_target *target, size_t order)
+dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_target *target,
+    size_t order)
 {
 	size_t i;
 
@@ -202,6 +263,7 @@ dump_target_plan(FILE *out, const struct qstar_target *target, size_t order)
 	fputs("  deps ", out);
 	dump_list(out, &target->deps);
 	fputc('\n', out);
+	dump_external_deps(out, plan, target);
 	fputs("  sources ", out);
 	dump_list(out, &target->sources);
 	fputc('\n', out);
@@ -237,9 +299,10 @@ qstar_graph_explain_plan(struct qstar_graph *graph, const char *label, FILE *out
 	}
 	fputs("qstar command plan v1\n", out);
 	fprintf(out, "root %s\n", label && *label ? label : "<all>");
+	dump_plan_inputs(out, graph);
 	dump_closure_order(out, &plan);
 	for (i = 0; i < plan.len; i++)
-		dump_target_plan(out, plan.order[i], i);
+		dump_target_plan(out, &plan, plan.order[i], i);
 	free_plan(&plan);
 	return 0;
 }

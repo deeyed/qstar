@@ -83,3 +83,23 @@ qstar_label_canonicalize(const char *label, const char *fragment_dir, char *dst,
 		return -1;
 	return 0;
 }
+
+/** external canonical label에서 package alias 부분을 추출한다. */
+int
+qstar_label_package_alias(const char *label, char *dst, size_t dstlen)
+{
+	const char *rest;
+	size_t n;
+
+	if (!label || label[0] != '@')
+		return -1;
+	rest = strstr(label, "//");
+	if (!rest)
+		return -1;
+	n = (size_t)(rest - label);
+	if (n == 0 || n + 1 > dstlen)
+		return -1;
+	memcpy(dst, label, n);
+	dst[n] = '\0';
+	return 0;
+}

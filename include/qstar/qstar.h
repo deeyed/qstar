@@ -37,10 +37,26 @@ struct qstar_target {
 	char *stdlib_policy;
 };
 
+struct qstar_package_alias {
+	char *alias;
+	char *root;
+};
+
+struct qstar_profile_input {
+	char *name;
+	char *target;
+	char *toolchain;
+	char *stdlib_policy;
+};
+
 struct qstar_graph {
 	struct qstar_target *targets;
 	size_t len;
 	size_t cap;
+	struct qstar_package_alias *packages;
+	size_t package_len;
+	size_t package_cap;
+	struct qstar_profile_input profile;
 	char error[512];
 };
 
@@ -53,6 +69,17 @@ void qstar_graph_free(struct qstar_graph *graph);
 /** QStar graph에 새 target을 추가하고 중복 label을 stable error로 막는다. */
 struct qstar_target *qstar_graph_add_target(struct qstar_graph *graph, const char *label,
     const char *name, const char *kind, const char *fragment_dir);
+
+/** QStar package alias를 추가하고 중복 alias를 stable error로 막는다. */
+int qstar_graph_add_package_alias(struct qstar_graph *graph, const char *alias, const char *root);
+
+/** QStar explain profile 입력을 graph에 기록한다. */
+int qstar_graph_set_profile_input(struct qstar_graph *graph, const char *name,
+    const char *target, const char *toolchain, const char *stdlib_policy);
+
+/** QStar package alias map에서 alias를 찾는다. */
+const struct qstar_package_alias *qstar_graph_find_package_alias(const struct qstar_graph *graph,
+    const char *alias);
 
 /** QStar label을 현재 fragment 기준 canonical label로 정규화한다. */
 int qstar_label_canonicalize(const char *label, const char *fragment_dir, char *dst, size_t dstlen);

@@ -97,6 +97,24 @@ free_target(struct qstar_target *target)
 	free(target->stdlib_policy);
 }
 
+/** package alias entry가 소유한 문자열을 해제한다. */
+static void
+free_package_alias(struct qstar_package_alias *pkg)
+{
+	free(pkg->alias);
+	free(pkg->root);
+}
+
+/** profile input이 소유한 문자열을 해제한다. */
+static void
+free_profile_input(struct qstar_profile_input *profile)
+{
+	free(profile->name);
+	free(profile->target);
+	free(profile->toolchain);
+	free(profile->stdlib_policy);
+}
+
 /** QStar graph가 소유한 모든 동적 메모리를 해제한다. */
 void
 qstar_graph_free(struct qstar_graph *graph)
@@ -105,7 +123,11 @@ qstar_graph_free(struct qstar_graph *graph)
 
 	for (i = 0; i < graph->len; i++)
 		free_target(&graph->targets[i]);
+	for (i = 0; i < graph->package_len; i++)
+		free_package_alias(&graph->packages[i]);
+	free_profile_input(&graph->profile);
 	free(graph->targets);
+	free(graph->packages);
 	memset(graph, 0, sizeof(*graph));
 }
 
@@ -127,6 +149,92 @@ has_target(const struct qstar_graph *graph, const char *label)
 		if (strcmp(graph->targets[i].label, label) == 0)
 			return 1;
 	}
+	return 0;
+}
+
+static int
+valid_alias(const char *alias)
+{
+	const unsigned char *p;
+
+	if (!alias || alias[0] != '@' || !alias[1])
+		return 0;
+	for (p = (const unsigned char *)alias + 1; *p; p++) {
+		if (!((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') ||
+		    (*p >= '0' && *p <= '9') || *p == '_' || *p == '-' || *p == '.'))
+			return 0;
+	}
+	return 1;
+}
+
+/** QStar package alias map에서 alias를 찾는다. */
+const struct qstar_package_alias *
+qstar_graph_find_package_alias(const struct qstar_graph *graph, const char *alias)
+{
+	size_t i;
+
+	for (i = 0; i < graph->package_len; i++) {
+		if (strcmp(graph->packages[i].alias, alias) == 0)
+			return &graph->packages[i];
+	}
+	return NULL;
+}
+
+/** QStar package alias를 추가하고 중복 alias를 stable error로 막는다. */
+int
+qstar_graph_add_package_alias(struct qstar_graph *graph, const char *alias, const char *root)
+{
+	struct qstar_package_alias *packages, *pkg;
+	size_t cap;
+
+	if (!valid_alias(alias))
+		return qstar_set_error(graph, "qstar: invalid package alias '%s'", alias ? alias : "");
+	if (!root || !*root)
+		return qstar_set_error(graph, "qstar: package alias '%s' has empty root", alias);
+	if (qstar_graph_find_package_alias(graph, alias))
+		return qstar_set_error(graph, "qstar: duplicate package alias '%s'", alias);
+	if (graph->package_len == graph->package_cap) {
+		cap = graph->package_cap ? graph->package_cap * 2 : 4;
+		packages = realloc(graph->packages, cap * sizeof(graph->packages[0]));
+		if (!packages)
+			return qstar_set_error(graph, "qstar: out of memory");
+		graph->packages = packages;
+		graph->package_cap = cap;
+	}
+	pkg = &graph->packages[graph->package_len++];
+	memset(pkg, 0, sizeof(*pkg));
+	pkg->alias = qstar_strdup(alias);
+	pkg->root = qstar_strdup(root);
+	if (!pkg->alias || !pkg->root)
+		return qstar_set_error(graph, "qstar: out of memory");
+	return 0;
+}
+
+static int
+replace_string(char **slot, const char *value)
+{
+	char *copy;
+
+	if (!value)
+		return 0;
+	copy = qstar_strdup(value);
+	if (!copy)
+		return -1;
+	free(*slot);
+	*slot = copy;
+	return 0;
+}
+
+/** QStar explain profile 입력을 graph에 기록한다. */
+int
+qstar_graph_set_profile_input(struct qstar_graph *graph, const char *name,
+    const char *target, const char *toolchain, const char *stdlib_policy)
+{
+	if (replace_string(&graph->profile.name, name) < 0 ||
+	    replace_string(&graph->profile.target, target) < 0 ||
+	    replace_string(&graph->profile.toolchain, toolchain) < 0 ||
+	    replace_string(&graph->profile.stdlib_policy, stdlib_policy) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
 	return 0;
 }
 
@@ -168,6 +276,12 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	return target;
 }
 
+static const char *
+profile_or_default(const char *s, const char *fallback)
+{
+	return s && *s ? s : fallback;
+}
+
 static void
 dump_list(FILE *out, const struct qstar_string_list *list)
 {
@@ -180,6 +294,20 @@ dump_list(FILE *out, const struct qstar_string_list *list)
 		fputs(list->items[i], out);
 	}
 	fputc(']', out);
+}
+
+static void
+dump_package_aliases(FILE *out, const struct qstar_graph *graph)
+{
+	size_t i;
+
+	fputs("package_aliases [", out);
+	for (i = 0; i < graph->package_len; i++) {
+		if (i)
+			fputs(", ", out);
+		fprintf(out, "%s=%s", graph->packages[i].alias, graph->packages[i].root);
+	}
+	fputs("]\n", out);
 }
 
 static void
@@ -234,6 +362,12 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 		qsort(copy, n, sizeof(copy[0]), target_cmp);
 	}
 	fputs("qstar graph v1\n", out);
+	fprintf(out, "profile name=%s target=%s toolchain=%s stdlib=%s\n",
+	    profile_or_default(graph->profile.name, "default"),
+	    profile_or_default(graph->profile.target, "host"),
+	    profile_or_default(graph->profile.toolchain, "default"),
+	    profile_or_default(graph->profile.stdlib_policy, "default"));
+	dump_package_aliases(out, graph);
 	found = label == NULL || *label == '\0';
 	for (i = 0; i < n; i++) {
 		if (label && *label && strcmp(copy[i].label, label) != 0)
