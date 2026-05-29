@@ -483,3 +483,96 @@ qstar_graph_explain_plan(struct qstar_graph *graph, const char *label, FILE *out
 	free_plan(&plan);
 	return 0;
 }
+
+/** target이 소비하는 generated action dry-run step을 출력한다. */
+static void
+dump_dry_run_genrules(FILE *out, const struct qstar_plan *plan,
+    const struct qstar_target *target)
+{
+	const struct qstar_genrule *genrule;
+	char inputs[QSTAR_PATH_MAX], outputs[QSTAR_PATH_MAX];
+	size_t i;
+
+	for (i = 0; i < plan->graph->genrule_len; i++) {
+		genrule = &plan->graph->genrules[i];
+		if (!genrule_consumed_by_target(genrule, target))
+			continue;
+		format_list_field(inputs, sizeof(inputs), &genrule->inputs);
+		format_list_field(outputs, sizeof(outputs), &genrule->outputs);
+		fprintf(out,
+		    "dry_run_step id=%s:generate:0 owner=%s consumer=%s kind=generate "
+		    "tool=%s inputs=%s outputs=%s args=",
+		    genrule->label, genrule->label, target->label, genrule->tool, inputs,
+		    outputs);
+		dump_list(out, &genrule->args);
+		fputs(" execute=no\n", out);
+	}
+}
+
+/** target의 compile dry-run step을 source 순서대로 출력한다. */
+static void
+dump_dry_run_compiles(FILE *out, const struct qstar_plan *plan,
+    const struct qstar_target *target)
+{
+	struct qstar_source_info source;
+	char output[QSTAR_PATH_MAX];
+	size_t i;
+
+	(void)plan;
+	for (i = 0; i < target->sources.len; i++) {
+		qstar_source_classify(target->sources.items[i], &source);
+		snprintf(output, sizeof(output), "<object:%s:%zu>", target->label, i);
+		fprintf(out,
+		    "dry_run_step id=%s:compile:%zu owner=%s kind=compile language=%s "
+		    "tool=%s toolchain=%s input=%s output=%s execute=no\n",
+		    target->label, i, target->label, source.language, source.tool_role,
+		    target->toolchain, target->sources.items[i], output);
+	}
+}
+
+/** target의 최종 artifact dry-run step을 출력한다. */
+static void
+dump_dry_run_final(FILE *out, const struct qstar_plan *plan, const struct qstar_target *target)
+{
+	char output[QSTAR_PATH_MAX];
+	const char *action, *tool;
+
+	(void)plan;
+	action = final_action(target);
+	tool = strcmp(action, "archive") == 0 ? "archiver" :
+	    strcmp(action, "compile-objects") == 0 ? "object-collector" : "linker";
+	snprintf(output, sizeof(output), "<artifact:%s>", target->label);
+	fprintf(out,
+	    "dry_run_step id=%s:%s:0 owner=%s kind=%s tool=%s toolchain=%s "
+	    "input=<target-objects> output=%s execute=no\n",
+	    target->label, action, target->label, action, tool, target->toolchain, output);
+}
+
+/** QStar target closure를 실제 실행 없이 dry-run command stream으로 출력한다. */
+int
+qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out)
+{
+	struct qstar_plan plan;
+	size_t i;
+	int rc;
+
+	rc = build_closure(graph, label, &plan);
+	if (rc < 0) {
+		free_plan(&plan);
+		return -1;
+	}
+	fputs("qstar dry-run v1\n", out);
+	fprintf(out, "root %s\n", label && *label ? label : "<all>");
+	dump_plan_inputs(out, graph);
+	dump_closure_order(out, &plan);
+	for (i = 0; i < plan.len; i++) {
+		fprintf(out, "dry_run_target %s order=%zu kind=%s\n",
+		    plan.order[i]->label, i, plan.order[i]->kind);
+		dump_resolved_toolchain(out, &plan, plan.order[i]);
+		dump_dry_run_genrules(out, &plan, plan.order[i]);
+		dump_dry_run_compiles(out, &plan, plan.order[i]);
+		dump_dry_run_final(out, &plan, plan.order[i]);
+	}
+	free_plan(&plan);
+	return 0;
+}

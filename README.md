@@ -1,9 +1,10 @@
 # QStar Developer Binary
 
-QStar is currently a standalone explain-first build graph evaluator.
+QStar is currently a standalone explain-first and dry-run build graph
+evaluator.
 
-Round 7 still builds only `build/bin/qstar`; it is not installed by
-`install-user` and is not wired into `cale build` yet.
+Round 8 builds `build/bin/qstar` and installs it next to `cale` through
+`install-user`. It is still not wired into `cale build`.
 
 The Lua evaluator uses the official Lua repository as a git submodule at
 `qstar/vendor/lua`, pinned to tag `v5.4.8`. The license text is preserved in
@@ -14,14 +15,17 @@ Implemented commands:
 ```txt
 qstar --file qstar.lua --dump-graph
 qstar --file qstar.lua explain //:app
+qstar --file qstar.lua dry-run //:app
 qstar --file qstar.lua --package-alias @core=/path/to/core explain //:app
 qstar --file qstar.lua --profile debug --target arm64-apple-macos explain //:app
 ```
 
 `--dump-graph` prints the raw canonical Graph IR. `explain` validates the
 selected target closure, computes dependency-first order, and prints a
-non-executing Build Plan IR with action-key material. It does not spawn
-compilers, linkers, package fetchers, or Ninja.
+non-executing Build Plan IR with action-key material. `dry-run` projects the
+same validated closure into deterministic step records that look like executor
+input, but every step is marked `execute=no`. It does not spawn compilers,
+linkers, generators, package fetchers, or Ninja.
 
 Round 3 adds fixture-level package alias and profile input plumbing. Package
 aliases make external labels explainable, but QStar still does not fetch,
@@ -43,7 +47,28 @@ resolver record. `qstar.genrule` records generator inputs/outputs/args,
 generated sources must have exactly one producer under `generated/`. QStar still
 does not execute the generator or compiler.
 
+Round 8 adds a dry-run executor skeleton and a manual sample project under
+`qstar/tests/manual/hello`. The sample intentionally contains `qstar.lua`, a
+subdir `foo.qs`, C sources, a generated-source edge, and a public header so it
+can be copied elsewhere and exercised by hand.
+
 You can already experiment with small `qstar.lua` and subdir `foo.qs` files for
-graph shape, source classification, dependency order, and command skeleton
-output. Treat that surface as developer-preview until actual source discovery
-globs, generated-source edges, and toolchain/profile resolution are stabilized.
+graph shape, source classification, dependency order, command skeleton output,
+and dry-run step ordering. Treat that surface as developer-preview until actual
+source discovery globs, generator execution, and full toolchain/profile
+resolution are stabilized.
+
+Manual smoke:
+
+```txt
+make qstar
+build/bin/qstar --file qstar/tests/manual/hello/qstar.lua --dump-graph
+build/bin/qstar --file qstar/tests/manual/hello/qstar.lua explain //:app
+build/bin/qstar --file qstar/tests/manual/hello/qstar.lua dry-run //:app
+```
+
+QStar-local regression:
+
+```txt
+make -C qstar check
+```
