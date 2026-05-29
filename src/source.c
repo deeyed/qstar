@@ -3,20 +3,6 @@
 #include <stdio.h>
 #include <string.h>
 
-/** source path가 package-relative normalized path인지 검사한다. */
-static int
-valid_relative_path(const char *path)
-{
-	if (!path || !*path || path[0] == '/')
-		return 0;
-	if (strcmp(path, ".") == 0 || strcmp(path, "..") == 0)
-		return 0;
-	if (strncmp(path, "../", 3) == 0 || strstr(path, "/../") ||
-	    strstr(path, "/./") || strstr(path, "//"))
-		return 0;
-	return 1;
-}
-
 /** generated output path가 QStar managed output root 아래 있는지 검사한다. */
 static int
 valid_generated_output_root(const char *path)
@@ -84,7 +70,7 @@ validate_source_list(struct qstar_graph *graph, const struct qstar_target *targe
 
 	for (i = 0; i < target->sources.len; i++) {
 		path = target->sources.items[i];
-		if (!valid_relative_path(path))
+		if (!qstar_path_is_package_relative(path))
 			return qstar_set_error(graph,
 			    "qstar: source path '%s' in '%s' must be package-relative",
 			    path, target->label);
@@ -116,14 +102,14 @@ validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 		    genrule->label);
 	for (i = 0; i < genrule->inputs.len; i++) {
 		path = genrule->inputs.items[i];
-		if (!valid_relative_path(path))
+		if (!qstar_path_is_package_relative(path))
 			return qstar_set_error(graph,
 			    "qstar: generated input '%s' in '%s' must be package-relative",
 			    path, genrule->label);
 	}
 	for (i = 0; i < genrule->outputs.len; i++) {
 		path = genrule->outputs.items[i];
-		if (!valid_relative_path(path))
+		if (!qstar_path_is_package_relative(path))
 			return qstar_set_error(graph,
 			    "qstar: generated output '%s' in '%s' must be package-relative",
 			    path, genrule->label);
@@ -166,6 +152,90 @@ qstar_graph_validate_sources(struct qstar_graph *graph)
 
 	for (i = 0; i < graph->len; i++) {
 		if (validate_source_list(graph, &graph->targets[i]) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+/** package root 기준 path가 실제 파일로 존재하는지 확인한다. */
+static int
+file_exists_under_root(const struct qstar_graph *graph, const char *path)
+{
+	char full[QSTAR_PATH_MAX];
+	FILE *f;
+
+	if (qstar_path_join(graph->package_root ? graph->package_root : ".", path, full,
+	    sizeof(full)) < 0)
+		return 0;
+	f = fopen(full, "rb");
+	if (!f)
+		return 0;
+	fclose(f);
+	return 1;
+}
+
+/** target의 authoring input 파일이 package root 아래 존재하는지 검증한다. */
+static int
+validate_target_file_inputs(struct qstar_graph *graph, const struct qstar_target *target)
+{
+	const char *path;
+	size_t i;
+
+	for (i = 0; i < target->sources.len; i++) {
+		path = target->sources.items[i];
+		if (valid_generated_output_root(path) && qstar_graph_find_output_owner(graph, path))
+			continue;
+		if (!file_exists_under_root(graph, path))
+			return qstar_set_error(graph,
+			    "qstar: source file '%s' in '%s' does not exist under package root",
+			    path, target->label);
+	}
+	for (i = 0; i < target->public_headers.len; i++) {
+		path = target->public_headers.items[i];
+		if (!file_exists_under_root(graph, path))
+			return qstar_set_error(graph,
+			    "qstar: header file '%s' in '%s' does not exist under package root",
+			    path, target->label);
+	}
+	for (i = 0; i < target->private_headers.len; i++) {
+		path = target->private_headers.items[i];
+		if (!file_exists_under_root(graph, path))
+			return qstar_set_error(graph,
+			    "qstar: header file '%s' in '%s' does not exist under package root",
+			    path, target->label);
+	}
+	return 0;
+}
+
+/** generated action input 파일이 package root 아래 존재하는지 검증한다. */
+static int
+validate_genrule_file_inputs(struct qstar_graph *graph, const struct qstar_genrule *genrule)
+{
+	const char *path;
+	size_t i;
+
+	for (i = 0; i < genrule->inputs.len; i++) {
+		path = genrule->inputs.items[i];
+		if (!file_exists_under_root(graph, path))
+			return qstar_set_error(graph,
+			    "qstar: generated input '%s' in '%s' does not exist under package root",
+			    path, genrule->label);
+	}
+	return 0;
+}
+
+/** QStar authoring input file이 package root 아래 실제로 존재하는지 검증한다. */
+int
+qstar_graph_validate_file_inputs(struct qstar_graph *graph)
+{
+	size_t i;
+
+	for (i = 0; i < graph->genrule_len; i++) {
+		if (validate_genrule_file_inputs(graph, &graph->genrules[i]) < 0)
+			return -1;
+	}
+	for (i = 0; i < graph->len; i++) {
+		if (validate_target_file_inputs(graph, &graph->targets[i]) < 0)
 			return -1;
 	}
 	return 0;

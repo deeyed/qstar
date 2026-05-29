@@ -576,3 +576,28 @@ qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out)
 	free_plan(&plan);
 	return 0;
 }
+
+/** QStar authoring check 결과를 deterministic text로 출력한다. */
+int
+qstar_graph_check(struct qstar_graph *graph, const char *label, FILE *out)
+{
+	struct qstar_plan plan;
+	int rc;
+
+	rc = build_closure(graph, label, &plan);
+	if (rc < 0) {
+		free_plan(&plan);
+		return -1;
+	}
+	fputs("qstar check v1\n", out);
+	fprintf(out, "package-root %s\n", graph->package_root ? graph->package_root : ".");
+	fprintf(out, "root %s\n", label && *label ? label : "<all>");
+	dump_plan_inputs(out, graph);
+	dump_closure_order(out, &plan);
+	fprintf(out, "target-count %zu\n", plan.len);
+	fprintf(out, "generated-action-count %zu\n", graph->genrule_len);
+	fputs("file-inputs ok\n", out);
+	fputs("status ok\n", out);
+	free_plan(&plan);
+	return 0;
+}

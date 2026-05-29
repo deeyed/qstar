@@ -69,6 +69,7 @@ struct qstar_graph {
 	struct qstar_target *targets;
 	size_t len;
 	size_t cap;
+	char *package_root;
 	struct qstar_package_alias *packages;
 	size_t package_len;
 	size_t package_cap;
@@ -84,6 +85,9 @@ void qstar_graph_init(struct qstar_graph *graph);
 
 /** QStar graph가 소유한 모든 동적 메모리를 해제한다. */
 void qstar_graph_free(struct qstar_graph *graph);
+
+/** QStar package root를 graph에 기록한다. */
+int qstar_graph_set_package_root(struct qstar_graph *graph, const char *root);
 
 /** QStar graph에 새 target을 추가하고 중복 label을 stable error로 막는다. */
 struct qstar_target *qstar_graph_add_target(struct qstar_graph *graph, const char *label,
@@ -113,6 +117,9 @@ int qstar_graph_validate_sources(struct qstar_graph *graph);
 /** QStar generated output edge skeleton을 검증한다. */
 int qstar_graph_validate_generated_outputs(struct qstar_graph *graph);
 
+/** QStar authoring input file이 package root 아래 실제로 존재하는지 검증한다. */
+int qstar_graph_validate_file_inputs(struct qstar_graph *graph);
+
 /** generated output path를 생산하는 action skeleton을 찾는다. */
 const struct qstar_genrule *qstar_graph_find_output_owner(const struct qstar_graph *graph,
     const char *path);
@@ -137,6 +144,9 @@ int qstar_graph_explain_plan(struct qstar_graph *graph, const char *label, FILE 
 
 /** QStar target closure를 실제 실행 없이 dry-run command stream으로 출력한다. */
 int qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out);
+
+/** QStar authoring check 결과를 deterministic text로 출력한다. */
+int qstar_graph_check(struct qstar_graph *graph, const char *label, FILE *out);
 
 /** qstar.lua 파일을 sandboxed Lua runtime으로 평가해 Graph IR를 만든다. */
 int qstar_lua_eval_file(struct qstar_graph *graph, const char *file);

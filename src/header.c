@@ -3,25 +3,6 @@
 #include <stdio.h>
 #include <string.h>
 
-/** header file path가 package-relative normalized path인지 검사한다. */
-static int
-valid_relative_path(const char *path)
-{
-	const char *p;
-
-	if (!path || !*path || path[0] == '/')
-		return 0;
-	for (p = path; *p; p++) {
-		if ((p == path || p[-1] == '/') && p[0] == '.' &&
-		    (p[1] == '/' || p[1] == '\0' ||
-		    (p[1] == '.' && (p[2] == '/' || p[2] == '\0'))))
-			return 0;
-		if (p[0] == '/' && p[1] == '/')
-			return 0;
-	}
-	return 1;
-}
-
 /** public header file이 include/ install surface 아래 있는지 검사한다. */
 static int
 is_public_header_root(const char *path)
@@ -39,7 +20,7 @@ validate_header_list(struct qstar_graph *graph, const struct qstar_target *targe
 
 	for (i = 0; i < list->len; i++) {
 		path = list->items[i];
-		if (!valid_relative_path(path))
+		if (!qstar_path_is_package_relative(path))
 			return qstar_set_error(graph,
 			    "qstar: header path '%s' in '%s' must be package-relative",
 			    path, target->label);

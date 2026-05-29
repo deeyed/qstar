@@ -134,6 +134,7 @@ qstar_graph_free(struct qstar_graph *graph)
 {
 	size_t i;
 
+	free(graph->package_root);
 	for (i = 0; i < graph->len; i++)
 		free_target(&graph->targets[i]);
 	for (i = 0; i < graph->genrule_len; i++)
@@ -145,6 +146,20 @@ qstar_graph_free(struct qstar_graph *graph)
 	free(graph->packages);
 	free(graph->genrules);
 	memset(graph, 0, sizeof(*graph));
+}
+
+/** QStar package root를 graph에 기록한다. */
+int
+qstar_graph_set_package_root(struct qstar_graph *graph, const char *root)
+{
+	char *copy;
+
+	copy = qstar_strdup(root && *root ? root : ".");
+	if (!copy)
+		return qstar_set_error(graph, "qstar: out of memory");
+	free(graph->package_root);
+	graph->package_root = copy;
+	return 0;
 }
 
 static int
@@ -531,4 +546,18 @@ qstar_path_join(const char *a, const char *b, char *dst, size_t dstlen)
 	dst[na] = '/';
 	memcpy(dst + na + 1, b, nb + 1);
 	return 0;
+}
+
+/** QStar path가 package-relative normalized path인지 검사한다. */
+int
+qstar_path_is_package_relative(const char *path)
+{
+	if (!path || !*path || path[0] == '/')
+		return 0;
+	if (strcmp(path, ".") == 0 || strcmp(path, "..") == 0)
+		return 0;
+	if (strncmp(path, "../", 3) == 0 || strstr(path, "/../") ||
+	    strstr(path, "/./") || strstr(path, "//"))
+		return 0;
+	return 1;
 }

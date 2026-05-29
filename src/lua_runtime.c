@@ -361,6 +361,8 @@ qstar_lua_subdir(lua_State *L)
 
 	ctx = get_context(L);
 	dir = luaL_checkstring(L, 1);
+	if (!qstar_path_is_package_relative(dir))
+		return luaL_error(L, "qstar: subdir path '%s' must be package-relative", dir);
 	base = strrchr(dir, '/');
 	base = base ? base + 1 : dir;
 	snprintf(path, sizeof(path), "%s/%s.qs", dir, base);
@@ -536,6 +538,8 @@ qstar_lua_eval_file(struct qstar_graph *graph, const char *file)
 	ctx.graph = graph;
 	if (qstar_dirname(file, ctx.root_dir, sizeof(ctx.root_dir)) < 0)
 		return qstar_set_error(graph, "qstar: qstar file path too long");
+	if (qstar_graph_set_package_root(graph, ctx.root_dir) < 0)
+		return -1;
 	L = luaL_newstate();
 	if (!L)
 		return qstar_set_error(graph, "qstar: could not create Lua state");

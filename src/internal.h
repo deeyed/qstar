@@ -23,6 +23,9 @@ int qstar_dirname(const char *path, char *dst, size_t dstlen);
 /** 두 path 조각을 slash 기준으로 결합한다. */
 int qstar_path_join(const char *a, const char *b, char *dst, size_t dstlen);
 
+/** QStar path가 package-relative normalized path인지 검사한다. */
+int qstar_path_is_package_relative(const char *path);
+
 /** external canonical label에서 package alias 부분을 추출한다. */
 int qstar_label_package_alias(const char *label, char *dst, size_t dstlen);
 

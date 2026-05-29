@@ -8,6 +8,7 @@ usage(FILE *out)
 {
 	fputs("usage: qstar [options] explain [label]\n", out);
 	fputs("       qstar [options] dry-run [label]\n", out);
+	fputs("       qstar [options] check [label]\n", out);
 	fputs("       qstar [options] --dump-graph\n", out);
 	fputs("options:\n", out);
 	fputs("       --file qstar.lua\n", out);
@@ -103,7 +104,8 @@ main(int argc, char **argv)
 	}
 	cmd = argv[arg++];
 	label = NULL;
-	if (strcmp(cmd, "explain") == 0 || strcmp(cmd, "dry-run") == 0) {
+	if (strcmp(cmd, "explain") == 0 || strcmp(cmd, "dry-run") == 0 ||
+	    strcmp(cmd, "check") == 0) {
 		if (arg < argc)
 			label = argv[arg++];
 	} else if (strcmp(cmd, "--dump-graph") != 0) {
@@ -123,11 +125,15 @@ main(int argc, char **argv)
 		rc = qstar_graph_validate_sources(&graph);
 	if (rc == 0)
 		rc = qstar_graph_validate_headers(&graph);
+	if (rc == 0 && strcmp(cmd, "check") == 0)
+		rc = qstar_graph_validate_file_inputs(&graph);
 	if (rc == 0) {
 		if (strcmp(cmd, "explain") == 0)
 			rc = qstar_graph_explain_plan(&graph, label, stdout);
 		else if (strcmp(cmd, "dry-run") == 0)
 			rc = qstar_graph_dry_run(&graph, label, stdout);
+		else if (strcmp(cmd, "check") == 0)
+			rc = qstar_graph_check(&graph, label, stdout);
 		else
 			rc = qstar_graph_dump(&graph, label, stdout);
 	}
