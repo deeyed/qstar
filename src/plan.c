@@ -139,18 +139,22 @@ visit_target(struct qstar_graph *graph, struct qstar_plan *plan, size_t index)
 	for (i = 0; i < target->deps.len; i++) {
 		dep = target->deps.items[i];
 		if (strcmp(dep, "<select>") == 0)
-			return qstar_set_error(graph, "qstar: unresolved select dependency in '%s'",
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, "deps", target->label,
+			    "qstar: unresolved select dependency in '%s'",
 			    target->label);
 		dep_index = target_index(graph, dep);
 		if (dep_index < 0) {
 			if (dep[0] == '@') {
 				if (external_dep_resolved(graph, dep, &pkg))
 					continue;
-				return qstar_set_error(graph,
+				return qstar_set_error_origin(graph, target->origin_file,
+				    target->origin_line, "deps", target->label,
 				    "qstar: unresolved package dependency '%s' referenced by '%s'",
 				    dep, target->label);
 			}
-			return qstar_set_error(graph,
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, "deps", target->label,
 			    "qstar: unknown dependency label '%s' referenced by '%s'",
 			    dep, target->label);
 		}
@@ -596,6 +600,32 @@ qstar_graph_check(struct qstar_graph *graph, const char *label, FILE *out)
 	dump_closure_order(out, &plan);
 	fprintf(out, "target-count %zu\n", plan.len);
 	fprintf(out, "generated-action-count %zu\n", graph->genrule_len);
+	fputs("file-inputs ok\n", out);
+	fputs("status ok\n", out);
+	free_plan(&plan);
+	return 0;
+}
+
+/** QStar 전체 package doctor 결과를 deterministic text로 출력한다. */
+int
+qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
+{
+	struct qstar_plan plan;
+	int rc;
+
+	rc = build_closure(graph, NULL, &plan);
+	if (rc < 0) {
+		free_plan(&plan);
+		return -1;
+	}
+	fputs("qstar doctor v1\n", out);
+	fprintf(out, "package-root %s\n", graph->package_root ? graph->package_root : ".");
+	dump_plan_inputs(out, graph);
+	dump_closure_order(out, &plan);
+	fprintf(out, "target-count %zu\n", graph->len);
+	fprintf(out, "closure-target-count %zu\n", plan.len);
+	fprintf(out, "generated-action-count %zu\n", graph->genrule_len);
+	fputs("diagnostics ok\n", out);
 	fputs("file-inputs ok\n", out);
 	fputs("status ok\n", out);
 	free_plan(&plan);

@@ -17,6 +17,10 @@ void qstar_string_list_free(struct qstar_string_list *list);
 /** Graph error buffer에 첫 오류만 기록한다. */
 int qstar_set_error(struct qstar_graph *graph, const char *fmt, ...);
 
+/** Graph error buffer에 origin metadata와 첫 오류를 함께 기록한다. */
+int qstar_set_error_origin(struct qstar_graph *graph, const char *file, int line,
+    const char *field, const char *label, const char *fmt, ...);
+
 /** 경로에서 package root로 쓸 dirname을 계산한다. */
 int qstar_dirname(const char *path, char *dst, size_t dstlen);
 

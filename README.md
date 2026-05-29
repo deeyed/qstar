@@ -1,9 +1,9 @@
 # QStar Developer Binary
 
-QStar is currently a standalone explain-first, dry-run, and authoring-check
+QStar is currently a standalone query, explain, dry-run, and authoring-check
 build graph evaluator.
 
-Round 9 builds `build/bin/qstar` and installs it next to `cale` through
+Round 11 builds `build/bin/qstar` and installs it next to `cale` through
 `install-user`. It is still not wired into `cale build`.
 
 The Lua evaluator uses the official Lua repository as a git submodule at
@@ -14,9 +14,13 @@ Implemented commands:
 
 ```txt
 qstar --file qstar.lua --dump-graph
+qstar --file qstar.lua list-targets
+qstar --file qstar.lua query //:app
+qstar --file qstar.lua doctor
 qstar --file qstar.lua check //:app
 qstar --file qstar.lua explain //:app
 qstar --file qstar.lua dry-run //:app
+qstar --file qstar.lua --diagnostic-format line check //:app
 qstar --file qstar.lua --package-alias @core=/path/to/core explain //:app
 qstar --file qstar.lua --profile debug --target arm64-apple-macos explain //:app
 ```
@@ -61,10 +65,20 @@ when a `qstar.genrule` produces them. This is intentionally separate from
 `explain` and `dry-run`, which remain useful while sketching a graph before all
 files exist.
 
+Round 10 adds query UX and diagnostic origin. `list-targets`, `query`, and
+`doctor` expose deterministic authoring views, and diagnostics can include
+source file, line, label, field, and a machine-readable line skeleton for future
+LSP integration.
+
+Round 11 makes source selection more real. `qstar.files { "src/*.c", exclude =
+{"src/skip.c"} }` expands package-root globs deterministically, duplicate source
+entries are rejected, and `qstar.select` chooses an actual branch from
+`--target`/profile input instead of leaving a placeholder in the graph.
+
 You can already experiment with small `qstar.lua` and subdir `foo.qs` files for
 graph shape, source classification, dependency order, command skeleton output,
 and dry-run step ordering. Treat that surface as developer-preview until actual
-source discovery globs, generator execution, and full toolchain/profile
+recursive source discovery, generator execution, and full toolchain/profile
 resolution are stabilized.
 
 Manual smoke:
@@ -72,6 +86,9 @@ Manual smoke:
 ```txt
 make qstar
 build/bin/qstar --file qstar/tests/manual/hello/qstar.lua --dump-graph
+build/bin/qstar --file qstar/tests/manual/hello/qstar.lua list-targets
+build/bin/qstar --file qstar/tests/manual/hello/qstar.lua query //:app
+build/bin/qstar --file qstar/tests/manual/hello/qstar.lua doctor
 build/bin/qstar --file qstar/tests/manual/hello/qstar.lua check //:app
 build/bin/qstar --file qstar/tests/manual/hello/qstar.lua explain //:app
 build/bin/qstar --file qstar/tests/manual/hello/qstar.lua dry-run //:app

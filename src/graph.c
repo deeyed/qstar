@@ -36,6 +36,28 @@ qstar_set_error(struct qstar_graph *graph, const char *fmt, ...)
 	return -1;
 }
 
+/** Graph error buffer에 origin metadata와 첫 오류를 함께 기록한다. */
+int
+qstar_set_error_origin(struct qstar_graph *graph, const char *file, int line,
+    const char *field, const char *label, const char *fmt, ...)
+{
+	va_list ap;
+
+	if (!graph || graph->error[0])
+		return -1;
+	va_start(ap, fmt);
+	vsnprintf(graph->error, sizeof(graph->error), fmt, ap);
+	va_end(ap);
+	if (file && *file)
+		snprintf(graph->error_file, sizeof(graph->error_file), "%s", file);
+	if (field && *field)
+		snprintf(graph->error_field, sizeof(graph->error_field), "%s", field);
+	if (label && *label)
+		snprintf(graph->error_label, sizeof(graph->error_label), "%s", label);
+	graph->error_line = line;
+	return -1;
+}
+
 /** 문자열 list에 새 항목을 복사해 추가한다. */
 int
 qstar_string_list_push(struct qstar_string_list *list, const char *s)
@@ -84,6 +106,7 @@ free_target(struct qstar_target *target)
 	free(target->name);
 	free(target->kind);
 	free(target->fragment_dir);
+	free(target->origin_file);
 	free(target->modules.root);
 	qstar_string_list_free(&target->modules.include);
 	qstar_string_list_free(&target->modules.exclude);
@@ -104,6 +127,7 @@ free_genrule(struct qstar_genrule *genrule)
 	free(genrule->label);
 	free(genrule->name);
 	free(genrule->fragment_dir);
+	free(genrule->origin_file);
 	free(genrule->tool);
 	qstar_string_list_free(&genrule->inputs);
 	qstar_string_list_free(&genrule->outputs);
@@ -284,7 +308,7 @@ qstar_graph_set_profile_input(struct qstar_graph *graph, const char *name,
 /** QStar graph에 새 target을 추가하고 중복 label을 stable error로 막는다. */
 struct qstar_target *
 qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char *name,
-    const char *kind, const char *fragment_dir)
+    const char *kind, const char *fragment_dir, const char *origin_file, int origin_line)
 {
 	struct qstar_target *targets, *target;
 	size_t cap;
@@ -313,10 +337,12 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	target->name = qstar_strdup(name);
 	target->kind = qstar_strdup(kind);
 	target->fragment_dir = qstar_strdup(fragment_dir ? fragment_dir : "");
+	target->origin_file = qstar_strdup(origin_file ? origin_file : "");
+	target->origin_line = origin_line;
 	target->toolchain = qstar_strdup("host");
 	target->stdlib_policy = qstar_strdup("system");
 	if (!target->label || !target->name || !target->kind || !target->fragment_dir ||
-	    !target->toolchain || !target->stdlib_policy) {
+	    !target->origin_file || !target->toolchain || !target->stdlib_policy) {
 		qstar_set_error(graph, "qstar: out of memory");
 		return NULL;
 	}
@@ -326,7 +352,7 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 /** QStar graph에 generated action skeleton을 추가하고 중복 label을 막는다. */
 struct qstar_genrule *
 qstar_graph_add_genrule(struct qstar_graph *graph, const char *label, const char *name,
-    const char *fragment_dir)
+    const char *fragment_dir, const char *origin_file, int origin_line)
 {
 	struct qstar_genrule *genrules, *genrule;
 	size_t cap;
@@ -355,8 +381,11 @@ qstar_graph_add_genrule(struct qstar_graph *graph, const char *label, const char
 	genrule->label = qstar_strdup(label);
 	genrule->name = qstar_strdup(name);
 	genrule->fragment_dir = qstar_strdup(fragment_dir ? fragment_dir : "");
+	genrule->origin_file = qstar_strdup(origin_file ? origin_file : "");
+	genrule->origin_line = origin_line;
 	genrule->tool = qstar_strdup("generator");
-	if (!genrule->label || !genrule->name || !genrule->fragment_dir || !genrule->tool) {
+	if (!genrule->label || !genrule->name || !genrule->fragment_dir ||
+	    !genrule->origin_file || !genrule->tool) {
 		qstar_set_error(graph, "qstar: out of memory");
 		return NULL;
 	}
@@ -416,6 +445,9 @@ static void
 dump_target(const struct qstar_target *target, FILE *out)
 {
 	fprintf(out, "target %s\n", target->label);
+	fprintf(out, "  origin file=%s line=%d\n",
+	    target->origin_file && *target->origin_file ? target->origin_file : "<unknown>",
+	    target->origin_line);
 	fprintf(out, "  kind %s\n", target->kind);
 	if (target->modules.present) {
 		fprintf(out, "  modules root=%s include=", target->modules.root ? target->modules.root : "");
@@ -451,6 +483,9 @@ static void
 dump_genrule(const struct qstar_genrule *genrule, FILE *out)
 {
 	fprintf(out, "generated_action %s\n", genrule->label);
+	fprintf(out, "  origin file=%s line=%d\n",
+	    genrule->origin_file && *genrule->origin_file ? genrule->origin_file : "<unknown>",
+	    genrule->origin_line);
 	fprintf(out, "  tool %s\n", genrule->tool);
 	fputs("  inputs ", out);
 	dump_list(out, &genrule->inputs);
@@ -498,6 +533,100 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 	}
 	free(copy);
 	return found ? 0 : -1;
+}
+
+/** target pointer list를 canonical label 순서로 정렬한다. */
+static void
+sort_target_ptrs(const struct qstar_target **targets, size_t n)
+{
+	size_t i, j;
+	const struct qstar_target *v;
+
+	for (i = 1; i < n; i++) {
+		v = targets[i];
+		j = i;
+		while (j > 0 && strcmp(targets[j - 1]->label, v->label) > 0) {
+			targets[j] = targets[j - 1];
+			j--;
+		}
+		targets[j] = v;
+	}
+}
+
+/** target label에 대응하는 target을 찾는다. */
+static const struct qstar_target *
+find_target(const struct qstar_graph *graph, const char *label)
+{
+	size_t i;
+
+	for (i = 0; i < graph->len; i++) {
+		if (strcmp(graph->targets[i].label, label) == 0)
+			return &graph->targets[i];
+	}
+	return NULL;
+}
+
+/** QStar target 목록을 deterministic text로 출력한다. */
+int
+qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
+{
+	const struct qstar_target **targets;
+	size_t i;
+
+	targets = malloc((graph->len ? graph->len : 1) * sizeof(targets[0]));
+	if (!targets)
+		return -1;
+	for (i = 0; i < graph->len; i++)
+		targets[i] = &graph->targets[i];
+	sort_target_ptrs(targets, graph->len);
+	fputs("qstar targets v1\n", out);
+	fprintf(out, "target-count %zu\n", graph->len);
+	for (i = 0; i < graph->len; i++)
+		fprintf(out, "target %s kind=%s origin=%s:%d\n", targets[i]->label,
+		    targets[i]->kind,
+		    targets[i]->origin_file && *targets[i]->origin_file ?
+		    targets[i]->origin_file : "<unknown>",
+		    targets[i]->origin_line);
+	free(targets);
+	return 0;
+}
+
+/** QStar target 하나를 authoring query text로 출력한다. */
+int
+qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
+{
+	const struct qstar_target *target;
+
+	if (!label || !*label)
+		return -1;
+	target = find_target(graph, label);
+	if (!target)
+		return -1;
+	fputs("qstar query v1\n", out);
+	fprintf(out, "target %s\n", target->label);
+	fprintf(out, "  origin file=%s line=%d\n",
+	    target->origin_file && *target->origin_file ? target->origin_file : "<unknown>",
+	    target->origin_line);
+	fprintf(out, "  fragment_dir %s\n", target->fragment_dir);
+	fprintf(out, "  kind %s\n", target->kind);
+	fputs("  sources ", out);
+	dump_list(out, &target->sources);
+	fputc('\n', out);
+	fputs("  public_headers ", out);
+	dump_list(out, &target->public_headers);
+	fputc('\n', out);
+	fputs("  private_headers ", out);
+	dump_list(out, &target->private_headers);
+	fputc('\n', out);
+	fputs("  include_dirs ", out);
+	dump_list(out, &target->include_dirs);
+	fputc('\n', out);
+	fputs("  deps ", out);
+	dump_list(out, &target->deps);
+	fputc('\n', out);
+	fprintf(out, "  toolchain %s\n", target->toolchain);
+	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
+	return 0;
 }
 
 /** 경로에서 package root로 쓸 dirname을 계산한다. */

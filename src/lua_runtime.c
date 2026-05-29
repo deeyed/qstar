@@ -4,6 +4,7 @@
 #include "lauxlib.h"
 #include "lualib.h"
 
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +14,28 @@ struct qstar_lua_context {
 	char root_dir[QSTAR_PATH_MAX];
 	char current_dir[QSTAR_PATH_MAX];
 };
+
+/** 현재 Lua 호출자의 source 위치를 QStar origin으로 가져온다. */
+static void
+current_origin(lua_State *L, char *file, size_t filelen, int *line)
+{
+	lua_Debug ar;
+	const char *src;
+
+	if (filelen)
+		file[0] = '\0';
+	if (line)
+		*line = 0;
+	if (!lua_getstack(L, 1, &ar) || !lua_getinfo(L, "Sl", &ar))
+		return;
+	src = ar.source ? ar.source : ar.short_src;
+	if (src && src[0] == '@')
+		src++;
+	if (src && filelen)
+		snprintf(file, filelen, "%s", src);
+	if (line)
+		*line = ar.currentline;
+}
 
 static struct qstar_lua_context *
 get_context(lua_State *L)
@@ -138,6 +161,8 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	struct qstar_graph *graph;
 	const char *kind, *toolchain, *stdlib_policy;
 	char label[QSTAR_PATH_MAX], rawlabel[QSTAR_PATH_MAX];
+	char origin_file[QSTAR_PATH_MAX];
+	int origin_line;
 
 	if (table_index < 0)
 		table_index = lua_gettop(L) + table_index + 1;
@@ -157,7 +182,9 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 		    qstar_label_canonicalize(rawlabel, ctx->current_dir, label, sizeof(label)) < 0)
 			return luaL_error(L, "qstar: invalid target name '%s'", name);
 	}
-	target = qstar_graph_add_target(graph, label, name, kind, fragment_dir);
+	current_origin(L, origin_file, sizeof(origin_file), &origin_line);
+	target = qstar_graph_add_target(graph, label, name, kind, fragment_dir, origin_file,
+	    origin_line);
 	if (!target)
 		return luaL_error(L, "%s", graph->error);
 	if (read_modules(L, table_index, target, graph) < 0)
@@ -222,6 +249,8 @@ add_genrule(lua_State *L, const char *name, int table_index, const char *fragmen
 	struct qstar_graph *graph;
 	const char *tool;
 	char label[QSTAR_PATH_MAX], rawlabel[QSTAR_PATH_MAX];
+	char origin_file[QSTAR_PATH_MAX];
+	int origin_line;
 
 	if (table_index < 0)
 		table_index = lua_gettop(L) + table_index + 1;
@@ -238,7 +267,9 @@ add_genrule(lua_State *L, const char *name, int table_index, const char *fragmen
 		    qstar_label_canonicalize(rawlabel, ctx->current_dir, label, sizeof(label)) < 0)
 			return luaL_error(L, "qstar: invalid generated action name '%s'", name);
 	}
-	genrule = qstar_graph_add_genrule(graph, label, name, fragment_dir);
+	current_origin(L, origin_file, sizeof(origin_file), &origin_line);
+	genrule = qstar_graph_add_genrule(graph, label, name, fragment_dir, origin_file,
+	    origin_line);
 	if (!genrule)
 		return luaL_error(L, "%s", graph->error);
 	tool = check_string_field(L, table_index, "tool");
@@ -317,6 +348,211 @@ qstar_lua_join(lua_State *L)
 	return 1;
 }
 
+/** 문자열에 glob wildcard가 들어 있는지 검사한다. */
+static int
+has_glob_magic(const char *s)
+{
+	return s && (strchr(s, '*') || strchr(s, '?'));
+}
+
+/** 간단한 wildcard pattern을 path에 맞춘다. */
+static int
+wildcard_match(const char *pattern, const char *text)
+{
+	if (!*pattern)
+		return !*text;
+	if (*pattern == '*') {
+		while (pattern[1] == '*')
+			pattern++;
+		if (wildcard_match(pattern + 1, text))
+			return 1;
+		return *text && wildcard_match(pattern, text + 1);
+	}
+	if (*pattern == '?')
+		return *text && *text != '/' && wildcard_match(pattern + 1, text + 1);
+	return *pattern == *text && wildcard_match(pattern + 1, text + 1);
+}
+
+static int
+string_cmp(const void *a, const void *b)
+{
+	const char *const *sa = a;
+	const char *const *sb = b;
+
+	return strcmp(*sa, *sb);
+}
+
+/** glob pattern을 directory와 basename pattern으로 나눈다. */
+static void
+split_glob_pattern(const char *pattern, char *dir, size_t dirlen, char *base, size_t baselen)
+{
+	const char *first, *slash;
+	size_t n;
+
+	first = strpbrk(pattern, "*?");
+	slash = first ? first : pattern + strlen(pattern);
+	while (slash > pattern && slash[-1] != '/')
+		slash--;
+	if (slash == pattern) {
+		snprintf(dir, dirlen, ".");
+		snprintf(base, baselen, "%s", pattern);
+		return;
+	}
+	n = (size_t)(slash - pattern - 1);
+	if (n + 1 > dirlen)
+		n = dirlen - 1;
+	memcpy(dir, pattern, n);
+	dir[n] = '\0';
+	snprintf(base, baselen, "%s", slash);
+}
+
+/** package root 아래 단일 directory glob을 deterministic하게 확장한다. */
+static int
+expand_glob(struct qstar_lua_context *ctx, const char *pattern, struct qstar_string_list *out)
+{
+	char dir[QSTAR_PATH_MAX], base[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX], rel[QSTAR_PATH_MAX];
+	struct qstar_string_list matches;
+	DIR *d;
+	struct dirent *ent;
+	size_t i;
+
+	memset(&matches, 0, sizeof(matches));
+	split_glob_pattern(pattern, dir, sizeof(dir), base, sizeof(base));
+	if (qstar_path_join(ctx->root_dir, dir, full, sizeof(full)) < 0)
+		return qstar_set_error(ctx->graph, "qstar: file glob '%s' is too long", pattern);
+	d = opendir(full);
+	if (!d)
+		return qstar_set_error(ctx->graph, "qstar: file glob '%s' matched no files", pattern);
+	while ((ent = readdir(d)) != NULL) {
+		if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+			continue;
+		if (!wildcard_match(base, ent->d_name))
+			continue;
+		if (strcmp(dir, ".") == 0)
+			snprintf(rel, sizeof(rel), "%s", ent->d_name);
+		else
+			snprintf(rel, sizeof(rel), "%s/%s", dir, ent->d_name);
+		if (qstar_string_list_push(&matches, rel) < 0) {
+			closedir(d);
+			qstar_string_list_free(&matches);
+			return qstar_set_error(ctx->graph, "qstar: out of memory");
+		}
+	}
+	closedir(d);
+	if (matches.len == 0) {
+		qstar_string_list_free(&matches);
+		return qstar_set_error(ctx->graph, "qstar: file glob '%s' matched no files", pattern);
+	}
+	qsort(matches.items, matches.len, sizeof(matches.items[0]), string_cmp);
+	for (i = 0; i < matches.len; i++) {
+		if (qstar_string_list_push(out, matches.items[i]) < 0) {
+			qstar_string_list_free(&matches);
+			return qstar_set_error(ctx->graph, "qstar: out of memory");
+		}
+	}
+	qstar_string_list_free(&matches);
+	return 0;
+}
+
+/** exclude pattern list에 path가 걸리는지 검사한다. */
+static int
+excluded_by_patterns(const char *path, const struct qstar_string_list *excludes)
+{
+	size_t i;
+
+	for (i = 0; i < excludes->len; i++) {
+		if (has_glob_magic(excludes->items[i])) {
+			if (wildcard_match(excludes->items[i], path))
+				return 1;
+		} else if (strcmp(excludes->items[i], path) == 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/** qstar.files table을 실제 package-root 파일 목록으로 확장한다. */
+static int
+qstar_lua_files(lua_State *L)
+{
+	struct qstar_lua_context *ctx;
+	struct qstar_string_list files, excludes;
+	size_t i, n, out_index;
+	const char *path;
+
+	ctx = get_context(L);
+	memset(&files, 0, sizeof(files));
+	memset(&excludes, 0, sizeof(excludes));
+	luaL_checktype(L, 1, LUA_TTABLE);
+	lua_getfield(L, 1, "exclude");
+	if (!lua_isnil(L, -1)) {
+		if (!lua_istable(L, -1)) {
+			lua_pop(L, 1);
+			return luaL_error(L, "qstar: qstar.files exclude must be a list");
+		}
+		n = lua_rawlen(L, -1);
+		for (i = 1; i <= n; i++) {
+			lua_rawgeti(L, -1, (lua_Integer)i);
+			if (!lua_isstring(L, -1)) {
+				lua_pop(L, 2);
+				qstar_string_list_free(&files);
+				qstar_string_list_free(&excludes);
+				return luaL_error(L, "qstar: qstar.files exclude contains non-string item");
+			}
+			if (qstar_string_list_push(&excludes, lua_tostring(L, -1)) < 0) {
+				lua_pop(L, 2);
+				qstar_string_list_free(&files);
+				qstar_string_list_free(&excludes);
+				return luaL_error(L, "qstar: out of memory");
+			}
+			lua_pop(L, 1);
+		}
+	}
+	lua_pop(L, 1);
+	n = lua_rawlen(L, 1);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, 1, (lua_Integer)i);
+		if (!lua_isstring(L, -1)) {
+			lua_pop(L, 1);
+			qstar_string_list_free(&files);
+			qstar_string_list_free(&excludes);
+			return luaL_error(L, "qstar: qstar.files contains non-string item");
+		}
+		path = lua_tostring(L, -1);
+		if (!qstar_path_is_package_relative(path)) {
+			lua_pop(L, 1);
+			qstar_string_list_free(&files);
+			qstar_string_list_free(&excludes);
+			return luaL_error(L, "qstar: qstar.files path '%s' must be package-relative", path);
+		}
+		if (has_glob_magic(path)) {
+			if (expand_glob(ctx, path, &files) < 0) {
+				lua_pop(L, 1);
+				qstar_string_list_free(&files);
+				qstar_string_list_free(&excludes);
+				return luaL_error(L, "%s", ctx->graph->error);
+			}
+		} else if (qstar_string_list_push(&files, path) < 0) {
+			lua_pop(L, 1);
+			qstar_string_list_free(&files);
+			qstar_string_list_free(&excludes);
+			return luaL_error(L, "qstar: out of memory");
+		}
+		lua_pop(L, 1);
+	}
+	lua_newtable(L);
+	out_index = 1;
+	for (i = 0; i < files.len; i++) {
+		if (excluded_by_patterns(files.items[i], &excludes))
+			continue;
+		lua_pushstring(L, files.items[i]);
+		lua_rawseti(L, -2, (lua_Integer)out_index++);
+	}
+	qstar_string_list_free(&files);
+	qstar_string_list_free(&excludes);
+	return 1;
+}
+
 static int
 qstar_lua_output(lua_State *L)
 {
@@ -327,10 +563,43 @@ qstar_lua_output(lua_State *L)
 static int
 qstar_lua_select(lua_State *L)
 {
+	struct qstar_lua_context *ctx;
+	const char *target, *key, *selected;
+	int matched, has_default;
+
+	ctx = get_context(L);
+	target = ctx->graph->profile.target && *ctx->graph->profile.target ?
+	    ctx->graph->profile.target : "host";
 	luaL_checktype(L, 1, LUA_TTABLE);
-	lua_pushvalue(L, 1);
-	lua_pushstring(L, "select");
-	lua_setfield(L, -2, "__qstar_kind");
+	matched = 0;
+	selected = NULL;
+	lua_pushnil(L);
+	while (lua_next(L, 1) != 0) {
+		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (key && ((strcmp(key, "os=macos") == 0 &&
+		    (strstr(target, "apple") || strstr(target, "macos") || strstr(target, "darwin"))) ||
+		    (strcmp(key, "os=linux") == 0 && strstr(target, "linux")) ||
+		    (strcmp(key, "os=windows") == 0 && (strstr(target, "windows") || strstr(target, "win"))) ||
+		    (strcmp(key, "arch=x86_64") == 0 && (strstr(target, "x86_64") || strstr(target, "amd64"))) ||
+		    (strcmp(key, "arch=aarch64") == 0 && (strstr(target, "aarch64") || strstr(target, "arm64"))) ||
+		    (strcmp(key, "arch=riscv64") == 0 && (strstr(target, "riscv64") || strstr(target, "rv64"))))) {
+			matched = 1;
+			lua_remove(L, -2);
+			break;
+		}
+		lua_pop(L, 1);
+	}
+	if (!matched) {
+		lua_getfield(L, 1, "default");
+		has_default = !lua_isnil(L, -1);
+		if (!has_default)
+			return luaL_error(L, "qstar: select has no branch for target '%s'", target);
+	}
+	if (lua_isstring(L, -1)) {
+		selected = lua_tostring(L, -1);
+		if (strncmp(selected, "incompatible(", 13) == 0)
+			return luaL_error(L, "qstar: selected incompatible branch %s", selected);
+	}
 	return 1;
 }
 
@@ -498,7 +767,7 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "output");
 	lua_pushcfunction(L, qstar_lua_identity_table);
 	lua_setfield(L, -2, "modules");
-	lua_pushcfunction(L, qstar_lua_identity_table);
+	lua_pushcfunction(L, qstar_lua_files);
 	lua_setfield(L, -2, "files");
 	lua_pushcfunction(L, qstar_lua_join);
 	lua_setfield(L, -2, "join");

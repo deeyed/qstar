@@ -26,6 +26,8 @@ struct qstar_target {
 	char *name;
 	char *kind;
 	char *fragment_dir;
+	char *origin_file;
+	int origin_line;
 	struct qstar_modules modules;
 	struct qstar_string_list sources;
 	struct qstar_string_list public_headers;
@@ -41,6 +43,8 @@ struct qstar_genrule {
 	char *label;
 	char *name;
 	char *fragment_dir;
+	char *origin_file;
+	int origin_line;
 	char *tool;
 	struct qstar_string_list inputs;
 	struct qstar_string_list outputs;
@@ -78,6 +82,10 @@ struct qstar_graph {
 	size_t genrule_cap;
 	struct qstar_profile_input profile;
 	char error[512];
+	char error_file[QSTAR_PATH_MAX];
+	char error_field[64];
+	char error_label[QSTAR_PATH_MAX];
+	int error_line;
 };
 
 /** QStar graph 저장소를 빈 상태로 초기화한다. */
@@ -91,11 +99,12 @@ int qstar_graph_set_package_root(struct qstar_graph *graph, const char *root);
 
 /** QStar graph에 새 target을 추가하고 중복 label을 stable error로 막는다. */
 struct qstar_target *qstar_graph_add_target(struct qstar_graph *graph, const char *label,
-    const char *name, const char *kind, const char *fragment_dir);
+    const char *name, const char *kind, const char *fragment_dir, const char *origin_file,
+    int origin_line);
 
 /** QStar graph에 generated action skeleton을 추가하고 중복 label을 막는다. */
 struct qstar_genrule *qstar_graph_add_genrule(struct qstar_graph *graph, const char *label,
-    const char *name, const char *fragment_dir);
+    const char *name, const char *fragment_dir, const char *origin_file, int origin_line);
 
 /** QStar package alias를 추가하고 중복 alias를 stable error로 막는다. */
 int qstar_graph_add_package_alias(struct qstar_graph *graph, const char *alias, const char *root);
@@ -139,6 +148,12 @@ int qstar_label_canonicalize(const char *label, const char *fragment_dir, char *
 /** QStar Graph IR를 deterministic explain text로 출력한다. */
 int qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out);
 
+/** QStar target 목록을 deterministic text로 출력한다. */
+int qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out);
+
+/** QStar target 하나를 authoring query text로 출력한다. */
+int qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out);
+
 /** QStar target closure와 non-executing command plan을 deterministic text로 출력한다. */
 int qstar_graph_explain_plan(struct qstar_graph *graph, const char *label, FILE *out);
 
@@ -147,6 +162,9 @@ int qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out)
 
 /** QStar authoring check 결과를 deterministic text로 출력한다. */
 int qstar_graph_check(struct qstar_graph *graph, const char *label, FILE *out);
+
+/** QStar 전체 package doctor 결과를 deterministic text로 출력한다. */
+int qstar_graph_doctor(struct qstar_graph *graph, FILE *out);
 
 /** qstar.lua 파일을 sandboxed Lua runtime으로 평가해 Graph IR를 만든다. */
 int qstar_lua_eval_file(struct qstar_graph *graph, const char *file);

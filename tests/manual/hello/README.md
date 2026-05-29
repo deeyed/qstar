@@ -8,6 +8,9 @@ From the repository root:
 ```sh
 make qstar
 build/bin/qstar --file qstar/tests/manual/hello/qstar.lua --dump-graph
+build/bin/qstar --file qstar/tests/manual/hello/qstar.lua list-targets
+build/bin/qstar --file qstar/tests/manual/hello/qstar.lua query //:app
+build/bin/qstar --file qstar/tests/manual/hello/qstar.lua doctor
 build/bin/qstar --file qstar/tests/manual/hello/qstar.lua check //:app
 build/bin/qstar --file qstar/tests/manual/hello/qstar.lua explain //:app
 build/bin/qstar --file qstar/tests/manual/hello/qstar.lua dry-run //:app

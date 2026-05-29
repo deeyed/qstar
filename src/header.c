@@ -21,11 +21,15 @@ validate_header_list(struct qstar_graph *graph, const struct qstar_target *targe
 	for (i = 0; i < list->len; i++) {
 		path = list->items[i];
 		if (!qstar_path_is_package_relative(path))
-			return qstar_set_error(graph,
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line,
+			    public_headers ? "public_headers" : "private_headers",
+			    target->label,
 			    "qstar: header path '%s' in '%s' must be package-relative",
 			    path, target->label);
 		if (public_headers && !is_public_header_root(path))
-			return qstar_set_error(graph,
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, "public_headers", target->label,
 			    "qstar: public header '%s' in '%s' must be under include/",
 			    path, target->label);
 	}
