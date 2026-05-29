@@ -47,8 +47,12 @@ main(int argc, char **argv)
 	}
 	qstar_graph_init(&graph);
 	rc = qstar_lua_eval_file(&graph, file);
-	if (rc == 0)
-		rc = qstar_graph_dump(&graph, label, stdout);
+	if (rc == 0) {
+		if (strcmp(cmd, "explain") == 0)
+			rc = qstar_graph_explain_plan(&graph, label, stdout);
+		else
+			rc = qstar_graph_dump(&graph, label, stdout);
+	}
 	if (rc < 0) {
 		if (graph.error[0])
 			fprintf(stderr, "%s\n", graph.error);

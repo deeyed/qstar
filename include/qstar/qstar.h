@@ -60,6 +60,9 @@ int qstar_label_canonicalize(const char *label, const char *fragment_dir, char *
 /** QStar Graph IR를 deterministic explain text로 출력한다. */
 int qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out);
 
+/** QStar target closure와 non-executing command plan을 deterministic text로 출력한다. */
+int qstar_graph_explain_plan(struct qstar_graph *graph, const char *label, FILE *out);
+
 /** qstar.lua 파일을 sandboxed Lua runtime으로 평가해 Graph IR를 만든다. */
 int qstar_lua_eval_file(struct qstar_graph *graph, const char *file);
 
