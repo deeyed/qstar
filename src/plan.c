@@ -49,6 +49,31 @@ dump_package_aliases(FILE *out, const struct qstar_graph *graph)
 	fputc(']', out);
 }
 
+/** string list를 action key field 하나로 formatting한다. */
+static void
+format_list_field(char *dst, size_t dstlen, const struct qstar_string_list *list)
+{
+	size_t i, used, n;
+
+	if (dstlen == 0)
+		return;
+	used = 0;
+	dst[used++] = '[';
+	dst[used] = '\0';
+	for (i = 0; i < list->len && used < dstlen; i++) {
+		n = snprintf(dst + used, dstlen - used, "%s%s", i ? "," : "", list->items[i]);
+		if (n >= dstlen - used) {
+			dst[dstlen - 1] = '\0';
+			return;
+		}
+		used += n;
+	}
+	if (used + 2 <= dstlen) {
+		dst[used++] = ']';
+		dst[used] = '\0';
+	}
+}
+
 /** canonical label에 대응하는 target index를 찾는다. */
 static int
 target_index(const struct qstar_graph *graph, const char *label)
@@ -262,12 +287,13 @@ dump_external_deps(FILE *out, const struct qstar_plan *plan, const struct qstar_
 /** action key skeleton을 deterministic material line으로 출력한다. */
 static void
 dump_action_key(FILE *out, const struct qstar_graph *graph, const struct qstar_target *target,
-    const char *kind, const char *input, const char *output, size_t index)
+    const char *kind, const char *input, const char *output, const char *language, size_t index)
 {
 	fprintf(out,
 	    "  action_key id=%s:%s:%zu kind=%s owner=%s input=%s output=%s "
-	    "profile=%s target=%s toolchain=%s stdlib=%s deps=",
+	    "language=%s profile=%s target=%s toolchain=%s stdlib=%s deps=",
 	    target->label, kind, index, kind, target->label, input, output,
+	    language,
 	    profile_or_default(graph->profile.name, "default"),
 	    profile_or_default(graph->profile.target, "host"),
 	    target->toolchain, target->stdlib_policy);
@@ -277,13 +303,114 @@ dump_action_key(FILE *out, const struct qstar_graph *graph, const struct qstar_t
 	fputc('\n', out);
 }
 
+/** non-executing command skeleton을 deterministic material line으로 출력한다. */
+static void
+dump_command_skeleton(FILE *out, const struct qstar_graph *graph,
+    const struct qstar_target *target, const char *kind, const char *input,
+    const char *output, const char *language, const char *tool, size_t index)
+{
+	fprintf(out,
+	    "  command_skeleton id=%s:%s:%zu phase=%s language=%s tool=%s "
+	    "toolchain=%s target=%s stdlib=%s input=%s output=%s execute=no\n",
+	    target->label, kind, index, kind, language, tool, target->toolchain,
+	    profile_or_default(graph->profile.target, "host"), target->stdlib_policy,
+	    input, output);
+}
+
+/** generated action output 중 target source로 소비되는 것이 있는지 확인한다. */
+static int
+genrule_consumed_by_target(const struct qstar_genrule *genrule,
+    const struct qstar_target *target)
+{
+	size_t i, j;
+
+	for (i = 0; i < genrule->outputs.len; i++) {
+		for (j = 0; j < target->sources.len; j++) {
+			if (strcmp(genrule->outputs.items[i], target->sources.items[j]) == 0)
+				return 1;
+		}
+	}
+	return 0;
+}
+
+/** target이 소비하는 generated output edge를 deterministic하게 출력한다. */
+static void
+dump_generated_edges(FILE *out, const struct qstar_plan *plan,
+    const struct qstar_target *target)
+{
+	const struct qstar_genrule *owner;
+	size_t i;
+
+	for (i = 0; i < target->sources.len; i++) {
+		owner = qstar_graph_find_output_owner(plan->graph, target->sources.items[i]);
+		if (owner)
+			fprintf(out, "  generated_edge source=%s generator=%s output=%s\n",
+			    target->sources.items[i], owner->label, target->sources.items[i]);
+	}
+}
+
+/** target plan 안에서 소비되는 generated action skeleton을 출력한다. */
+static void
+dump_consumed_genrules(FILE *out, const struct qstar_plan *plan,
+    const struct qstar_target *target)
+{
+	const struct qstar_genrule *genrule;
+	char inputs[QSTAR_PATH_MAX], outputs[QSTAR_PATH_MAX];
+	size_t i;
+
+	for (i = 0; i < plan->graph->genrule_len; i++) {
+		genrule = &plan->graph->genrules[i];
+		if (!genrule_consumed_by_target(genrule, target))
+			continue;
+		format_list_field(inputs, sizeof(inputs), &genrule->inputs);
+		format_list_field(outputs, sizeof(outputs), &genrule->outputs);
+		fprintf(out, "  generated_action id=%s tool=%s inputs=%s outputs=%s args=",
+		    genrule->label, genrule->tool, inputs, outputs);
+		dump_list(out, &genrule->args);
+		fputs(" execute=no\n", out);
+		fprintf(out,
+		    "  action_key id=%s:generate:0 kind=generate owner=%s consumer=%s "
+		    "input=%s output=%s language=generated profile=%s target=%s "
+		    "toolchain=%s stdlib=%s deps=[] packages=",
+		    genrule->label, genrule->label, target->label, inputs, outputs,
+		    profile_or_default(plan->graph->profile.name, "default"),
+		    profile_or_default(plan->graph->profile.target, "host"),
+		    target->toolchain, target->stdlib_policy);
+		dump_package_aliases(out, plan->graph);
+		fputc('\n', out);
+		fprintf(out,
+		    "  command_skeleton id=%s:generate:0 phase=generate language=generated "
+		    "tool=%s toolchain=%s target=%s stdlib=%s input=%s output=%s "
+		    "consumer=%s execute=no\n",
+		    genrule->label, genrule->tool, target->toolchain,
+		    profile_or_default(plan->graph->profile.target, "host"),
+		    target->stdlib_policy, inputs, outputs, target->label);
+	}
+}
+
+/** target-local toolchain/profile resolver skeleton을 출력한다. */
+static void
+dump_resolved_toolchain(FILE *out, const struct qstar_plan *plan,
+    const struct qstar_target *target)
+{
+	fprintf(out,
+	    "  resolved_toolchain owner=%s toolchain=%s profile=%s target=%s "
+	    "stdlib=%s resolver=skeleton\n",
+	    target->label, target->toolchain,
+	    profile_or_default(plan->graph->profile.name, "default"),
+	    profile_or_default(plan->graph->profile.target, "host"),
+	    target->stdlib_policy);
+}
+
 /** target 하나의 non-executing command-plan record를 출력한다. */
 static void
 dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_target *target,
     size_t order)
 {
 	char output[QSTAR_PATH_MAX];
+	struct qstar_source_info source;
 	const char *action;
+	const char *final_tool;
 	size_t i;
 
 	fprintf(out, "target %s\n", target->label);
@@ -293,6 +420,9 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	dump_list(out, &target->deps);
 	fputc('\n', out);
 	dump_external_deps(out, plan, target);
+	dump_generated_edges(out, plan, target);
+	dump_consumed_genrules(out, plan, target);
+	qstar_target_dump_source_discovery(target, out);
 	fputs("  sources ", out);
 	dump_list(out, &target->sources);
 	fputc('\n', out);
@@ -308,17 +438,26 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	fputc('\n', out);
 	fprintf(out, "  toolchain %s\n", target->toolchain);
 	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
+	dump_resolved_toolchain(out, plan, target);
 	for (i = 0; i < target->sources.len; i++) {
+		qstar_source_classify(target->sources.items[i], &source);
 		snprintf(output, sizeof(output), "<object:%s:%zu>", target->label, i);
 		fprintf(out, "  action compile source=%s output=<object:%s:%zu>\n",
 		    target->sources.items[i], target->label, i);
 		dump_action_key(out, plan->graph, target, "compile", target->sources.items[i],
-		    output, i);
+		    output, source.language, i);
+		dump_command_skeleton(out, plan->graph, target, "compile",
+		    target->sources.items[i], output, source.language, source.tool_role, i);
 	}
 	action = final_action(target);
+	final_tool = strcmp(action, "archive") == 0 ? "archiver" :
+	    strcmp(action, "compile-objects") == 0 ? "object-collector" : "linker";
 	snprintf(output, sizeof(output), "<artifact:%s>", target->label);
 	fprintf(out, "  action %s output=<artifact:%s>\n", action, target->label);
-	dump_action_key(out, plan->graph, target, action, "<target-objects>", output, 0);
+	dump_action_key(out, plan->graph, target, action, "<target-objects>", output,
+	    "artifact", 0);
+	dump_command_skeleton(out, plan->graph, target, action, "<target-objects>",
+	    output, "artifact", final_tool, 0);
 }
 
 /** QStar target closure와 non-executing command plan을 deterministic text로 출력한다. */

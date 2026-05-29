@@ -215,6 +215,77 @@ qstar_lua_target(lua_State *L)
 }
 
 static int
+add_genrule(lua_State *L, const char *name, int table_index, const char *fragment_dir)
+{
+	struct qstar_lua_context *ctx;
+	struct qstar_genrule *genrule;
+	struct qstar_graph *graph;
+	const char *tool;
+	char label[QSTAR_PATH_MAX], rawlabel[QSTAR_PATH_MAX];
+
+	if (table_index < 0)
+		table_index = lua_gettop(L) + table_index + 1;
+	ctx = get_context(L);
+	graph = ctx->graph;
+	luaL_checktype(L, table_index, LUA_TTABLE);
+	if (!name[0])
+		return luaL_error(L, "qstar: generated action name is empty");
+	if (name[0] == ':' || name[0] == '/' || name[0] == '@') {
+		if (qstar_label_canonicalize(name, ctx->current_dir, label, sizeof(label)) < 0)
+			return luaL_error(L, "qstar: invalid generated action name '%s'", name);
+	} else {
+		if (snprintf(rawlabel, sizeof(rawlabel), ":%s", name) >= (int)sizeof(rawlabel) ||
+		    qstar_label_canonicalize(rawlabel, ctx->current_dir, label, sizeof(label)) < 0)
+			return luaL_error(L, "qstar: invalid generated action name '%s'", name);
+	}
+	genrule = qstar_graph_add_genrule(graph, label, name, fragment_dir);
+	if (!genrule)
+		return luaL_error(L, "%s", graph->error);
+	tool = check_string_field(L, table_index, "tool");
+	if (tool) {
+		free(genrule->tool);
+		genrule->tool = qstar_strdup(tool);
+	}
+	if (read_list_field(L, table_index, "inputs", &genrule->inputs, graph, 0,
+	    genrule->fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "outputs", &genrule->outputs, graph, 0,
+	    genrule->fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "args", &genrule->args, graph, 0,
+	    genrule->fragment_dir) < 0)
+		return luaL_error(L, "%s", graph->error);
+	if (!genrule->tool)
+		return luaL_error(L, "qstar: out of memory");
+	return 0;
+}
+
+static int
+qstar_lua_genrule_finish(lua_State *L)
+{
+	const char *name, *fragment_dir;
+
+	name = lua_tostring(L, lua_upvalueindex(1));
+	fragment_dir = lua_tostring(L, lua_upvalueindex(2));
+	return add_genrule(L, name, 1, fragment_dir);
+}
+
+static int
+qstar_lua_genrule(lua_State *L)
+{
+	struct qstar_lua_context *ctx;
+	const char *name;
+
+	ctx = get_context(L);
+	name = luaL_checkstring(L, 1);
+	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
+		lua_pushstring(L, name);
+		lua_pushstring(L, ctx->current_dir);
+		lua_pushcclosure(L, qstar_lua_genrule_finish, 2);
+		return 1;
+	}
+	return add_genrule(L, name, 2, ctx->current_dir);
+}
+
+static int
 qstar_lua_identity_table(lua_State *L)
 {
 	luaL_checktype(L, 1, LUA_TTABLE);
@@ -243,6 +314,13 @@ qstar_lua_join(lua_State *L)
 			lua_rawseti(L, -2, (lua_Integer)m++);
 		}
 	}
+	return 1;
+}
+
+static int
+qstar_lua_output(lua_State *L)
+{
+	lua_pushstring(L, luaL_checkstring(L, 1));
 	return 1;
 }
 
@@ -412,6 +490,10 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_pushstring(L, "sharedlib");
 	lua_pushcclosure(L, qstar_lua_target, 1);
 	lua_setfield(L, -2, "sharedlib");
+	lua_pushcfunction(L, qstar_lua_genrule);
+	lua_setfield(L, -2, "genrule");
+	lua_pushcfunction(L, qstar_lua_output);
+	lua_setfield(L, -2, "output");
 	lua_pushcfunction(L, qstar_lua_identity_table);
 	lua_setfield(L, -2, "modules");
 	lua_pushcfunction(L, qstar_lua_identity_table);

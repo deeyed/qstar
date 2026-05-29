@@ -15,6 +15,7 @@ QSTAR_SRCS = \
 	src/label.c \
 	src/lua_runtime.c \
 	src/plan.c \
+	src/source.c \
 	src/main.c
 
 LUA_SRCS = \

@@ -97,6 +97,19 @@ free_target(struct qstar_target *target)
 	free(target->stdlib_policy);
 }
 
+/** generated action skeleton이 소유한 문자열과 list를 해제한다. */
+static void
+free_genrule(struct qstar_genrule *genrule)
+{
+	free(genrule->label);
+	free(genrule->name);
+	free(genrule->fragment_dir);
+	free(genrule->tool);
+	qstar_string_list_free(&genrule->inputs);
+	qstar_string_list_free(&genrule->outputs);
+	qstar_string_list_free(&genrule->args);
+}
+
 /** package alias entry가 소유한 문자열을 해제한다. */
 static void
 free_package_alias(struct qstar_package_alias *pkg)
@@ -123,11 +136,14 @@ qstar_graph_free(struct qstar_graph *graph)
 
 	for (i = 0; i < graph->len; i++)
 		free_target(&graph->targets[i]);
+	for (i = 0; i < graph->genrule_len; i++)
+		free_genrule(&graph->genrules[i]);
 	for (i = 0; i < graph->package_len; i++)
 		free_package_alias(&graph->packages[i]);
 	free_profile_input(&graph->profile);
 	free(graph->targets);
 	free(graph->packages);
+	free(graph->genrules);
 	memset(graph, 0, sizeof(*graph));
 }
 
@@ -147,6 +163,18 @@ has_target(const struct qstar_graph *graph, const char *label)
 
 	for (i = 0; i < graph->len; i++) {
 		if (strcmp(graph->targets[i].label, label) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+static int
+has_genrule(const struct qstar_graph *graph, const char *label)
+{
+	size_t i;
+
+	for (i = 0; i < graph->genrule_len; i++) {
+		if (strcmp(graph->genrules[i].label, label) == 0)
 			return 1;
 	}
 	return 0;
@@ -250,6 +278,10 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 		qstar_set_error(graph, "qstar: duplicate target label '%s'", label);
 		return NULL;
 	}
+	if (has_genrule(graph, label)) {
+		qstar_set_error(graph, "qstar: label '%s' is already used by generated action", label);
+		return NULL;
+	}
 	if (graph->len == graph->cap) {
 		cap = graph->cap ? graph->cap * 2 : 8;
 		targets = realloc(graph->targets, cap * sizeof(graph->targets[0]));
@@ -274,6 +306,61 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 		return NULL;
 	}
 	return target;
+}
+
+/** QStar graph에 generated action skeleton을 추가하고 중복 label을 막는다. */
+struct qstar_genrule *
+qstar_graph_add_genrule(struct qstar_graph *graph, const char *label, const char *name,
+    const char *fragment_dir)
+{
+	struct qstar_genrule *genrules, *genrule;
+	size_t cap;
+
+	if (has_target(graph, label)) {
+		qstar_set_error(graph, "qstar: generated action label '%s' conflicts with target",
+		    label);
+		return NULL;
+	}
+	if (has_genrule(graph, label)) {
+		qstar_set_error(graph, "qstar: duplicate generated action label '%s'", label);
+		return NULL;
+	}
+	if (graph->genrule_len == graph->genrule_cap) {
+		cap = graph->genrule_cap ? graph->genrule_cap * 2 : 4;
+		genrules = realloc(graph->genrules, cap * sizeof(graph->genrules[0]));
+		if (!genrules) {
+			qstar_set_error(graph, "qstar: out of memory");
+			return NULL;
+		}
+		graph->genrules = genrules;
+		graph->genrule_cap = cap;
+	}
+	genrule = &graph->genrules[graph->genrule_len++];
+	memset(genrule, 0, sizeof(*genrule));
+	genrule->label = qstar_strdup(label);
+	genrule->name = qstar_strdup(name);
+	genrule->fragment_dir = qstar_strdup(fragment_dir ? fragment_dir : "");
+	genrule->tool = qstar_strdup("generator");
+	if (!genrule->label || !genrule->name || !genrule->fragment_dir || !genrule->tool) {
+		qstar_set_error(graph, "qstar: out of memory");
+		return NULL;
+	}
+	return genrule;
+}
+
+/** generated output path를 생산하는 action skeleton을 찾는다. */
+const struct qstar_genrule *
+qstar_graph_find_output_owner(const struct qstar_graph *graph, const char *path)
+{
+	size_t i, j;
+
+	for (i = 0; i < graph->genrule_len; i++) {
+		for (j = 0; j < graph->genrules[i].outputs.len; j++) {
+			if (strcmp(graph->genrules[i].outputs.items[j], path) == 0)
+				return &graph->genrules[i];
+		}
+	}
+	return NULL;
 }
 
 static const char *
@@ -344,6 +431,23 @@ dump_target(const struct qstar_target *target, FILE *out)
 	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
 }
 
+/** generated action skeleton을 Graph IR dump 형식으로 출력한다. */
+static void
+dump_genrule(const struct qstar_genrule *genrule, FILE *out)
+{
+	fprintf(out, "generated_action %s\n", genrule->label);
+	fprintf(out, "  tool %s\n", genrule->tool);
+	fputs("  inputs ", out);
+	dump_list(out, &genrule->inputs);
+	fputc('\n', out);
+	fputs("  outputs ", out);
+	dump_list(out, &genrule->outputs);
+	fputc('\n', out);
+	fputs("  args ", out);
+	dump_list(out, &genrule->args);
+	fputc('\n', out);
+}
+
 /** QStar Graph IR를 deterministic explain text로 출력한다. */
 int
 qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
@@ -368,6 +472,8 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 	    profile_or_default(graph->profile.toolchain, "default"),
 	    profile_or_default(graph->profile.stdlib_policy, "default"));
 	dump_package_aliases(out, graph);
+	for (i = 0; i < graph->genrule_len; i++)
+		dump_genrule(&graph->genrules[i], out);
 	found = label == NULL || *label == '\0';
 	for (i = 0; i < n; i++) {
 		if (label && *label && strcmp(copy[i].label, label) != 0)

@@ -117,6 +117,10 @@ main(int argc, char **argv)
 	}
 	rc = qstar_lua_eval_file(&graph, file);
 	if (rc == 0)
+		rc = qstar_graph_validate_generated_outputs(&graph);
+	if (rc == 0)
+		rc = qstar_graph_validate_sources(&graph);
+	if (rc == 0)
 		rc = qstar_graph_validate_headers(&graph);
 	if (rc == 0) {
 		if (strcmp(cmd, "explain") == 0)

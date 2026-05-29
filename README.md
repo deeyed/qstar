@@ -2,7 +2,7 @@
 
 QStar is currently a standalone explain-first build graph evaluator.
 
-Round 5 still builds only `build/bin/qstar`; it is not installed by
+Round 7 still builds only `build/bin/qstar`; it is not installed by
 `install-user` and is not wired into `cale build` yet.
 
 The Lua evaluator uses the official Lua repository as a git submodule at
@@ -32,6 +32,18 @@ checks format-agnostic: QStar treats `.h`, `.hcl`, and future header-like files
 as opaque build inputs/install entries. HCL parsing, export filtering, and Cale
 language semantics belong to the compiler/HCL checker, not QStar.
 
+Round 6 adds explicit source discovery and command skeletons. The accepted
+source languages are `.c`, `.cale`, `.s`, and `.S`; unsupported source suffixes
+are rejected before planning. The command skeleton remains non-executing and is
+only key material for future toolchain/profile resolution.
+
+Round 7 adds generated output edge skeletons and a target-local toolchain
+resolver record. `qstar.genrule` records generator inputs/outputs/args,
+`qstar.output(path)` marks generated output spelling in QStar files, and
+generated sources must have exactly one producer under `generated/`. QStar still
+does not execute the generator or compiler.
+
 You can already experiment with small `qstar.lua` and subdir `foo.qs` files for
-graph shape and `explain` output. Treat that surface as developer-preview until
-source discovery and toolchain/profile resolution are stabilized.
+graph shape, source classification, dependency order, and command skeleton
+output. Treat that surface as developer-preview until actual source discovery
+globs, generated-source edges, and toolchain/profile resolution are stabilized.
