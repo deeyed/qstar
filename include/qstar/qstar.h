@@ -81,6 +81,12 @@ int qstar_graph_set_profile_input(struct qstar_graph *graph, const char *name,
 const struct qstar_package_alias *qstar_graph_find_package_alias(const struct qstar_graph *graph,
     const char *alias);
 
+/** QStar header graph policy를 검증한다. */
+int qstar_graph_validate_headers(struct qstar_graph *graph);
+
+/** QStar target의 header import/export policy skeleton을 출력한다. */
+void qstar_target_dump_header_policy(const struct qstar_target *target, FILE *out);
+
 /** QStar label을 현재 fragment 기준 canonical label로 정규화한다. */
 int qstar_label_canonicalize(const char *label, const char *fragment_dir, char *dst, size_t dstlen);
 

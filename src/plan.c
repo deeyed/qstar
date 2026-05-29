@@ -270,6 +270,7 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	fputs("  public_headers ", out);
 	dump_list(out, &target->public_headers);
 	fputc('\n', out);
+	qstar_target_dump_header_policy(target, out);
 	fputs("  include_dirs ", out);
 	dump_list(out, &target->include_dirs);
 	fputc('\n', out);

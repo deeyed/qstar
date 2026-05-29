@@ -116,6 +116,8 @@ main(int argc, char **argv)
 		return 2;
 	}
 	rc = qstar_lua_eval_file(&graph, file);
+	if (rc == 0)
+		rc = qstar_graph_validate_headers(&graph);
 	if (rc == 0) {
 		if (strcmp(cmd, "explain") == 0)
 			rc = qstar_graph_explain_plan(&graph, label, stdout);
