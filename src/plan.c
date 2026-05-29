@@ -34,6 +34,21 @@ dump_list(FILE *out, const struct qstar_string_list *list)
 	fputc(']', out);
 }
 
+/** package alias map을 action key material 형식으로 출력한다. */
+static void
+dump_package_aliases(FILE *out, const struct qstar_graph *graph)
+{
+	size_t i;
+
+	fputc('[', out);
+	for (i = 0; i < graph->package_len; i++) {
+		if (i)
+			fputs(", ", out);
+		fprintf(out, "%s=%s", graph->packages[i].alias, graph->packages[i].root);
+	}
+	fputc(']', out);
+}
+
 /** canonical label에 대응하는 target index를 찾는다. */
 static int
 target_index(const struct qstar_graph *graph, const char *label)
@@ -218,20 +233,14 @@ dump_closure_order(FILE *out, const struct qstar_plan *plan)
 static void
 dump_plan_inputs(FILE *out, const struct qstar_graph *graph)
 {
-	size_t i;
-
 	fprintf(out, "profile name=%s target=%s toolchain=%s stdlib=%s\n",
 	    profile_or_default(graph->profile.name, "default"),
 	    profile_or_default(graph->profile.target, "host"),
 	    profile_or_default(graph->profile.toolchain, "default"),
 	    profile_or_default(graph->profile.stdlib_policy, "default"));
-	fputs("package_aliases [", out);
-	for (i = 0; i < graph->package_len; i++) {
-		if (i)
-			fputs(", ", out);
-		fprintf(out, "%s=%s", graph->packages[i].alias, graph->packages[i].root);
-	}
-	fputs("]\n", out);
+	fputs("package_aliases ", out);
+	dump_package_aliases(out, graph);
+	fputc('\n', out);
 }
 
 /** target dependency list 중 resolved external package dependency를 출력한다. */
@@ -250,11 +259,31 @@ dump_external_deps(FILE *out, const struct qstar_plan *plan, const struct qstar_
 	}
 }
 
+/** action key skeleton을 deterministic material line으로 출력한다. */
+static void
+dump_action_key(FILE *out, const struct qstar_graph *graph, const struct qstar_target *target,
+    const char *kind, const char *input, const char *output, size_t index)
+{
+	fprintf(out,
+	    "  action_key id=%s:%s:%zu kind=%s owner=%s input=%s output=%s "
+	    "profile=%s target=%s toolchain=%s stdlib=%s deps=",
+	    target->label, kind, index, kind, target->label, input, output,
+	    profile_or_default(graph->profile.name, "default"),
+	    profile_or_default(graph->profile.target, "host"),
+	    target->toolchain, target->stdlib_policy);
+	dump_list(out, &target->deps);
+	fputs(" packages=", out);
+	dump_package_aliases(out, graph);
+	fputc('\n', out);
+}
+
 /** target 하나의 non-executing command-plan record를 출력한다. */
 static void
 dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_target *target,
     size_t order)
 {
+	char output[QSTAR_PATH_MAX];
+	const char *action;
 	size_t i;
 
 	fprintf(out, "target %s\n", target->label);
@@ -270,7 +299,7 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	fputs("  public_headers ", out);
 	dump_list(out, &target->public_headers);
 	fputc('\n', out);
-	qstar_target_dump_header_policy(target, out);
+	qstar_target_dump_header_files(target, out);
 	fputs("  include_dirs ", out);
 	dump_list(out, &target->include_dirs);
 	fputc('\n', out);
@@ -279,10 +308,17 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	fputc('\n', out);
 	fprintf(out, "  toolchain %s\n", target->toolchain);
 	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
-	for (i = 0; i < target->sources.len; i++)
+	for (i = 0; i < target->sources.len; i++) {
+		snprintf(output, sizeof(output), "<object:%s:%zu>", target->label, i);
 		fprintf(out, "  action compile source=%s output=<object:%s:%zu>\n",
 		    target->sources.items[i], target->label, i);
-	fprintf(out, "  action %s output=<artifact:%s>\n", final_action(target), target->label);
+		dump_action_key(out, plan->graph, target, "compile", target->sources.items[i],
+		    output, i);
+	}
+	action = final_action(target);
+	snprintf(output, sizeof(output), "<artifact:%s>", target->label);
+	fprintf(out, "  action %s output=<artifact:%s>\n", action, target->label);
+	dump_action_key(out, plan->graph, target, action, "<target-objects>", output, 0);
 }
 
 /** QStar target closure와 non-executing command plan을 deterministic text로 출력한다. */
@@ -299,6 +335,7 @@ qstar_graph_explain_plan(struct qstar_graph *graph, const char *label, FILE *out
 		return -1;
 	}
 	fputs("qstar command plan v1\n", out);
+	fputs("build-plan-ir v1\n", out);
 	fprintf(out, "root %s\n", label && *label ? label : "<all>");
 	dump_plan_inputs(out, graph);
 	dump_closure_order(out, &plan);
