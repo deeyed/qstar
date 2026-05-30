@@ -163,6 +163,31 @@ visit_target(struct qstar_graph *graph, struct qstar_plan *plan, size_t index)
 		if (visit_target(graph, plan, (size_t)dep_index) < 0)
 			return -1;
 	}
+	for (i = 0; i < target->private_deps.len; i++) {
+		dep = target->private_deps.items[i];
+		if (strcmp(dep, "<select>") == 0)
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, "private_deps", target->label,
+			    "qstar: unresolved select dependency in '%s'",
+			    target->label);
+		dep_index = target_index(graph, dep);
+		if (dep_index < 0) {
+			if (dep[0] == '@') {
+				if (external_dep_resolved(graph, dep, &pkg))
+					continue;
+				return qstar_set_error_origin(graph, target->origin_file,
+				    target->origin_line, "private_deps", target->label,
+				    "qstar: unresolved package dependency '%s' referenced by '%s'",
+				    dep, target->label);
+			}
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, "private_deps", target->label,
+			    "qstar: unknown dependency label '%s' referenced by '%s'",
+			    dep, target->label);
+		}
+		if (visit_target(graph, plan, (size_t)dep_index) < 0)
+			return -1;
+	}
 	plan->state[index] = 2;
 	return plan_push(graph, plan, target);
 }
@@ -260,6 +285,8 @@ final_action(const struct qstar_target *target)
 {
 	if (strcmp(target->kind, "exe") == 0)
 		return "link";
+	if (strcmp(target->kind, "test") == 0)
+		return "link";
 	if (strcmp(target->kind, "staticlib") == 0)
 		return "archive";
 	if (strcmp(target->kind, "sharedlib") == 0)
@@ -312,6 +339,13 @@ dump_external_deps(FILE *out, const struct qstar_plan *plan, const struct qstar_
 		if (external_dep_resolved(plan->graph, target->deps.items[i], &pkg))
 			fprintf(out, "  external_dep %s alias=%s root=%s\n",
 			    target->deps.items[i], pkg->alias, pkg->root);
+	}
+	for (i = 0; i < target->private_deps.len; i++) {
+		if (target->private_deps.items[i][0] != '@')
+			continue;
+		if (external_dep_resolved(plan->graph, target->private_deps.items[i], &pkg))
+			fprintf(out, "  external_private_dep %s alias=%s root=%s\n",
+			    target->private_deps.items[i], pkg->alias, pkg->root);
 	}
 }
 
@@ -372,24 +406,95 @@ end_argv(FILE *out)
 	fputs("]\n", out);
 }
 
+static int
+push_unique_tmp(struct qstar_string_list *list, const char *s)
+{
+	size_t i;
+
+	for (i = 0; i < list->len; i++) {
+		if (strcmp(list->items[i], s) == 0)
+			return 0;
+	}
+	return qstar_string_list_push(list, s);
+}
+
+static const struct qstar_target *
+plan_find_target(const struct qstar_graph *graph, const char *label)
+{
+	size_t i;
+
+	for (i = 0; i < graph->len; i++) {
+		if (strcmp(graph->targets[i].label, label) == 0)
+			return &graph->targets[i];
+	}
+	return NULL;
+}
+
+static int
+collect_public_includes_rec(const struct qstar_graph *graph, const struct qstar_target *target,
+    struct qstar_string_list *out, int include_self)
+{
+	const struct qstar_target *dep;
+	size_t i;
+
+	if (include_self) {
+		for (i = 0; i < target->public_include_dirs.len; i++) {
+			if (push_unique_tmp(out, target->public_include_dirs.items[i]) < 0)
+				return -1;
+		}
+		for (i = 0; i < target->interface_include_dirs.len; i++) {
+			if (push_unique_tmp(out, target->interface_include_dirs.items[i]) < 0)
+				return -1;
+		}
+	}
+	for (i = 0; i < target->deps.len; i++) {
+		dep = plan_find_target(graph, target->deps.items[i]);
+		if (!dep)
+			continue;
+		if (collect_public_includes_rec(graph, dep, out, 1) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+static int
+collect_compile_include_dirs(const struct qstar_graph *graph, const struct qstar_target *target,
+    struct qstar_string_list *out)
+{
+	size_t i;
+
+	memset(out, 0, sizeof(*out));
+	for (i = 0; i < target->include_dirs.len; i++) {
+		if (push_unique_tmp(out, target->include_dirs.items[i]) < 0)
+			return -1;
+	}
+	if (collect_public_includes_rec(graph, target, out, 0) < 0)
+		return -1;
+	return 0;
+}
+
 /** compile action의 실제 argv plan을 출력한다. */
 static void
 dump_compile_argv(FILE *out, const struct qstar_target *target,
+    const struct qstar_graph *graph,
     const struct qstar_resolved_toolchain *toolchain, const struct qstar_source_info *source,
     const char *input, const char *output, size_t index)
 {
 	char id[QSTAR_PATH_MAX], target_arg[QSTAR_PATH_MAX];
 	const char *tool;
+	struct qstar_string_list includes;
 	size_t argc, seen, i;
 	int cross;
 
+	memset(&includes, 0, sizeof(includes));
+	collect_compile_include_dirs(graph, target, &includes);
 	snprintf(id, sizeof(id), "%s:compile:%zu", target->label, index);
 	tool = strcmp(source->language, "cale") == 0 ? toolchain->cale : toolchain->cc;
 	cross = (strcmp(toolchain->name, "clang") == 0 ||
 	    strcmp(toolchain->name, "cale") == 0 ||
 	    strcmp(toolchain->name, "cale-sol") == 0) &&
 	    strcmp(toolchain->target, "host") != 0;
-	argc = 5 + target->include_dirs.len * 2 + target->system_include_dirs.len * 2 +
+	argc = 5 + includes.len * 2 + target->system_include_dirs.len * 2 +
 	    (cross ? 1 : 0);
 	snprintf(target_arg, sizeof(target_arg), "--target=%s", toolchain->target);
 	begin_argv(out, id, argc);
@@ -401,15 +506,16 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	argv_item(out, &seen, input);
 	argv_item(out, &seen, "-o");
 	argv_item(out, &seen, output);
-	for (i = 0; i < target->include_dirs.len; i++) {
+	for (i = 0; i < includes.len; i++) {
 		argv_item(out, &seen, "-I");
-		argv_item(out, &seen, target->include_dirs.items[i]);
+		argv_item(out, &seen, includes.items[i]);
 	}
 	for (i = 0; i < target->system_include_dirs.len; i++) {
 		argv_item(out, &seen, "-isystem");
 		argv_item(out, &seen, target->system_include_dirs.items[i]);
 	}
 	end_argv(out);
+	qstar_string_list_free(&includes);
 }
 
 /** generated action의 실제 argv plan을 출력한다. */
@@ -435,11 +541,18 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
     const char *output)
 {
 	char id[QSTAR_PATH_MAX];
-	size_t seen, argc;
+	char buf[QSTAR_PATH_MAX];
+	size_t seen, argc, i;
+	int windows;
 
 	snprintf(id, sizeof(id), "%s:%s:0", target->label, action);
+	windows = strstr(toolchain->target, "windows") || strstr(toolchain->target, "msvc") ||
+	    strstr(toolchain->target, "mingw");
 	argc = strcmp(action, "archive") == 0 ? 4 :
 	    strcmp(action, "link-shared") == 0 ? 5 : 4;
+	if (strcmp(action, "archive") != 0)
+		argc += target->lib_dirs.len + target->libs.len +
+		    (windows ? 0 : target->frameworks.len * 2);
 	begin_argv(out, id, argc);
 	seen = 0;
 	if (strcmp(action, "archive") == 0) {
@@ -454,6 +567,30 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 		argv_item(out, &seen, "-o");
 		argv_item(out, &seen, output);
 		argv_item(out, &seen, "<target-objects>");
+		for (i = 0; i < target->lib_dirs.len; i++) {
+			if (windows) {
+				snprintf(buf, sizeof(buf), "/LIBPATH:%s", target->lib_dirs.items[i]);
+				argv_item(out, &seen, buf);
+			} else {
+				snprintf(buf, sizeof(buf), "-L%s", target->lib_dirs.items[i]);
+				argv_item(out, &seen, buf);
+			}
+		}
+		for (i = 0; i < target->libs.len; i++) {
+			if (windows) {
+				snprintf(buf, sizeof(buf), "%s.lib", target->libs.items[i]);
+				argv_item(out, &seen, buf);
+			} else {
+				snprintf(buf, sizeof(buf), "-l%s", target->libs.items[i]);
+				argv_item(out, &seen, buf);
+			}
+		}
+		if (!windows) {
+			for (i = 0; i < target->frameworks.len; i++) {
+				argv_item(out, &seen, "-framework");
+				argv_item(out, &seen, target->frameworks.items[i]);
+			}
+		}
 	}
 	end_argv(out);
 }
@@ -589,6 +726,9 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	fputs("  deps ", out);
 	dump_list(out, &target->deps);
 	fputc('\n', out);
+	fputs("  private_deps ", out);
+	dump_list(out, &target->private_deps);
+	fputc('\n', out);
 	dump_external_deps(out, plan, target);
 	dump_generated_edges(out, plan, target);
 	dump_consumed_genrules(out, plan, target);
@@ -603,8 +743,23 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	fputs("  include_dirs ", out);
 	dump_list(out, &target->include_dirs);
 	fputc('\n', out);
+	fputs("  public_include_dirs ", out);
+	dump_list(out, &target->public_include_dirs);
+	fputc('\n', out);
+	fputs("  interface_include_dirs ", out);
+	dump_list(out, &target->interface_include_dirs);
+	fputc('\n', out);
 	fputs("  system_include_dirs ", out);
 	dump_list(out, &target->system_include_dirs);
+	fputc('\n', out);
+	fputs("  libs ", out);
+	dump_list(out, &target->libs);
+	fputc('\n', out);
+	fputs("  lib_dirs ", out);
+	dump_list(out, &target->lib_dirs);
+	fputc('\n', out);
+	fputs("  frameworks ", out);
+	dump_list(out, &target->frameworks);
 	fputc('\n', out);
 	fprintf(out, "  toolchain %s\n", target->toolchain);
 	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
@@ -620,8 +775,8 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 		    output, source.language, i);
 		dump_command_skeleton(out, plan->graph, target, "compile",
 		    target->sources.items[i], output, source.language, source.tool_role, i);
-		dump_compile_argv(out, target, &toolchain, &source, target->sources.items[i],
-		    output, i);
+		dump_compile_argv(out, target, plan->graph, &toolchain, &source,
+		    target->sources.items[i], output, i);
 	}
 	action = final_action(target);
 	final_tool = strcmp(action, "archive") == 0 ? "archiver" :
@@ -712,8 +867,8 @@ dump_dry_run_compiles(FILE *out, const struct qstar_plan *plan,
 		    "tool=%s toolchain=%s input=%s output=%s execute=no\n",
 		    target->label, i, target->label, source.language, source.tool_role,
 		    toolchain.name, target->sources.items[i], output);
-		dump_compile_argv(out, target, &toolchain, &source, target->sources.items[i],
-		    output, i);
+		dump_compile_argv(out, target, plan->graph, &toolchain, &source,
+		    target->sources.items[i], output, i);
 	}
 	return 0;
 }

@@ -33,8 +33,15 @@ struct qstar_target {
 	struct qstar_string_list public_headers;
 	struct qstar_string_list private_headers;
 	struct qstar_string_list include_dirs;
+	struct qstar_string_list public_include_dirs;
+	struct qstar_string_list private_include_dirs;
+	struct qstar_string_list interface_include_dirs;
 	struct qstar_string_list system_include_dirs;
 	struct qstar_string_list deps;
+	struct qstar_string_list private_deps;
+	struct qstar_string_list libs;
+	struct qstar_string_list lib_dirs;
+	struct qstar_string_list frameworks;
 	char *toolchain;
 	char *stdlib_policy;
 };
@@ -91,6 +98,11 @@ struct qstar_graph {
 
 struct qstar_build_options {
 	int explain_cache;
+};
+
+struct qstar_install_options {
+	const char *prefix;
+	int dry_run;
 };
 
 /** QStar graph 저장소를 빈 상태로 초기화한다. */
@@ -180,6 +192,13 @@ int qstar_graph_why_rebuild(struct qstar_graph *graph, const char *label, FILE *
 
 /** QStar local build output을 전체 또는 target 단위로 지운다. */
 int qstar_graph_clean(struct qstar_graph *graph, const char *label, FILE *out);
+
+/** QStar test target을 build한 뒤 제한된 runner로 실행한다. */
+int qstar_graph_test(struct qstar_graph *graph, const char *label, FILE *out);
+
+/** QStar installable artifact와 public header를 prefix 아래 배치한다. */
+int qstar_graph_install(struct qstar_graph *graph, const char *label,
+    const struct qstar_install_options *options, FILE *out);
 
 /** QStar action log path 목록을 target 기준으로 출력한다. */
 int qstar_graph_log(struct qstar_graph *graph, const char *label, FILE *out);

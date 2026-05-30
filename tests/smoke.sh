@@ -12,7 +12,7 @@ fail() {
 contains() {
 	file=$1
 	pat=$2
-	grep -F -q "$pat" "$file" || fail "missing pattern '$pat' in $file"
+	grep -F -q -- "$pat" "$file" || fail "missing pattern '$pat' in $file"
 }
 
 rm -rf "$tmp"
@@ -266,5 +266,152 @@ if PATH=/nonexistent "$qstar" --file "$tmp/qstar.lua" build //:mixed > "$tmp/no-
 	fail "missing cale compiler unexpectedly succeeded"
 fi
 contains "$tmp/no-cale.err" "Cale compiler 'cale' not found"
+
+mkdir -p "$tmp/include" "$tmp/src/core_private" "$tmp/lib"
+cat > "$tmp/include/core.h" <<'EOF'
+int core_value(void);
+EOF
+cat > "$tmp/src/core_private/core_private.h" <<'EOF'
+#define CORE_PRIVATE_VALUE 13
+EOF
+cat > "$tmp/src/core.c" <<'EOF'
+#include "core_private.h"
+int core_value(void) { return CORE_PRIVATE_VALUE; }
+EOF
+cat > "$tmp/src/util.c" <<'EOF'
+#include "core.h"
+int util_value(void) { return core_value(); }
+EOF
+cat > "$tmp/src/link_main.c" <<'EOF'
+#include "core.h"
+int util_value(void);
+int main(void) { return util_value() - core_value(); }
+EOF
+cat > "$tmp/src/bad_private.c" <<'EOF'
+#include "core_private.h"
+int main(void) { return CORE_PRIVATE_VALUE; }
+EOF
+cat > "$tmp/qstar.lua" <<'EOF'
+qstar.staticlib "core" {
+  sources = {"src/core.c"},
+  public_headers = {"include/core.h"},
+  public_include_dirs = {"include"},
+  private_include_dirs = {"src/core_private"},
+}
+
+qstar.staticlib "util" {
+  sources = {"src/util.c"},
+  deps = {"//:core"},
+}
+
+qstar.exe "linkapp" {
+  sources = {"src/link_main.c"},
+  deps = {"//:util"},
+}
+
+qstar.exe "bad_private" {
+  sources = {"src/bad_private.c"},
+  deps = {"//:core"},
+}
+
+qstar.exe "sysflags" {
+  sources = {"src/link_main.c"},
+  libs = {"m"},
+  lib_dirs = {"lib"},
+}
+
+qstar.sharedlib "plugin" {
+  sources = {"src/core.c"},
+}
+EOF
+
+"$qstar" --file "$tmp/qstar.lua" build //:linkapp > "$tmp/linkapp.out" 2> "$tmp/linkapp.err"
+contains "$tmp/linkapp.out" "status ok"
+case "$(cat "$tmp/.qstar/logs/___linkapp_link_0.log")" in
+  *libutil.a*libcore.a*) ;;
+  *) fail "link order did not include util before core" ;;
+esac
+
+if "$qstar" --file "$tmp/qstar.lua" build //:bad_private > "$tmp/bad-private.out" 2> "$tmp/bad-private.err"; then
+	fail "private include propagation unexpectedly succeeded"
+fi
+contains "$tmp/bad-private.err" "action '//:bad_private:compile:0' failed"
+
+"$qstar" --file "$tmp/qstar.lua" dry-run //:sysflags > "$tmp/sysflags.out" 2> "$tmp/sysflags.err"
+contains "$tmp/sysflags.out" "-Llib"
+contains "$tmp/sysflags.out" "-lm"
+
+if "$qstar" --file "$tmp/qstar.lua" build //:plugin > "$tmp/shared.out" 2> "$tmp/shared.err"; then
+	fail "sharedlib local executor unexpectedly succeeded"
+fi
+contains "$tmp/shared.err" "sharedlib targets are plan-only"
+
+cat > "$tmp/src/test_pass.c" <<'EOF'
+int main(void) { return 0; }
+EOF
+cat > "$tmp/src/test_fail.c" <<'EOF'
+int main(void) { return 3; }
+EOF
+cat > "$tmp/src/test_timeout.c" <<'EOF'
+int main(void) { for (;;) {} return 0; }
+EOF
+cat > "$tmp/src/install_main.c" <<'EOF'
+#include "core.h"
+int main(void) { return core_value() - 13; }
+EOF
+cat > "$tmp/qstar.lua" <<'EOF'
+qstar.test "unit_pass" {
+  sources = {"src/test_pass.c"},
+}
+
+qstar.test "unit_fail" {
+  sources = {"src/test_fail.c"},
+}
+
+qstar.test "unit_timeout" {
+  sources = {"src/test_timeout.c"},
+}
+
+qstar.staticlib "install_core" {
+  sources = {"src/core.c"},
+  public_headers = {"include/core.h"},
+  public_include_dirs = {"include"},
+  private_include_dirs = {"src/core_private"},
+}
+
+qstar.exe "install_app" {
+  sources = {"src/install_main.c"},
+  deps = {"//:install_core"},
+}
+EOF
+
+"$qstar" --file "$tmp/qstar.lua" test //:unit_pass > "$tmp/test-pass.out" 2> "$tmp/test-pass.err"
+contains "$tmp/test-pass.out" "test_result label=//:unit_pass status=pass"
+test -f "$tmp/.qstar/logs/___unit_pass.test.stdout" || fail "missing test stdout log"
+
+if "$qstar" --file "$tmp/qstar.lua" test //:unit_fail > "$tmp/test-fail.out" 2> "$tmp/test-fail.err"; then
+	fail "failing test unexpectedly succeeded"
+fi
+contains "$tmp/test-fail.out" "test_result label=//:unit_fail status=fail exit=3"
+
+if "$qstar" --file "$tmp/qstar.lua" test //:unit_timeout > "$tmp/test-timeout.out" 2> "$tmp/test-timeout.err"; then
+	fail "timeout test unexpectedly succeeded"
+fi
+contains "$tmp/test-timeout.out" "test_result label=//:unit_timeout status=timeout"
+
+"$qstar" --file "$tmp/qstar.lua" build //:install_app > "$tmp/install-build.out" 2> "$tmp/install-build.err"
+contains "$tmp/install-build.out" "status ok"
+"$qstar" --file "$tmp/qstar.lua" install //:install_app --prefix "$tmp/prefix" --dry-run > "$tmp/install-dry.out" 2> "$tmp/install-dry.err"
+contains "$tmp/install-dry.out" "mode dry-run"
+contains "$tmp/install-dry.out" "install_file src=.qstar/out/___install_app/install_app"
+"$qstar" --file "$tmp/qstar.lua" install //:install_core --prefix "$tmp/prefix" > "$tmp/install-lib.out" 2> "$tmp/install-lib.err"
+contains "$tmp/install-lib.out" "status ok"
+test -f "$tmp/prefix/lib/libinstall_core.a" || fail "missing installed staticlib"
+test -f "$tmp/prefix/include/core.h" || fail "missing installed public header"
+
+if "$qstar" --file "$tmp/qstar.lua" install //:unit_pass --prefix "$tmp/prefix" > "$tmp/install-test.out" 2> "$tmp/install-test.err"; then
+	fail "non-installable test target unexpectedly installed"
+fi
+contains "$tmp/install-test.err" "not installable"
 
 echo "qstar-smoke: passed"

@@ -25,6 +25,41 @@ source_is_duplicate(const struct qstar_target *target, const char *path, size_t 
 	return 0;
 }
 
+static int
+list_has_duplicate(const struct qstar_string_list *list, const char **dup)
+{
+	size_t i, j;
+
+	for (i = 0; i < list->len; i++) {
+		for (j = 0; j < i; j++) {
+			if (strcmp(list->items[i], list->items[j]) == 0) {
+				if (dup)
+					*dup = list->items[i];
+				return 1;
+			}
+		}
+	}
+	return 0;
+}
+
+static int
+list_pair_has_duplicate(const struct qstar_string_list *a,
+    const struct qstar_string_list *b, const char **dup)
+{
+	size_t i, j;
+
+	for (i = 0; i < a->len; i++) {
+		for (j = 0; j < b->len; j++) {
+			if (strcmp(a->items[i], b->items[j]) == 0) {
+				if (dup)
+					*dup = a->items[i];
+				return 1;
+			}
+		}
+	}
+	return 0;
+}
+
 /** suffix 일치 여부를 확장자 판별용으로 검사한다. */
 static int
 has_suffix(const char *s, const char *suffix)
@@ -116,6 +151,28 @@ validate_source_list(struct qstar_graph *graph, const struct qstar_target *targe
 	return 0;
 }
 
+static int
+validate_link_lists(struct qstar_graph *graph, const struct qstar_target *target)
+{
+	const char *dup;
+
+	if (list_has_duplicate(&target->deps, &dup) ||
+	    list_has_duplicate(&target->private_deps, &dup) ||
+	    list_pair_has_duplicate(&target->deps, &target->private_deps, &dup))
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "deps", target->label,
+		    "qstar: duplicate dependency '%s' in '%s'", dup, target->label);
+	if (list_has_duplicate(&target->libs, &dup))
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "libs", target->label,
+		    "qstar: duplicate system library '%s' in '%s'", dup, target->label);
+	if (list_has_duplicate(&target->frameworks, &dup))
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "frameworks", target->label,
+		    "qstar: duplicate framework '%s' in '%s'", dup, target->label);
+	return 0;
+}
+
 /** generated action skeleton 하나의 input/output edge를 검증한다. */
 static int
 validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
@@ -190,7 +247,8 @@ qstar_graph_validate_sources(struct qstar_graph *graph)
 	size_t i;
 
 	for (i = 0; i < graph->len; i++) {
-		if (validate_source_list(graph, &graph->targets[i]) < 0)
+		if (validate_source_list(graph, &graph->targets[i]) < 0 ||
+		    validate_link_lists(graph, &graph->targets[i]) < 0)
 			return -1;
 	}
 	return 0;

@@ -124,6 +124,19 @@ read_list_field(lua_State *L, int table, const char *field, struct qstar_string_
 }
 
 static int
+append_list(struct qstar_graph *graph, struct qstar_string_list *dst,
+    const struct qstar_string_list *src)
+{
+	size_t i;
+
+	for (i = 0; i < src->len; i++) {
+		if (qstar_string_list_push(dst, src->items[i]) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+	}
+	return 0;
+}
+
+static int
 read_modules(lua_State *L, int table, struct qstar_target *target, struct qstar_graph *graph)
 {
 	const char *root;
@@ -193,8 +206,18 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	    read_list_field(L, table_index, "public_headers", &target->public_headers, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "private_headers", &target->private_headers, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "include_dirs", &target->include_dirs, graph, 0, target->fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "public_include_dirs", &target->public_include_dirs, graph, 0, target->fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "private_include_dirs", &target->private_include_dirs, graph, 0, target->fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "interface_include_dirs", &target->interface_include_dirs, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "system_include_dirs", &target->system_include_dirs, graph, 0, target->fragment_dir) < 0 ||
-	    read_list_field(L, table_index, "deps", &target->deps, graph, 1, target->fragment_dir) < 0)
+	    read_list_field(L, table_index, "deps", &target->deps, graph, 1, target->fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "public_deps", &target->deps, graph, 1, target->fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "private_deps", &target->private_deps, graph, 1, target->fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "libs", &target->libs, graph, 0, target->fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "lib_dirs", &target->lib_dirs, graph, 0, target->fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "frameworks", &target->frameworks, graph, 0, target->fragment_dir) < 0 ||
+	    append_list(graph, &target->include_dirs, &target->private_include_dirs) < 0 ||
+	    append_list(graph, &target->include_dirs, &target->public_include_dirs) < 0)
 		return luaL_error(L, "%s", graph->error);
 	toolchain = check_string_field(L, table_index, "toolchain");
 	stdlib_policy = check_string_field(L, table_index, "stdlib");
@@ -836,6 +859,9 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_pushstring(L, "sharedlib");
 	lua_pushcclosure(L, qstar_lua_target, 1);
 	lua_setfield(L, -2, "sharedlib");
+	lua_pushstring(L, "test");
+	lua_pushcclosure(L, qstar_lua_target, 1);
+	lua_setfield(L, -2, "test");
 	lua_pushcfunction(L, qstar_lua_genrule);
 	lua_setfield(L, -2, "genrule");
 	lua_pushcfunction(L, qstar_lua_config_header);

@@ -4,9 +4,11 @@
 #include <fcntl.h>
 #include <dirent.h>
 #include <ctype.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -671,6 +673,64 @@ find_target(const struct qstar_graph *graph, const char *label)
 	return NULL;
 }
 
+/** 임시 string list에 중복 없이 문자열을 추가한다. */
+static int
+push_unique_tmp(struct qstar_string_list *list, const char *s)
+{
+	size_t i;
+
+	for (i = 0; i < list->len; i++) {
+		if (strcmp(list->items[i], s) == 0)
+			return 0;
+	}
+	return qstar_string_list_push(list, s);
+}
+
+/** public/interface include dirs를 public dependency graph를 따라 수집한다. */
+static int
+collect_public_includes_rec(const struct qstar_graph *graph, const struct qstar_target *target,
+    struct qstar_string_list *out, int include_self)
+{
+	const struct qstar_target *dep;
+	size_t i;
+
+	if (include_self) {
+		for (i = 0; i < target->public_include_dirs.len; i++) {
+			if (push_unique_tmp(out, target->public_include_dirs.items[i]) < 0)
+				return -1;
+		}
+		for (i = 0; i < target->interface_include_dirs.len; i++) {
+			if (push_unique_tmp(out, target->interface_include_dirs.items[i]) < 0)
+				return -1;
+		}
+	}
+	for (i = 0; i < target->deps.len; i++) {
+		dep = find_target(graph, target->deps.items[i]);
+		if (!dep)
+			continue;
+		if (collect_public_includes_rec(graph, dep, out, 1) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+/** target compile argv에 들어갈 self/private/public dependency include dirs를 수집한다. */
+static int
+collect_compile_include_dirs(const struct qstar_graph *graph, const struct qstar_target *target,
+    struct qstar_string_list *out)
+{
+	size_t i;
+
+	memset(out, 0, sizeof(*out));
+	for (i = 0; i < target->include_dirs.len; i++) {
+		if (push_unique_tmp(out, target->include_dirs.items[i]) < 0)
+			return -1;
+	}
+	if (collect_public_includes_rec(graph, target, out, 0) < 0)
+		return -1;
+	return 0;
+}
+
 /** generated output list가 target 파일 입력 list에 소비되는지 검사한다. */
 static int
 generated_output_in_list(const struct qstar_genrule *genrule, const struct qstar_string_list *list)
@@ -933,7 +993,7 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
 	char object[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX], target_arg[QSTAR_PATH_MAX], key[32];
 	const char *compiler;
 	char *argv[QSTAR_EXEC_MAX_ARGV];
-	struct qstar_string_list inputs, outputs;
+	struct qstar_string_list inputs, outputs, includes;
 	int cross;
 	size_t argc, i;
 
@@ -943,9 +1003,13 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
 	if (qstar_object_output_path(target, index, object, sizeof(object)) < 0 ||
 	    mkdir_parent_under_root(graph, object) < 0)
 		return qstar_set_error(graph, "qstar: could not create object output directory");
-	if (target->include_dirs.len * 2 + target->system_include_dirs.len * 2 + 8 >
-	    QSTAR_EXEC_MAX_ARGV)
+	memset(&includes, 0, sizeof(includes));
+	if (collect_compile_include_dirs(graph, target, &includes) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	if (includes.len * 2 + target->system_include_dirs.len * 2 + 8 > QSTAR_EXEC_MAX_ARGV) {
+		qstar_string_list_free(&includes);
 		return qstar_set_error(graph, "qstar: compile argv too long");
+	}
 	snprintf(id, sizeof(id), "%s:compile:%zu", target->label, index);
 	snprintf(target_arg, sizeof(target_arg), "--target=%s", toolchain->target);
 	compiler = strcmp(source.language, "cale") == 0 ? toolchain->cale : toolchain->cc;
@@ -961,9 +1025,9 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
 	argv[argc++] = target->sources.items[index];
 	argv[argc++] = "-o";
 	argv[argc++] = object;
-	for (i = 0; i < target->include_dirs.len; i++) {
+	for (i = 0; i < includes.len; i++) {
 		argv[argc++] = "-I";
-		argv[argc++] = target->include_dirs.items[i];
+		argv[argc++] = includes.items[i];
 	}
 	for (i = 0; i < target->system_include_dirs.len; i++) {
 		argv[argc++] = "-isystem";
@@ -971,50 +1035,131 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
 	}
 	argv[argc] = NULL;
 	if (compile_db_push(ctx, graph->package_root ? graph->package_root : ".",
-	    target->sources.items[index], object, argv) < 0)
+	    target->sources.items[index], object, argv) < 0) {
+		qstar_string_list_free(&includes);
 		return qstar_set_error(graph, "qstar: out of memory");
+	}
 	memset(&inputs, 0, sizeof(inputs));
 	memset(&outputs, 0, sizeof(outputs));
 	if (qstar_string_list_push(&inputs, target->sources.items[index]) < 0 ||
 	    qstar_string_list_push(&outputs, object) < 0) {
 		qstar_string_list_free(&inputs);
 		qstar_string_list_free(&outputs);
+		qstar_string_list_free(&includes);
 		return qstar_set_error(graph, "qstar: out of memory");
 	}
 	if (push_target_header_inputs(graph, target, &inputs) < 0) {
 		qstar_string_list_free(&inputs);
 		qstar_string_list_free(&outputs);
+		qstar_string_list_free(&includes);
 		return -1;
 	}
 	compute_action_key(graph, target, toolchain, id, "compile", argv, &inputs, object, key,
 	    sizeof(key));
 	qstar_string_list_free(&inputs);
-	return run_action(graph, ctx, target, id, "compile", key, &outputs, argv) < 0 ?
-	    (qstar_string_list_free(&outputs), -1) :
-	    (qstar_string_list_free(&outputs), 0);
+	if (run_action(graph, ctx, target, id, "compile", key, &outputs, argv) < 0) {
+		qstar_string_list_free(&outputs);
+		qstar_string_list_free(&includes);
+		return -1;
+	}
+	qstar_string_list_free(&outputs);
+	qstar_string_list_free(&includes);
+	return 0;
 }
 
-/** target의 direct dependency artifact를 final argv 뒤에 붙인다. */
+/** argv tail에 소유 문자열을 추가한다. */
+static int
+append_owned_argv(struct qstar_graph *graph, char **argv, size_t *argc, const char *s)
+{
+	if (*argc + 1 >= QSTAR_EXEC_MAX_ARGV)
+		return qstar_set_error(graph, "qstar: final argv too long");
+	argv[(*argc)++] = qstar_strdup(s);
+	return argv[*argc - 1] ? 0 : qstar_set_error(graph, "qstar: out of memory");
+}
+
+/** artifact list에 이미 추가한 target label인지 검사한다. */
+static int
+seen_label(const struct qstar_string_list *seen, const char *label)
+{
+	size_t i;
+
+	for (i = 0; i < seen->len; i++) {
+		if (strcmp(seen->items[i], label) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+/** dependency artifact를 dependent-before-dependency order로 재귀 추가한다. */
+static int
+append_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *dep,
+    char **argv, size_t *argc, struct qstar_string_list *seen)
+{
+	const struct qstar_target *next;
+	char artifact[QSTAR_PATH_MAX];
+	size_t i;
+
+	if (seen_label(seen, dep->label))
+		return 0;
+	if (qstar_string_list_push(seen, dep->label) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	if (qstar_artifact_output_path(dep, artifact, sizeof(artifact)) < 0)
+		return qstar_set_error(graph, "qstar: dependency artifact path too long");
+	if (append_owned_argv(graph, argv, argc, artifact) < 0)
+		return -1;
+	for (i = 0; i < dep->deps.len; i++) {
+		if (dep->deps.items[i][0] == '@')
+			continue;
+		next = find_target(graph, dep->deps.items[i]);
+		if (next && append_dep_artifact_rec(graph, next, argv, argc, seen) < 0)
+			return -1;
+	}
+	for (i = 0; i < dep->private_deps.len; i++) {
+		if (dep->private_deps.items[i][0] == '@')
+			continue;
+		next = find_target(graph, dep->private_deps.items[i]);
+		if (next && append_dep_artifact_rec(graph, next, argv, argc, seen) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+/** target의 transitive dependency artifact를 final argv 뒤에 붙인다. */
 static int
 append_dep_artifacts(struct qstar_graph *graph, const struct qstar_target *target,
     char **argv, size_t *argc)
 {
 	const struct qstar_target *dep;
-	char artifact[QSTAR_PATH_MAX];
+	struct qstar_string_list seen;
 	size_t i;
+	int rc;
 
+	memset(&seen, 0, sizeof(seen));
 	for (i = 0; i < target->deps.len; i++) {
 		if (target->deps.items[i][0] == '@')
 			continue;
 		dep = find_target(graph, target->deps.items[i]);
 		if (!dep)
 			continue;
-		if (qstar_artifact_output_path(dep, artifact, sizeof(artifact)) < 0)
-			return qstar_set_error(graph, "qstar: dependency artifact path too long");
-		argv[(*argc)++] = qstar_strdup(artifact);
-		if (!argv[*argc - 1])
-			return qstar_set_error(graph, "qstar: out of memory");
+		rc = append_dep_artifact_rec(graph, dep, argv, argc, &seen);
+		if (rc < 0) {
+			qstar_string_list_free(&seen);
+			return rc;
+		}
 	}
+	for (i = 0; i < target->private_deps.len; i++) {
+		if (target->private_deps.items[i][0] == '@')
+			continue;
+		dep = find_target(graph, target->private_deps.items[i]);
+		if (!dep)
+			continue;
+		rc = append_dep_artifact_rec(graph, dep, argv, argc, &seen);
+		if (rc < 0) {
+			qstar_string_list_free(&seen);
+			return rc;
+		}
+	}
+	qstar_string_list_free(&seen);
 	return 0;
 }
 
@@ -1024,6 +1169,58 @@ free_dep_artifacts(char **argv, size_t first, size_t argc)
 {
 	while (first < argc)
 		free(argv[first++]);
+}
+
+static int
+target_is_darwin(const char *target)
+{
+	return !target || strcmp(target, "host") == 0 || strstr(target, "apple") ||
+	    strstr(target, "darwin") || strstr(target, "macos");
+}
+
+static int
+target_is_windows(const char *target)
+{
+	return target && (strstr(target, "windows") || strstr(target, "mingw") ||
+	    strstr(target, "msvc"));
+}
+
+/** system lib/lib_dir/framework link flags를 target profile별 spelling으로 추가한다. */
+static int
+append_system_link_flags(struct qstar_graph *graph, const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain, char **argv, size_t *argc)
+{
+	char flag[QSTAR_PATH_MAX];
+	size_t i;
+	int windows;
+
+	windows = target_is_windows(toolchain->target);
+	for (i = 0; i < target->lib_dirs.len; i++) {
+		if (windows)
+			snprintf(flag, sizeof(flag), "/LIBPATH:%s", target->lib_dirs.items[i]);
+		else
+			snprintf(flag, sizeof(flag), "-L%s", target->lib_dirs.items[i]);
+		if (append_owned_argv(graph, argv, argc, flag) < 0)
+			return -1;
+	}
+	for (i = 0; i < target->libs.len; i++) {
+		if (windows)
+			snprintf(flag, sizeof(flag), "%s.lib", target->libs.items[i]);
+		else
+			snprintf(flag, sizeof(flag), "-l%s", target->libs.items[i]);
+		if (append_owned_argv(graph, argv, argc, flag) < 0)
+			return -1;
+	}
+	if (target->frameworks.len && !target_is_darwin(toolchain->target))
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "frameworks", target->label,
+		    "qstar: frameworks are supported only for Darwin-like targets");
+	for (i = 0; i < target->frameworks.len; i++) {
+		if (append_owned_argv(graph, argv, argc, "-framework") < 0 ||
+		    append_owned_argv(graph, argv, argc, target->frameworks.items[i]) < 0)
+			return -1;
+	}
+	return 0;
 }
 
 /** target final archive/link action을 실행한다. */
@@ -1037,9 +1234,14 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 	size_t argc, dep_first, i;
 	int rc;
 
-	if (strcmp(target->kind, "exe") != 0 && strcmp(target->kind, "staticlib") != 0)
+	if (strcmp(target->kind, "sharedlib") == 0)
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "kind", target->label,
+		    "qstar: sharedlib targets are plan-only in local executor v1");
+	if (strcmp(target->kind, "exe") != 0 && strcmp(target->kind, "staticlib") != 0 &&
+	    strcmp(target->kind, "test") != 0)
 		return qstar_set_error(graph,
-		    "qstar: local executor v1 only supports exe/staticlib targets");
+		    "qstar: local executor v1 only supports exe/staticlib/test targets");
 	if (qstar_artifact_output_path(target, artifact, sizeof(artifact)) < 0 ||
 	    mkdir_parent_under_root(graph, artifact) < 0)
 		return qstar_set_error(graph, "qstar: could not create artifact output directory");
@@ -1065,6 +1267,11 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 	dep_first = argc;
 	if (append_dep_artifacts(graph, target, argv, &argc) < 0) {
 		free_dep_artifacts(argv, 3, dep_first);
+		return -1;
+	}
+	if (strcmp(target->kind, "staticlib") != 0 &&
+	    append_system_link_flags(graph, target, toolchain, argv, &argc) < 0) {
+		free_dep_artifacts(argv, 3, argc);
 		return -1;
 	}
 	argv[argc] = NULL;
@@ -1110,6 +1317,10 @@ build_target(struct qstar_graph *graph, const struct qstar_target *target, size_
 
 	fprintf(ctx->out, "build_target %s order=%zu kind=%s\n", target->label, order,
 	    target->kind);
+	if (strcmp(target->kind, "sharedlib") == 0)
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "kind", target->label,
+		    "qstar: sharedlib targets are plan-only in local executor v1");
 	if (qstar_resolve_toolchain(graph, target, &toolchain) < 0)
 		return -1;
 	fprintf(ctx->out, "resolved_toolchain owner=%s toolchain=%s target=%s cc=%s ar=%s linker=%s\n",
@@ -1279,6 +1490,271 @@ qstar_graph_clean(struct qstar_graph *graph, const char *label, FILE *out)
 			return qstar_set_error(graph, "qstar: clean failed for compile_commands.json");
 		fputs("clean_all .qstar compile_commands.json\n", out);
 	}
+	fputs("status ok\n", out);
+	return 0;
+}
+
+/** test target artifact를 제한된 runner로 실행한다. */
+static int
+run_test_artifact(struct qstar_graph *graph, const struct qstar_target *target, FILE *out)
+{
+	char artifact[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX], logdir[QSTAR_PATH_MAX];
+	char name[QSTAR_PATH_MAX], stdout_path[QSTAR_PATH_MAX], stderr_path[QSTAR_PATH_MAX];
+	char child_stdout_path[QSTAR_PATH_MAX], child_stderr_path[QSTAR_PATH_MAX];
+	pid_t pid;
+	time_t start;
+	int status, fdout, fderr;
+
+	if (qstar_artifact_output_path(target, artifact, sizeof(artifact)) < 0 ||
+	    full_path_under_root(graph, artifact, full, sizeof(full)) < 0)
+		return qstar_set_error(graph, "qstar: test artifact path too long");
+	if (!path_exists(full))
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "test", target->label,
+		    "qstar: test artifact '%s' is missing; run qstar build first",
+		    artifact);
+	if (qstar_path_join(graph->package_root ? graph->package_root : ".",
+	    ".qstar/logs", logdir, sizeof(logdir)) < 0 ||
+	    mkdir_p(logdir) < 0)
+		return qstar_set_error(graph, "qstar: could not create test log dir");
+	action_log_name(target->label, name, sizeof(name));
+	snprintf(stdout_path, sizeof(stdout_path), "%s/%s.test.stdout", logdir, name);
+	snprintf(stderr_path, sizeof(stderr_path), "%s/%s.test.stderr", logdir, name);
+	snprintf(child_stdout_path, sizeof(child_stdout_path), ".qstar/logs/%s.test.stdout", name);
+	snprintf(child_stderr_path, sizeof(child_stderr_path), ".qstar/logs/%s.test.stderr", name);
+	fprintf(out,
+	    "test_run label=%s artifact=%s stdout=.qstar/logs/%s.test.stdout stderr=.qstar/logs/%s.test.stderr\n",
+	    target->label, artifact, name, name);
+	pid = fork();
+	if (pid < 0)
+		return qstar_set_error(graph, "qstar: fork failed");
+	if (pid == 0) {
+		if (chdir(graph->package_root ? graph->package_root : ".") < 0)
+			_exit(127);
+		fdout = open(child_stdout_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+		fderr = open(child_stderr_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+		if (fdout < 0 || fderr < 0 || dup2(fdout, 1) < 0 || dup2(fderr, 2) < 0)
+			_exit(127);
+		close(fdout);
+		close(fderr);
+		execl(artifact, artifact, (char *)NULL);
+		_exit(127);
+	}
+	start = time(NULL);
+	for (;;) {
+		if (waitpid(pid, &status, WNOHANG) == pid)
+			break;
+		if (time(NULL) - start >= 5) {
+			kill(pid, SIGKILL);
+			waitpid(pid, &status, 0);
+			fprintf(out, "test_result label=%s status=timeout timeout_sec=5\n",
+			    target->label);
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, "test", target->label,
+			    "qstar: test '%s' timed out", target->label);
+		}
+		sleep(1);
+	}
+	if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+		fprintf(out, "test_result label=%s status=pass exit=0\n", target->label);
+		return 0;
+	}
+	if (WIFEXITED(status)) {
+		fprintf(out, "test_result label=%s status=fail exit=%d\n",
+		    target->label, WEXITSTATUS(status));
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "test", target->label,
+		    "qstar: test '%s' failed with status %d", target->label,
+		    WEXITSTATUS(status));
+	}
+	fprintf(out, "test_result label=%s status=signal signal=%d\n",
+	    target->label, WTERMSIG(status));
+	return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+	    "test", target->label, "qstar: test '%s' terminated by signal %d",
+	    target->label, WTERMSIG(status));
+}
+
+/** 단일 test target을 build 후 실행한다. */
+static int
+test_one_target(struct qstar_graph *graph, const struct qstar_target *target, FILE *out)
+{
+	if (strcmp(target->kind, "test") != 0)
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "kind", target->label,
+		    "qstar: target '%s' is not a test target", target->label);
+	if (qstar_graph_build(graph, target->label, out) < 0)
+		return -1;
+	return run_test_artifact(graph, target, out);
+}
+
+/** QStar test target을 build한 뒤 제한된 runner로 실행한다. */
+int
+qstar_graph_test(struct qstar_graph *graph, const char *label, FILE *out)
+{
+	const struct qstar_target *target;
+	size_t i, ran;
+
+	fputs("qstar test v1\n", out);
+	fprintf(out, "root %s\n", label && *label ? label : "//...");
+	if (label && *label && strcmp(label, "//...") != 0) {
+		target = find_target(graph, label);
+		if (!target)
+			return qstar_set_error(graph, "qstar: unknown target label '%s'", label);
+		if (test_one_target(graph, target, out) < 0)
+			return -1;
+		fputs("status ok\n", out);
+		return 0;
+	}
+	ran = 0;
+	for (i = 0; i < graph->len; i++) {
+		if (strcmp(graph->targets[i].kind, "test") != 0)
+			continue;
+		ran++;
+		if (test_one_target(graph, &graph->targets[i], out) < 0)
+			return -1;
+	}
+	if (ran == 0)
+		return qstar_set_error(graph, "qstar: no test targets found");
+	fputs("status ok\n", out);
+	return 0;
+}
+
+/** 파일을 byte-for-byte 복사한다. */
+static int
+copy_file_to_path(const char *src, const char *dst)
+{
+	FILE *in, *out;
+	unsigned char buf[8192];
+	size_t n;
+
+	in = fopen(src, "rb");
+	if (!in)
+		return -1;
+	out = fopen(dst, "wb");
+	if (!out) {
+		fclose(in);
+		return -1;
+	}
+	while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+		if (fwrite(buf, 1, n, out) != n) {
+			fclose(in);
+			fclose(out);
+			return -1;
+		}
+	}
+	fclose(in);
+	fclose(out);
+	return 0;
+}
+
+/** install destination parent directory를 만든다. */
+static int
+mkdir_parent_absolute(const char *path)
+{
+	char tmp[QSTAR_PATH_MAX];
+	char *slash;
+
+	snprintf(tmp, sizeof(tmp), "%s", path);
+	slash = strrchr(tmp, '/');
+	if (!slash)
+		return 0;
+	*slash = '\0';
+	return mkdir_p(tmp);
+}
+
+/** public header source path를 prefix install path로 변환한다. */
+static int
+install_header_dst(const char *prefix, const char *header, char *dst, size_t dstlen)
+{
+	const char *rel;
+
+	rel = strncmp(header, "include/", 8) == 0 ? header + 8 : header;
+	return snprintf(dst, dstlen, "%s/include/%s", prefix, rel) < (int)dstlen ? 0 : -1;
+}
+
+/** single file install 또는 dry-run line을 수행한다. */
+static int
+install_file(struct qstar_graph *graph, const char *src_rel, const char *dst,
+    int dry_run, FILE *out)
+{
+	char src[QSTAR_PATH_MAX];
+
+	fprintf(out, "install_file src=%s dst=%s mode=%s\n", src_rel, dst,
+	    dry_run ? "dry-run" : "copy");
+	if (dry_run)
+		return 0;
+	if (full_path_under_root(graph, src_rel, src, sizeof(src)) < 0 || !path_exists(src))
+		return qstar_set_error(graph, "qstar: install source '%s' is missing", src_rel);
+	if (mkdir_parent_absolute(dst) < 0 || copy_file_to_path(src, dst) < 0)
+		return qstar_set_error(graph, "qstar: failed to install '%s' to '%s'",
+		    src_rel, dst);
+	return 0;
+}
+
+/** target 하나의 installable artifact/header를 설치한다. */
+static int
+install_one_target(struct qstar_graph *graph, const struct qstar_target *target,
+    const struct qstar_install_options *options, FILE *out)
+{
+	char artifact[QSTAR_PATH_MAX], dst[QSTAR_PATH_MAX];
+	size_t i;
+
+	if (strcmp(target->kind, "exe") != 0 && strcmp(target->kind, "staticlib") != 0)
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "kind", target->label,
+		    "qstar: target '%s' is not installable", target->label);
+	if (qstar_artifact_output_path(target, artifact, sizeof(artifact)) < 0)
+		return qstar_set_error(graph, "qstar: install artifact path too long");
+	if (strcmp(target->kind, "exe") == 0)
+		snprintf(dst, sizeof(dst), "%s/bin/%s", options->prefix, target->name);
+	else
+		snprintf(dst, sizeof(dst), "%s/lib/lib%s.a", options->prefix, target->name);
+	if (install_file(graph, artifact, dst, options->dry_run, out) < 0)
+		return -1;
+	for (i = 0; i < target->public_headers.len; i++) {
+		if (install_header_dst(options->prefix, target->public_headers.items[i],
+		    dst, sizeof(dst)) < 0)
+			return qstar_set_error(graph, "qstar: install header path too long");
+		if (install_file(graph, target->public_headers.items[i], dst,
+		    options->dry_run, out) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+/** QStar installable artifact와 public header를 prefix 아래 배치한다. */
+int
+qstar_graph_install(struct qstar_graph *graph, const char *label,
+    const struct qstar_install_options *options, FILE *out)
+{
+	const struct qstar_target *target;
+	size_t i, n;
+
+	if (!options || !options->prefix || !*options->prefix)
+		return qstar_set_error(graph, "qstar: install requires --prefix");
+	fputs("qstar install v1\n", out);
+	fprintf(out, "prefix %s\n", options->prefix);
+	fprintf(out, "mode %s\n", options->dry_run ? "dry-run" : "copy");
+	if (label && *label) {
+		target = find_target(graph, label);
+		if (!target)
+			return qstar_set_error(graph, "qstar: unknown target label '%s'", label);
+		if (install_one_target(graph, target, options, out) < 0)
+			return -1;
+		fputs("status ok\n", out);
+		return 0;
+	}
+	n = 0;
+	for (i = 0; i < graph->len; i++) {
+		if (strcmp(graph->targets[i].kind, "exe") != 0 &&
+		    strcmp(graph->targets[i].kind, "staticlib") != 0)
+			continue;
+		n++;
+		if (install_one_target(graph, &graph->targets[i], options, out) < 0)
+			return -1;
+	}
+	if (n == 0)
+		return qstar_set_error(graph, "qstar: no installable targets found");
 	fputs("status ok\n", out);
 	return 0;
 }
