@@ -1,16 +1,24 @@
-# QStar Developer Binary
+# QStar 개발자 바이너리
 
-QStar is currently a standalone query, explain, dry-run, and authoring-check
-build graph evaluator.
+QStar는 Cale package/build graph 방향을 실험하는 독립 개발자용 바이너리다. 현재는 `qstar.lua`를 읽어 query, explain, dry-run, check, 제한적 local build executor를 제공한다. 아직 `cale build`의 public 기본 경로로 완전히 통합된 상태는 아니다.
 
-Round 13 builds `build/bin/qstar` and installs it next to `cale` through
-`install-user`. It is still not wired into `cale build`.
+## 현재 역할
 
-The Lua evaluator uses the official Lua repository as a git submodule at
-`qstar/vendor/lua`, pinned to tag `v5.4.8`. The license text is preserved in
-`LICENSE/lua.txt`.
+QStar의 목적은 Cale package graph를 deterministic하게 평가하는 것이다.
 
-Implemented commands:
+- target graph dump
+- target query
+- dependency closure 설명
+- authoring check
+- dry-run build plan
+- 제한적 local executor
+- profile/toolchain resolver 실험
+
+## Lua evaluator
+
+QStar evaluator는 `qstar/vendor/lua`에 있는 Lua submodule을 사용한다. tag는 `v5.4.8`에 고정되어 있으며, license text는 `LICENSE/lua.txt`에 보존한다. vendored source의 원출처 정보는 license/notice 정책을 따른다.
+
+## 주요 명령
 
 ```txt
 qstar --file qstar.lua --dump-graph
@@ -26,76 +34,25 @@ qstar --file qstar.lua --package-alias @core=/path/to/core explain //:app
 qstar --file qstar.lua --profile debug --target arm64-apple-macos explain //:app
 ```
 
-`--dump-graph` prints the raw canonical Graph IR. `explain` validates the
-selected target closure, computes dependency-first order, and prints a
-non-executing Build Plan IR with action-key material. `dry-run` projects the
-same validated closure into deterministic step records that look like executor
-input, but every step is marked `execute=no`. It does not spawn compilers,
-linkers, generators, package fetchers, or Ninja. `check` is the authoring UX
-gate: it validates the same graph plus package-root file existence for real
-inputs.
+## 명령 의미
 
-Round 3 adds fixture-level package alias and profile input plumbing. Package
-aliases make external labels explainable, but QStar still does not fetch,
-resolve, read, or build external packages.
+`--dump-graph`는 canonical Graph IR을 출력한다. `explain`은 선택한 target closure를 검증하고 dependency-first order와 action key 재료를 출력한다. `dry-run`은 실행하지 않는 deterministic step record를 만든다. `check`는 package-root 기준 source/header/generated input 존재 여부를 확인한다.
 
-Round 4 added generic header-file path checks. Round 5 deliberately keeps those
-checks format-agnostic: QStar treats `.h`, `.hcl`, and future header-like files
-as opaque build inputs/install entries. HCL parsing, export filtering, and Cale
-language semantics belong to the compiler/HCL checker, not QStar.
+`build`는 제한적 local executor v1이다. package-local generated tool, C source compile, static archive, exe link를 다루며 산출물은 `.qstar/out`, 로그는 `.qstar/logs` 아래에 둔다.
 
-Round 6 adds explicit source discovery and command skeletons. The accepted
-source languages are `.c`, `.cale`, `.s`, and `.S`; unsupported source suffixes
-are rejected before planning. The command skeleton remains non-executing and is
-only key material for future toolchain/profile resolution.
+## 아직 하지 않는 일
 
-Round 7 adds generated output edge skeletons and a target-local toolchain
-resolver record. `qstar.genrule` records generator inputs/outputs/args,
-`qstar.output(path)` marks generated output spelling in QStar files, and
-generated sources must have exactly one producer under `generated/`. QStar still
-does not execute the generator or compiler.
+- remote package fetch
+- cache protocol
+- Ninja generator
+- full `.cale` source build
+- assembly source build
+- arbitrary external generator execution
+- full recursive package resolver
 
-Round 8 adds a dry-run executor skeleton and a manual sample project under
-`qstar/tests/manual/hello`. The sample intentionally contains `qstar.lua`, a
-subdir `foo.qs`, C sources, a generated-source edge, and a public header so it
-can be copied elsewhere and exercised by hand.
+QStar는 build graph와 command planning을 먼저 안정화하는 단계다. 실제 compiler semantics는 Cale compiler가 맡고, QStar는 source suffix와 toolchain/profile에 따른 command plan을 만든다.
 
-Round 9 adds `qstar check`. It verifies source/header/generated-input files
-exist under the package root, while generated outputs are allowed to be absent
-when a `qstar.genrule` produces them. This is intentionally separate from
-`explain` and `dry-run`, which remain useful while sketching a graph before all
-files exist.
-
-Round 10 adds query UX and diagnostic origin. `list-targets`, `query`, and
-`doctor` expose deterministic authoring views, and diagnostics can include
-source file, line, label, field, and a machine-readable line skeleton for future
-LSP integration.
-
-Round 11 makes source selection more real. `qstar.files { "src/*.c", exclude =
-{"src/skip.c"} }` expands package-root globs deterministically, duplicate source
-entries are rejected, and `qstar.select` chooses an actual branch from
-`--target`/profile input instead of leaving a placeholder in the graph.
-
-Round 12 adds a first real profile/toolchain resolver. QStar reads minimal
-read-only `Cale.toml` and `.cale/profiles/<name>.toml` scalar fields, resolves
-`host`, `clang`, and `cale` toolchain profiles, and renders actual argv plans
-for generated actions, C/Cale compile actions, archive, and link actions. The
-`dry-run` command remains non-executing, but it now shows the same `.qstar/out`
-paths and argv shape that the executor will use.
-
-Round 13 adds `qstar build` as a restricted local executor v1. It supports
-package-local generated tools, C source compilation, static archives, and exe
-links with stdout/stderr/action logs under `.qstar/logs`. It intentionally does
-not build `.cale`, assembly, remote packages, caches, Ninja files, or arbitrary
-external generator paths yet.
-
-You can already experiment with small `qstar.lua` and subdir `foo.qs` files for
-graph shape, source classification, dependency order, command skeleton output,
-and dry-run step ordering. Treat that surface as developer-preview until actual
-recursive source discovery, generator execution, and full toolchain/profile
-resolution are stabilized.
-
-Manual smoke:
+## manual smoke
 
 ```txt
 make qstar
@@ -108,10 +65,7 @@ build/bin/qstar --file qstar/tests/manual/hello/qstar.lua explain //:app
 build/bin/qstar --file qstar/tests/manual/hello/qstar.lua dry-run //:app
 ```
 
-For `qstar build`, start with a small C-only local fixture. v1 writes artifacts
-under `.qstar/out` in the package root and action logs under `.qstar/logs`.
-
-QStar-local regression:
+QStar 자체 regression은 다음으로 실행한다.
 
 ```txt
 make -C qstar check

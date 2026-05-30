@@ -1,22 +1,23 @@
-# QStar Manual Hello Fixture
+# QStar hello manual fixture
 
-This fixture is for manual QStar experiments. It is intentionally small and is
-primarily meant for graph/query/check/explain/dry-run UX. Its generated action
-uses a placeholder tool name, so it is not the recommended `qstar build` smoke.
+이 디렉터리는 QStar local graph와 dry-run/build 동작을 손으로 확인하기 위한 작은 fixture다.
 
-From the repository root:
+## 포함 내용
 
-```sh
-make qstar
-build/bin/qstar --file qstar/tests/manual/hello/qstar.lua --dump-graph
-build/bin/qstar --file qstar/tests/manual/hello/qstar.lua list-targets
-build/bin/qstar --file qstar/tests/manual/hello/qstar.lua query //:app
-build/bin/qstar --file qstar/tests/manual/hello/qstar.lua doctor
-build/bin/qstar --file qstar/tests/manual/hello/qstar.lua check //:app
-build/bin/qstar --file qstar/tests/manual/hello/qstar.lua explain //:app
-build/bin/qstar --file qstar/tests/manual/hello/qstar.lua dry-run //:app
+- root `qstar.lua`
+- subdir fragment
+- 작은 C source
+- public header
+- generated-source edge 예시
+
+## 사용법
+
+```txt
+build/bin/qstar --file qstar.lua --dump-graph
+build/bin/qstar --file qstar.lua list-targets
+build/bin/qstar --file qstar.lua check //:app
+build/bin/qstar --file qstar.lua explain //:app
+build/bin/qstar --file qstar.lua dry-run //:app
 ```
 
-The expected behavior is a deterministic graph, authoring check, Build Plan IR,
-and dry-run stream. For an executor smoke, create a C-only local package with a
-package-relative generated tool as shown in `docs/qstar/examples.md`.
+이 fixture는 QStar authoring UX와 deterministic graph output을 확인하기 위한 것이며, Cale 언어 semantics를 검증하는 fixture는 아니다.
