@@ -487,6 +487,7 @@ dump_genrule(const struct qstar_genrule *genrule, FILE *out)
 	    genrule->origin_file && *genrule->origin_file ? genrule->origin_file : "<unknown>",
 	    genrule->origin_line);
 	fprintf(out, "  tool %s\n", genrule->tool);
+	fprintf(out, "  config_header %s\n", genrule->config_header ? "yes" : "no");
 	fputs("  inputs ", out);
 	dump_list(out, &genrule->inputs);
 	fputc('\n', out);

@@ -52,6 +52,13 @@ qstar_source_classify(const char *path, struct qstar_source_info *info)
 		}
 		return 0;
 	}
+	if (has_suffix(path, ".h")) {
+		if (info) {
+			info->language = "header";
+			info->tool_role = "header-input";
+		}
+		return 0;
+	}
 	if (has_suffix(path, ".cale")) {
 		if (info) {
 			info->language = "cale";
@@ -119,6 +126,11 @@ validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 	if (!genrule->tool || !*genrule->tool)
 		return qstar_set_error(graph, "qstar: generated action '%s' has empty tool",
 		    genrule->label);
+	if (!genrule->config_header && !qstar_path_is_package_relative(genrule->tool))
+		return qstar_set_error_origin(graph, genrule->origin_file, genrule->origin_line,
+		    "tool", genrule->label,
+		    "qstar: generated action tool '%s' in '%s' must be package-relative",
+		    genrule->tool, genrule->label);
 	if (genrule->outputs.len == 0)
 		return qstar_set_error(graph, "qstar: generated action '%s' has no outputs",
 		    genrule->label);
@@ -220,6 +232,8 @@ validate_target_file_inputs(struct qstar_graph *graph, const struct qstar_target
 	}
 	for (i = 0; i < target->public_headers.len; i++) {
 		path = target->public_headers.items[i];
+		if (valid_generated_output_root(path) && qstar_graph_find_output_owner(graph, path))
+			continue;
 		if (!file_exists_under_root(graph, path))
 			return qstar_set_error_origin(graph, target->origin_file,
 			    target->origin_line, "public_headers", target->label,
@@ -228,6 +242,8 @@ validate_target_file_inputs(struct qstar_graph *graph, const struct qstar_target
 	}
 	for (i = 0; i < target->private_headers.len; i++) {
 		path = target->private_headers.items[i];
+		if (valid_generated_output_root(path) && qstar_graph_find_output_owner(graph, path))
+			continue;
 		if (!file_exists_under_root(graph, path))
 			return qstar_set_error_origin(graph, target->origin_file,
 			    target->origin_line, "private_headers", target->label,

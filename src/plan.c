@@ -385,7 +385,10 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 
 	snprintf(id, sizeof(id), "%s:compile:%zu", target->label, index);
 	tool = strcmp(source->language, "cale") == 0 ? toolchain->cale : toolchain->cc;
-	cross = strcmp(toolchain->name, "clang") == 0 && strcmp(toolchain->target, "host") != 0;
+	cross = (strcmp(toolchain->name, "clang") == 0 ||
+	    strcmp(toolchain->name, "cale") == 0 ||
+	    strcmp(toolchain->name, "cale-sol") == 0) &&
+	    strcmp(toolchain->target, "host") != 0;
 	argc = 5 + target->include_dirs.len * 2 + target->system_include_dirs.len * 2 +
 	    (cross ? 1 : 0);
 	snprintf(target_arg, sizeof(target_arg), "--target=%s", toolchain->target);
@@ -455,20 +458,30 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 	end_argv(out);
 }
 
-/** generated action output 중 target source로 소비되는 것이 있는지 확인한다. */
+/** generated output list가 target의 파일 입력 list에 소비되는지 확인한다. */
 static int
-genrule_consumed_by_target(const struct qstar_genrule *genrule,
-    const struct qstar_target *target)
+genrule_output_in_list(const struct qstar_genrule *genrule,
+    const struct qstar_string_list *list)
 {
 	size_t i, j;
 
 	for (i = 0; i < genrule->outputs.len; i++) {
-		for (j = 0; j < target->sources.len; j++) {
-			if (strcmp(genrule->outputs.items[i], target->sources.items[j]) == 0)
+		for (j = 0; j < list->len; j++) {
+			if (strcmp(genrule->outputs.items[i], list->items[j]) == 0)
 				return 1;
 		}
 	}
 	return 0;
+}
+
+/** generated action output 중 target file input으로 소비되는 것이 있는지 확인한다. */
+static int
+genrule_consumed_by_target(const struct qstar_genrule *genrule,
+    const struct qstar_target *target)
+{
+	return genrule_output_in_list(genrule, &target->sources) ||
+	    genrule_output_in_list(genrule, &target->public_headers) ||
+	    genrule_output_in_list(genrule, &target->private_headers);
 }
 
 /** target이 소비하는 generated output edge를 deterministic하게 출력한다. */
@@ -484,6 +497,20 @@ dump_generated_edges(FILE *out, const struct qstar_plan *plan,
 		if (owner)
 			fprintf(out, "  generated_edge source=%s generator=%s output=%s\n",
 			    target->sources.items[i], owner->label, target->sources.items[i]);
+	}
+	for (i = 0; i < target->public_headers.len; i++) {
+		owner = qstar_graph_find_output_owner(plan->graph, target->public_headers.items[i]);
+		if (owner)
+			fprintf(out, "  generated_edge header=%s generator=%s output=%s\n",
+			    target->public_headers.items[i], owner->label,
+			    target->public_headers.items[i]);
+	}
+	for (i = 0; i < target->private_headers.len; i++) {
+		owner = qstar_graph_find_output_owner(plan->graph, target->private_headers.items[i]);
+		if (owner)
+			fprintf(out, "  generated_edge header=%s generator=%s output=%s\n",
+			    target->private_headers.items[i], owner->label,
+			    target->private_headers.items[i]);
 	}
 }
 

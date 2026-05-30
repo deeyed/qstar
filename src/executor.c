@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <dirent.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -91,6 +92,39 @@ path_exists(const char *path)
 	struct stat st;
 
 	return stat(path, &st) == 0;
+}
+
+/** PATH 또는 명시 path에서 실행 파일을 찾을 수 있는지 검사한다. */
+static int
+command_exists(const char *cmd)
+{
+	const char *path, *start, *end;
+	char candidate[QSTAR_PATH_MAX];
+	size_t n;
+
+	if (!cmd || !*cmd)
+		return 0;
+	if (strchr(cmd, '/'))
+		return access(cmd, X_OK) == 0;
+	path = getenv("PATH");
+	if (!path)
+		return 0;
+	for (start = path; ; start = end + 1) {
+		end = strchr(start, ':');
+		n = end ? (size_t)(end - start) : strlen(start);
+		if (n == 0)
+			snprintf(candidate, sizeof(candidate), "%s", cmd);
+		else if (n + 1 + strlen(cmd) + 1 > sizeof(candidate))
+			goto next;
+		else
+			snprintf(candidate, sizeof(candidate), "%.*s/%s", (int)n, start, cmd);
+		if (access(candidate, X_OK) == 0)
+			return 1;
+next:
+		if (!end)
+			break;
+	}
+	return 0;
 }
 
 /** 작은 FNV-1a hash에 문자열을 섞는다. */
@@ -532,6 +566,17 @@ outputs_exist(struct qstar_graph *graph, const struct qstar_string_list *outputs
 	return outputs->len > 0;
 }
 
+/** 빈 stdout/stderr log 파일을 만든다. */
+static void
+write_empty_log_file(const char *path)
+{
+	FILE *f;
+
+	f = fopen(path, "w");
+	if (f)
+		fclose(f);
+}
+
 /** stdout/stderr를 log 파일에 연결해 package root 안에서 argv를 실행하거나 cache skip한다. */
 static int
 run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
@@ -540,6 +585,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 {
 	char logdir[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], stdout_path[QSTAR_PATH_MAX];
 	char stderr_path[QSTAR_PATH_MAX], action_log[QSTAR_PATH_MAX];
+	char child_stdout_path[QSTAR_PATH_MAX], child_stderr_path[QSTAR_PATH_MAX];
 	const struct qstar_state_entry *prev;
 	pid_t pid;
 	int status, fdout, fderr, exit_code;
@@ -552,6 +598,8 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	snprintf(stdout_path, sizeof(stdout_path), "%s/%s.stdout", logdir, name);
 	snprintf(stderr_path, sizeof(stderr_path), "%s/%s.stderr", logdir, name);
 	snprintf(action_log, sizeof(action_log), "%s/%s.log", logdir, name);
+	snprintf(child_stdout_path, sizeof(child_stdout_path), ".qstar/logs/%s.stdout", name);
+	snprintf(child_stderr_path, sizeof(child_stderr_path), ".qstar/logs/%s.stderr", name);
 	prev = state_find(ctx, id);
 	if (ctx->explain_only) {
 		fprintf(ctx->out,
@@ -584,8 +632,8 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	if (pid == 0) {
 		if (chdir(graph->package_root ? graph->package_root : ".") < 0)
 			_exit(127);
-		fdout = open(stdout_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-		fderr = open(stderr_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+		fdout = open(child_stdout_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+		fderr = open(child_stderr_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
 		if (fdout < 0 || fderr < 0 || dup2(fdout, 1) < 0 || dup2(fderr, 2) < 0)
 			_exit(127);
 		close(fdout);
@@ -623,88 +671,275 @@ find_target(const struct qstar_graph *graph, const char *label)
 	return NULL;
 }
 
+/** generated output list가 target 파일 입력 list에 소비되는지 검사한다. */
+static int
+generated_output_in_list(const struct qstar_genrule *genrule, const struct qstar_string_list *list)
+{
+	size_t i, j;
+
+	for (i = 0; i < genrule->outputs.len; i++) {
+		for (j = 0; j < list->len; j++) {
+			if (strcmp(genrule->outputs.items[i], list->items[j]) == 0)
+				return 1;
+		}
+	}
+	return 0;
+}
+
+/** target이 generated action output을 source/header로 소비하는지 검사한다. */
+static int
+target_consumes_genrule(const struct qstar_target *target, const struct qstar_genrule *genrule)
+{
+	return generated_output_in_list(genrule, &target->sources) ||
+	    generated_output_in_list(genrule, &target->public_headers) ||
+	    generated_output_in_list(genrule, &target->private_headers);
+}
+
+/** config header include guard에 안전한 identifier 조각을 만든다. */
+static void
+config_guard_name(const char *output, char *dst, size_t dstlen)
+{
+	size_t i;
+	unsigned char c;
+
+	if (!dstlen)
+		return;
+	snprintf(dst, dstlen, "QSTAR_CONFIG_");
+	for (i = strlen(dst); *output && i + 1 < dstlen; output++) {
+		c = (unsigned char)*output;
+		dst[i++] = isalnum(c) ? (char)toupper(c) : '_';
+	}
+	dst[i] = '\0';
+}
+
+/** qstar.config_header define 항목 하나를 C preprocessor line으로 출력한다. */
+static void
+write_config_define(FILE *f, const char *def)
+{
+	const char *eq;
+
+	eq = strchr(def, '=');
+	if (eq)
+		fprintf(f, "#define %.*s %s\n", (int)(eq - def), def, eq + 1);
+	else
+		fprintf(f, "#define %s 1\n", def);
+}
+
+/** qstar.config_header output 파일을 deterministic하게 생성한다. */
+static int
+write_config_header(struct qstar_graph *graph, const struct qstar_genrule *genrule)
+{
+	char full[QSTAR_PATH_MAX], guard[QSTAR_PATH_MAX];
+	FILE *f;
+	size_t i;
+
+	if (genrule->outputs.len != 1)
+		return qstar_set_error_origin(graph, genrule->origin_file, genrule->origin_line,
+		    "outputs", genrule->label,
+		    "qstar: config header '%s' must have exactly one output",
+		    genrule->label);
+	if (mkdir_parent_under_root(graph, genrule->outputs.items[0]) < 0 ||
+	    full_path_under_root(graph, genrule->outputs.items[0], full, sizeof(full)) < 0)
+		return qstar_set_error(graph, "qstar: could not create config header output");
+	f = fopen(full, "w");
+	if (!f)
+		return qstar_set_error_origin(graph, genrule->origin_file, genrule->origin_line,
+		    "outputs", genrule->label,
+		    "qstar: could not write config header '%s'",
+		    genrule->outputs.items[0]);
+	config_guard_name(genrule->outputs.items[0], guard, sizeof(guard));
+	fprintf(f, "/* generated by qstar.config_header: %s */\n", genrule->label);
+	fprintf(f, "#ifndef %s\n#define %s\n", guard, guard);
+	for (i = 0; i < genrule->args.len; i++)
+		write_config_define(f, genrule->args.items[i]);
+	fprintf(f, "#endif /* %s */\n", guard);
+	fclose(f);
+	return 0;
+}
+
+/** qstar.config_header를 external process 없이 action/cache model에 맞춰 실행한다. */
+static int
+run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const struct qstar_target *target, const struct qstar_genrule *genrule, const char *id,
+    const char *key, char *const argv[])
+{
+	char logdir[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], stdout_path[QSTAR_PATH_MAX];
+	char stderr_path[QSTAR_PATH_MAX], action_log[QSTAR_PATH_MAX];
+	const struct qstar_state_entry *prev;
+
+	if (qstar_path_join(graph->package_root ? graph->package_root : ".",
+	    ".qstar/logs", logdir, sizeof(logdir)) < 0 ||
+	    mkdir_p(logdir) < 0)
+		return qstar_set_error(graph, "qstar: could not create action log dir");
+	action_log_name(id, name, sizeof(name));
+	snprintf(stdout_path, sizeof(stdout_path), "%s/%s.stdout", logdir, name);
+	snprintf(stderr_path, sizeof(stderr_path), "%s/%s.stderr", logdir, name);
+	snprintf(action_log, sizeof(action_log), "%s/%s.log", logdir, name);
+	prev = state_find(ctx, id);
+	if (ctx->explain_only) {
+		fprintf(ctx->out,
+		    "cache_action id=%s kind=generate status=%s reason=%s key=%s previous=%s\n",
+		    id,
+		    prev && strcmp(prev->key, key) == 0 && outputs_exist(graph, &genrule->outputs) ?
+		    "skip" : "run",
+		    prev ? (strcmp(prev->key, key) == 0 ? "output-check" : "key-changed") :
+		    "no-previous-state",
+		    key, prev ? prev->key : "<none>");
+		return 0;
+	}
+	if (prev && strcmp(prev->key, key) == 0 && outputs_exist(graph, &genrule->outputs)) {
+		fprintf(ctx->out,
+		    "build_action id=%s status=skip reason=cache-hit stdout=.qstar/logs/%s.stdout stderr=.qstar/logs/%s.stderr\n",
+		    id, name, name);
+		write_skip_log(action_log, argv);
+		return state_push(ctx, 1, id, key, genrule->outputs.items[0], "skip") < 0 ?
+		    qstar_set_error(graph, "qstar: out of memory") : 0;
+	}
+	fprintf(ctx->out,
+	    "build_action id=%s status=run stdout=.qstar/logs/%s.stdout stderr=.qstar/logs/%s.stderr\n",
+	    id, name, name);
+	if (ctx->explain_cache)
+		fprintf(ctx->out, "cache_miss id=%s key=%s previous=%s\n",
+		    id, key, prev ? prev->key : "<none>");
+	if (write_config_header(graph, genrule) < 0) {
+		write_failure_replay(graph, argv);
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "action", target->label, "%s", graph->error);
+	}
+	write_empty_log_file(stdout_path);
+	write_empty_log_file(stderr_path);
+	write_action_log(action_log, argv, 0);
+	return state_push(ctx, 1, id, key, genrule->outputs.items[0], "run") < 0 ?
+	    qstar_set_error(graph, "qstar: out of memory") : 0;
+}
+
 /** target이 소비하는 generated action을 package-local tool policy로 실행한다. */
 static int
 run_generated_actions(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
     const struct qstar_target *target)
 {
 	const struct qstar_genrule *genrule;
-	char tool_path[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX], key[32];
+	char id[QSTAR_PATH_MAX], key[32];
 	char *argv[QSTAR_EXEC_MAX_ARGV];
 	struct qstar_string_list inputs;
 	struct qstar_resolved_toolchain toolchain;
-	size_t i, j, argc;
+	size_t i, argc;
 
 	for (i = 0; i < graph->genrule_len; i++) {
 		genrule = &graph->genrules[i];
-		for (j = 0; j < genrule->outputs.len; j++) {
-			size_t s;
-			for (s = 0; s < target->sources.len; s++) {
-				if (strcmp(genrule->outputs.items[j], target->sources.items[s]) != 0)
-					continue;
-				if (!qstar_path_is_package_relative(genrule->tool))
-					return qstar_set_error(graph,
-					    "qstar: generated action tool '%s' must be package-relative",
-					    genrule->tool);
-				if (qstar_path_join(graph->package_root ? graph->package_root : ".",
-				    genrule->tool, tool_path, sizeof(tool_path)) < 0)
-					return qstar_set_error(graph, "qstar: generated tool path too long");
-				if (genrule->args.len + 2 > QSTAR_EXEC_MAX_ARGV)
-					return qstar_set_error(graph, "qstar: generated action argv too long");
-				for (argc = 0; argc < genrule->outputs.len; argc++) {
-					if (mkdir_parent_under_root(graph, genrule->outputs.items[argc]) < 0)
-						return qstar_set_error(graph,
-						    "qstar: could not create generated output directory");
-				}
-				snprintf(id, sizeof(id), "%s:generate:0", genrule->label);
-				argv[0] = tool_path;
-				for (argc = 0; argc < genrule->args.len; argc++)
-					argv[argc + 1] = genrule->args.items[argc];
-				argv[genrule->args.len + 1] = NULL;
-				memset(&inputs, 0, sizeof(inputs));
-				for (argc = 0; argc < genrule->inputs.len; argc++) {
-					if (qstar_string_list_push(&inputs, genrule->inputs.items[argc]) < 0) {
-						qstar_string_list_free(&inputs);
-						return qstar_set_error(graph, "qstar: out of memory");
-					}
-				}
-				if (qstar_string_list_push(&inputs, genrule->tool) < 0) {
-					qstar_string_list_free(&inputs);
-					return qstar_set_error(graph, "qstar: out of memory");
-				}
-				memset(&toolchain, 0, sizeof(toolchain));
-				snprintf(toolchain.name, sizeof(toolchain.name), "%s", target->toolchain);
-				snprintf(toolchain.target, sizeof(toolchain.target), "%s",
-				    graph->profile.target ? graph->profile.target : "host");
-				compute_action_key(graph, target, &toolchain, id, "generate", argv,
-				    &inputs, genrule->outputs.items[0], key, sizeof(key));
+		if (!target_consumes_genrule(target, genrule))
+			continue;
+		if (!genrule->config_header && !qstar_path_is_package_relative(genrule->tool))
+			return qstar_set_error(graph,
+			    "qstar: generated action tool '%s' must be package-relative",
+			    genrule->tool);
+		if (genrule->args.len + 2 > QSTAR_EXEC_MAX_ARGV)
+			return qstar_set_error(graph, "qstar: generated action argv too long");
+		for (argc = 0; argc < genrule->outputs.len; argc++) {
+			if (mkdir_parent_under_root(graph, genrule->outputs.items[argc]) < 0)
+				return qstar_set_error(graph,
+				    "qstar: could not create generated output directory");
+		}
+		snprintf(id, sizeof(id), "%s:generate:0", genrule->label);
+		argv[0] = genrule->tool;
+		for (argc = 0; argc < genrule->args.len; argc++)
+			argv[argc + 1] = genrule->args.items[argc];
+		argv[genrule->args.len + 1] = NULL;
+		memset(&inputs, 0, sizeof(inputs));
+		for (argc = 0; argc < genrule->inputs.len; argc++) {
+			if (qstar_string_list_push(&inputs, genrule->inputs.items[argc]) < 0) {
 				qstar_string_list_free(&inputs);
-				if (run_action(graph, ctx, target, id, "generate", key,
-				    &genrule->outputs, argv) < 0)
-					return -1;
-				break;
+				return qstar_set_error(graph, "qstar: out of memory");
 			}
+		}
+		if (!genrule->config_header && qstar_string_list_push(&inputs, genrule->tool) < 0) {
+			qstar_string_list_free(&inputs);
+			return qstar_set_error(graph, "qstar: out of memory");
+		}
+		memset(&toolchain, 0, sizeof(toolchain));
+		snprintf(toolchain.name, sizeof(toolchain.name), "%s", target->toolchain);
+		snprintf(toolchain.target, sizeof(toolchain.target), "%s",
+		    graph->profile.target ? graph->profile.target : "host");
+		compute_action_key(graph, target, &toolchain, id, "generate", argv,
+		    &inputs, genrule->outputs.items[0], key, sizeof(key));
+		qstar_string_list_free(&inputs);
+		if (genrule->config_header) {
+			if (run_config_header_action(graph, ctx, target, genrule, id, key, argv) < 0)
+				return -1;
+		} else if (run_action(graph, ctx, target, id, "generate", key,
+		    &genrule->outputs, argv) < 0) {
+			return -1;
 		}
 	}
 	return 0;
 }
 
-/** C source 하나를 object로 compile한다. */
+/** compile action key에 target header inputs를 포함한다. */
+static int
+push_target_header_inputs(struct qstar_graph *graph, const struct qstar_target *target,
+    struct qstar_string_list *inputs)
+{
+	size_t i;
+
+	for (i = 0; i < target->public_headers.len; i++) {
+		if (qstar_string_list_push(inputs, target->public_headers.items[i]) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+	}
+	for (i = 0; i < target->private_headers.len; i++) {
+		if (qstar_string_list_push(inputs, target->private_headers.items[i]) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+	}
+	return 0;
+}
+
+/** compile source 종류와 toolchain 조합을 검증한다. */
+static int
+validate_compile_source(struct qstar_graph *graph, const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain, const struct qstar_source_info *source,
+    size_t index)
+{
+	if (strcmp(source->language, "header") == 0)
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "sources", target->label,
+		    "qstar: header source '%s' must be listed as public_headers/private_headers",
+		    target->sources.items[index]);
+	if (strcmp(source->language, "c") != 0 && strcmp(source->language, "cale") != 0)
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "sources", target->label,
+		    "qstar: local executor does not support source '%s' with language '%s'",
+		    target->sources.items[index], source->language);
+	if (strcmp(source->language, "cale") == 0 &&
+	    strcmp(toolchain->name, "cale") != 0 &&
+	    strcmp(toolchain->name, "cale-sol") != 0)
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "sources", target->label,
+		    "qstar: Cale source '%s' requires toolchain=cale",
+		    target->sources.items[index]);
+	if ((strcmp(toolchain->name, "cale") == 0 ||
+	    strcmp(toolchain->name, "cale-sol") == 0) && !command_exists(toolchain->cale))
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "sources", target->label,
+		    "qstar: Cale compiler '%s' not found for source '%s'",
+		    toolchain->cale, target->sources.items[index]);
+	return 0;
+}
+
+/** C 또는 Cale source 하나를 object로 compile한다. */
 static int
 run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct qstar_target *target,
     const struct qstar_resolved_toolchain *toolchain, size_t index)
 {
 	struct qstar_source_info source;
 	char object[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX], target_arg[QSTAR_PATH_MAX], key[32];
+	const char *compiler;
 	char *argv[QSTAR_EXEC_MAX_ARGV];
 	struct qstar_string_list inputs, outputs;
+	int cross;
 	size_t argc, i;
 
 	qstar_source_classify(target->sources.items[index], &source);
-	if (strcmp(source.language, "c") != 0)
-		return qstar_set_error(graph,
-		    "qstar: local executor v1 only supports C source compile, saw '%s'",
-		    target->sources.items[index]);
+	if (validate_compile_source(graph, target, toolchain, &source, index) < 0)
+		return -1;
 	if (qstar_object_output_path(target, index, object, sizeof(object)) < 0 ||
 	    mkdir_parent_under_root(graph, object) < 0)
 		return qstar_set_error(graph, "qstar: could not create object output directory");
@@ -713,9 +948,14 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
 		return qstar_set_error(graph, "qstar: compile argv too long");
 	snprintf(id, sizeof(id), "%s:compile:%zu", target->label, index);
 	snprintf(target_arg, sizeof(target_arg), "--target=%s", toolchain->target);
+	compiler = strcmp(source.language, "cale") == 0 ? toolchain->cale : toolchain->cc;
+	cross = (strcmp(toolchain->name, "clang") == 0 ||
+	    strcmp(toolchain->name, "cale") == 0 ||
+	    strcmp(toolchain->name, "cale-sol") == 0) &&
+	    strcmp(toolchain->target, "host") != 0;
 	argc = 0;
-	argv[argc++] = (char *)toolchain->cc;
-	if (strcmp(toolchain->name, "clang") == 0 && strcmp(toolchain->target, "host") != 0)
+	argv[argc++] = (char *)compiler;
+	if (cross)
 		argv[argc++] = target_arg;
 	argv[argc++] = "-c";
 	argv[argc++] = target->sources.items[index];
@@ -740,6 +980,11 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
 		qstar_string_list_free(&inputs);
 		qstar_string_list_free(&outputs);
 		return qstar_set_error(graph, "qstar: out of memory");
+	}
+	if (push_target_header_inputs(graph, target, &inputs) < 0) {
+		qstar_string_list_free(&inputs);
+		qstar_string_list_free(&outputs);
+		return -1;
 	}
 	compute_action_key(graph, target, toolchain, id, "compile", argv, &inputs, object, key,
 	    sizeof(key));

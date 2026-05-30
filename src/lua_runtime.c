@@ -289,6 +289,54 @@ add_genrule(lua_State *L, const char *name, int table_index, const char *fragmen
 	return 0;
 }
 
+/** qstar.config_header 선언을 generated header action으로 graph에 추가한다. */
+static int
+add_config_header(lua_State *L, const char *name, int table_index, const char *fragment_dir)
+{
+	struct qstar_lua_context *ctx;
+	struct qstar_genrule *genrule;
+	struct qstar_graph *graph;
+	char label[QSTAR_PATH_MAX], rawlabel[QSTAR_PATH_MAX];
+	char origin_file[QSTAR_PATH_MAX];
+	const char *output;
+	int origin_line;
+
+	if (table_index < 0)
+		table_index = lua_gettop(L) + table_index + 1;
+	ctx = get_context(L);
+	graph = ctx->graph;
+	luaL_checktype(L, table_index, LUA_TTABLE);
+	if (!name[0])
+		return luaL_error(L, "qstar: config header name is empty");
+	if (name[0] == ':' || name[0] == '/' || name[0] == '@') {
+		if (qstar_label_canonicalize(name, ctx->current_dir, label, sizeof(label)) < 0)
+			return luaL_error(L, "qstar: invalid config header name '%s'", name);
+	} else {
+		if (snprintf(rawlabel, sizeof(rawlabel), ":%s", name) >= (int)sizeof(rawlabel) ||
+		    qstar_label_canonicalize(rawlabel, ctx->current_dir, label, sizeof(label)) < 0)
+			return luaL_error(L, "qstar: invalid config header name '%s'", name);
+	}
+	current_origin(L, origin_file, sizeof(origin_file), &origin_line);
+	genrule = qstar_graph_add_genrule(graph, label, name, fragment_dir, origin_file,
+	    origin_line);
+	if (!genrule)
+		return luaL_error(L, "%s", graph->error);
+	genrule->config_header = 1;
+	free(genrule->tool);
+	genrule->tool = qstar_strdup("<qstar-config-header>");
+	if (!genrule->tool)
+		return luaL_error(L, "qstar: out of memory");
+	output = check_string_field(L, table_index, "output");
+	if (!output || !*output)
+		return luaL_error(L, "qstar: config header '%s' requires output", name);
+	if (qstar_string_list_push(&genrule->outputs, output) < 0)
+		return luaL_error(L, "qstar: out of memory");
+	if (read_list_field(L, table_index, "defines", &genrule->args, graph, 0,
+	    genrule->fragment_dir) < 0)
+		return luaL_error(L, "%s", graph->error);
+	return 0;
+}
+
 static int
 qstar_lua_genrule_finish(lua_State *L)
 {
@@ -314,6 +362,33 @@ qstar_lua_genrule(lua_State *L)
 		return 1;
 	}
 	return add_genrule(L, name, 2, ctx->current_dir);
+}
+
+static int
+qstar_lua_config_header_finish(lua_State *L)
+{
+	const char *name, *fragment_dir;
+
+	name = lua_tostring(L, lua_upvalueindex(1));
+	fragment_dir = lua_tostring(L, lua_upvalueindex(2));
+	return add_config_header(L, name, 1, fragment_dir);
+}
+
+static int
+qstar_lua_config_header(lua_State *L)
+{
+	struct qstar_lua_context *ctx;
+	const char *name;
+
+	ctx = get_context(L);
+	name = luaL_checkstring(L, 1);
+	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
+		lua_pushstring(L, name);
+		lua_pushstring(L, ctx->current_dir);
+		lua_pushcclosure(L, qstar_lua_config_header_finish, 2);
+		return 1;
+	}
+	return add_config_header(L, name, 2, ctx->current_dir);
 }
 
 static int
@@ -763,6 +838,10 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "sharedlib");
 	lua_pushcfunction(L, qstar_lua_genrule);
 	lua_setfield(L, -2, "genrule");
+	lua_pushcfunction(L, qstar_lua_config_header);
+	lua_setfield(L, -2, "config_header");
+	lua_pushcfunction(L, qstar_lua_config_header);
+	lua_setfield(L, -2, "write_config_header");
 	lua_pushcfunction(L, qstar_lua_output);
 	lua_setfield(L, -2, "output");
 	lua_pushcfunction(L, qstar_lua_identity_table);

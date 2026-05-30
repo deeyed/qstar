@@ -46,6 +46,7 @@ struct qstar_genrule {
 	char *origin_file;
 	int origin_line;
 	char *tool;
+	int config_header;
 	struct qstar_string_list inputs;
 	struct qstar_string_list outputs;
 	struct qstar_string_list args;
