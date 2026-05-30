@@ -13,15 +13,43 @@ usage(FILE *out)
 	fputs("       qstar [options] explain [label]\n", out);
 	fputs("       qstar [options] dry-run [label]\n", out);
 	fputs("       qstar [options] build [label]\n", out);
+	fputs("       qstar [options] why-rebuild [label]\n", out);
+	fputs("       qstar [options] clean [--target label]\n", out);
+	fputs("       qstar [options] log [label]\n", out);
+	fputs("       qstar [options] last-failure\n", out);
 	fputs("       qstar [options] --dump-graph\n", out);
 	fputs("options:\n", out);
 	fputs("       --file qstar.lua\n", out);
 	fputs("       --package-alias @name=/path\n", out);
 	fputs("       --profile name --target triple --toolchain name --stdlib policy\n", out);
-	fputs("       --diagnostic-format text|line\n", out);
+	fputs("       --diagnostics text|json\n", out);
+	fputs("       --diagnostic-format text|line  # compatibility alias\n", out);
 }
 
-/** QStar diagnostic을 text 또는 machine-readable line skeleton으로 출력한다. */
+/** JSON diagnostic string을 stderr에 출력한다. */
+static void
+print_json_string(const char *s)
+{
+	const unsigned char *p = (const unsigned char *)(s ? s : "");
+
+	fputc('"', stderr);
+	while (*p) {
+		if (*p == '"' || *p == '\\')
+			fprintf(stderr, "\\%c", *p);
+		else if (*p == '\n')
+			fputs("\\n", stderr);
+		else if (*p == '\r')
+			fputs("\\r", stderr);
+		else if (*p == '\t')
+			fputs("\\t", stderr);
+		else
+			fputc(*p, stderr);
+		p++;
+	}
+	fputc('"', stderr);
+}
+
+/** QStar diagnostic을 text 또는 machine-readable skeleton으로 출력한다. */
 static void
 print_error(const struct qstar_graph *graph, const char *label, const char *format)
 {
@@ -29,6 +57,19 @@ print_error(const struct qstar_graph *graph, const char *label, const char *form
 
 	message = graph->error[0] ? graph->error :
 	    label ? "qstar: unknown target label" : "qstar: failed";
+	if (format && strcmp(format, "json") == 0) {
+		fputs("{\"schema\":\"qstar-diagnostic-v1\",\"severity\":\"error\",\"file\":", stderr);
+		print_json_string(graph->error_file[0] ? graph->error_file : "<unknown>");
+		fprintf(stderr, ",\"line\":%d,\"field\":", graph->error_line);
+		print_json_string(graph->error_field[0] ? graph->error_field : "<none>");
+		fputs(",\"label\":", stderr);
+		print_json_string(graph->error_label[0] ? graph->error_label :
+		    (label ? label : "<none>"));
+		fputs(",\"message\":", stderr);
+		print_json_string(message);
+		fputs("}\n", stderr);
+		return;
+	}
 	if (format && strcmp(format, "line") == 0) {
 		fprintf(stderr,
 		    "qstar-diagnostic-v1 severity=error file=%s line=%d field=%s label=%s message=%s\n",
@@ -73,9 +114,11 @@ main(int argc, char **argv)
 	struct qstar_graph graph;
 	const char *file, *cmd, *label, *diagnostic_format;
 	const char *cli_profile, *cli_target, *cli_toolchain, *cli_stdlib;
+	struct qstar_build_options build_options;
 	int arg, rc;
 
 	qstar_graph_init(&graph);
+	memset(&build_options, 0, sizeof(build_options));
 	file = "qstar.lua";
 	diagnostic_format = "text";
 	cli_profile = NULL;
@@ -105,9 +148,12 @@ main(int argc, char **argv)
 				return 1;
 			}
 			arg += 2;
-		} else if (strcmp(argv[arg], "--diagnostic-format") == 0) {
+		} else if (strcmp(argv[arg], "--diagnostics") == 0 ||
+		    strcmp(argv[arg], "--diagnostic-format") == 0) {
 			if (arg + 1 >= argc ||
-			    (strcmp(argv[arg + 1], "text") != 0 && strcmp(argv[arg + 1], "line") != 0)) {
+			    (strcmp(argv[arg + 1], "text") != 0 &&
+			    strcmp(argv[arg + 1], "line") != 0 &&
+			    strcmp(argv[arg + 1], "json") != 0)) {
 				usage(stderr);
 				qstar_graph_free(&graph);
 				return 2;
@@ -147,14 +193,30 @@ main(int argc, char **argv)
 	label = NULL;
 	if (strcmp(cmd, "explain") == 0 || strcmp(cmd, "dry-run") == 0 ||
 	    strcmp(cmd, "check") == 0 || strcmp(cmd, "query") == 0 ||
-	    strcmp(cmd, "build") == 0) {
+	    strcmp(cmd, "build") == 0 || strcmp(cmd, "why-rebuild") == 0 ||
+	    strcmp(cmd, "log") == 0) {
 		if (arg < argc)
 			label = argv[arg++];
+	} else if (strcmp(cmd, "clean") == 0) {
+		if (arg < argc && strcmp(argv[arg], "--target") == 0) {
+			if (arg + 1 >= argc) {
+				usage(stderr);
+				qstar_graph_free(&graph);
+				return 2;
+			}
+			label = argv[arg + 1];
+			arg += 2;
+		}
 	} else if (strcmp(cmd, "--dump-graph") != 0 && strcmp(cmd, "list-targets") != 0 &&
-	    strcmp(cmd, "doctor") != 0) {
+	    strcmp(cmd, "doctor") != 0 && strcmp(cmd, "last-failure") != 0) {
 		usage(stderr);
 		qstar_graph_free(&graph);
 		return 2;
+	}
+	if (strcmp(cmd, "build") == 0 && arg < argc &&
+	    strcmp(argv[arg], "--explain-cache") == 0) {
+		build_options.explain_cache = 1;
+		arg++;
 	}
 	if (strcmp(cmd, "query") == 0 && (!label || !*label)) {
 		usage(stderr);
@@ -181,7 +243,7 @@ main(int argc, char **argv)
 	if (rc == 0)
 		rc = qstar_graph_validate_headers(&graph);
 	if (rc == 0 && (strcmp(cmd, "check") == 0 || strcmp(cmd, "doctor") == 0 ||
-	    strcmp(cmd, "build") == 0))
+	    strcmp(cmd, "build") == 0 || strcmp(cmd, "why-rebuild") == 0))
 		rc = qstar_graph_validate_file_inputs(&graph);
 	if (rc == 0) {
 		if (strcmp(cmd, "explain") == 0)
@@ -191,7 +253,15 @@ main(int argc, char **argv)
 		else if (strcmp(cmd, "check") == 0)
 			rc = qstar_graph_check(&graph, label, stdout);
 		else if (strcmp(cmd, "build") == 0)
-			rc = qstar_graph_build(&graph, label, stdout);
+			rc = qstar_graph_build_with_options(&graph, label, &build_options, stdout);
+		else if (strcmp(cmd, "why-rebuild") == 0)
+			rc = qstar_graph_why_rebuild(&graph, label, stdout);
+		else if (strcmp(cmd, "clean") == 0)
+			rc = qstar_graph_clean(&graph, label, stdout);
+		else if (strcmp(cmd, "log") == 0)
+			rc = qstar_graph_log(&graph, label, stdout);
+		else if (strcmp(cmd, "last-failure") == 0)
+			rc = qstar_graph_last_failure(&graph, stdout);
 		else if (strcmp(cmd, "doctor") == 0)
 			rc = qstar_graph_doctor(&graph, stdout);
 		else if (strcmp(cmd, "list-targets") == 0)

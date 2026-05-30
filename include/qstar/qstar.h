@@ -88,6 +88,10 @@ struct qstar_graph {
 	int error_line;
 };
 
+struct qstar_build_options {
+	int explain_cache;
+};
+
 /** QStar graph 저장소를 빈 상태로 초기화한다. */
 void qstar_graph_init(struct qstar_graph *graph);
 
@@ -165,6 +169,22 @@ int qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out)
 
 /** QStar local executor v1로 제한된 build action을 실행한다. */
 int qstar_graph_build(struct qstar_graph *graph, const char *label, FILE *out);
+
+/** QStar local executor에 option을 적용해 제한된 build action을 실행한다. */
+int qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
+    const struct qstar_build_options *options, FILE *out);
+
+/** QStar action cache 기준으로 rebuild 이유를 설명한다. */
+int qstar_graph_why_rebuild(struct qstar_graph *graph, const char *label, FILE *out);
+
+/** QStar local build output을 전체 또는 target 단위로 지운다. */
+int qstar_graph_clean(struct qstar_graph *graph, const char *label, FILE *out);
+
+/** QStar action log path 목록을 target 기준으로 출력한다. */
+int qstar_graph_log(struct qstar_graph *graph, const char *label, FILE *out);
+
+/** 마지막 실패 replay 파일을 출력한다. */
+int qstar_graph_last_failure(struct qstar_graph *graph, FILE *out);
 
 /** QStar authoring check 결과를 deterministic text로 출력한다. */
 int qstar_graph_check(struct qstar_graph *graph, const char *label, FILE *out);

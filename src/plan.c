@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 struct qstar_plan {
 	struct qstar_graph *graph;
@@ -780,6 +782,8 @@ int
 qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 {
 	struct qstar_plan plan;
+	struct qstar_resolved_toolchain toolchain;
+	char state_dir[QSTAR_PATH_MAX];
 	int rc;
 
 	rc = build_closure(graph, NULL, &plan);
@@ -794,6 +798,21 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 	fprintf(out, "target-count %zu\n", graph->len);
 	fprintf(out, "closure-target-count %zu\n", plan.len);
 	fprintf(out, "generated-action-count %zu\n", graph->genrule_len);
+	if (plan.len > 0 && qstar_resolve_toolchain(graph, plan.order[0], &toolchain) == 0)
+		fprintf(out, "toolchain-sanity name=%s cc=%s linker=%s status=resolved\n",
+		    toolchain.name, toolchain.cc, toolchain.linker);
+	if (qstar_path_join(graph->package_root ? graph->package_root : ".", ".qstar",
+	    state_dir, sizeof(state_dir)) == 0) {
+		if (mkdir(state_dir, 0777) == 0 || access(state_dir, W_OK) == 0)
+			fputs("writable-state-dir yes\n", out);
+		else
+			fputs("writable-state-dir no\n", out);
+	}
+	fprintf(out, "profile-file-input name=%s target=%s toolchain=%s stdlib=%s\n",
+	    graph->profile.name ? graph->profile.name : "default",
+	    graph->profile.target ? graph->profile.target : "host",
+	    graph->profile.toolchain ? graph->profile.toolchain : "host",
+	    graph->profile.stdlib_policy ? graph->profile.stdlib_policy : "system");
 	fputs("diagnostics ok\n", out);
 	fputs("file-inputs ok\n", out);
 	fputs("status ok\n", out);

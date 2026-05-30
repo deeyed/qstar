@@ -1,9 +1,10 @@
 .POSIX:
 
 CC ?= cc
-BUILD_DIR ?= ../build
+BUILD_DIR ?= build
 BIN_DIR ?= $(BUILD_DIR)/bin
-QSTAR_BUILD = $(BUILD_DIR)/qstar
+PREFIX ?= /usr/local
+QSTAR_BUILD = $(BUILD_DIR)/obj
 LUA_DIR = vendor/lua
 CFLAGS ?= -g -O0 -pipe
 QSTAR_CFLAGS = -std=c99 -Wall -Wextra -Wpedantic $(CFLAGS) -Iinclude -I$(LUA_DIR)
@@ -48,19 +49,7 @@ LUA_SRCS = \
 
 QSTAR_OBJS = $(QSTAR_SRCS:%.c=$(QSTAR_BUILD)/%.o)
 LUA_OBJS = $(LUA_SRCS:%.c=$(QSTAR_BUILD)/%.o)
-QSTAR_TEST = $(QSTAR_BUILD)/tests/qstar-tests
-QSTAR_TEST_SRCS = \
-	../tools/qstar_tests.c \
-	../tools/test_runtime.c \
-	../host/src/generic/path.c \
-	../host/src/generic/sdk.c \
-	../host/src/posix/env.c \
-	../host/src/posix/executable.c \
-	../host/src/posix/fs.c \
-	../host/src/posix/process.c \
-	../host/src/posix/temp.c
-
-.PHONY: all check clean
+.PHONY: all check install clean
 
 all: $(BIN_DIR)/qstar
 
@@ -76,15 +65,14 @@ $(QSTAR_BUILD)/$(LUA_DIR)/%.o: $(LUA_DIR)/%.c
 	mkdir -p $(QSTAR_BUILD)/$(LUA_DIR)
 	$(CC) $(LUA_CFLAGS) -c $< -o $@
 
-$(QSTAR_TEST): $(QSTAR_TEST_SRCS)
-	mkdir -p $(QSTAR_BUILD)/tests
-	$(CC) -std=c99 -Wall -Wextra -Wpedantic $(CFLAGS) -I../host/include $^ -o $@
-
-check: all $(QSTAR_TEST)
-	bin="$(BIN_DIR)/qstar"; testbin="$(QSTAR_TEST)"; \
+check: all
+	bin="$(BIN_DIR)/qstar"; \
 	case "$$bin" in /*) ;; *) bin="$(CURDIR)/$$bin";; esac; \
-	case "$$testbin" in /*) ;; *) testbin="$(CURDIR)/$$testbin";; esac; \
-	cd "$(CURDIR)/.." && QSTAR_TEST_QSTAR="$$bin" "$$testbin" all
+	QSTAR_TEST_QSTAR="$$bin" sh tests/smoke.sh
+
+install: all
+	mkdir -p "$(PREFIX)/bin"
+	cp "$(BIN_DIR)/qstar" "$(PREFIX)/bin/qstar"
 
 clean:
 	rm -rf $(QSTAR_BUILD) $(BIN_DIR)/qstar
