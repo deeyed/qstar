@@ -456,6 +456,10 @@ dump_target(const struct qstar_target *target, FILE *out)
 	    target->origin_file && *target->origin_file ? target->origin_file : "<unknown>",
 	    target->origin_line);
 	fprintf(out, "  kind %s\n", target->kind);
+	fprintf(out, "  rule provider=%s final_action=%s output_group=%s\n",
+	    qstar_target_rule_lookup(target->kind) ?
+	    qstar_target_rule_lookup(target->kind)->provider : "generic",
+	    qstar_target_final_action(target), qstar_target_output_group(target));
 	if (target->modules.present) {
 		fprintf(out, "  modules root=%s include=", target->modules.root ? target->modules.root : "");
 		dump_list(out, &target->modules.include);
@@ -638,6 +642,10 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	    target->origin_line);
 	fprintf(out, "  fragment_dir %s\n", target->fragment_dir);
 	fprintf(out, "  kind %s\n", target->kind);
+	fprintf(out, "  rule provider=%s final_action=%s output_group=%s\n",
+	    qstar_target_rule_lookup(target->kind) ?
+	    qstar_target_rule_lookup(target->kind)->provider : "generic",
+	    qstar_target_final_action(target), qstar_target_output_group(target));
 	fputs("  sources ", out);
 	dump_list(out, &target->sources);
 	fputc('\n', out);

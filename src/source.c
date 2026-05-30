@@ -60,64 +60,6 @@ list_pair_has_duplicate(const struct qstar_string_list *a,
 	return 0;
 }
 
-/** suffix 일치 여부를 확장자 판별용으로 검사한다. */
-static int
-has_suffix(const char *s, const char *suffix)
-{
-	size_t ns, nfix;
-
-	ns = strlen(s);
-	nfix = strlen(suffix);
-	return ns >= nfix && strcmp(s + ns - nfix, suffix) == 0;
-}
-
-/** QStar source path를 language/tool role로 분류한다. */
-int
-qstar_source_classify(const char *path, struct qstar_source_info *info)
-{
-	if (info) {
-		info->path = path;
-		info->language = "unknown";
-		info->tool_role = "unsupported";
-	}
-	if (has_suffix(path, ".c")) {
-		if (info) {
-			info->language = "c";
-			info->tool_role = "c-compiler";
-		}
-		return 0;
-	}
-	if (has_suffix(path, ".h")) {
-		if (info) {
-			info->language = "header";
-			info->tool_role = "header-input";
-		}
-		return 0;
-	}
-	if (has_suffix(path, ".cale")) {
-		if (info) {
-			info->language = "cale";
-			info->tool_role = "cale-compiler";
-		}
-		return 0;
-	}
-	if (has_suffix(path, ".s")) {
-		if (info) {
-			info->language = "asm";
-			info->tool_role = "assembler";
-		}
-		return 0;
-	}
-	if (has_suffix(path, ".S")) {
-		if (info) {
-			info->language = "asm-cpp";
-			info->tool_role = "preprocessed-assembler";
-		}
-		return 0;
-	}
-	return -1;
-}
-
 /** source list 하나를 package-relative path와 지원 language 기준으로 검증한다. */
 static int
 validate_source_list(struct qstar_graph *graph, const struct qstar_target *target)
@@ -354,8 +296,9 @@ dump_source(FILE *out, const char *path)
 
 	if (qstar_source_classify(path, &info) < 0)
 		return;
-	fprintf(out, "  source_file path=%s language=%s tool=%s role=compile\n",
-	    path, info.language, info.tool_role);
+	fprintf(out,
+	    "  source_file path=%s language=%s tool=%s provider=%s output_group=%s role=compile\n",
+	    path, info.language, info.tool_role, info.provider, info.output_group);
 }
 
 /** QStar target의 source discovery skeleton을 출력한다. */

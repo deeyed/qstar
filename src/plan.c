@@ -279,23 +279,6 @@ qstar_graph_visit_closure(struct qstar_graph *graph, const char *label,
 	return 0;
 }
 
-/** target kind에 대응하는 최종 action 이름을 반환한다. */
-static const char *
-final_action(const struct qstar_target *target)
-{
-	if (strcmp(target->kind, "exe") == 0)
-		return "link";
-	if (strcmp(target->kind, "test") == 0)
-		return "link";
-	if (strcmp(target->kind, "staticlib") == 0)
-		return "archive";
-	if (strcmp(target->kind, "sharedlib") == 0)
-		return "link-shared";
-	if (strcmp(target->kind, "objectlib") == 0)
-		return "compile-objects";
-	return "materialize";
-}
-
 /** closure order를 한 줄의 deterministic list로 출력한다. */
 static void
 dump_closure_order(FILE *out, const struct qstar_plan *plan)
@@ -723,6 +706,10 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	fprintf(out, "target %s\n", target->label);
 	fprintf(out, "  order %zu\n", order);
 	fprintf(out, "  kind %s\n", target->kind);
+	fprintf(out, "  rule provider=%s final_action=%s output_group=%s\n",
+	    qstar_target_rule_lookup(target->kind) ?
+	    qstar_target_rule_lookup(target->kind)->provider : "generic",
+	    qstar_target_final_action(target), qstar_target_output_group(target));
 	fputs("  deps ", out);
 	dump_list(out, &target->deps);
 	fputc('\n', out);
@@ -778,7 +765,7 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 		dump_compile_argv(out, target, plan->graph, &toolchain, &source,
 		    target->sources.items[i], output, i);
 	}
-	action = final_action(target);
+	action = qstar_target_final_action(target);
 	final_tool = strcmp(action, "archive") == 0 ? "archiver" :
 	    strcmp(action, "compile-objects") == 0 ? "object-collector" : "linker";
 	if (qstar_artifact_output_path(target, output, sizeof(output)) < 0)
@@ -883,7 +870,7 @@ dump_dry_run_final(FILE *out, const struct qstar_plan *plan, const struct qstar_
 
 	if (qstar_resolve_toolchain(plan->graph, target, &toolchain) < 0)
 		return -1;
-	action = final_action(target);
+	action = qstar_target_final_action(target);
 	tool = strcmp(action, "archive") == 0 ? "archiver" :
 	    strcmp(action, "compile-objects") == 0 ? "object-collector" : "linker";
 	if (qstar_artifact_output_path(target, output, sizeof(output)) < 0)
@@ -916,6 +903,11 @@ qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out)
 	for (i = 0; i < plan.len; i++) {
 		fprintf(out, "dry_run_target %s order=%zu kind=%s\n",
 		    plan.order[i]->label, i, plan.order[i]->kind);
+		fprintf(out, "  rule provider=%s final_action=%s output_group=%s\n",
+		    qstar_target_rule_lookup(plan.order[i]->kind) ?
+		    qstar_target_rule_lookup(plan.order[i]->kind)->provider : "generic",
+		    qstar_target_final_action(plan.order[i]),
+		    qstar_target_output_group(plan.order[i]));
 		{
 		struct qstar_resolved_toolchain toolchain;
 		if (dump_resolved_toolchain(out, &plan, plan.order[i], &toolchain) < 0) {

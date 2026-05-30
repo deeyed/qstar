@@ -75,6 +75,22 @@ struct qstar_source_info {
 	const char *path;
 	const char *language;
 	const char *tool_role;
+	const char *provider;
+	const char *output_group;
+	int compile_input;
+	int header_input;
+};
+
+struct qstar_target_rule_info {
+	const char *kind;
+	const char *provider;
+	const char *final_action;
+	const char *output_group;
+	const char *artifact_prefix;
+	const char *artifact_suffix;
+	int executable_artifact;
+	int installable_artifact;
+	int local_executor_supported;
 };
 
 struct qstar_graph {
@@ -155,6 +171,12 @@ const struct qstar_genrule *qstar_graph_find_output_owner(const struct qstar_gra
 
 /** QStar source path를 language/tool role로 분류한다. */
 int qstar_source_classify(const char *path, struct qstar_source_info *info);
+
+/** QStar source kind registry에서 path suffix에 맞는 항목을 찾는다. */
+const struct qstar_source_info *qstar_source_kind_lookup_path(const char *path);
+
+/** QStar target rule registry에서 target kind에 맞는 rule을 찾는다. */
+const struct qstar_target_rule_info *qstar_target_rule_lookup(const char *kind);
 
 /** QStar target의 header file plan skeleton을 출력한다. */
 void qstar_target_dump_header_files(const struct qstar_target *target, FILE *out);

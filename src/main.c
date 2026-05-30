@@ -1,4 +1,4 @@
-#include "qstar/qstar.h"
+#include "internal.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -19,6 +19,7 @@ usage(FILE *out)
 	fputs("       qstar [options] clean [--target label]\n", out);
 	fputs("       qstar [options] log [label]\n", out);
 	fputs("       qstar [options] last-failure\n", out);
+	fputs("       qstar init c-app|c-lib|generated|mixed-cale [directory]\n", out);
 	fputs("       qstar [options] --dump-graph\n", out);
 	fputs("options:\n", out);
 	fputs("       --file qstar.lua\n", out);
@@ -118,6 +119,7 @@ main(int argc, char **argv)
 	const char *cli_profile, *cli_target, *cli_toolchain, *cli_stdlib;
 	struct qstar_build_options build_options;
 	struct qstar_install_options install_options;
+	char init_error[512];
 	int arg, rc;
 
 	qstar_graph_init(&graph);
@@ -194,6 +196,35 @@ main(int argc, char **argv)
 		return 2;
 	}
 	cmd = argv[arg++];
+	if (strcmp(cmd, "init") == 0) {
+		const char *template_name, *directory;
+
+		if (arg >= argc) {
+			usage(stderr);
+			qstar_graph_free(&graph);
+			return 2;
+		}
+		template_name = argv[arg++];
+		directory = ".";
+		if (arg < argc)
+			directory = argv[arg++];
+		if (arg != argc) {
+			usage(stderr);
+			qstar_graph_free(&graph);
+			return 2;
+		}
+		init_error[0] = '\0';
+		rc = qstar_init_project(template_name, directory, stdout, init_error,
+		    sizeof(init_error));
+		if (rc < 0) {
+			fprintf(stderr, "%s\n", init_error[0] ? init_error :
+			    "qstar: init failed");
+			qstar_graph_free(&graph);
+			return 1;
+		}
+		qstar_graph_free(&graph);
+		return 0;
+	}
 	label = NULL;
 	if (strcmp(cmd, "explain") == 0 || strcmp(cmd, "dry-run") == 0 ||
 	    strcmp(cmd, "check") == 0 || strcmp(cmd, "query") == 0 ||

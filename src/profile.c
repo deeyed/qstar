@@ -238,13 +238,14 @@ int
 qstar_artifact_output_path(const struct qstar_target *target, char *dst, size_t dstlen)
 {
 	char owner[QSTAR_PATH_MAX];
+	const struct qstar_target_rule_info *rule;
 	const char *prefix, *suffix;
 	int n;
 
 	qstar_mangle_label(target->label, owner, sizeof(owner));
-	prefix = strcmp(target->kind, "staticlib") == 0 ? "lib" : "";
-	suffix = strcmp(target->kind, "staticlib") == 0 ? ".a" :
-	    strcmp(target->kind, "sharedlib") == 0 ? ".so" : "";
+	rule = qstar_target_rule_lookup(target->kind);
+	prefix = rule ? rule->artifact_prefix : "";
+	suffix = rule ? rule->artifact_suffix : "";
 	n = snprintf(dst, dstlen, ".qstar/out/%s/%s%s%s", owner, prefix, target->name, suffix);
 	return n >= 0 && (size_t)n < dstlen ? 0 : -1;
 }

@@ -1,7 +1,8 @@
-# QStar generated source/header smoke
+# QStar generated source/header sample
 
-This fixture is a hand-authored Round 17 sample. It shows `qstar.genrule`
-producing a C source and `qstar.config_header` producing a generated header.
+This fixture is a hand-authored Round 20 v0 corpus sample. It shows
+`qstar.genrule` producing a C source and `qstar.config_header` producing a
+generated header.
 
 ```txt
 make -C qstar

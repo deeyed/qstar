@@ -1,0 +1,3 @@
+fn cale_plugin_value() -> int {
+    return 9;
+}

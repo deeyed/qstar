@@ -1238,10 +1238,12 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "kind", target->label,
 		    "qstar: sharedlib targets are plan-only in local executor v1");
-	if (strcmp(target->kind, "exe") != 0 && strcmp(target->kind, "staticlib") != 0 &&
-	    strcmp(target->kind, "test") != 0)
-		return qstar_set_error(graph,
-		    "qstar: local executor v1 only supports exe/staticlib/test targets");
+	if (!qstar_target_rule_lookup(target->kind) ||
+	    !qstar_target_rule_lookup(target->kind)->local_executor_supported)
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "kind", target->label,
+		    "qstar: local executor does not support target kind '%s'",
+		    target->kind);
 	if (qstar_artifact_output_path(target, artifact, sizeof(artifact)) < 0 ||
 	    mkdir_parent_under_root(graph, artifact) < 0)
 		return qstar_set_error(graph, "qstar: could not create artifact output directory");
@@ -1578,7 +1580,7 @@ run_test_artifact(struct qstar_graph *graph, const struct qstar_target *target, 
 static int
 test_one_target(struct qstar_graph *graph, const struct qstar_target *target, FILE *out)
 {
-	if (strcmp(target->kind, "test") != 0)
+	if (!qstar_target_has_executable_artifact(target) || strcmp(target->kind, "test") != 0)
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "kind", target->label,
 		    "qstar: target '%s' is not a test target", target->label);
@@ -1699,7 +1701,7 @@ install_one_target(struct qstar_graph *graph, const struct qstar_target *target,
 	char artifact[QSTAR_PATH_MAX], dst[QSTAR_PATH_MAX];
 	size_t i;
 
-	if (strcmp(target->kind, "exe") != 0 && strcmp(target->kind, "staticlib") != 0)
+	if (!qstar_target_is_installable(target))
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "kind", target->label,
 		    "qstar: target '%s' is not installable", target->label);
@@ -1746,8 +1748,7 @@ qstar_graph_install(struct qstar_graph *graph, const char *label,
 	}
 	n = 0;
 	for (i = 0; i < graph->len; i++) {
-		if (strcmp(graph->targets[i].kind, "exe") != 0 &&
-		    strcmp(graph->targets[i].kind, "staticlib") != 0)
+		if (!qstar_target_is_installable(&graph->targets[i]))
 			continue;
 		n++;
 		if (install_one_target(graph, &graph->targets[i], options, out) < 0)

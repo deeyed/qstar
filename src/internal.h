@@ -59,6 +59,22 @@ int qstar_object_output_path(const struct qstar_target *target, size_t index, ch
 /** target artifact output path를 deterministic package-relative path로 만든다. */
 int qstar_artifact_output_path(const struct qstar_target *target, char *dst, size_t dstlen);
 
+/** target kind의 최종 action 이름을 rule registry 기준으로 반환한다. */
+const char *qstar_target_final_action(const struct qstar_target *target);
+
+/** target kind의 output group 이름을 rule registry 기준으로 반환한다. */
+const char *qstar_target_output_group(const struct qstar_target *target);
+
+/** target artifact가 local executor에서 실행 가능한 파일인지 확인한다. */
+int qstar_target_has_executable_artifact(const struct qstar_target *target);
+
+/** target artifact가 qstar install 대상인지 확인한다. */
+int qstar_target_is_installable(const struct qstar_target *target);
+
+/** qstar init template을 지정된 directory에 생성한다. */
+int qstar_init_project(const char *template_name, const char *directory, FILE *out,
+    char *error, size_t error_len);
+
 /** QStar plan/executor 공용 target closure callback이다. */
 typedef int (*qstar_target_visit_fn)(struct qstar_graph *graph, const struct qstar_target *target,
     size_t order, void *user);

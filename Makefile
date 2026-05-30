@@ -14,10 +14,12 @@ QSTAR_SRCS = \
 	src/executor.c \
 	src/graph.c \
 	src/header.c \
+	src/init.c \
 	src/label.c \
 	src/lua_runtime.c \
 	src/plan.c \
 	src/profile.c \
+	src/rule.c \
 	src/source.c \
 	src/main.c
 
@@ -49,7 +51,7 @@ LUA_SRCS = \
 
 QSTAR_OBJS = $(QSTAR_SRCS:%.c=$(QSTAR_BUILD)/%.o)
 LUA_OBJS = $(LUA_SRCS:%.c=$(QSTAR_BUILD)/%.o)
-.PHONY: all check install clean
+.PHONY: all check qstar-tests qstar-v0-release-tests install clean
 
 all: $(BIN_DIR)/qstar
 
@@ -69,6 +71,10 @@ check: all
 	bin="$(BIN_DIR)/qstar"; \
 	case "$$bin" in /*) ;; *) bin="$(CURDIR)/$$bin";; esac; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/smoke.sh
+
+qstar-tests: check
+
+qstar-v0-release-tests: check
 
 install: all
 	mkdir -p "$(PREFIX)/bin"

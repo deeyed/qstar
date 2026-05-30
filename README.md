@@ -39,6 +39,10 @@ qstar --file qstar.lua log //:app
 qstar --file qstar.lua last-failure
 qstar --file qstar.lua clean --target //:app
 qstar --file qstar.lua clean
+qstar init c-app my-app
+qstar init c-lib my-lib
+qstar init generated my-generated-app
+qstar init mixed-cale my-mixed-app
 qstar --file qstar.lua --diagnostics json check //:app
 qstar --file qstar.lua --package-alias @core=/path/to/core explain //:app
 qstar --file qstar.lua --profile debug --target arm64-apple-macos explain //:app
@@ -132,4 +136,24 @@ QStar 자체 regression은 다음으로 실행한다.
 
 ```txt
 make -C qstar check
+make -C qstar qstar-v0-release-tests
 ```
+
+## v0 seal
+
+Round 20 기준 QStar는 개발용 v0 build system으로 봉인되어 있다. Round 21부터
+`qstar init`은 sample corpus 기반 project skeleton을 생성한다. 유지할
+`qstar.lua` surface, manual sample corpus, deferred integration 항목은
+`docs/qstar/qstar-v0-seal.md`에 적는다. Root `Makefile`과 `cale build` integration은
+아직 열지 않으며, QStar는 `qstar/Makefile` 안에서 독립적으로 build/check/install된다.
+
+Manual sample:
+
+```txt
+qstar/tests/manual/c-only
+qstar/tests/manual/generated
+qstar/tests/manual/mixed-cale
+```
+
+Round 22부터 source kind와 target kind는 registry 기반 rule model로 분리한다.
+자세한 경계는 `docs/qstar/rule-model.md`에 둔다.
