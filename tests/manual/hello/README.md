@@ -1,7 +1,8 @@
 # QStar Manual Hello Fixture
 
-This fixture is for manual Round 8 experiments. It is intentionally small and
-does not require QStar to execute compilers or generators.
+This fixture is for manual QStar experiments. It is intentionally small and is
+primarily meant for graph/query/check/explain/dry-run UX. Its generated action
+uses a placeholder tool name, so it is not the recommended `qstar build` smoke.
 
 From the repository root:
 
@@ -17,5 +18,5 @@ build/bin/qstar --file qstar/tests/manual/hello/qstar.lua dry-run //:app
 ```
 
 The expected behavior is a deterministic graph, authoring check, Build Plan IR,
-and dry-run stream. No generated file, object file, archive, or executable is
-created.
+and dry-run stream. For an executor smoke, create a C-only local package with a
+package-relative generated tool as shown in `docs/qstar/examples.md`.

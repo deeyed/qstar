@@ -12,6 +12,7 @@ usage(FILE *out)
 	fputs("       qstar [options] check [label]\n", out);
 	fputs("       qstar [options] explain [label]\n", out);
 	fputs("       qstar [options] dry-run [label]\n", out);
+	fputs("       qstar [options] build [label]\n", out);
 	fputs("       qstar [options] --dump-graph\n", out);
 	fputs("options:\n", out);
 	fputs("       --file qstar.lua\n", out);
@@ -71,11 +72,16 @@ main(int argc, char **argv)
 {
 	struct qstar_graph graph;
 	const char *file, *cmd, *label, *diagnostic_format;
+	const char *cli_profile, *cli_target, *cli_toolchain, *cli_stdlib;
 	int arg, rc;
 
 	qstar_graph_init(&graph);
 	file = "qstar.lua";
 	diagnostic_format = "text";
+	cli_profile = NULL;
+	cli_target = NULL;
+	cli_toolchain = NULL;
+	cli_stdlib = NULL;
 	arg = 1;
 	while (arg < argc && strncmp(argv[arg], "--", 2) == 0 &&
 	    strcmp(argv[arg], "--dump-graph") != 0) {
@@ -118,18 +124,13 @@ main(int argc, char **argv)
 				return 2;
 			}
 			if (strcmp(argv[arg], "--profile") == 0)
-				rc = qstar_graph_set_profile_input(&graph, argv[arg + 1], NULL, NULL, NULL);
+				cli_profile = argv[arg + 1];
 			else if (strcmp(argv[arg], "--target") == 0)
-				rc = qstar_graph_set_profile_input(&graph, NULL, argv[arg + 1], NULL, NULL);
+				cli_target = argv[arg + 1];
 			else if (strcmp(argv[arg], "--toolchain") == 0)
-				rc = qstar_graph_set_profile_input(&graph, NULL, NULL, argv[arg + 1], NULL);
+				cli_toolchain = argv[arg + 1];
 			else
-				rc = qstar_graph_set_profile_input(&graph, NULL, NULL, NULL, argv[arg + 1]);
-			if (rc < 0) {
-				fprintf(stderr, "%s\n", graph.error);
-				qstar_graph_free(&graph);
-				return 1;
-			}
+				cli_stdlib = argv[arg + 1];
 			arg += 2;
 		} else {
 			usage(stderr);
@@ -145,7 +146,8 @@ main(int argc, char **argv)
 	cmd = argv[arg++];
 	label = NULL;
 	if (strcmp(cmd, "explain") == 0 || strcmp(cmd, "dry-run") == 0 ||
-	    strcmp(cmd, "check") == 0 || strcmp(cmd, "query") == 0) {
+	    strcmp(cmd, "check") == 0 || strcmp(cmd, "query") == 0 ||
+	    strcmp(cmd, "build") == 0) {
 		if (arg < argc)
 			label = argv[arg++];
 	} else if (strcmp(cmd, "--dump-graph") != 0 && strcmp(cmd, "list-targets") != 0 &&
@@ -164,14 +166,22 @@ main(int argc, char **argv)
 		qstar_graph_free(&graph);
 		return 2;
 	}
-	rc = qstar_lua_eval_file(&graph, file);
+	rc = qstar_graph_set_profile_input(&graph, cli_profile, NULL, NULL, NULL);
+	if (rc == 0)
+		rc = qstar_graph_load_profile_files(&graph, file);
+	if (rc == 0)
+		rc = qstar_graph_set_profile_input(&graph, cli_profile, cli_target,
+		    cli_toolchain, cli_stdlib);
+	if (rc == 0)
+		rc = qstar_lua_eval_file(&graph, file);
 	if (rc == 0)
 		rc = qstar_graph_validate_generated_outputs(&graph);
 	if (rc == 0)
 		rc = qstar_graph_validate_sources(&graph);
 	if (rc == 0)
 		rc = qstar_graph_validate_headers(&graph);
-	if (rc == 0 && (strcmp(cmd, "check") == 0 || strcmp(cmd, "doctor") == 0))
+	if (rc == 0 && (strcmp(cmd, "check") == 0 || strcmp(cmd, "doctor") == 0 ||
+	    strcmp(cmd, "build") == 0))
 		rc = qstar_graph_validate_file_inputs(&graph);
 	if (rc == 0) {
 		if (strcmp(cmd, "explain") == 0)
@@ -180,6 +190,8 @@ main(int argc, char **argv)
 			rc = qstar_graph_dry_run(&graph, label, stdout);
 		else if (strcmp(cmd, "check") == 0)
 			rc = qstar_graph_check(&graph, label, stdout);
+		else if (strcmp(cmd, "build") == 0)
+			rc = qstar_graph_build(&graph, label, stdout);
 		else if (strcmp(cmd, "doctor") == 0)
 			rc = qstar_graph_doctor(&graph, stdout);
 		else if (strcmp(cmd, "list-targets") == 0)

@@ -5,7 +5,7 @@
 #include <string.h>
 
 struct qstar_plan {
-	const struct qstar_graph *graph;
+	struct qstar_graph *graph;
 	const struct qstar_target **order;
 	unsigned char *state;
 	size_t len;
@@ -227,6 +227,31 @@ free_plan(struct qstar_plan *plan)
 	memset(plan, 0, sizeof(*plan));
 }
 
+/** dependency-first closure를 계산해 각 target callback을 순서대로 호출한다. */
+int
+qstar_graph_visit_closure(struct qstar_graph *graph, const char *label,
+    qstar_target_visit_fn visit, void *user)
+{
+	struct qstar_plan plan;
+	size_t i;
+	int rc;
+
+	rc = build_closure(graph, label, &plan);
+	if (rc < 0) {
+		free_plan(&plan);
+		return -1;
+	}
+	for (i = 0; i < plan.len; i++) {
+		rc = visit(graph, plan.order[i], i, user);
+		if (rc < 0) {
+			free_plan(&plan);
+			return -1;
+		}
+	}
+	free_plan(&plan);
+	return 0;
+}
+
 /** target kind에 대응하는 최종 action 이름을 반환한다. */
 static const char *
 final_action(const struct qstar_target *target)
@@ -321,6 +346,113 @@ dump_command_skeleton(FILE *out, const struct qstar_graph *graph,
 	    input, output);
 }
 
+/** 실제 argv plan의 list header를 출력한다. */
+static void
+begin_argv(FILE *out, const char *id, size_t argc)
+{
+	fprintf(out, "  command_argv id=%s argc=%zu argv=[", id, argc);
+}
+
+/** argv item 하나를 deterministic dump에 추가한다. */
+static void
+argv_item(FILE *out, size_t *seen, const char *value)
+{
+	if (*seen)
+		fputs(", ", out);
+	fputs(value, out);
+	(*seen)++;
+}
+
+/** command_argv line을 닫는다. */
+static void
+end_argv(FILE *out)
+{
+	fputs("]\n", out);
+}
+
+/** compile action의 실제 argv plan을 출력한다. */
+static void
+dump_compile_argv(FILE *out, const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain, const struct qstar_source_info *source,
+    const char *input, const char *output, size_t index)
+{
+	char id[QSTAR_PATH_MAX], target_arg[QSTAR_PATH_MAX];
+	const char *tool;
+	size_t argc, seen, i;
+	int cross;
+
+	snprintf(id, sizeof(id), "%s:compile:%zu", target->label, index);
+	tool = strcmp(source->language, "cale") == 0 ? toolchain->cale : toolchain->cc;
+	cross = strcmp(toolchain->name, "clang") == 0 && strcmp(toolchain->target, "host") != 0;
+	argc = 5 + target->include_dirs.len * 2 + target->system_include_dirs.len * 2 +
+	    (cross ? 1 : 0);
+	snprintf(target_arg, sizeof(target_arg), "--target=%s", toolchain->target);
+	begin_argv(out, id, argc);
+	seen = 0;
+	argv_item(out, &seen, tool);
+	if (cross)
+		argv_item(out, &seen, target_arg);
+	argv_item(out, &seen, "-c");
+	argv_item(out, &seen, input);
+	argv_item(out, &seen, "-o");
+	argv_item(out, &seen, output);
+	for (i = 0; i < target->include_dirs.len; i++) {
+		argv_item(out, &seen, "-I");
+		argv_item(out, &seen, target->include_dirs.items[i]);
+	}
+	for (i = 0; i < target->system_include_dirs.len; i++) {
+		argv_item(out, &seen, "-isystem");
+		argv_item(out, &seen, target->system_include_dirs.items[i]);
+	}
+	end_argv(out);
+}
+
+/** generated action의 실제 argv plan을 출력한다. */
+static void
+dump_genrule_argv(FILE *out, const struct qstar_genrule *genrule)
+{
+	size_t i, seen;
+	char id[QSTAR_PATH_MAX];
+
+	snprintf(id, sizeof(id), "%s:generate:0", genrule->label);
+	begin_argv(out, id, 1 + genrule->args.len);
+	seen = 0;
+	argv_item(out, &seen, genrule->tool);
+	for (i = 0; i < genrule->args.len; i++)
+		argv_item(out, &seen, genrule->args.items[i]);
+	end_argv(out);
+}
+
+/** target final action의 실제 argv plan을 출력한다. */
+static void
+dump_final_argv(FILE *out, const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain, const char *action,
+    const char *output)
+{
+	char id[QSTAR_PATH_MAX];
+	size_t seen, argc;
+
+	snprintf(id, sizeof(id), "%s:%s:0", target->label, action);
+	argc = strcmp(action, "archive") == 0 ? 4 :
+	    strcmp(action, "link-shared") == 0 ? 5 : 4;
+	begin_argv(out, id, argc);
+	seen = 0;
+	if (strcmp(action, "archive") == 0) {
+		argv_item(out, &seen, toolchain->ar);
+		argv_item(out, &seen, "rcs");
+		argv_item(out, &seen, output);
+		argv_item(out, &seen, "<target-objects>");
+	} else {
+		argv_item(out, &seen, toolchain->linker);
+		if (strcmp(action, "link-shared") == 0)
+			argv_item(out, &seen, "-shared");
+		argv_item(out, &seen, "-o");
+		argv_item(out, &seen, output);
+		argv_item(out, &seen, "<target-objects>");
+	}
+	end_argv(out);
+}
+
 /** generated action output 중 target source로 소비되는 것이 있는지 확인한다. */
 static int
 genrule_consumed_by_target(const struct qstar_genrule *genrule,
@@ -389,30 +521,35 @@ dump_consumed_genrules(FILE *out, const struct qstar_plan *plan,
 		    genrule->label, genrule->tool, target->toolchain,
 		    profile_or_default(plan->graph->profile.target, "host"),
 		    target->stdlib_policy, inputs, outputs, target->label);
+		dump_genrule_argv(out, genrule);
 	}
 }
 
 /** target-local toolchain/profile resolver skeleton을 출력한다. */
-static void
+static int
 dump_resolved_toolchain(FILE *out, const struct qstar_plan *plan,
-    const struct qstar_target *target)
+    const struct qstar_target *target, struct qstar_resolved_toolchain *resolved)
 {
+	if (qstar_resolve_toolchain(plan->graph, target, resolved) < 0)
+		return -1;
 	fprintf(out,
 	    "  resolved_toolchain owner=%s toolchain=%s profile=%s target=%s "
-	    "stdlib=%s resolver=skeleton\n",
-	    target->label, target->toolchain,
+	    "stdlib=%s resolver=%s cc=%s cale=%s ar=%s linker=%s\n",
+	    target->label, resolved->name,
 	    profile_or_default(plan->graph->profile.name, "default"),
-	    profile_or_default(plan->graph->profile.target, "host"),
-	    target->stdlib_policy);
+	    resolved->target, resolved->stdlib_policy, resolved->resolver,
+	    resolved->cc, resolved->cale, resolved->ar, resolved->linker);
+	return 0;
 }
 
 /** target 하나의 non-executing command-plan record를 출력한다. */
-static void
+static int
 dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_target *target,
     size_t order)
 {
 	char output[QSTAR_PATH_MAX];
 	struct qstar_source_info source;
+	struct qstar_resolved_toolchain toolchain;
 	const char *action;
 	const char *final_tool;
 	size_t i;
@@ -442,26 +579,33 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	fputc('\n', out);
 	fprintf(out, "  toolchain %s\n", target->toolchain);
 	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
-	dump_resolved_toolchain(out, plan, target);
+	if (dump_resolved_toolchain(out, plan, target, &toolchain) < 0)
+		return -1;
 	for (i = 0; i < target->sources.len; i++) {
 		qstar_source_classify(target->sources.items[i], &source);
-		snprintf(output, sizeof(output), "<object:%s:%zu>", target->label, i);
-		fprintf(out, "  action compile source=%s output=<object:%s:%zu>\n",
-		    target->sources.items[i], target->label, i);
+		if (qstar_object_output_path(target, i, output, sizeof(output)) < 0)
+			return qstar_set_error(plan->graph, "qstar: object output path too long");
+		fprintf(out, "  action compile source=%s output=%s\n",
+		    target->sources.items[i], output);
 		dump_action_key(out, plan->graph, target, "compile", target->sources.items[i],
 		    output, source.language, i);
 		dump_command_skeleton(out, plan->graph, target, "compile",
 		    target->sources.items[i], output, source.language, source.tool_role, i);
+		dump_compile_argv(out, target, &toolchain, &source, target->sources.items[i],
+		    output, i);
 	}
 	action = final_action(target);
 	final_tool = strcmp(action, "archive") == 0 ? "archiver" :
 	    strcmp(action, "compile-objects") == 0 ? "object-collector" : "linker";
-	snprintf(output, sizeof(output), "<artifact:%s>", target->label);
-	fprintf(out, "  action %s output=<artifact:%s>\n", action, target->label);
+	if (qstar_artifact_output_path(target, output, sizeof(output)) < 0)
+		return qstar_set_error(plan->graph, "qstar: artifact output path too long");
+	fprintf(out, "  action %s output=%s\n", action, output);
 	dump_action_key(out, plan->graph, target, action, "<target-objects>", output,
 	    "artifact", 0);
 	dump_command_skeleton(out, plan->graph, target, action, "<target-objects>",
 	    output, "artifact", final_tool, 0);
+	dump_final_argv(out, target, &toolchain, action, output);
+	return 0;
 }
 
 /** QStar target closure와 non-executing command plan을 deterministic text로 출력한다. */
@@ -482,8 +626,12 @@ qstar_graph_explain_plan(struct qstar_graph *graph, const char *label, FILE *out
 	fprintf(out, "root %s\n", label && *label ? label : "<all>");
 	dump_plan_inputs(out, graph);
 	dump_closure_order(out, &plan);
-	for (i = 0; i < plan.len; i++)
-		dump_target_plan(out, &plan, plan.order[i], i);
+	for (i = 0; i < plan.len; i++) {
+		if (dump_target_plan(out, &plan, plan.order[i], i) < 0) {
+			free_plan(&plan);
+			return -1;
+		}
+	}
 	free_plan(&plan);
 	return 0;
 }
@@ -510,46 +658,58 @@ dump_dry_run_genrules(FILE *out, const struct qstar_plan *plan,
 		    outputs);
 		dump_list(out, &genrule->args);
 		fputs(" execute=no\n", out);
+		dump_genrule_argv(out, genrule);
 	}
 }
 
 /** target의 compile dry-run step을 source 순서대로 출력한다. */
-static void
+static int
 dump_dry_run_compiles(FILE *out, const struct qstar_plan *plan,
     const struct qstar_target *target)
 {
 	struct qstar_source_info source;
+	struct qstar_resolved_toolchain toolchain;
 	char output[QSTAR_PATH_MAX];
 	size_t i;
 
-	(void)plan;
+	if (qstar_resolve_toolchain(plan->graph, target, &toolchain) < 0)
+		return -1;
 	for (i = 0; i < target->sources.len; i++) {
 		qstar_source_classify(target->sources.items[i], &source);
-		snprintf(output, sizeof(output), "<object:%s:%zu>", target->label, i);
+		if (qstar_object_output_path(target, i, output, sizeof(output)) < 0)
+			return qstar_set_error(plan->graph, "qstar: object output path too long");
 		fprintf(out,
 		    "dry_run_step id=%s:compile:%zu owner=%s kind=compile language=%s "
 		    "tool=%s toolchain=%s input=%s output=%s execute=no\n",
 		    target->label, i, target->label, source.language, source.tool_role,
-		    target->toolchain, target->sources.items[i], output);
+		    toolchain.name, target->sources.items[i], output);
+		dump_compile_argv(out, target, &toolchain, &source, target->sources.items[i],
+		    output, i);
 	}
+	return 0;
 }
 
 /** target의 최종 artifact dry-run step을 출력한다. */
-static void
+static int
 dump_dry_run_final(FILE *out, const struct qstar_plan *plan, const struct qstar_target *target)
 {
 	char output[QSTAR_PATH_MAX];
+	struct qstar_resolved_toolchain toolchain;
 	const char *action, *tool;
 
-	(void)plan;
+	if (qstar_resolve_toolchain(plan->graph, target, &toolchain) < 0)
+		return -1;
 	action = final_action(target);
 	tool = strcmp(action, "archive") == 0 ? "archiver" :
 	    strcmp(action, "compile-objects") == 0 ? "object-collector" : "linker";
-	snprintf(output, sizeof(output), "<artifact:%s>", target->label);
+	if (qstar_artifact_output_path(target, output, sizeof(output)) < 0)
+		return qstar_set_error(plan->graph, "qstar: artifact output path too long");
 	fprintf(out,
 	    "dry_run_step id=%s:%s:0 owner=%s kind=%s tool=%s toolchain=%s "
 	    "input=<target-objects> output=%s execute=no\n",
-	    target->label, action, target->label, action, tool, target->toolchain, output);
+	    target->label, action, target->label, action, tool, toolchain.name, output);
+	dump_final_argv(out, target, &toolchain, action, output);
+	return 0;
 }
 
 /** QStar target closure를 실제 실행 없이 dry-run command stream으로 출력한다. */
@@ -572,10 +732,19 @@ qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out)
 	for (i = 0; i < plan.len; i++) {
 		fprintf(out, "dry_run_target %s order=%zu kind=%s\n",
 		    plan.order[i]->label, i, plan.order[i]->kind);
-		dump_resolved_toolchain(out, &plan, plan.order[i]);
+		{
+		struct qstar_resolved_toolchain toolchain;
+		if (dump_resolved_toolchain(out, &plan, plan.order[i], &toolchain) < 0) {
+			free_plan(&plan);
+			return -1;
+		}
+		}
 		dump_dry_run_genrules(out, &plan, plan.order[i]);
-		dump_dry_run_compiles(out, &plan, plan.order[i]);
-		dump_dry_run_final(out, &plan, plan.order[i]);
+		if (dump_dry_run_compiles(out, &plan, plan.order[i]) < 0 ||
+		    dump_dry_run_final(out, &plan, plan.order[i]) < 0) {
+			free_plan(&plan);
+			return -1;
+		}
 	}
 	free_plan(&plan);
 	return 0;

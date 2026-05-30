@@ -10,11 +10,13 @@ QSTAR_CFLAGS = -std=c99 -Wall -Wextra -Wpedantic $(CFLAGS) -Iinclude -I$(LUA_DIR
 LUA_CFLAGS = -std=c99 -O2 -I$(LUA_DIR)
 
 QSTAR_SRCS = \
+	src/executor.c \
 	src/graph.c \
 	src/header.c \
 	src/label.c \
 	src/lua_runtime.c \
 	src/plan.c \
+	src/profile.c \
 	src/source.c \
 	src/main.c
 

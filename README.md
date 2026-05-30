@@ -3,7 +3,7 @@
 QStar is currently a standalone query, explain, dry-run, and authoring-check
 build graph evaluator.
 
-Round 11 builds `build/bin/qstar` and installs it next to `cale` through
+Round 13 builds `build/bin/qstar` and installs it next to `cale` through
 `install-user`. It is still not wired into `cale build`.
 
 The Lua evaluator uses the official Lua repository as a git submodule at
@@ -20,6 +20,7 @@ qstar --file qstar.lua doctor
 qstar --file qstar.lua check //:app
 qstar --file qstar.lua explain //:app
 qstar --file qstar.lua dry-run //:app
+qstar --file qstar.lua build //:app
 qstar --file qstar.lua --diagnostic-format line check //:app
 qstar --file qstar.lua --package-alias @core=/path/to/core explain //:app
 qstar --file qstar.lua --profile debug --target arm64-apple-macos explain //:app
@@ -75,6 +76,19 @@ Round 11 makes source selection more real. `qstar.files { "src/*.c", exclude =
 entries are rejected, and `qstar.select` chooses an actual branch from
 `--target`/profile input instead of leaving a placeholder in the graph.
 
+Round 12 adds a first real profile/toolchain resolver. QStar reads minimal
+read-only `Cale.toml` and `.cale/profiles/<name>.toml` scalar fields, resolves
+`host`, `clang`, and `cale` toolchain profiles, and renders actual argv plans
+for generated actions, C/Cale compile actions, archive, and link actions. The
+`dry-run` command remains non-executing, but it now shows the same `.qstar/out`
+paths and argv shape that the executor will use.
+
+Round 13 adds `qstar build` as a restricted local executor v1. It supports
+package-local generated tools, C source compilation, static archives, and exe
+links with stdout/stderr/action logs under `.qstar/logs`. It intentionally does
+not build `.cale`, assembly, remote packages, caches, Ninja files, or arbitrary
+external generator paths yet.
+
 You can already experiment with small `qstar.lua` and subdir `foo.qs` files for
 graph shape, source classification, dependency order, command skeleton output,
 and dry-run step ordering. Treat that surface as developer-preview until actual
@@ -93,6 +107,9 @@ build/bin/qstar --file qstar/tests/manual/hello/qstar.lua check //:app
 build/bin/qstar --file qstar/tests/manual/hello/qstar.lua explain //:app
 build/bin/qstar --file qstar/tests/manual/hello/qstar.lua dry-run //:app
 ```
+
+For `qstar build`, start with a small C-only local fixture. v1 writes artifacts
+under `.qstar/out` in the package root and action logs under `.qstar/logs`.
 
 QStar-local regression:
 

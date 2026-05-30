@@ -4,6 +4,18 @@
 #include "qstar/qstar.h"
 
 #include <stddef.h>
+#include <stdio.h>
+
+struct qstar_resolved_toolchain {
+	char name[64];
+	char target[128];
+	char stdlib_policy[64];
+	char cc[QSTAR_PATH_MAX];
+	char cale[QSTAR_PATH_MAX];
+	char ar[QSTAR_PATH_MAX];
+	char linker[QSTAR_PATH_MAX];
+	char resolver[64];
+};
 
 /** 문자열을 QStar 소유 메모리로 복사한다. */
 char *qstar_strdup(const char *s);
@@ -32,5 +44,27 @@ int qstar_path_is_package_relative(const char *path);
 
 /** external canonical label에서 package alias 부분을 추출한다. */
 int qstar_label_package_alias(const char *label, char *dst, size_t dstlen);
+
+/** target/profile 입력을 합쳐 host/clang/cale toolchain v1을 결정한다. */
+int qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *target,
+    struct qstar_resolved_toolchain *resolved);
+
+/** target label을 .qstar/out 아래 파일명에 안전한 이름으로 바꾼다. */
+void qstar_mangle_label(const char *label, char *dst, size_t dstlen);
+
+/** compile object output path를 deterministic package-relative path로 만든다. */
+int qstar_object_output_path(const struct qstar_target *target, size_t index, char *dst,
+    size_t dstlen);
+
+/** target artifact output path를 deterministic package-relative path로 만든다. */
+int qstar_artifact_output_path(const struct qstar_target *target, char *dst, size_t dstlen);
+
+/** QStar plan/executor 공용 target closure callback이다. */
+typedef int (*qstar_target_visit_fn)(struct qstar_graph *graph, const struct qstar_target *target,
+    size_t order, void *user);
+
+/** dependency-first closure를 계산해 각 target callback을 순서대로 호출한다. */
+int qstar_graph_visit_closure(struct qstar_graph *graph, const char *label,
+    qstar_target_visit_fn visit, void *user);
 
 #endif

@@ -117,6 +117,9 @@ int qstar_graph_set_profile_input(struct qstar_graph *graph, const char *name,
 const struct qstar_package_alias *qstar_graph_find_package_alias(const struct qstar_graph *graph,
     const char *alias);
 
+/** Cale.toml과 .cale/profiles/<name>.toml의 최소 profile 입력을 읽어 graph에 반영한다. */
+int qstar_graph_load_profile_files(struct qstar_graph *graph, const char *qstar_file);
+
 /** QStar header file graph policy를 검증한다. */
 int qstar_graph_validate_headers(struct qstar_graph *graph);
 
@@ -159,6 +162,9 @@ int qstar_graph_explain_plan(struct qstar_graph *graph, const char *label, FILE 
 
 /** QStar target closure를 실제 실행 없이 dry-run command stream으로 출력한다. */
 int qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out);
+
+/** QStar local executor v1로 제한된 build action을 실행한다. */
+int qstar_graph_build(struct qstar_graph *graph, const char *label, FILE *out);
 
 /** QStar authoring check 결과를 deterministic text로 출력한다. */
 int qstar_graph_check(struct qstar_graph *graph, const char *label, FILE *out);
