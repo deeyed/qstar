@@ -752,6 +752,9 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	fputs("  private_deps ", out);
 	dump_list(out, &target->private_deps);
 	fputc('\n', out);
+	fputs("  visibility ", out);
+	dump_list(out, &target->visibility);
+	fputc('\n', out);
 	dump_external_deps(out, plan, target);
 	dump_generated_edges(out, plan, target);
 	dump_consumed_genrules(out, plan, target);

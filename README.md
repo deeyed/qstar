@@ -162,3 +162,19 @@ Round 23/24부터 QStar는 C/C++ compiler depfile을 읽어 header 변경을 com
 key에 반영하고, `.cc/.cpp/.cxx/.hpp`를 build-system source/header kind로 인식한다.
 C++ source가 있는 target은 `c++` 또는 `clang++` linker path를 사용한다. QStar는 C++
 문법을 해석하지 않으며 C++ modules는 아직 stable gate다.
+
+Round 25/26부터 QStar는 `qstar.workspace` marker를 workspace root discovery 기준으로
+사용한다. Marker가 없으면 기존처럼 `--file qstar.lua`의 directory가 package root다.
+Marker가 있으면 그 directory가 workspace root이고, 하위 `qstar.lua`에서 선언한
+`:name` target은 `//sub/path:name` label을 얻는다. Source/header/output path는
+계속 workspace-root 상대 path이며, `../`나 absolute path는 package 밖 참조로 reject된다.
+
+Target은 선언 fragment와 label package가 일치해야 한다. 예를 들어
+`pkg/qstar.lua` 안의 `qstar.exe "app"`은 `//pkg:app`을 만들고, 같은 파일에서
+`qstar.exe "//other:app"`처럼 다른 package 소유 label을 선언하는 것은 금지된다.
+
+`visibility = {"//...", "//pkg:..."}`는 v1 skeleton으로 들어왔다. Visibility를
+명시하지 않은 target은 v0 compatibility를 위해 workspace-local target에서 볼 수
+있지만, 명시한 target은 같은 package 또는 visibility pattern에 맞는 consumer만
+의존할 수 있다. QStar는 dependency target의 private include directory를 consumer가
+직접 include path로 끌어오는 accidental leakage도 authoring diagnostic으로 막는다.

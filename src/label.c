@@ -103,3 +103,24 @@ qstar_label_package_alias(const char *label, char *dst, size_t dstlen)
 	dst[n] = '\0';
 	return 0;
 }
+
+/** canonical target label에서 local package path를 추출한다. */
+int
+qstar_label_package_path(const char *label, char *dst, size_t dstlen)
+{
+	const char *start, *colon;
+	size_t n;
+
+	if (!label || strncmp(label, "//", 2) != 0 || !dstlen)
+		return -1;
+	start = label + 2;
+	colon = strrchr(start, ':');
+	if (!colon)
+		return -1;
+	n = (size_t)(colon - start);
+	if (n + 1 > dstlen)
+		return -1;
+	memcpy(dst, start, n);
+	dst[n] = '\0';
+	return 0;
+}

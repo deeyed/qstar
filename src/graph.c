@@ -120,6 +120,7 @@ free_target(struct qstar_target *target)
 	qstar_string_list_free(&target->system_include_dirs);
 	qstar_string_list_free(&target->deps);
 	qstar_string_list_free(&target->private_deps);
+	qstar_string_list_free(&target->visibility);
 	qstar_string_list_free(&target->libs);
 	qstar_string_list_free(&target->lib_dirs);
 	qstar_string_list_free(&target->frameworks);
@@ -456,10 +457,15 @@ dump_package_aliases(FILE *out, const struct qstar_graph *graph)
 static void
 dump_target(const struct qstar_target *target, FILE *out)
 {
+	char package[QSTAR_PATH_MAX];
+
+	if (qstar_label_package_path(target->label, package, sizeof(package)) < 0)
+		snprintf(package, sizeof(package), "<external>");
 	fprintf(out, "target %s\n", target->label);
 	fprintf(out, "  origin file=%s line=%d\n",
 	    target->origin_file && *target->origin_file ? target->origin_file : "<unknown>",
 	    target->origin_line);
+	fprintf(out, "  package %s\n", package[0] ? package : "<root>");
 	fprintf(out, "  kind %s\n", target->kind);
 	fprintf(out, "  rule provider=%s final_action=%s output_group=%s\n",
 	    qstar_target_rule_lookup(target->kind) ?
@@ -501,6 +507,9 @@ dump_target(const struct qstar_target *target, FILE *out)
 	fputc('\n', out);
 	fputs("  private_deps ", out);
 	dump_list(out, &target->private_deps);
+	fputc('\n', out);
+	fputs("  visibility ", out);
+	dump_list(out, &target->visibility);
 	fputc('\n', out);
 	fputs("  libs ", out);
 	dump_list(out, &target->libs);
@@ -653,6 +662,12 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	    target->origin_file && *target->origin_file ? target->origin_file : "<unknown>",
 	    target->origin_line);
 	fprintf(out, "  fragment_dir %s\n", target->fragment_dir);
+	{
+	char package[QSTAR_PATH_MAX];
+	if (qstar_label_package_path(target->label, package, sizeof(package)) < 0)
+		snprintf(package, sizeof(package), "<external>");
+	fprintf(out, "  package %s\n", package[0] ? package : "<root>");
+	}
 	fprintf(out, "  kind %s\n", target->kind);
 	fprintf(out, "  rule provider=%s final_action=%s output_group=%s\n",
 	    qstar_target_rule_lookup(target->kind) ?
@@ -672,6 +687,12 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	fputc('\n', out);
 	fputs("  deps ", out);
 	dump_list(out, &target->deps);
+	fputc('\n', out);
+	fputs("  private_deps ", out);
+	dump_list(out, &target->private_deps);
+	fputc('\n', out);
+	fputs("  visibility ", out);
+	dump_list(out, &target->visibility);
 	fputc('\n', out);
 	fputs("  cflags ", out);
 	dump_list(out, &target->cflags);

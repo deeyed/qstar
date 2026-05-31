@@ -60,6 +60,198 @@ list_pair_has_duplicate(const struct qstar_string_list *a,
 	return 0;
 }
 
+static const struct qstar_target *
+find_target(const struct qstar_graph *graph, const char *label)
+{
+	size_t i;
+
+	for (i = 0; i < graph->len; i++) {
+		if (strcmp(graph->targets[i].label, label) == 0)
+			return &graph->targets[i];
+	}
+	return NULL;
+}
+
+static int
+list_contains(const struct qstar_string_list *list, const char *s)
+{
+	size_t i;
+
+	for (i = 0; i < list->len; i++) {
+		if (strcmp(list->items[i], s) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+/** include directory list 하나를 package-relative path로 제한한다. */
+static int
+validate_include_dir_list(struct qstar_graph *graph, const struct qstar_target *target,
+    const struct qstar_string_list *list, const char *field)
+{
+	size_t i;
+
+	for (i = 0; i < list->len; i++) {
+		if (!qstar_path_is_package_relative(list->items[i]))
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, field, target->label,
+			    "qstar: include directory '%s' in '%s' must be package-relative",
+			    list->items[i], target->label);
+	}
+	return 0;
+}
+
+/** target의 package path와 선언 fragment ownership이 일치하는지 확인한다. */
+static int
+validate_target_ownership(struct qstar_graph *graph, const struct qstar_target *target)
+{
+	char package[QSTAR_PATH_MAX];
+
+	if (qstar_label_package_path(target->label, package, sizeof(package)) < 0)
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "label", target->label,
+		    "qstar: external target label '%s' cannot be declared in this package",
+		    target->label);
+	if (strcmp(package, target->fragment_dir) != 0)
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "label", target->label,
+		    "qstar: target '%s' is owned by package '%s' but declared in package '%s'",
+		    target->label, package[0] ? package : "<root>",
+		    target->fragment_dir[0] ? target->fragment_dir : "<root>");
+	return 0;
+}
+
+/** generated action label도 선언 fragment package에만 소유되도록 제한한다. */
+static int
+validate_genrule_ownership(struct qstar_graph *graph, const struct qstar_genrule *genrule)
+{
+	char package[QSTAR_PATH_MAX];
+
+	if (qstar_label_package_path(genrule->label, package, sizeof(package)) < 0)
+		return qstar_set_error_origin(graph, genrule->origin_file,
+		    genrule->origin_line, "label", genrule->label,
+		    "qstar: external generated action label '%s' cannot be declared in this package",
+		    genrule->label);
+	if (strcmp(package, genrule->fragment_dir) != 0)
+		return qstar_set_error_origin(graph, genrule->origin_file,
+		    genrule->origin_line, "label", genrule->label,
+		    "qstar: generated action '%s' is owned by package '%s' but declared in package '%s'",
+		    genrule->label, package[0] ? package : "<root>",
+		    genrule->fragment_dir[0] ? genrule->fragment_dir : "<root>");
+	return 0;
+}
+
+static int
+visibility_pattern_matches(const char *pattern, const char *consumer_label,
+    const char *consumer_package)
+{
+	char package[QSTAR_PATH_MAX];
+	size_t n;
+
+	if (strcmp(pattern, "//...") == 0)
+		return 1;
+	if (strcmp(pattern, consumer_label) == 0)
+		return 1;
+	if (strncmp(pattern, "//", 2) != 0)
+		return 0;
+	n = strlen(pattern);
+	if (n >= 4 && strcmp(pattern + n - 4, ":...") == 0) {
+		if (n - 4 - 2 >= sizeof(package))
+			return 0;
+		memcpy(package, pattern + 2, n - 4 - 2);
+		package[n - 4 - 2] = '\0';
+		return strcmp(package, consumer_package) == 0;
+	}
+	return 0;
+}
+
+/** dependency target이 consumer에게 보이는지 visibility skeleton 기준으로 확인한다. */
+static int
+target_visible_to(const struct qstar_target *dep, const struct qstar_target *consumer)
+{
+	char dep_package[QSTAR_PATH_MAX], consumer_package[QSTAR_PATH_MAX];
+	size_t i;
+
+	if (qstar_label_package_path(dep->label, dep_package, sizeof(dep_package)) < 0 ||
+	    qstar_label_package_path(consumer->label, consumer_package,
+	    sizeof(consumer_package)) < 0)
+		return 0;
+	if (strcmp(dep_package, consumer_package) == 0)
+		return 1;
+	if (dep->visibility.len == 0)
+		return 1;
+	for (i = 0; i < dep->visibility.len; i++) {
+		if (visibility_pattern_matches(dep->visibility.items[i], consumer->label,
+		    consumer_package))
+			return 1;
+	}
+	return 0;
+}
+
+/** visibility entry가 v1 skeleton에서 지원하는 형태인지 확인한다. */
+static int
+validate_visibility_list(struct qstar_graph *graph, const struct qstar_target *target)
+{
+	size_t i, n;
+	const char *v;
+
+	for (i = 0; i < target->visibility.len; i++) {
+		v = target->visibility.items[i];
+		n = strlen(v);
+		if (strcmp(v, "//...") == 0)
+			continue;
+		if (strncmp(v, "//", 2) == 0 &&
+		    ((n >= 4 && strcmp(v + n - 4, ":...") == 0) ||
+		    qstar_label_canonicalize(v, target->fragment_dir,
+		    (char[QSTAR_PATH_MAX]){0}, QSTAR_PATH_MAX) == 0))
+			continue;
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "visibility", target->label,
+		    "qstar: invalid visibility pattern '%s' in '%s'",
+		    v, target->label);
+	}
+	return 0;
+}
+
+/** dependency가 visible인지, public/private include 경계가 새지 않는지 확인한다. */
+static int
+validate_dependency_boundary(struct qstar_graph *graph, const struct qstar_target *target,
+    const struct qstar_string_list *deps, const char *field)
+{
+	const struct qstar_target *dep;
+	size_t i, j;
+
+	for (i = 0; i < deps->len; i++) {
+		if (deps->items[i][0] == '@' || strcmp(deps->items[i], "<select>") == 0)
+			continue;
+		dep = find_target(graph, deps->items[i]);
+		if (!dep)
+			continue;
+		if (!target_visible_to(dep, target))
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, field, target->label,
+			    "qstar: target '%s' is not visible to '%s'",
+			    dep->label, target->label);
+		for (j = 0; j < dep->private_include_dirs.len; j++) {
+			if (list_contains(&target->include_dirs, dep->private_include_dirs.items[j]) ||
+			    list_contains(&target->public_include_dirs,
+			    dep->private_include_dirs.items[j]))
+				return qstar_set_error_origin(graph, target->origin_file,
+				    target->origin_line, "include_dirs", target->label,
+				    "qstar: target '%s' leaks private include directory '%s' from '%s'",
+				    target->label, dep->private_include_dirs.items[j], dep->label);
+		}
+		for (j = 0; j < dep->private_headers.len; j++) {
+			if (list_contains(&target->public_headers, dep->private_headers.items[j]))
+				return qstar_set_error_origin(graph, target->origin_file,
+				    target->origin_line, "public_headers", target->label,
+				    "qstar: target '%s' exposes private header '%s' from '%s'",
+				    target->label, dep->private_headers.items[j], dep->label);
+		}
+	}
+	return 0;
+}
+
 /** source list 하나를 package-relative path와 지원 language 기준으로 검증한다. */
 static int
 validate_source_list(struct qstar_graph *graph, const struct qstar_target *target)
@@ -112,6 +304,15 @@ validate_link_lists(struct qstar_graph *graph, const struct qstar_target *target
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "frameworks", target->label,
 		    "qstar: duplicate framework '%s' in '%s'", dup, target->label);
+	if (validate_include_dir_list(graph, target, &target->include_dirs,
+	    "include_dirs") < 0 ||
+	    validate_include_dir_list(graph, target, &target->public_include_dirs,
+	    "public_include_dirs") < 0 ||
+	    validate_include_dir_list(graph, target, &target->private_include_dirs,
+	    "private_include_dirs") < 0 ||
+	    validate_include_dir_list(graph, target, &target->interface_include_dirs,
+	    "interface_include_dirs") < 0)
+		return -1;
 	return 0;
 }
 
@@ -191,6 +392,28 @@ qstar_graph_validate_sources(struct qstar_graph *graph)
 	for (i = 0; i < graph->len; i++) {
 		if (validate_source_list(graph, &graph->targets[i]) < 0 ||
 		    validate_link_lists(graph, &graph->targets[i]) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+/** QStar workspace/package ownership과 visibility boundary를 검증한다. */
+int
+qstar_graph_validate_packages(struct qstar_graph *graph)
+{
+	size_t i;
+
+	for (i = 0; i < graph->genrule_len; i++) {
+		if (validate_genrule_ownership(graph, &graph->genrules[i]) < 0)
+			return -1;
+	}
+	for (i = 0; i < graph->len; i++) {
+		if (validate_target_ownership(graph, &graph->targets[i]) < 0 ||
+		    validate_visibility_list(graph, &graph->targets[i]) < 0 ||
+		    validate_dependency_boundary(graph, &graph->targets[i],
+		    &graph->targets[i].deps, "deps") < 0 ||
+		    validate_dependency_boundary(graph, &graph->targets[i],
+		    &graph->targets[i].private_deps, "private_deps") < 0)
 			return -1;
 	}
 	return 0;

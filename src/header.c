@@ -3,11 +3,20 @@
 #include <stdio.h>
 #include <string.h>
 
-/** public header file이 include/ install surface 아래 있는지 검사한다. */
+/** public header file이 target package의 include/ install surface 아래 있는지 검사한다. */
 static int
-is_public_header_root(const char *path)
+is_public_header_root(const struct qstar_target *target, const char *path)
 {
-	return strncmp(path, "include/", 8) == 0 && path[8] != '\0';
+	char package[QSTAR_PATH_MAX], prefix[QSTAR_PATH_MAX];
+
+	if (qstar_label_package_path(target->label, package, sizeof(package)) < 0)
+		return 0;
+	if (!package[0])
+		return strncmp(path, "include/", 8) == 0 && path[8] != '\0';
+	if (snprintf(prefix, sizeof(prefix), "%s/include/", package) >=
+	    (int)sizeof(prefix))
+		return 0;
+	return strncmp(path, prefix, strlen(prefix)) == 0 && path[strlen(prefix)] != '\0';
 }
 
 /** header list 하나를 public/private install visibility 정책으로 검증한다. */
@@ -27,10 +36,10 @@ validate_header_list(struct qstar_graph *graph, const struct qstar_target *targe
 			    target->label,
 			    "qstar: header path '%s' in '%s' must be package-relative",
 			    path, target->label);
-		if (public_headers && !is_public_header_root(path))
+		if (public_headers && !is_public_header_root(target, path))
 			return qstar_set_error_origin(graph, target->origin_file,
 			    target->origin_line, "public_headers", target->label,
-			    "qstar: public header '%s' in '%s' must be under include/",
+			    "qstar: public header '%s' in '%s' must be under package include/",
 			    path, target->label);
 	}
 	return 0;

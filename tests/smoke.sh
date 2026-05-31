@@ -575,4 +575,99 @@ if "$qstar" --file "$tmp/cxx-module.qstar.lua" build //:bad_module > "$tmp/cxx-m
 fi
 contains "$tmp/cxx-module.err" "C++ modules are not supported"
 
+mkdir -p "$tmp/workspace/app/src" "$tmp/workspace/lib/src" "$tmp/workspace/lib/include" "$tmp/workspace/lib/private"
+touch "$tmp/workspace/qstar.workspace"
+cat > "$tmp/workspace/lib/include/core.h" <<'EOF'
+int core_value(void);
+EOF
+cat > "$tmp/workspace/lib/private/core_private.h" <<'EOF'
+#define CORE_PRIVATE 1
+EOF
+cat > "$tmp/workspace/lib/src/core.c" <<'EOF'
+#include "core.h"
+int core_value(void) { return 5; }
+EOF
+cat > "$tmp/workspace/app/src/main.c" <<'EOF'
+#include "core.h"
+int main(void) { return core_value() - 5; }
+EOF
+cat > "$tmp/workspace/lib/qstar.lua" <<'EOF'
+qstar.staticlib "core" {
+  sources = {"lib/src/core.c"},
+  public_headers = {"lib/include/core.h"},
+  private_headers = {"lib/private/core_private.h"},
+  public_include_dirs = {"lib/include"},
+  private_include_dirs = {"lib/private"},
+  visibility = {"//app:..."},
+}
+EOF
+cat > "$tmp/workspace/app/qstar.lua" <<'EOF'
+qstar.exe "app" {
+  sources = {"app/src/main.c"},
+  deps = {"//lib:core"},
+}
+EOF
+cat > "$tmp/workspace/qstar.lua" <<'EOF'
+qstar.subdir("lib")
+qstar.subdir("app")
+EOF
+"$qstar" --file "$tmp/workspace/app/qstar.lua" query //app:app > "$tmp/workspace-query.out" 2> "$tmp/workspace-query.err"
+contains "$tmp/workspace-query.out" "target //app:app"
+contains "$tmp/workspace-query.out" "package app"
+"$qstar" --file "$tmp/workspace/qstar.lua" build //app:app > "$tmp/workspace-build.out" 2> "$tmp/workspace-build.err"
+contains "$tmp/workspace-build.out" "package-root $tmp/workspace"
+contains "$tmp/workspace-build.out" "status ok"
+"$tmp/workspace/.qstar/out/__app_app/app"
+
+cat > "$tmp/workspace/app/qstar.lua" <<'EOF'
+qstar.exe "bad_leak" {
+  sources = {"app/src/main.c"},
+  deps = {"//lib:core"},
+  include_dirs = {"lib/private"},
+}
+EOF
+if "$qstar" --file "$tmp/workspace/qstar.lua" check //app:bad_leak > "$tmp/private-leak.out" 2> "$tmp/private-leak.err"; then
+	fail "private include leakage unexpectedly succeeded"
+fi
+contains "$tmp/private-leak.err" "leaks private include directory"
+
+cat > "$tmp/workspace/lib/qstar.lua" <<'EOF'
+qstar.staticlib "core" {
+  sources = {"lib/src/core.c"},
+  public_headers = {"lib/include/core.h"},
+  public_include_dirs = {"lib/include"},
+  visibility = {"//other:..."},
+}
+EOF
+cat > "$tmp/workspace/app/qstar.lua" <<'EOF'
+qstar.exe "blocked" {
+  sources = {"app/src/main.c"},
+  deps = {"//lib:core"},
+}
+EOF
+if "$qstar" --file "$tmp/workspace/qstar.lua" check //app:blocked > "$tmp/visibility.out" 2> "$tmp/visibility.err"; then
+	fail "visibility violation unexpectedly succeeded"
+fi
+contains "$tmp/visibility.err" "is not visible"
+
+cat > "$tmp/workspace/app/qstar.lua" <<'EOF'
+qstar.exe "//other:oops" {
+  sources = {"app/src/main.c"},
+}
+EOF
+if "$qstar" --file "$tmp/workspace/app/qstar.lua" check //other:oops > "$tmp/ownership.out" 2> "$tmp/ownership.err"; then
+	fail "cross-package ownership unexpectedly succeeded"
+fi
+contains "$tmp/ownership.err" "owned by package"
+
+cat > "$tmp/workspace/app/qstar.lua" <<'EOF'
+qstar.exe "outside" {
+  sources = {"../outside.c"},
+}
+EOF
+if "$qstar" --file "$tmp/workspace/app/qstar.lua" check //app:outside > "$tmp/outside-source.out" 2> "$tmp/outside-source.err"; then
+	fail "outside source path unexpectedly succeeded"
+fi
+contains "$tmp/outside-source.err" "must be package-relative"
+
 echo "qstar-smoke: passed"

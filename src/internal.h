@@ -46,6 +46,9 @@ int qstar_path_is_package_relative(const char *path);
 /** external canonical label에서 package alias 부분을 추출한다. */
 int qstar_label_package_alias(const char *label, char *dst, size_t dstlen);
 
+/** canonical target label에서 local package path를 추출한다. */
+int qstar_label_package_path(const char *label, char *dst, size_t dstlen);
+
 /** target/profile 입력을 합쳐 host/clang/cale toolchain v1을 결정한다. */
 int qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *target,
     struct qstar_resolved_toolchain *resolved);

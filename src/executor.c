@@ -1825,11 +1825,19 @@ mkdir_parent_absolute(const char *path)
 
 /** public header source path를 prefix install path로 변환한다. */
 static int
-install_header_dst(const char *prefix, const char *header, char *dst, size_t dstlen)
+install_header_dst(const struct qstar_target *target, const char *prefix, const char *header,
+    char *dst, size_t dstlen)
 {
 	const char *rel;
+	char package[QSTAR_PATH_MAX], package_include[QSTAR_PATH_MAX];
 
 	rel = strncmp(header, "include/", 8) == 0 ? header + 8 : header;
+	if (qstar_label_package_path(target->label, package, sizeof(package)) == 0 &&
+	    package[0] &&
+	    snprintf(package_include, sizeof(package_include), "%s/include/", package) <
+	    (int)sizeof(package_include) &&
+	    strncmp(header, package_include, strlen(package_include)) == 0)
+		rel = header + strlen(package_include);
 	return snprintf(dst, dstlen, "%s/include/%s", prefix, rel) < (int)dstlen ? 0 : -1;
 }
 
@@ -1873,7 +1881,7 @@ install_one_target(struct qstar_graph *graph, const struct qstar_target *target,
 	if (install_file(graph, artifact, dst, options->dry_run, out) < 0)
 		return -1;
 	for (i = 0; i < target->public_headers.len; i++) {
-		if (install_header_dst(options->prefix, target->public_headers.items[i],
+		if (install_header_dst(target, options->prefix, target->public_headers.items[i],
 		    dst, sizeof(dst)) < 0)
 			return qstar_set_error(graph, "qstar: install header path too long");
 		if (install_file(graph, target->public_headers.items[i], dst,

@@ -39,6 +39,7 @@ struct qstar_target {
 	struct qstar_string_list system_include_dirs;
 	struct qstar_string_list deps;
 	struct qstar_string_list private_deps;
+	struct qstar_string_list visibility;
 	struct qstar_string_list libs;
 	struct qstar_string_list lib_dirs;
 	struct qstar_string_list frameworks;
@@ -164,6 +165,9 @@ int qstar_graph_validate_sources(struct qstar_graph *graph);
 
 /** QStar generated output edge skeleton을 검증한다. */
 int qstar_graph_validate_generated_outputs(struct qstar_graph *graph);
+
+/** QStar workspace/package ownership과 visibility boundary를 검증한다. */
+int qstar_graph_validate_packages(struct qstar_graph *graph);
 
 /** QStar authoring input file이 package root 아래 실제로 존재하는지 검증한다. */
 int qstar_graph_validate_file_inputs(struct qstar_graph *graph);

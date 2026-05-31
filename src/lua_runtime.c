@@ -213,6 +213,7 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	    read_list_field(L, table_index, "deps", &target->deps, graph, 1, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "public_deps", &target->deps, graph, 1, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "private_deps", &target->private_deps, graph, 1, target->fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "visibility", &target->visibility, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "libs", &target->libs, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "lib_dirs", &target->lib_dirs, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "frameworks", &target->frameworks, graph, 0, target->fragment_dir) < 0 ||
@@ -729,6 +730,7 @@ qstar_lua_subdir(lua_State *L)
 	struct qstar_lua_context *ctx;
 	const char *dir, *base;
 	char path[QSTAR_PATH_MAX], candidate[QSTAR_PATH_MAX], fragment[QSTAR_PATH_MAX];
+	char full_dir[QSTAR_PATH_MAX];
 	const char *names[3];
 	size_t i;
 	FILE *f;
@@ -737,9 +739,15 @@ qstar_lua_subdir(lua_State *L)
 	dir = luaL_checkstring(L, 1);
 	if (!qstar_path_is_package_relative(dir))
 		return luaL_error(L, "qstar: subdir path '%s' must be package-relative", dir);
-	base = strrchr(dir, '/');
-	base = base ? base + 1 : dir;
-	snprintf(path, sizeof(path), "%s/%s.qs", dir, base);
+	if (ctx->current_dir[0]) {
+		if (qstar_path_join(ctx->current_dir, dir, full_dir, sizeof(full_dir)) < 0)
+			return luaL_error(L, "qstar: subdir path too long");
+	} else {
+		snprintf(full_dir, sizeof(full_dir), "%s", dir);
+	}
+	base = strrchr(full_dir, '/');
+	base = base ? base + 1 : full_dir;
+	snprintf(path, sizeof(path), "%s/%s.qs", full_dir, base);
 	names[0] = path;
 	names[1] = "qstar.lua";
 	names[2] = "qstar.qs";
@@ -748,19 +756,19 @@ qstar_lua_subdir(lua_State *L)
 			if (qstar_path_join(ctx->root_dir, names[i], candidate, sizeof(candidate)) < 0)
 				return luaL_error(L, "qstar: subdir path too long");
 		} else {
-			if (qstar_path_join(dir, names[i], fragment, sizeof(fragment)) < 0 ||
+			if (qstar_path_join(full_dir, names[i], fragment, sizeof(fragment)) < 0 ||
 			    qstar_path_join(ctx->root_dir, fragment, candidate, sizeof(candidate)) < 0)
 				return luaL_error(L, "qstar: subdir path too long");
 		}
 		f = fopen(candidate, "r");
 		if (f) {
 			fclose(f);
-			if (eval_fragment(L, ctx, candidate, dir) < 0)
+			if (eval_fragment(L, ctx, candidate, full_dir) < 0)
 				return lua_error(L);
 			return 0;
 		}
 	}
-	return luaL_error(L, "qstar: subdir '%s' has no qstar fragment", dir);
+	return luaL_error(L, "qstar: subdir '%s' has no qstar fragment", full_dir);
 }
 
 static int
@@ -907,17 +915,87 @@ eval_fragment(lua_State *L, struct qstar_lua_context *ctx, const char *file, con
 	return 0;
 }
 
+/** directory에 qstar.workspace marker가 있는지 확인한다. */
+static int
+workspace_marker_exists(const char *dir)
+{
+	char path[QSTAR_PATH_MAX];
+	FILE *f;
+
+	if (qstar_path_join(dir, "qstar.workspace", path, sizeof(path)) < 0)
+		return 0;
+	f = fopen(path, "rb");
+	if (!f)
+		return 0;
+	fclose(f);
+	return 1;
+}
+
+/** child directory를 root 기준 package fragment path로 변환한다. */
+static int
+workspace_fragment(const char *root, const char *child, char *dst, size_t dstlen)
+{
+	size_t n;
+
+	if (strcmp(root, child) == 0 || strcmp(child, ".") == 0) {
+		if (dstlen)
+			dst[0] = '\0';
+		return 0;
+	}
+	if (strcmp(root, ".") == 0)
+		return snprintf(dst, dstlen, "%s", child) < (int)dstlen ? 0 : -1;
+	n = strlen(root);
+	if (strncmp(child, root, n) == 0 && child[n] == '/')
+		return snprintf(dst, dstlen, "%s", child + n + 1) < (int)dstlen ? 0 : -1;
+	if (strcmp(root, "/") == 0 && child[0] == '/')
+		return snprintf(dst, dstlen, "%s", child + 1) < (int)dstlen ? 0 : -1;
+	return -1;
+}
+
+/** qstar.lua 위치에서 위로 올라가며 qstar.workspace root를 찾는다. */
+static int
+discover_workspace_root(const char *file_dir, char *root, size_t rootlen,
+    char *fragment, size_t fragmentlen)
+{
+	char cur[QSTAR_PATH_MAX], parent[QSTAR_PATH_MAX];
+
+	snprintf(cur, sizeof(cur), "%s", file_dir && *file_dir ? file_dir : ".");
+	for (;;) {
+		if (workspace_marker_exists(cur)) {
+			if (snprintf(root, rootlen, "%s", cur) >= (int)rootlen ||
+			    workspace_fragment(cur, file_dir, fragment, fragmentlen) < 0)
+				return -1;
+			return 0;
+		}
+		if (strcmp(cur, ".") == 0 || strcmp(cur, "/") == 0)
+			break;
+		if (qstar_dirname(cur, parent, sizeof(parent)) < 0 ||
+		    strcmp(parent, cur) == 0)
+			break;
+		snprintf(cur, sizeof(cur), "%s", parent);
+	}
+	if (snprintf(root, rootlen, "%s", file_dir && *file_dir ? file_dir : ".") >=
+	    (int)rootlen)
+		return -1;
+	if (fragmentlen)
+		fragment[0] = '\0';
+	return 0;
+}
+
 /** qstar.lua 파일을 sandboxed Lua runtime으로 평가해 Graph IR를 만든다. */
 int
 qstar_lua_eval_file(struct qstar_graph *graph, const char *file)
 {
 	struct qstar_lua_context ctx;
 	lua_State *L;
+	char file_dir[QSTAR_PATH_MAX], initial_fragment[QSTAR_PATH_MAX];
 	int rc;
 
 	memset(&ctx, 0, sizeof(ctx));
 	ctx.graph = graph;
-	if (qstar_dirname(file, ctx.root_dir, sizeof(ctx.root_dir)) < 0)
+	if (qstar_dirname(file, file_dir, sizeof(file_dir)) < 0 ||
+	    discover_workspace_root(file_dir, ctx.root_dir, sizeof(ctx.root_dir),
+	    initial_fragment, sizeof(initial_fragment)) < 0)
 		return qstar_set_error(graph, "qstar: qstar file path too long");
 	if (qstar_graph_set_package_root(graph, ctx.root_dir) < 0)
 		return -1;
@@ -926,7 +1004,7 @@ qstar_lua_eval_file(struct qstar_graph *graph, const char *file)
 		return qstar_set_error(graph, "qstar: could not create Lua state");
 	open_sandbox(L);
 	register_qstar(L, &ctx);
-	rc = eval_fragment(L, &ctx, file, "");
+	rc = eval_fragment(L, &ctx, file, initial_fragment);
 	if (rc < 0)
 		qstar_set_error(graph, "%s", lua_tostring(L, -1));
 	lua_close(L);
