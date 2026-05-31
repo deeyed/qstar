@@ -15,6 +15,8 @@
 #include <unistd.h>
 
 #define QSTAR_EXEC_MAX_ARGV 256
+#define QSTAR_ACTION_TIMEOUT_SEC 30
+#define QSTAR_TEST_TIMEOUT_SEC 5
 #define QSTAR_HASH_INIT 1469598103934665603ULL
 #define QSTAR_HASH_PRIME 1099511628211ULL
 
@@ -30,6 +32,7 @@ struct qstar_build_ctx {
 		char *status;
 	} *prev, *next;
 	size_t prev_len, prev_cap, next_len, next_cap;
+	size_t run_count, skip_count, fail_count;
 	struct qstar_compile_record {
 		char *directory;
 		char *file;
@@ -688,12 +691,13 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    "build_action id=%s status=skip reason=cache-hit stdout=.qstar/logs/%s.stdout stderr=.qstar/logs/%s.stderr\n",
 		    id, name, name);
 		write_skip_log(action_log, argv);
+		ctx->skip_count++;
 		return state_push(ctx, 1, id, key, outputs->items[0], "skip") < 0 ?
 		    qstar_set_error(graph, "qstar: out of memory") : 0;
 	}
 	fprintf(ctx->out,
-	    "build_action id=%s status=run stdout=.qstar/logs/%s.stdout stderr=.qstar/logs/%s.stderr\n",
-	    id, name, name);
+	    "build_action id=%s status=run timeout_sec=%d stdout=.qstar/logs/%s.stdout stderr=.qstar/logs/%s.stderr\n",
+	    id, QSTAR_ACTION_TIMEOUT_SEC, name, name);
 	if (ctx->explain_cache)
 		fprintf(ctx->out, "cache_miss id=%s key=%s previous=%s\n",
 		    id, key, prev ? prev->key : "<none>");
@@ -712,18 +716,48 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		execvp(argv[0], argv);
 		_exit(127);
 	}
-	if (waitpid(pid, &status, 0) < 0)
-		return qstar_set_error(graph, "qstar: waitpid failed");
+	{
+		time_t start;
+		pid_t waited;
+
+		start = time(NULL);
+		for (;;) {
+			waited = waitpid(pid, &status, WNOHANG);
+			if (waited == pid)
+				break;
+			if (waited < 0)
+				return qstar_set_error(graph, "qstar: waitpid failed");
+			if (time(NULL) - start >= QSTAR_ACTION_TIMEOUT_SEC) {
+				kill(pid, SIGKILL);
+				waitpid(pid, &status, 0);
+				write_action_log(action_log, argv, 124);
+				write_failure_replay(graph, argv);
+				ctx->fail_count++;
+				fprintf(ctx->out,
+				    "build_action id=%s status=timeout timeout_sec=%d\n",
+				    id, QSTAR_ACTION_TIMEOUT_SEC);
+				return qstar_set_error_origin(graph,
+				    target ? target->origin_file : "",
+				    target ? target->origin_line : 0, "action",
+				    target ? target->label : id,
+				    "qstar: action '%s' timed out after %d seconds; replay=.qstar/logs/last-failure.replay",
+				    id, QSTAR_ACTION_TIMEOUT_SEC);
+			}
+			sleep(1);
+		}
+	}
 	exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
 	write_action_log(action_log, argv, exit_code);
 	if (exit_code != 0) {
 		fprintf(ctx->out, "build_action id=%s status=fail exit=%d\n", id, exit_code);
 		write_failure_replay(graph, argv);
+		ctx->fail_count++;
 		return qstar_set_error_origin(graph, target ? target->origin_file : "",
 		    target ? target->origin_line : 0, "action", target ? target->label : id,
 		    "qstar: action '%s' failed with status %d; replay=.qstar/logs/last-failure.replay",
 		    id, exit_code);
 	}
+	ctx->run_count++;
 	if (state_push(ctx, 1, id, key, outputs->items[0], "run") < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
 	return 0;
@@ -921,25 +955,37 @@ run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    "build_action id=%s status=skip reason=cache-hit stdout=.qstar/logs/%s.stdout stderr=.qstar/logs/%s.stderr\n",
 		    id, name, name);
 		write_skip_log(action_log, argv);
+		ctx->skip_count++;
 		return state_push(ctx, 1, id, key, genrule->outputs.items[0], "skip") < 0 ?
 		    qstar_set_error(graph, "qstar: out of memory") : 0;
 	}
 	fprintf(ctx->out,
-	    "build_action id=%s status=run stdout=.qstar/logs/%s.stdout stderr=.qstar/logs/%s.stderr\n",
+	    "build_action id=%s status=run timeout_sec=internal stdout=.qstar/logs/%s.stdout stderr=.qstar/logs/%s.stderr\n",
 	    id, name, name);
 	if (ctx->explain_cache)
 		fprintf(ctx->out, "cache_miss id=%s key=%s previous=%s\n",
 		    id, key, prev ? prev->key : "<none>");
 	if (write_config_header(graph, genrule) < 0) {
 		write_failure_replay(graph, argv);
+		ctx->fail_count++;
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "action", target->label, "%s", graph->error);
 	}
 	write_empty_log_file(stdout_path);
 	write_empty_log_file(stderr_path);
 	write_action_log(action_log, argv, 0);
+	ctx->run_count++;
 	return state_push(ctx, 1, id, key, genrule->outputs.items[0], "run") < 0 ?
 	    qstar_set_error(graph, "qstar: out of memory") : 0;
+}
+
+/** generated action argv가 package root 밖 path를 직접 참조하는지 검사한다. */
+static int
+generated_arg_escapes_package(const char *arg)
+{
+	return arg && (arg[0] == '/' || strcmp(arg, "..") == 0 ||
+	    strncmp(arg, "../", 3) == 0 || strstr(arg, "/../") ||
+	    strstr(arg, "=../") || strstr(arg, ":../"));
 }
 
 /** target이 소비하는 generated action을 package-local tool policy로 실행한다. */
@@ -964,6 +1010,13 @@ run_generated_actions(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			    genrule->tool);
 		if (genrule->args.len + 2 > QSTAR_EXEC_MAX_ARGV)
 			return qstar_set_error(graph, "qstar: generated action argv too long");
+		for (argc = 0; argc < genrule->args.len; argc++) {
+			if (generated_arg_escapes_package(genrule->args.items[argc]))
+				return qstar_set_error_origin(graph, genrule->origin_file,
+				    genrule->origin_line, "args", genrule->label,
+				    "qstar: generated action arg '%s' escapes package root",
+				    genrule->args.items[argc]);
+		}
 		for (argc = 0; argc < genrule->outputs.len; argc++) {
 			if (mkdir_parent_under_root(graph, genrule->outputs.items[argc]) < 0)
 				return qstar_set_error(graph,
@@ -992,6 +1045,9 @@ run_generated_actions(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		compute_action_key(graph, target, &toolchain, id, "generate", argv,
 		    &inputs, genrule->outputs.items[0], key, sizeof(key));
 		qstar_string_list_free(&inputs);
+		fprintf(ctx->out,
+		    "generated_sandbox id=%s inputs=package-root outputs=generated-only cwd=package-root network=disabled\n",
+		    genrule->label);
 		if (genrule->config_header) {
 			if (run_config_header_action(graph, ctx, target, genrule, id, key, argv) < 0)
 				return -1;
@@ -1572,6 +1628,9 @@ build_target(struct qstar_graph *graph, const struct qstar_target *target, size_
 
 	fprintf(ctx->out, "build_target %s order=%zu kind=%s\n", target->label, order,
 	    target->kind);
+	fprintf(ctx->out,
+	    "action_dag target=%s order=%zu parallel=no reason=deterministic-v2 failure=stop-on-first-failure timeout_sec=%d\n",
+	    target->label, order, QSTAR_ACTION_TIMEOUT_SEC);
 	if (strcmp(target->kind, "sharedlib") == 0)
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "kind", target->label,
@@ -1620,13 +1679,20 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
 	fputs("qstar build v2\n", out);
 	fprintf(out, "root %s\n", ctx.root_label);
 	fprintf(out, "package-root %s\n", graph->package_root ? graph->package_root : ".");
+	fprintf(out,
+	    "executor-policy version=v2 parallel=no failure=stop-on-first-failure action_timeout_sec=%d cancel=kill-process\n",
+	    QSTAR_ACTION_TIMEOUT_SEC);
 	rc = qstar_graph_visit_closure(graph, label, build_target, &ctx);
 	if (rc == 0)
 		rc = state_write(graph, &ctx);
 	if (rc == 0)
 		rc = compile_db_write(graph, &ctx);
 	if (rc == 0)
-		fputs("status ok\n", out);
+		fprintf(out, "status ok run=%zu skip=%zu fail=%zu\n",
+		    ctx.run_count, ctx.skip_count, ctx.fail_count);
+	else
+		fprintf(out, "status fail run=%zu skip=%zu fail=%zu\n",
+		    ctx.run_count, ctx.skip_count, ctx.fail_count);
 	build_ctx_free(&ctx);
 	return rc;
 }
@@ -1798,13 +1864,18 @@ run_test_artifact(struct qstar_graph *graph, const struct qstar_target *target, 
 	}
 	start = time(NULL);
 	for (;;) {
-		if (waitpid(pid, &status, WNOHANG) == pid)
+		pid_t waited;
+
+		waited = waitpid(pid, &status, WNOHANG);
+		if (waited == pid)
 			break;
-		if (time(NULL) - start >= 5) {
+		if (waited < 0)
+			return qstar_set_error(graph, "qstar: waitpid failed");
+		if (time(NULL) - start >= QSTAR_TEST_TIMEOUT_SEC) {
 			kill(pid, SIGKILL);
 			waitpid(pid, &status, 0);
-			fprintf(out, "test_result label=%s status=timeout timeout_sec=5\n",
-			    target->label);
+			fprintf(out, "test_result label=%s status=timeout timeout_sec=%d\n",
+			    target->label, QSTAR_TEST_TIMEOUT_SEC);
 			return qstar_set_error_origin(graph, target->origin_file,
 			    target->origin_line, "test", target->label,
 			    "qstar: test '%s' timed out", target->label);
@@ -1918,6 +1989,86 @@ mkdir_parent_absolute(const char *path)
 	return mkdir_p(tmp);
 }
 
+struct qstar_install_ctx {
+	const struct qstar_install_options *options;
+	FILE *out;
+	FILE *manifest;
+	char manifest_path[QSTAR_PATH_MAX];
+	char manifest_tmp[QSTAR_PATH_MAX];
+	size_t manifest_len;
+};
+
+/** package-local install manifest v2를 쓰기 시작한다. */
+static int
+install_manifest_begin(struct qstar_graph *graph, struct qstar_install_ctx *ctx,
+    const struct qstar_install_options *options, FILE *out)
+{
+	char dir[QSTAR_PATH_MAX];
+
+	memset(ctx, 0, sizeof(*ctx));
+	ctx->options = options;
+	ctx->out = out;
+	if (full_path_under_root(graph, ".qstar/install", dir, sizeof(dir)) < 0 ||
+	    mkdir_p(dir) < 0 ||
+	    full_path_under_root(graph, ".qstar/install/manifest.json",
+	    ctx->manifest_path, sizeof(ctx->manifest_path)) < 0)
+		return qstar_set_error(graph, "qstar: could not create install manifest dir");
+	snprintf(ctx->manifest_tmp, sizeof(ctx->manifest_tmp), "%s.tmp", ctx->manifest_path);
+	ctx->manifest = fopen(ctx->manifest_tmp, "w");
+	if (!ctx->manifest)
+		return qstar_set_error(graph, "qstar: could not write install manifest");
+	fputs("{\n  \"schema\":\"qstar-install-manifest-v2\",\n  \"prefix\":", ctx->manifest);
+	json_string(ctx->manifest, options->prefix);
+	fputs(",\n  \"mode\":", ctx->manifest);
+	json_string(ctx->manifest, options->dry_run ? "dry-run" : "copy");
+	fputs(",\n  \"entries\":[\n", ctx->manifest);
+	fprintf(out, "install_manifest .qstar/install/manifest.json\n");
+	return 0;
+}
+
+/** install manifest에 artifact/header record 하나를 추가한다. */
+static void
+install_manifest_record(struct qstar_install_ctx *ctx, const char *target_label,
+    const char *role, const char *src_rel, const char *dst)
+{
+	if (!ctx->manifest)
+		return;
+	if (ctx->manifest_len)
+		fputs(",\n", ctx->manifest);
+	fputs("    {\"target\":", ctx->manifest);
+	json_string(ctx->manifest, target_label);
+	fputs(",\"role\":", ctx->manifest);
+	json_string(ctx->manifest, role);
+	fputs(",\"src\":", ctx->manifest);
+	json_string(ctx->manifest, src_rel);
+	fputs(",\"dst\":", ctx->manifest);
+	json_string(ctx->manifest, dst);
+	fputs(",\"mode\":", ctx->manifest);
+	json_string(ctx->manifest, ctx->options->dry_run ? "dry-run" : "copy");
+	fputs("}", ctx->manifest);
+	ctx->manifest_len++;
+}
+
+/** install manifest v2를 완료하고 skeleton export metadata를 남긴다. */
+static int
+install_manifest_end(struct qstar_graph *graph, struct qstar_install_ctx *ctx, int ok)
+{
+	if (!ctx->manifest)
+		return 0;
+	fputs("\n  ],\n  \"exports\":{\"cmake_config\":\"deferred\"},\n  \"status\":",
+	    ctx->manifest);
+	json_string(ctx->manifest, ok ? "ok" : "fail");
+	fputs("\n}\n", ctx->manifest);
+	if (fclose(ctx->manifest) != 0) {
+		ctx->manifest = NULL;
+		return qstar_set_error(graph, "qstar: could not close install manifest");
+	}
+	ctx->manifest = NULL;
+	if (rename(ctx->manifest_tmp, ctx->manifest_path) < 0)
+		return qstar_set_error(graph, "qstar: could not commit install manifest");
+	return 0;
+}
+
 /** public header source path를 prefix install path로 변환한다. */
 static int
 install_header_dst(const struct qstar_target *target, const char *prefix, const char *header,
@@ -1938,14 +2089,19 @@ install_header_dst(const struct qstar_target *target, const char *prefix, const 
 
 /** single file install 또는 dry-run line을 수행한다. */
 static int
-install_file(struct qstar_graph *graph, const char *src_rel, const char *dst,
-    int dry_run, FILE *out)
+install_file(struct qstar_graph *graph, struct qstar_install_ctx *ctx,
+    const struct qstar_target *target, const char *src_rel, const char *dst, const char *role)
 {
 	char src[QSTAR_PATH_MAX];
+	const char *diff_action;
 
-	fprintf(out, "install_file src=%s dst=%s mode=%s\n", src_rel, dst,
-	    dry_run ? "dry-run" : "copy");
-	if (dry_run)
+	diff_action = ctx->options->dry_run ? (path_exists(dst) ? "would-overwrite" :
+	    "would-create") : "copy";
+	fprintf(ctx->out, "install_file src=%s dst=%s mode=%s role=%s\n", src_rel, dst,
+	    ctx->options->dry_run ? "dry-run" : "copy", role);
+	fprintf(ctx->out, "install_diff dst=%s action=%s\n", dst, diff_action);
+	install_manifest_record(ctx, target->label, role, src_rel, dst);
+	if (ctx->options->dry_run)
 		return 0;
 	if (full_path_under_root(graph, src_rel, src, sizeof(src)) < 0 || !path_exists(src))
 		return qstar_set_error(graph, "qstar: install source '%s' is missing", src_rel);
@@ -1958,9 +2114,10 @@ install_file(struct qstar_graph *graph, const char *src_rel, const char *dst,
 /** target 하나의 installable artifact/header를 설치한다. */
 static int
 install_one_target(struct qstar_graph *graph, const struct qstar_target *target,
-    const struct qstar_install_options *options, FILE *out)
+    struct qstar_install_ctx *ctx)
 {
 	char artifact[QSTAR_PATH_MAX], dst[QSTAR_PATH_MAX];
+	const char *role;
 	size_t i;
 
 	if (!qstar_target_is_installable(target))
@@ -1969,18 +2126,22 @@ install_one_target(struct qstar_graph *graph, const struct qstar_target *target,
 		    "qstar: target '%s' is not installable", target->label);
 	if (qstar_artifact_output_path(target, artifact, sizeof(artifact)) < 0)
 		return qstar_set_error(graph, "qstar: install artifact path too long");
-	if (strcmp(target->kind, "exe") == 0)
-		snprintf(dst, sizeof(dst), "%s/bin/%s", options->prefix, target->name);
-	else
-		snprintf(dst, sizeof(dst), "%s/lib/lib%s.a", options->prefix, target->name);
-	if (install_file(graph, artifact, dst, options->dry_run, out) < 0)
+	if (strcmp(target->kind, "exe") == 0) {
+		role = "exe";
+		snprintf(dst, sizeof(dst), "%s/bin/%s", ctx->options->prefix, target->name);
+	} else {
+		role = "staticlib";
+		snprintf(dst, sizeof(dst), "%s/lib/lib%s.a", ctx->options->prefix,
+		    target->name);
+	}
+	if (install_file(graph, ctx, target, artifact, dst, role) < 0)
 		return -1;
 	for (i = 0; i < target->public_headers.len; i++) {
-		if (install_header_dst(target, options->prefix, target->public_headers.items[i],
-		    dst, sizeof(dst)) < 0)
+		if (install_header_dst(target, ctx->options->prefix,
+		    target->public_headers.items[i], dst, sizeof(dst)) < 0)
 			return qstar_set_error(graph, "qstar: install header path too long");
-		if (install_file(graph, target->public_headers.items[i], dst,
-		    options->dry_run, out) < 0)
+		if (install_file(graph, ctx, target, target->public_headers.items[i], dst,
+		    "header") < 0)
 			return -1;
 	}
 	return 0;
@@ -1992,34 +2153,47 @@ qstar_graph_install(struct qstar_graph *graph, const char *label,
     const struct qstar_install_options *options, FILE *out)
 {
 	const struct qstar_target *target;
+	struct qstar_install_ctx ctx;
 	size_t i, n;
+	int rc;
 
 	if (!options || !options->prefix || !*options->prefix)
 		return qstar_set_error(graph, "qstar: install requires --prefix");
-	fputs("qstar install v1\n", out);
+	fputs("qstar install v2\n", out);
 	fprintf(out, "prefix %s\n", options->prefix);
 	fprintf(out, "mode %s\n", options->dry_run ? "dry-run" : "copy");
+	if (install_manifest_begin(graph, &ctx, options, out) < 0)
+		return -1;
+	rc = 0;
 	if (label && *label) {
 		target = find_target(graph, label);
 		if (!target)
-			return qstar_set_error(graph, "qstar: unknown target label '%s'", label);
-		if (install_one_target(graph, target, options, out) < 0)
-			return -1;
-		fputs("status ok\n", out);
-		return 0;
+			rc = qstar_set_error(graph, "qstar: unknown target label '%s'", label);
+		else if (install_one_target(graph, target, &ctx) < 0)
+			rc = -1;
+		if (install_manifest_end(graph, &ctx, rc == 0) < 0 && rc == 0)
+			rc = -1;
+		if (rc == 0)
+			fputs("status ok\n", out);
+		return rc;
 	}
 	n = 0;
 	for (i = 0; i < graph->len; i++) {
 		if (!qstar_target_is_installable(&graph->targets[i]))
 			continue;
 		n++;
-		if (install_one_target(graph, &graph->targets[i], options, out) < 0)
-			return -1;
+		if (install_one_target(graph, &graph->targets[i], &ctx) < 0) {
+			rc = -1;
+			break;
+		}
 	}
 	if (n == 0)
-		return qstar_set_error(graph, "qstar: no installable targets found");
-	fputs("status ok\n", out);
-	return 0;
+		rc = qstar_set_error(graph, "qstar: no installable targets found");
+	if (install_manifest_end(graph, &ctx, rc == 0) < 0 && rc == 0)
+		rc = -1;
+	if (rc == 0)
+		fputs("status ok\n", out);
+	return rc;
 }
 
 /** qsort용 string pointer compare다. */

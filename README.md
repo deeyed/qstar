@@ -52,7 +52,7 @@ qstar --file qstar.lua --profile debug --target arm64-apple-macos explain //:app
 
 `--dump-graph`는 canonical Graph IR을 출력한다. `explain`은 선택한 target closure를 검증하고 dependency-first order와 action key 재료를 출력한다. `dry-run`은 실행하지 않는 deterministic step record를 만든다. `check`는 package-root 기준 source/header/generated input 존재 여부를 확인한다.
 
-`build`는 제한적 local executor v4다. package-local generated tool, `qstar.config_header`, C/Cale source compile argv, static archive, exe/test link를 다루며 산출물은 `.qstar/out`, 로그는 `.qstar/logs` 아래에 둔다. Round 14/15부터 `.qstar/state/actions.json` action manifest, `compile_commands.json`, cache-hit skip, `why-rebuild`, `log`, `last-failure`, `clean`, JSON diagnostic skeleton을 제공한다. Round 16/17부터 Cale source는 frontend/backend 내부 API가 아니라 `cale -c ... -o ...` process invocation으로만 다룬다. Round 18/19부터 static library dependency link order, public/private include propagation, system library flag rendering, test runner, install skeleton을 제공한다.
+`build`는 제한적 local executor v5다. package-local generated tool, `qstar.config_header`, C/Cale source compile argv, static archive, exe/test link를 다루며 산출물은 `.qstar/out`, 로그는 `.qstar/logs` 아래에 둔다. Round 14/15부터 `.qstar/state/actions.json` action manifest, `compile_commands.json`, cache-hit skip, `why-rebuild`, `log`, `last-failure`, `clean`, JSON diagnostic skeleton을 제공한다. Round 16/17부터 Cale source는 frontend/backend 내부 API가 아니라 `cale -c ... -o ...` process invocation으로만 다룬다. Round 18/19부터 static library dependency link order, public/private include propagation, system library flag rendering, test runner, install skeleton을 제공한다. Round 29부터 executor는 dependency-first closure를 직렬 action DAG로 실행하고, 실패는 stop-on-first-failure로 전파한다. Build action timeout은 30초 고정이며 timeout 시 process를 kill하고 replay file을 남긴다. 병렬 실행은 아직 열지 않고 `parallel=no` 정책으로 고정한다.
 
 ## 아직 하지 않는 일
 
@@ -103,8 +103,12 @@ build한 뒤 `.qstar/logs/<target>.test.stdout`/`.stderr`에 출력을 저장하
 결과를 보고한다. `qstar test //...`는 package 안의 모든 test target을 순서대로
 실행한다. 현재 timeout은 5초 고정이다.
 
-`qstar install`은 v1 skeleton이다. 실제 package fetch나 registry metadata 없이,
-이미 build된 local artifact와 public header만 prefix 아래 복사한다.
+`qstar install`은 v2 skeleton이다. 실제 package fetch나 registry metadata 없이,
+이미 build된 local artifact와 public header만 prefix 아래 복사한다. install 실행은
+package-local `.qstar/install/manifest.json`을 남긴다. Manifest에는 exe/staticlib/header
+entry, dry-run/copy mode, destination path가 기록된다. Generated public header도
+생성 action output이면 install 대상이 될 수 있다. CMake config 같은 export file은
+아직 만들지 않고 manifest에 deferred skeleton으로만 표시한다.
 
 ```lua
 qstar.test "unit" {

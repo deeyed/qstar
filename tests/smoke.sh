@@ -31,6 +31,8 @@ EOF
 
 "$qstar" --file "$tmp/qstar.lua" build //:app > "$tmp/first.out" 2> "$tmp/first.err"
 contains "$tmp/first.out" "qstar build v2"
+contains "$tmp/first.out" "executor-policy version=v2"
+contains "$tmp/first.out" "action_dag target=//:app"
 contains "$tmp/first.out" "status=run"
 contains "$tmp/first.out" "status ok"
 test -f "$tmp/.qstar/state/actions.json" || fail "missing action state"
@@ -180,6 +182,23 @@ if "$qstar" --file "$tmp/qstar.lua" check > "$tmp/outside.out" 2> "$tmp/outside.
 	fail "outside generated output unexpectedly succeeded"
 fi
 contains "$tmp/outside.err" "must be package-relative"
+
+cat > "$tmp/qstar.lua" <<'EOF'
+qstar.genrule "bad_arg" {
+  tool = "tools/gen-value.sh",
+  outputs = {qstar.output("generated/safe.c")},
+  args = {"../escape.c"},
+}
+
+qstar.exe "bad_gen" {
+  sources = {qstar.output("generated/safe.c")},
+}
+EOF
+
+if "$qstar" --file "$tmp/qstar.lua" build //:bad_gen > "$tmp/bad-arg.out" 2> "$tmp/bad-arg.err"; then
+	fail "generated action outside arg unexpectedly succeeded"
+fi
+contains "$tmp/bad-arg.err" "escapes package root"
 
 cat > "$tmp/qstar.lua" <<'EOF'
 qstar.exe "bad_suffix" {
@@ -360,6 +379,11 @@ cat > "$tmp/src/install_main.c" <<'EOF'
 int main(void) { return core_value() - 13; }
 EOF
 cat > "$tmp/qstar.lua" <<'EOF'
+qstar.config_header "install_cfg" {
+  output = qstar.output("generated/install_config.h"),
+  defines = {"INSTALL_FEATURE=1"},
+}
+
 qstar.test "unit_pass" {
   sources = {"src/test_pass.c"},
 }
@@ -374,7 +398,7 @@ qstar.test "unit_timeout" {
 
 qstar.staticlib "install_core" {
   sources = {"src/core.c"},
-  public_headers = {"include/core.h"},
+  public_headers = {"include/core.h", qstar.output("generated/install_config.h")},
   public_include_dirs = {"include"},
   private_include_dirs = {"src/core_private"},
 }
@@ -404,10 +428,17 @@ contains "$tmp/install-build.out" "status ok"
 "$qstar" --file "$tmp/qstar.lua" install //:install_app --prefix "$tmp/prefix" --dry-run > "$tmp/install-dry.out" 2> "$tmp/install-dry.err"
 contains "$tmp/install-dry.out" "mode dry-run"
 contains "$tmp/install-dry.out" "install_file src=.qstar/out/___install_app/install_app"
+contains "$tmp/install-dry.out" "install_diff dst=$tmp/prefix/bin/install_app action=would-create"
 "$qstar" --file "$tmp/qstar.lua" install //:install_core --prefix "$tmp/prefix" > "$tmp/install-lib.out" 2> "$tmp/install-lib.err"
 contains "$tmp/install-lib.out" "status ok"
 test -f "$tmp/prefix/lib/libinstall_core.a" || fail "missing installed staticlib"
 test -f "$tmp/prefix/include/core.h" || fail "missing installed public header"
+test -f "$tmp/prefix/include/generated/install_config.h" || fail "missing installed generated public header"
+test -f "$tmp/.qstar/install/manifest.json" || fail "missing install manifest"
+contains "$tmp/.qstar/install/manifest.json" "\"schema\":\"qstar-install-manifest-v2\""
+contains "$tmp/.qstar/install/manifest.json" "\"role\":\"staticlib\""
+contains "$tmp/.qstar/install/manifest.json" "\"role\":\"header\""
+contains "$tmp/.qstar/install/manifest.json" "\"cmake_config\":\"deferred\""
 
 if "$qstar" --file "$tmp/qstar.lua" install //:unit_pass --prefix "$tmp/prefix" > "$tmp/install-test.out" 2> "$tmp/install-test.err"; then
 	fail "non-installable test target unexpectedly installed"

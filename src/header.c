@@ -36,10 +36,11 @@ validate_header_list(struct qstar_graph *graph, const struct qstar_target *targe
 			    target->label,
 			    "qstar: header path '%s' in '%s' must be package-relative",
 			    path, target->label);
-		if (public_headers && !is_public_header_root(target, path))
+		if (public_headers && !is_public_header_root(target, path) &&
+		    !qstar_graph_find_output_owner(graph, path))
 			return qstar_set_error_origin(graph, target->origin_file,
 			    target->origin_line, "public_headers", target->label,
-			    "qstar: public header '%s' in '%s' must be under package include/",
+			    "qstar: public header '%s' in '%s' must be under package include/ or produced by a generated action",
 			    path, target->label);
 	}
 	return 0;
