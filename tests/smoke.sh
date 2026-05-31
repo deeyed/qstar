@@ -29,10 +29,12 @@ cat > "$tmp/src/main.c" <<'EOF'
 int main(void) { return 0; }
 EOF
 
-"$qstar" --file "$tmp/qstar.lua" build //:app > "$tmp/first.out" 2> "$tmp/first.err"
+"$qstar" --file "$tmp/qstar.lua" build //:app --jobs 2 --schedule-trace > "$tmp/first.out" 2> "$tmp/first.err"
 contains "$tmp/first.out" "qstar build v2"
-contains "$tmp/first.out" "executor-policy version=v2"
+contains "$tmp/first.out" "executor-policy version=v3"
+contains "$tmp/first.out" "parallel=optional jobs=2"
 contains "$tmp/first.out" "action_dag target=//:app"
+contains "$tmp/first.out" "schedule_action id=//:app:compile:0"
 contains "$tmp/first.out" "status=run"
 contains "$tmp/first.out" "status ok"
 test -f "$tmp/.qstar/state/actions.json" || fail "missing action state"
@@ -446,6 +448,7 @@ fi
 contains "$tmp/install-test.err" "not installable"
 
 manual_root=$(pwd)/tests/manual
+project_root=$(pwd)/tests/projects
 
 cp -R "$manual_root/c-only" "$tmp/c-only"
 "$qstar" --file "$tmp/c-only/qstar.lua" build //:app > "$tmp/c-only-build.out" 2> "$tmp/c-only-build.err"
@@ -484,6 +487,58 @@ cp -R "$manual_root/mixed-cale" "$tmp/mixed-sample"
 contains "$tmp/mixed-sample-dry.out" "argv=[cale, -c, src/main.c"
 contains "$tmp/mixed-sample-dry.out" "argv=[cale, -c, src/plugin.cale"
 contains "$tmp/mixed-sample-dry.out" "rule provider=native final_action=link output_group=exe"
+
+cp -R "$project_root/c-app-lib-test" "$tmp/project-c"
+"$qstar" --file "$tmp/project-c/qstar.lua" build //:app > "$tmp/project-c-build.out" 2> "$tmp/project-c-build.err"
+contains "$tmp/project-c-build.out" "status ok"
+"$tmp/project-c/.qstar/out/___app/app"
+"$qstar" --file "$tmp/project-c/qstar.lua" test //:unit > "$tmp/project-c-test.out" 2> "$tmp/project-c-test.err"
+contains "$tmp/project-c-test.out" "test_result label=//:unit status=pass"
+"$qstar" --file "$tmp/project-c/qstar.lua" install //:core --prefix "$tmp/project-c-prefix" > "$tmp/project-c-install.out" 2> "$tmp/project-c-install.err"
+test -f "$tmp/project-c-prefix/lib/libcore.a" || fail "project corpus c lib did not install"
+test -f "$tmp/project-c-prefix/include/corpus.h" || fail "project corpus c header did not install"
+contains "$tmp/project-c/.qstar/install/manifest.json" "\"role\":\"staticlib\""
+contains "$tmp/project-c/compile_commands.json" "src/core.c"
+contains "$tmp/project-c/compile_commands.json" "tests/unit.c"
+"$qstar" --file "$tmp/project-c/qstar.lua" build //:app > "$tmp/project-c-skip.out" 2> "$tmp/project-c-skip.err"
+contains "$tmp/project-c-skip.out" "status=skip"
+cat > "$tmp/project-c/src/main.c" <<'EOF'
+#include "corpus.h"
+int main(void) { return corpus_value() - 31; }
+EOF
+"$qstar" --file "$tmp/project-c/qstar.lua" build //:app --explain-cache > "$tmp/project-c-rebuild.out" 2> "$tmp/project-c-rebuild.err"
+contains "$tmp/project-c-rebuild.out" "cache_miss id=//:app:compile:0"
+contains "$tmp/project-c-rebuild.out" "status ok"
+
+if command -v c++ >/dev/null 2>&1; then
+	cp -R "$project_root/cxx-mixed" "$tmp/project-cxx"
+	"$qstar" --file "$tmp/project-cxx/qstar.lua" build //:mixed > "$tmp/project-cxx-build.out" 2> "$tmp/project-cxx-build.err"
+	contains "$tmp/project-cxx-build.out" "status ok"
+	"$tmp/project-cxx/.qstar/out/___mixed/mixed"
+	contains "$tmp/project-cxx/compile_commands.json" "src/cpp.cpp"
+	contains "$tmp/project-cxx/compile_commands.json" "src/main.c"
+fi
+
+cp -R "$project_root/generated-config" "$tmp/project-generated"
+"$qstar" --file "$tmp/project-generated/qstar.lua" build //:app > "$tmp/project-generated-build.out" 2> "$tmp/project-generated-build.err"
+contains "$tmp/project-generated-build.out" "status ok"
+test -f "$tmp/project-generated/generated/config.h" || fail "project corpus generated config missing"
+test -f "$tmp/project-generated/generated/value.c" || fail "project corpus generated source missing"
+"$tmp/project-generated/.qstar/out/___app/app"
+contains "$tmp/project-generated/compile_commands.json" "generated/value.c"
+"$qstar" --file "$tmp/project-generated/qstar.lua" build //:app > "$tmp/project-generated-skip.out" 2> "$tmp/project-generated-skip.err"
+contains "$tmp/project-generated-skip.out" "status=skip"
+
+cp -R "$project_root/multipkg" "$tmp/project-multipkg"
+"$qstar" --file "$tmp/project-multipkg/qstar.lua" build //app:app > "$tmp/project-multipkg-build.out" 2> "$tmp/project-multipkg-build.err"
+contains "$tmp/project-multipkg-build.out" "package-root $tmp/project-multipkg"
+contains "$tmp/project-multipkg-build.out" "status ok"
+"$tmp/project-multipkg/.qstar/out/__app_app/app"
+"$qstar" --file "$tmp/project-multipkg/qstar.lua" install //lib:core --prefix "$tmp/project-multipkg-prefix" > "$tmp/project-multipkg-install.out" 2> "$tmp/project-multipkg-install.err"
+test -f "$tmp/project-multipkg-prefix/lib/libcore.a" || fail "multipkg corpus lib did not install"
+test -f "$tmp/project-multipkg-prefix/include/core.h" || fail "multipkg corpus header did not install"
+contains "$tmp/project-multipkg/compile_commands.json" "lib/src/core.c"
+contains "$tmp/project-multipkg/compile_commands.json" "app/src/main.c"
 
 contains "../docs/qstar/qstar-v0-seal.md" "qstar/tests/manual/c-only"
 contains "../docs/qstar/qstar-v0-seal.md" "qstar/tests/manual/generated"

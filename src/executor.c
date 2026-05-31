@@ -25,6 +25,9 @@ struct qstar_build_ctx {
 	const char *root_label;
 	int explain_cache;
 	int explain_only;
+	int jobs;
+	int schedule_trace;
+	int cancelled;
 	struct qstar_state_entry {
 		char *id;
 		char *key;
@@ -33,6 +36,7 @@ struct qstar_build_ctx {
 	} *prev, *next;
 	size_t prev_len, prev_cap, next_len, next_cap;
 	size_t run_count, skip_count, fail_count;
+	size_t scheduled_count;
 	struct qstar_compile_record {
 		char *directory;
 		char *file;
@@ -675,6 +679,11 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	snprintf(child_stdout_path, sizeof(child_stdout_path), ".qstar/logs/%s.stdout", name);
 	snprintf(child_stderr_path, sizeof(child_stderr_path), ".qstar/logs/%s.stderr", name);
 	prev = state_find(ctx, id);
+	ctx->scheduled_count++;
+	if (ctx->schedule_trace)
+		fprintf(ctx->out,
+		    "schedule_action id=%s kind=%s slot=0 jobs=%d state=ready\n",
+		    id, kind, ctx->jobs);
 	if (ctx->explain_only) {
 		fprintf(ctx->out,
 		    "cache_action id=%s kind=%s status=%s reason=%s key=%s previous=%s\n",
@@ -733,6 +742,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 				write_action_log(action_log, argv, 124);
 				write_failure_replay(graph, argv);
 				ctx->fail_count++;
+				ctx->cancelled = 1;
 				fprintf(ctx->out,
 				    "build_action id=%s status=timeout timeout_sec=%d\n",
 				    id, QSTAR_ACTION_TIMEOUT_SEC);
@@ -752,6 +762,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		fprintf(ctx->out, "build_action id=%s status=fail exit=%d\n", id, exit_code);
 		write_failure_replay(graph, argv);
 		ctx->fail_count++;
+		ctx->cancelled = 1;
 		return qstar_set_error_origin(graph, target ? target->origin_file : "",
 		    target ? target->origin_line : 0, "action", target ? target->label : id,
 		    "qstar: action '%s' failed with status %d; replay=.qstar/logs/last-failure.replay",
@@ -939,6 +950,11 @@ run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	snprintf(stderr_path, sizeof(stderr_path), "%s/%s.stderr", logdir, name);
 	snprintf(action_log, sizeof(action_log), "%s/%s.log", logdir, name);
 	prev = state_find(ctx, id);
+	ctx->scheduled_count++;
+	if (ctx->schedule_trace)
+		fprintf(ctx->out,
+		    "schedule_action id=%s kind=generate slot=0 jobs=%d state=ready\n",
+		    id, ctx->jobs);
 	if (ctx->explain_only) {
 		fprintf(ctx->out,
 		    "cache_action id=%s kind=generate status=%s reason=%s key=%s previous=%s\n",
@@ -968,6 +984,7 @@ run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	if (write_config_header(graph, genrule) < 0) {
 		write_failure_replay(graph, argv);
 		ctx->fail_count++;
+		ctx->cancelled = 1;
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "action", target->label, "%s", graph->error);
 	}
@@ -1672,6 +1689,8 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
 	ctx.out = out;
 	ctx.root_label = label && *label ? label : "<all>";
 	ctx.explain_cache = options ? options->explain_cache : 0;
+	ctx.jobs = options && options->jobs > 0 ? options->jobs : 1;
+	ctx.schedule_trace = options ? options->schedule_trace : 0;
 	if (state_load(graph, &ctx) < 0) {
 		build_ctx_free(&ctx);
 		return -1;
@@ -1680,8 +1699,9 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
 	fprintf(out, "root %s\n", ctx.root_label);
 	fprintf(out, "package-root %s\n", graph->package_root ? graph->package_root : ".");
 	fprintf(out,
-	    "executor-policy version=v2 parallel=no failure=stop-on-first-failure action_timeout_sec=%d cancel=kill-process\n",
-	    QSTAR_ACTION_TIMEOUT_SEC);
+	    "executor-policy version=v3 parallel=%s jobs=%d active=%s failure=stop-on-first-failure action_timeout_sec=%d cancel=kill-process-and-stop-queue\n",
+	    ctx.jobs > 1 ? "optional" : "no", ctx.jobs,
+	    ctx.jobs > 1 ? "trace-only-v1" : "serial", QSTAR_ACTION_TIMEOUT_SEC);
 	rc = qstar_graph_visit_closure(graph, label, build_target, &ctx);
 	if (rc == 0)
 		rc = state_write(graph, &ctx);
@@ -1690,9 +1710,14 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
 	if (rc == 0)
 		fprintf(out, "status ok run=%zu skip=%zu fail=%zu\n",
 		    ctx.run_count, ctx.skip_count, ctx.fail_count);
-	else
+	else {
+		if (ctx.cancelled)
+			fprintf(out,
+			    "cancel_propagation policy=stop-on-first-failure pending=not-started scheduled=%zu\n",
+			    ctx.scheduled_count);
 		fprintf(out, "status fail run=%zu skip=%zu fail=%zu\n",
 		    ctx.run_count, ctx.skip_count, ctx.fail_count);
+	}
 	build_ctx_free(&ctx);
 	return rc;
 }
@@ -1704,6 +1729,7 @@ qstar_graph_build(struct qstar_graph *graph, const char *label, FILE *out)
 	struct qstar_build_options options;
 
 	memset(&options, 0, sizeof(options));
+	options.jobs = 1;
 	return qstar_graph_build_with_options(graph, label, &options, out);
 }
 

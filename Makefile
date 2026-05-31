@@ -51,7 +51,7 @@ LUA_SRCS = \
 
 QSTAR_OBJS = $(QSTAR_SRCS:%.c=$(QSTAR_BUILD)/%.o)
 LUA_OBJS = $(LUA_SRCS:%.c=$(QSTAR_BUILD)/%.o)
-.PHONY: all check qstar-tests qstar-v0-release-tests install clean
+.PHONY: all check qstar-tests qstar-v0-release-tests qstar-project-corpus-tests qstar-executor-v2-tests install clean
 
 all: $(BIN_DIR)/qstar
 
@@ -75,6 +75,10 @@ check: all
 qstar-tests: check
 
 qstar-v0-release-tests: check
+
+qstar-project-corpus-tests: check
+
+qstar-executor-v2-tests: check
 
 install: all
 	mkdir -p "$(PREFIX)/bin"

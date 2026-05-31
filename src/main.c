@@ -27,6 +27,9 @@ usage(FILE *out)
 	fputs("       --profile name --target triple --toolchain name --stdlib policy\n", out);
 	fputs("       --diagnostics text|json\n", out);
 	fputs("       --diagnostic-format text|line  # compatibility alias\n", out);
+	fputs("build options:\n", out);
+	fputs("       --jobs N\n", out);
+	fputs("       --schedule-trace\n", out);
 }
 
 /** JSON diagnostic string을 stderr에 출력한다. */
@@ -196,6 +199,7 @@ main(int argc, char **argv)
 		return 2;
 	}
 	cmd = argv[arg++];
+	build_options.jobs = 1;
 	if (strcmp(cmd, "init") == 0) {
 		const char *template_name, *directory;
 
@@ -270,10 +274,31 @@ main(int argc, char **argv)
 		qstar_graph_free(&graph);
 		return 2;
 	}
-	if (strcmp(cmd, "build") == 0 && arg < argc &&
-	    strcmp(argv[arg], "--explain-cache") == 0) {
-		build_options.explain_cache = 1;
-		arg++;
+	if (strcmp(cmd, "build") == 0) {
+		while (arg < argc) {
+			if (strcmp(argv[arg], "--explain-cache") == 0) {
+				build_options.explain_cache = 1;
+				arg++;
+			} else if (strcmp(argv[arg], "--schedule-trace") == 0) {
+				build_options.schedule_trace = 1;
+				arg++;
+			} else if (strcmp(argv[arg], "--jobs") == 0) {
+				if (arg + 1 >= argc) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				if (sscanf(argv[arg + 1], "%d", &build_options.jobs) != 1 ||
+				    build_options.jobs < 1 || build_options.jobs > 256) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				arg += 2;
+			} else {
+				break;
+			}
+		}
 	}
 	if (strcmp(cmd, "query") == 0 && (!label || !*label)) {
 		usage(stderr);

@@ -127,6 +127,8 @@ struct qstar_graph {
 
 struct qstar_build_options {
 	int explain_cache;
+	int jobs;
+	int schedule_trace;
 };
 
 struct qstar_install_options {
@@ -221,10 +223,10 @@ int qstar_graph_explain_plan(struct qstar_graph *graph, const char *label, FILE 
 /** QStar target closure를 실제 실행 없이 dry-run command stream으로 출력한다. */
 int qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out);
 
-/** QStar local executor v1로 제한된 build action을 실행한다. */
+/** QStar local executor로 제한된 build action을 실행한다. */
 int qstar_graph_build(struct qstar_graph *graph, const char *label, FILE *out);
 
-/** QStar local executor에 option을 적용해 제한된 build action을 실행한다. */
+/** QStar local executor에 cache/job/trace option을 적용해 build action을 실행한다. */
 int qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
     const struct qstar_build_options *options, FILE *out);
 

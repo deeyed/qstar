@@ -29,6 +29,7 @@ qstar --file qstar.lua check //:app
 qstar --file qstar.lua explain //:app
 qstar --file qstar.lua dry-run //:app
 qstar --file qstar.lua build //:app
+qstar --file qstar.lua build //:app --jobs 2 --schedule-trace
 qstar --file qstar.lua test //:unit
 qstar --file qstar.lua test //...
 qstar --file qstar.lua install //:app --prefix /tmp/qstar-install --dry-run
@@ -52,7 +53,7 @@ qstar --file qstar.lua --profile debug --target arm64-apple-macos explain //:app
 
 `--dump-graph`는 canonical Graph IR을 출력한다. `explain`은 선택한 target closure를 검증하고 dependency-first order와 action key 재료를 출력한다. `dry-run`은 실행하지 않는 deterministic step record를 만든다. `check`는 package-root 기준 source/header/generated input 존재 여부를 확인한다.
 
-`build`는 제한적 local executor v5다. package-local generated tool, `qstar.config_header`, C/Cale source compile argv, static archive, exe/test link를 다루며 산출물은 `.qstar/out`, 로그는 `.qstar/logs` 아래에 둔다. Round 14/15부터 `.qstar/state/actions.json` action manifest, `compile_commands.json`, cache-hit skip, `why-rebuild`, `log`, `last-failure`, `clean`, JSON diagnostic skeleton을 제공한다. Round 16/17부터 Cale source는 frontend/backend 내부 API가 아니라 `cale -c ... -o ...` process invocation으로만 다룬다. Round 18/19부터 static library dependency link order, public/private include propagation, system library flag rendering, test runner, install skeleton을 제공한다. Round 29부터 executor는 dependency-first closure를 직렬 action DAG로 실행하고, 실패는 stop-on-first-failure로 전파한다. Build action timeout은 30초 고정이며 timeout 시 process를 kill하고 replay file을 남긴다. 병렬 실행은 아직 열지 않고 `parallel=no` 정책으로 고정한다.
+`build`는 제한적 local executor v6다. package-local generated tool, `qstar.config_header`, C/Cale source compile argv, static archive, exe/test link를 다루며 산출물은 `.qstar/out`, 로그는 `.qstar/logs` 아래에 둔다. Round 14/15부터 `.qstar/state/actions.json` action manifest, `compile_commands.json`, cache-hit skip, `why-rebuild`, `log`, `last-failure`, `clean`, JSON diagnostic skeleton을 제공한다. Round 16/17부터 Cale source는 frontend/backend 내부 API가 아니라 `cale -c ... -o ...` process invocation으로만 다룬다. Round 18/19부터 static library dependency link order, public/private include propagation, system library flag rendering, test runner, install skeleton을 제공한다. Round 29부터 executor는 dependency-first closure를 action DAG로 실행하고, 실패는 stop-on-first-failure로 전파한다. Build action timeout은 30초 고정이며 timeout 시 process를 kill하고 replay file을 남긴다. Round 32부터 `--jobs N`과 `--schedule-trace`를 받는다. 현재 `jobs > 1`은 scheduler contract와 trace를 고정하는 optional parallel surface이며, action cache/state 안정성을 위해 실제 command execution은 deterministic serialized backend로 유지한다.
 
 ## 아직 하지 않는 일
 
@@ -159,6 +160,20 @@ qstar/tests/manual/generated
 qstar/tests/manual/mixed-cale
 ```
 
+Project corpus:
+
+```txt
+qstar/tests/projects/c-app-lib-test
+qstar/tests/projects/cxx-mixed
+qstar/tests/projects/generated-config
+qstar/tests/projects/multipkg
+```
+
+`tests/projects`는 `/tmp` ad-hoc smoke가 아니라 repository 안에 고정된 QStar
+real-project corpus다. C app/lib/test, C++ mixed target, generated config/source,
+multi-package dependency, install, rebuild, and `compile_commands.json` coverage를
+한 번에 묶는다.
+
 Round 22부터 source kind와 target kind는 registry 기반 rule model로 분리한다.
 자세한 경계는 `docs/qstar/rule-model.md`에 둔다.
 
@@ -194,3 +209,8 @@ dump는 argv item을 quoting하고 deterministic `digest=`를 붙인다. 긴 com
 `response=skeleton response_file=.qstar/rsp/...`를 표시하지만, 실제 response-file
 executor는 아직 열지 않는다. Action log와 `compile_commands.json`, failure replay는
 shell-safe quoting을 사용한다.
+
+Round 32 scheduler surface는 `--jobs N`과 `--schedule-trace`로 켠다. v1은
+dependency-first target closure, action readiness trace, job limit validation,
+failure cancellation policy를 고정한다. 실제 parallel command backend는 action state와
+depfile/cache update가 더 분리된 뒤 열린다.
