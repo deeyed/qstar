@@ -172,7 +172,7 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	struct qstar_lua_context *ctx;
 	struct qstar_target *target;
 	struct qstar_graph *graph;
-	const char *kind, *toolchain, *stdlib_policy;
+	const char *kind, *toolchain, *stdlib_policy, *cxx_standard;
 	char label[QSTAR_PATH_MAX], rawlabel[QSTAR_PATH_MAX];
 	char origin_file[QSTAR_PATH_MAX];
 	int origin_line;
@@ -216,11 +216,14 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	    read_list_field(L, table_index, "libs", &target->libs, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "lib_dirs", &target->lib_dirs, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "frameworks", &target->frameworks, graph, 0, target->fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "cflags", &target->cflags, graph, 0, target->fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "cxxflags", &target->cxxflags, graph, 0, target->fragment_dir) < 0 ||
 	    append_list(graph, &target->include_dirs, &target->private_include_dirs) < 0 ||
 	    append_list(graph, &target->include_dirs, &target->public_include_dirs) < 0)
 		return luaL_error(L, "%s", graph->error);
 	toolchain = check_string_field(L, table_index, "toolchain");
 	stdlib_policy = check_string_field(L, table_index, "stdlib");
+	cxx_standard = check_string_field(L, table_index, "cxx_standard");
 	if (toolchain) {
 		free(target->toolchain);
 		target->toolchain = qstar_strdup(toolchain);
@@ -229,7 +232,11 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 		free(target->stdlib_policy);
 		target->stdlib_policy = qstar_strdup(stdlib_policy);
 	}
-	if (!target->toolchain || !target->stdlib_policy)
+	if (cxx_standard) {
+		free(target->cxx_standard);
+		target->cxx_standard = qstar_strdup(cxx_standard);
+	}
+	if (!target->toolchain || !target->stdlib_policy || !target->cxx_standard)
 		return luaL_error(L, "qstar: out of memory");
 	return 0;
 }

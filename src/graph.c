@@ -123,6 +123,9 @@ free_target(struct qstar_target *target)
 	qstar_string_list_free(&target->libs);
 	qstar_string_list_free(&target->lib_dirs);
 	qstar_string_list_free(&target->frameworks);
+	qstar_string_list_free(&target->cflags);
+	qstar_string_list_free(&target->cxxflags);
+	free(target->cxx_standard);
 	free(target->toolchain);
 	free(target->stdlib_policy);
 }
@@ -348,8 +351,10 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	target->origin_line = origin_line;
 	target->toolchain = qstar_strdup("host");
 	target->stdlib_policy = qstar_strdup("system");
+	target->cxx_standard = qstar_strdup("");
 	if (!target->label || !target->name || !target->kind || !target->fragment_dir ||
-	    !target->origin_file || !target->toolchain || !target->stdlib_policy) {
+	    !target->origin_file || !target->toolchain || !target->stdlib_policy ||
+	    !target->cxx_standard) {
 		qstar_set_error(graph, "qstar: out of memory");
 		return NULL;
 	}
@@ -506,6 +511,13 @@ dump_target(const struct qstar_target *target, FILE *out)
 	fputs("  frameworks ", out);
 	dump_list(out, &target->frameworks);
 	fputc('\n', out);
+	fputs("  cflags ", out);
+	dump_list(out, &target->cflags);
+	fputc('\n', out);
+	fputs("  cxxflags ", out);
+	dump_list(out, &target->cxxflags);
+	fputc('\n', out);
+	fprintf(out, "  cxx_standard %s\n", target->cxx_standard);
 	fprintf(out, "  toolchain %s\n", target->toolchain);
 	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
 }
@@ -661,6 +673,13 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	fputs("  deps ", out);
 	dump_list(out, &target->deps);
 	fputc('\n', out);
+	fputs("  cflags ", out);
+	dump_list(out, &target->cflags);
+	fputc('\n', out);
+	fputs("  cxxflags ", out);
+	dump_list(out, &target->cxxflags);
+	fputc('\n', out);
+	fprintf(out, "  cxx_standard %s\n", target->cxx_standard);
 	fprintf(out, "  toolchain %s\n", target->toolchain);
 	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
 	return 0;

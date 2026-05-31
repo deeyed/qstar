@@ -11,6 +11,7 @@ struct qstar_resolved_toolchain {
 	char target[128];
 	char stdlib_policy[64];
 	char cc[QSTAR_PATH_MAX];
+	char cxx[QSTAR_PATH_MAX];
 	char cale[QSTAR_PATH_MAX];
 	char ar[QSTAR_PATH_MAX];
 	char linker[QSTAR_PATH_MAX];
@@ -54,6 +55,10 @@ void qstar_mangle_label(const char *label, char *dst, size_t dstlen);
 
 /** compile object output path를 deterministic package-relative path로 만든다. */
 int qstar_object_output_path(const struct qstar_target *target, size_t index, char *dst,
+    size_t dstlen);
+
+/** compile depfile output path를 deterministic package-relative path로 만든다. */
+int qstar_depfile_output_path(const struct qstar_target *target, size_t index, char *dst,
     size_t dstlen);
 
 /** target artifact output path를 deterministic package-relative path로 만든다. */

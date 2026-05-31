@@ -182,6 +182,7 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 	snprintf(resolved->resolver, sizeof(resolved->resolver), "builtin-v1");
 	if (strcmp(name, "host") == 0 || strcmp(name, "default") == 0) {
 		snprintf(resolved->cc, sizeof(resolved->cc), "cc");
+		snprintf(resolved->cxx, sizeof(resolved->cxx), "c++");
 		snprintf(resolved->cale, sizeof(resolved->cale), "cale");
 		snprintf(resolved->ar, sizeof(resolved->ar), "ar");
 		snprintf(resolved->linker, sizeof(resolved->linker), "cc");
@@ -189,6 +190,7 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 	}
 	if (strcmp(name, "clang") == 0) {
 		snprintf(resolved->cc, sizeof(resolved->cc), "clang");
+		snprintf(resolved->cxx, sizeof(resolved->cxx), "clang++");
 		snprintf(resolved->cale, sizeof(resolved->cale), "cale");
 		snprintf(resolved->ar, sizeof(resolved->ar), "ar");
 		snprintf(resolved->linker, sizeof(resolved->linker), "clang");
@@ -196,6 +198,7 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 	}
 	if (strcmp(name, "cale") == 0 || strcmp(name, "cale-sol") == 0) {
 		snprintf(resolved->cc, sizeof(resolved->cc), "cale");
+		snprintf(resolved->cxx, sizeof(resolved->cxx), "c++");
 		snprintf(resolved->cale, sizeof(resolved->cale), "cale");
 		snprintf(resolved->ar, sizeof(resolved->ar), "ar");
 		snprintf(resolved->linker, sizeof(resolved->linker), "cale");
@@ -230,6 +233,19 @@ qstar_object_output_path(const struct qstar_target *target, size_t index, char *
 
 	qstar_mangle_label(target->label, owner, sizeof(owner));
 	n = snprintf(dst, dstlen, ".qstar/out/%s/obj%zu.o", owner, index);
+	return n >= 0 && (size_t)n < dstlen ? 0 : -1;
+}
+
+/** compile depfile output path를 deterministic package-relative path로 만든다. */
+int
+qstar_depfile_output_path(const struct qstar_target *target, size_t index, char *dst,
+    size_t dstlen)
+{
+	char owner[QSTAR_PATH_MAX];
+	int n;
+
+	qstar_mangle_label(target->label, owner, sizeof(owner));
+	n = snprintf(dst, dstlen, ".qstar/out/%s/obj%zu.d", owner, index);
 	return n >= 0 && (size_t)n < dstlen ? 0 : -1;
 }
 

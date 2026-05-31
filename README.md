@@ -157,3 +157,8 @@ qstar/tests/manual/mixed-cale
 
 Round 22부터 source kind와 target kind는 registry 기반 rule model로 분리한다.
 자세한 경계는 `docs/qstar/rule-model.md`에 둔다.
+
+Round 23/24부터 QStar는 C/C++ compiler depfile을 읽어 header 변경을 compile action
+key에 반영하고, `.cc/.cpp/.cxx/.hpp`를 build-system source/header kind로 인식한다.
+C++ source가 있는 target은 `c++` 또는 `clang++` linker path를 사용한다. QStar는 C++
+문법을 해석하지 않으며 C++ modules는 아직 stable gate다.

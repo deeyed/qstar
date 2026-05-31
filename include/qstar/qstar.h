@@ -42,6 +42,9 @@ struct qstar_target {
 	struct qstar_string_list libs;
 	struct qstar_string_list lib_dirs;
 	struct qstar_string_list frameworks;
+	struct qstar_string_list cflags;
+	struct qstar_string_list cxxflags;
+	char *cxx_standard;
 	char *toolchain;
 	char *stdlib_policy;
 };

@@ -228,6 +228,7 @@ compute_action_key(struct qstar_graph *graph, const struct qstar_target *target,
 		hash_str(&h, toolchain->target);
 		hash_str(&h, toolchain->stdlib_policy);
 		hash_str(&h, toolchain->cc);
+		hash_str(&h, toolchain->cxx);
 		hash_str(&h, toolchain->ar);
 		hash_str(&h, toolchain->linker);
 	}
@@ -952,18 +953,112 @@ push_target_header_inputs(struct qstar_graph *graph, const struct qstar_target *
 	return 0;
 }
 
+static int
+string_list_contains(const struct qstar_string_list *list, const char *s)
+{
+	size_t i;
+
+	for (i = 0; i < list->len; i++) {
+		if (strcmp(list->items[i], s) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+/** depfile token을 compile action input list에 추가한다. */
+static int
+push_depfile_token(struct qstar_graph *graph, struct qstar_string_list *inputs,
+    const char *token)
+{
+	char full[QSTAR_PATH_MAX];
+
+	if (!token[0] || !qstar_path_is_package_relative(token))
+		return 0;
+	if (full_path_under_root(graph, token, full, sizeof(full)) < 0)
+		return qstar_set_error(graph, "qstar: depfile input path too long");
+	if (!path_exists(full))
+		return qstar_set_error(graph,
+		    "qstar: depfile-discovered header '%s' is missing", token);
+	if (string_list_contains(inputs, token))
+		return 0;
+	if (qstar_string_list_push(inputs, token) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	return 0;
+}
+
+/** compiler depfile을 읽어 discovered header input을 action key에 추가한다. */
+static int
+push_depfile_inputs(struct qstar_graph *graph, const char *depfile,
+    struct qstar_string_list *inputs)
+{
+	char full[QSTAR_PATH_MAX], token[QSTAR_PATH_MAX];
+	FILE *f;
+	int c, seen_colon, n;
+	size_t len;
+
+	if (full_path_under_root(graph, depfile, full, sizeof(full)) < 0)
+		return qstar_set_error(graph, "qstar: depfile path too long");
+	f = fopen(full, "rb");
+	if (!f)
+		return 0;
+	seen_colon = 0;
+	len = 0;
+	while ((c = fgetc(f)) != EOF) {
+		if (!seen_colon) {
+			if (c == ':')
+				seen_colon = 1;
+			continue;
+		}
+		if (c == '\\') {
+			n = fgetc(f);
+			if (n == '\n' || n == '\r')
+				continue;
+			if (n == EOF)
+				break;
+			c = n;
+		}
+		if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+			if (len) {
+				token[len] = '\0';
+				if (push_depfile_token(graph, inputs, token) < 0) {
+					fclose(f);
+					return -1;
+				}
+				len = 0;
+			}
+			continue;
+		}
+		if (len + 1 < sizeof(token))
+			token[len++] = (char)c;
+	}
+	if (len) {
+		token[len] = '\0';
+		if (push_depfile_token(graph, inputs, token) < 0) {
+			fclose(f);
+			return -1;
+		}
+	}
+	fclose(f);
+	return 0;
+}
+
 /** compile source 종류와 toolchain 조합을 검증한다. */
 static int
 validate_compile_source(struct qstar_graph *graph, const struct qstar_target *target,
     const struct qstar_resolved_toolchain *toolchain, const struct qstar_source_info *source,
     size_t index)
 {
-	if (strcmp(source->language, "header") == 0)
+	if (source->header_input)
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "sources", target->label,
 		    "qstar: header source '%s' must be listed as public_headers/private_headers",
 		    target->sources.items[index]);
-	if (strcmp(source->language, "c") != 0 && strcmp(source->language, "cale") != 0)
+	if (strcmp(source->language, "cxx-module") == 0)
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "sources", target->label,
+		    "qstar: C++ modules are not supported in QStar local executor v1");
+	if (strcmp(source->language, "c") != 0 && strcmp(source->language, "cxx") != 0 &&
+	    strcmp(source->language, "cale") != 0)
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "sources", target->label,
 		    "qstar: local executor does not support source '%s' with language '%s'",
@@ -975,12 +1070,23 @@ validate_compile_source(struct qstar_graph *graph, const struct qstar_target *ta
 		    "sources", target->label,
 		    "qstar: Cale source '%s' requires toolchain=cale",
 		    target->sources.items[index]);
+	if (strcmp(source->language, "cxx") == 0 &&
+	    (strcmp(toolchain->name, "cale") == 0 || strcmp(toolchain->name, "cale-sol") == 0))
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "sources", target->label,
+		    "qstar: C++ source '%s' requires host or clang toolchain",
+		    target->sources.items[index]);
 	if ((strcmp(toolchain->name, "cale") == 0 ||
 	    strcmp(toolchain->name, "cale-sol") == 0) && !command_exists(toolchain->cale))
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "sources", target->label,
 		    "qstar: Cale compiler '%s' not found for source '%s'",
 		    toolchain->cale, target->sources.items[index]);
+	if (strcmp(source->language, "cxx") == 0 && !command_exists(toolchain->cxx))
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "sources", target->label,
+		    "qstar: C++ compiler '%s' not found for source '%s'",
+		    toolchain->cxx, target->sources.items[index]);
 	return 0;
 }
 
@@ -990,29 +1096,37 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
     const struct qstar_resolved_toolchain *toolchain, size_t index)
 {
 	struct qstar_source_info source;
-	char object[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX], target_arg[QSTAR_PATH_MAX], key[32];
+	char object[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX];
+	char target_arg[QSTAR_PATH_MAX], std_arg[128], key[32];
 	const char *compiler;
 	char *argv[QSTAR_EXEC_MAX_ARGV];
 	struct qstar_string_list inputs, outputs, includes;
-	int cross;
+	int cross, wants_depfile, is_cxx;
 	size_t argc, i;
 
 	qstar_source_classify(target->sources.items[index], &source);
 	if (validate_compile_source(graph, target, toolchain, &source, index) < 0)
 		return -1;
 	if (qstar_object_output_path(target, index, object, sizeof(object)) < 0 ||
+	    qstar_depfile_output_path(target, index, depfile, sizeof(depfile)) < 0 ||
 	    mkdir_parent_under_root(graph, object) < 0)
 		return qstar_set_error(graph, "qstar: could not create object output directory");
 	memset(&includes, 0, sizeof(includes));
 	if (collect_compile_include_dirs(graph, target, &includes) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
-	if (includes.len * 2 + target->system_include_dirs.len * 2 + 8 > QSTAR_EXEC_MAX_ARGV) {
+	is_cxx = strcmp(source.language, "cxx") == 0;
+	wants_depfile = (strcmp(source.language, "c") == 0 || is_cxx) &&
+	    strcmp(toolchain->name, "cale") != 0 && strcmp(toolchain->name, "cale-sol") != 0;
+	if (includes.len * 2 + target->system_include_dirs.len * 2 +
+	    target->cflags.len + target->cxxflags.len + 12 > QSTAR_EXEC_MAX_ARGV) {
 		qstar_string_list_free(&includes);
 		return qstar_set_error(graph, "qstar: compile argv too long");
 	}
 	snprintf(id, sizeof(id), "%s:compile:%zu", target->label, index);
 	snprintf(target_arg, sizeof(target_arg), "--target=%s", toolchain->target);
-	compiler = strcmp(source.language, "cale") == 0 ? toolchain->cale : toolchain->cc;
+	snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
+	compiler = strcmp(source.language, "cale") == 0 ? toolchain->cale :
+	    is_cxx ? toolchain->cxx : toolchain->cc;
 	cross = (strcmp(toolchain->name, "clang") == 0 ||
 	    strcmp(toolchain->name, "cale") == 0 ||
 	    strcmp(toolchain->name, "cale-sol") == 0) &&
@@ -1025,6 +1139,17 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
 	argv[argc++] = target->sources.items[index];
 	argv[argc++] = "-o";
 	argv[argc++] = object;
+	if (wants_depfile) {
+		argv[argc++] = "-MMD";
+		argv[argc++] = "-MF";
+		argv[argc++] = depfile;
+	}
+	if (is_cxx && target->cxx_standard[0])
+		argv[argc++] = std_arg;
+	for (i = 0; !is_cxx && i < target->cflags.len; i++)
+		argv[argc++] = target->cflags.items[i];
+	for (i = 0; is_cxx && i < target->cxxflags.len; i++)
+		argv[argc++] = target->cxxflags.items[i];
 	for (i = 0; i < includes.len; i++) {
 		argv[argc++] = "-I";
 		argv[argc++] = includes.items[i];
@@ -1054,6 +1179,12 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
 		qstar_string_list_free(&includes);
 		return -1;
 	}
+	if (wants_depfile && push_depfile_inputs(graph, depfile, &inputs) < 0) {
+		qstar_string_list_free(&inputs);
+		qstar_string_list_free(&outputs);
+		qstar_string_list_free(&includes);
+		return -1;
+	}
 	compute_action_key(graph, target, toolchain, id, "compile", argv, &inputs, object, key,
 	    sizeof(key));
 	qstar_string_list_free(&inputs);
@@ -1061,6 +1192,17 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
 		qstar_string_list_free(&outputs);
 		qstar_string_list_free(&includes);
 		return -1;
+	}
+	if (wants_depfile) {
+		char full_depfile[QSTAR_PATH_MAX];
+
+		if (full_path_under_root(graph, depfile, full_depfile, sizeof(full_depfile)) < 0 ||
+		    !path_exists(full_depfile)) {
+			qstar_string_list_free(&outputs);
+			qstar_string_list_free(&includes);
+			return qstar_set_error(graph,
+			    "qstar: compiler did not produce depfile '%s'", depfile);
+		}
 	}
 	qstar_string_list_free(&outputs);
 	qstar_string_list_free(&includes);
@@ -1185,6 +1327,21 @@ target_is_windows(const char *target)
 	    strstr(target, "msvc"));
 }
 
+/** target source list에 C++ compile input이 있는지 확인한다. */
+static int
+target_has_cxx_source(const struct qstar_target *target)
+{
+	struct qstar_source_info source;
+	size_t i;
+
+	for (i = 0; i < target->sources.len; i++) {
+		if (qstar_source_classify(target->sources.items[i], &source) == 0 &&
+		    strcmp(source.language, "cxx") == 0)
+			return 1;
+	}
+	return 0;
+}
+
 /** system lib/lib_dir/framework link flags를 target profile별 spelling으로 추가한다. */
 static int
 append_system_link_flags(struct qstar_graph *graph, const struct qstar_target *target,
@@ -1255,7 +1412,8 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 		argv[argc++] = artifact;
 	} else {
 		snprintf(id, sizeof(id), "%s:link:0", target->label);
-		argv[argc++] = (char *)toolchain->linker;
+		argv[argc++] = (char *)(target_has_cxx_source(target) ?
+		    toolchain->cxx : toolchain->linker);
 		argv[argc++] = "-o";
 		argv[argc++] = artifact;
 	}
@@ -1325,9 +1483,10 @@ build_target(struct qstar_graph *graph, const struct qstar_target *target, size_
 		    "qstar: sharedlib targets are plan-only in local executor v1");
 	if (qstar_resolve_toolchain(graph, target, &toolchain) < 0)
 		return -1;
-	fprintf(ctx->out, "resolved_toolchain owner=%s toolchain=%s target=%s cc=%s ar=%s linker=%s\n",
-	    target->label, toolchain.name, toolchain.target, toolchain.cc, toolchain.ar,
-	    toolchain.linker);
+	fprintf(ctx->out,
+	    "resolved_toolchain owner=%s toolchain=%s target=%s cc=%s cxx=%s ar=%s linker=%s\n",
+	    target->label, toolchain.name, toolchain.target, toolchain.cc, toolchain.cxx,
+	    toolchain.ar, toolchain.linker);
 	if (run_generated_actions(graph, ctx, target) < 0)
 		return -1;
 	for (i = 0; i < target->sources.len; i++) {

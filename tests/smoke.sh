@@ -495,4 +495,84 @@ contains "$tmp/init-overwrite.err" "refuses to overwrite existing file"
 contains "$tmp/rule-explain.out" "rule provider=native final_action=archive output_group=libs"
 contains "$tmp/rule-explain.out" "source_file path=src/core.c language=c tool=c-compiler provider=c output_group=objects role=compile"
 
+mkdir -p "$tmp/depfile/include" "$tmp/depfile/src"
+cat > "$tmp/depfile/include/dep.h" <<'EOF'
+#define DEP_VALUE 11
+EOF
+cat > "$tmp/depfile/src/main.c" <<'EOF'
+#include "dep.h"
+int main(void) { return DEP_VALUE - 11; }
+EOF
+cat > "$tmp/depfile/qstar.lua" <<'EOF'
+qstar.exe "app" {
+  sources = {"src/main.c"},
+  include_dirs = {"include"},
+}
+EOF
+"$qstar" --file "$tmp/depfile/qstar.lua" build //:app > "$tmp/depfile-first.out" 2> "$tmp/depfile-first.err"
+contains "$tmp/depfile-first.out" "status ok"
+test -f "$tmp/depfile/.qstar/out/___app/obj0.d" || fail "missing compiler depfile"
+cat > "$tmp/depfile/include/dep.h" <<'EOF'
+#define DEP_VALUE 12
+EOF
+"$qstar" --file "$tmp/depfile/qstar.lua" build //:app --explain-cache > "$tmp/depfile-second.out" 2> "$tmp/depfile-second.err"
+contains "$tmp/depfile-second.out" "cache_miss id=//:app:compile:0"
+rm -f "$tmp/depfile/include/dep.h"
+if "$qstar" --file "$tmp/depfile/qstar.lua" build //:app > "$tmp/depfile-missing.out" 2> "$tmp/depfile-missing.err"; then
+	fail "missing depfile-discovered header unexpectedly succeeded"
+fi
+contains "$tmp/depfile-missing.err" "depfile-discovered header"
+
+if command -v c++ >/dev/null 2>&1; then
+	mkdir -p "$tmp/cxx/include" "$tmp/cxx/src"
+	cat > "$tmp/cxx/include/cpp.hpp" <<'EOF'
+#ifndef QSTAR_CXX_FLAG
+#error missing C++ flag
+#endif
+static inline int qstar_cpp_value(void) { return 37 + QSTAR_CXX_FLAG; }
+EOF
+	cat > "$tmp/cxx/src/cpp.cpp" <<'EOF'
+#include "cpp.hpp"
+extern "C" int cpp_value(void) { return qstar_cpp_value(); }
+EOF
+	cat > "$tmp/cxx/src/main.c" <<'EOF'
+#ifndef QSTAR_C_FLAG
+#error missing C flag
+#endif
+int cpp_value(void);
+int main(void) { return cpp_value() - 42; }
+EOF
+	cat > "$tmp/cxx/qstar.lua" <<'EOF'
+qstar.exe "mixed" {
+  sources = {"src/main.c", "src/cpp.cpp"},
+  include_dirs = {"include"},
+  cflags = {"-DQSTAR_C_FLAG=1"},
+  cxxflags = {"-DQSTAR_CXX_FLAG=5"},
+  cxx_standard = "c++11",
+}
+EOF
+	"$qstar" --file "$tmp/cxx/qstar.lua" dry-run //:mixed > "$tmp/cxx-dry.out" 2> "$tmp/cxx-dry.err"
+	contains "$tmp/cxx-dry.out" "argv=[c++, -c, src/cpp.cpp"
+	contains "$tmp/cxx-dry.out" "-std=c++11"
+	contains "$tmp/cxx-dry.out" "-DQSTAR_CXX_FLAG=5"
+	contains "$tmp/cxx-dry.out" "argv=[c++, -o, .qstar/out/___mixed/mixed"
+	"$qstar" --file "$tmp/cxx/qstar.lua" build //:mixed > "$tmp/cxx-build.out" 2> "$tmp/cxx-build.err"
+	contains "$tmp/cxx-build.out" "status ok"
+	"$tmp/cxx/.qstar/out/___mixed/mixed"
+	contains "$tmp/cxx/compile_commands.json" "src/cpp.cpp"
+fi
+
+cat > "$tmp/cxx-module.qstar.lua" <<'EOF'
+qstar.exe "bad_module" {
+  sources = {"src/module.cppm"},
+}
+EOF
+cat > "$tmp/src/module.cppm" <<'EOF'
+export module bad;
+EOF
+if "$qstar" --file "$tmp/cxx-module.qstar.lua" build //:bad_module > "$tmp/cxx-module.out" 2> "$tmp/cxx-module.err"; then
+	fail "C++ module source unexpectedly built"
+fi
+contains "$tmp/cxx-module.err" "C++ modules are not supported"
+
 echo "qstar-smoke: passed"

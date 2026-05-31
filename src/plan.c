@@ -463,23 +463,32 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
     const struct qstar_resolved_toolchain *toolchain, const struct qstar_source_info *source,
     const char *input, const char *output, size_t index)
 {
-	char id[QSTAR_PATH_MAX], target_arg[QSTAR_PATH_MAX];
+	char id[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], target_arg[QSTAR_PATH_MAX];
+	char std_arg[128];
 	const char *tool;
 	struct qstar_string_list includes;
 	size_t argc, seen, i;
-	int cross;
+	int cross, is_cxx, wants_depfile;
 
 	memset(&includes, 0, sizeof(includes));
 	collect_compile_include_dirs(graph, target, &includes);
 	snprintf(id, sizeof(id), "%s:compile:%zu", target->label, index);
-	tool = strcmp(source->language, "cale") == 0 ? toolchain->cale : toolchain->cc;
+	qstar_depfile_output_path(target, index, depfile, sizeof(depfile));
+	is_cxx = strcmp(source->language, "cxx") == 0;
+	wants_depfile = (strcmp(source->language, "c") == 0 || is_cxx) &&
+	    strcmp(toolchain->name, "cale") != 0 && strcmp(toolchain->name, "cale-sol") != 0;
+	tool = strcmp(source->language, "cale") == 0 ? toolchain->cale :
+	    is_cxx ? toolchain->cxx : toolchain->cc;
 	cross = (strcmp(toolchain->name, "clang") == 0 ||
 	    strcmp(toolchain->name, "cale") == 0 ||
 	    strcmp(toolchain->name, "cale-sol") == 0) &&
 	    strcmp(toolchain->target, "host") != 0;
 	argc = 5 + includes.len * 2 + target->system_include_dirs.len * 2 +
-	    (cross ? 1 : 0);
+	    (cross ? 1 : 0) + (wants_depfile ? 3 : 0) +
+	    (is_cxx && target->cxx_standard[0] ? 1 : 0) +
+	    (is_cxx ? target->cxxflags.len : target->cflags.len);
 	snprintf(target_arg, sizeof(target_arg), "--target=%s", toolchain->target);
+	snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
 	begin_argv(out, id, argc);
 	seen = 0;
 	argv_item(out, &seen, tool);
@@ -489,6 +498,17 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	argv_item(out, &seen, input);
 	argv_item(out, &seen, "-o");
 	argv_item(out, &seen, output);
+	if (wants_depfile) {
+		argv_item(out, &seen, "-MMD");
+		argv_item(out, &seen, "-MF");
+		argv_item(out, &seen, depfile);
+	}
+	if (is_cxx && target->cxx_standard[0])
+		argv_item(out, &seen, std_arg);
+	for (i = 0; !is_cxx && i < target->cflags.len; i++)
+		argv_item(out, &seen, target->cflags.items[i]);
+	for (i = 0; is_cxx && i < target->cxxflags.len; i++)
+		argv_item(out, &seen, target->cxxflags.items[i]);
 	for (i = 0; i < includes.len; i++) {
 		argv_item(out, &seen, "-I");
 		argv_item(out, &seen, includes.items[i]);
@@ -499,6 +519,21 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	}
 	end_argv(out);
 	qstar_string_list_free(&includes);
+}
+
+/** target source list에 C++ compile input이 있는지 확인한다. */
+static int
+target_has_cxx_source(const struct qstar_target *target)
+{
+	struct qstar_source_info source;
+	size_t i;
+
+	for (i = 0; i < target->sources.len; i++) {
+		if (qstar_source_classify(target->sources.items[i], &source) == 0 &&
+		    strcmp(source.language, "cxx") == 0)
+			return 1;
+	}
+	return 0;
 }
 
 /** generated action의 실제 argv plan을 출력한다. */
@@ -544,7 +579,8 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 		argv_item(out, &seen, output);
 		argv_item(out, &seen, "<target-objects>");
 	} else {
-		argv_item(out, &seen, toolchain->linker);
+		argv_item(out, &seen, target_has_cxx_source(target) ?
+		    toolchain->cxx : toolchain->linker);
 		if (strcmp(action, "link-shared") == 0)
 			argv_item(out, &seen, "-shared");
 		argv_item(out, &seen, "-o");
@@ -683,11 +719,11 @@ dump_resolved_toolchain(FILE *out, const struct qstar_plan *plan,
 		return -1;
 	fprintf(out,
 	    "  resolved_toolchain owner=%s toolchain=%s profile=%s target=%s "
-	    "stdlib=%s resolver=%s cc=%s cale=%s ar=%s linker=%s\n",
+	    "stdlib=%s resolver=%s cc=%s cxx=%s cale=%s ar=%s linker=%s\n",
 	    target->label, resolved->name,
 	    profile_or_default(plan->graph->profile.name, "default"),
 	    resolved->target, resolved->stdlib_policy, resolved->resolver,
-	    resolved->cc, resolved->cale, resolved->ar, resolved->linker);
+	    resolved->cc, resolved->cxx, resolved->cale, resolved->ar, resolved->linker);
 	return 0;
 }
 
@@ -748,6 +784,13 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	fputs("  frameworks ", out);
 	dump_list(out, &target->frameworks);
 	fputc('\n', out);
+	fputs("  cflags ", out);
+	dump_list(out, &target->cflags);
+	fputc('\n', out);
+	fputs("  cxxflags ", out);
+	dump_list(out, &target->cxxflags);
+	fputc('\n', out);
+	fprintf(out, "  cxx_standard %s\n", target->cxx_standard);
 	fprintf(out, "  toolchain %s\n", target->toolchain);
 	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
 	if (dump_resolved_toolchain(out, plan, target, &toolchain) < 0)
@@ -973,8 +1016,8 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 	fprintf(out, "closure-target-count %zu\n", plan.len);
 	fprintf(out, "generated-action-count %zu\n", graph->genrule_len);
 	if (plan.len > 0 && qstar_resolve_toolchain(graph, plan.order[0], &toolchain) == 0)
-		fprintf(out, "toolchain-sanity name=%s cc=%s linker=%s status=resolved\n",
-		    toolchain.name, toolchain.cc, toolchain.linker);
+		fprintf(out, "toolchain-sanity name=%s cc=%s cxx=%s linker=%s status=resolved\n",
+		    toolchain.name, toolchain.cc, toolchain.cxx, toolchain.linker);
 	if (qstar_path_join(graph->package_root ? graph->package_root : ".", ".qstar",
 	    state_dir, sizeof(state_dir)) == 0) {
 		if (mkdir(state_dir, 0777) == 0 || access(state_dir, W_OK) == 0)

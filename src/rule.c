@@ -12,6 +12,8 @@ static const struct source_rule source_rules[] = {
 	{ ".cc", { NULL, "cxx", "cxx-compiler", "cxx", "objects", 1, 0 } },
 	{ ".cpp", { NULL, "cxx", "cxx-compiler", "cxx", "objects", 1, 0 } },
 	{ ".cxx", { NULL, "cxx", "cxx-compiler", "cxx", "objects", 1, 0 } },
+	{ ".cppm", { NULL, "cxx-module", "cxx-module-scanner", "cxx", "modules", 0, 0 } },
+	{ ".ixx", { NULL, "cxx-module", "cxx-module-scanner", "cxx", "modules", 0, 0 } },
 	{ ".h", { NULL, "header", "header-input", "c", "headers", 0, 1 } },
 	{ ".hpp", { NULL, "cxx-header", "header-input", "cxx", "headers", 0, 1 } },
 	{ ".hh", { NULL, "cxx-header", "header-input", "cxx", "headers", 0, 1 } },
