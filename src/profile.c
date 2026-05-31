@@ -5,6 +5,43 @@
 #include <stdlib.h>
 #include <string.h>
 
+/** directory에 qstar.workspace marker가 있는지 확인한다. */
+static int
+workspace_marker_exists(const char *dir)
+{
+	char path[QSTAR_PATH_MAX];
+	FILE *f;
+
+	if (qstar_path_join(dir, "qstar.workspace", path, sizeof(path)) < 0)
+		return 0;
+	f = fopen(path, "rb");
+	if (!f)
+		return 0;
+	fclose(f);
+	return 1;
+}
+
+/** qstar.lua 위치에서 위로 올라가며 profile root로 쓸 workspace를 찾는다. */
+static int
+discover_profile_root(const char *file_dir, char *root, size_t rootlen)
+{
+	char cur[QSTAR_PATH_MAX], parent[QSTAR_PATH_MAX];
+
+	snprintf(cur, sizeof(cur), "%s", file_dir && *file_dir ? file_dir : ".");
+	for (;;) {
+		if (workspace_marker_exists(cur))
+			return snprintf(root, rootlen, "%s", cur) < (int)rootlen ? 0 : -1;
+		if (strcmp(cur, ".") == 0 || strcmp(cur, "/") == 0)
+			break;
+		if (qstar_dirname(cur, parent, sizeof(parent)) < 0 ||
+		    strcmp(parent, cur) == 0)
+			break;
+		snprintf(cur, sizeof(cur), "%s", parent);
+	}
+	return snprintf(root, rootlen, "%s", file_dir && *file_dir ? file_dir : ".") <
+	    (int)rootlen ? 0 : -1;
+}
+
 /** 앞뒤 공백을 제거한 문자열 시작 위치를 반환하고 오른쪽 공백은 in-place로 지운다. */
 static char *
 trim(char *s)
@@ -32,6 +69,41 @@ toml_scalar(char *s)
 		return s + 1;
 	}
 	return s;
+}
+
+/** TOML v2 profile list parser가 허용하는 quoted string list item을 추가한다. */
+static int
+toml_string_list(struct qstar_graph *graph, struct qstar_string_list *list, char *s)
+{
+	char *p, *q;
+
+	s = trim(s);
+	if (*s != '[')
+		return qstar_set_error(graph, "qstar: profile list value must start with '['");
+	p = s + 1;
+	for (;;) {
+		p = trim(p);
+		if (*p == ']')
+			return 0;
+		if (*p != '"')
+			return qstar_set_error(graph, "qstar: profile list items must be quoted strings");
+		q = ++p;
+		while (*q && *q != '"')
+			q++;
+		if (*q != '"')
+			return qstar_set_error(graph, "qstar: unterminated profile list string");
+		*q++ = '\0';
+		if (qstar_string_list_push(list, p) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+		q = trim(q);
+		if (*q == ',') {
+			p = q + 1;
+			continue;
+		}
+		if (*q == ']')
+			return 0;
+		return qstar_set_error(graph, "qstar: malformed profile list");
+	}
 }
 
 /** profile slot을 새 문자열로 교체한다. */
@@ -68,6 +140,38 @@ apply_profile_key(struct qstar_graph *graph, const char *key, const char *value,
 	if (strcmp(key, "stdlib") == 0 || strcmp(key, "stdlib_policy") == 0)
 		return profile_set(&graph->profile.stdlib_policy, value) < 0 ?
 		    qstar_set_error(graph, "qstar: out of memory") : 0;
+	if (strcmp(key, "cc") == 0 || strcmp(key, "c_compiler") == 0)
+		return profile_set(&graph->profile.cc, value) < 0 ?
+		    qstar_set_error(graph, "qstar: out of memory") : 0;
+	if (strcmp(key, "cxx") == 0 || strcmp(key, "cxx_compiler") == 0)
+		return profile_set(&graph->profile.cxx, value) < 0 ?
+		    qstar_set_error(graph, "qstar: out of memory") : 0;
+	if (strcmp(key, "cale") == 0 || strcmp(key, "cale_compiler") == 0)
+		return profile_set(&graph->profile.cale, value) < 0 ?
+		    qstar_set_error(graph, "qstar: out of memory") : 0;
+	if (strcmp(key, "ar") == 0 || strcmp(key, "archiver") == 0)
+		return profile_set(&graph->profile.ar, value) < 0 ?
+		    qstar_set_error(graph, "qstar: out of memory") : 0;
+	if (strcmp(key, "linker") == 0)
+		return profile_set(&graph->profile.linker, value) < 0 ?
+		    qstar_set_error(graph, "qstar: out of memory") : 0;
+	if (strcmp(key, "sysroot") == 0)
+		return profile_set(&graph->profile.sysroot, value) < 0 ?
+		    qstar_set_error(graph, "qstar: out of memory") : 0;
+	if (strcmp(key, "resource_dir") == 0)
+		return profile_set(&graph->profile.resource_dir, value) < 0 ?
+		    qstar_set_error(graph, "qstar: out of memory") : 0;
+	return 0;
+}
+
+/** profile schema v2 list key를 graph profile에 반영한다. */
+static int
+apply_profile_list(struct qstar_graph *graph, const char *key, char *value)
+{
+	if (strcmp(key, "include_dirs") == 0)
+		return toml_string_list(graph, &graph->profile.include_dirs, value);
+	if (strcmp(key, "lib_dirs") == 0)
+		return toml_string_list(graph, &graph->profile.lib_dirs, value);
 	return 0;
 }
 
@@ -125,7 +229,15 @@ load_profile_toml(struct qstar_graph *graph, const char *path, int profile_file)
 			    path);
 		}
 		*eq = '\0';
-		if (apply_profile_key(graph, trim(s), toml_scalar(eq + 1), !profile_file) < 0) {
+		s = trim(s);
+		if (*trim(eq + 1) == '[') {
+			if (apply_profile_list(graph, s, eq + 1) < 0) {
+				fclose(f);
+				return -1;
+			}
+			continue;
+		}
+		if (apply_profile_key(graph, s, toml_scalar(eq + 1), !profile_file) < 0) {
 			fclose(f);
 			return -1;
 		}
@@ -143,6 +255,8 @@ qstar_graph_load_profile_files(struct qstar_graph *graph, const char *qstar_file
 
 	if (qstar_dirname(qstar_file, root, sizeof(root)) < 0)
 		return qstar_set_error(graph, "qstar: qstar file path too long");
+	if (discover_profile_root(root, root, sizeof(root)) < 0)
+		return qstar_set_error(graph, "qstar: profile root path too long");
 	if (qstar_graph_set_package_root(graph, root) < 0)
 		return -1;
 	if (qstar_path_join(root, "Cale.toml", path, sizeof(path)) < 0)
@@ -156,6 +270,40 @@ qstar_graph_load_profile_files(struct qstar_graph *graph, const char *qstar_file
 	if (qstar_path_join(root, profile_path, path, sizeof(path)) < 0)
 		return qstar_set_error(graph, "qstar: profile path too long");
 	return load_profile_toml(graph, path, 1);
+}
+
+static int
+valid_profile_path(const char *path)
+{
+	return path && *path && (path[0] == '/' || qstar_path_is_package_relative(path));
+}
+
+/** QStar profile schema v2 입력을 검증한다. */
+int
+qstar_graph_validate_profile(struct qstar_graph *graph)
+{
+	size_t i;
+
+	if (graph->profile.sysroot && *graph->profile.sysroot &&
+	    !valid_profile_path(graph->profile.sysroot))
+		return qstar_set_error(graph, "qstar: profile sysroot must be absolute or workspace-relative");
+	if (graph->profile.resource_dir && *graph->profile.resource_dir &&
+	    !valid_profile_path(graph->profile.resource_dir))
+		return qstar_set_error(graph,
+		    "qstar: profile resource_dir must be absolute or workspace-relative");
+	for (i = 0; i < graph->profile.include_dirs.len; i++) {
+		if (!valid_profile_path(graph->profile.include_dirs.items[i]))
+			return qstar_set_error(graph,
+			    "qstar: profile include_dirs entry '%s' must be absolute or workspace-relative",
+			    graph->profile.include_dirs.items[i]);
+	}
+	for (i = 0; i < graph->profile.lib_dirs.len; i++) {
+		if (!valid_profile_path(graph->profile.lib_dirs.items[i]))
+			return qstar_set_error(graph,
+			    "qstar: profile lib_dirs entry '%s' must be absolute or workspace-relative",
+			    graph->profile.lib_dirs.items[i]);
+	}
+	return 0;
 }
 
 /** target/profile 입력을 합쳐 host/clang/cale toolchain v1을 결정한다. */
@@ -186,25 +334,38 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 		snprintf(resolved->cale, sizeof(resolved->cale), "cale");
 		snprintf(resolved->ar, sizeof(resolved->ar), "ar");
 		snprintf(resolved->linker, sizeof(resolved->linker), "cc");
-		return 0;
-	}
-	if (strcmp(name, "clang") == 0) {
+	} else if (strcmp(name, "clang") == 0) {
 		snprintf(resolved->cc, sizeof(resolved->cc), "clang");
 		snprintf(resolved->cxx, sizeof(resolved->cxx), "clang++");
 		snprintf(resolved->cale, sizeof(resolved->cale), "cale");
 		snprintf(resolved->ar, sizeof(resolved->ar), "ar");
 		snprintf(resolved->linker, sizeof(resolved->linker), "clang");
-		return 0;
-	}
-	if (strcmp(name, "cale") == 0 || strcmp(name, "cale-sol") == 0) {
+	} else if (strcmp(name, "cale") == 0 || strcmp(name, "cale-sol") == 0) {
 		snprintf(resolved->cc, sizeof(resolved->cc), "cale");
 		snprintf(resolved->cxx, sizeof(resolved->cxx), "c++");
 		snprintf(resolved->cale, sizeof(resolved->cale), "cale");
 		snprintf(resolved->ar, sizeof(resolved->ar), "ar");
 		snprintf(resolved->linker, sizeof(resolved->linker), "cale");
-		return 0;
+	} else {
+		return qstar_set_error(graph, "qstar: unknown toolchain profile '%s'", name);
 	}
-	return qstar_set_error(graph, "qstar: unknown toolchain profile '%s'", name);
+	if (graph->profile.cc && *graph->profile.cc)
+		snprintf(resolved->cc, sizeof(resolved->cc), "%s", graph->profile.cc);
+	if (graph->profile.cxx && *graph->profile.cxx)
+		snprintf(resolved->cxx, sizeof(resolved->cxx), "%s", graph->profile.cxx);
+	if (graph->profile.cale && *graph->profile.cale)
+		snprintf(resolved->cale, sizeof(resolved->cale), "%s", graph->profile.cale);
+	if (graph->profile.ar && *graph->profile.ar)
+		snprintf(resolved->ar, sizeof(resolved->ar), "%s", graph->profile.ar);
+	if (graph->profile.linker && *graph->profile.linker)
+		snprintf(resolved->linker, sizeof(resolved->linker), "%s", graph->profile.linker);
+	if (graph->profile.sysroot && *graph->profile.sysroot)
+		snprintf(resolved->sysroot, sizeof(resolved->sysroot), "%s", graph->profile.sysroot);
+	if (graph->profile.resource_dir && *graph->profile.resource_dir)
+		snprintf(resolved->resource_dir, sizeof(resolved->resource_dir), "%s",
+		    graph->profile.resource_dir);
+	snprintf(resolved->resolver, sizeof(resolved->resolver), "profile-schema-v2");
+	return 0;
 }
 
 /** target label을 .qstar/out 아래 파일명에 안전한 이름으로 바꾼다. */

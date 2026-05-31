@@ -15,6 +15,8 @@ struct qstar_resolved_toolchain {
 	char cale[QSTAR_PATH_MAX];
 	char ar[QSTAR_PATH_MAX];
 	char linker[QSTAR_PATH_MAX];
+	char sysroot[QSTAR_PATH_MAX];
+	char resource_dir[QSTAR_PATH_MAX];
 	char resolver[64];
 };
 

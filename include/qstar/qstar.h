@@ -73,6 +73,15 @@ struct qstar_profile_input {
 	char *target;
 	char *toolchain;
 	char *stdlib_policy;
+	char *cc;
+	char *cxx;
+	char *cale;
+	char *ar;
+	char *linker;
+	char *sysroot;
+	char *resource_dir;
+	struct qstar_string_list include_dirs;
+	struct qstar_string_list lib_dirs;
 };
 
 struct qstar_source_info {
@@ -156,6 +165,9 @@ const struct qstar_package_alias *qstar_graph_find_package_alias(const struct qs
 
 /** Cale.toml과 .cale/profiles/<name>.toml의 최소 profile 입력을 읽어 graph에 반영한다. */
 int qstar_graph_load_profile_files(struct qstar_graph *graph, const char *qstar_file);
+
+/** QStar profile schema v2 입력을 검증한다. */
+int qstar_graph_validate_profile(struct qstar_graph *graph);
 
 /** QStar header file graph policy를 검증한다. */
 int qstar_graph_validate_headers(struct qstar_graph *graph);

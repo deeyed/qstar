@@ -231,6 +231,8 @@ compute_action_key(struct qstar_graph *graph, const struct qstar_target *target,
 		hash_str(&h, toolchain->cxx);
 		hash_str(&h, toolchain->ar);
 		hash_str(&h, toolchain->linker);
+		hash_str(&h, toolchain->sysroot);
+		hash_str(&h, toolchain->resource_dir);
 	}
 	hash_argv(&h, argv);
 	if (inputs) {
@@ -248,6 +250,33 @@ action_log_name(const char *id, char *dst, size_t dstlen)
 	qstar_mangle_label(id, dst, dstlen);
 }
 
+/** shell replay/compile database에서 argv item 하나를 안전하게 quoting한다. */
+static void
+write_shell_arg(FILE *f, const char *s)
+{
+	const unsigned char *p = (const unsigned char *)(s ? s : "");
+	int simple;
+
+	simple = *p != '\0';
+	for (; *p; p++) {
+		if (!(isalnum(*p) || *p == '_' || *p == '-' || *p == '.' || *p == '/' ||
+		    *p == ':' || *p == '=' || *p == '+' || *p == ','))
+			simple = 0;
+	}
+	if (simple) {
+		fputs(s, f);
+		return;
+	}
+	fputc('\'', f);
+	for (p = (const unsigned char *)(s ? s : ""); *p; p++) {
+		if (*p == '\'')
+			fputs("'\\''", f);
+		else
+			fputc(*p, f);
+	}
+	fputc('\'', f);
+}
+
 /** argv 배열을 action log에 deterministic하게 기록한다. */
 static void
 write_action_log(const char *path, char *const argv[], int exit_code)
@@ -261,6 +290,12 @@ write_action_log(const char *path, char *const argv[], int exit_code)
 	fprintf(f, "exit=%d\nargv=", exit_code);
 	for (i = 0; argv[i]; i++)
 		fprintf(f, "%s%s", i ? " " : "", argv[i]);
+	fputs("\nargv_shell=", f);
+	for (i = 0; argv[i]; i++) {
+		if (i)
+			fputc(' ', f);
+		write_shell_arg(f, argv[i]);
+	}
 	fputc('\n', f);
 	fclose(f);
 }
@@ -278,6 +313,12 @@ write_skip_log(const char *path, char *const argv[])
 	fputs("exit=skip\nargv=", f);
 	for (i = 0; argv[i]; i++)
 		fprintf(f, "%s%s", i ? " " : "", argv[i]);
+	fputs("\nargv_shell=", f);
+	for (i = 0; argv[i]; i++) {
+		if (i)
+			fputc(' ', f);
+		write_shell_arg(f, argv[i]);
+	}
 	fputc('\n', f);
 	fclose(f);
 }
@@ -297,8 +338,11 @@ write_failure_replay(const struct qstar_graph *graph, char *const argv[])
 	if (!f)
 		return;
 	fprintf(f, "cd %s\n", graph->package_root ? graph->package_root : ".");
-	for (i = 0; argv[i]; i++)
-		fprintf(f, "%s%s", i ? " " : "", argv[i]);
+	for (i = 0; argv[i]; i++) {
+		if (i)
+			fputc(' ', f);
+		write_shell_arg(f, argv[i]);
+	}
 	fputc('\n', f);
 	fclose(f);
 }
@@ -459,21 +503,45 @@ state_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 static char *
 join_argv(char *const argv[])
 {
-	size_t i, len;
+	size_t i, j, len, used;
 	char *s;
+	const char *p;
+	int simple;
 
 	len = 1;
 	for (i = 0; argv[i]; i++)
-		len += strlen(argv[i]) + 1;
+		len += strlen(argv[i]) * 4 + 4;
 	s = malloc(len);
 	if (!s)
 		return NULL;
-	s[0] = '\0';
+	used = 0;
 	for (i = 0; argv[i]; i++) {
 		if (i)
-			strcat(s, " ");
-		strcat(s, argv[i]);
+			s[used++] = ' ';
+		simple = argv[i][0] != '\0';
+		for (p = argv[i]; *p; p++) {
+			if (!(isalnum((unsigned char)*p) || *p == '_' || *p == '-' ||
+			    *p == '.' || *p == '/' || *p == ':' || *p == '=' ||
+			    *p == '+' || *p == ','))
+				simple = 0;
+		}
+		if (simple) {
+			for (p = argv[i]; *p; p++)
+				s[used++] = *p;
+			continue;
+		}
+		s[used++] = '\'';
+		for (j = 0; argv[i][j]; j++) {
+			if (argv[i][j] == '\'') {
+				memcpy(s + used, "'\\''", 4);
+				used += 4;
+			} else {
+				s[used++] = argv[i][j];
+			}
+		}
+		s[used++] = '\'';
 	}
+	s[used] = '\0';
 	return s;
 }
 
@@ -1097,7 +1165,7 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
 {
 	struct qstar_source_info source;
 	char object[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX];
-	char target_arg[QSTAR_PATH_MAX], std_arg[128], key[32];
+	char target_arg[QSTAR_PATH_MAX], std_arg[128], sysroot_arg[QSTAR_PATH_MAX], key[32];
 	const char *compiler;
 	char *argv[QSTAR_EXEC_MAX_ARGV];
 	struct qstar_string_list inputs, outputs, includes;
@@ -1117,14 +1185,16 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
 	is_cxx = strcmp(source.language, "cxx") == 0;
 	wants_depfile = (strcmp(source.language, "c") == 0 || is_cxx) &&
 	    strcmp(toolchain->name, "cale") != 0 && strcmp(toolchain->name, "cale-sol") != 0;
-	if (includes.len * 2 + target->system_include_dirs.len * 2 +
-	    target->cflags.len + target->cxxflags.len + 12 > QSTAR_EXEC_MAX_ARGV) {
+	if (includes.len * 2 + graph->profile.include_dirs.len * 2 +
+	    target->system_include_dirs.len * 2 +
+	    target->cflags.len + target->cxxflags.len + 16 > QSTAR_EXEC_MAX_ARGV) {
 		qstar_string_list_free(&includes);
 		return qstar_set_error(graph, "qstar: compile argv too long");
 	}
 	snprintf(id, sizeof(id), "%s:compile:%zu", target->label, index);
 	snprintf(target_arg, sizeof(target_arg), "--target=%s", toolchain->target);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
+	snprintf(sysroot_arg, sizeof(sysroot_arg), "--sysroot=%s", toolchain->sysroot);
 	compiler = strcmp(source.language, "cale") == 0 ? toolchain->cale :
 	    is_cxx ? toolchain->cxx : toolchain->cc;
 	cross = (strcmp(toolchain->name, "clang") == 0 ||
@@ -1135,6 +1205,12 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
 	argv[argc++] = (char *)compiler;
 	if (cross)
 		argv[argc++] = target_arg;
+	if (toolchain->sysroot[0])
+		argv[argc++] = sysroot_arg;
+	if (toolchain->resource_dir[0]) {
+		argv[argc++] = "-resource-dir";
+		argv[argc++] = (char *)toolchain->resource_dir;
+	}
 	argv[argc++] = "-c";
 	argv[argc++] = target->sources.items[index];
 	argv[argc++] = "-o";
@@ -1150,6 +1226,10 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
 		argv[argc++] = target->cflags.items[i];
 	for (i = 0; is_cxx && i < target->cxxflags.len; i++)
 		argv[argc++] = target->cxxflags.items[i];
+	for (i = 0; i < graph->profile.include_dirs.len; i++) {
+		argv[argc++] = "-I";
+		argv[argc++] = graph->profile.include_dirs.items[i];
+	}
 	for (i = 0; i < includes.len; i++) {
 		argv[argc++] = "-I";
 		argv[argc++] = includes.items[i];
@@ -1352,6 +1432,14 @@ append_system_link_flags(struct qstar_graph *graph, const struct qstar_target *t
 	int windows;
 
 	windows = target_is_windows(toolchain->target);
+	for (i = 0; i < graph->profile.lib_dirs.len; i++) {
+		if (windows)
+			snprintf(flag, sizeof(flag), "/LIBPATH:%s", graph->profile.lib_dirs.items[i]);
+		else
+			snprintf(flag, sizeof(flag), "-L%s", graph->profile.lib_dirs.items[i]);
+		if (append_owned_argv(graph, argv, argc, flag) < 0)
+			return -1;
+	}
 	for (i = 0; i < target->lib_dirs.len; i++) {
 		if (windows)
 			snprintf(flag, sizeof(flag), "/LIBPATH:%s", target->lib_dirs.items[i]);
@@ -1386,9 +1474,10 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
     const struct qstar_resolved_toolchain *toolchain)
 {
 	char artifact[QSTAR_PATH_MAX], object[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX], key[32];
+	char sysroot_arg[QSTAR_PATH_MAX];
 	char *argv[QSTAR_EXEC_MAX_ARGV];
 	struct qstar_string_list inputs, outputs;
-	size_t argc, dep_first, i;
+	size_t argc, dep_first, object_first, i;
 	int rc;
 
 	if (strcmp(target->kind, "sharedlib") == 0)
@@ -1414,9 +1503,15 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 		snprintf(id, sizeof(id), "%s:link:0", target->label);
 		argv[argc++] = (char *)(target_has_cxx_source(target) ?
 		    toolchain->cxx : toolchain->linker);
+		if (toolchain->sysroot[0]) {
+			snprintf(sysroot_arg, sizeof(sysroot_arg), "--sysroot=%s",
+			    toolchain->sysroot);
+			argv[argc++] = sysroot_arg;
+		}
 		argv[argc++] = "-o";
 		argv[argc++] = artifact;
 	}
+	object_first = argc;
 	for (i = 0; i < target->sources.len; i++) {
 		if (qstar_object_output_path(target, i, object, sizeof(object)) < 0)
 			return qstar_set_error(graph, "qstar: object output path too long");
@@ -1426,12 +1521,12 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 	}
 	dep_first = argc;
 	if (append_dep_artifacts(graph, target, argv, &argc) < 0) {
-		free_dep_artifacts(argv, 3, dep_first);
+		free_dep_artifacts(argv, object_first, dep_first);
 		return -1;
 	}
 	if (strcmp(target->kind, "staticlib") != 0 &&
 	    append_system_link_flags(graph, target, toolchain, argv, &argc) < 0) {
-		free_dep_artifacts(argv, 3, argc);
+		free_dep_artifacts(argv, object_first, argc);
 		return -1;
 	}
 	argv[argc] = NULL;
@@ -1462,7 +1557,7 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 	    strcmp(target->kind, "staticlib") == 0 ? "archive" : "link", key, &outputs, argv);
 	qstar_string_list_free(&inputs);
 	qstar_string_list_free(&outputs);
-	free_dep_artifacts(argv, 3, argc);
+	free_dep_artifacts(argv, object_first, argc);
 	return rc;
 }
 

@@ -161,6 +161,15 @@ free_profile_input(struct qstar_profile_input *profile)
 	free(profile->target);
 	free(profile->toolchain);
 	free(profile->stdlib_policy);
+	free(profile->cc);
+	free(profile->cxx);
+	free(profile->cale);
+	free(profile->ar);
+	free(profile->linker);
+	free(profile->sysroot);
+	free(profile->resource_dir);
+	qstar_string_list_free(&profile->include_dirs);
+	qstar_string_list_free(&profile->lib_dirs);
 }
 
 /** QStar graph가 소유한 모든 동적 메모리를 해제한다. */
@@ -575,6 +584,14 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 	    profile_or_default(graph->profile.target, "host"),
 	    profile_or_default(graph->profile.toolchain, "default"),
 	    profile_or_default(graph->profile.stdlib_policy, "default"));
+	fprintf(out, "profile_tools cc=%s cxx=%s cale=%s ar=%s linker=%s sysroot=%s resource_dir=%s\n",
+	    graph->profile.cc ? graph->profile.cc : "<default>",
+	    graph->profile.cxx ? graph->profile.cxx : "<default>",
+	    graph->profile.cale ? graph->profile.cale : "<default>",
+	    graph->profile.ar ? graph->profile.ar : "<default>",
+	    graph->profile.linker ? graph->profile.linker : "<default>",
+	    graph->profile.sysroot ? graph->profile.sysroot : "<none>",
+	    graph->profile.resource_dir ? graph->profile.resource_dir : "<none>");
 	dump_package_aliases(out, graph);
 	for (i = 0; i < graph->genrule_len; i++)
 		dump_genrule(&graph->genrules[i], out);

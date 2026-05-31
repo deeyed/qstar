@@ -670,4 +670,81 @@ if "$qstar" --file "$tmp/workspace/app/qstar.lua" check //app:outside > "$tmp/ou
 fi
 contains "$tmp/outside-source.err" "must be package-relative"
 
+mkdir -p "$tmp/profile/.cale/profiles" "$tmp/profile/src"
+cat > "$tmp/profile/Cale.toml" <<'EOF'
+profile = "custom"
+
+[profile.custom]
+toolchain = "clang"
+target = "x86_64-unknown-none-elf"
+stdlib = "none"
+cc = "clang-custom"
+cxx = "clang++-custom"
+cale = "cale-custom"
+ar = "llvm-ar-custom"
+linker = "ld-custom"
+sysroot = "sdk root"
+resource_dir = "resource dir"
+include_dirs = ["profile include", "profinc"]
+lib_dirs = ["profile lib"]
+EOF
+cat > "$tmp/profile/src/main.c" <<'EOF'
+int main(void) { return 0; }
+EOF
+cat > "$tmp/profile/qstar.lua" <<'EOF'
+qstar.exe "app" {
+  sources = {"src/main.c"},
+  libs = {"m"},
+}
+EOF
+"$qstar" --file "$tmp/profile/qstar.lua" dry-run //:app > "$tmp/profile-dry.out" 2> "$tmp/profile-dry.err"
+contains "$tmp/profile-dry.out" "resolved_toolchain owner=//:app toolchain=clang profile=custom target=x86_64-unknown-none-elf stdlib=none resolver=profile-schema-v2 cc=clang-custom"
+contains "$tmp/profile-dry.out" "\"--sysroot=sdk root\""
+contains "$tmp/profile-dry.out" "-resource-dir"
+contains "$tmp/profile-dry.out" "\"resource dir\""
+contains "$tmp/profile-dry.out" "\"profile include\""
+contains "$tmp/profile-dry.out" "\"-Lprofile lib\""
+contains "$tmp/profile-dry.out" "digest="
+"$qstar" --file "$tmp/profile/qstar.lua" doctor > "$tmp/profile-doctor.out" 2> "$tmp/profile-doctor.err"
+contains "$tmp/profile-doctor.out" "profile-schema v2 include_dirs=2 lib_dirs=1"
+contains "$tmp/profile-doctor.out" "toolchain-sanity name=clang cc=clang-custom cxx=clang++-custom cale=cale-custom ar=llvm-ar-custom linker=ld-custom"
+
+mkdir -p "$tmp/longcmd/src"
+cat > "$tmp/longcmd/src/main.c" <<'EOF'
+int main(void) { return 0; }
+EOF
+cat > "$tmp/longcmd/qstar.lua" <<'EOF'
+qstar.exe "app" {
+  sources = {"src/main.c"},
+  include_dirs = {
+    "include/very/long/path/segment/000",
+    "include/very/long/path/segment/001",
+    "include/very/long/path/segment/002",
+    "include/very/long/path/segment/003",
+    "include/very/long/path/segment/004",
+    "include/very/long/path/segment/005",
+    "include/very/long/path/segment/006",
+    "include/very/long/path/segment/007",
+  },
+}
+EOF
+"$qstar" --file "$tmp/longcmd/qstar.lua" dry-run //:app > "$tmp/longcmd-dry.out" 2> "$tmp/longcmd-dry.err"
+contains "$tmp/longcmd-dry.out" "response=skeleton"
+contains "$tmp/longcmd-dry.out" "response_file=.qstar/rsp/"
+
+mkdir -p "$tmp/windows/src"
+cat > "$tmp/windows/src/main.c" <<'EOF'
+int main(void) { return 0; }
+EOF
+cat > "$tmp/windows/qstar.lua" <<'EOF'
+qstar.exe "app" {
+  sources = {"src/main.c"},
+  lib_dirs = {"winlib"},
+  libs = {"user32"},
+}
+EOF
+"$qstar" --file "$tmp/windows/qstar.lua" --target x86_64-pc-windows-msvc dry-run //:app > "$tmp/windows-dry.out" 2> "$tmp/windows-dry.err"
+contains "$tmp/windows-dry.out" "/LIBPATH:winlib"
+contains "$tmp/windows-dry.out" "user32.lib"
+
 echo "qstar-smoke: passed"

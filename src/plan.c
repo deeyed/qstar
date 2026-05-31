@@ -1,10 +1,15 @@
 #include "internal.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#define QSTAR_PLAN_HASH_INIT 1469598103934665603ULL
+#define QSTAR_PLAN_HASH_PRIME 1099511628211ULL
+#define QSTAR_RSP_SKELETON_THRESHOLD 240U
 
 struct qstar_plan {
 	struct qstar_graph *graph;
@@ -12,6 +17,13 @@ struct qstar_plan {
 	unsigned char *state;
 	size_t len;
 	size_t cap;
+};
+
+struct qstar_argv_dump {
+	const char *id;
+	unsigned long long digest;
+	size_t seen;
+	size_t text_len;
 };
 
 /** profile 문자열이 없을 때 explain dump에 쓸 기본값을 반환한다. */
@@ -365,28 +377,85 @@ dump_command_skeleton(FILE *out, const struct qstar_graph *graph,
 	    input, output);
 }
 
+/** command digest용 FNV-1a hash에 문자열을 섞는다. */
+static void
+digest_str(unsigned long long *h, const char *s)
+{
+	const unsigned char *p = (const unsigned char *)(s ? s : "");
+
+	while (*p) {
+		*h ^= (unsigned long long)*p++;
+		*h *= QSTAR_PLAN_HASH_PRIME;
+	}
+	*h ^= 0xffU;
+	*h *= QSTAR_PLAN_HASH_PRIME;
+}
+
 /** 실제 argv plan의 list header를 출력한다. */
 static void
-begin_argv(FILE *out, const char *id, size_t argc)
+begin_argv(FILE *out, struct qstar_argv_dump *dump, const char *id, size_t argc)
 {
+	memset(dump, 0, sizeof(*dump));
+	dump->id = id;
+	dump->digest = QSTAR_PLAN_HASH_INIT;
+	digest_str(&dump->digest, id);
 	fprintf(out, "  command_argv id=%s argc=%zu argv=[", id, argc);
 }
 
 /** argv item 하나를 deterministic dump에 추가한다. */
 static void
-argv_item(FILE *out, size_t *seen, const char *value)
+write_argv_value(FILE *out, const char *value)
 {
-	if (*seen)
+	const unsigned char *p;
+	int simple;
+
+	p = (const unsigned char *)(value ? value : "");
+	simple = *p != '\0';
+	for (; *p; p++) {
+		if (!(isalnum(*p) || *p == '_' || *p == '-' || *p == '.' || *p == '/' ||
+		    *p == ':' || *p == '=' || *p == '+' || *p == ','))
+			simple = 0;
+	}
+	if (simple) {
+		fputs(value, out);
+		return;
+	}
+	fputc('"', out);
+	for (p = (const unsigned char *)(value ? value : ""); *p; p++) {
+		if (*p == '"' || *p == '\\')
+			fprintf(out, "\\%c", *p);
+		else
+			fputc(*p, out);
+	}
+	fputc('"', out);
+}
+
+/** argv item 하나를 deterministic dump에 추가한다. */
+static void
+argv_item(FILE *out, struct qstar_argv_dump *dump, const char *value)
+{
+	if (dump->seen)
 		fputs(", ", out);
-	fputs(value, out);
-	(*seen)++;
+	write_argv_value(out, value);
+	digest_str(&dump->digest, value);
+	dump->text_len += strlen(value) + 1;
+	dump->seen++;
 }
 
 /** command_argv line을 닫는다. */
 static void
-end_argv(FILE *out)
+end_argv(FILE *out, const struct qstar_argv_dump *dump)
 {
-	fputs("]\n", out);
+	char rsp[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX];
+
+	qstar_mangle_label(dump->id, name, sizeof(name));
+	snprintf(rsp, sizeof(rsp), ".qstar/rsp/%s.rsp", name);
+	fprintf(out, "] digest=%016llx response=%s",
+	    dump->digest,
+	    dump->text_len > QSTAR_RSP_SKELETON_THRESHOLD ? "skeleton" : "none");
+	if (dump->text_len > QSTAR_RSP_SKELETON_THRESHOLD)
+		fprintf(out, " response_file=%s", rsp);
+	fputc('\n', out);
 }
 
 static int
@@ -464,10 +533,11 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
     const char *input, const char *output, size_t index)
 {
 	char id[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], target_arg[QSTAR_PATH_MAX];
-	char std_arg[128];
+	char std_arg[128], sysroot_arg[QSTAR_PATH_MAX];
 	const char *tool;
 	struct qstar_string_list includes;
-	size_t argc, seen, i;
+	struct qstar_argv_dump dump;
+	size_t argc, i;
 	int cross, is_cxx, wants_depfile;
 
 	memset(&includes, 0, sizeof(includes));
@@ -483,41 +553,53 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	    strcmp(toolchain->name, "cale") == 0 ||
 	    strcmp(toolchain->name, "cale-sol") == 0) &&
 	    strcmp(toolchain->target, "host") != 0;
-	argc = 5 + includes.len * 2 + target->system_include_dirs.len * 2 +
+	argc = 5 + includes.len * 2 + graph->profile.include_dirs.len * 2 +
+	    target->system_include_dirs.len * 2 +
 	    (cross ? 1 : 0) + (wants_depfile ? 3 : 0) +
+	    (toolchain->sysroot[0] ? 1 : 0) + (toolchain->resource_dir[0] ? 2 : 0) +
 	    (is_cxx && target->cxx_standard[0] ? 1 : 0) +
 	    (is_cxx ? target->cxxflags.len : target->cflags.len);
 	snprintf(target_arg, sizeof(target_arg), "--target=%s", toolchain->target);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
-	begin_argv(out, id, argc);
-	seen = 0;
-	argv_item(out, &seen, tool);
+	snprintf(sysroot_arg, sizeof(sysroot_arg), "--sysroot=%s", toolchain->sysroot);
+	begin_argv(out, &dump, id, argc);
+	argv_item(out, &dump, tool);
 	if (cross)
-		argv_item(out, &seen, target_arg);
-	argv_item(out, &seen, "-c");
-	argv_item(out, &seen, input);
-	argv_item(out, &seen, "-o");
-	argv_item(out, &seen, output);
+		argv_item(out, &dump, target_arg);
+	if (toolchain->sysroot[0])
+		argv_item(out, &dump, sysroot_arg);
+	if (toolchain->resource_dir[0]) {
+		argv_item(out, &dump, "-resource-dir");
+		argv_item(out, &dump, toolchain->resource_dir);
+	}
+	argv_item(out, &dump, "-c");
+	argv_item(out, &dump, input);
+	argv_item(out, &dump, "-o");
+	argv_item(out, &dump, output);
 	if (wants_depfile) {
-		argv_item(out, &seen, "-MMD");
-		argv_item(out, &seen, "-MF");
-		argv_item(out, &seen, depfile);
+		argv_item(out, &dump, "-MMD");
+		argv_item(out, &dump, "-MF");
+		argv_item(out, &dump, depfile);
 	}
 	if (is_cxx && target->cxx_standard[0])
-		argv_item(out, &seen, std_arg);
+		argv_item(out, &dump, std_arg);
 	for (i = 0; !is_cxx && i < target->cflags.len; i++)
-		argv_item(out, &seen, target->cflags.items[i]);
+		argv_item(out, &dump, target->cflags.items[i]);
 	for (i = 0; is_cxx && i < target->cxxflags.len; i++)
-		argv_item(out, &seen, target->cxxflags.items[i]);
+		argv_item(out, &dump, target->cxxflags.items[i]);
+	for (i = 0; i < graph->profile.include_dirs.len; i++) {
+		argv_item(out, &dump, "-I");
+		argv_item(out, &dump, graph->profile.include_dirs.items[i]);
+	}
 	for (i = 0; i < includes.len; i++) {
-		argv_item(out, &seen, "-I");
-		argv_item(out, &seen, includes.items[i]);
+		argv_item(out, &dump, "-I");
+		argv_item(out, &dump, includes.items[i]);
 	}
 	for (i = 0; i < target->system_include_dirs.len; i++) {
-		argv_item(out, &seen, "-isystem");
-		argv_item(out, &seen, target->system_include_dirs.items[i]);
+		argv_item(out, &dump, "-isystem");
+		argv_item(out, &dump, target->system_include_dirs.items[i]);
 	}
-	end_argv(out);
+	end_argv(out, &dump);
 	qstar_string_list_free(&includes);
 }
 
@@ -540,27 +622,28 @@ target_has_cxx_source(const struct qstar_target *target)
 static void
 dump_genrule_argv(FILE *out, const struct qstar_genrule *genrule)
 {
-	size_t i, seen;
+	size_t i;
+	struct qstar_argv_dump dump;
 	char id[QSTAR_PATH_MAX];
 
 	snprintf(id, sizeof(id), "%s:generate:0", genrule->label);
-	begin_argv(out, id, 1 + genrule->args.len);
-	seen = 0;
-	argv_item(out, &seen, genrule->tool);
+	begin_argv(out, &dump, id, 1 + genrule->args.len);
+	argv_item(out, &dump, genrule->tool);
 	for (i = 0; i < genrule->args.len; i++)
-		argv_item(out, &seen, genrule->args.items[i]);
-	end_argv(out);
+		argv_item(out, &dump, genrule->args.items[i]);
+	end_argv(out, &dump);
 }
 
 /** target final action의 실제 argv plan을 출력한다. */
 static void
 dump_final_argv(FILE *out, const struct qstar_target *target,
-    const struct qstar_resolved_toolchain *toolchain, const char *action,
-    const char *output)
+    const struct qstar_graph *graph, const struct qstar_resolved_toolchain *toolchain,
+    const char *action, const char *output)
 {
 	char id[QSTAR_PATH_MAX];
 	char buf[QSTAR_PATH_MAX];
-	size_t seen, argc, i;
+	size_t argc, i;
+	struct qstar_argv_dump dump;
 	int windows;
 
 	snprintf(id, sizeof(id), "%s:%s:0", target->label, action);
@@ -569,49 +652,64 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 	argc = strcmp(action, "archive") == 0 ? 4 :
 	    strcmp(action, "link-shared") == 0 ? 5 : 4;
 	if (strcmp(action, "archive") != 0)
-		argc += target->lib_dirs.len + target->libs.len +
+		argc += target->lib_dirs.len + (toolchain->sysroot[0] ? 1 : 0) +
+		    graph->profile.lib_dirs.len + target->libs.len +
 		    (windows ? 0 : target->frameworks.len * 2);
-	begin_argv(out, id, argc);
-	seen = 0;
+	begin_argv(out, &dump, id, argc);
 	if (strcmp(action, "archive") == 0) {
-		argv_item(out, &seen, toolchain->ar);
-		argv_item(out, &seen, "rcs");
-		argv_item(out, &seen, output);
-		argv_item(out, &seen, "<target-objects>");
+		argv_item(out, &dump, toolchain->ar);
+		argv_item(out, &dump, "rcs");
+		argv_item(out, &dump, output);
+		argv_item(out, &dump, "<target-objects>");
 	} else {
-		argv_item(out, &seen, target_has_cxx_source(target) ?
+		argv_item(out, &dump, target_has_cxx_source(target) ?
 		    toolchain->cxx : toolchain->linker);
+		if (toolchain->sysroot[0]) {
+			snprintf(buf, sizeof(buf), "--sysroot=%s", toolchain->sysroot);
+			argv_item(out, &dump, buf);
+		}
 		if (strcmp(action, "link-shared") == 0)
-			argv_item(out, &seen, "-shared");
-		argv_item(out, &seen, "-o");
-		argv_item(out, &seen, output);
-		argv_item(out, &seen, "<target-objects>");
+			argv_item(out, &dump, "-shared");
+		argv_item(out, &dump, "-o");
+		argv_item(out, &dump, output);
+		argv_item(out, &dump, "<target-objects>");
+		for (i = 0; i < graph->profile.lib_dirs.len; i++) {
+			if (windows) {
+				snprintf(buf, sizeof(buf), "/LIBPATH:%s",
+				    graph->profile.lib_dirs.items[i]);
+				argv_item(out, &dump, buf);
+			} else {
+				snprintf(buf, sizeof(buf), "-L%s",
+				    graph->profile.lib_dirs.items[i]);
+				argv_item(out, &dump, buf);
+			}
+		}
 		for (i = 0; i < target->lib_dirs.len; i++) {
 			if (windows) {
 				snprintf(buf, sizeof(buf), "/LIBPATH:%s", target->lib_dirs.items[i]);
-				argv_item(out, &seen, buf);
+				argv_item(out, &dump, buf);
 			} else {
 				snprintf(buf, sizeof(buf), "-L%s", target->lib_dirs.items[i]);
-				argv_item(out, &seen, buf);
+				argv_item(out, &dump, buf);
 			}
 		}
 		for (i = 0; i < target->libs.len; i++) {
 			if (windows) {
 				snprintf(buf, sizeof(buf), "%s.lib", target->libs.items[i]);
-				argv_item(out, &seen, buf);
+				argv_item(out, &dump, buf);
 			} else {
 				snprintf(buf, sizeof(buf), "-l%s", target->libs.items[i]);
-				argv_item(out, &seen, buf);
+				argv_item(out, &dump, buf);
 			}
 		}
 		if (!windows) {
 			for (i = 0; i < target->frameworks.len; i++) {
-				argv_item(out, &seen, "-framework");
-				argv_item(out, &seen, target->frameworks.items[i]);
+				argv_item(out, &dump, "-framework");
+				argv_item(out, &dump, target->frameworks.items[i]);
 			}
 		}
 	}
-	end_argv(out);
+	end_argv(out, &dump);
 }
 
 /** generated output list가 target의 파일 입력 list에 소비되는지 확인한다. */
@@ -719,11 +817,14 @@ dump_resolved_toolchain(FILE *out, const struct qstar_plan *plan,
 		return -1;
 	fprintf(out,
 	    "  resolved_toolchain owner=%s toolchain=%s profile=%s target=%s "
-	    "stdlib=%s resolver=%s cc=%s cxx=%s cale=%s ar=%s linker=%s\n",
+	    "stdlib=%s resolver=%s cc=%s cxx=%s cale=%s ar=%s linker=%s "
+	    "sysroot=%s resource_dir=%s\n",
 	    target->label, resolved->name,
 	    profile_or_default(plan->graph->profile.name, "default"),
 	    resolved->target, resolved->stdlib_policy, resolved->resolver,
-	    resolved->cc, resolved->cxx, resolved->cale, resolved->ar, resolved->linker);
+	    resolved->cc, resolved->cxx, resolved->cale, resolved->ar, resolved->linker,
+	    resolved->sysroot[0] ? resolved->sysroot : "<none>",
+	    resolved->resource_dir[0] ? resolved->resource_dir : "<none>");
 	return 0;
 }
 
@@ -821,7 +922,7 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	    "artifact", 0);
 	dump_command_skeleton(out, plan->graph, target, action, "<target-objects>",
 	    output, "artifact", final_tool, 0);
-	dump_final_argv(out, target, &toolchain, action, output);
+	dump_final_argv(out, target, plan->graph, &toolchain, action, output);
 	return 0;
 }
 
@@ -925,7 +1026,7 @@ dump_dry_run_final(FILE *out, const struct qstar_plan *plan, const struct qstar_
 	    "dry_run_step id=%s:%s:0 owner=%s kind=%s tool=%s toolchain=%s "
 	    "input=<target-objects> output=%s execute=no\n",
 	    target->label, action, target->label, action, tool, toolchain.name, output);
-	dump_final_argv(out, target, &toolchain, action, output);
+	dump_final_argv(out, target, plan->graph, &toolchain, action, output);
 	return 0;
 }
 
@@ -1019,8 +1120,13 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 	fprintf(out, "closure-target-count %zu\n", plan.len);
 	fprintf(out, "generated-action-count %zu\n", graph->genrule_len);
 	if (plan.len > 0 && qstar_resolve_toolchain(graph, plan.order[0], &toolchain) == 0)
-		fprintf(out, "toolchain-sanity name=%s cc=%s cxx=%s linker=%s status=resolved\n",
-		    toolchain.name, toolchain.cc, toolchain.cxx, toolchain.linker);
+		fprintf(out,
+		    "toolchain-sanity name=%s cc=%s cxx=%s cale=%s ar=%s linker=%s "
+		    "sysroot=%s resource_dir=%s status=resolved\n",
+		    toolchain.name, toolchain.cc, toolchain.cxx, toolchain.cale,
+		    toolchain.ar, toolchain.linker,
+		    toolchain.sysroot[0] ? toolchain.sysroot : "<none>",
+		    toolchain.resource_dir[0] ? toolchain.resource_dir : "<none>");
 	if (qstar_path_join(graph->package_root ? graph->package_root : ".", ".qstar",
 	    state_dir, sizeof(state_dir)) == 0) {
 		if (mkdir(state_dir, 0777) == 0 || access(state_dir, W_OK) == 0)
@@ -1033,6 +1139,8 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 	    graph->profile.target ? graph->profile.target : "host",
 	    graph->profile.toolchain ? graph->profile.toolchain : "host",
 	    graph->profile.stdlib_policy ? graph->profile.stdlib_policy : "system");
+	fprintf(out, "profile-schema v2 include_dirs=%zu lib_dirs=%zu\n",
+	    graph->profile.include_dirs.len, graph->profile.lib_dirs.len);
 	fputs("diagnostics ok\n", out);
 	fputs("file-inputs ok\n", out);
 	fputs("status ok\n", out);

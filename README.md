@@ -178,3 +178,15 @@ Target은 선언 fragment와 label package가 일치해야 한다. 예를 들어
 있지만, 명시한 target은 같은 package 또는 visibility pattern에 맞는 consumer만
 의존할 수 있다. QStar는 dependency target의 private include directory를 consumer가
 직접 include path로 끌어오는 accidental leakage도 authoring diagnostic으로 막는다.
+
+Round 27/28부터 profile schema는 v2로 확장된다. `Cale.toml` 또는
+`.cale/profiles/<name>.toml`은 `cc`, `cxx`, `cale`, `ar`, `linker`, `sysroot`,
+`resource_dir`, `include_dirs`, `lib_dirs`를 줄 수 있다. `qstar doctor`는 이 값을
+resolver 결과에 포함해 보여주며, compile/link argv plan에도 sysroot/resource/include/lib
+설정이 반영된다.
+
+Command rendering은 shell string이 아니라 argv-vector가 canonical이다. Explain/dry-run
+dump는 argv item을 quoting하고 deterministic `digest=`를 붙인다. 긴 command에는
+`response=skeleton response_file=.qstar/rsp/...`를 표시하지만, 실제 response-file
+executor는 아직 열지 않는다. Action log와 `compile_commands.json`, failure replay는
+shell-safe quoting을 사용한다.
