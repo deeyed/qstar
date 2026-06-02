@@ -18,6 +18,8 @@ struct qstar_resolved_toolchain {
 	char sysroot[QSTAR_PATH_MAX];
 	char resource_dir[QSTAR_PATH_MAX];
 	char resolver[64];
+	int response_files;
+	char response_style[32];
 };
 
 /** 문자열을 QStar 소유 메모리로 복사한다. */

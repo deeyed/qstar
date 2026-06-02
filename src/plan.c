@@ -22,8 +22,11 @@ struct qstar_plan {
 struct qstar_argv_dump {
 	const char *id;
 	unsigned long long digest;
+	unsigned long long response_digest;
 	size_t seen;
 	size_t text_len;
+	int response_files;
+	char response_style[32];
 };
 
 /** profile 문자열이 없을 때 explain dump에 쓸 기본값을 반환한다. */
@@ -391,14 +394,31 @@ digest_str(unsigned long long *h, const char *s)
 	*h *= QSTAR_PLAN_HASH_PRIME;
 }
 
+/** response file skeleton digest에 argv tail 값을 섞는다. */
+static void
+digest_response_value(struct qstar_argv_dump *dump, const char *value)
+{
+	if (dump->seen == 0)
+		return;
+	digest_str(&dump->response_digest, value);
+	digest_str(&dump->response_digest, "\n");
+}
+
 /** 실제 argv plan의 list header를 출력한다. */
 static void
-begin_argv(FILE *out, struct qstar_argv_dump *dump, const char *id, size_t argc)
+begin_argv(FILE *out, struct qstar_argv_dump *dump, const char *id, size_t argc,
+    const struct qstar_resolved_toolchain *toolchain)
 {
 	memset(dump, 0, sizeof(*dump));
 	dump->id = id;
 	dump->digest = QSTAR_PLAN_HASH_INIT;
+	dump->response_digest = QSTAR_PLAN_HASH_INIT;
+	dump->response_files = toolchain ? toolchain->response_files : 0;
+	snprintf(dump->response_style, sizeof(dump->response_style), "%s",
+	    toolchain ? toolchain->response_style : "none");
 	digest_str(&dump->digest, id);
+	digest_str(&dump->response_digest, id);
+	digest_str(&dump->response_digest, dump->response_style);
 	fprintf(out, "  command_argv id=%s argc=%zu argv=[", id, argc);
 }
 
@@ -438,6 +458,7 @@ argv_item(FILE *out, struct qstar_argv_dump *dump, const char *value)
 		fputs(", ", out);
 	write_argv_value(out, value);
 	digest_str(&dump->digest, value);
+	digest_response_value(dump, value);
 	dump->text_len += strlen(value) + 1;
 	dump->seen++;
 }
@@ -452,9 +473,13 @@ end_argv(FILE *out, const struct qstar_argv_dump *dump)
 	snprintf(rsp, sizeof(rsp), ".qstar/rsp/%s.rsp", name);
 	fprintf(out, "] digest=%016llx response=%s",
 	    dump->digest,
-	    dump->text_len > QSTAR_RSP_SKELETON_THRESHOLD ? "skeleton" : "none");
-	if (dump->text_len > QSTAR_RSP_SKELETON_THRESHOLD)
-		fprintf(out, " response_file=%s", rsp);
+	    dump->text_len > QSTAR_RSP_SKELETON_THRESHOLD ?
+	    (dump->response_files ? "skeleton" : "unsupported") : "none");
+	if (dump->text_len > QSTAR_RSP_SKELETON_THRESHOLD && dump->response_files)
+		fprintf(out, " response_file=%s response_style=%s response_digest=%016llx",
+		    rsp, dump->response_style, dump->response_digest);
+	else if (dump->text_len > QSTAR_RSP_SKELETON_THRESHOLD)
+		fputs(" response_capability=off", out);
 	fputc('\n', out);
 }
 
@@ -562,7 +587,7 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	snprintf(target_arg, sizeof(target_arg), "--target=%s", toolchain->target);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
 	snprintf(sysroot_arg, sizeof(sysroot_arg), "--sysroot=%s", toolchain->sysroot);
-	begin_argv(out, &dump, id, argc);
+	begin_argv(out, &dump, id, argc, toolchain);
 	argv_item(out, &dump, tool);
 	if (cross)
 		argv_item(out, &dump, target_arg);
@@ -618,6 +643,19 @@ target_has_cxx_source(const struct qstar_target *target)
 	return 0;
 }
 
+/** MSVC target에서 clang-cl style driver가 link flag boundary를 필요로 하는지 본다. */
+static int
+toolchain_needs_msvc_link_boundary(const struct qstar_resolved_toolchain *toolchain,
+    const struct qstar_target *target)
+{
+	const char *tool;
+
+	if (!strstr(toolchain->target, "msvc"))
+		return 0;
+	tool = target_has_cxx_source(target) ? toolchain->cxx : toolchain->linker;
+	return strstr(tool, "clang-cl") != NULL || strstr(tool, "cl.exe") != NULL;
+}
+
 /** generated action의 실제 argv plan을 출력한다. */
 static void
 dump_genrule_argv(FILE *out, const struct qstar_genrule *genrule)
@@ -627,7 +665,7 @@ dump_genrule_argv(FILE *out, const struct qstar_genrule *genrule)
 	char id[QSTAR_PATH_MAX];
 
 	snprintf(id, sizeof(id), "%s:generate:0", genrule->label);
-	begin_argv(out, &dump, id, 1 + genrule->args.len);
+	begin_argv(out, &dump, id, 1 + genrule->args.len, NULL);
 	argv_item(out, &dump, genrule->tool);
 	for (i = 0; i < genrule->args.len; i++)
 		argv_item(out, &dump, genrule->args.items[i]);
@@ -654,8 +692,9 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 	if (strcmp(action, "archive") != 0)
 		argc += target->lib_dirs.len + (toolchain->sysroot[0] ? 1 : 0) +
 		    graph->profile.lib_dirs.len + target->libs.len +
-		    (windows ? 0 : target->frameworks.len * 2);
-	begin_argv(out, &dump, id, argc);
+		    (windows ? 0 : target->frameworks.len * 2) +
+		    (toolchain_needs_msvc_link_boundary(toolchain, target) ? 1 : 0);
+	begin_argv(out, &dump, id, argc, toolchain);
 	if (strcmp(action, "archive") == 0) {
 		argv_item(out, &dump, toolchain->ar);
 		argv_item(out, &dump, "rcs");
@@ -673,6 +712,8 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 		argv_item(out, &dump, "-o");
 		argv_item(out, &dump, output);
 		argv_item(out, &dump, "<target-objects>");
+		if (toolchain_needs_msvc_link_boundary(toolchain, target))
+			argv_item(out, &dump, "/link");
 		for (i = 0; i < graph->profile.lib_dirs.len; i++) {
 			if (windows) {
 				snprintf(buf, sizeof(buf), "/LIBPATH:%s",
@@ -818,13 +859,14 @@ dump_resolved_toolchain(FILE *out, const struct qstar_plan *plan,
 	fprintf(out,
 	    "  resolved_toolchain owner=%s toolchain=%s profile=%s target=%s "
 	    "stdlib=%s resolver=%s cc=%s cxx=%s cale=%s ar=%s linker=%s "
-	    "sysroot=%s resource_dir=%s\n",
+	    "sysroot=%s resource_dir=%s response_files=%s response_style=%s\n",
 	    target->label, resolved->name,
 	    profile_or_default(plan->graph->profile.name, "default"),
 	    resolved->target, resolved->stdlib_policy, resolved->resolver,
 	    resolved->cc, resolved->cxx, resolved->cale, resolved->ar, resolved->linker,
 	    resolved->sysroot[0] ? resolved->sysroot : "<none>",
-	    resolved->resource_dir[0] ? resolved->resource_dir : "<none>");
+	    resolved->resource_dir[0] ? resolved->resource_dir : "<none>",
+	    resolved->response_files ? "on" : "off", resolved->response_style);
 	return 0;
 }
 
@@ -1122,11 +1164,13 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 	if (plan.len > 0 && qstar_resolve_toolchain(graph, plan.order[0], &toolchain) == 0)
 		fprintf(out,
 		    "toolchain-sanity name=%s cc=%s cxx=%s cale=%s ar=%s linker=%s "
-		    "sysroot=%s resource_dir=%s status=resolved\n",
+		    "sysroot=%s resource_dir=%s response_files=%s response_style=%s "
+		    "status=resolved\n",
 		    toolchain.name, toolchain.cc, toolchain.cxx, toolchain.cale,
 		    toolchain.ar, toolchain.linker,
 		    toolchain.sysroot[0] ? toolchain.sysroot : "<none>",
-		    toolchain.resource_dir[0] ? toolchain.resource_dir : "<none>");
+		    toolchain.resource_dir[0] ? toolchain.resource_dir : "<none>",
+		    toolchain.response_files ? "on" : "off", toolchain.response_style);
 	if (qstar_path_join(graph->package_root ? graph->package_root : ".", ".qstar",
 	    state_dir, sizeof(state_dir)) == 0) {
 		if (mkdir(state_dir, 0777) == 0 || access(state_dir, W_OK) == 0)

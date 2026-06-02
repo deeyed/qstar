@@ -19,6 +19,8 @@ usage(FILE *out)
 	fputs("       qstar [options] clean [--target label]\n", out);
 	fputs("       qstar [options] log [label]\n", out);
 	fputs("       qstar [options] last-failure\n", out);
+	fputs("       qstar [options] action-log <action-id>\n", out);
+	fputs("       qstar [options] replay <action-id>\n", out);
 	fputs("       qstar init c-app|c-lib|generated|mixed-cale [directory]\n", out);
 	fputs("       qstar [options] --dump-graph\n", out);
 	fputs("options:\n", out);
@@ -234,7 +236,8 @@ main(int argc, char **argv)
 	    strcmp(cmd, "check") == 0 || strcmp(cmd, "query") == 0 ||
 	    strcmp(cmd, "build") == 0 || strcmp(cmd, "test") == 0 ||
 	    strcmp(cmd, "why-rebuild") == 0 ||
-	    strcmp(cmd, "log") == 0) {
+	    strcmp(cmd, "log") == 0 ||
+	    strcmp(cmd, "action-log") == 0 || strcmp(cmd, "replay") == 0) {
 		if (arg < argc)
 			label = argv[arg++];
 	} else if (strcmp(cmd, "clean") == 0) {
@@ -305,6 +308,12 @@ main(int argc, char **argv)
 		qstar_graph_free(&graph);
 		return 2;
 	}
+	if ((strcmp(cmd, "action-log") == 0 || strcmp(cmd, "replay") == 0) &&
+	    (!label || !*label)) {
+		usage(stderr);
+		qstar_graph_free(&graph);
+		return 2;
+	}
 	if (arg != argc) {
 		usage(stderr);
 		qstar_graph_free(&graph);
@@ -353,6 +362,10 @@ main(int argc, char **argv)
 			rc = qstar_graph_log(&graph, label, stdout);
 		else if (strcmp(cmd, "last-failure") == 0)
 			rc = qstar_graph_last_failure(&graph, stdout);
+		else if (strcmp(cmd, "action-log") == 0)
+			rc = qstar_graph_action_log(&graph, label, stdout);
+		else if (strcmp(cmd, "replay") == 0)
+			rc = qstar_graph_replay_action(&graph, label, stdout);
 		else if (strcmp(cmd, "doctor") == 0)
 			rc = qstar_graph_doctor(&graph, stdout);
 		else if (strcmp(cmd, "list-targets") == 0)

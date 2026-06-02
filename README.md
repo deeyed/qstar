@@ -38,6 +38,8 @@ qstar --file qstar.lua build //:app --explain-cache
 qstar --file qstar.lua why-rebuild //:app
 qstar --file qstar.lua log //:app
 qstar --file qstar.lua last-failure
+qstar --file qstar.lua action-log //:app:compile:0
+qstar --file qstar.lua replay //:app:compile:0
 qstar --file qstar.lua clean --target //:app
 qstar --file qstar.lua clean
 qstar init c-app my-app
@@ -53,7 +55,7 @@ qstar --file qstar.lua --profile debug --target arm64-apple-macos explain //:app
 
 `--dump-graph`는 canonical Graph IR을 출력한다. `explain`은 선택한 target closure를 검증하고 dependency-first order와 action key 재료를 출력한다. `dry-run`은 실행하지 않는 deterministic step record를 만든다. `check`는 package-root 기준 source/header/generated input 존재 여부를 확인한다.
 
-`build`는 제한적 local executor v6다. package-local generated tool, `qstar.config_header`, C/Cale source compile argv, static archive, exe/test link를 다루며 산출물은 `.qstar/out`, 로그는 `.qstar/logs` 아래에 둔다. Round 14/15부터 `.qstar/state/actions.json` action manifest, `compile_commands.json`, cache-hit skip, `why-rebuild`, `log`, `last-failure`, `clean`, JSON diagnostic skeleton을 제공한다. Round 16/17부터 Cale source는 frontend/backend 내부 API가 아니라 `cale -c ... -o ...` process invocation으로만 다룬다. Round 18/19부터 static library dependency link order, public/private include propagation, system library flag rendering, test runner, install skeleton을 제공한다. Round 29부터 executor는 dependency-first closure를 action DAG로 실행하고, 실패는 stop-on-first-failure로 전파한다. Build action timeout은 30초 고정이며 timeout 시 process를 kill하고 replay file을 남긴다. Round 32부터 `--jobs N`과 `--schedule-trace`를 받는다. `jobs > 1`은 같은 target 안의 independent compile action을 process-level parallel batch로 실행하고, generated action과 final archive/link는 deterministic order를 유지한다.
+`build`는 제한적 local executor v9이다. package-local generated tool, `qstar.config_header`, C/Cale source compile argv, static archive, exe/test link를 다루며 산출물은 `.qstar/out`, 로그는 `.qstar/logs` 아래에 둔다. Round 14/15부터 `.qstar/state/actions.json` action manifest, `compile_commands.json`, cache-hit skip, `why-rebuild`, `log`, `last-failure`, `clean`, JSON diagnostic skeleton을 제공한다. Round 16/17부터 Cale source는 frontend/backend 내부 API가 아니라 `cale -c ... -o ...` process invocation으로만 다룬다. Round 18/19부터 static library dependency link order, public/private include propagation, system library flag rendering, test runner, install skeleton을 제공한다. Round 29부터 executor는 dependency-first closure를 action DAG로 실행하고, 실패는 stop-on-first-failure로 전파한다. Build action timeout은 기본 30초이며 timeout 시 process를 kill하고 replay file을 남긴다. Round 32부터 `--jobs N`과 `--schedule-trace`를 받는다. `jobs > 1`은 같은 target 안의 independent compile action을 process-level parallel batch로 실행하고, generated action과 final archive/link는 deterministic order를 유지한다. Round 35부터 긴 compile/link command는 profile capability가 허용할 때 실제 `.qstar/rsp/*.rsp` response file로 내려가며, POSIX/Windows/MSVC style과 digest를 plan/build/replay에 기록한다. Round 36부터 parallel compile은 `process-v2` event stream을 출력한다. Queue order, slot assignment, start/finish/fail/timeout/cancel state, `retry=next-build`, active child cancel propagation을 deterministic하게 기록해 실패 로그를 사람이 읽을 수 있게 한다. Round 37부터 `.qstar/state/graph.json` graph snapshot과 `.qstar/state/last-summary.json` 마지막 build summary를 저장하고, `qstar action-log <action-id>`와 `qstar replay <action-id>`로 action 단위 로그/재현 명령을 조회한다.
 
 ## 아직 하지 않는 일
 
@@ -142,6 +144,8 @@ QStar 자체 regression은 다음으로 실행한다.
 ```txt
 make -C qstar check
 make -C qstar qstar-v0-release-tests
+make -C qstar qstar-v0.1-release-tests
+make -C qstar qstar-standalone-integration-tests
 ```
 
 ## v0 seal
@@ -200,17 +204,47 @@ Target은 선언 fragment와 label package가 일치해야 한다. 예를 들어
 
 Round 27/28부터 profile schema는 v2로 확장된다. `Cale.toml` 또는
 `.cale/profiles/<name>.toml`은 `cc`, `cxx`, `cale`, `ar`, `linker`, `sysroot`,
-`resource_dir`, `include_dirs`, `lib_dirs`를 줄 수 있다. `qstar doctor`는 이 값을
-resolver 결과에 포함해 보여주며, compile/link argv plan에도 sysroot/resource/include/lib
-설정이 반영된다.
+`resource_dir`, `include_dirs`, `lib_dirs`, `response_files`, `response_style`을 줄 수
+있다. `response_files`는 `auto/on/off` 계열 값을 받고, `response_style`은
+`posix/windows/msvc`를 받는다. 기본 style은 target triple에서 추론한다. `qstar doctor`는
+이 값을 resolver 결과에 포함해 보여주며, compile/link argv plan에도
+sysroot/resource/include/lib/response 설정이 반영된다.
 
 Command rendering은 shell string이 아니라 argv-vector가 canonical이다. Explain/dry-run
 dump는 argv item을 quoting하고 deterministic `digest=`를 붙인다. 긴 command에는
-`response=skeleton response_file=.qstar/rsp/...`를 표시하지만, 실제 response-file
-executor는 아직 열지 않는다. Action log와 `compile_commands.json`, failure replay는
-shell-safe quoting을 사용한다.
+`response=skeleton response_file=.qstar/rsp/... response_style=... response_digest=...`를
+표시한다. 실제 executor는 같은 policy로 response file을 만들며, failure replay에는
+`argv_digest`와 response file path/style/digest가 함께 남는다. Action log와
+`compile_commands.json`, failure replay는 shell-safe quoting을 사용한다. Action state에는
+`argv_key`, `env_key`, `input_key`, `depfile_key`, `profile_key`가 함께 저장된다.
+`why-rebuild`와 `build --explain-cache`는 이를 비교해 `no-previous-state`,
+`output-missing`, `argv-changed`, `env-changed`, `depfile-changed`, `input-changed`,
+`profile-changed`, `key-changed` reason을 출력한다.
 
-Round 32 scheduler surface는 `--jobs N`과 `--schedule-trace`로 켠다. v1은
-dependency-first target closure, compile action parallel batch, action readiness trace,
-job limit validation, failure cancellation policy를 고정한다. Generated action과 final
+Round 32 scheduler surface는 `--jobs N`과 `--schedule-trace`로 켠다. Round 36 기준
+parallel executor는 FIFO source order로 ready queue를 채우고, slot assignment와
+action event를 `parallel_batch`, `parallel_slot`, `parallel_event` line으로 남긴다.
+Compile child 하나가 fail 또는 timeout되면 아직 실행 중인 compile child는 kill하고,
+아직 시작하지 않은 compile action은 queue에 남긴 채 build를 중단한다. Cancel된 action과
+failure replay는 다음 build에서 재시도 가능한 상태로 기록한다. Generated action과 final
 archive/link action은 아직 순차 실행한다.
+
+## v0.1 hardening seal
+
+Round 38 기준 QStar는 `v0.1 standalone developer build system`으로 봉인되어 있다.
+즉, `cale build` 통합 전에도 QStar 자체 binary와 `qstar/Makefile`만으로 local
+C/C++/Cale-by-process project를 authoring, build, test, install, rebuild 추적할 수
+있어야 한다.
+
+Compatibility contract와 release gate는
+`docs/qstar/qstar-v0.1-hardening-seal.md`에 둔다. 현재 seal target은 다음이다.
+
+```txt
+make -C qstar qstar-v0.1-release-tests
+make -C qstar qstar-v0.1-hardening-tests
+make -C qstar qstar-standalone-integration-tests
+```
+
+이 target들은 QStar-local `check` harness를 통해 manual sample, real project corpus,
+executor/profile/install/test/compile database, graph snapshot, action replay, response
+file, parallel executor smoke를 함께 검증한다.

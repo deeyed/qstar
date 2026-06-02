@@ -80,6 +80,8 @@ struct qstar_profile_input {
 	char *linker;
 	char *sysroot;
 	char *resource_dir;
+	char *response_files;
+	char *response_style;
 	struct qstar_string_list include_dirs;
 	struct qstar_string_list lib_dirs;
 };
@@ -248,6 +250,12 @@ int qstar_graph_log(struct qstar_graph *graph, const char *label, FILE *out);
 
 /** 마지막 실패 replay 파일을 출력한다. */
 int qstar_graph_last_failure(struct qstar_graph *graph, FILE *out);
+
+/** action id에 대응하는 deterministic action log를 출력한다. */
+int qstar_graph_action_log(struct qstar_graph *graph, const char *action_id, FILE *out);
+
+/** action id에 대응하는 shell replay command를 출력한다. */
+int qstar_graph_replay_action(struct qstar_graph *graph, const char *action_id, FILE *out);
 
 /** QStar authoring check 결과를 deterministic text로 출력한다. */
 int qstar_graph_check(struct qstar_graph *graph, const char *label, FILE *out);

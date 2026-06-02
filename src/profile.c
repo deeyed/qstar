@@ -161,6 +161,12 @@ apply_profile_key(struct qstar_graph *graph, const char *key, const char *value,
 	if (strcmp(key, "resource_dir") == 0)
 		return profile_set(&graph->profile.resource_dir, value) < 0 ?
 		    qstar_set_error(graph, "qstar: out of memory") : 0;
+	if (strcmp(key, "response_files") == 0 || strcmp(key, "rsp") == 0)
+		return profile_set(&graph->profile.response_files, value) < 0 ?
+		    qstar_set_error(graph, "qstar: out of memory") : 0;
+	if (strcmp(key, "response_style") == 0 || strcmp(key, "rsp_style") == 0)
+		return profile_set(&graph->profile.response_style, value) < 0 ?
+		    qstar_set_error(graph, "qstar: out of memory") : 0;
 	return 0;
 }
 
@@ -278,6 +284,24 @@ valid_profile_path(const char *path)
 	return path && *path && (path[0] == '/' || qstar_path_is_package_relative(path));
 }
 
+/** response_files profile 값이 QStar v1 policy 안에 있는지 검사한다. */
+static int
+valid_response_files_value(const char *value)
+{
+	return !value || !*value || strcmp(value, "auto") == 0 ||
+	    strcmp(value, "on") == 0 || strcmp(value, "off") == 0 ||
+	    strcmp(value, "true") == 0 || strcmp(value, "false") == 0 ||
+	    strcmp(value, "1") == 0 || strcmp(value, "0") == 0;
+}
+
+/** response_style profile 값이 QStar v1 policy 안에 있는지 검사한다. */
+static int
+valid_response_style_value(const char *value)
+{
+	return !value || !*value || strcmp(value, "posix") == 0 ||
+	    strcmp(value, "windows") == 0 || strcmp(value, "msvc") == 0;
+}
+
 /** QStar profile schema v2 입력을 검증한다. */
 int
 qstar_graph_validate_profile(struct qstar_graph *graph)
@@ -303,7 +327,40 @@ qstar_graph_validate_profile(struct qstar_graph *graph)
 			    "qstar: profile lib_dirs entry '%s' must be absolute or workspace-relative",
 			    graph->profile.lib_dirs.items[i]);
 	}
+	if (!valid_response_files_value(graph->profile.response_files))
+		return qstar_set_error(graph,
+		    "qstar: profile response_files must be auto, on, off, true, false, 1, or 0");
+	if (!valid_response_style_value(graph->profile.response_style))
+		return qstar_set_error(graph,
+		    "qstar: profile response_style must be posix, windows, or msvc");
 	return 0;
+}
+
+/** target triple에서 Windows 계열 여부를 보수적으로 판정한다. */
+static int
+profile_target_is_windows(const char *target)
+{
+	return target && (strstr(target, "windows") || strstr(target, "mingw") ||
+	    strstr(target, "msvc"));
+}
+
+/** target triple에서 MSVC command-line 계열 여부를 판정한다. */
+static int
+profile_target_is_msvc(const char *target)
+{
+	return target && strstr(target, "msvc");
+}
+
+/** response_files profile 값을 boolean capability로 낮춘다. */
+static int
+profile_response_files_enabled(const char *value, int default_value)
+{
+	if (!value || !*value || strcmp(value, "auto") == 0)
+		return default_value;
+	if (strcmp(value, "off") == 0 || strcmp(value, "false") == 0 ||
+	    strcmp(value, "0") == 0)
+		return 0;
+	return 1;
 }
 
 /** target/profile 입력을 합쳐 host/clang/cale toolchain v1을 결정한다. */
@@ -364,6 +421,18 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 	if (graph->profile.resource_dir && *graph->profile.resource_dir)
 		snprintf(resolved->resource_dir, sizeof(resolved->resource_dir), "%s",
 		    graph->profile.resource_dir);
+	resolved->response_files =
+	    profile_response_files_enabled(graph->profile.response_files, 1);
+	if (graph->profile.response_style && *graph->profile.response_style)
+		snprintf(resolved->response_style, sizeof(resolved->response_style), "%s",
+		    graph->profile.response_style);
+	else if (profile_target_is_msvc(resolved->target))
+		snprintf(resolved->response_style, sizeof(resolved->response_style), "msvc");
+	else if (profile_target_is_windows(resolved->target))
+		snprintf(resolved->response_style, sizeof(resolved->response_style),
+		    "windows");
+	else
+		snprintf(resolved->response_style, sizeof(resolved->response_style), "posix");
 	snprintf(resolved->resolver, sizeof(resolved->resolver), "profile-schema-v2");
 	return 0;
 }

@@ -168,6 +168,8 @@ free_profile_input(struct qstar_profile_input *profile)
 	free(profile->linker);
 	free(profile->sysroot);
 	free(profile->resource_dir);
+	free(profile->response_files);
+	free(profile->response_style);
 	qstar_string_list_free(&profile->include_dirs);
 	qstar_string_list_free(&profile->lib_dirs);
 }
