@@ -17,6 +17,7 @@
 #define QSTAR_EXEC_MAX_ARGV 256
 #define QSTAR_ACTION_TIMEOUT_SEC 30
 #define QSTAR_TEST_TIMEOUT_SEC 5
+#define QSTAR_RESPONSE_ARGV_BYTES 512
 #define QSTAR_HASH_INIT 1469598103934665603ULL
 #define QSTAR_HASH_PRIME 1099511628211ULL
 
@@ -44,6 +45,26 @@ struct qstar_build_ctx {
 		char *command;
 	} *compiles;
 	size_t compile_len, compile_cap;
+};
+
+struct qstar_prepared_action {
+	const struct qstar_target *target;
+	char id[QSTAR_PATH_MAX];
+	char kind[32];
+	char key[32];
+	char depfile[QSTAR_PATH_MAX];
+	int wants_depfile;
+	char *argv[QSTAR_EXEC_MAX_ARGV];
+	size_t argc;
+	struct qstar_string_list outputs;
+};
+
+struct qstar_running_action {
+	struct qstar_prepared_action *action;
+	pid_t pid;
+	time_t start;
+	char name[QSTAR_PATH_MAX];
+	char action_log[QSTAR_PATH_MAX];
 };
 
 /** 디렉터리를 parent까지 포함해 만든다. */
@@ -101,6 +122,33 @@ path_exists(const char *path)
 	struct stat st;
 
 	return stat(path, &st) == 0;
+}
+
+/** 준비된 action argv storage를 해제한다. */
+static void
+prepared_action_free(struct qstar_prepared_action *action)
+{
+	size_t i;
+
+	for (i = 0; i < action->argc; i++)
+		free(action->argv[i]);
+	qstar_string_list_free(&action->outputs);
+	memset(action, 0, sizeof(*action));
+}
+
+/** 준비된 action argv에 소유 문자열을 추가한다. */
+static int
+prepared_action_push_argv(struct qstar_graph *graph, struct qstar_prepared_action *action,
+    const char *s)
+{
+	if (action->argc + 1 >= QSTAR_EXEC_MAX_ARGV)
+		return qstar_set_error(graph, "qstar: compile argv too long");
+	action->argv[action->argc] = qstar_strdup(s);
+	if (!action->argv[action->argc])
+		return qstar_set_error(graph, "qstar: out of memory");
+	action->argc++;
+	action->argv[action->argc] = NULL;
+	return 0;
 }
 
 /** PATH 또는 명시 path에서 실행 파일을 찾을 수 있는지 검사한다. */
@@ -282,6 +330,51 @@ write_shell_arg(FILE *f, const char *s)
 			fputc(*p, f);
 	}
 	fputc('\'', f);
+}
+
+/** argv가 response file로 내릴 만큼 긴지 계산한다. */
+static int
+argv_needs_response_file(char *const argv[])
+{
+	size_t i, bytes;
+
+	bytes = 0;
+	for (i = 0; argv[i]; i++)
+		bytes += strlen(argv[i]) + 1;
+	return bytes >= QSTAR_RESPONSE_ARGV_BYTES || i > 48;
+}
+
+/** compiler/linker response file을 package-local path에 쓴다. */
+static int
+prepare_response_file(struct qstar_graph *graph, const char *id, char *const argv[],
+    char *rsp_arg, size_t rsp_arg_len, FILE *out)
+{
+	char dir[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], rel[QSTAR_PATH_MAX];
+	char full[QSTAR_PATH_MAX];
+	FILE *f;
+	size_t i;
+
+	if (!argv_needs_response_file(argv))
+		return 0;
+	if (full_path_under_root(graph, ".qstar/rsp", dir, sizeof(dir)) < 0 ||
+	    mkdir_p(dir) < 0)
+		return qstar_set_error(graph, "qstar: could not create response file dir");
+	action_log_name(id, name, sizeof(name));
+	if (snprintf(rel, sizeof(rel), ".qstar/rsp/%s.rsp", name) >= (int)sizeof(rel) ||
+	    full_path_under_root(graph, rel, full, sizeof(full)) < 0)
+		return qstar_set_error(graph, "qstar: response file path too long");
+	f = fopen(full, "w");
+	if (!f)
+		return qstar_set_error(graph, "qstar: could not write response file");
+	for (i = 1; argv[i]; i++) {
+		write_shell_arg(f, argv[i]);
+		fputc('\n', f);
+	}
+	fclose(f);
+	if (snprintf(rsp_arg, rsp_arg_len, "@%s", rel) >= (int)rsp_arg_len)
+		return qstar_set_error(graph, "qstar: response file arg too long");
+	fprintf(out, "response_file id=%s path=%s mode=real\n", id, rel);
+	return 1;
 }
 
 /** argv 배열을 action log에 deterministic하게 기록한다. */
@@ -664,9 +757,12 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	char logdir[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], stdout_path[QSTAR_PATH_MAX];
 	char stderr_path[QSTAR_PATH_MAX], action_log[QSTAR_PATH_MAX];
 	char child_stdout_path[QSTAR_PATH_MAX], child_stderr_path[QSTAR_PATH_MAX];
+	char rsp_arg[QSTAR_PATH_MAX];
+	char *exec_argv[3];
+	char *const *child_argv;
 	const struct qstar_state_entry *prev;
 	pid_t pid;
-	int status, fdout, fderr, exit_code;
+	int status, fdout, fderr, exit_code, use_rsp;
 
 	if (qstar_path_join(graph->package_root ? graph->package_root : ".",
 	    ".qstar/logs", logdir, sizeof(logdir)) < 0 ||
@@ -710,6 +806,16 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	if (ctx->explain_cache)
 		fprintf(ctx->out, "cache_miss id=%s key=%s previous=%s\n",
 		    id, key, prev ? prev->key : "<none>");
+	use_rsp = prepare_response_file(graph, id, argv, rsp_arg, sizeof(rsp_arg), ctx->out);
+	if (use_rsp < 0)
+		return -1;
+	child_argv = argv;
+	if (use_rsp) {
+		exec_argv[0] = argv[0];
+		exec_argv[1] = rsp_arg;
+		exec_argv[2] = NULL;
+		child_argv = exec_argv;
+	}
 	pid = fork();
 	if (pid < 0)
 		return qstar_set_error(graph, "qstar: fork failed");
@@ -722,7 +828,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			_exit(127);
 		close(fdout);
 		close(fderr);
-		execvp(argv[0], argv);
+		execvp(child_argv[0], child_argv);
 		_exit(127);
 	}
 	{
@@ -1231,25 +1337,44 @@ validate_compile_source(struct qstar_graph *graph, const struct qstar_target *ta
 	return 0;
 }
 
-/** C 또는 Cale source 하나를 object로 compile한다. */
+/** compile action 실행 후 depfile이 필요한 경우 생성 여부를 확인한다. */
 static int
-run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct qstar_target *target,
-    const struct qstar_resolved_toolchain *toolchain, size_t index)
+check_compile_depfile(struct qstar_graph *graph, const struct qstar_prepared_action *action)
+{
+	char full_depfile[QSTAR_PATH_MAX];
+
+	if (!action->wants_depfile)
+		return 0;
+	if (full_path_under_root(graph, action->depfile, full_depfile,
+	    sizeof(full_depfile)) < 0 || !path_exists(full_depfile))
+		return qstar_set_error(graph, "qstar: compiler did not produce depfile '%s'",
+		    action->depfile);
+	return 0;
+}
+
+/** C/C++/Cale source 하나를 compile action으로 준비한다. */
+static int
+prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
+    size_t index, struct qstar_prepared_action *action)
 {
 	struct qstar_source_info source;
-	char object[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX];
-	char target_arg[QSTAR_PATH_MAX], std_arg[128], sysroot_arg[QSTAR_PATH_MAX], key[32];
+	char object[QSTAR_PATH_MAX], target_arg[QSTAR_PATH_MAX], std_arg[128];
+	char sysroot_arg[QSTAR_PATH_MAX];
 	const char *compiler;
-	char *argv[QSTAR_EXEC_MAX_ARGV];
 	struct qstar_string_list inputs, outputs, includes;
 	int cross, wants_depfile, is_cxx;
-	size_t argc, i;
+	size_t i;
 
+	memset(action, 0, sizeof(*action));
+	action->target = target;
+	snprintf(action->kind, sizeof(action->kind), "compile");
 	qstar_source_classify(target->sources.items[index], &source);
 	if (validate_compile_source(graph, target, toolchain, &source, index) < 0)
 		return -1;
 	if (qstar_object_output_path(target, index, object, sizeof(object)) < 0 ||
-	    qstar_depfile_output_path(target, index, depfile, sizeof(depfile)) < 0 ||
+	    qstar_depfile_output_path(target, index, action->depfile,
+	    sizeof(action->depfile)) < 0 ||
 	    mkdir_parent_under_root(graph, object) < 0)
 		return qstar_set_error(graph, "qstar: could not create object output directory");
 	memset(&includes, 0, sizeof(includes));
@@ -1258,13 +1383,14 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
 	is_cxx = strcmp(source.language, "cxx") == 0;
 	wants_depfile = (strcmp(source.language, "c") == 0 || is_cxx) &&
 	    strcmp(toolchain->name, "cale") != 0 && strcmp(toolchain->name, "cale-sol") != 0;
+	action->wants_depfile = wants_depfile;
 	if (includes.len * 2 + graph->profile.include_dirs.len * 2 +
 	    target->system_include_dirs.len * 2 +
 	    target->cflags.len + target->cxxflags.len + 16 > QSTAR_EXEC_MAX_ARGV) {
 		qstar_string_list_free(&includes);
 		return qstar_set_error(graph, "qstar: compile argv too long");
 	}
-	snprintf(id, sizeof(id), "%s:compile:%zu", target->label, index);
+	snprintf(action->id, sizeof(action->id), "%s:compile:%zu", target->label, index);
 	snprintf(target_arg, sizeof(target_arg), "--target=%s", toolchain->target);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
 	snprintf(sysroot_arg, sizeof(sysroot_arg), "--sysroot=%s", toolchain->sysroot);
@@ -1274,48 +1400,60 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
 	    strcmp(toolchain->name, "cale") == 0 ||
 	    strcmp(toolchain->name, "cale-sol") == 0) &&
 	    strcmp(toolchain->target, "host") != 0;
-	argc = 0;
-	argv[argc++] = (char *)compiler;
-	if (cross)
-		argv[argc++] = target_arg;
-	if (toolchain->sysroot[0])
-		argv[argc++] = sysroot_arg;
+	if (prepared_action_push_argv(graph, action, compiler) < 0)
+		goto fail;
+	if (cross && prepared_action_push_argv(graph, action, target_arg) < 0)
+		goto fail;
+	if (toolchain->sysroot[0] &&
+	    prepared_action_push_argv(graph, action, sysroot_arg) < 0)
+		goto fail;
 	if (toolchain->resource_dir[0]) {
-		argv[argc++] = "-resource-dir";
-		argv[argc++] = (char *)toolchain->resource_dir;
+		if (prepared_action_push_argv(graph, action, "-resource-dir") < 0 ||
+		    prepared_action_push_argv(graph, action, toolchain->resource_dir) < 0)
+			goto fail;
 	}
-	argv[argc++] = "-c";
-	argv[argc++] = target->sources.items[index];
-	argv[argc++] = "-o";
-	argv[argc++] = object;
+	if (prepared_action_push_argv(graph, action, "-c") < 0 ||
+	    prepared_action_push_argv(graph, action, target->sources.items[index]) < 0 ||
+	    prepared_action_push_argv(graph, action, "-o") < 0 ||
+	    prepared_action_push_argv(graph, action, object) < 0)
+		goto fail;
 	if (wants_depfile) {
-		argv[argc++] = "-MMD";
-		argv[argc++] = "-MF";
-		argv[argc++] = depfile;
+		if (prepared_action_push_argv(graph, action, "-MMD") < 0 ||
+		    prepared_action_push_argv(graph, action, "-MF") < 0 ||
+		    prepared_action_push_argv(graph, action, action->depfile) < 0)
+			goto fail;
 	}
-	if (is_cxx && target->cxx_standard[0])
-		argv[argc++] = std_arg;
-	for (i = 0; !is_cxx && i < target->cflags.len; i++)
-		argv[argc++] = target->cflags.items[i];
-	for (i = 0; is_cxx && i < target->cxxflags.len; i++)
-		argv[argc++] = target->cxxflags.items[i];
+	if (is_cxx && target->cxx_standard[0] &&
+	    prepared_action_push_argv(graph, action, std_arg) < 0)
+		goto fail;
+	for (i = 0; !is_cxx && i < target->cflags.len; i++) {
+		if (prepared_action_push_argv(graph, action, target->cflags.items[i]) < 0)
+			goto fail;
+	}
+	for (i = 0; is_cxx && i < target->cxxflags.len; i++) {
+		if (prepared_action_push_argv(graph, action, target->cxxflags.items[i]) < 0)
+			goto fail;
+	}
 	for (i = 0; i < graph->profile.include_dirs.len; i++) {
-		argv[argc++] = "-I";
-		argv[argc++] = graph->profile.include_dirs.items[i];
+		if (prepared_action_push_argv(graph, action, "-I") < 0 ||
+		    prepared_action_push_argv(graph, action,
+		    graph->profile.include_dirs.items[i]) < 0)
+			goto fail;
 	}
 	for (i = 0; i < includes.len; i++) {
-		argv[argc++] = "-I";
-		argv[argc++] = includes.items[i];
+		if (prepared_action_push_argv(graph, action, "-I") < 0 ||
+		    prepared_action_push_argv(graph, action, includes.items[i]) < 0)
+			goto fail;
 	}
 	for (i = 0; i < target->system_include_dirs.len; i++) {
-		argv[argc++] = "-isystem";
-		argv[argc++] = target->system_include_dirs.items[i];
+		if (prepared_action_push_argv(graph, action, "-isystem") < 0 ||
+		    prepared_action_push_argv(graph, action,
+		    target->system_include_dirs.items[i]) < 0)
+			goto fail;
 	}
-	argv[argc] = NULL;
 	if (compile_db_push(ctx, graph->package_root ? graph->package_root : ".",
-	    target->sources.items[index], object, argv) < 0) {
-		qstar_string_list_free(&includes);
-		return qstar_set_error(graph, "qstar: out of memory");
+	    target->sources.items[index], object, action->argv) < 0) {
+		goto oom;
 	}
 	memset(&inputs, 0, sizeof(inputs));
 	memset(&outputs, 0, sizeof(outputs));
@@ -1332,34 +1470,270 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
 		qstar_string_list_free(&includes);
 		return -1;
 	}
-	if (wants_depfile && push_depfile_inputs(graph, depfile, &inputs) < 0) {
+	if (wants_depfile && push_depfile_inputs(graph, action->depfile, &inputs) < 0) {
 		qstar_string_list_free(&inputs);
 		qstar_string_list_free(&outputs);
 		qstar_string_list_free(&includes);
 		return -1;
 	}
-	compute_action_key(graph, target, toolchain, id, "compile", argv, &inputs, object, key,
-	    sizeof(key));
+	compute_action_key(graph, target, toolchain, action->id, "compile", action->argv,
+	    &inputs, object, action->key, sizeof(action->key));
 	qstar_string_list_free(&inputs);
-	if (run_action(graph, ctx, target, id, "compile", key, &outputs, argv) < 0) {
-		qstar_string_list_free(&outputs);
-		qstar_string_list_free(&includes);
-		return -1;
-	}
-	if (wants_depfile) {
-		char full_depfile[QSTAR_PATH_MAX];
-
-		if (full_path_under_root(graph, depfile, full_depfile, sizeof(full_depfile)) < 0 ||
-		    !path_exists(full_depfile)) {
-			qstar_string_list_free(&outputs);
-			qstar_string_list_free(&includes);
-			return qstar_set_error(graph,
-			    "qstar: compiler did not produce depfile '%s'", depfile);
-		}
-	}
-	qstar_string_list_free(&outputs);
+	action->outputs = outputs;
 	qstar_string_list_free(&includes);
 	return 0;
+oom:
+	qstar_string_list_free(&includes);
+	return qstar_set_error(graph, "qstar: out of memory");
+fail:
+	qstar_string_list_free(&includes);
+	prepared_action_free(action);
+	return -1;
+}
+
+/** C 또는 Cale source 하나를 object로 compile한다. */
+static int
+run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain, size_t index)
+{
+	struct qstar_prepared_action action;
+	int rc;
+
+	if (prepare_compile_action(graph, ctx, target, toolchain, index, &action) < 0)
+		return -1;
+	rc = run_action(graph, ctx, target, action.id, action.kind, action.key,
+	    &action.outputs, action.argv);
+	if (rc == 0)
+		rc = check_compile_depfile(graph, &action);
+	prepared_action_free(&action);
+	return rc;
+}
+
+/** 준비된 compile action을 async child process로 시작하거나 cache-hit skip 처리한다. */
+static int
+start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    struct qstar_prepared_action *action, struct qstar_running_action *running)
+{
+	char logdir[QSTAR_PATH_MAX], stdout_path[QSTAR_PATH_MAX], stderr_path[QSTAR_PATH_MAX];
+	char child_stdout_path[QSTAR_PATH_MAX], child_stderr_path[QSTAR_PATH_MAX];
+	char rsp_arg[QSTAR_PATH_MAX];
+	char *exec_argv[3];
+	char *const *child_argv;
+	const struct qstar_state_entry *prev;
+	pid_t pid;
+	int fdout, fderr, use_rsp;
+
+	if (qstar_path_join(graph->package_root ? graph->package_root : ".",
+	    ".qstar/logs", logdir, sizeof(logdir)) < 0 ||
+	    mkdir_p(logdir) < 0)
+		return qstar_set_error(graph, "qstar: could not create action log dir");
+	action_log_name(action->id, running->name, sizeof(running->name));
+	snprintf(stdout_path, sizeof(stdout_path), "%s/%s.stdout", logdir, running->name);
+	snprintf(stderr_path, sizeof(stderr_path), "%s/%s.stderr", logdir, running->name);
+	snprintf(running->action_log, sizeof(running->action_log), "%s/%s.log", logdir,
+	    running->name);
+	snprintf(child_stdout_path, sizeof(child_stdout_path), ".qstar/logs/%s.stdout",
+	    running->name);
+	snprintf(child_stderr_path, sizeof(child_stderr_path), ".qstar/logs/%s.stderr",
+	    running->name);
+	prev = state_find(ctx, action->id);
+	ctx->scheduled_count++;
+	fprintf(ctx->out, "schedule_action id=%s kind=%s slot=pending jobs=%d state=ready\n",
+	    action->id, action->kind, ctx->jobs);
+	if (prev && strcmp(prev->key, action->key) == 0 &&
+	    outputs_exist(graph, &action->outputs)) {
+		fprintf(ctx->out,
+		    "build_action id=%s status=skip reason=cache-hit stdout=.qstar/logs/%s.stdout stderr=.qstar/logs/%s.stderr\n",
+		    action->id, running->name, running->name);
+		write_skip_log(running->action_log, action->argv);
+		ctx->skip_count++;
+		return state_push(ctx, 1, action->id, action->key, action->outputs.items[0],
+		    "skip") < 0 ? qstar_set_error(graph, "qstar: out of memory") : 0;
+	}
+	fprintf(ctx->out,
+	    "build_action id=%s status=run timeout_sec=%d stdout=.qstar/logs/%s.stdout stderr=.qstar/logs/%s.stderr\n",
+	    action->id, QSTAR_ACTION_TIMEOUT_SEC, running->name, running->name);
+	if (ctx->explain_cache)
+		fprintf(ctx->out, "cache_miss id=%s key=%s previous=%s\n",
+		    action->id, action->key, prev ? prev->key : "<none>");
+	use_rsp = prepare_response_file(graph, action->id, action->argv, rsp_arg,
+	    sizeof(rsp_arg), ctx->out);
+	if (use_rsp < 0)
+		return -1;
+	child_argv = action->argv;
+	if (use_rsp) {
+		exec_argv[0] = action->argv[0];
+		exec_argv[1] = rsp_arg;
+		exec_argv[2] = NULL;
+		child_argv = exec_argv;
+	}
+	pid = fork();
+	if (pid < 0)
+		return qstar_set_error(graph, "qstar: fork failed");
+	if (pid == 0) {
+		if (chdir(graph->package_root ? graph->package_root : ".") < 0)
+			_exit(127);
+		fdout = open(child_stdout_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+		fderr = open(child_stderr_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+		if (fdout < 0 || fderr < 0 || dup2(fdout, 1) < 0 || dup2(fderr, 2) < 0)
+			_exit(127);
+		close(fdout);
+		close(fderr);
+		execvp(child_argv[0], child_argv);
+		_exit(127);
+	}
+	running->action = action;
+	running->pid = pid;
+	running->start = time(NULL);
+	fprintf(ctx->out, "schedule_action id=%s pid=%ld state=started\n", action->id,
+	    (long)pid);
+	return 1;
+}
+
+/** async compile action 하나의 종료 상태를 반영한다. */
+static int
+finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    struct qstar_running_action *running, int status)
+{
+	struct qstar_prepared_action *action = running->action;
+	int exit_code;
+
+	exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
+	write_action_log(running->action_log, action->argv, exit_code);
+	if (exit_code != 0) {
+		fprintf(ctx->out, "build_action id=%s status=fail exit=%d\n",
+		    action->id, exit_code);
+		write_failure_replay(graph, action->argv);
+		ctx->fail_count++;
+		ctx->cancelled = 1;
+		return qstar_set_error_origin(graph, action->target->origin_file,
+		    action->target->origin_line, "action", action->target->label,
+		    "qstar: action '%s' failed with status %d; replay=.qstar/logs/last-failure.replay",
+		    action->id, exit_code);
+	}
+	ctx->run_count++;
+	if (state_push(ctx, 1, action->id, action->key, action->outputs.items[0],
+	    "run") < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	fprintf(ctx->out, "schedule_action id=%s state=finished\n", action->id);
+	return 0;
+}
+
+/** 실패한 병렬 batch의 아직 실행 중인 child process를 정리한다. */
+static void
+cancel_running_actions(struct qstar_build_ctx *ctx, struct qstar_running_action *running,
+    size_t active)
+{
+	size_t i;
+	int status;
+
+	for (i = 0; i < active; i++) {
+		if (running[i].pid <= 0)
+			continue;
+		kill(running[i].pid, SIGKILL);
+		waitpid(running[i].pid, &status, 0);
+		fprintf(ctx->out, "schedule_action id=%s state=cancelled\n",
+		    running[i].action->id);
+	}
+}
+
+/** 같은 target 안의 independent compile action을 job limit에 맞춰 병렬 실행한다. */
+static int
+run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain)
+{
+	struct qstar_prepared_action *actions;
+	struct qstar_running_action *running;
+	size_t i, next, active, jobs;
+	int rc, status;
+	pid_t waited;
+
+	if (target->sources.len == 0)
+		return 0;
+	jobs = ctx->jobs > 1 ? (size_t)ctx->jobs : 1;
+	actions = calloc(target->sources.len, sizeof(actions[0]));
+	running = calloc(jobs, sizeof(running[0]));
+	if (!actions || !running) {
+		free(actions);
+		free(running);
+		return qstar_set_error(graph, "qstar: out of memory");
+	}
+	for (i = 0; i < target->sources.len; i++) {
+		if (prepare_compile_action(graph, ctx, target, toolchain, i, &actions[i]) < 0) {
+			while (i > 0)
+				prepared_action_free(&actions[--i]);
+			free(actions);
+			free(running);
+			return -1;
+		}
+	}
+	next = 0;
+	active = 0;
+	rc = 0;
+	while (next < target->sources.len || active > 0) {
+		while (next < target->sources.len && active < jobs) {
+			rc = start_prepared_action(graph, ctx, &actions[next],
+			    &running[active]);
+			if (rc < 0)
+				goto fail;
+			next++;
+			if (rc == 1)
+				active++;
+		}
+		if (active == 0)
+			continue;
+		for (i = 0; i < active; i++) {
+			waited = waitpid(running[i].pid, &status, WNOHANG);
+			if (waited == 0) {
+				if (time(NULL) - running[i].start >= QSTAR_ACTION_TIMEOUT_SEC) {
+					kill(running[i].pid, SIGKILL);
+					waitpid(running[i].pid, &status, 0);
+					write_action_log(running[i].action_log,
+					    running[i].action->argv, 124);
+					write_failure_replay(graph, running[i].action->argv);
+					ctx->fail_count++;
+					ctx->cancelled = 1;
+					fprintf(ctx->out,
+					    "build_action id=%s status=timeout timeout_sec=%d\n",
+					    running[i].action->id, QSTAR_ACTION_TIMEOUT_SEC);
+					rc = qstar_set_error_origin(graph,
+					    running[i].action->target->origin_file,
+					    running[i].action->target->origin_line, "action",
+					    running[i].action->target->label,
+					    "qstar: action '%s' timed out after %d seconds; replay=.qstar/logs/last-failure.replay",
+					    running[i].action->id, QSTAR_ACTION_TIMEOUT_SEC);
+					goto fail;
+				}
+				continue;
+			}
+			if (waited < 0) {
+				rc = qstar_set_error(graph, "qstar: waitpid failed");
+				goto fail;
+			}
+			rc = finish_running_action(graph, ctx, &running[i], status);
+			running[i] = running[active - 1];
+			active--;
+			if (rc < 0)
+				goto fail;
+			break;
+		}
+		if (i == active)
+			sleep(1);
+	}
+	for (i = 0; i < target->sources.len; i++) {
+		if (check_compile_depfile(graph, &actions[i]) < 0) {
+			rc = -1;
+			break;
+		}
+	}
+fail:
+	if (rc < 0 && active > 0)
+		cancel_running_actions(ctx, running, active);
+	for (i = 0; i < target->sources.len; i++)
+		prepared_action_free(&actions[i]);
+	free(actions);
+	free(running);
+	return rc;
 }
 
 /** argv tail에 소유 문자열을 추가한다. */
@@ -1660,9 +2034,16 @@ build_target(struct qstar_graph *graph, const struct qstar_target *target, size_
 	    toolchain.ar, toolchain.linker);
 	if (run_generated_actions(graph, ctx, target) < 0)
 		return -1;
-	for (i = 0; i < target->sources.len; i++) {
-		if (run_compile(graph, ctx, target, &toolchain, i) < 0)
+	if (ctx->jobs > 1 && target->sources.len > 1) {
+		fprintf(ctx->out, "parallel_compile target=%s jobs=%d sources=%zu mode=process-v1\n",
+		    target->label, ctx->jobs, target->sources.len);
+		if (run_compile_parallel(graph, ctx, target, &toolchain) < 0)
 			return -1;
+	} else {
+		for (i = 0; i < target->sources.len; i++) {
+			if (run_compile(graph, ctx, target, &toolchain, i) < 0)
+				return -1;
+		}
 	}
 	return run_final(graph, ctx, target, &toolchain);
 }
@@ -1701,7 +2082,7 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
 	fprintf(out,
 	    "executor-policy version=v3 parallel=%s jobs=%d active=%s failure=stop-on-first-failure action_timeout_sec=%d cancel=kill-process-and-stop-queue\n",
 	    ctx.jobs > 1 ? "optional" : "no", ctx.jobs,
-	    ctx.jobs > 1 ? "trace-only-v1" : "serial", QSTAR_ACTION_TIMEOUT_SEC);
+	    ctx.jobs > 1 ? "compile-process-v1" : "serial", QSTAR_ACTION_TIMEOUT_SEC);
 	rc = qstar_graph_visit_closure(graph, label, build_target, &ctx);
 	if (rc == 0)
 		rc = state_write(graph, &ctx);

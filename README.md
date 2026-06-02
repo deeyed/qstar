@@ -53,7 +53,7 @@ qstar --file qstar.lua --profile debug --target arm64-apple-macos explain //:app
 
 `--dump-graph`는 canonical Graph IR을 출력한다. `explain`은 선택한 target closure를 검증하고 dependency-first order와 action key 재료를 출력한다. `dry-run`은 실행하지 않는 deterministic step record를 만든다. `check`는 package-root 기준 source/header/generated input 존재 여부를 확인한다.
 
-`build`는 제한적 local executor v6다. package-local generated tool, `qstar.config_header`, C/Cale source compile argv, static archive, exe/test link를 다루며 산출물은 `.qstar/out`, 로그는 `.qstar/logs` 아래에 둔다. Round 14/15부터 `.qstar/state/actions.json` action manifest, `compile_commands.json`, cache-hit skip, `why-rebuild`, `log`, `last-failure`, `clean`, JSON diagnostic skeleton을 제공한다. Round 16/17부터 Cale source는 frontend/backend 내부 API가 아니라 `cale -c ... -o ...` process invocation으로만 다룬다. Round 18/19부터 static library dependency link order, public/private include propagation, system library flag rendering, test runner, install skeleton을 제공한다. Round 29부터 executor는 dependency-first closure를 action DAG로 실행하고, 실패는 stop-on-first-failure로 전파한다. Build action timeout은 30초 고정이며 timeout 시 process를 kill하고 replay file을 남긴다. Round 32부터 `--jobs N`과 `--schedule-trace`를 받는다. 현재 `jobs > 1`은 scheduler contract와 trace를 고정하는 optional parallel surface이며, action cache/state 안정성을 위해 실제 command execution은 deterministic serialized backend로 유지한다.
+`build`는 제한적 local executor v6다. package-local generated tool, `qstar.config_header`, C/Cale source compile argv, static archive, exe/test link를 다루며 산출물은 `.qstar/out`, 로그는 `.qstar/logs` 아래에 둔다. Round 14/15부터 `.qstar/state/actions.json` action manifest, `compile_commands.json`, cache-hit skip, `why-rebuild`, `log`, `last-failure`, `clean`, JSON diagnostic skeleton을 제공한다. Round 16/17부터 Cale source는 frontend/backend 내부 API가 아니라 `cale -c ... -o ...` process invocation으로만 다룬다. Round 18/19부터 static library dependency link order, public/private include propagation, system library flag rendering, test runner, install skeleton을 제공한다. Round 29부터 executor는 dependency-first closure를 action DAG로 실행하고, 실패는 stop-on-first-failure로 전파한다. Build action timeout은 30초 고정이며 timeout 시 process를 kill하고 replay file을 남긴다. Round 32부터 `--jobs N`과 `--schedule-trace`를 받는다. `jobs > 1`은 같은 target 안의 independent compile action을 process-level parallel batch로 실행하고, generated action과 final archive/link는 deterministic order를 유지한다.
 
 ## 아직 하지 않는 일
 
@@ -211,6 +211,6 @@ executor는 아직 열지 않는다. Action log와 `compile_commands.json`, fail
 shell-safe quoting을 사용한다.
 
 Round 32 scheduler surface는 `--jobs N`과 `--schedule-trace`로 켠다. v1은
-dependency-first target closure, action readiness trace, job limit validation,
-failure cancellation policy를 고정한다. 실제 parallel command backend는 action state와
-depfile/cache update가 더 분리된 뒤 열린다.
+dependency-first target closure, compile action parallel batch, action readiness trace,
+job limit validation, failure cancellation policy를 고정한다. Generated action과 final
+archive/link action은 아직 순차 실행한다.

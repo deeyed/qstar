@@ -512,7 +512,10 @@ contains "$tmp/project-c-rebuild.out" "status ok"
 
 if command -v c++ >/dev/null 2>&1; then
 	cp -R "$project_root/cxx-mixed" "$tmp/project-cxx"
-	"$qstar" --file "$tmp/project-cxx/qstar.lua" build //:mixed > "$tmp/project-cxx-build.out" 2> "$tmp/project-cxx-build.err"
+	"$qstar" --file "$tmp/project-cxx/qstar.lua" build //:mixed --jobs 2 --schedule-trace > "$tmp/project-cxx-build.out" 2> "$tmp/project-cxx-build.err"
+	contains "$tmp/project-cxx-build.out" "parallel_compile target=//:mixed jobs=2 sources=2 mode=process-v1"
+	contains "$tmp/project-cxx-build.out" "schedule_action id=//:mixed:compile:0"
+	contains "$tmp/project-cxx-build.out" "schedule_action id=//:mixed:compile:1"
 	contains "$tmp/project-cxx-build.out" "status ok"
 	"$tmp/project-cxx/.qstar/out/___mixed/mixed"
 	contains "$tmp/project-cxx/compile_commands.json" "src/cpp.cpp"
@@ -811,12 +814,28 @@ qstar.exe "app" {
     "include/very/long/path/segment/005",
     "include/very/long/path/segment/006",
     "include/very/long/path/segment/007",
+    "include/very/long/path/segment/008",
+    "include/very/long/path/segment/009",
+    "include/very/long/path/segment/010",
+    "include/very/long/path/segment/011",
+    "include/very/long/path/segment/012",
+    "include/very/long/path/segment/013",
+    "include/very/long/path/segment/014",
+    "include/very/long/path/segment/015",
+    "include/very/long/path/segment/016",
+    "include/very/long/path/segment/017",
+    "include/very/long/path/segment/018",
+    "include/very/long/path/segment/019",
   },
 }
 EOF
 "$qstar" --file "$tmp/longcmd/qstar.lua" dry-run //:app > "$tmp/longcmd-dry.out" 2> "$tmp/longcmd-dry.err"
 contains "$tmp/longcmd-dry.out" "response=skeleton"
 contains "$tmp/longcmd-dry.out" "response_file=.qstar/rsp/"
+"$qstar" --file "$tmp/longcmd/qstar.lua" build //:app > "$tmp/longcmd-build.out" 2> "$tmp/longcmd-build.err"
+contains "$tmp/longcmd-build.out" "response_file id=//:app:compile:0"
+test -d "$tmp/longcmd/.qstar/rsp" || fail "missing real response file dir"
+contains "$tmp/longcmd-build.out" "status ok"
 
 mkdir -p "$tmp/windows/src"
 cat > "$tmp/windows/src/main.c" <<'EOF'
