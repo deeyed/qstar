@@ -106,6 +106,56 @@ lsp_bad_uri="file://$tmp/lsp-missing/qstar.lua"
 contains "$tmp/lsp-missing.out" "QSTAR002"
 contains "$tmp/lsp-missing.out" "missing fragment"
 
+mkdir -p "$tmp/lsp-nav/lib" "$tmp/lsp-nav/app"
+touch "$tmp/lsp-nav/qstar.workspace"
+cat > "$tmp/lsp-nav/qstar.lua" <<'EOF'
+qstar.config_header "cfg" {
+  output = qstar.output("generated/cfg.h"),
+  defines = {"HAVE_CFG"},
+}
+
+qstar.genrule "gen" {
+  tool = "tools/gen.sh",
+  outputs = {qstar.output("generated/gen.c")},
+}
+
+qstar.subdir("lib")
+qstar.subdir("app")
+EOF
+cat > "$tmp/lsp-nav/lib/lib.qs" <<'EOF'
+qstar.staticlib "core" {}
+EOF
+cat > "$tmp/lsp-nav/app/app.qs" <<'EOF'
+qstar.exe "app" {
+  deps = {"//lib:core"},
+}
+EOF
+lsp_nav_root_uri="file://$tmp/lsp-nav/qstar.lua"
+lsp_nav_lib_uri="file://$tmp/lsp-nav/lib/lib.qs"
+lsp_nav_app_uri="file://$tmp/lsp-nav/app/app.qs"
+{
+	send_lsp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
+	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_nav_root_uri"'","languageId":"qstar","version":1,"text":"qstar.config_header \"cfg\" {\n  output = qstar.output(\"generated/cfg.h\"),\n  defines = {\"HAVE_CFG\"},\n}\n\nqstar.genrule \"gen\" {\n  tool = \"tools/gen.sh\",\n  outputs = {qstar.output(\"generated/gen.c\")},\n}\n\nqstar.subdir(\"lib\")\nqstar.subdir(\"app\")\n"}}}'
+	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_nav_lib_uri"'","languageId":"qstar","version":1,"text":"qstar.staticlib \"core\" {}\n"}}}'
+	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_nav_app_uri"'","languageId":"qstar","version":1,"text":"qstar.exe \"app\" {\n  deps = {\"//lib:core\"},\n}\n"}}}'
+	send_lsp '{"jsonrpc":"2.0","id":2,"method":"textDocument/definition","params":{"textDocument":{"uri":"'"$lsp_nav_app_uri"'"},"position":{"line":1,"character":14}}}'
+	send_lsp '{"jsonrpc":"2.0","id":3,"method":"textDocument/references","params":{"textDocument":{"uri":"'"$lsp_nav_app_uri"'"},"position":{"line":1,"character":14},"context":{"includeDeclaration":false}}}'
+	send_lsp '{"jsonrpc":"2.0","id":4,"method":"textDocument/documentSymbol","params":{"textDocument":{"uri":"'"$lsp_nav_lib_uri"'"}}}'
+	send_lsp '{"jsonrpc":"2.0","id":5,"method":"textDocument/documentSymbol","params":{"textDocument":{"uri":"'"$lsp_nav_root_uri"'"}}}'
+	send_lsp '{"jsonrpc":"2.0","id":6,"method":"workspace/symbol","params":{"query":"core"}}'
+	send_lsp '{"jsonrpc":"2.0","id":7,"method":"shutdown","params":{}}'
+	send_lsp '{"jsonrpc":"2.0","method":"exit","params":{}}'
+} | "$qstar" lsp --stdio > "$tmp/lsp-nav.out" 2> "$tmp/lsp-nav.err"
+contains "$tmp/lsp-nav.out" "\"definitionProvider\":true"
+contains "$tmp/lsp-nav.out" "\"referencesProvider\":true"
+contains "$tmp/lsp-nav.out" "\"documentSymbolProvider\":true"
+contains "$tmp/lsp-nav.out" "\"workspaceSymbolProvider\":true"
+contains "$tmp/lsp-nav.out" "\"uri\":\"$lsp_nav_lib_uri\""
+contains "$tmp/lsp-nav.out" "\"uri\":\"$lsp_nav_app_uri\""
+contains "$tmp/lsp-nav.out" "\"name\":\"//lib:core\""
+contains "$tmp/lsp-nav.out" "\"name\":\"//:cfg\""
+contains "$tmp/lsp-nav.out" "\"name\":\"//:gen\""
+
 vscode_ext="editors/vscode/qstar"
 test -f "$vscode_ext/package.json" || fail "missing QStar VSCode package.json"
 test -f "$vscode_ext/extension.js" || fail "missing QStar VSCode extension.js"
@@ -130,6 +180,10 @@ contains "$vscode_ext/package.json" "\"qstar.replayAction\""
 contains "$vscode_ext/extension.js" "qstar lsp"
 contains "$vscode_ext/extension.js" "registerHoverProvider"
 contains "$vscode_ext/extension.js" "registerCompletionItemProvider"
+contains "$vscode_ext/extension.js" "registerDefinitionProvider"
+contains "$vscode_ext/extension.js" "registerReferenceProvider"
+contains "$vscode_ext/extension.js" "registerDocumentSymbolProvider"
+contains "$vscode_ext/extension.js" "registerWorkspaceSymbolProvider"
 contains "$vscode_ext/extension.js" "qstar lsp --stdio"
 contains "$vscode_ext/extension.js" "registerTreeDataProvider"
 contains "$vscode_ext/extension.js" "qstar-targets-v1"

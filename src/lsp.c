@@ -528,6 +528,70 @@ diag_matches_path(const struct qstar_lint_diagnostic *diag, const char *path)
 	return diag->file && path && strcmp(diag->file, path) == 0;
 }
 
+/** filesystem path를 file URI로 변환한다. */
+static int
+path_to_uri(struct qstar_lsp_buf *buf, const char *path)
+{
+	const unsigned char *p = (const unsigned char *)(path ? path : "");
+
+	if (lsp_buf_append(buf, "\"file://") < 0)
+		return -1;
+	while (*p) {
+		if (*p == '"' || *p == '\\' || *p == ' ' || *p == '#') {
+			if (lsp_buf_printf(buf, "%%%02X", *p) < 0)
+				return -1;
+		} else if (lsp_buf_append_n(buf, (const char *)p, 1) < 0) {
+			return -1;
+		}
+		p++;
+	}
+	return lsp_buf_append(buf, "\"");
+}
+
+/** LSP Location object를 buffer에 추가한다. */
+static int
+append_location(struct qstar_lsp_buf *buf, const char *file, int line)
+{
+	int lnum;
+
+	lnum = line > 0 ? line - 1 : 0;
+	if (lsp_buf_append(buf, "{\"uri\":") < 0 ||
+	    path_to_uri(buf, file && *file ? file : "<unknown>") < 0 ||
+	    lsp_buf_append(buf, ",\"range\":{\"start\":{\"line\":") < 0 ||
+	    lsp_buf_printf(buf, "%d", lnum) < 0 ||
+	    lsp_buf_append(buf, ",\"character\":0},\"end\":{\"line\":") < 0 ||
+	    lsp_buf_printf(buf, "%d", lnum) < 0 ||
+	    lsp_buf_append(buf, ",\"character\":1}}}") < 0)
+		return -1;
+	return 0;
+}
+
+/** graph target label에 대응하는 target을 찾는다. */
+static const struct qstar_target *
+lsp_find_target(const struct qstar_graph *graph, const char *label)
+{
+	size_t i;
+
+	for (i = 0; i < graph->len; i++) {
+		if (strcmp(graph->targets[i].label, label) == 0)
+			return &graph->targets[i];
+	}
+	return NULL;
+}
+
+/** graph generated action label에 대응하는 action을 찾는다. */
+static const struct qstar_genrule *
+lsp_find_genrule(const struct qstar_graph *graph, const char *label)
+{
+	size_t i;
+
+	for (i = 0; i < graph->genrule_len; i++) {
+		if (strcmp(graph->genrules[i].label, label) == 0)
+			return &graph->genrules[i];
+	}
+	return NULL;
+}
+
 /** LSP publishDiagnostics notification을 출력한다. */
 static int
 publish_diagnostics(FILE *out, const char *uri, const char *path)
@@ -807,6 +871,305 @@ fail:
 	return -1;
 }
 
+/** textDocument/definition 요청에 label 선언 위치를 반환한다. */
+static int
+handle_definition(struct qstar_lsp_server *server, FILE *out, const char *id,
+    const char *body)
+{
+	struct qstar_lsp_doc *doc;
+	struct qstar_graph graph;
+	struct qstar_lsp_buf payload;
+	const struct qstar_target *target;
+	const struct qstar_genrule *genrule;
+	char root_file[QSTAR_PATH_MAX];
+	char *uri, *token;
+	int line, character, rc;
+
+	uri = json_get_string(body, "uri");
+	line = json_get_int(body, "line", 0);
+	character = json_get_int(body, "character", 0);
+	doc = uri ? find_doc(server, uri) : NULL;
+	token = doc ? copy_token_at(doc->text, line, character) : qstar_strdup("");
+	lsp_buf_init(&payload);
+	if (lsp_buf_printf(&payload, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":",
+	    id ? id : "null") < 0)
+		goto fail;
+	if (!doc || !token || token[0] == '\0' ||
+	    find_root_file(doc->path, root_file, sizeof(root_file)) < 0 ||
+	    (load_lint_graph(root_file, &graph) < 0 && graph.len == 0 &&
+	    graph.genrule_len == 0)) {
+		if (lsp_buf_append(&payload, "null}") < 0)
+			goto fail;
+		rc = lsp_send(out, payload.data);
+		free(uri);
+		free(token);
+		lsp_buf_free(&payload);
+		return rc;
+	}
+	target = lsp_find_target(&graph, token);
+	genrule = target ? NULL : lsp_find_genrule(&graph, token);
+	if (target) {
+		if (append_location(&payload, target->origin_file, target->origin_line) < 0)
+			goto fail_graph;
+	} else if (genrule) {
+		if (append_location(&payload, genrule->origin_file, genrule->origin_line) < 0)
+			goto fail_graph;
+	} else if (lsp_buf_append(&payload, "null") < 0) {
+		goto fail_graph;
+	}
+	if (lsp_buf_append(&payload, "}") < 0)
+		goto fail_graph;
+	rc = lsp_send(out, payload.data);
+	qstar_graph_free(&graph);
+	free(uri);
+	free(token);
+	lsp_buf_free(&payload);
+	return rc;
+
+fail_graph:
+	qstar_graph_free(&graph);
+fail:
+	free(uri);
+	free(token);
+	lsp_buf_free(&payload);
+	return -1;
+}
+
+/** dependency list에서 label이 쓰인 위치를 LSP reference location으로 추가한다. */
+static int
+append_references_from_list(struct qstar_lsp_buf *payload,
+    const struct qstar_target *target, const struct qstar_string_list *list,
+    const char *label, int *first)
+{
+	size_t i;
+
+	for (i = 0; i < list->len; i++) {
+		if (strcmp(list->items[i], label) != 0)
+			continue;
+		if (!*first && lsp_buf_append(payload, ",") < 0)
+			return -1;
+		*first = 0;
+		if (append_location(payload, target->origin_file, target->origin_line) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+/** textDocument/references 요청에 target dependency usage를 반환한다. */
+static int
+handle_references(struct qstar_lsp_server *server, FILE *out, const char *id,
+    const char *body)
+{
+	struct qstar_lsp_doc *doc;
+	struct qstar_graph graph;
+	struct qstar_lsp_buf payload;
+	char root_file[QSTAR_PATH_MAX];
+	char *uri, *token;
+	size_t i;
+	int line, character, first, rc;
+
+	uri = json_get_string(body, "uri");
+	line = json_get_int(body, "line", 0);
+	character = json_get_int(body, "character", 0);
+	doc = uri ? find_doc(server, uri) : NULL;
+	token = doc ? copy_token_at(doc->text, line, character) : qstar_strdup("");
+	lsp_buf_init(&payload);
+	if (lsp_buf_printf(&payload, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":[",
+	    id ? id : "null") < 0)
+		goto fail;
+	first = 1;
+	if (doc && token && token[0] != '\0' &&
+	    find_root_file(doc->path, root_file, sizeof(root_file)) == 0 &&
+	    !(load_lint_graph(root_file, &graph) < 0 && graph.len == 0)) {
+		for (i = 0; i < graph.len; i++) {
+			if (append_references_from_list(&payload, &graph.targets[i],
+			    &graph.targets[i].deps, token, &first) < 0 ||
+			    append_references_from_list(&payload, &graph.targets[i],
+			    &graph.targets[i].private_deps, token, &first) < 0)
+				goto fail_graph;
+		}
+		qstar_graph_free(&graph);
+	}
+	if (lsp_buf_append(&payload, "]}") < 0)
+		goto fail;
+	rc = lsp_send(out, payload.data);
+	free(uri);
+	free(token);
+	lsp_buf_free(&payload);
+	return rc;
+
+fail_graph:
+	qstar_graph_free(&graph);
+fail:
+	free(uri);
+	free(token);
+	lsp_buf_free(&payload);
+	return -1;
+}
+
+/** DocumentSymbol 하나를 추가한다. */
+static int
+append_document_symbol(struct qstar_lsp_buf *payload, const char *name,
+    int kind, const char *detail, int line, int first)
+{
+	int lnum;
+
+	lnum = line > 0 ? line - 1 : 0;
+	if (!first && lsp_buf_append(payload, ",") < 0)
+		return -1;
+	if (lsp_buf_append(payload, "{\"name\":") < 0 ||
+	    lsp_json_string(payload, name) < 0 ||
+	    lsp_buf_append(payload, ",\"detail\":") < 0 ||
+	    lsp_json_string(payload, detail) < 0 ||
+	    lsp_buf_printf(payload, ",\"kind\":%d", kind) < 0 ||
+	    lsp_buf_append(payload, ",\"range\":{\"start\":{\"line\":") < 0 ||
+	    lsp_buf_printf(payload, "%d", lnum) < 0 ||
+	    lsp_buf_append(payload, ",\"character\":0},\"end\":{\"line\":") < 0 ||
+	    lsp_buf_printf(payload, "%d", lnum) < 0 ||
+	    lsp_buf_append(payload, ",\"character\":1}},\"selectionRange\":{\"start\":{\"line\":") < 0 ||
+	    lsp_buf_printf(payload, "%d", lnum) < 0 ||
+	    lsp_buf_append(payload, ",\"character\":0},\"end\":{\"line\":") < 0 ||
+	    lsp_buf_printf(payload, "%d", lnum) < 0 ||
+	    lsp_buf_append(payload, ",\"character\":1}}}") < 0)
+		return -1;
+	return 0;
+}
+
+/** textDocument/documentSymbol 요청에 현재 fragment의 target/action symbols를 반환한다. */
+static int
+handle_document_symbols(struct qstar_lsp_server *server, FILE *out, const char *id,
+    const char *body)
+{
+	struct qstar_lsp_doc *doc;
+	struct qstar_graph graph;
+	struct qstar_lsp_buf payload;
+	char root_file[QSTAR_PATH_MAX];
+	char *uri;
+	size_t i;
+	int first, rc;
+
+	uri = json_get_string(body, "uri");
+	doc = uri ? find_doc(server, uri) : NULL;
+	lsp_buf_init(&payload);
+	if (lsp_buf_printf(&payload, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":[",
+	    id ? id : "null") < 0)
+		goto fail;
+	first = 1;
+	if (doc && find_root_file(doc->path, root_file, sizeof(root_file)) == 0 &&
+	    !(load_lint_graph(root_file, &graph) < 0 && graph.len == 0 &&
+	    graph.genrule_len == 0)) {
+		for (i = 0; i < graph.len; i++) {
+			if (strcmp(graph.targets[i].origin_file, doc->path) != 0)
+				continue;
+			if (append_document_symbol(&payload, graph.targets[i].label,
+			    12, graph.targets[i].kind, graph.targets[i].origin_line,
+			    first) < 0)
+				goto fail_graph;
+			first = 0;
+		}
+		for (i = 0; i < graph.genrule_len; i++) {
+			if (strcmp(graph.genrules[i].origin_file, doc->path) != 0)
+				continue;
+			if (append_document_symbol(&payload, graph.genrules[i].label,
+			    13, graph.genrules[i].config_header ? "config_header" : "genrule",
+			    graph.genrules[i].origin_line, first) < 0)
+				goto fail_graph;
+			first = 0;
+		}
+		qstar_graph_free(&graph);
+	}
+	if (lsp_buf_append(&payload, "]}") < 0)
+		goto fail;
+	rc = lsp_send(out, payload.data);
+	free(uri);
+	lsp_buf_free(&payload);
+	return rc;
+
+fail_graph:
+	qstar_graph_free(&graph);
+fail:
+	free(uri);
+	lsp_buf_free(&payload);
+	return -1;
+}
+
+/** SymbolInformation 하나를 추가한다. */
+static int
+append_workspace_symbol(struct qstar_lsp_buf *payload, const char *name,
+    int kind, const char *container, const char *file, int line, int first)
+{
+	if (!first && lsp_buf_append(payload, ",") < 0)
+		return -1;
+	if (lsp_buf_append(payload, "{\"name\":") < 0 ||
+	    lsp_json_string(payload, name) < 0 ||
+	    lsp_buf_printf(payload, ",\"kind\":%d,\"containerName\":", kind) < 0 ||
+	    lsp_json_string(payload, container) < 0 ||
+	    lsp_buf_append(payload, ",\"location\":") < 0 ||
+	    append_location(payload, file, line) < 0 ||
+	    lsp_buf_append(payload, "}") < 0)
+		return -1;
+	return 0;
+}
+
+/** workspace/symbol 요청에 graph-wide target/action symbols를 반환한다. */
+static int
+handle_workspace_symbols(struct qstar_lsp_server *server, FILE *out, const char *id,
+    const char *body)
+{
+	struct qstar_lsp_doc *doc;
+	struct qstar_graph graph;
+	struct qstar_lsp_buf payload;
+	char root_file[QSTAR_PATH_MAX];
+	char *query;
+	size_t i;
+	int first, rc;
+
+	query = json_get_string(body, "query");
+	doc = server->docs;
+	lsp_buf_init(&payload);
+	if (lsp_buf_printf(&payload, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":[",
+	    id ? id : "null") < 0)
+		goto fail;
+	first = 1;
+	if (doc && find_root_file(doc->path, root_file, sizeof(root_file)) == 0 &&
+	    !(load_lint_graph(root_file, &graph) < 0 && graph.len == 0 &&
+	    graph.genrule_len == 0)) {
+		for (i = 0; i < graph.len; i++) {
+			if (query && *query && !strstr(graph.targets[i].label, query))
+				continue;
+			if (append_workspace_symbol(&payload, graph.targets[i].label,
+			    12, graph.targets[i].kind, graph.targets[i].origin_file,
+			    graph.targets[i].origin_line, first) < 0)
+				goto fail_graph;
+			first = 0;
+		}
+		for (i = 0; i < graph.genrule_len; i++) {
+			if (query && *query && !strstr(graph.genrules[i].label, query))
+				continue;
+			if (append_workspace_symbol(&payload, graph.genrules[i].label,
+			    13, graph.genrules[i].config_header ? "config_header" : "genrule",
+			    graph.genrules[i].origin_file, graph.genrules[i].origin_line,
+			    first) < 0)
+				goto fail_graph;
+			first = 0;
+		}
+		qstar_graph_free(&graph);
+	}
+	if (lsp_buf_append(&payload, "]}") < 0)
+		goto fail;
+	rc = lsp_send(out, payload.data);
+	free(query);
+	lsp_buf_free(&payload);
+	return rc;
+
+fail_graph:
+	qstar_graph_free(&graph);
+fail:
+	free(query);
+	lsp_buf_free(&payload);
+	return -1;
+}
+
 /** initialize 요청에 LSP capability를 반환한다. */
 static int
 handle_initialize(FILE *out, const char *id)
@@ -816,7 +1179,7 @@ handle_initialize(FILE *out, const char *id)
 
 	lsp_buf_init(&payload);
 	if (lsp_buf_printf(&payload,
-	    "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"capabilities\":{\"textDocumentSync\":1,\"hoverProvider\":true,\"completionProvider\":{\"triggerCharacters\":[\"q\",\".\",\"/\",\":\",\"\\\"\"]}},\"serverInfo\":{\"name\":\"qstar-lsp\",\"version\":\"v1\"}}}",
+	    "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"capabilities\":{\"textDocumentSync\":1,\"hoverProvider\":true,\"definitionProvider\":true,\"referencesProvider\":true,\"documentSymbolProvider\":true,\"workspaceSymbolProvider\":true,\"completionProvider\":{\"triggerCharacters\":[\"q\",\".\",\"/\",\":\",\"\\\"\"]}},\"serverInfo\":{\"name\":\"qstar-lsp\",\"version\":\"v1\"}}}",
 	    id ? id : "null") < 0) {
 		lsp_buf_free(&payload);
 		return -1;
@@ -896,6 +1259,14 @@ handle_message(struct qstar_lsp_server *server, FILE *out, const char *body)
 		rc = handle_hover(server, out, id, body);
 	} else if (strcmp(method, "textDocument/completion") == 0) {
 		rc = handle_completion(out, id);
+	} else if (strcmp(method, "textDocument/definition") == 0) {
+		rc = handle_definition(server, out, id, body);
+	} else if (strcmp(method, "textDocument/references") == 0) {
+		rc = handle_references(server, out, id, body);
+	} else if (strcmp(method, "textDocument/documentSymbol") == 0) {
+		rc = handle_document_symbols(server, out, id, body);
+	} else if (strcmp(method, "workspace/symbol") == 0) {
+		rc = handle_workspace_symbols(server, out, id, body);
 	} else if (id) {
 		rc = send_null_result(out, id);
 	} else {

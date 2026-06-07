@@ -110,7 +110,8 @@ Round 43부터 lint는 build 전 authoring mistake를 더 적극적으로 잡는
 Round 40부터 `qstar lsp --stdio`가 개발용 Language Server Protocol 서버를 연다.
 지원 surface는 `initialize`, `shutdown`, `exit`, `textDocument/didOpen`,
 `textDocument/didChange`, `textDocument/didSave`, `textDocument/publishDiagnostics`,
-`textDocument/hover`, `textDocument/completion`이다.
+`textDocument/hover`, `textDocument/completion`, `textDocument/definition`,
+`textDocument/references`, `textDocument/documentSymbol`, `workspace/symbol`이다.
 
 Diagnostics는 현재 파일 경로에서 workspace root와 root `qstar.lua`를 찾고,
 기존 lint core와 같은 `QSTAR###` diagnostic을 LSP diagnostic으로 변환한다.
@@ -118,7 +119,12 @@ v1은 현재 파일에 해당하는 diagnostic만 publish한다. Hover는 `qstar
 `qstar.staticlib`, `qstar.test`, `qstar.genrule`, `qstar.config_header`, 주요 field,
 그리고 `//pkg:target` label의 kind/origin/source summary를 제공한다.
 Completion은 top-level `qstar.*` API와 target field 이름을 제공한다.
-`workspace/didChangeWatchedFiles`와 definition은 다음 라운드 후보로 남긴다.
+Round 44부터 label navigation도 제공한다. `deps = {"//lib:core"}` 같은 canonical
+target label에서 definition은 target/genrule 선언 origin으로 이동하고, references는
+target이 `deps`/`private_deps`에서 쓰인 위치를 반환한다. Document symbols는 현재
+fragment의 target/genrule/config_header를 나열하고, workspace symbols는 graph 전체의
+`//pkg:target`/generated action label을 검색한다. `workspace/didChangeWatchedFiles`는
+다음 라운드 후보로 남긴다.
 
 ## VSCode extension v1
 

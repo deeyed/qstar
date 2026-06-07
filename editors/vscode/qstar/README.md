@@ -15,6 +15,8 @@ Features:
 - diagnostics through `qstar lsp --stdio`
 - hover for QStar API names, field names, and `//pkg:target` labels
 - completion for QStar API names and target fields
+- definition/references for target labels
+- document/workspace symbols for targets and generated actions
 - Explorer tree view for targets, generated actions, tests, and installable artifacts
 - last build status from `.qstar/state/last-summary.json`
 - terminal commands for check, explain, list, build, action-log, and replay

@@ -257,6 +257,84 @@ class QStarLspClient {
       return completion;
     });
   }
+
+  asRange(range) {
+    if (!range) {
+      return new vscode.Range(0, 0, 0, 1);
+    }
+    return new vscode.Range(
+      range.start.line,
+      range.start.character,
+      range.end.line,
+      range.end.character
+    );
+  }
+
+  asLocation(location) {
+    if (!location || !location.uri) {
+      return undefined;
+    }
+    return new vscode.Location(vscode.Uri.parse(location.uri), this.asRange(location.range));
+  }
+
+  async definition(document, position) {
+    const result = await this.request("textDocument/definition", {
+      textDocument: {
+        uri: document.uri.toString()
+      },
+      position: {
+        line: position.line,
+        character: position.character
+      }
+    });
+    if (Array.isArray(result)) {
+      return result.map(item => this.asLocation(item)).filter(Boolean);
+    }
+    return this.asLocation(result);
+  }
+
+  async references(document, position) {
+    const result = await this.request("textDocument/references", {
+      textDocument: {
+        uri: document.uri.toString()
+      },
+      position: {
+        line: position.line,
+        character: position.character
+      },
+      context: {
+        includeDeclaration: false
+      }
+    });
+    return (Array.isArray(result) ? result : []).map(item => this.asLocation(item)).filter(Boolean);
+  }
+
+  async documentSymbols(document) {
+    const result = await this.request("textDocument/documentSymbol", {
+      textDocument: {
+        uri: document.uri.toString()
+      }
+    });
+    return (Array.isArray(result) ? result : []).map(item => new vscode.DocumentSymbol(
+      item.name,
+      item.detail || "",
+      item.kind === 13 ? vscode.SymbolKind.Variable : vscode.SymbolKind.Function,
+      this.asRange(item.range),
+      this.asRange(item.selectionRange)
+    ));
+  }
+
+  async workspaceSymbols(query) {
+    const result = await this.request("workspace/symbol", {
+      query: query || ""
+    });
+    return (Array.isArray(result) ? result : []).map(item => new vscode.SymbolInformation(
+      item.name,
+      item.kind === 13 ? vscode.SymbolKind.Variable : vscode.SymbolKind.Function,
+      item.containerName || "qstar",
+      this.asLocation(item.location)
+    ));
+  }
 }
 
 function isQStarDocument(document) {
@@ -539,6 +617,26 @@ function activate(context) {
       return client.completion(document, position);
     }
   }, ".", "q", "/", ":", "\""));
+  context.subscriptions.push(vscode.languages.registerDefinitionProvider(selector, {
+    provideDefinition(document, position) {
+      return client.definition(document, position);
+    }
+  }));
+  context.subscriptions.push(vscode.languages.registerReferenceProvider(selector, {
+    provideReferences(document, position) {
+      return client.references(document, position);
+    }
+  }));
+  context.subscriptions.push(vscode.languages.registerDocumentSymbolProvider(selector, {
+    provideDocumentSymbols(document) {
+      return client.documentSymbols(document);
+    }
+  }));
+  context.subscriptions.push(vscode.languages.registerWorkspaceSymbolProvider({
+    provideWorkspaceSymbols(query) {
+      return client.workspaceSymbols(query);
+    }
+  }));
 
   context.subscriptions.push(vscode.commands.registerCommand("qstar.checkWorkspace", () => {
     runInTerminal("QStar Check", ["check"]);
