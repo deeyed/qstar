@@ -1,0 +1,168 @@
+{
+  "name": "qstar-vscode",
+  "displayName": "QStar",
+  "description": "Language support for QStar qstar.lua and .qs build files.",
+  "version": "0.1.0",
+  "publisher": "cale",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onLanguage:qstar",
+    "onView:qstarGraph",
+    "onCommand:qstar.checkWorkspace",
+    "onCommand:qstar.refreshGraph",
+    "onCommand:qstar.explainTarget",
+    "onCommand:qstar.listTargets",
+    "onCommand:qstar.dryRunTarget",
+    "onCommand:qstar.buildTarget",
+    "onCommand:qstar.testTarget",
+    "onCommand:qstar.openActionLog",
+    "onCommand:qstar.replayAction"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "qstar",
+        "aliases": [
+          "QStar",
+          "qstar"
+        ],
+        "extensions": [
+          ".qs"
+        ],
+        "filenames": [
+          "qstar.lua",
+          "qstar.workspace"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "qstar",
+        "scopeName": "source.qstar",
+        "path": "./syntaxes/qstar.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "qstar",
+        "path": "./snippets/qstar.json"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "qstarGraph",
+          "name": "QStar"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "QStar",
+      "properties": {
+        "qstar.server.path": {
+          "type": "string",
+          "default": "qstar",
+          "description": "Path to the qstar executable used for qstar lsp --stdio and terminal commands."
+        },
+        "qstar.trace.server": {
+          "type": "boolean",
+          "default": false,
+          "description": "Trace raw QStar LSP traffic in the QStar output channel."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "qstar.checkWorkspace",
+        "title": "QStar: Check Workspace"
+      },
+      {
+        "command": "qstar.refreshGraph",
+        "title": "QStar: Refresh Graph"
+      },
+      {
+        "command": "qstar.explainTarget",
+        "title": "QStar: Explain Target"
+      },
+      {
+        "command": "qstar.listTargets",
+        "title": "QStar: List Targets"
+      },
+      {
+        "command": "qstar.dryRunTarget",
+        "title": "QStar: Dry Run Target"
+      },
+      {
+        "command": "qstar.buildTarget",
+        "title": "QStar: Build Target"
+      },
+      {
+        "command": "qstar.testTarget",
+        "title": "QStar: Test Target"
+      },
+      {
+        "command": "qstar.openActionLog",
+        "title": "QStar: Open Action Log"
+      },
+      {
+        "command": "qstar.replayAction",
+        "title": "QStar: Replay Action"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "qstar.refreshGraph",
+          "when": "view == qstarGraph",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "qstar.explainTarget",
+          "when": "view == qstarGraph && viewItem == qstarTarget",
+          "group": "inline"
+        },
+        {
+          "command": "qstar.dryRunTarget",
+          "when": "view == qstarGraph && viewItem == qstarTarget",
+          "group": "inline"
+        },
+        {
+          "command": "qstar.buildTarget",
+          "when": "view == qstarGraph && viewItem == qstarTarget",
+          "group": "inline"
+        },
+        {
+          "command": "qstar.explainTarget",
+          "when": "view == qstarGraph && viewItem == qstarTest",
+          "group": "inline"
+        },
+        {
+          "command": "qstar.dryRunTarget",
+          "when": "view == qstarGraph && viewItem == qstarTest",
+          "group": "inline"
+        },
+        {
+          "command": "qstar.buildTarget",
+          "when": "view == qstarGraph && viewItem == qstarTest",
+          "group": "inline"
+        },
+        {
+          "command": "qstar.testTarget",
+          "when": "view == qstarGraph && viewItem == qstarTest",
+          "group": "inline"
+        }
+      ]
+    }
+  }
+}

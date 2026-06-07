@@ -7,9 +7,11 @@ static void
 usage(FILE *out)
 {
 	fputs("usage: qstar [options] list-targets\n", out);
+	fputs("       qstar [options] list-targets --format json\n", out);
 	fputs("       qstar [options] query [label]\n", out);
 	fputs("       qstar [options] doctor\n", out);
 	fputs("       qstar [options] check [label]\n", out);
+	fputs("       qstar [options] lint [label|//...] [--format text|json]\n", out);
 	fputs("       qstar [options] explain [label]\n", out);
 	fputs("       qstar [options] dry-run [label]\n", out);
 	fputs("       qstar [options] build [label]\n", out);
@@ -21,6 +23,7 @@ usage(FILE *out)
 	fputs("       qstar [options] last-failure\n", out);
 	fputs("       qstar [options] action-log <action-id>\n", out);
 	fputs("       qstar [options] replay <action-id>\n", out);
+	fputs("       qstar lsp --stdio\n", out);
 	fputs("       qstar init c-app|c-lib|generated|mixed-cale [directory]\n", out);
 	fputs("       qstar [options] --dump-graph\n", out);
 	fputs("options:\n", out);
@@ -120,7 +123,7 @@ int
 main(int argc, char **argv)
 {
 	struct qstar_graph graph;
-	const char *file, *cmd, *label, *diagnostic_format;
+	const char *file, *cmd, *label, *diagnostic_format, *lint_format, *list_format;
 	const char *cli_profile, *cli_target, *cli_toolchain, *cli_stdlib;
 	struct qstar_build_options build_options;
 	struct qstar_install_options install_options;
@@ -132,6 +135,8 @@ main(int argc, char **argv)
 	memset(&install_options, 0, sizeof(install_options));
 	file = "qstar.lua";
 	diagnostic_format = "text";
+	lint_format = "text";
+	list_format = "text";
 	cli_profile = NULL;
 	cli_target = NULL;
 	cli_toolchain = NULL;
@@ -231,6 +236,28 @@ main(int argc, char **argv)
 		qstar_graph_free(&graph);
 		return 0;
 	}
+	if (strcmp(cmd, "lsp") == 0) {
+		int stdio_mode;
+
+		stdio_mode = 0;
+		while (arg < argc) {
+			if (strcmp(argv[arg], "--stdio") == 0) {
+				stdio_mode = 1;
+				arg++;
+			} else {
+				usage(stderr);
+				qstar_graph_free(&graph);
+				return 2;
+			}
+		}
+		if (!stdio_mode) {
+			usage(stderr);
+			qstar_graph_free(&graph);
+			return 2;
+		}
+		qstar_graph_free(&graph);
+		return qstar_lsp_stdio(stdin, stdout);
+	}
 	label = NULL;
 	if (strcmp(cmd, "explain") == 0 || strcmp(cmd, "dry-run") == 0 ||
 	    strcmp(cmd, "check") == 0 || strcmp(cmd, "query") == 0 ||
@@ -240,6 +267,26 @@ main(int argc, char **argv)
 	    strcmp(cmd, "action-log") == 0 || strcmp(cmd, "replay") == 0) {
 		if (arg < argc)
 			label = argv[arg++];
+	} else if (strcmp(cmd, "lint") == 0) {
+		while (arg < argc) {
+			if (strcmp(argv[arg], "--format") == 0) {
+				if (arg + 1 >= argc ||
+				    (strcmp(argv[arg + 1], "text") != 0 &&
+				    strcmp(argv[arg + 1], "json") != 0)) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				lint_format = argv[arg + 1];
+				arg += 2;
+			} else if (!label) {
+				label = argv[arg++];
+			} else {
+				usage(stderr);
+				qstar_graph_free(&graph);
+				return 2;
+			}
+		}
 	} else if (strcmp(cmd, "clean") == 0) {
 		if (arg < argc && strcmp(argv[arg], "--target") == 0) {
 			if (arg + 1 >= argc) {
@@ -271,7 +318,25 @@ main(int argc, char **argv)
 				return 2;
 			}
 		}
-	} else if (strcmp(cmd, "--dump-graph") != 0 && strcmp(cmd, "list-targets") != 0 &&
+	} else if (strcmp(cmd, "list-targets") == 0) {
+		while (arg < argc) {
+			if (strcmp(argv[arg], "--format") == 0) {
+				if (arg + 1 >= argc ||
+				    (strcmp(argv[arg + 1], "text") != 0 &&
+				    strcmp(argv[arg + 1], "json") != 0)) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				list_format = argv[arg + 1];
+				arg += 2;
+			} else {
+				usage(stderr);
+				qstar_graph_free(&graph);
+				return 2;
+			}
+		}
+	} else if (strcmp(cmd, "--dump-graph") != 0 &&
 	    strcmp(cmd, "doctor") != 0 && strcmp(cmd, "last-failure") != 0) {
 		usage(stderr);
 		qstar_graph_free(&graph);
@@ -339,8 +404,16 @@ main(int argc, char **argv)
 		rc = qstar_graph_validate_headers(&graph);
 	if (rc == 0 && (strcmp(cmd, "check") == 0 || strcmp(cmd, "doctor") == 0 ||
 	    strcmp(cmd, "build") == 0 || strcmp(cmd, "test") == 0 ||
-	    strcmp(cmd, "install") == 0 || strcmp(cmd, "why-rebuild") == 0))
+	    strcmp(cmd, "install") == 0 || strcmp(cmd, "why-rebuild") == 0 ||
+	    strcmp(cmd, "lint") == 0))
 		rc = qstar_graph_validate_file_inputs(&graph);
+	if (strcmp(cmd, "lint") == 0) {
+		if (rc < 0 && graph.error[0])
+			(void)qstar_graph_add_lint_from_error(&graph);
+		rc = qstar_graph_lint(&graph, label, lint_format, stdout);
+		qstar_graph_free(&graph);
+		return rc < 0 ? 1 : 0;
+	}
 	if (rc == 0) {
 		if (strcmp(cmd, "explain") == 0)
 			rc = qstar_graph_explain_plan(&graph, label, stdout);
@@ -369,7 +442,9 @@ main(int argc, char **argv)
 		else if (strcmp(cmd, "doctor") == 0)
 			rc = qstar_graph_doctor(&graph, stdout);
 		else if (strcmp(cmd, "list-targets") == 0)
-			rc = qstar_graph_list_targets(&graph, stdout);
+			rc = strcmp(list_format, "json") == 0 ?
+			    qstar_graph_list_targets_json(&graph, stdout) :
+			    qstar_graph_list_targets(&graph, stdout);
 		else if (strcmp(cmd, "query") == 0)
 			rc = qstar_graph_query(&graph, label, stdout);
 		else

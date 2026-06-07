@@ -1,0 +1,61 @@
+{
+  "Executable target": {
+    "prefix": "qexe",
+    "body": [
+      "qstar.exe \"${1:app}\" {",
+      "  sources = {\"${2:src/main.c}\"},",
+      "}"
+    ],
+    "description": "Create a QStar executable target."
+  },
+  "Static library target": {
+    "prefix": "qstaticlib",
+    "body": [
+      "qstar.staticlib \"${1:core}\" {",
+      "  sources = {\"${2:src/core.c}\"},",
+      "  public_headers = {\"${3:include/core.h}\"},",
+      "  public_include_dirs = {\"${4:include}\"},",
+      "}"
+    ],
+    "description": "Create a QStar static library target."
+  },
+  "Test target": {
+    "prefix": "qtest",
+    "body": [
+      "qstar.test \"${1:unit}\" {",
+      "  sources = {\"${2:tests/unit.c}\"},",
+      "  deps = {\"${3://:core}\"},",
+      "}"
+    ],
+    "description": "Create a QStar test target."
+  },
+  "Generated action": {
+    "prefix": "qgenrule",
+    "body": [
+      "qstar.genrule \"${1:generate}\" {",
+      "  tool = \"${2:tools/generate.sh}\",",
+      "  inputs = {\"${3:input.txt}\"},",
+      "  outputs = {qstar.output(\"${4:generated/output.c}\")},",
+      "  args = {qstar.output(\"${4:generated/output.c}\")},",
+      "}"
+    ],
+    "description": "Create a QStar generated action."
+  },
+  "Config header": {
+    "prefix": "qconfig",
+    "body": [
+      "qstar.config_header \"${1:config}\" {",
+      "  output = qstar.output(\"${2:generated/config.h}\"),",
+      "  defines = {\"${3:APP_FEATURE=1}\"},",
+      "}"
+    ],
+    "description": "Create a generated config header."
+  },
+  "Subdir fragment": {
+    "prefix": "qsubdir",
+    "body": [
+      "qstar.subdir(\"${1:src}\")"
+    ],
+    "description": "Include a canonical subdir fragment named <folder>.qs."
+  }
+}

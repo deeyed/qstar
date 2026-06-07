@@ -38,6 +38,14 @@ int qstar_set_error(struct qstar_graph *graph, const char *fmt, ...);
 int qstar_set_error_origin(struct qstar_graph *graph, const char *file, int line,
     const char *field, const char *label, const char *fmt, ...);
 
+/** QStar lint diagnostic을 graph에 추가한다. */
+int qstar_graph_add_lint(struct qstar_graph *graph, const char *code,
+    const char *severity, const char *file, int line, const char *field,
+    const char *label, const char *fmt, ...);
+
+/** 현재 graph error buffer를 lint diagnostic으로 변환해 추가한다. */
+int qstar_graph_add_lint_from_error(struct qstar_graph *graph);
+
 /** 경로에서 package root로 쓸 dirname을 계산한다. */
 int qstar_dirname(const char *path, char *dst, size_t dstlen);
 
@@ -86,6 +94,9 @@ int qstar_target_is_installable(const struct qstar_target *target);
 /** qstar init template을 지정된 directory에 생성한다. */
 int qstar_init_project(const char *template_name, const char *directory, FILE *out,
     char *error, size_t error_len);
+
+/** stdio 기반 QStar Language Server Protocol v1 loop를 실행한다. */
+int qstar_lsp_stdio(FILE *in, FILE *out);
 
 /** QStar plan/executor 공용 target closure callback이다. */
 typedef int (*qstar_target_visit_fn)(struct qstar_graph *graph, const struct qstar_target *target,

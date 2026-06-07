@@ -1,0 +1,5 @@
+qstar-*.vsix
+node_modules/
+.qstar/
+build/
+*.log

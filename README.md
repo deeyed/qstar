@@ -23,9 +23,12 @@ QStar evaluator는 `qstar/vendor/lua`에 있는 Lua submodule을 사용한다. t
 ```txt
 qstar --file qstar.lua --dump-graph
 qstar --file qstar.lua list-targets
+qstar --file qstar.lua list-targets --format json
 qstar --file qstar.lua query //:app
 qstar --file qstar.lua doctor
 qstar --file qstar.lua check //:app
+qstar --file qstar.lua lint //...
+qstar --file qstar.lua lint //:app --format json
 qstar --file qstar.lua explain //:app
 qstar --file qstar.lua dry-run //:app
 qstar --file qstar.lua build //:app
@@ -42,6 +45,7 @@ qstar --file qstar.lua action-log //:app:compile:0
 qstar --file qstar.lua replay //:app:compile:0
 qstar --file qstar.lua clean --target //:app
 qstar --file qstar.lua clean
+qstar lsp --stdio
 qstar init c-app my-app
 qstar init c-lib my-lib
 qstar init generated my-generated-app
@@ -53,7 +57,12 @@ qstar --file qstar.lua --profile debug --target arm64-apple-macos explain //:app
 
 ## 명령 의미
 
-`--dump-graph`는 canonical Graph IR을 출력한다. `explain`은 선택한 target closure를 검증하고 dependency-first order와 action key 재료를 출력한다. `dry-run`은 실행하지 않는 deterministic step record를 만든다. `check`는 package-root 기준 source/header/generated input 존재 여부를 확인한다.
+`--dump-graph`는 canonical Graph IR을 출력한다. `explain`은 선택한 target closure를 검증하고 dependency-first order와 action key 재료를 출력한다. `dry-run`은 실행하지 않는 deterministic step record를 만든다. `check`는 package-root 기준 source/header/generated input 존재 여부를 확인한다. `lint`는 LSP가 그대로 소비할 수 있는 `qstar-lint-v1` diagnostic stream을 출력한다. `--format text|json`을 받으며, error diagnostic이 있으면 실패하고 warning만 있으면 성공한다.
+
+`list-targets --format json`은 editor/query tool이 그대로 읽는 `qstar-targets-v1`
+JSON object를 출력한다. Target, generated action, test target, installable artifact
+목록을 deterministic order로 담고, 각 record에는 label, kind, origin, source/header,
+dependency, toolchain, install/test 여부를 포함한다.
 
 `build`는 제한적 local executor v9이다. package-local generated tool, `qstar.config_header`, C/Cale source compile argv, static archive, exe/test link를 다루며 산출물은 `.qstar/out`, 로그는 `.qstar/logs` 아래에 둔다. Round 14/15부터 `.qstar/state/actions.json` action manifest, `compile_commands.json`, cache-hit skip, `why-rebuild`, `log`, `last-failure`, `clean`, JSON diagnostic skeleton을 제공한다. Round 16/17부터 Cale source는 frontend/backend 내부 API가 아니라 `cale -c ... -o ...` process invocation으로만 다룬다. Round 18/19부터 static library dependency link order, public/private include propagation, system library flag rendering, test runner, install skeleton을 제공한다. Round 29부터 executor는 dependency-first closure를 action DAG로 실행하고, 실패는 stop-on-first-failure로 전파한다. Build action timeout은 기본 30초이며 timeout 시 process를 kill하고 replay file을 남긴다. Round 32부터 `--jobs N`과 `--schedule-trace`를 받는다. `jobs > 1`은 같은 target 안의 independent compile action을 process-level parallel batch로 실행하고, generated action과 final archive/link는 deterministic order를 유지한다. Round 35부터 긴 compile/link command는 profile capability가 허용할 때 실제 `.qstar/rsp/*.rsp` response file로 내려가며, POSIX/Windows/MSVC style과 digest를 plan/build/replay에 기록한다. Round 36부터 parallel compile은 `process-v2` event stream을 출력한다. Queue order, slot assignment, start/finish/fail/timeout/cancel state, `retry=next-build`, active child cancel propagation을 deterministic하게 기록해 실패 로그를 사람이 읽을 수 있게 한다. Round 37부터 `.qstar/state/graph.json` graph snapshot과 `.qstar/state/last-summary.json` 마지막 build summary를 저장하고, `qstar action-log <action-id>`와 `qstar replay <action-id>`로 action 단위 로그/재현 명령을 조회한다.
 
@@ -69,6 +78,53 @@ qstar --file qstar.lua --profile debug --target arm64-apple-macos explain //:app
 - remote/package install metadata
 
 QStar는 build graph와 command planning을 먼저 안정화하는 단계다. 실제 compiler semantics는 Cale compiler가 맡고, QStar는 source suffix와 toolchain/profile에 따른 command plan을 만든다. `.h`/generated header는 build input으로 추적하지만 QStar가 C/HCL 내용을 해석하지 않는다.
+
+## fragment naming과 lint
+
+Round 39부터 authoring entry 이름은 LSP 준비를 위해 고정된다.
+
+- workspace/package root entry는 `qstar.lua`다.
+- `qstar.subdir("foo")`는 `foo/foo.qs`를 canonical fragment로 요구한다.
+- `foo/qstar.qs`는 v0 compatibility fallback으로 평가하지만 `QSTAR003` warning을 낸다.
+- missing fragment는 `QSTAR002`, root entry 이름 drift는 `QSTAR001`이다.
+- unknown/bad label은 `QSTAR010`, package 밖 path는 `QSTAR020`, private include leakage는 `QSTAR030`으로 lint에 통합된다.
+
+`qstar lint --format json`은 단일 JSON object를 출력한다. Schema는
+`qstar-lint-v1`이며, 각 diagnostic은 `code`, `severity`, `file`, `line`,
+`field`, `label`, `message`를 가진다.
+
+## LSP v1
+
+Round 40부터 `qstar lsp --stdio`가 개발용 Language Server Protocol 서버를 연다.
+지원 surface는 `initialize`, `shutdown`, `exit`, `textDocument/didOpen`,
+`textDocument/didChange`, `textDocument/didSave`, `textDocument/publishDiagnostics`,
+`textDocument/hover`, `textDocument/completion`이다.
+
+Diagnostics는 현재 파일 경로에서 workspace root와 root `qstar.lua`를 찾고,
+기존 lint core와 같은 `QSTAR###` diagnostic을 LSP diagnostic으로 변환한다.
+v1은 현재 파일에 해당하는 diagnostic만 publish한다. Hover는 `qstar.exe`,
+`qstar.staticlib`, `qstar.test`, `qstar.genrule`, `qstar.config_header`, 주요 field,
+그리고 `//pkg:target` label의 kind/origin/source summary를 제공한다.
+Completion은 top-level `qstar.*` API와 target field 이름을 제공한다.
+`workspace/didChangeWatchedFiles`와 definition은 다음 라운드 후보로 남긴다.
+
+## VSCode extension v1
+
+Round 41부터 개발용 VSCode extension skeleton은 `editors/vscode/qstar/`에 둔다.
+이 확장은 `qstar.lua`, `*.qs`, `qstar.workspace`를 `qstar` language id로 연결하고,
+syntax highlighting, snippets, LSP client, QStar terminal commands를 제공한다.
+LSP client는 `qstar lsp --stdio`만 시작하며, build/test를 자동 실행하지 않는다.
+`QStar: Build Target` 같은 명령은 사용자가 명시적으로 실행하는 terminal invocation이다.
+
+Round 42부터 extension은 `list-targets --format json`을 사용해 Explorer 안에
+`QStar` tree view를 만든다. Tree는 targets, generated actions, tests,
+installable artifacts를 분리해서 보여주고, `.qstar/state/last-summary.json`이 있으면
+마지막 build status를 함께 표시한다. Tree item의 explain, dry-run, build, test는
+명시적 command palette/terminal action으로만 실행된다.
+
+QStar extension은 빌드시스템 authoring 파일을 다룬다. C, Cale, HCL 언어 의미론은
+각 언어 서버/컴파일러가 담당하며, QStar는 CMake처럼 source path, target graph,
+profile, command plan을 편집하고 진단하는 역할로 제한한다.
 
 ## source와 generated file
 
@@ -188,12 +244,12 @@ C++ source가 있는 target은 `c++` 또는 `clang++` linker path를 사용한�
 
 Round 25/26부터 QStar는 `qstar.workspace` marker를 workspace root discovery 기준으로
 사용한다. Marker가 없으면 기존처럼 `--file qstar.lua`의 directory가 package root다.
-Marker가 있으면 그 directory가 workspace root이고, 하위 `qstar.lua`에서 선언한
+Marker가 있으면 그 directory가 workspace root이고, 하위 `<folder>.qs`에서 선언한
 `:name` target은 `//sub/path:name` label을 얻는다. Source/header/output path는
 계속 workspace-root 상대 path이며, `../`나 absolute path는 package 밖 참조로 reject된다.
 
 Target은 선언 fragment와 label package가 일치해야 한다. 예를 들어
-`pkg/qstar.lua` 안의 `qstar.exe "app"`은 `//pkg:app`을 만들고, 같은 파일에서
+`pkg/pkg.qs` 안의 `qstar.exe "app"`은 `//pkg:app`을 만들고, 같은 파일에서
 `qstar.exe "//other:app"`처럼 다른 package 소유 label을 선언하는 것은 금지된다.
 
 `visibility = {"//...", "//pkg:..."}`는 v1 skeleton으로 들어왔다. Visibility를

@@ -174,6 +174,18 @@ free_profile_input(struct qstar_profile_input *profile)
 	qstar_string_list_free(&profile->lib_dirs);
 }
 
+/** lint diagnostic entry가 소유한 문자열을 해제한다. */
+static void
+free_lint_diagnostic(struct qstar_lint_diagnostic *diag)
+{
+	free(diag->code);
+	free(diag->severity);
+	free(diag->file);
+	free(diag->field);
+	free(diag->label);
+	free(diag->message);
+}
+
 /** QStar graph가 소유한 모든 동적 메모리를 해제한다. */
 void
 qstar_graph_free(struct qstar_graph *graph)
@@ -185,12 +197,15 @@ qstar_graph_free(struct qstar_graph *graph)
 		free_target(&graph->targets[i]);
 	for (i = 0; i < graph->genrule_len; i++)
 		free_genrule(&graph->genrules[i]);
+	for (i = 0; i < graph->lint_len; i++)
+		free_lint_diagnostic(&graph->lint_diagnostics[i]);
 	for (i = 0; i < graph->package_len; i++)
 		free_package_alias(&graph->packages[i]);
 	free_profile_input(&graph->profile);
 	free(graph->targets);
 	free(graph->packages);
 	free(graph->genrules);
+	free(graph->lint_diagnostics);
 	memset(graph, 0, sizeof(*graph));
 }
 
@@ -451,6 +466,46 @@ dump_list(FILE *out, const struct qstar_string_list *list)
 	fputc(']', out);
 }
 
+/** JSON string literal을 escaping해 출력한다. */
+static void
+dump_json_string(FILE *out, const char *s)
+{
+	const unsigned char *p = (const unsigned char *)(s ? s : "");
+
+	fputc('"', out);
+	while (*p) {
+		if (*p == '"' || *p == '\\')
+			fprintf(out, "\\%c", *p);
+		else if (*p == '\n')
+			fputs("\\n", out);
+		else if (*p == '\r')
+			fputs("\\r", out);
+		else if (*p == '\t')
+			fputs("\\t", out);
+		else if (*p < 0x20)
+			fprintf(out, "\\u%04x", *p);
+		else
+			fputc(*p, out);
+		p++;
+	}
+	fputc('"', out);
+}
+
+/** string list를 JSON array로 출력한다. */
+static void
+dump_json_list(FILE *out, const struct qstar_string_list *list)
+{
+	size_t i;
+
+	fputc('[', out);
+	for (i = 0; i < list->len; i++) {
+		if (i)
+			fputc(',', out);
+		dump_json_string(out, list->items[i]);
+	}
+	fputc(']', out);
+}
+
 static void
 dump_package_aliases(FILE *out, const struct qstar_graph *graph)
 {
@@ -626,6 +681,24 @@ sort_target_ptrs(const struct qstar_target **targets, size_t n)
 	}
 }
 
+/** generated action pointer list를 canonical label 순서로 정렬한다. */
+static void
+sort_genrule_ptrs(const struct qstar_genrule **genrules, size_t n)
+{
+	size_t i, j;
+	const struct qstar_genrule *v;
+
+	for (i = 1; i < n; i++) {
+		v = genrules[i];
+		j = i;
+		while (j > 0 && strcmp(genrules[j - 1]->label, v->label) > 0) {
+			genrules[j] = genrules[j - 1];
+			j--;
+		}
+		genrules[j] = v;
+	}
+}
+
 /** target label에 대응하는 target을 찾는다. */
 static const struct qstar_target *
 find_target(const struct qstar_graph *graph, const char *label)
@@ -661,6 +734,106 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 		    targets[i]->origin_file : "<unknown>",
 		    targets[i]->origin_line);
 	free(targets);
+	return 0;
+}
+
+/** target 하나를 machine-readable JSON record로 출력한다. */
+static void
+dump_target_json(FILE *out, const struct qstar_target *target)
+{
+	fputs("{\"label\":", out);
+	dump_json_string(out, target->label);
+	fputs(",\"name\":", out);
+	dump_json_string(out, target->name);
+	fputs(",\"kind\":", out);
+	dump_json_string(out, target->kind);
+	fputs(",\"origin_file\":", out);
+	dump_json_string(out, target->origin_file && *target->origin_file ?
+	    target->origin_file : "<unknown>");
+	fprintf(out, ",\"origin_line\":%d", target->origin_line);
+	fputs(",\"fragment_dir\":", out);
+	dump_json_string(out, target->fragment_dir);
+	fputs(",\"sources\":", out);
+	dump_json_list(out, &target->sources);
+	fputs(",\"public_headers\":", out);
+	dump_json_list(out, &target->public_headers);
+	fputs(",\"deps\":", out);
+	dump_json_list(out, &target->deps);
+	fputs(",\"private_deps\":", out);
+	dump_json_list(out, &target->private_deps);
+	fputs(",\"toolchain\":", out);
+	dump_json_string(out, target->toolchain);
+	fputs(",\"cxx_standard\":", out);
+	dump_json_string(out, target->cxx_standard);
+	fprintf(out, ",\"is_test\":%s", strcmp(target->kind, "test") == 0 ? "true" : "false");
+	fprintf(out, ",\"installable\":%s", qstar_target_is_installable(target) ? "true" : "false");
+	fputc('}', out);
+}
+
+/** generated action 하나를 machine-readable JSON record로 출력한다. */
+static void
+dump_genrule_json(FILE *out, const struct qstar_genrule *genrule)
+{
+	fputs("{\"label\":", out);
+	dump_json_string(out, genrule->label);
+	fputs(",\"name\":", out);
+	dump_json_string(out, genrule->name);
+	fputs(",\"origin_file\":", out);
+	dump_json_string(out, genrule->origin_file && *genrule->origin_file ?
+	    genrule->origin_file : "<unknown>");
+	fprintf(out, ",\"origin_line\":%d", genrule->origin_line);
+	fputs(",\"fragment_dir\":", out);
+	dump_json_string(out, genrule->fragment_dir);
+	fputs(",\"tool\":", out);
+	dump_json_string(out, genrule->tool);
+	fprintf(out, ",\"config_header\":%s", genrule->config_header ? "true" : "false");
+	fputs(",\"inputs\":", out);
+	dump_json_list(out, &genrule->inputs);
+	fputs(",\"outputs\":", out);
+	dump_json_list(out, &genrule->outputs);
+	fputc('}', out);
+}
+
+/** QStar target/generated action 목록을 machine-readable JSON으로 출력한다. */
+int
+qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
+{
+	const struct qstar_target **targets;
+	const struct qstar_genrule **genrules;
+	size_t i;
+
+	targets = malloc((graph->len ? graph->len : 1) * sizeof(targets[0]));
+	genrules = malloc((graph->genrule_len ? graph->genrule_len : 1) * sizeof(genrules[0]));
+	if (!targets || !genrules) {
+		free(targets);
+		free(genrules);
+		return -1;
+	}
+	for (i = 0; i < graph->len; i++)
+		targets[i] = &graph->targets[i];
+	for (i = 0; i < graph->genrule_len; i++)
+		genrules[i] = &graph->genrules[i];
+	sort_target_ptrs(targets, graph->len);
+	sort_genrule_ptrs(genrules, graph->genrule_len);
+	fputs("{\"schema\":\"qstar-targets-v1\",\"package_root\":", out);
+	dump_json_string(out, graph->package_root ? graph->package_root : ".");
+	fprintf(out, ",\"target_count\":%zu,\"generated_action_count\":%zu",
+	    graph->len, graph->genrule_len);
+	fputs(",\"targets\":[", out);
+	for (i = 0; i < graph->len; i++) {
+		if (i)
+			fputc(',', out);
+		dump_target_json(out, targets[i]);
+	}
+	fputs("],\"generated_actions\":[", out);
+	for (i = 0; i < graph->genrule_len; i++) {
+		if (i)
+			fputc(',', out);
+		dump_genrule_json(out, genrules[i]);
+	}
+	fputs("]}\n", out);
+	free(targets);
+	free(genrules);
 	return 0;
 }
 

@@ -86,6 +86,16 @@ struct qstar_profile_input {
 	struct qstar_string_list lib_dirs;
 };
 
+struct qstar_lint_diagnostic {
+	char *code;
+	char *severity;
+	char *file;
+	char *field;
+	char *label;
+	char *message;
+	int line;
+};
+
 struct qstar_source_info {
 	const char *path;
 	const char *language;
@@ -119,6 +129,9 @@ struct qstar_graph {
 	struct qstar_genrule *genrules;
 	size_t genrule_len;
 	size_t genrule_cap;
+	struct qstar_lint_diagnostic *lint_diagnostics;
+	size_t lint_len;
+	size_t lint_cap;
 	struct qstar_profile_input profile;
 	char error[512];
 	char error_file[QSTAR_PATH_MAX];
@@ -216,6 +229,9 @@ int qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *o
 /** QStar target 목록을 deterministic text로 출력한다. */
 int qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out);
 
+/** QStar target/generated action 목록을 machine-readable JSON으로 출력한다. */
+int qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out);
+
 /** QStar target 하나를 authoring query text로 출력한다. */
 int qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out);
 
@@ -259,6 +275,9 @@ int qstar_graph_replay_action(struct qstar_graph *graph, const char *action_id, 
 
 /** QStar authoring check 결과를 deterministic text로 출력한다. */
 int qstar_graph_check(struct qstar_graph *graph, const char *label, FILE *out);
+
+/** QStar lint diagnostic을 text 또는 LSP-ready JSON으로 출력한다. */
+int qstar_graph_lint(struct qstar_graph *graph, const char *label, const char *format, FILE *out);
 
 /** QStar 전체 package doctor 결과를 deterministic text로 출력한다. */
 int qstar_graph_doctor(struct qstar_graph *graph, FILE *out);

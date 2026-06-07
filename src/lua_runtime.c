@@ -731,12 +731,13 @@ qstar_lua_subdir(lua_State *L)
 	const char *dir, *base;
 	char path[QSTAR_PATH_MAX], candidate[QSTAR_PATH_MAX], fragment[QSTAR_PATH_MAX];
 	char full_dir[QSTAR_PATH_MAX];
-	const char *names[3];
-	size_t i;
+	char origin_file[QSTAR_PATH_MAX];
+	int origin_line;
 	FILE *f;
 
 	ctx = get_context(L);
 	dir = luaL_checkstring(L, 1);
+	current_origin(L, origin_file, sizeof(origin_file), &origin_line);
 	if (!qstar_path_is_package_relative(dir))
 		return luaL_error(L, "qstar: subdir path '%s' must be package-relative", dir);
 	if (ctx->current_dir[0]) {
@@ -748,27 +749,36 @@ qstar_lua_subdir(lua_State *L)
 	base = strrchr(full_dir, '/');
 	base = base ? base + 1 : full_dir;
 	snprintf(path, sizeof(path), "%s/%s.qs", full_dir, base);
-	names[0] = path;
-	names[1] = "qstar.lua";
-	names[2] = "qstar.qs";
-	for (i = 0; i < 3; i++) {
-		if (i == 0) {
-			if (qstar_path_join(ctx->root_dir, names[i], candidate, sizeof(candidate)) < 0)
-				return luaL_error(L, "qstar: subdir path too long");
-		} else {
-			if (qstar_path_join(full_dir, names[i], fragment, sizeof(fragment)) < 0 ||
-			    qstar_path_join(ctx->root_dir, fragment, candidate, sizeof(candidate)) < 0)
-				return luaL_error(L, "qstar: subdir path too long");
-		}
-		f = fopen(candidate, "r");
-		if (f) {
-			fclose(f);
-			if (eval_fragment(L, ctx, candidate, full_dir) < 0)
-				return lua_error(L);
-			return 0;
-		}
+	if (qstar_path_join(ctx->root_dir, path, candidate, sizeof(candidate)) < 0)
+		return luaL_error(L, "qstar: subdir path too long");
+	f = fopen(candidate, "r");
+	if (f) {
+		fclose(f);
+		if (eval_fragment(L, ctx, candidate, full_dir) < 0)
+			return lua_error(L);
+		return 0;
 	}
-	return luaL_error(L, "qstar: subdir '%s' has no qstar fragment", full_dir);
+	if (qstar_path_join(full_dir, "qstar.qs", fragment, sizeof(fragment)) < 0 ||
+	    qstar_path_join(ctx->root_dir, fragment, candidate, sizeof(candidate)) < 0)
+		return luaL_error(L, "qstar: subdir path too long");
+	f = fopen(candidate, "r");
+	if (f) {
+		fclose(f);
+		if (qstar_graph_add_lint(ctx->graph, "QSTAR003", "warning",
+		    origin_file, origin_line, "subdir", "<none>",
+		    "deprecated-fragment-name: subdir '%s' used '%s'; use '%s'",
+		    full_dir, fragment, path) < 0)
+			return luaL_error(L, "qstar: out of memory");
+		if (eval_fragment(L, ctx, candidate, full_dir) < 0)
+			return lua_error(L);
+		return 0;
+	}
+	if (qstar_graph_add_lint(ctx->graph, "QSTAR002", "error", origin_file,
+	    origin_line, "subdir", "<none>",
+	    "missing fragment: subdir '%s' requires '%s'", full_dir, path) < 0)
+		return luaL_error(L, "qstar: out of memory");
+	return luaL_error(L, "qstar: subdir '%s' has no qstar fragment '%s'",
+	    full_dir, path);
 }
 
 static int
@@ -989,6 +999,7 @@ qstar_lua_eval_file(struct qstar_graph *graph, const char *file)
 	struct qstar_lua_context ctx;
 	lua_State *L;
 	char file_dir[QSTAR_PATH_MAX], initial_fragment[QSTAR_PATH_MAX];
+	const char *base;
 	int rc;
 
 	memset(&ctx, 0, sizeof(ctx));
@@ -999,6 +1010,13 @@ qstar_lua_eval_file(struct qstar_graph *graph, const char *file)
 		return qstar_set_error(graph, "qstar: qstar file path too long");
 	if (qstar_graph_set_package_root(graph, ctx.root_dir) < 0)
 		return -1;
+	base = strrchr(file, '/');
+	base = base ? base + 1 : file;
+	if (initial_fragment[0] == '\0' && strcmp(base, "qstar.lua") != 0) {
+		if (qstar_graph_add_lint(graph, "QSTAR001", "error", file, 1,
+		    "file", "<none>", "root entry must be qstar.lua") < 0)
+			return -1;
+	}
 	L = luaL_newstate();
 	if (!L)
 		return qstar_set_error(graph, "qstar: could not create Lua state");

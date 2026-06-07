@@ -1,0 +1,113 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "QStar",
+  "scopeName": "source.qstar",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#labels"
+    },
+    {
+      "include": "#qstarApi"
+    },
+    {
+      "include": "#fields"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#luaKeywords"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-dash.qstar",
+          "match": "--.*$"
+        },
+        {
+          "name": "comment.block.qstar",
+          "begin": "--\\[\\[",
+          "end": "\\]\\]"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.qstar",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.qstar",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.qstar",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.qstar",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "labels": {
+      "patterns": [
+        {
+          "name": "entity.name.label.qstar",
+          "match": "(@[A-Za-z0-9_.-]+)?//[A-Za-z0-9_./-]*:[A-Za-z0-9_.-]+"
+        },
+        {
+          "name": "entity.name.label.local.qstar",
+          "match": ":[A-Za-z0-9_.-]+"
+        }
+      ]
+    },
+    "qstarApi": {
+      "patterns": [
+        {
+          "name": "support.function.qstar",
+          "match": "\\bqstar\\.(exe|staticlib|test|genrule|config_header|write_config_header|subdir|files|output|modules|select|join|incompatible)\\b"
+        }
+      ]
+    },
+    "fields": {
+      "patterns": [
+        {
+          "name": "variable.parameter.qstar",
+          "match": "\\b(sources|deps|public_deps|private_deps|public_headers|private_headers|include_dirs|public_include_dirs|private_include_dirs|interface_include_dirs|system_include_dirs|visibility|toolchain|stdlib|cxx_standard|cflags|cxxflags|libs|lib_dirs|frameworks|outputs|inputs|args|output|defines|root|include|exclude)\\b(?=\\s*=)"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.qstar",
+          "match": "\\b[0-9]+\\b"
+        }
+      ]
+    },
+    "luaKeywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.lua.qstar",
+          "match": "\\b(and|break|do|else|elseif|end|false|for|function|if|in|local|nil|not|or|repeat|return|then|true|until|while)\\b"
+        }
+      ]
+    }
+  }
+}
