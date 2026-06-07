@@ -5,9 +5,25 @@
   "version": "0.1.0",
   "publisher": "cale",
   "license": "UNLICENSED",
+  "private": true,
   "engines": {
     "vscode": "^1.85.0"
   },
+  "scripts": {
+    "check": "node scripts/check-package.js",
+    "package:vsix": "sh scripts/package-vsix.sh"
+  },
+  "files": [
+    ".vscodeignore",
+    "README.md",
+    "extension.js",
+    "language-configuration.json",
+    "package.json",
+    "samples/**",
+    "scripts/**",
+    "snippets/**",
+    "syntaxes/**"
+  ],
   "categories": [
     "Programming Languages",
     "Linters"

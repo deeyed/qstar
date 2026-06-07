@@ -25,6 +25,36 @@ Features:
 The language server is intentionally read-only. It performs lint/check style
 graph evaluation and never runs `qstar build` by itself.
 
+## Development
+
+Build the standalone QStar binary first:
+
+```txt
+make -C qstar
+```
+
+Then open this extension directory or the sample workspace in VSCode:
+
+```txt
+code qstar/editors/vscode/qstar
+code qstar/editors/vscode/qstar/samples/workspace
+```
+
+Set `qstar.server.path` to the absolute path of `qstar/build/bin/qstar`.
+The sample workspace is intentionally small and can be checked without
+installing the extension:
+
+```txt
+qstar/build/bin/qstar --file qstar/editors/vscode/qstar/samples/workspace/qstar.lua lint
+qstar/build/bin/qstar --file qstar/editors/vscode/qstar/samples/workspace/qstar.lua list-targets --format json
+```
+
+The checked-in package surface is validated by:
+
+```txt
+make -C qstar vscode-extension-tests
+```
+
 ## Settings
 
 ```json
@@ -74,3 +104,24 @@ qstar --file qstar.lua list-targets --format json
 It groups graph data into targets, generated actions, tests, and installable
 artifacts. The view also reads `.qstar/state/last-summary.json` when present so
 the editor can show the most recent build status without executing a build.
+
+## Packaging
+
+The extension is packageable as a VSIX release artifact, but `.vsix` files are
+not committed to the repository. Install the VSCode package tool outside this
+checkout, then run:
+
+```txt
+cd qstar/editors/vscode/qstar
+npm run check
+npm run package:vsix
+```
+
+The packaging script writes `dist/qstar-vscode-<version>.vsix`. Install it with:
+
+```txt
+code --install-extension dist/qstar-vscode-0.1.0.vsix
+```
+
+`node_modules/`, `dist/`, and `*.vsix` are local artifacts only. The extension
+does not vendor npm dependencies.

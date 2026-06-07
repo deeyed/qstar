@@ -187,10 +187,20 @@ test -f "$vscode_ext/package.json" || fail "missing QStar VSCode package.json"
 test -f "$vscode_ext/extension.js" || fail "missing QStar VSCode extension.js"
 test -f "$vscode_ext/syntaxes/qstar.tmLanguage.json" || fail "missing QStar grammar"
 test -f "$vscode_ext/snippets/qstar.json" || fail "missing QStar snippets"
+test -f "$vscode_ext/scripts/package-vsix.sh" || fail "missing QStar VSCode package script"
+test -f "$vscode_ext/scripts/check-package.js" || fail "missing QStar VSCode package check"
+test -f "$vscode_ext/samples/workspace/qstar.lua" || fail "missing QStar VSCode sample root"
+test -f "$vscode_ext/samples/workspace/app/app.qs" || fail "missing QStar VSCode app sample"
+test -f "$vscode_ext/samples/workspace/lib/lib.qs" || fail "missing QStar VSCode lib sample"
 contains "$vscode_ext/package.json" "\"id\": \"qstar\""
 contains "$vscode_ext/package.json" "\"qstar.lua\""
 contains "$vscode_ext/package.json" "\".qs\""
 contains "$vscode_ext/package.json" "\"qstar.workspace\""
+contains "$vscode_ext/package.json" "\"package:vsix\""
+contains "$vscode_ext/package.json" "\"files\""
+contains "$vscode_ext/.vscodeignore" "*.vsix"
+contains "$vscode_ext/.vscodeignore" "dist/"
+contains "$vscode_ext/.vscodeignore" "node_modules/"
 contains "$vscode_ext/package.json" "\"qstar.server.path\""
 contains "$vscode_ext/package.json" "\"qstar.trace.server\""
 contains "$vscode_ext/package.json" "\"qstarGraph\""
@@ -220,14 +230,37 @@ contains "$vscode_ext/syntaxes/qstar.tmLanguage.json" "entity.name.label.qstar"
 contains "$vscode_ext/snippets/qstar.json" "\"qexe\""
 contains "$vscode_ext/snippets/qstar.json" "\"qstaticlib\""
 contains "$vscode_ext/snippets/qstar.json" "\"qgenrule\""
+if find "$vscode_ext" -type d -name node_modules | grep . >/dev/null 2>&1; then
+	fail "node_modules must not be present under QStar VSCode extension"
+fi
+if find "$vscode_ext" -type f -name '*.vsix' | grep . >/dev/null 2>&1; then
+	fail "VSIX artifacts must not be committed under QStar VSCode extension"
+fi
 if command -v node >/dev/null 2>&1; then
 	node --check "$vscode_ext/extension.js"
+	node --check "$vscode_ext/scripts/check-package.js"
+	node "$vscode_ext/scripts/check-package.js" "$vscode_ext"
 	node -e 'const fs=require("fs"); for (const p of process.argv.slice(1)) JSON.parse(fs.readFileSync(p,"utf8"));' \
 		"$vscode_ext/package.json" \
 		"$vscode_ext/language-configuration.json" \
 		"$vscode_ext/syntaxes/qstar.tmLanguage.json" \
 		"$vscode_ext/snippets/qstar.json"
 fi
+
+"$qstar" --file "$vscode_ext/samples/workspace/qstar.lua" lint > "$tmp/vscode-sample-lint.out" 2> "$tmp/vscode-sample-lint.err"
+contains "$tmp/vscode-sample-lint.out" "qstar lint v1"
+contains "$tmp/vscode-sample-lint.out" "status ok"
+"$qstar" --file "$vscode_ext/samples/workspace/qstar.lua" list-targets --format json > "$tmp/vscode-sample-targets.out" 2> "$tmp/vscode-sample-targets.err"
+contains "$tmp/vscode-sample-targets.out" "\"schema\":\"qstar-targets-v1\""
+contains "$tmp/vscode-sample-targets.out" "\"label\":\"//app:app\""
+contains "$tmp/vscode-sample-targets.out" "\"label\":\"//lib:core\""
+"$qstar" --file "$vscode_ext/samples/workspace/qstar.lua" explain //app:app > "$tmp/vscode-sample-explain.out" 2> "$tmp/vscode-sample-explain.err"
+contains "$tmp/vscode-sample-explain.out" "target //app:app"
+contains "$tmp/vscode-sample-explain.out" "closure-order [//lib:core, //app:app]"
+"$qstar" fmt --check "$vscode_ext/samples/workspace/app/app.qs" > "$tmp/vscode-sample-app-fmt.out" 2> "$tmp/vscode-sample-app-fmt.err"
+contains "$tmp/vscode-sample-app-fmt.out" "status ok"
+"$qstar" fmt --check "$vscode_ext/samples/workspace/lib/lib.qs" > "$tmp/vscode-sample-lib-fmt.out" 2> "$tmp/vscode-sample-lib-fmt.err"
+contains "$tmp/vscode-sample-lib-fmt.out" "status ok"
 
 "$qstar" --file "$tmp/qstar.lua" action-log //:app:compile:0 > "$tmp/action-log.out" 2> "$tmp/action-log.err"
 contains "$tmp/action-log.out" "qstar action-log v1"

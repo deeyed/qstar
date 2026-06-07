@@ -235,10 +235,17 @@ QStar 자체 regression은 다음으로 실행한다.
 
 ```txt
 make -C qstar check
+make -C qstar vscode-extension-tests
 make -C qstar qstar-v0-release-tests
 make -C qstar qstar-v0.1-release-tests
 make -C qstar qstar-standalone-integration-tests
 ```
+
+`vscode-extension-tests` checks the QStar VSCode extension package surface,
+sample workspace, JSON package drift, and the policy that `node_modules/` and
+`.vsix` artifacts are not committed. The extension can be packaged manually
+from `qstar/editors/vscode/qstar` with `npm run package:vsix`; generated VSIX
+files are release artifacts only.
 
 ## v0 seal
 
