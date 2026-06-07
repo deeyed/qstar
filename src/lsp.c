@@ -551,7 +551,8 @@ publish_diagnostics(FILE *out, const char *uri, const char *path)
 		(void)load_lint_graph(root_file, &graph);
 		for (i = 0; i < graph.lint_len; i++) {
 			const struct qstar_lint_diagnostic *diag = &graph.lint_diagnostics[i];
-			int severity = strcmp(diag->severity, "warning") == 0 ? 2 : 1;
+			int severity = strcmp(diag->severity, "warning") == 0 ? 2 :
+			    strcmp(diag->severity, "info") == 0 ? 3 : 1;
 			int line = diag->line > 0 ? diag->line - 1 : 0;
 
 			if (!diag_matches_path(diag, path))

@@ -724,6 +724,23 @@ qstar_lua_incompatible(lua_State *L)
 static int eval_fragment(lua_State *L, struct qstar_lua_context *ctx, const char *file,
     const char *fragment_dir);
 
+/** 평가한 authoring fragment를 package-relative path로 graph에 기록한다. */
+static int
+remember_fragment(struct qstar_lua_context *ctx, const char *file)
+{
+	const char *rel;
+	size_t n;
+
+	rel = file;
+	n = strlen(ctx->root_dir);
+	if (n > 0 && strcmp(ctx->root_dir, ".") != 0 &&
+	    strncmp(file, ctx->root_dir, n) == 0 && file[n] == '/')
+		rel = file + n + 1;
+	else if (strncmp(file, "./", 2) == 0)
+		rel = file + 2;
+	return qstar_string_list_push(&ctx->graph->evaluated_fragments, rel);
+}
+
 static int
 qstar_lua_subdir(lua_State *L)
 {
@@ -917,6 +934,8 @@ eval_fragment(lua_State *L, struct qstar_lua_context *ctx, const char *file, con
 
 	snprintf(old, sizeof(old), "%s", ctx->current_dir);
 	snprintf(ctx->current_dir, sizeof(ctx->current_dir), "%s", fragment_dir ? fragment_dir : "");
+	if (remember_fragment(ctx, file) < 0)
+		return -1;
 	if (luaL_loadfilex(L, file, "t") != LUA_OK)
 		return -1;
 	if (lua_pcall(L, 0, 0, 0) != LUA_OK)

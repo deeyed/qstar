@@ -281,6 +281,155 @@ fi
 contains "$tmp/lint-badlabel.out" "QSTAR010"
 contains "$tmp/lint-badlabel.out" "invalid target name"
 
+mkdir -p "$tmp/lint-header-source/include" "$tmp/lint-header-source/src"
+cat > "$tmp/lint-header-source/include/app.h" <<'EOF'
+#define APP_VALUE 1
+EOF
+cat > "$tmp/lint-header-source/src/main.c" <<'EOF'
+#include "app.h"
+int main(void) { return APP_VALUE - 1; }
+EOF
+cat > "$tmp/lint-header-source/qstar.lua" <<'EOF'
+qstar.exe "app" {
+  sources = {"src/main.c", "include/app.h"},
+  include_dirs = {"include"},
+}
+EOF
+"$qstar" --file "$tmp/lint-header-source/qstar.lua" lint --format json > "$tmp/lint-header-source.out" 2> "$tmp/lint-header-source.err"
+contains "$tmp/lint-header-source.out" "\"code\":\"QSTAR040\""
+contains "$tmp/lint-header-source.out" "use public_headers/private_headers"
+contains "$tmp/lint-header-source.out" "\"status\":\"warning\""
+
+mkdir -p "$tmp/lint-public-generated"
+cat > "$tmp/lint-public-generated/qstar.lua" <<'EOF'
+qstar.config_header "cfg" {
+  output = qstar.output("generated/public_config.h"),
+  defines = {"HAVE_CFG"},
+}
+
+qstar.staticlib "core" {
+  public_headers = {qstar.output("generated/public_config.h")},
+}
+EOF
+"$qstar" --file "$tmp/lint-public-generated/qstar.lua" lint --format json > "$tmp/lint-public-generated.out" 2> "$tmp/lint-public-generated.err"
+contains "$tmp/lint-public-generated.out" "\"code\":\"QSTAR041\""
+contains "$tmp/lint-public-generated.out" "outside include/"
+
+mkdir -p "$tmp/lint-private-dep/include" "$tmp/lint-private-dep/src"
+cat > "$tmp/lint-private-dep/include/lib.h" <<'EOF'
+int lib_value(void);
+EOF
+cat > "$tmp/lint-private-dep/include/wrapper.h" <<'EOF'
+int wrapper_value(void);
+EOF
+cat > "$tmp/lint-private-dep/src/lib.c" <<'EOF'
+int lib_value(void) { return 1; }
+EOF
+cat > "$tmp/lint-private-dep/src/wrapper.c" <<'EOF'
+int wrapper_value(void) { return 2; }
+EOF
+cat > "$tmp/lint-private-dep/qstar.lua" <<'EOF'
+qstar.staticlib "lib" {
+  sources = {"src/lib.c"},
+  public_headers = {"include/lib.h"},
+  public_include_dirs = {"include"},
+}
+
+qstar.staticlib "wrapper" {
+  sources = {"src/wrapper.c"},
+  public_headers = {"include/wrapper.h"},
+  private_deps = {"//:lib"},
+}
+EOF
+"$qstar" --file "$tmp/lint-private-dep/qstar.lua" lint > "$tmp/lint-private-dep.out" 2> "$tmp/lint-private-dep.err"
+contains "$tmp/lint-private-dep.out" "QSTAR042"
+contains "$tmp/lint-private-dep.out" "private dependency '//:lib'"
+
+mkdir -p "$tmp/lint-duplicate-source/src"
+cat > "$tmp/lint-duplicate-source/src/shared.c" <<'EOF'
+int shared(void) { return 0; }
+EOF
+cat > "$tmp/lint-duplicate-source/qstar.lua" <<'EOF'
+qstar.staticlib "one" {
+  sources = {"src/shared.c"},
+}
+
+qstar.staticlib "two" {
+  sources = {"src/shared.c"},
+}
+EOF
+"$qstar" --file "$tmp/lint-duplicate-source/qstar.lua" lint > "$tmp/lint-duplicate-source.out" 2> "$tmp/lint-duplicate-source.err"
+contains "$tmp/lint-duplicate-source.out" "QSTAR043"
+contains "$tmp/lint-duplicate-source.out" "used by both '//:one' and '//:two'"
+
+mkdir -p "$tmp/lint-cxx-info/src"
+cat > "$tmp/lint-cxx-info/src/main.cpp" <<'EOF'
+int main() { return 0; }
+EOF
+cat > "$tmp/lint-cxx-info/qstar.lua" <<'EOF'
+qstar.exe "cpp" {
+  sources = {"src/main.cpp"},
+}
+EOF
+"$qstar" --file "$tmp/lint-cxx-info/qstar.lua" lint --format json > "$tmp/lint-cxx-info.out" 2> "$tmp/lint-cxx-info.err"
+contains "$tmp/lint-cxx-info.out" "\"code\":\"QSTAR044\""
+contains "$tmp/lint-cxx-info.out" "\"severity\":\"info\""
+contains "$tmp/lint-cxx-info.out" "\"status\":\"ok\""
+
+mkdir -p "$tmp/lint-cale-toolchain/src"
+cat > "$tmp/lint-cale-toolchain/src/plugin.cale" <<'EOF'
+fn plugin() -> int { return 0; }
+EOF
+cat > "$tmp/lint-cale-toolchain/qstar.lua" <<'EOF'
+qstar.staticlib "plugin" {
+  sources = {"src/plugin.cale"},
+}
+EOF
+"$qstar" --file "$tmp/lint-cale-toolchain/qstar.lua" lint > "$tmp/lint-cale-toolchain.out" 2> "$tmp/lint-cale-toolchain.err"
+contains "$tmp/lint-cale-toolchain.out" "QSTAR045"
+contains "$tmp/lint-cale-toolchain.out" "toolchain=\"cale\""
+
+mkdir -p "$tmp/lint-visibility"
+cat > "$tmp/lint-visibility/qstar.lua" <<'EOF'
+qstar.staticlib "core" {
+  visibility = {"//app:*"},
+}
+EOF
+if "$qstar" --file "$tmp/lint-visibility/qstar.lua" lint > "$tmp/lint-visibility.out" 2> "$tmp/lint-visibility.err"; then
+	fail "invalid visibility lint unexpectedly succeeded"
+fi
+contains "$tmp/lint-visibility.out" "QSTAR050"
+contains "$tmp/lint-visibility.out" "invalid visibility pattern"
+
+mkdir -p "$tmp/lint-output-collision"
+cat > "$tmp/lint-output-collision/qstar.lua" <<'EOF'
+qstar.genrule "one" {
+  tool = "tools/gen.sh",
+  outputs = {qstar.output("generated/same.c")},
+}
+
+qstar.genrule "two" {
+  tool = "tools/gen.sh",
+  outputs = {qstar.output("generated/same.c")},
+}
+EOF
+if "$qstar" --file "$tmp/lint-output-collision/qstar.lua" lint --format json > "$tmp/lint-output-collision.out" 2> "$tmp/lint-output-collision.err"; then
+	fail "generated collision lint unexpectedly succeeded"
+fi
+contains "$tmp/lint-output-collision.out" "\"code\":\"QSTAR060\""
+contains "$tmp/lint-output-collision.out" "multiple producers"
+
+mkdir -p "$tmp/lint-orphan/foo"
+cat > "$tmp/lint-orphan/qstar.lua" <<'EOF'
+qstar.exe "app" {}
+EOF
+cat > "$tmp/lint-orphan/foo/foo.qs" <<'EOF'
+qstar.staticlib "core" {}
+EOF
+"$qstar" --file "$tmp/lint-orphan/qstar.lua" lint --format json > "$tmp/lint-orphan.out" 2> "$tmp/lint-orphan.err"
+contains "$tmp/lint-orphan.out" "\"code\":\"QSTAR071\""
+contains "$tmp/lint-orphan.out" "not reached by qstar.subdir()"
+
 mkdir -p "$tmp/tools"
 cat > "$tmp/tools/gen-value.sh" <<'EOF'
 #!/bin/sh

@@ -206,6 +206,7 @@ qstar_graph_free(struct qstar_graph *graph)
 	free(graph->packages);
 	free(graph->genrules);
 	free(graph->lint_diagnostics);
+	qstar_string_list_free(&graph->evaluated_fragments);
 	memset(graph, 0, sizeof(*graph));
 }
 

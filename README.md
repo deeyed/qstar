@@ -93,6 +93,18 @@ Round 39부터 authoring entry 이름은 LSP 준비를 위해 고정된다.
 `qstar-lint-v1`이며, 각 diagnostic은 `code`, `severity`, `file`, `line`,
 `field`, `label`, `message`를 가진다.
 
+Round 43부터 lint는 build 전 authoring mistake를 더 적극적으로 잡는다.
+
+- `sources`에 header를 넣은 경우 `QSTAR040` warning
+- generated public header가 `include/` install surface 밖에 있는 경우 `QSTAR041` warning
+- public header를 가진 target이 public include surface를 가진 target을 `private_deps`로만 잡은 경우 `QSTAR042` warning
+- 같은 source file이 여러 target에 들어간 경우 `QSTAR043` warning
+- C++ source가 있는데 `cxx_standard`가 없는 경우 `QSTAR044` info
+- Cale source가 있는데 `toolchain = "cale"` 계열이 아닌 경우 `QSTAR045` warning
+- visibility typo는 `QSTAR050` error
+- generated output collision은 `QSTAR060` error
+- `qstar.subdir()`로 도달하지 않는 orphan `.qs`는 `QSTAR070`/`QSTAR071` warning
+
 ## LSP v1
 
 Round 40부터 `qstar lsp --stdio`가 개발용 Language Server Protocol 서버를 연다.

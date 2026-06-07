@@ -132,6 +132,7 @@ struct qstar_graph {
 	struct qstar_lint_diagnostic *lint_diagnostics;
 	size_t lint_len;
 	size_t lint_cap;
+	struct qstar_string_list evaluated_fragments;
 	struct qstar_profile_input profile;
 	char error[512];
 	char error_file[QSTAR_PATH_MAX];

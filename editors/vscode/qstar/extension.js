@@ -169,7 +169,9 @@ class QStarLspClient {
       const item = new vscode.Diagnostic(
         range,
         diag.message,
-        diag.severity === 2 ? vscode.DiagnosticSeverity.Warning : vscode.DiagnosticSeverity.Error
+        diag.severity === 2 ? vscode.DiagnosticSeverity.Warning :
+          diag.severity === 3 ? vscode.DiagnosticSeverity.Information :
+            vscode.DiagnosticSeverity.Error
       );
       item.code = diag.code;
       item.source = diag.source || "qstar";
