@@ -70,6 +70,32 @@ contains "$tmp/targets-json.out" "\"generated_action_count\":0"
 contains "$tmp/targets-json.out" "\"label\":\"//:app\""
 contains "$tmp/targets-json.out" "\"is_test\":false"
 contains "$tmp/targets-json.out" "\"installable\":true"
+
+mkdir -p "$tmp/fmt"
+cat > "$tmp/fmt/qstar.lua" <<'EOF'
+qstar.exe "app" {
+sources={"src/main.c"},
+deps={"//lib:core"},
+}
+EOF
+if "$qstar" fmt --check "$tmp/fmt/qstar.lua" > "$tmp/fmt-check-before.out" 2> "$tmp/fmt-check-before.err"; then
+	fail "qstar fmt --check unexpectedly accepted unformatted file"
+fi
+contains "$tmp/fmt-check-before.out" "qstar fmt v1"
+contains "$tmp/fmt-check-before.out" "status needs-format"
+"$qstar" fmt --stdout "$tmp/fmt/qstar.lua" > "$tmp/fmt-stdout.out" 2> "$tmp/fmt-stdout.err"
+contains "$tmp/fmt-stdout.out" "qstar.exe \"app\" {"
+contains "$tmp/fmt-stdout.out" "  sources = {"
+contains "$tmp/fmt-stdout.out" "    \"src/main.c\","
+contains "$tmp/fmt-stdout.out" "  deps = {"
+contains "$tmp/fmt-stdout.out" "    \"//lib:core\","
+"$qstar" fmt "$tmp/fmt/qstar.lua" > "$tmp/fmt-write.out" 2> "$tmp/fmt-write.err"
+contains "$tmp/fmt-write.out" "status formatted"
+"$qstar" fmt --check "$tmp/fmt/qstar.lua" > "$tmp/fmt-check-after.out" 2> "$tmp/fmt-check-after.err"
+contains "$tmp/fmt-check-after.out" "status ok"
+"$qstar" --file "$tmp/fmt/qstar.lua" fmt --check > "$tmp/fmt-file-option.out" 2> "$tmp/fmt-file-option.err"
+contains "$tmp/fmt-file-option.out" "status ok"
+
 if "$qstar" --file "$tmp/qstar.lua" lint //:missing > "$tmp/lint-missing-label.out" 2> "$tmp/lint-missing-label.err"; then
 	fail "unknown lint label unexpectedly succeeded"
 fi
@@ -184,6 +210,8 @@ contains "$vscode_ext/extension.js" "registerDefinitionProvider"
 contains "$vscode_ext/extension.js" "registerReferenceProvider"
 contains "$vscode_ext/extension.js" "registerDocumentSymbolProvider"
 contains "$vscode_ext/extension.js" "registerWorkspaceSymbolProvider"
+contains "$vscode_ext/extension.js" "registerDocumentFormattingEditProvider"
+contains "$vscode_ext/extension.js" "fmt\", \"--stdout"
 contains "$vscode_ext/extension.js" "qstar lsp --stdio"
 contains "$vscode_ext/extension.js" "registerTreeDataProvider"
 contains "$vscode_ext/extension.js" "qstar-targets-v1"

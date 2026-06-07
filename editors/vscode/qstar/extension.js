@@ -335,6 +335,16 @@ class QStarLspClient {
       this.asLocation(item.location)
     ));
   }
+
+  async formatDocument(document) {
+    const rootFile = findRootFile(document.uri.fsPath);
+    const result = await execQStar(["fmt", "--stdout", document.uri.fsPath], rootFile);
+    if (result.stdout === document.getText()) {
+      return [];
+    }
+    const end = document.lineAt(document.lineCount - 1).range.end;
+    return [vscode.TextEdit.replace(new vscode.Range(0, 0, end.line, end.character), result.stdout)];
+  }
 }
 
 function isQStarDocument(document) {
@@ -635,6 +645,11 @@ function activate(context) {
   context.subscriptions.push(vscode.languages.registerWorkspaceSymbolProvider({
     provideWorkspaceSymbols(query) {
       return client.workspaceSymbols(query);
+    }
+  }));
+  context.subscriptions.push(vscode.languages.registerDocumentFormattingEditProvider(selector, {
+    provideDocumentFormattingEdits(document) {
+      return client.formatDocument(document);
     }
   }));
 

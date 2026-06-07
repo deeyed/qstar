@@ -29,6 +29,8 @@ qstar --file qstar.lua doctor
 qstar --file qstar.lua check //:app
 qstar --file qstar.lua lint //...
 qstar --file qstar.lua lint //:app --format json
+qstar fmt qstar.lua
+qstar fmt --check qstar.lua
 qstar --file qstar.lua explain //:app
 qstar --file qstar.lua dry-run //:app
 qstar --file qstar.lua build //:app
@@ -63,6 +65,22 @@ qstar --file qstar.lua --profile debug --target arm64-apple-macos explain //:app
 JSON object를 출력한다. Target, generated action, test target, installable artifact
 목록을 deterministic order로 담고, 각 record에는 label, kind, origin, source/header,
 dependency, toolchain, install/test 여부를 포함한다.
+
+`fmt`는 Round 45의 conservative formatter다. `qstar fmt --check qstar.lua`는
+rewrite 없이 canonical style drift를 검사하고, `qstar fmt qstar.lua`는 simple
+QStar block을 다음 스타일로 정리한다. VSCode extension은 `qstar fmt --stdout`을
+사용해 document formatting edit을 만든다.
+
+```lua
+qstar.exe "app" {
+  sources = {
+    "src/main.c",
+  },
+  deps = {
+    "//lib:core",
+  },
+}
+```
 
 `build`는 제한적 local executor v9이다. package-local generated tool, `qstar.config_header`, C/Cale source compile argv, static archive, exe/test link를 다루며 산출물은 `.qstar/out`, 로그는 `.qstar/logs` 아래에 둔다. Round 14/15부터 `.qstar/state/actions.json` action manifest, `compile_commands.json`, cache-hit skip, `why-rebuild`, `log`, `last-failure`, `clean`, JSON diagnostic skeleton을 제공한다. Round 16/17부터 Cale source는 frontend/backend 내부 API가 아니라 `cale -c ... -o ...` process invocation으로만 다룬다. Round 18/19부터 static library dependency link order, public/private include propagation, system library flag rendering, test runner, install skeleton을 제공한다. Round 29부터 executor는 dependency-first closure를 action DAG로 실행하고, 실패는 stop-on-first-failure로 전파한다. Build action timeout은 기본 30초이며 timeout 시 process를 kill하고 replay file을 남긴다. Round 32부터 `--jobs N`과 `--schedule-trace`를 받는다. `jobs > 1`은 같은 target 안의 independent compile action을 process-level parallel batch로 실행하고, generated action과 final archive/link는 deterministic order를 유지한다. Round 35부터 긴 compile/link command는 profile capability가 허용할 때 실제 `.qstar/rsp/*.rsp` response file로 내려가며, POSIX/Windows/MSVC style과 digest를 plan/build/replay에 기록한다. Round 36부터 parallel compile은 `process-v2` event stream을 출력한다. Queue order, slot assignment, start/finish/fail/timeout/cancel state, `retry=next-build`, active child cancel propagation을 deterministic하게 기록해 실패 로그를 사람이 읽을 수 있게 한다. Round 37부터 `.qstar/state/graph.json` graph snapshot과 `.qstar/state/last-summary.json` 마지막 build summary를 저장하고, `qstar action-log <action-id>`와 `qstar replay <action-id>`로 action 단위 로그/재현 명령을 조회한다.
 

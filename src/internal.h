@@ -95,6 +95,9 @@ int qstar_target_is_installable(const struct qstar_target *target);
 int qstar_init_project(const char *template_name, const char *directory, FILE *out,
     char *error, size_t error_len);
 
+/** qstar authoring file 하나를 simple canonical style로 format/check한다. */
+int qstar_fmt_file(const char *path, int check, int stdout_mode, FILE *out);
+
 /** stdio 기반 QStar Language Server Protocol v1 loop를 실행한다. */
 int qstar_lsp_stdio(FILE *in, FILE *out);
 

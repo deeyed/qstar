@@ -17,6 +17,7 @@ Features:
 - completion for QStar API names and target fields
 - definition/references for target labels
 - document/workspace symbols for targets and generated actions
+- document formatting through `qstar fmt --stdout`
 - Explorer tree view for targets, generated actions, tests, and installable artifacts
 - last build status from `.qstar/state/last-summary.json`
 - terminal commands for check, explain, list, build, action-log, and replay
@@ -50,6 +51,17 @@ the absolute path of `qstar/build/bin/qstar`.
 
 The build/log/replay commands are explicit terminal invocations. They are not
 triggered by the LSP server.
+
+## Formatting
+
+The formatter is intentionally conservative. It delegates to:
+
+```txt
+qstar fmt --stdout path/to/file.qs
+```
+
+v1 only canonicalizes simple QStar target/action blocks. Use VSCode's built-in
+`editor.formatOnSave` setting if you want format-on-save behavior.
 
 ## Explorer View
 

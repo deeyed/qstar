@@ -12,6 +12,7 @@ usage(FILE *out)
 	fputs("       qstar [options] doctor\n", out);
 	fputs("       qstar [options] check [label]\n", out);
 	fputs("       qstar [options] lint [label|//...] [--format text|json]\n", out);
+	fputs("       qstar [options] fmt [--check] [qstar.lua|fragment.qs]\n", out);
 	fputs("       qstar [options] explain [label]\n", out);
 	fputs("       qstar [options] dry-run [label]\n", out);
 	fputs("       qstar [options] build [label]\n", out);
@@ -257,6 +258,32 @@ main(int argc, char **argv)
 		}
 		qstar_graph_free(&graph);
 		return qstar_lsp_stdio(stdin, stdout);
+	}
+	if (strcmp(cmd, "fmt") == 0) {
+		const char *fmt_file;
+		int fmt_check, fmt_stdout;
+
+		fmt_file = file;
+		fmt_check = 0;
+		fmt_stdout = 0;
+		while (arg < argc) {
+			if (strcmp(argv[arg], "--check") == 0) {
+				fmt_check = 1;
+				arg++;
+			} else if (strcmp(argv[arg], "--stdout") == 0) {
+				fmt_stdout = 1;
+				arg++;
+			} else if (strncmp(argv[arg], "--", 2) == 0) {
+				usage(stderr);
+				qstar_graph_free(&graph);
+				return 2;
+			} else {
+				fmt_file = argv[arg++];
+			}
+		}
+		rc = qstar_fmt_file(fmt_file, fmt_check, fmt_stdout, stdout);
+		qstar_graph_free(&graph);
+		return rc < 0 ? 1 : rc;
 	}
 	label = NULL;
 	if (strcmp(cmd, "explain") == 0 || strcmp(cmd, "dry-run") == 0 ||

@@ -12,6 +12,7 @@ LUA_CFLAGS = -std=c99 -O2 -I$(LUA_DIR)
 
 QSTAR_SRCS = \
 	src/executor.c \
+	src/fmt.c \
 	src/graph.c \
 	src/header.c \
 	src/init.c \
@@ -53,7 +54,7 @@ LUA_SRCS = \
 
 QSTAR_OBJS = $(QSTAR_SRCS:%.c=$(QSTAR_BUILD)/%.o)
 LUA_OBJS = $(LUA_SRCS:%.c=$(QSTAR_BUILD)/%.o)
-.PHONY: all check qstar-tests qstar-lint-tests qstar-lsp-tests qstar-lsp-navigation-tests qstar-editor-query-tests qstar-v0-release-tests qstar-v0.1-release-tests qstar-v0.1-hardening-tests qstar-project-corpus-tests qstar-standalone-integration-tests qstar-executor-v2-tests install clean
+.PHONY: all check qstar-tests qstar-fmt-tests qstar-lint-tests qstar-lsp-tests qstar-lsp-navigation-tests qstar-editor-query-tests qstar-v0-release-tests qstar-v0.1-release-tests qstar-v0.1-hardening-tests qstar-project-corpus-tests qstar-standalone-integration-tests qstar-executor-v2-tests install clean
 
 all: $(BIN_DIR)/qstar
 
@@ -75,6 +76,8 @@ check: all
 	QSTAR_TEST_QSTAR="$$bin" sh tests/smoke.sh
 
 qstar-tests: check
+
+qstar-fmt-tests: check
 
 qstar-lint-tests: check
 
