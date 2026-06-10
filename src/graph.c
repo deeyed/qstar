@@ -130,7 +130,6 @@ free_target(struct qstar_target *target)
 	qstar_string_list_free(&target->cxxflags);
 	qstar_string_list_free(&target->asm_include_dirs);
 	qstar_string_list_free(&target->asm_compile_options);
-	qstar_string_list_free(&target->cale_hcl_include_dirs);
 	qstar_string_list_free(&target->cale_compile_options);
 	qstar_string_list_free(&target->run_command);
 	free(target->artifact_name);
@@ -809,7 +808,8 @@ dump_target(const struct qstar_target *target, FILE *out)
 	    qstar_target_rule_lookup(target->kind)->provider : "generic",
 	    qstar_target_final_action(target), qstar_target_output_group(target));
 	if (target->modules.present) {
-		fprintf(out, "  modules root=%s include=", target->modules.root ? target->modules.root : "");
+		fprintf(out, "  lang.cale.modules root=%s include=",
+		    target->modules.root ? target->modules.root : "");
 		dump_list(out, &target->modules.include);
 		fputs(" exclude=", out);
 		dump_list(out, &target->modules.exclude);
@@ -879,9 +879,8 @@ dump_target(const struct qstar_target *target, FILE *out)
 	dump_list(out, &target->asm_compile_options);
 	fputc('\n', out);
 	fprintf(out, "  lang.asm.preprocess %s\n", target->asm_preprocess ? "true" : "false");
-	fputs("  lang.cale.hcl_include_dirs ", out);
-	dump_list(out, &target->cale_hcl_include_dirs);
-	fputc('\n', out);
+	fprintf(out, "  lang.cxx.modules enabled=%s\n",
+	    target->cxx_modules_enabled ? "true" : "false");
 	fputs("  lang.cale.compile_options ", out);
 	dump_list(out, &target->cale_compile_options);
 	fputc('\n', out);
@@ -1392,9 +1391,8 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	dump_list(out, &target->asm_compile_options);
 	fputc('\n', out);
 	fprintf(out, "  lang.asm.preprocess %s\n", target->asm_preprocess ? "true" : "false");
-	fputs("  lang.cale.hcl_include_dirs ", out);
-	dump_list(out, &target->cale_hcl_include_dirs);
-	fputc('\n', out);
+	fprintf(out, "  lang.cxx.modules enabled=%s\n",
+	    target->cxx_modules_enabled ? "true" : "false");
 	fputs("  lang.cale.compile_options ", out);
 	dump_list(out, &target->cale_compile_options);
 	fputc('\n', out);

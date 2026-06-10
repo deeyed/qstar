@@ -34,15 +34,16 @@ qstar.stage "esp" { ... }
 
 `qstar.exe`, `qstar.genrule`, `qstar.config_header`, `qstar.write_config_header`는
 제거됐다. Target top-level의 `include_dirs`, `public_include_dirs`,
-`private_include_dirs`, `system_include_dirs`, `cflags`, `cxxflags`, `cxx_standard`도
-제거됐다. Include/compile option은 항상 `lang.*` 아래에 둔다.
+`private_include_dirs`, `system_include_dirs`, `public_headers`, `private_headers`,
+`modules`, `cflags`, `cxxflags`, `cxx_standard`도 제거됐다. Header/include/compile
+option은 항상 `lang.*` 아래에 둔다.
 
 ```lua
 qstar.staticlib "core" {
   sources = {"lib/src/core.c"},
-  public_headers = {"lib/include/core.h"},
   lang = {
     c = {
+      public_headers = {"lib/include/core.h"},
       public_include_dirs = {"lib/include"},
       compile_options = {"-ffreestanding"},
       defines = {"CORE_BUILD=1"},
@@ -252,9 +253,9 @@ qstar.configure_file "cfg" {
 
 qstar.executable "app" {
   sources = {"src/main.c"},
-  private_headers = {qstar.output("generated/config.h")},
   lang = {
     c = {
+      private_headers = {qstar.output("generated/config.h")},
       include_dirs = {"generated"},
     },
   },
@@ -288,9 +289,9 @@ qstar.test "unit" {
 
 qstar.staticlib "core" {
   sources = {"src/core.c"},
-  public_headers = {"include/core.h"},
   lang = {
     c = {
+      public_headers = {"include/core.h"},
       public_include_dirs = {"include"},
     },
   },

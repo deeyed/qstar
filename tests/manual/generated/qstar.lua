@@ -16,9 +16,9 @@ qstar.custom_target "generated_value" {
 
 qstar.executable "app" {
   sources = {"src/main.c", qstar.output("generated/value.c")},
-  private_headers = {qstar.output("generated/config.h")},
   lang = {
     c = {
+      private_headers = {qstar.output("generated/config.h")},
       include_dirs = {"generated"},
     },
   },

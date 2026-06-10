@@ -60,13 +60,15 @@ lang = {
   cale = {
     profile = "safe",
     compile_options = {},
-    hcl_include_dirs = {"include"},
+    public_headers = {"include/core.hcl"},
+    public_include_dirs = {"include"},
   },
 }
 ```
 
-QStar는 `.cl`, `.cale`, `.hcl`의 언어 의미론을 해석하지 않는다. `hcl_include_dirs`는
-Cale compiler/HCL checker에 전달할 계획 surface다.
+QStar는 `.cl`, `.cale`, `.hcl`의 언어 의미론을 해석하지 않는다. HCL은 header
+surface이므로 `lang.cale.public_headers`, `lang.cale.public_include_dirs`,
+`lang.cale.private_headers`, `lang.cale.private_include_dirs`로 표현한다.
 
 ## Future provider
 

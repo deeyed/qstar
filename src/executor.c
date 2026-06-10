@@ -2565,7 +2565,7 @@ validate_compile_source(struct qstar_graph *graph, const struct qstar_target *ta
 	if (source->header_input)
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "sources", target->label,
-		    "qstar: header source '%s' must be listed as public_headers/private_headers",
+		    "qstar: header source '%s' must be listed as lang.*.public_headers/private_headers",
 		    target->sources.items[index]);
 	if (strcmp(source->language, "cxx-module") == 0)
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,

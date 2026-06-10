@@ -24,9 +24,9 @@
     "body": [
       "qstar.staticlib \"${1:core}\" {",
       "  sources = {\"${2:src/core.c}\"},",
-      "  public_headers = {\"${3:include/core.h}\"},",
       "  lang = {",
       "    c = {",
+      "      public_headers = {\"${3:include/core.h}\"},",
       "      public_include_dirs = {\"${4:include}\"},",
       "    },",
       "  },",

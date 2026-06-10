@@ -28,11 +28,11 @@ qstar.executable "app" {
         qstar.output("generated/version.c"),
         "src/main.c",
     },
-    public_headers = {
-        "include/hello/api.h",
-    },
     lang = {
         c = {
+            public_headers = {
+                "include/hello/api.h",
+            },
             include_dirs = {
                 "include",
                 "generated",

@@ -111,11 +111,11 @@ qstar.executable "app" {
     "src/main.c",
     qstar.output("generated/value.c"),
   },
-  private_headers = {
-    qstar.output("generated/config.h"),
-  },
   lang = {
     c = {
+      private_headers = {
+        qstar.output("generated/config.h"),
+      },
       include_dirs = {
         "generated",
       },
@@ -163,8 +163,9 @@ metadata를 실제 linker/objcopy option으로 바꾸지 않는다. 실제 변�
 `qstar build //:kernel_img`는 generated action 자체를 직접 실행한다.
 `qstar.target_file("//:kernel_img")`는 generated action의 첫 output path로 해석된다.
 
-Round 57부터 generated output은 target의 `sources`, `public_headers`,
-`private_headers`에서 소비될 때 dependency closure 안에서 먼저 실행된다. 이 정책으로
+Round 57부터 generated output은 target의 `sources` 또는
+`lang.c`/`lang.cxx`/`lang.cale`의 `public_headers`/`private_headers`에서 소비될 때
+dependency closure 안에서 먼저 실행된다. 이 정책으로
 ELF fixture나 firmware blob을 assembly/object로 embed하는 패턴을 표현할 수 있다.
 
 ```lua
@@ -390,10 +391,10 @@ generated action을 먼저 build한 뒤 copy한다.
 
 | Namespace | Fields |
 | --- | --- |
-| `lang.c` | `include_dirs`, `public_include_dirs`, `private_include_dirs`, `system_include_dirs`, `compile_options`, `defines` |
-| `lang.cxx` | `standard`, `include_dirs`, `public_include_dirs`, `private_include_dirs`, `system_include_dirs`, `compile_options`, `defines` |
+| `lang.c` | `public_headers`, `private_headers`, `include_dirs`, `public_include_dirs`, `private_include_dirs`, `system_include_dirs`, `compile_options`, `defines` |
+| `lang.cxx` | `public_headers`, `private_headers`, `standard`, `modules`, `include_dirs`, `public_include_dirs`, `private_include_dirs`, `system_include_dirs`, `compile_options`, `defines` |
 | `lang.asm` | `include_dirs`, `compile_options`, `preprocess` |
-| `lang.cale` | `profile`, `compile_options`, `hcl_include_dirs` |
+| `lang.cale` | `public_headers`, `private_headers`, `include_dirs`, `public_include_dirs`, `private_include_dirs`, `profile`, `compile_options`, `modules` |
 
 `lang.rust.include_dirs`처럼 아직 schema가 없는 language namespace와 field는 lint error다.
 Rust/Zig/Go 같은 future provider는 include directory 개념을 강제로 상속하지 않는다.

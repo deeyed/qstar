@@ -11,7 +11,7 @@ qstar.executable "mixed" {
     cale = {
       profile = "safe",
       compile_options = {},
-      hcl_include_dirs = {},
+      public_include_dirs = {},
     },
   },
 }

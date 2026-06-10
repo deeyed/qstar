@@ -6,9 +6,9 @@ qstar.project {
 
 qstar.staticlib "core" {
   sources = {"src/core.c"},
-  public_headers = {"include/corpus.h"},
   lang = {
     c = {
+      public_headers = {"include/corpus.h"},
       public_include_dirs = {"include"},
     },
   },

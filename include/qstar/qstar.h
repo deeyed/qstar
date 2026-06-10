@@ -49,7 +49,6 @@ struct qstar_target {
 	struct qstar_string_list cxxflags;
 	struct qstar_string_list asm_include_dirs;
 	struct qstar_string_list asm_compile_options;
-	struct qstar_string_list cale_hcl_include_dirs;
 	struct qstar_string_list cale_compile_options;
 	struct qstar_string_list run_command;
 	char *artifact_name;
@@ -60,6 +59,8 @@ struct qstar_target {
 	char *run_marker_log;
 	int run_timeout_sec;
 	int asm_preprocess;
+	int cxx_modules_present;
+	int cxx_modules_enabled;
 	char *toolchain;
 	char *stdlib_policy;
 };

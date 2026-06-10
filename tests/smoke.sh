@@ -467,6 +467,50 @@ if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-cxx-standard.out" 
 fi
 contains "$tmp/old-cxx-standard.err" "top-level cxx_standard is not allowed; use lang.cxx.standard"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
+qstar.staticlib "core" {
+  public_headers = {"include/core.h"},
+}
+EOF
+if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-public-headers.out" 2> "$tmp/old-public-headers.err"; then
+	fail "top-level public_headers unexpectedly succeeded"
+fi
+contains "$tmp/old-public-headers.err" "top-level public_headers is not allowed; use lang.c.public_headers, lang.cxx.public_headers, or lang.cale.public_headers"
+cat > "$tmp/old-api/qstar.lua" <<'EOF'
+qstar.staticlib "core" {
+  modules = qstar.modules { root = "src" },
+}
+EOF
+if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-modules.out" 2> "$tmp/old-modules.err"; then
+	fail "top-level modules unexpectedly succeeded"
+fi
+contains "$tmp/old-modules.err" "top-level modules is not allowed; use lang.cale.modules or lang.cxx.modules"
+cat > "$tmp/old-api/qstar.lua" <<'EOF'
+qstar.staticlib "core" {
+  lang = {
+    cale = {
+      hcl_include_dirs = {"include"},
+    },
+  },
+}
+EOF
+if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-hcl-include.out" 2> "$tmp/old-hcl-include.err"; then
+	fail "lang.cale.hcl_include_dirs unexpectedly succeeded"
+fi
+contains "$tmp/old-hcl-include.err" "unknown field lang.cale.hcl_include_dirs"
+cat > "$tmp/old-api/qstar.lua" <<'EOF'
+qstar.staticlib "core" {
+  lang = {
+    cxx = {
+      modules = { enabled = true },
+    },
+  },
+}
+EOF
+if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/cxx-modules-enabled.out" 2> "$tmp/cxx-modules-enabled.err"; then
+	fail "enabled C++ modules unexpectedly succeeded"
+fi
+contains "$tmp/cxx-modules-enabled.err" "C++ modules are not supported; set lang.cxx.modules.enabled = false"
+cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.custom_target "g" {
   tool = "tools/gen.sh",
   outputs = {qstar.output("generated/g.c")},
@@ -525,7 +569,7 @@ qstar.executable "app" {
 EOF
 "$qstar" --file "$tmp/lint-header-source/qstar.lua" lint --format json > "$tmp/lint-header-source.out" 2> "$tmp/lint-header-source.err"
 contains "$tmp/lint-header-source.out" "\"code\":\"QSTAR040\""
-contains "$tmp/lint-header-source.out" "use public_headers/private_headers"
+contains "$tmp/lint-header-source.out" "use lang.*.public_headers/private_headers"
 contains "$tmp/lint-header-source.out" "\"status\":\"warning\""
 
 mkdir -p "$tmp/lint-public-generated"
@@ -536,7 +580,11 @@ qstar.configure_file "cfg" {
 }
 
 qstar.staticlib "core" {
-  public_headers = {qstar.output("generated/public_config.h")},
+  lang = {
+    c = {
+      public_headers = {qstar.output("generated/public_config.h")},
+    },
+  },
 }
 EOF
 "$qstar" --file "$tmp/lint-public-generated/qstar.lua" lint --format json > "$tmp/lint-public-generated.out" 2> "$tmp/lint-public-generated.err"
@@ -559,9 +607,9 @@ EOF
 cat > "$tmp/lint-private-dep/qstar.lua" <<'EOF'
 qstar.staticlib "lib" {
   sources = {"src/lib.c"},
-  public_headers = {"include/lib.h"},
   lang = {
     c = {
+      public_headers = {"include/lib.h"},
       public_include_dirs = {"include"},
     },
   },
@@ -569,7 +617,11 @@ qstar.staticlib "lib" {
 
 qstar.staticlib "wrapper" {
   sources = {"src/wrapper.c"},
-  public_headers = {"include/wrapper.h"},
+  lang = {
+    c = {
+      public_headers = {"include/wrapper.h"},
+    },
+  },
   private_deps = {"//:lib"},
 }
 EOF
@@ -687,9 +739,9 @@ qstar.custom_target "make_value" {
 
 qstar.executable "genapp" {
   sources = {"src/main.c", qstar.output("generated/value.c")},
-  private_headers = {qstar.output("generated/config.h")},
   lang = {
     c = {
+      private_headers = {qstar.output("generated/config.h")},
       include_dirs = {"generated"},
     },
   },
@@ -829,9 +881,9 @@ qstar.custom_target "make_value" {
 
 qstar.executable "genapp" {
   sources = {"src/main.c", qstar.output("generated/value.c")},
-  private_headers = {qstar.output("generated/config.h")},
   lang = {
     c = {
+      private_headers = {qstar.output("generated/config.h")},
       include_dirs = {"generated"},
     },
   },
@@ -1001,9 +1053,9 @@ EOF
 cat > "$tmp/qstar.lua" <<'EOF'
 qstar.staticlib "core" {
   sources = {"src/core.c"},
-  public_headers = {"include/core.h"},
   lang = {
     c = {
+      public_headers = {"include/core.h"},
       public_include_dirs = {"include"},
       private_include_dirs = {"src/core_private"},
     },
@@ -1090,9 +1142,9 @@ qstar.test "unit_timeout" {
 
 qstar.staticlib "install_core" {
   sources = {"src/core.c"},
-  public_headers = {"include/core.h", qstar.output("generated/install_config.h")},
   lang = {
     c = {
+      public_headers = {"include/core.h", qstar.output("generated/install_config.h")},
       public_include_dirs = {"include"},
       private_include_dirs = {"src/core_private"},
     },
@@ -1252,9 +1304,9 @@ qstar.configure_file "cfg" {
 
 qstar.executable "app" {
   sources = {"src/a.c", "src/b.c", "src/main.c"},
-  private_headers = {qstar.output("generated/config.h")},
   lang = {
     c = {
+      private_headers = {qstar.output("generated/config.h")},
       include_dirs = {"generated"},
     },
   },
@@ -1818,7 +1870,17 @@ qstar.staticlib "cale_core" {
     cale = {
       profile = "safe",
       compile_options = {"--profile=safe"},
-      hcl_include_dirs = {"include"},
+      public_headers = {"include/core.hcl"},
+      public_include_dirs = {"include"},
+    },
+  },
+}
+
+qstar.staticlib "cxx_mod_shell" {
+  sources = {"src/mod.cpp"},
+  lang = {
+    cxx = {
+      modules = { enabled = false },
     },
   },
 }
@@ -1830,13 +1892,17 @@ EOF
 cat > "$tmp/lang-surface/src/core.cl" <<'EOF'
 fn core() -> int { return 0; }
 EOF
+cat > "$tmp/lang-surface/src/mod.cpp" <<'EOF'
+int mod_shell(void) { return 0; }
+EOF
 "$qstar" --file "$tmp/lang-surface/qstar.lua" --dump-graph > "$tmp/lang-surface.out" 2> "$tmp/lang-surface.err"
 contains "$tmp/lang-surface.out" "lang.asm.include_dirs [boot/include]"
 contains "$tmp/lang-surface.out" "lang.asm.compile_options [-ffreestanding]"
 contains "$tmp/lang-surface.out" "lang.asm.preprocess true"
-contains "$tmp/lang-surface.out" "lang.cale.hcl_include_dirs [include]"
+contains "$tmp/lang-surface.out" "public_headers [include/core.hcl]"
 contains "$tmp/lang-surface.out" "lang.cale.compile_options [--profile=safe]"
 contains "$tmp/lang-surface.out" "lang.cale.profile safe"
+contains "$tmp/lang-surface.out" "lang.cxx.modules enabled=false"
 
 mkdir -p "$tmp/workspace/app/src" "$tmp/workspace/lib/src" "$tmp/workspace/lib/include" "$tmp/workspace/lib/private"
 cat > "$tmp/workspace/lib/include/core.h" <<'EOF'
@@ -1856,10 +1922,10 @@ EOF
 cat > "$tmp/workspace/lib/lib.qst" <<'EOF'
 qstar.staticlib "core" {
   sources = {"lib/src/core.c"},
-  public_headers = {"lib/include/core.h"},
-  private_headers = {"lib/private/core_private.h"},
   lang = {
     c = {
+      public_headers = {"lib/include/core.h"},
+      private_headers = {"lib/private/core_private.h"},
       public_include_dirs = {"lib/include"},
       private_include_dirs = {"lib/private"},
     },
@@ -1909,9 +1975,9 @@ contains "$tmp/private-leak-lint.out" "leaks private include directory"
 cat > "$tmp/workspace/lib/lib.qst" <<'EOF'
 qstar.staticlib "core" {
   sources = {"lib/src/core.c"},
-  public_headers = {"lib/include/core.h"},
   lang = {
     c = {
+      public_headers = {"lib/include/core.h"},
       public_include_dirs = {"lib/include"},
     },
   },

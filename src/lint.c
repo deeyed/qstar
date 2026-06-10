@@ -356,7 +356,7 @@ lint_target_shape(struct qstar_graph *graph, const struct qstar_target *target,
 			if (qstar_graph_add_lint(graph, "QSTAR040", "warning",
 			    target->origin_file, target->origin_line, "sources",
 			    target->label,
-			    "header '%s' is listed in sources; use public_headers/private_headers",
+			    "header '%s' is listed in sources; use lang.*.public_headers/private_headers",
 			    target->sources.items[i]) < 0)
 				return -1;
 		}
