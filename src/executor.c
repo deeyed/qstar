@@ -41,6 +41,8 @@ struct qstar_build_ctx {
 		char *input_key;
 		char *depfile_key;
 		char *profile_key;
+		char *output_key;
+		char *external_tool_key;
 	} *prev, *next;
 	size_t prev_len, prev_cap, next_len, next_cap;
 	size_t run_count, skip_count, fail_count;
@@ -60,6 +62,8 @@ struct qstar_action_material {
 	char input_key[32];
 	char depfile_key[32];
 	char profile_key[32];
+	char output_key[32];
+	char external_tool_key[32];
 };
 
 struct qstar_prepared_action {
@@ -389,6 +393,40 @@ compute_profile_key(struct qstar_graph *graph,
 	format_key(h, dst, dstlen);
 }
 
+/** output identity/path만 별도 digest로 만든다. */
+static void
+compute_output_key(const char *output, char *dst, size_t dstlen)
+{
+	unsigned long long h = QSTAR_HASH_INIT;
+
+	hash_str(&h, output ? output : "");
+	format_key(h, dst, dstlen);
+}
+
+/** external tool 선택만 별도 digest로 만든다. */
+static void
+compute_external_tool_key(struct qstar_graph *graph,
+    const struct qstar_resolved_toolchain *toolchain, char *const argv[],
+    char *dst, size_t dstlen)
+{
+	unsigned long long h = QSTAR_HASH_INIT;
+	size_t i;
+
+	hash_str(&h, argv && argv[0] ? argv[0] : "");
+	for (i = 0; i < graph->profile.path_tools.len; i++)
+		hash_str(&h, graph->profile.path_tools.items[i]);
+	for (i = 0; i < graph->profile.tool_overrides.len; i++)
+		hash_str(&h, graph->profile.tool_overrides.items[i]);
+	if (toolchain) {
+		hash_str(&h, toolchain->cc);
+		hash_str(&h, toolchain->cxx);
+		hash_str(&h, toolchain->cale);
+		hash_str(&h, toolchain->ar);
+		hash_str(&h, toolchain->linker);
+	}
+	format_key(h, dst, dstlen);
+}
+
 /** action key 공통 material을 계산한다. */
 static void
 compute_action_key(struct qstar_graph *graph, const struct qstar_target *target,
@@ -409,6 +447,11 @@ compute_action_key(struct qstar_graph *graph, const struct qstar_target *target,
 		    sizeof(material->depfile_key));
 		compute_profile_key(graph, toolchain, material->profile_key,
 		    sizeof(material->profile_key));
+		compute_output_key(output, material->output_key,
+		    sizeof(material->output_key));
+		compute_external_tool_key(graph, toolchain, argv,
+		    material->external_tool_key,
+		    sizeof(material->external_tool_key));
 	}
 	hash_str(&h, id);
 	hash_str(&h, kind);
@@ -728,6 +771,22 @@ write_failure_replay(const struct qstar_graph *graph, const char *id,
 	    NULL, NULL, NULL, NULL);
 }
 
+/** stage/package failure를 last-failure replay 파일에 기록한다. */
+static void
+write_stage_failure_replay(const struct qstar_graph *graph, const struct qstar_stage *stage)
+{
+	char id[QSTAR_PATH_MAX];
+	char *argv[4];
+
+	snprintf(id, sizeof(id), "%s:stage:0", stage->label);
+	argv[0] = "qstar";
+	argv[1] = "stage";
+	argv[2] = (char *)stage->label;
+	argv[3] = NULL;
+	write_failure_replay_detail(graph, id, NULL, argv, "package-failure",
+	    stage->label, "<none>", "<none>", NULL, NULL);
+}
+
 /** JSON string에 들어갈 최소 escape를 출력한다. */
 static void
 json_string(FILE *f, const char *s)
@@ -784,9 +843,11 @@ state_push(struct qstar_build_ctx *ctx, int next, const char *id, const char *ke
 	p->input_key = qstar_strdup(material ? material->input_key : "");
 	p->depfile_key = qstar_strdup(material ? material->depfile_key : "");
 	p->profile_key = qstar_strdup(material ? material->profile_key : "");
+	p->output_key = qstar_strdup(material ? material->output_key : "");
+	p->external_tool_key = qstar_strdup(material ? material->external_tool_key : "");
 	return p->id && p->key && p->output && p->status && p->kind &&
 	    p->argv_key && p->env_key && p->input_key && p->depfile_key &&
-	    p->profile_key ? 0 : -1;
+	    p->profile_key && p->output_key && p->external_tool_key ? 0 : -1;
 }
 
 /** state entry 배열을 해제한다. */
@@ -806,6 +867,8 @@ state_free(struct qstar_state_entry *entries, size_t len)
 		free(entries[i].input_key);
 		free(entries[i].depfile_key);
 		free(entries[i].profile_key);
+		free(entries[i].output_key);
+		free(entries[i].external_tool_key);
 	}
 	free(entries);
 }
@@ -856,6 +919,8 @@ state_update_material(struct qstar_build_ctx *ctx, const char *id, const char *k
 		REPLACE_FIELD(input_key, material->input_key);
 		REPLACE_FIELD(depfile_key, material->depfile_key);
 		REPLACE_FIELD(profile_key, material->profile_key);
+		REPLACE_FIELD(output_key, material->output_key);
+		REPLACE_FIELD(external_tool_key, material->external_tool_key);
 #undef REPLACE_FIELD
 		return 0;
 	}
@@ -916,6 +981,10 @@ state_load(struct qstar_graph *graph, struct qstar_build_ctx *ctx)
 		    sizeof(material.depfile_key));
 		json_field_copy(line, "profile_key", material.profile_key,
 		    sizeof(material.profile_key));
+		json_field_copy(line, "output_key", material.output_key,
+		    sizeof(material.output_key));
+		json_field_copy(line, "external_tool_key", material.external_tool_key,
+		    sizeof(material.external_tool_key));
 		if (!id[0] || !key[0] || !output[0] || !status[0])
 			continue;
 		if (state_push(ctx, 0, id, key, output, status, kind, &material) < 0) {
@@ -965,6 +1034,10 @@ state_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 		json_string(f, ctx->next[i].depfile_key);
 		fputs(",\"profile_key\":", f);
 		json_string(f, ctx->next[i].profile_key);
+		fputs(",\"output_key\":", f);
+		json_string(f, ctx->next[i].output_key);
+		fputs(",\"external_tool_key\":", f);
+		json_string(f, ctx->next[i].external_tool_key);
 		fputs("}", f);
 		fputs(i + 1 == ctx->next_len ? "\n" : ",\n", f);
 	}
@@ -1270,6 +1343,12 @@ cache_reason(struct qstar_graph *graph, const struct qstar_state_entry *prev,
 	if (strcmp(prev->key, key) == 0)
 		return "output-check";
 	if (material) {
+		if (prev->output_key && *prev->output_key &&
+		    strcmp(prev->output_key, material->output_key) != 0)
+			return "output-changed";
+		if (prev->external_tool_key && *prev->external_tool_key &&
+		    strcmp(prev->external_tool_key, material->external_tool_key) != 0)
+			return "external-tool-changed";
 		if (prev->argv_key && *prev->argv_key &&
 		    strcmp(prev->argv_key, material->argv_key) != 0)
 			return "argv-changed";
@@ -1287,6 +1366,96 @@ cache_reason(struct qstar_graph *graph, const struct qstar_state_entry *prev,
 			return "profile-changed";
 	}
 	return "key-changed";
+}
+
+/** argv에 특정 문자열이 포함되어 있는지 확인한다. */
+static int
+argv_contains(char *const argv[], const char *needle)
+{
+	size_t i;
+
+	if (!needle || !*needle)
+		return 0;
+	for (i = 0; argv && argv[i]; i++) {
+		if (strstr(argv[i], needle))
+			return 1;
+	}
+	return 0;
+}
+
+/** run_target이 QEMU wrapper 성격인지 label/argv 기준으로 판별한다. */
+static int
+action_is_qemu_run(const struct qstar_target *target, char *const argv[])
+{
+	return (target && strstr(target->label, "qemu")) || argv_contains(argv, "qemu");
+}
+
+/** action id에서 사용자가 작성한 owner label을 복원한다. */
+static const char *
+action_owner_label(const struct qstar_target *target, const char *id, char *dst,
+    size_t dstlen)
+{
+	const char *suffix;
+	size_t n;
+
+	if (target)
+		return target->label;
+	suffix = strstr(id, ":generate:");
+	if (!suffix)
+		suffix = strstr(id, ":stage:");
+	if (!suffix)
+		return id;
+	n = (size_t)(suffix - id);
+	if (n >= dstlen)
+		n = dstlen - 1;
+	memcpy(dst, id, n);
+	dst[n] = '\0';
+	return dst;
+}
+
+/** 실패한 executor action을 Ribon/debug UX용 stable kind로 분류한다. */
+static const char *
+classify_failure_kind(const char *kind, const struct qstar_target *target,
+    char *const argv[], const char *base)
+{
+	if (strcmp(kind, "link") == 0)
+		return "link-failure";
+	if (strcmp(kind, "archive") == 0)
+		return "archive-failure";
+	if (strcmp(kind, "generate") == 0 && argv_contains(argv, "objcopy"))
+		return "objcopy-failure";
+	if (strcmp(kind, "generate") == 0)
+		return "generate-failure";
+	if (strcmp(kind, "run") == 0 && base && strcmp(base, "timeout") == 0 &&
+	    action_is_qemu_run(target, argv))
+		return "qemu-timeout";
+	if (base && *base)
+		return base;
+	return "action-failure";
+}
+
+/** 실패 action을 JSONL 친화적인 stdout diagnostic으로 남긴다. */
+static void
+emit_action_diagnostic(FILE *out, const char *id, const char *kind, const char *label,
+    const char *failure_kind, const char *status, int exit_code,
+    const char *stdout_rel, const char *stderr_rel)
+{
+	fputs("action_diagnostic_json ", out);
+	fputs("{\"schema\":\"qstar-action-diagnostic-v1\",\"id\":", out);
+	json_string(out, id);
+	fputs(",\"kind\":", out);
+	json_string(out, kind);
+	fputs(",\"label\":", out);
+	json_string(out, label && *label ? label : id);
+	fputs(",\"failure_kind\":", out);
+	json_string(out, failure_kind);
+	fputs(",\"status\":", out);
+	json_string(out, status);
+	fprintf(out, ",\"exit\":%d,\"stdout\":", exit_code);
+	json_string(out, stdout_rel && *stdout_rel ? stdout_rel : "<none>");
+	fputs(",\"stderr\":", out);
+	json_string(out, stderr_rel && *stderr_rel ? stderr_rel : "<none>");
+	fputs(",\"replay\":\".qstar/logs/last-failure.replay\"}\n", out);
 }
 
 /** 빈 stdout/stderr log 파일을 만든다. */
@@ -1399,22 +1568,30 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			if (waited < 0)
 				return qstar_set_error(graph, "qstar: waitpid failed");
 			if (time(NULL) - start >= ctx->action_timeout_sec) {
+				char label_buf[QSTAR_PATH_MAX];
+				const char *diag_label;
+				const char *failure_kind;
+
+				failure_kind = classify_failure_kind(kind, target, argv,
+				    "timeout");
+				diag_label = action_owner_label(target, id, label_buf,
+				    sizeof(label_buf));
 				kill(pid, SIGKILL);
 				waitpid(pid, &status, 0);
 				write_action_log(action_log, argv, 124);
-				if (strcmp(kind, "run") == 0)
-					write_failure_replay_detail(graph, id, toolchain, argv,
-					    "timeout", target ? target->label : id,
-					    child_stdout_path, child_stderr_path,
-					    target ? target->run_marker : NULL,
-					    target ? target->run_marker_log : NULL);
-				else
-					write_failure_replay(graph, id, toolchain, argv);
+				write_failure_replay_detail(graph, id, toolchain, argv,
+				    failure_kind, diag_label,
+				    child_stdout_path, child_stderr_path,
+				    target ? target->run_marker : NULL,
+				    target ? target->run_marker_log : NULL);
 				ctx->fail_count++;
 				ctx->cancelled = 1;
 				fprintf(ctx->out,
 				    "build_action id=%s status=timeout timeout_sec=%d\n",
 				    id, ctx->action_timeout_sec);
+				emit_action_diagnostic(ctx->out, id, kind,
+				    diag_label, failure_kind, "timeout",
+				    124, child_stdout_path, child_stderr_path);
 				if (strcmp(kind, "run") == 0) {
 					fprintf(ctx->out,
 					    "run_target_result label=%s status=timeout timeout_sec=%d replay=.qstar/logs/last-failure.replay stdout=%s stderr=%s\n",
@@ -1422,14 +1599,14 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 					    child_stdout_path, child_stderr_path);
 					return qstar_set_error_origin(graph,
 					    target ? target->origin_file : "",
-					    target ? target->origin_line : 0, "timeout",
+					    target ? target->origin_line : 0, failure_kind,
 					    target ? target->label : id,
 					    "qstar: run_target '%s' timed out after %d seconds; replay=.qstar/logs/last-failure.replay",
 					    target ? target->label : id, ctx->action_timeout_sec);
 				}
 				return qstar_set_error_origin(graph,
 				    target ? target->origin_file : "",
-				    target ? target->origin_line : 0, "action",
+				    target ? target->origin_line : 0, failure_kind,
 				    target ? target->label : id,
 				    "qstar: action '%s' timed out after %d seconds; replay=.qstar/logs/last-failure.replay",
 				    id, ctx->action_timeout_sec);
@@ -1440,14 +1617,19 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
 	write_action_log(action_log, argv, exit_code);
 	if (exit_code != 0) {
+		char label_buf[QSTAR_PATH_MAX];
+		const char *diag_label;
+		const char *failure_kind;
+
+		failure_kind = classify_failure_kind(kind, target, argv, "exit-code");
+		diag_label = action_owner_label(target, id, label_buf, sizeof(label_buf));
 		fprintf(ctx->out, "build_action id=%s status=fail exit=%d\n", id, exit_code);
-		if (strcmp(kind, "run") == 0)
-			write_failure_replay_detail(graph, id, toolchain, argv,
-			    "exit-code", target ? target->label : id, child_stdout_path,
-			    child_stderr_path, target ? target->run_marker : NULL,
-			    target ? target->run_marker_log : NULL);
-		else
-			write_failure_replay(graph, id, toolchain, argv);
+		write_failure_replay_detail(graph, id, toolchain, argv,
+		    failure_kind, diag_label, child_stdout_path,
+		    child_stderr_path, target ? target->run_marker : NULL,
+		    target ? target->run_marker_log : NULL);
+		emit_action_diagnostic(ctx->out, id, kind, diag_label,
+		    failure_kind, "fail", exit_code, child_stdout_path, child_stderr_path);
 		ctx->fail_count++;
 		ctx->cancelled = 1;
 		if (strcmp(kind, "run") == 0) {
@@ -1456,12 +1638,13 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			    target ? target->label : id, exit_code, child_stdout_path,
 			    child_stderr_path);
 			return qstar_set_error_origin(graph, target ? target->origin_file : "",
-			    target ? target->origin_line : 0, "exit", target ? target->label : id,
+			    target ? target->origin_line : 0, failure_kind,
+			    target ? target->label : id,
 			    "qstar: run_target '%s' failed with exit code %d; replay=.qstar/logs/last-failure.replay",
 			    target ? target->label : id, exit_code);
 		}
 		return qstar_set_error_origin(graph, target ? target->origin_file : "",
-		    target ? target->origin_line : 0, "action", target ? target->label : id,
+		    target ? target->origin_line : 0, failure_kind, diag_label,
 		    "qstar: action '%s' failed with status %d; replay=.qstar/logs/last-failure.replay",
 		    id, exit_code);
 	}
@@ -4198,10 +4381,14 @@ stage_file(struct qstar_graph *graph, struct qstar_stage_ctx *ctx, const char *s
 		return -1;
 	if (qstar_path_join(ctx->root_rel, dst_rel, dst_stage_rel,
 	    sizeof(dst_stage_rel)) < 0)
-		return qstar_set_error(graph, "qstar: stage destination path too long");
+		return qstar_set_error_origin(graph, ctx->stage->origin_file,
+		    ctx->stage->origin_line, "package-failure", ctx->stage->label,
+		    "qstar: stage destination path too long");
 	if (full_path_under_root(graph, src_rel, src_full, sizeof(src_full)) < 0 ||
 	    full_path_under_root(graph, dst_stage_rel, dst_full, sizeof(dst_full)) < 0)
-		return qstar_set_error(graph, "qstar: stage file path too long");
+		return qstar_set_error_origin(graph, ctx->stage->origin_file,
+		    ctx->stage->origin_line, "package-failure", ctx->stage->label,
+		    "qstar: stage file path too long");
 	exists = path_exists(dst_full);
 	if (exists && file_content_equal(src_full, dst_full))
 		action = "unchanged";
@@ -4216,10 +4403,14 @@ stage_file(struct qstar_graph *graph, struct qstar_stage_ctx *ctx, const char *s
 	if (ctx->options && ctx->options->dry_run)
 		return 0;
 	if (!path_exists(src_full))
-		return qstar_set_error(graph, "qstar: stage source '%s' is missing", src_rel);
+		return qstar_set_error_origin(graph, ctx->stage->origin_file,
+		    ctx->stage->origin_line, "package-failure", ctx->stage->label,
+		    "qstar: stage source '%s' is missing", src_rel);
 	if (mkdir_parent_under_root(graph, dst_stage_rel) < 0 ||
 	    copy_file_to_path(src_full, dst_full) < 0)
-		return qstar_set_error(graph, "qstar: failed to stage '%s' to '%s'",
+		return qstar_set_error_origin(graph, ctx->stage->origin_file,
+		    ctx->stage->origin_line, "package-failure", ctx->stage->label,
+		    "qstar: failed to stage '%s' to '%s'",
 		    src_rel, dst_stage_rel);
 	return 0;
 }
@@ -4264,6 +4455,16 @@ qstar_graph_stage(struct qstar_graph *graph, const char *label,
 		rc = -1;
 	if (rc == 0)
 		fputs("status ok\n", out);
+	else {
+		const char *failure_kind = graph->error_field[0] ?
+		    graph->error_field : "package-failure";
+
+		fprintf(out,
+		    "stage_result label=%s status=fail failure_kind=%s replay=.qstar/logs/last-failure.replay\n",
+		    stage->label, failure_kind);
+		if (strcmp(failure_kind, "package-failure") == 0)
+			write_stage_failure_replay(graph, stage);
+	}
 	return rc;
 }
 

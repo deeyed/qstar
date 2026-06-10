@@ -53,6 +53,8 @@ contains "$tmp/.qstar/state/last-summary.json" "\"status\":\"success\""
 contains "$tmp/.qstar/state/actions.json" "\"argv_key\":"
 contains "$tmp/.qstar/state/actions.json" "\"env_key\":"
 contains "$tmp/.qstar/state/actions.json" "\"input_key\":"
+contains "$tmp/.qstar/state/actions.json" "\"output_key\":"
+contains "$tmp/.qstar/state/actions.json" "\"external_tool_key\":"
 test -f "$tmp/compile_commands.json" || fail "missing compile_commands.json"
 contains "$tmp/compile_commands.json" "src/main.c"
 
@@ -306,7 +308,8 @@ if "$qstar" --file "$tmp/qstar.lua" --diagnostics json build //:app > "$tmp/fail
 	fail "invalid C build unexpectedly succeeded"
 fi
 contains "$tmp/fail.err" "\"schema\":\"qstar-diagnostic-v1\""
-contains "$tmp/fail.err" "\"field\":\"action\""
+contains "$tmp/fail.err" "\"field\":\"exit-code\""
+contains "$tmp/fail.out" "action_diagnostic_json"
 contains "$tmp/.qstar/state/last-summary.json" "\"status\":\"failure\""
 test -f "$tmp/.qstar/logs/last-failure.replay" || fail "missing failure replay"
 
@@ -783,8 +786,10 @@ if "$qstar" --file "$tmp/qemu/qstar.lua" build //:qemu_timeout > "$tmp/qemu-time
 	fail "qemu timeout unexpectedly succeeded"
 fi
 contains "$tmp/qemu-timeout.out" "run_target_result label=//:qemu_timeout status=timeout timeout_sec=1"
+contains "$tmp/qemu-timeout.out" "action_diagnostic_json"
+contains "$tmp/qemu-timeout.out" "\"failure_kind\":\"qemu-timeout\""
 contains "$tmp/qemu-timeout.err" "timed out after 1 seconds"
-contains "$tmp/qemu/.qstar/logs/last-failure.replay" "failure_kind=timeout"
+contains "$tmp/qemu/.qstar/logs/last-failure.replay" "failure_kind=qemu-timeout"
 
 cat > "$tmp/qstar.lua" <<'EOF'
 qstar.configure_file "cfg" {
@@ -1447,6 +1452,91 @@ contains "$tmp/project-ribon-esp-dry.out" "stage_file src=.qstar/out/___uefi_boo
 "$qstar" --file "$tmp/project-ribon/qstar.lua" --profile uefi-x64 stage //:esp > "$tmp/project-ribon-esp-stage.out" 2> "$tmp/project-ribon-esp-stage.err"
 contains "$tmp/project-ribon-esp-stage.out" "status ok"
 test -f "$tmp/project-ribon/stage/esp/EFI/BOOT/BOOTX64.EFI" || fail "ribon ESP BOOTX64.EFI missing"
+
+cp -R "$project_root/ribon-bootloader-like" "$tmp/project-ribon-link-fail"
+cat > "$tmp/project-ribon-link-fail/tools/fake-link.sh" <<'EOF'
+#!/bin/sh
+exit 23
+EOF
+chmod +x "$tmp/project-ribon-link-fail/tools/fake-link.sh"
+if "$qstar" --file "$tmp/project-ribon-link-fail/qstar.lua" --diagnostics json build //:kernel > "$tmp/project-ribon-link-fail.out" 2> "$tmp/project-ribon-link-fail.err"; then
+	fail "ribon link failure unexpectedly succeeded"
+fi
+contains "$tmp/project-ribon-link-fail.out" "action_diagnostic_json"
+contains "$tmp/project-ribon-link-fail.out" "\"failure_kind\":\"link-failure\""
+contains "$tmp/project-ribon-link-fail.err" "\"field\":\"link-failure\""
+contains "$tmp/project-ribon-link-fail/.qstar/logs/last-failure.replay" "failure_kind=link-failure"
+contains "$tmp/project-ribon-link-fail/.qstar/logs/last-failure.replay" "tools/fake-link.sh"
+"$qstar" --file "$tmp/project-ribon-link-fail/qstar.lua" last-failure > "$tmp/project-ribon-link-last.out" 2> "$tmp/project-ribon-link-last.err"
+contains "$tmp/project-ribon-link-last.out" "failure_kind=link-failure"
+"$qstar" --file "$tmp/project-ribon-link-fail/qstar.lua" replay //:kernel:link:0 > "$tmp/project-ribon-link-replay.out" 2> "$tmp/project-ribon-link-replay.err"
+contains "$tmp/project-ribon-link-replay.out" "tools/fake-link.sh"
+
+cp -R "$project_root/ribon-bootloader-like" "$tmp/project-ribon-objcopy-fail"
+"$qstar" --file "$tmp/project-ribon-objcopy-fail/qstar.lua" build //:kernel > "$tmp/project-ribon-objcopy-kernel.out" 2> "$tmp/project-ribon-objcopy-kernel.err"
+cat > "$tmp/project-ribon-objcopy-fail/tools/fake-objcopy.sh" <<'EOF'
+#!/bin/sh
+exit 42
+EOF
+chmod +x "$tmp/project-ribon-objcopy-fail/tools/fake-objcopy.sh"
+if "$qstar" --file "$tmp/project-ribon-objcopy-fail/qstar.lua" --diagnostics json build //:kernel_img > "$tmp/project-ribon-objcopy-fail.out" 2> "$tmp/project-ribon-objcopy-fail.err"; then
+	fail "ribon objcopy failure unexpectedly succeeded"
+fi
+contains "$tmp/project-ribon-objcopy-fail.out" "action_diagnostic_json"
+contains "$tmp/project-ribon-objcopy-fail.out" "\"label\":\"//:kernel_img\""
+contains "$tmp/project-ribon-objcopy-fail.out" "\"failure_kind\":\"objcopy-failure\""
+contains "$tmp/project-ribon-objcopy-fail.err" "\"field\":\"objcopy-failure\""
+contains "$tmp/project-ribon-objcopy-fail/.qstar/logs/last-failure.replay" "failure_kind=objcopy-failure"
+"$qstar" --file "$tmp/project-ribon-objcopy-fail/qstar.lua" replay //:kernel_img:generate:0 > "$tmp/project-ribon-objcopy-replay.out" 2> "$tmp/project-ribon-objcopy-replay.err"
+contains "$tmp/project-ribon-objcopy-replay.out" "tools/fake-objcopy.sh"
+
+cp -R "$project_root/ribon-bootloader-like" "$tmp/project-ribon-package-fail"
+"$qstar" --file "$tmp/project-ribon-package-fail/qstar.lua" build //:kernel > "$tmp/project-ribon-package-kernel.out" 2> "$tmp/project-ribon-package-kernel.err"
+"$qstar" --file "$tmp/project-ribon-package-fail/qstar.lua" build //:kernel_img > "$tmp/project-ribon-package-img.out" 2> "$tmp/project-ribon-package-img.err"
+printf "not-a-directory\n" > "$tmp/project-ribon-package-fail/stage"
+if "$qstar" --file "$tmp/project-ribon-package-fail/qstar.lua" --diagnostics json stage //:rpi > "$tmp/project-ribon-package-fail.out" 2> "$tmp/project-ribon-package-fail.err"; then
+	fail "ribon package failure unexpectedly succeeded"
+fi
+contains "$tmp/project-ribon-package-fail.out" "stage_result label=//:rpi status=fail failure_kind=package-failure"
+contains "$tmp/project-ribon-package-fail.err" "\"field\":\"package-failure\""
+contains "$tmp/project-ribon-package-fail/.qstar/logs/last-failure.replay" "failure_kind=package-failure"
+contains "$tmp/project-ribon-package-fail/.qstar/logs/last-failure.replay" "qstar stage //:rpi"
+"$qstar" --file "$tmp/project-ribon-package-fail/qstar.lua" last-failure > "$tmp/project-ribon-package-last.out" 2> "$tmp/project-ribon-package-last.err"
+contains "$tmp/project-ribon-package-last.out" "failure_kind=package-failure"
+
+cp -R "$project_root/ribon-bootloader-like" "$tmp/project-ribon-qemu-timeout"
+cat > "$tmp/project-ribon-qemu-timeout/tools/qemu-smoke.sh" <<'EOF'
+#!/bin/sh
+sleep 5
+EOF
+chmod +x "$tmp/project-ribon-qemu-timeout/tools/qemu-smoke.sh"
+if "$qstar" --file "$tmp/project-ribon-qemu-timeout/qstar.lua" --diagnostics json build //:qemu_smoke > "$tmp/project-ribon-qemu-timeout.out" 2> "$tmp/project-ribon-qemu-timeout.err"; then
+	fail "ribon qemu timeout unexpectedly succeeded"
+fi
+contains "$tmp/project-ribon-qemu-timeout.out" "run_target_result label=//:qemu_smoke status=timeout timeout_sec=3"
+contains "$tmp/project-ribon-qemu-timeout.out" "\"failure_kind\":\"qemu-timeout\""
+contains "$tmp/project-ribon-qemu-timeout.err" "\"field\":\"qemu-timeout\""
+contains "$tmp/project-ribon-qemu-timeout/.qstar/logs/last-failure.replay" "failure_kind=qemu-timeout"
+"$qstar" --file "$tmp/project-ribon-qemu-timeout/qstar.lua" last-failure > "$tmp/project-ribon-qemu-last.out" 2> "$tmp/project-ribon-qemu-last.err"
+contains "$tmp/project-ribon-qemu-last.out" "failure_kind=qemu-timeout"
+
+cp -R "$project_root/ribon-bootloader-like" "$tmp/project-ribon-cache-tool"
+"$qstar" --file "$tmp/project-ribon-cache-tool/qstar.lua" build //:kernel > "$tmp/project-ribon-cache-tool-kernel.out" 2> "$tmp/project-ribon-cache-tool-kernel.err"
+"$qstar" --file "$tmp/project-ribon-cache-tool/qstar.lua" build //:kernel_img > "$tmp/project-ribon-cache-tool-first.out" 2> "$tmp/project-ribon-cache-tool-first.err"
+cp "$tmp/project-ribon-cache-tool/tools/fake-objcopy.sh" "$tmp/project-ribon-cache-tool/tools/fake-objcopy-v2.sh"
+chmod +x "$tmp/project-ribon-cache-tool/tools/fake-objcopy-v2.sh"
+awk '{ gsub("llvm-objcopy=tools/fake-objcopy.sh", "llvm-objcopy=tools/fake-objcopy-v2.sh"); print }' "$tmp/project-ribon-cache-tool/Cale.toml" > "$tmp/project-ribon-cache-tool/Cale.toml.new"
+mv "$tmp/project-ribon-cache-tool/Cale.toml.new" "$tmp/project-ribon-cache-tool/Cale.toml"
+"$qstar" --file "$tmp/project-ribon-cache-tool/qstar.lua" build //:kernel_img --explain-cache > "$tmp/project-ribon-cache-tool-second.out" 2> "$tmp/project-ribon-cache-tool-second.err"
+contains "$tmp/project-ribon-cache-tool-second.out" "cache_miss id=//:kernel_img:generate:0 reason=external-tool-changed"
+
+cp -R "$project_root/ribon-bootloader-like" "$tmp/project-ribon-cache-output"
+"$qstar" --file "$tmp/project-ribon-cache-output/qstar.lua" build //:kernel > "$tmp/project-ribon-cache-output-kernel.out" 2> "$tmp/project-ribon-cache-output-kernel.err"
+"$qstar" --file "$tmp/project-ribon-cache-output/qstar.lua" build //:kernel_img > "$tmp/project-ribon-cache-output-first.out" 2> "$tmp/project-ribon-cache-output-first.err"
+awk '{ gsub("generated/kernel8.img", "generated/kernel9.img"); print }' "$tmp/project-ribon-cache-output/qstar.lua" > "$tmp/project-ribon-cache-output/qstar.lua.new"
+mv "$tmp/project-ribon-cache-output/qstar.lua.new" "$tmp/project-ribon-cache-output/qstar.lua"
+"$qstar" --file "$tmp/project-ribon-cache-output/qstar.lua" build //:kernel_img --explain-cache > "$tmp/project-ribon-cache-output-second.out" 2> "$tmp/project-ribon-cache-output-second.err"
+contains "$tmp/project-ribon-cache-output-second.out" "cache_miss id=//:kernel_img:generate:0 reason=output-changed"
 
 contains "../docs/qstar/qstar-v0-seal.md" "qstar/tests/manual/c-only"
 contains "../docs/qstar/qstar-v0-seal.md" "qstar/tests/manual/generated"
