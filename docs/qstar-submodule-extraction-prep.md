@@ -1,14 +1,13 @@
-# QStar Submodule Extraction Prep
+# QStar Standalone Extraction Status
 
-이 문서는 QStar를 독립 git repository로 분리하고, Cale repository의 `qstar/`를
-submodule pin으로 전환하기 전 마지막 정리 기준이다. Round 66 이전에는 실제
-`.gitmodules` 변경이나 path 제거를 하지 않는다.
+이 문서는 QStar가 독립 git repository로 분리된 뒤 유지해야 하는 standalone 경계를
+기록한다. Cale repository는 `qstar/`를 이 repository의 submodule pin으로 소비한다.
 
 ```txt
-status: ready-for-submodule-extraction-prep
+status: standalone-repository-extracted
 current runtime: qstar 0.3.0
 current extension: qstar-vscode 0.2.0
-actual split: deferred to next round
+actual split: completed
 ```
 
 ## Current Standalone Surface
@@ -27,22 +26,23 @@ QStar 독립 repo 후보는 다음을 자기 안에 가진다.
 - `editors/vscode/qstar`
 - `vendor/lua`
 
-`docs/`는 Cale root `docs/qstar/` mirror가 아니라 QStar standalone repository의
-문서 root로 취급한다. Cale repository의 `docs/qstar/`는 실제 submodule split 전까지
-transition mirror로 남긴다.
+`docs/`는 QStar standalone repository의 문서 root로 취급한다. Cale repository의
+`docs/qstar/`는 상세 mirror가 아니라 이 submodule 문서를 가리키는 얇은 handoff만
+유지한다.
 
-## Known Path Changes For The Split Round
+## Cale Side Conversion Contract
 
-실제 분리 라운드에서는 다음 path rewrite가 필요하다.
+Cale repository에서 QStar를 소비할 때는 다음 경계를 유지한다.
 
-- Cale `.gitmodules`: `qstar/vendor/lua` entry 제거.
-- QStar standalone `.gitmodules`: `vendor/lua` entry 추가.
-- Cale repository: `qstar/` directory를 QStar remote submodule로 교체.
+- Cale `.gitmodules`: `qstar/` entry만 둔다.
+- QStar standalone `.gitmodules`: `vendor/lua` entry를 소유한다.
+- Cale repository: `qstar/` directory를 QStar remote submodule로 둔다.
 - Cale root docs: QStar 상세 문서 대신 submodule 문서를 가리키는 얇은 handoff만 남김.
-- Local install: `make -C qstar install PREFIX=$HOME/.local` 또는 standalone repo 기준
-  `make install PREFIX=$HOME/.local`로 `~/.local/bin/qstar` 갱신.
-- VSCode extension: standalone repo에서 `npm run package:vsix` 후
-  `qstar-vscode-0.2.0.vsix` 재설치.
+- Local install: standalone repo 기준 `make install PREFIX=$HOME/.local` 또는 Cale
+  submodule 기준 `make -C qstar install PREFIX=$HOME/.local`로 `~/.local/bin/qstar`를
+  갱신한다.
+- VSCode extension: standalone repo 또는 Cale submodule의 `editors/vscode/qstar`에서
+  `npm run package:vsix` 후 `qstar-vscode-0.2.0.vsix`를 재설치한다.
 
 ## Extraction Gate
 
@@ -64,15 +64,17 @@ make vscode-extension-tests
 git diff --check
 ```
 
-## Do Not Split Yet
+## Standalone Ownership
 
-이번 prep round에서는 다음을 하지 않는다.
+QStar standalone repository가 다음을 소유한다.
 
-- Cale repository의 `qstar/` 삭제.
-- QStar remote repository 생성.
-- QStar submodule 추가.
-- Cale `Makefile`, frontend, backend, compiler driver integration 수정.
-- `cale build` 내부에서 QStar 호출.
+- QStar source, tests, samples, wiki, editor extension.
+- Lua vendor submodule and Lua license notice.
+- QStar release/version/editor packaging policy.
+- QStar build, install, lint, LSP, executor, corpus gates.
+
+Cale repository는 QStar implementation file을 mirror하지 않는다. Cale build integration이
+필요해지면 Cale side glue만 Cale repository에서 관리한다.
 
 ## Readiness Verdict
 

@@ -1,0 +1,11 @@
+.DS_Store
+build/
+.qstar/
+compile_commands.json
+*.vsix
+qstar-vscode-*.vsix
+editors/vscode/qstar/dist/
+editors/vscode/qstar/node_modules/
+editors/vscode/qstar/.qstar/
+editors/vscode/qstar/**/.qstar/
+editors/vscode/qstar/compile_commands.json

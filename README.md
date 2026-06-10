@@ -83,10 +83,9 @@ qstar.run_target "smoke" {
 
 ## Lua evaluator
 
-QStar evaluator는 현재 Cale monorepo 안에서는 `qstar/vendor/lua`에 있는 Lua
-submodule을 사용한다. 독립 repo로 분리된 뒤에는 같은 submodule이 `vendor/lua`가
-된다. tag는 `v5.4.8`에 고정되어 있으며, license text는 `LICENSE/lua.txt`에 보존한다.
-vendored source의 원출처 정보는 license/notice 정책을 따른다.
+QStar evaluator는 `vendor/lua`에 있는 Lua submodule을 사용한다. tag는 `v5.4.8`에
+고정되어 있으며, license text는 `LICENSE/lua.txt`에 보존한다. vendored source의
+원출처 정보는 license/notice 정책을 따른다.
 
 ## 주요 명령
 
