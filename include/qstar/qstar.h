@@ -81,6 +81,17 @@ struct qstar_genrule {
 	struct qstar_string_list command;
 };
 
+struct qstar_stage {
+	char *label;
+	char *name;
+	char *fragment_dir;
+	char *origin_file;
+	int origin_line;
+	char *root;
+	struct qstar_string_list srcs;
+	struct qstar_string_list dsts;
+};
+
 struct qstar_package_alias {
 	char *alias;
 	char *root;
@@ -158,6 +169,9 @@ struct qstar_graph {
 	struct qstar_genrule *genrules;
 	size_t genrule_len;
 	size_t genrule_cap;
+	struct qstar_stage *stages;
+	size_t stage_len;
+	size_t stage_cap;
 	struct qstar_lint_diagnostic *lint_diagnostics;
 	size_t lint_len;
 	size_t lint_cap;
@@ -181,6 +195,11 @@ struct qstar_install_options {
 	int dry_run;
 };
 
+struct qstar_stage_options {
+	const char *root;
+	int dry_run;
+};
+
 /** QStar graph 저장소를 빈 상태로 초기화한다. */
 void qstar_graph_init(struct qstar_graph *graph);
 
@@ -197,6 +216,10 @@ struct qstar_target *qstar_graph_add_target(struct qstar_graph *graph, const cha
 
 /** QStar graph에 generated action skeleton을 추가하고 중복 label을 막는다. */
 struct qstar_genrule *qstar_graph_add_genrule(struct qstar_graph *graph, const char *label,
+    const char *name, const char *fragment_dir, const char *origin_file, int origin_line);
+
+/** QStar graph에 copy-only staging rule을 추가하고 중복 label을 막는다. */
+struct qstar_stage *qstar_graph_add_stage(struct qstar_graph *graph, const char *label,
     const char *name, const char *fragment_dir, const char *origin_file, int origin_line);
 
 /** QStar package alias를 추가하고 중복 alias를 stable error로 막는다. */
@@ -290,6 +313,10 @@ int qstar_graph_test(struct qstar_graph *graph, const char *label, FILE *out);
 /** QStar installable artifact와 public header를 prefix 아래 배치한다. */
 int qstar_graph_install(struct qstar_graph *graph, const char *label,
     const struct qstar_install_options *options, FILE *out);
+
+/** QStar boot/package staging rule을 package-local root 아래 copy-only로 실행한다. */
+int qstar_graph_stage(struct qstar_graph *graph, const char *label,
+    const struct qstar_stage_options *options, FILE *out);
 
 /** QStar action log path 목록을 target 기준으로 출력한다. */
 int qstar_graph_log(struct qstar_graph *graph, const char *label, FILE *out);

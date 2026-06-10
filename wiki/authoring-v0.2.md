@@ -12,6 +12,7 @@ qstar.test "unit" { ... }
 qstar.custom_target "generated" { ... }
 qstar.run_target "smoke" { ... }
 qstar.configure_file "cfg" { ... }
+qstar.stage "esp" { ... }
 ```
 
 ## Executable
@@ -286,6 +287,44 @@ target에 `artifact_names = ["//:boot=BOOTAA64.EFI"]`를 줄 수 있다. Target 
 `artifact_name`과 `artifact_names`의 filename 부분은 slash 없는 basename이어야 한다.
 `EFI/BOOT/BOOTX64.EFI`처럼 ESP 안에 배치하는 작업은 install/package/staging rule에서
 처리한다.
+
+## Boot package/staging
+
+Round 55부터 boot image나 firmware directory layout은 `qstar.stage`로 표현한다.
+`qstar.stage`는 `qstar install`과 다르다. `install`은 prefix 아래 개발 산출물과 public
+header를 배치하고, `stage`는 ESP, RPi boot directory, firmware payload 같은 실행용
+layout을 copy-only로 만든다.
+
+```lua
+qstar.stage "esp" {
+  root = "stage/esp",
+  files = {
+    qstar.stage_file(qstar.target_file("//:boot"), "EFI/BOOT/BOOTX64.EFI"),
+  },
+}
+
+qstar.stage "rpi" {
+  root = "stage/rpi",
+  files = {
+    qstar.stage_file("boot/config.txt", "config.txt"),
+    qstar.stage_file(qstar.target_file("//:kernel_img"), "kernel8.img"),
+    qstar.stage_file("boot/payload.bin", "payload.bin"),
+  },
+}
+```
+
+```txt
+qstar --file qstar.lua stage //:esp --dry-run
+qstar --file qstar.lua stage //:esp
+qstar --file qstar.lua stage //:esp --root /tmp/esp   # 금지: absolute root
+qstar --file qstar.lua stage //:esp --root stage/dev-esp
+```
+
+`qstar.stage_file(src, dst)`에서 `src`는 package-relative file 또는
+`qstar.target_file("//:label")`이다. `dst`는 stage root 기준 상대 path다. Dry-run은
+실제로 복사하지 않고 `.qstar/stage/<label>/manifest.json`과
+would-create/would-update/unchanged diff를 남긴다. 실제 stage는 필요한 target 또는
+generated action을 먼저 build한 뒤 copy한다.
 
 ## Language namespace
 

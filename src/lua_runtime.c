@@ -1172,6 +1172,179 @@ qstar_lua_config_header(lua_State *L)
 	return add_config_header(L, name, 2, ctx->current_dir);
 }
 
+/** qstar.stage_file(src, dst) table에서 source token 문자열을 만든다. */
+static int
+stage_file_src_token(lua_State *L, int idx, char *dst, size_t dstlen,
+    struct qstar_graph *graph)
+{
+	const char *s, *kind;
+
+	if (idx < 0)
+		idx = lua_gettop(L) + idx + 1;
+	if (lua_isstring(L, idx)) {
+		s = lua_tostring(L, idx);
+		return snprintf(dst, dstlen, "%s", s) < (int)dstlen ? 0 :
+		    qstar_set_error(graph, "qstar: stage_file source is too long");
+	}
+	if (lua_istable(L, idx)) {
+		kind = qstar_table_kind(L, idx);
+		if (kind && strcmp(kind, "target_file") == 0 &&
+		    format_placeholder_token(L, idx, dst, dstlen) == 0)
+			return 0;
+	}
+	return qstar_set_error(graph,
+	    "qstar: qstar.stage_file source must be a string or qstar.target_file(...)");
+}
+
+/** qstar.stage files field를 stage_file edge 목록으로 읽는다. */
+static int
+read_stage_files_field(lua_State *L, int table, struct qstar_stage *stage,
+    struct qstar_graph *graph)
+{
+	char src[QSTAR_PATH_MAX];
+	const char *dst, *kind;
+	size_t i, n;
+
+	lua_getfield(L, table, "files");
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: stage '%s' requires files = { ... }",
+		    stage->label);
+	}
+	n = lua_rawlen(L, -1);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, -1, (lua_Integer)i);
+		if (!lua_istable(L, -1)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: stage '%s' files contains non-stage_file item",
+			    stage->label);
+		}
+		kind = qstar_table_kind(L, -1);
+		if (!kind || strcmp(kind, "stage_file") != 0) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: stage '%s' files contains non-stage_file item",
+			    stage->label);
+		}
+		lua_getfield(L, -1, "src");
+		if (stage_file_src_token(L, -1, src, sizeof(src), graph) < 0) {
+			lua_pop(L, 3);
+			return -1;
+		}
+		lua_pop(L, 1);
+		dst = check_string_field(L, -1, "dst");
+		if (!dst || !*dst) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: stage '%s' stage_file destination is empty",
+			    stage->label);
+		}
+		if (qstar_string_list_push(&stage->srcs, src) < 0 ||
+		    qstar_string_list_push(&stage->dsts, dst) < 0) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph, "qstar: out of memory");
+		}
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+/** qstar.stage 선언을 copy-only stage rule로 graph에 추가한다. */
+static int
+add_stage(lua_State *L, const char *name, int table_index, const char *fragment_dir)
+{
+	struct qstar_lua_context *ctx;
+	struct qstar_graph *graph;
+	struct qstar_stage *stage;
+	const char *root;
+	char label[QSTAR_PATH_MAX], rawlabel[QSTAR_PATH_MAX];
+	char origin_file[QSTAR_PATH_MAX];
+	int origin_line;
+
+	if (table_index < 0)
+		table_index = lua_gettop(L) + table_index + 1;
+	ctx = get_context(L);
+	graph = ctx->graph;
+	luaL_checktype(L, table_index, LUA_TTABLE);
+	if (!name[0])
+		return luaL_error(L, "qstar: stage name is empty");
+	if (name[0] == ':' || name[0] == '/' || name[0] == '@') {
+		if (qstar_label_canonicalize(name, ctx->current_dir, label, sizeof(label)) < 0)
+			return luaL_error(L, "qstar: invalid stage name '%s'", name);
+	} else {
+		if (snprintf(rawlabel, sizeof(rawlabel), ":%s", name) >=
+		    (int)sizeof(rawlabel) ||
+		    qstar_label_canonicalize(rawlabel, ctx->current_dir, label,
+		    sizeof(label)) < 0)
+			return luaL_error(L, "qstar: invalid stage name '%s'", name);
+	}
+	current_origin(L, origin_file, sizeof(origin_file), &origin_line);
+	stage = qstar_graph_add_stage(graph, label, name, fragment_dir, origin_file,
+	    origin_line);
+	if (!stage)
+		return luaL_error(L, "%s", graph->error);
+	root = check_string_field(L, table_index, "root");
+	if (root) {
+		free(stage->root);
+		stage->root = qstar_strdup(root);
+		if (!stage->root)
+			return luaL_error(L, "qstar: out of memory");
+	}
+	if (read_stage_files_field(L, table_index, stage, graph) < 0)
+		return luaL_error(L, "%s", graph->error);
+	return 0;
+}
+
+static int
+qstar_lua_stage_finish(lua_State *L)
+{
+	const char *name, *fragment_dir;
+
+	name = lua_tostring(L, lua_upvalueindex(1));
+	fragment_dir = lua_tostring(L, lua_upvalueindex(2));
+	return add_stage(L, name, 1, fragment_dir);
+}
+
+static int
+qstar_lua_stage(lua_State *L)
+{
+	struct qstar_lua_context *ctx;
+	const char *name;
+
+	ctx = get_context(L);
+	name = luaL_checkstring(L, 1);
+	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
+		lua_pushstring(L, name);
+		lua_pushstring(L, ctx->current_dir);
+		lua_pushcclosure(L, qstar_lua_stage_finish, 2);
+		return 1;
+	}
+	return add_stage(L, name, 2, ctx->current_dir);
+}
+
+static int
+qstar_lua_stage_file(lua_State *L)
+{
+	struct qstar_lua_context *ctx;
+	char src[QSTAR_PATH_MAX];
+	const char *dst;
+
+	ctx = get_context(L);
+	if (stage_file_src_token(L, 1, src, sizeof(src), ctx->graph) < 0)
+		return luaL_error(L, "%s", ctx->graph->error);
+	dst = luaL_checkstring(L, 2);
+	lua_newtable(L);
+	lua_pushstring(L, "stage_file");
+	lua_setfield(L, -2, "__qstar_kind");
+	lua_pushstring(L, src);
+	lua_setfield(L, -2, "src");
+	lua_pushstring(L, dst);
+	lua_setfield(L, -2, "dst");
+	return 1;
+}
+
 static int
 qstar_lua_identity_table(lua_State *L)
 {
@@ -1786,6 +1959,8 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "custom_target");
 	lua_pushcfunction(L, qstar_lua_config_header);
 	lua_setfield(L, -2, "configure_file");
+	lua_pushcfunction(L, qstar_lua_stage);
+	lua_setfield(L, -2, "stage");
 	lua_pushstring(L, "qstar.genrule removed; use qstar.custom_target");
 	lua_pushcclosure(L, qstar_lua_removed_api, 1);
 	lua_setfield(L, -2, "genrule");
@@ -1801,6 +1976,8 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "input");
 	lua_pushcfunction(L, qstar_lua_target_file);
 	lua_setfield(L, -2, "target_file");
+	lua_pushcfunction(L, qstar_lua_stage_file);
+	lua_setfield(L, -2, "stage_file");
 	lua_pushcfunction(L, qstar_lua_cli);
 	lua_setfield(L, -2, "cli");
 	lua_pushcfunction(L, qstar_lua_identity_table);

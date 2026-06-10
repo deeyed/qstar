@@ -161,6 +161,19 @@ free_genrule(struct qstar_genrule *genrule)
 	qstar_string_list_free(&genrule->command);
 }
 
+/** copy-only staging rule이 소유한 문자열과 list를 해제한다. */
+static void
+free_stage(struct qstar_stage *stage)
+{
+	free(stage->label);
+	free(stage->name);
+	free(stage->fragment_dir);
+	free(stage->origin_file);
+	free(stage->root);
+	qstar_string_list_free(&stage->srcs);
+	qstar_string_list_free(&stage->dsts);
+}
+
 /** package alias entry가 소유한 문자열을 해제한다. */
 static void
 free_package_alias(struct qstar_package_alias *pkg)
@@ -224,6 +237,8 @@ qstar_graph_free(struct qstar_graph *graph)
 		free_target(&graph->targets[i]);
 	for (i = 0; i < graph->genrule_len; i++)
 		free_genrule(&graph->genrules[i]);
+	for (i = 0; i < graph->stage_len; i++)
+		free_stage(&graph->stages[i]);
 	for (i = 0; i < graph->lint_len; i++)
 		free_lint_diagnostic(&graph->lint_diagnostics[i]);
 	for (i = 0; i < graph->package_len; i++)
@@ -232,6 +247,7 @@ qstar_graph_free(struct qstar_graph *graph)
 	free(graph->targets);
 	free(graph->packages);
 	free(graph->genrules);
+	free(graph->stages);
 	free(graph->lint_diagnostics);
 	qstar_string_list_free(&graph->evaluated_fragments);
 	memset(graph, 0, sizeof(*graph));
@@ -279,6 +295,18 @@ has_genrule(const struct qstar_graph *graph, const char *label)
 
 	for (i = 0; i < graph->genrule_len; i++) {
 		if (strcmp(graph->genrules[i].label, label) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+static int
+has_stage(const struct qstar_graph *graph, const char *label)
+{
+	size_t i;
+
+	for (i = 0; i < graph->stage_len; i++) {
+		if (strcmp(graph->stages[i].label, label) == 0)
 			return 1;
 	}
 	return 0;
@@ -386,6 +414,10 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 		qstar_set_error(graph, "qstar: label '%s' is already used by generated action", label);
 		return NULL;
 	}
+	if (has_stage(graph, label)) {
+		qstar_set_error(graph, "qstar: label '%s' is already used by stage rule", label);
+		return NULL;
+	}
 	if (graph->len == graph->cap) {
 		cap = graph->cap ? graph->cap * 2 : 8;
 		targets = realloc(graph->targets, cap * sizeof(graph->targets[0]));
@@ -437,6 +469,11 @@ qstar_graph_add_genrule(struct qstar_graph *graph, const char *label, const char
 		qstar_set_error(graph, "qstar: duplicate generated action label '%s'", label);
 		return NULL;
 	}
+	if (has_stage(graph, label)) {
+		qstar_set_error(graph,
+		    "qstar: generated action label '%s' conflicts with stage rule", label);
+		return NULL;
+	}
 	if (graph->genrule_len == graph->genrule_cap) {
 		cap = graph->genrule_cap ? graph->genrule_cap * 2 : 4;
 		genrules = realloc(graph->genrules, cap * sizeof(graph->genrules[0]));
@@ -463,6 +500,53 @@ qstar_graph_add_genrule(struct qstar_graph *graph, const char *label, const char
 	return genrule;
 }
 
+/** QStar graph에 copy-only staging rule을 추가하고 중복 label을 막는다. */
+struct qstar_stage *
+qstar_graph_add_stage(struct qstar_graph *graph, const char *label, const char *name,
+    const char *fragment_dir, const char *origin_file, int origin_line)
+{
+	struct qstar_stage *stages, *stage;
+	size_t cap;
+
+	if (has_target(graph, label)) {
+		qstar_set_error(graph, "qstar: stage label '%s' conflicts with target", label);
+		return NULL;
+	}
+	if (has_genrule(graph, label)) {
+		qstar_set_error(graph,
+		    "qstar: stage label '%s' conflicts with generated action", label);
+		return NULL;
+	}
+	if (has_stage(graph, label)) {
+		qstar_set_error(graph, "qstar: duplicate stage label '%s'", label);
+		return NULL;
+	}
+	if (graph->stage_len == graph->stage_cap) {
+		cap = graph->stage_cap ? graph->stage_cap * 2 : 4;
+		stages = realloc(graph->stages, cap * sizeof(graph->stages[0]));
+		if (!stages) {
+			qstar_set_error(graph, "qstar: out of memory");
+			return NULL;
+		}
+		graph->stages = stages;
+		graph->stage_cap = cap;
+	}
+	stage = &graph->stages[graph->stage_len++];
+	memset(stage, 0, sizeof(*stage));
+	stage->label = qstar_strdup(label);
+	stage->name = qstar_strdup(name);
+	stage->fragment_dir = qstar_strdup(fragment_dir ? fragment_dir : "");
+	stage->origin_file = qstar_strdup(origin_file ? origin_file : "");
+	stage->origin_line = origin_line;
+	stage->root = qstar_strdup("");
+	if (!stage->label || !stage->name || !stage->fragment_dir ||
+	    !stage->origin_file || !stage->root) {
+		qstar_set_error(graph, "qstar: out of memory");
+		return NULL;
+	}
+	return stage;
+}
+
 /** generated action label로 action을 찾는다. */
 const struct qstar_genrule *
 qstar_graph_find_genrule(const struct qstar_graph *graph, const char *label)
@@ -472,6 +556,19 @@ qstar_graph_find_genrule(const struct qstar_graph *graph, const char *label)
 	for (i = 0; i < graph->genrule_len; i++) {
 		if (strcmp(graph->genrules[i].label, label) == 0)
 			return &graph->genrules[i];
+	}
+	return NULL;
+}
+
+/** stage/package rule label로 staging rule을 찾는다. */
+const struct qstar_stage *
+qstar_graph_find_stage(const struct qstar_graph *graph, const char *label)
+{
+	size_t i;
+
+	for (i = 0; i < graph->stage_len; i++) {
+		if (strcmp(graph->stages[i].label, label) == 0)
+			return &graph->stages[i];
 	}
 	return NULL;
 }
@@ -796,6 +893,22 @@ dump_genrule(const struct qstar_genrule *genrule, FILE *out)
 	fputc('\n', out);
 }
 
+/** copy-only stage rule을 Graph IR dump 형식으로 출력한다. */
+static void
+dump_stage(const struct qstar_stage *stage, FILE *out)
+{
+	size_t i;
+
+	fprintf(out, "stage %s\n", stage->label);
+	fprintf(out, "  origin file=%s line=%d\n",
+	    stage->origin_file && *stage->origin_file ? stage->origin_file : "<unknown>",
+	    stage->origin_line);
+	fprintf(out, "  root %s\n", stage->root && *stage->root ? stage->root : "<default>");
+	for (i = 0; i < stage->srcs.len; i++)
+		fprintf(out, "  stage_file src=%s dst=%s\n", stage->srcs.items[i],
+		    i < stage->dsts.len ? stage->dsts.items[i] : "<missing>");
+}
+
 /** QStar Graph IR를 deterministic explain text로 출력한다. */
 int
 qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
@@ -847,6 +960,8 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 	dump_package_aliases(out, graph);
 	for (i = 0; i < graph->genrule_len; i++)
 		dump_genrule(&graph->genrules[i], out);
+	for (i = 0; i < graph->stage_len; i++)
+		dump_stage(&graph->stages[i], out);
 	found = label == NULL || *label == '\0';
 	for (i = 0; i < n; i++) {
 		if (label && *label && strcmp(copy[i].label, label) != 0)
@@ -894,6 +1009,24 @@ sort_genrule_ptrs(const struct qstar_genrule **genrules, size_t n)
 	}
 }
 
+/** stage pointer list를 canonical label 순서로 정렬한다. */
+static void
+sort_stage_ptrs(const struct qstar_stage **stages, size_t n)
+{
+	size_t i, j;
+	const struct qstar_stage *v;
+
+	for (i = 1; i < n; i++) {
+		v = stages[i];
+		j = i;
+		while (j > 0 && strcmp(stages[j - 1]->label, v->label) > 0) {
+			stages[j] = stages[j - 1];
+			j--;
+		}
+		stages[j] = v;
+	}
+}
+
 /** target label에 대응하는 target을 찾는다. */
 static const struct qstar_target *
 find_target(const struct qstar_graph *graph, const char *label)
@@ -912,14 +1045,22 @@ int
 qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 {
 	const struct qstar_target **targets;
+	const struct qstar_stage **stages;
 	size_t i;
 
 	targets = malloc((graph->len ? graph->len : 1) * sizeof(targets[0]));
-	if (!targets)
+	stages = malloc((graph->stage_len ? graph->stage_len : 1) * sizeof(stages[0]));
+	if (!targets || !stages) {
+		free(targets);
+		free(stages);
 		return -1;
+	}
 	for (i = 0; i < graph->len; i++)
 		targets[i] = &graph->targets[i];
+	for (i = 0; i < graph->stage_len; i++)
+		stages[i] = &graph->stages[i];
 	sort_target_ptrs(targets, graph->len);
+	sort_stage_ptrs(stages, graph->stage_len);
 	fputs("qstar targets v1\n", out);
 	fprintf(out, "target-count %zu\n", graph->len);
 	for (i = 0; i < graph->len; i++)
@@ -928,7 +1069,15 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 		    targets[i]->origin_file && *targets[i]->origin_file ?
 		    targets[i]->origin_file : "<unknown>",
 		    targets[i]->origin_line);
+	fprintf(out, "stage-count %zu\n", graph->stage_len);
+	for (i = 0; i < graph->stage_len; i++)
+		fprintf(out, "stage %s root=%s origin=%s:%d\n", stages[i]->label,
+		    stages[i]->root && *stages[i]->root ? stages[i]->root : "<default>",
+		    stages[i]->origin_file && *stages[i]->origin_file ?
+		    stages[i]->origin_file : "<unknown>",
+		    stages[i]->origin_line);
 	free(targets);
+	free(stages);
 	return 0;
 }
 
@@ -1030,31 +1179,69 @@ dump_genrule_json(FILE *out, const struct qstar_genrule *genrule)
 	fputc('}', out);
 }
 
+/** stage rule 하나를 machine-readable JSON record로 출력한다. */
+static void
+dump_stage_json(FILE *out, const struct qstar_stage *stage)
+{
+	size_t i;
+
+	fputs("{\"label\":", out);
+	dump_json_string(out, stage->label);
+	fputs(",\"name\":", out);
+	dump_json_string(out, stage->name);
+	fputs(",\"origin_file\":", out);
+	dump_json_string(out, stage->origin_file && *stage->origin_file ?
+	    stage->origin_file : "<unknown>");
+	fprintf(out, ",\"origin_line\":%d", stage->origin_line);
+	fputs(",\"fragment_dir\":", out);
+	dump_json_string(out, stage->fragment_dir);
+	fputs(",\"root\":", out);
+	dump_json_string(out, stage->root && *stage->root ? stage->root : "");
+	fputs(",\"files\":[", out);
+	for (i = 0; i < stage->srcs.len; i++) {
+		if (i)
+			fputc(',', out);
+		fputs("{\"src\":", out);
+		dump_json_string(out, stage->srcs.items[i]);
+		fputs(",\"dst\":", out);
+		dump_json_string(out, i < stage->dsts.len ? stage->dsts.items[i] : "");
+		fputc('}', out);
+	}
+	fputs("]}", out);
+}
+
 /** QStar target/generated action 목록을 machine-readable JSON으로 출력한다. */
 int
 qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 {
 	const struct qstar_target **targets;
 	const struct qstar_genrule **genrules;
+	const struct qstar_stage **stages;
 	size_t i;
 
 	targets = malloc((graph->len ? graph->len : 1) * sizeof(targets[0]));
 	genrules = malloc((graph->genrule_len ? graph->genrule_len : 1) * sizeof(genrules[0]));
-	if (!targets || !genrules) {
+	stages = malloc((graph->stage_len ? graph->stage_len : 1) * sizeof(stages[0]));
+	if (!targets || !genrules || !stages) {
 		free(targets);
 		free(genrules);
+		free(stages);
 		return -1;
 	}
 	for (i = 0; i < graph->len; i++)
 		targets[i] = &graph->targets[i];
 	for (i = 0; i < graph->genrule_len; i++)
 		genrules[i] = &graph->genrules[i];
+	for (i = 0; i < graph->stage_len; i++)
+		stages[i] = &graph->stages[i];
 	sort_target_ptrs(targets, graph->len);
 	sort_genrule_ptrs(genrules, graph->genrule_len);
+	sort_stage_ptrs(stages, graph->stage_len);
 	fputs("{\"schema\":\"qstar-targets-v1\",\"package_root\":", out);
 	dump_json_string(out, graph->package_root ? graph->package_root : ".");
-	fprintf(out, ",\"target_count\":%zu,\"generated_action_count\":%zu",
-	    graph->len, graph->genrule_len);
+	fprintf(out,
+	    ",\"target_count\":%zu,\"generated_action_count\":%zu,\"stage_count\":%zu",
+	    graph->len, graph->genrule_len, graph->stage_len);
 	fputs(",\"targets\":[", out);
 	for (i = 0; i < graph->len; i++) {
 		if (i)
@@ -1067,9 +1254,16 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 			fputc(',', out);
 		dump_genrule_json(out, genrules[i]);
 	}
+	fputs("],\"stages\":[", out);
+	for (i = 0; i < graph->stage_len; i++) {
+		if (i)
+			fputc(',', out);
+		dump_stage_json(out, stages[i]);
+	}
 	fputs("]}\n", out);
 	free(targets);
 	free(genrules);
+	free(stages);
 	return 0;
 }
 

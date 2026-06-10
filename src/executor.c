@@ -3751,6 +3751,262 @@ qstar_graph_install(struct qstar_graph *graph, const char *label,
 	return rc;
 }
 
+struct qstar_stage_ctx {
+	const struct qstar_stage_options *options;
+	const struct qstar_stage *stage;
+	FILE *out;
+	FILE *manifest;
+	char manifest_path[QSTAR_PATH_MAX];
+	char manifest_tmp[QSTAR_PATH_MAX];
+	char root_rel[QSTAR_PATH_MAX];
+	size_t manifest_len;
+};
+
+/** stage source token에서 target_file label을 추출한다. */
+static int
+stage_target_file_label(const char *src, char *label, size_t labellen)
+{
+	const char *prefix = "<qstar-target-file:";
+	size_t n, payload;
+
+	if (strncmp(src, prefix, strlen(prefix)) != 0)
+		return 0;
+	n = strlen(src);
+	if (n <= strlen(prefix) + 1 || src[n - 1] != '>')
+		return -1;
+	payload = n - strlen(prefix) - 1;
+	if (payload + 1 > labellen)
+		return -1;
+	memcpy(label, src + strlen(prefix), payload);
+	label[payload] = '\0';
+	return 1;
+}
+
+/** 두 파일이 byte-for-byte 동일한지 확인한다. */
+static int
+file_content_equal(const char *a, const char *b)
+{
+	FILE *fa, *fb;
+	unsigned char ba[8192], bb[8192];
+	size_t na, nb;
+
+	fa = fopen(a, "rb");
+	if (!fa)
+		return 0;
+	fb = fopen(b, "rb");
+	if (!fb) {
+		fclose(fa);
+		return 0;
+	}
+	do {
+		na = fread(ba, 1, sizeof(ba), fa);
+		nb = fread(bb, 1, sizeof(bb), fb);
+		if (na != nb || memcmp(ba, bb, na) != 0) {
+			fclose(fa);
+			fclose(fb);
+			return 0;
+		}
+	} while (na > 0);
+	fclose(fa);
+	fclose(fb);
+	return 1;
+}
+
+/** stage manifest v1을 쓰기 시작한다. */
+static int
+stage_manifest_begin(struct qstar_graph *graph, struct qstar_stage_ctx *ctx,
+    const struct qstar_stage *stage, const struct qstar_stage_options *options, FILE *out)
+{
+	char dir[QSTAR_PATH_MAX], owner[QSTAR_PATH_MAX];
+
+	memset(ctx, 0, sizeof(*ctx));
+	ctx->options = options;
+	ctx->stage = stage;
+	ctx->out = out;
+	if (options && options->root && *options->root)
+		snprintf(ctx->root_rel, sizeof(ctx->root_rel), "%s", options->root);
+	else
+		snprintf(ctx->root_rel, sizeof(ctx->root_rel), "%s", stage->root);
+	qstar_mangle_label(stage->label, owner, sizeof(owner));
+	if (snprintf(dir, sizeof(dir), ".qstar/stage/%s", owner) >= (int)sizeof(dir) ||
+	    mkdir_parent_under_root(graph, ".qstar/stage/.keep") < 0 ||
+	    full_path_under_root(graph, dir, ctx->manifest_path, sizeof(ctx->manifest_path)) < 0 ||
+	    mkdir_p(ctx->manifest_path) < 0)
+		return qstar_set_error(graph, "qstar: could not create stage manifest dir");
+	if (snprintf(dir, sizeof(dir), ".qstar/stage/%s/manifest.json", owner) >=
+	    (int)sizeof(dir) ||
+	    full_path_under_root(graph, dir, ctx->manifest_path,
+	    sizeof(ctx->manifest_path)) < 0)
+		return qstar_set_error(graph, "qstar: stage manifest path too long");
+	snprintf(ctx->manifest_tmp, sizeof(ctx->manifest_tmp), "%s.tmp",
+	    ctx->manifest_path);
+	ctx->manifest = fopen(ctx->manifest_tmp, "w");
+	if (!ctx->manifest)
+		return qstar_set_error(graph, "qstar: could not write stage manifest");
+	fputs("{\n  \"schema\":\"qstar-stage-manifest-v1\",\n  \"label\":", ctx->manifest);
+	json_string(ctx->manifest, stage->label);
+	fputs(",\n  \"root\":", ctx->manifest);
+	json_string(ctx->manifest, ctx->root_rel);
+	fputs(",\n  \"mode\":", ctx->manifest);
+	json_string(ctx->manifest, options && options->dry_run ? "dry-run" : "copy");
+	fputs(",\n  \"entries\":[\n", ctx->manifest);
+	fprintf(out, "stage_manifest .qstar/stage/%s/manifest.json\n", owner);
+	return 0;
+}
+
+/** stage manifest에 copy/diff record 하나를 추가한다. */
+static void
+stage_manifest_record(struct qstar_stage_ctx *ctx, const char *src_rel,
+    const char *dst_rel, const char *action)
+{
+	if (!ctx->manifest)
+		return;
+	if (ctx->manifest_len)
+		fputs(",\n", ctx->manifest);
+	fputs("    {\"src\":", ctx->manifest);
+	json_string(ctx->manifest, src_rel);
+	fputs(",\"dst\":", ctx->manifest);
+	json_string(ctx->manifest, dst_rel);
+	fputs(",\"action\":", ctx->manifest);
+	json_string(ctx->manifest, action);
+	fputs("}", ctx->manifest);
+	ctx->manifest_len++;
+}
+
+/** stage manifest v1을 완료한다. */
+static int
+stage_manifest_end(struct qstar_graph *graph, struct qstar_stage_ctx *ctx, int ok)
+{
+	if (!ctx->manifest)
+		return 0;
+	fputs("\n  ],\n  \"status\":", ctx->manifest);
+	json_string(ctx->manifest, ok ? "ok" : "fail");
+	fputs("\n}\n", ctx->manifest);
+	if (fclose(ctx->manifest) != 0) {
+		ctx->manifest = NULL;
+		return qstar_set_error(graph, "qstar: could not close stage manifest");
+	}
+	ctx->manifest = NULL;
+	if (rename(ctx->manifest_tmp, ctx->manifest_path) < 0)
+		return qstar_set_error(graph, "qstar: could not commit stage manifest");
+	return 0;
+}
+
+/** stage source가 build artifact이면 dry-run이 아닌 경우 먼저 빌드한다. */
+static int
+stage_build_source_dependency(struct qstar_graph *graph, const char *src, int dry_run,
+    FILE *out)
+{
+	const struct qstar_genrule *owner;
+	char label[QSTAR_PATH_MAX];
+	int rc;
+
+	rc = stage_target_file_label(src, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: malformed stage target_file source");
+	if (dry_run)
+		return 0;
+	if (rc == 1)
+		return qstar_graph_build(graph, label, out);
+	owner = qstar_graph_find_output_owner(graph, src);
+	if (owner)
+		return qstar_graph_build(graph, owner->label, out);
+	return 0;
+}
+
+/** stage source token을 package-relative source path로 해석한다. */
+static int
+stage_resolve_src(struct qstar_graph *graph, const char *src, char *dst, size_t dstlen)
+{
+	return resolve_target_file_token(graph, src, dst, dstlen);
+}
+
+/** single stage copy 또는 dry-run diff line을 수행한다. */
+static int
+stage_file(struct qstar_graph *graph, struct qstar_stage_ctx *ctx, const char *src_token,
+    const char *dst_rel)
+{
+	char src_rel[QSTAR_PATH_MAX], src_full[QSTAR_PATH_MAX], dst_stage_rel[QSTAR_PATH_MAX];
+	char dst_full[QSTAR_PATH_MAX];
+	const char *action;
+	int exists;
+
+	if (stage_build_source_dependency(graph, src_token,
+	    ctx->options && ctx->options->dry_run, ctx->out) < 0)
+		return -1;
+	if (stage_resolve_src(graph, src_token, src_rel, sizeof(src_rel)) < 0)
+		return -1;
+	if (qstar_path_join(ctx->root_rel, dst_rel, dst_stage_rel,
+	    sizeof(dst_stage_rel)) < 0)
+		return qstar_set_error(graph, "qstar: stage destination path too long");
+	if (full_path_under_root(graph, src_rel, src_full, sizeof(src_full)) < 0 ||
+	    full_path_under_root(graph, dst_stage_rel, dst_full, sizeof(dst_full)) < 0)
+		return qstar_set_error(graph, "qstar: stage file path too long");
+	exists = path_exists(dst_full);
+	if (exists && file_content_equal(src_full, dst_full))
+		action = "unchanged";
+	else if (exists)
+		action = "would-update";
+	else
+		action = "would-create";
+	fprintf(ctx->out, "stage_file src=%s dst=%s mode=%s\n", src_rel, dst_stage_rel,
+	    ctx->options && ctx->options->dry_run ? "dry-run" : "copy");
+	fprintf(ctx->out, "stage_diff dst=%s action=%s\n", dst_stage_rel, action);
+	stage_manifest_record(ctx, src_rel, dst_stage_rel, action);
+	if (ctx->options && ctx->options->dry_run)
+		return 0;
+	if (!path_exists(src_full))
+		return qstar_set_error(graph, "qstar: stage source '%s' is missing", src_rel);
+	if (mkdir_parent_under_root(graph, dst_stage_rel) < 0 ||
+	    copy_file_to_path(src_full, dst_full) < 0)
+		return qstar_set_error(graph, "qstar: failed to stage '%s' to '%s'",
+		    src_rel, dst_stage_rel);
+	return 0;
+}
+
+/** QStar boot/package staging rule을 package-local root 아래 copy-only로 실행한다. */
+int
+qstar_graph_stage(struct qstar_graph *graph, const char *label,
+    const struct qstar_stage_options *options, FILE *out)
+{
+	const struct qstar_stage *stage;
+	struct qstar_stage_ctx ctx;
+	size_t i;
+	int rc;
+
+	if (!label || !*label)
+		return qstar_set_error(graph, "qstar: stage requires a stage label");
+	stage = qstar_graph_find_stage(graph, label);
+	if (!stage)
+		return qstar_set_error(graph, "qstar: unknown stage label '%s'", label);
+	if (options && options->root && *options->root &&
+	    !qstar_path_is_package_relative(options->root))
+		return qstar_set_error_origin(graph, stage->origin_file, stage->origin_line,
+		    "root", stage->label,
+		    "qstar: stage override root '%s' must be package-relative",
+		    options->root);
+	fputs("qstar stage v1\n", out);
+	fprintf(out, "root %s\n", stage->label);
+	fprintf(out, "stage-root %s\n", options && options->root && *options->root ?
+	    options->root : stage->root);
+	fprintf(out, "mode %s\n", options && options->dry_run ? "dry-run" : "copy");
+	if (stage_manifest_begin(graph, &ctx, stage, options, out) < 0)
+		return -1;
+	rc = 0;
+	for (i = 0; i < stage->srcs.len; i++) {
+		if (stage_file(graph, &ctx, stage->srcs.items[i],
+		    stage->dsts.items[i]) < 0) {
+			rc = -1;
+			break;
+		}
+	}
+	if (stage_manifest_end(graph, &ctx, rc == 0) < 0 && rc == 0)
+		rc = -1;
+	if (rc == 0)
+		fputs("status ok\n", out);
+	return rc;
+}
+
 /** qsort용 string pointer compare다. */
 static int
 cmp_string_ptr(const void *a, const void *b)

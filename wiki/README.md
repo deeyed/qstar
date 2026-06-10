@@ -7,7 +7,7 @@ QStar는 CMake처럼 build graph와 command 실행을 맡는 도구다. C, C++, 
 특수하게 더 잘 지원하지만, C/C++/Cale 의미론을 직접 파싱하는 compiler는 아니다.
 HCL도 QStar 입장에서는 header path일 뿐이며, HCL 해석은 Cale/HCL checker가 맡는다.
 UEFI/RPi/Ribon 같은 특수 artifact 흐름도 dedicated keyword가 아니라
-`qstar.custom_target`, `qstar.cli`, `qstar.run_target` 조합으로 표현한다.
+`qstar.custom_target`, `qstar.cli`, `qstar.stage`, `qstar.run_target` 조합으로 표현한다.
 
 ## 빠른 시작
 
@@ -47,7 +47,7 @@ qstar/build/bin/qstar --file qstar.lua build //:app
 ## 현재 한계
 
 QStar v0.2는 독립 build system으로 사용할 수 있는 개발용 surface다. C/C++ compile,
-staticlib archive, exe/test link, generated action, config header, install/test,
+staticlib archive, exe/test link, generated action, config header, install/stage/test,
 incremental rebuild, compile database, VSCode/LSP authoring 지원을 제공한다.
 
 아직 remote package fetch, Ninja generator, full sharedlib executor, standalone assembler

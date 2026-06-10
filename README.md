@@ -29,6 +29,7 @@ qstar.test "unit" { ... }
 qstar.custom_target "generated" { ... }
 qstar.run_target "smoke" { ... }
 qstar.configure_file "cfg" { ... }
+qstar.stage "esp" { ... }
 ```
 
 `qstar.exe`, `qstar.genrule`, `qstar.config_header`, `qstar.write_config_header`는
@@ -96,6 +97,8 @@ qstar --file qstar.lua test //:unit
 qstar --file qstar.lua test //...
 qstar --file qstar.lua install //:app --prefix /tmp/qstar-install --dry-run
 qstar --file qstar.lua install //:app --prefix /tmp/qstar-install
+qstar --file qstar.lua stage //:esp --dry-run
+qstar --file qstar.lua stage //:esp
 qstar --file qstar.lua build //:app --explain-cache
 qstar --file qstar.lua why-rebuild //:app
 qstar --file qstar.lua log //:app
@@ -252,7 +255,7 @@ qstar.executable "app" {
 }
 ```
 
-## test와 install
+## test, install, stage
 
 `qstar.test`는 test executable target이다. `qstar test //:unit`은 먼저 해당 target을
 build한 뒤 `.qstar/logs/<target>.test.stdout`/`.stderr`에 출력을 저장하고 실행
@@ -266,6 +269,12 @@ entry, dry-run/copy mode, destination path가 기록된다. Generated public hea
 생성 action output이면 install 대상이 될 수 있다. CMake config 같은 export file은
 아직 만들지 않고 manifest에 deferred skeleton으로만 표시한다.
 
+Round 55부터 `qstar.stage`는 install과 별개인 copy-only staging/package rule이다.
+`install`은 prefix 아래 개발 산출물과 public header를 놓는 흐름이고, `stage`는 boot
+image나 firmware package처럼 정해진 directory layout을 만드는 흐름이다. `qstar stage`
+는 `.qstar/stage/<label>/manifest.json`을 남기며, `--dry-run`은 copy하지 않고
+would-create/would-update/unchanged diff만 출력한다.
+
 ```lua
 qstar.test "unit" {
   sources = {"tests/unit.c"},
@@ -274,7 +283,27 @@ qstar.test "unit" {
 qstar.staticlib "core" {
   sources = {"src/core.c"},
   public_headers = {"include/core.h"},
-  public_include_dirs = {"include"},
+  lang = {
+    c = {
+      public_include_dirs = {"include"},
+    },
+  },
+}
+
+qstar.stage "esp" {
+  root = "stage/esp",
+  files = {
+    qstar.stage_file(qstar.target_file("//:boot"), "EFI/BOOT/BOOTX64.EFI"),
+  },
+}
+
+qstar.stage "rpi" {
+  root = "stage/rpi",
+  files = {
+    qstar.stage_file("boot/config.txt", "config.txt"),
+    qstar.stage_file(qstar.target_file("//:kernel_img"), "kernel8.img"),
+    qstar.stage_file("boot/payload.bin", "payload.bin"),
+  },
 }
 ```
 
@@ -406,7 +435,7 @@ output option을 `/out:<artifact>`로 렌더링하고, UEFI에 필요한
 그대로 둔다. Profile `artifact_names = ["//:boot=BOOTX64.EFI"]`는 target label/name에
 따라 산출물 파일명을 바꾸며, target-local `artifact_name = "BOOTLOCAL.EFI"`가 있으면
 profile mapping보다 우선한다. `artifact_name`은 파일명 basename만 허용한다. ESP layout
-같은 directory staging은 별도 package/staging rule에서 다룬다.
+같은 directory staging은 Round 55 `qstar.stage`에서 처리한다.
 
 Command rendering은 shell string이 아니라 argv-vector가 canonical이다. Explain/dry-run
 dump는 argv item을 quoting하고 deterministic `digest=`를 붙인다. 긴 command에는

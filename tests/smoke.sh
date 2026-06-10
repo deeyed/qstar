@@ -2440,4 +2440,263 @@ if "$qstar" --file "$tmp/uefi/qstar.lua" check //:boot > "$tmp/uefi-bad-profile-
 fi
 contains "$tmp/uefi-bad-profile-name.err" "profile artifact_names entry '//:boot=EFI/BOOT/BOOTX64.EFI' must be LABEL=FILENAME"
 
+mkdir -p "$tmp/stagepkg/src" "$tmp/stagepkg/tools" "$tmp/stagepkg/fixtures" "$tmp/stagepkg/boot"
+cat > "$tmp/stagepkg/tools/fake-clang.sh" <<'EOF'
+#!/bin/sh
+set -eu
+out=
+dep=
+src=
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		-o)
+			shift
+			out=$1
+			;;
+		-MF)
+			shift
+			dep=$1
+			;;
+		-c)
+			shift
+			src=$1
+			;;
+	esac
+	shift || break
+done
+test -n "$out"
+mkdir -p "$(dirname "$out")"
+printf "boot-object\n" > "$out"
+if [ -n "$dep" ]; then
+	mkdir -p "$(dirname "$dep")"
+	printf "%s: %s\n" "$out" "$src" > "$dep"
+fi
+EOF
+cat > "$tmp/stagepkg/tools/fake-link.sh" <<'EOF'
+#!/bin/sh
+set -eu
+out=
+for arg in "$@"; do
+	case "$arg" in
+		-o)
+			shift
+			out=$1
+			;;
+		/out:*)
+			out=${arg#/out:}
+			;;
+	esac
+	shift || break
+done
+test -n "$out"
+mkdir -p "$(dirname "$out")"
+printf "MZ\nBOOT\n" > "$out"
+EOF
+cat > "$tmp/stagepkg/tools/fake-objcopy.sh" <<'EOF'
+#!/bin/sh
+set -eu
+format=
+input=
+output=
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		-O)
+			shift
+			format=$1
+			;;
+		*)
+			if [ -z "$input" ]; then
+				input=$1
+			else
+				output=$1
+			fi
+			;;
+	esac
+	shift || break
+done
+test "$format" = binary
+test -n "$input"
+test -n "$output"
+mkdir -p "$(dirname "$output")"
+cp "$input" "$output"
+EOF
+chmod +x "$tmp/stagepkg/tools/fake-clang.sh" "$tmp/stagepkg/tools/fake-link.sh" "$tmp/stagepkg/tools/fake-objcopy.sh"
+cat > "$tmp/stagepkg/src/efi_main.c" <<'EOF'
+int efi_main(void *image, void *system_table) {
+	(void)image;
+	(void)system_table;
+	return 0;
+}
+EOF
+cat > "$tmp/stagepkg/fixtures/kernel.elf" <<'EOF'
+ELF-RPI
+payload
+EOF
+cat > "$tmp/stagepkg/boot/config.txt" <<'EOF'
+kernel=kernel8.img
+EOF
+cat > "$tmp/stagepkg/boot/payload.bin" <<'EOF'
+payload
+EOF
+cat > "$tmp/stagepkg/Cale.toml" <<'EOF'
+profile = "boot"
+
+[profile.boot]
+toolchain = "clang"
+target = "x86_64-pc-windows-msvc"
+cc = "tools/fake-clang.sh"
+linker = "tools/fake-link.sh"
+response_style = "msvc"
+tool_overrides = ["llvm-objcopy=tools/fake-objcopy.sh"]
+artifact_names = ["//:boot=BOOTX64.EFI"]
+EOF
+cat > "$tmp/stagepkg/qstar.lua" <<'EOF'
+qstar.executable "boot" {
+  sources = {"src/efi_main.c"},
+  link_options = {
+    "/subsystem:efi_application",
+    "/entry:efi_main",
+    "/nodefaultlib",
+  },
+}
+
+qstar.custom_target "kernel_img" {
+  inputs = {"fixtures/kernel.elf"},
+  outputs = {
+    qstar.output("generated/kernel8.img", {
+      group = "images",
+      format = "raw-binary",
+      address = "0x80000",
+      layout = "rpi5-kernel8",
+    }),
+  },
+  command = qstar.cli {
+    "llvm-objcopy",
+    "-O",
+    "binary",
+    qstar.input(0),
+    qstar.output(0),
+  },
+}
+
+qstar.stage "esp" {
+  root = "stage/esp",
+  files = {
+    qstar.stage_file(qstar.target_file("//:boot"), "EFI/BOOT/BOOTX64.EFI"),
+  },
+}
+
+qstar.stage "rpi" {
+  root = "stage/rpi",
+  files = {
+    qstar.stage_file("boot/config.txt", "config.txt"),
+    qstar.stage_file(qstar.target_file("//:kernel_img"), "kernel8.img"),
+    qstar.stage_file("boot/payload.bin", "payload.bin"),
+  },
+}
+EOF
+"$qstar" --file "$tmp/stagepkg/qstar.lua" check //:boot > "$tmp/stagepkg-check.out" 2> "$tmp/stagepkg-check.err"
+contains "$tmp/stagepkg-check.out" "stage-count 2"
+"$qstar" --file "$tmp/stagepkg/qstar.lua" list-targets --format json > "$tmp/stagepkg-targets-json.out" 2> "$tmp/stagepkg-targets-json.err"
+contains "$tmp/stagepkg-targets-json.out" "\"stage_count\":2"
+contains "$tmp/stagepkg-targets-json.out" "\"label\":\"//:esp\""
+contains "$tmp/stagepkg-targets-json.out" "\"root\":\"stage/esp\""
+"$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:esp --dry-run > "$tmp/stagepkg-esp-dry.out" 2> "$tmp/stagepkg-esp-dry.err"
+contains "$tmp/stagepkg-esp-dry.out" "qstar stage v1"
+contains "$tmp/stagepkg-esp-dry.out" "mode dry-run"
+contains "$tmp/stagepkg-esp-dry.out" "stage_file src=.qstar/out/___boot/BOOTX64.EFI dst=stage/esp/EFI/BOOT/BOOTX64.EFI mode=dry-run"
+contains "$tmp/stagepkg-esp-dry.out" "stage_diff dst=stage/esp/EFI/BOOT/BOOTX64.EFI action=would-create"
+contains "$tmp/stagepkg/.qstar/stage/___esp/manifest.json" "\"schema\":\"qstar-stage-manifest-v1\""
+contains "$tmp/stagepkg/.qstar/stage/___esp/manifest.json" "\"mode\":\"dry-run\""
+if [ -f "$tmp/stagepkg/stage/esp/EFI/BOOT/BOOTX64.EFI" ]; then
+	fail "stage dry-run unexpectedly copied ESP artifact"
+fi
+"$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:esp > "$tmp/stagepkg-esp-stage.out" 2> "$tmp/stagepkg-esp-stage.err"
+contains "$tmp/stagepkg-esp-stage.out" "qstar build v2"
+contains "$tmp/stagepkg-esp-stage.out" "stage_diff dst=stage/esp/EFI/BOOT/BOOTX64.EFI action=would-create"
+contains "$tmp/stagepkg-esp-stage.out" "status ok"
+test -f "$tmp/stagepkg/stage/esp/EFI/BOOT/BOOTX64.EFI" || fail "missing staged ESP BOOTX64.EFI"
+contains "$tmp/stagepkg/.qstar/stage/___esp/manifest.json" "\"mode\":\"copy\""
+"$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:esp --dry-run > "$tmp/stagepkg-esp-dry2.out" 2> "$tmp/stagepkg-esp-dry2.err"
+contains "$tmp/stagepkg-esp-dry2.out" "stage_diff dst=stage/esp/EFI/BOOT/BOOTX64.EFI action=unchanged"
+"$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:rpi > "$tmp/stagepkg-rpi-stage.out" 2> "$tmp/stagepkg-rpi-stage.err"
+contains "$tmp/stagepkg-rpi-stage.out" "stage_file src=boot/config.txt dst=stage/rpi/config.txt mode=copy"
+contains "$tmp/stagepkg-rpi-stage.out" "stage_file src=generated/kernel8.img dst=stage/rpi/kernel8.img mode=copy"
+contains "$tmp/stagepkg-rpi-stage.out" "stage_file src=boot/payload.bin dst=stage/rpi/payload.bin mode=copy"
+test -f "$tmp/stagepkg/stage/rpi/config.txt" || fail "missing staged RPi config.txt"
+test -f "$tmp/stagepkg/stage/rpi/kernel8.img" || fail "missing staged RPi kernel8.img"
+test -f "$tmp/stagepkg/stage/rpi/payload.bin" || fail "missing staged RPi payload.bin"
+cmp "$tmp/stagepkg/fixtures/kernel.elf" "$tmp/stagepkg/stage/rpi/kernel8.img" >/dev/null || fail "staged RPi image content drifted"
+contains "$tmp/stagepkg/.qstar/stage/___rpi/manifest.json" "\"label\":\"//:rpi\""
+contains "$tmp/stagepkg/.qstar/stage/___rpi/manifest.json" "\"dst\":\"stage/rpi/kernel8.img\""
+"$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:esp --root stage/custom-esp --dry-run > "$tmp/stagepkg-esp-root.out" 2> "$tmp/stagepkg-esp-root.err"
+contains "$tmp/stagepkg-esp-root.out" "stage-root stage/custom-esp"
+contains "$tmp/stagepkg-esp-root.out" "dst=stage/custom-esp/EFI/BOOT/BOOTX64.EFI"
+
+mkdir -p "$tmp/stage-bad/src"
+cat > "$tmp/stage-bad/src/main.c" <<'EOF'
+int main(void) { return 0; }
+EOF
+cat > "$tmp/stage-bad/qstar.lua" <<'EOF'
+qstar.executable "app" {
+  sources = {"src/main.c"},
+}
+
+qstar.stage "bad" {
+  root = "../stage",
+  files = {
+    qstar.stage_file(qstar.target_file("//:app"), "app.bin"),
+  },
+}
+EOF
+if "$qstar" --file "$tmp/stage-bad/qstar.lua" check > "$tmp/stage-bad-root.out" 2> "$tmp/stage-bad-root.err"; then
+	fail "stage root escape unexpectedly succeeded"
+fi
+contains "$tmp/stage-bad-root.err" "stage root '../stage' in '//:bad' must be package-relative"
+cat > "$tmp/stage-bad/qstar.lua" <<'EOF'
+qstar.executable "app" {
+  sources = {"src/main.c"},
+}
+
+qstar.stage "bad" {
+  root = "stage/bad",
+  files = {
+    qstar.stage_file(qstar.target_file("//:app"), "../app.bin"),
+  },
+}
+EOF
+if "$qstar" --file "$tmp/stage-bad/qstar.lua" check > "$tmp/stage-bad-dst.out" 2> "$tmp/stage-bad-dst.err"; then
+	fail "stage destination escape unexpectedly succeeded"
+fi
+contains "$tmp/stage-bad-dst.err" "stage destination '../app.bin' in '//:bad' must be package-relative"
+cat > "$tmp/stage-bad/qstar.lua" <<'EOF'
+qstar.executable "app" {
+  sources = {"src/main.c"},
+}
+
+qstar.stage "bad" {
+  root = "stage/bad",
+  files = {
+    qstar.stage_file(qstar.target_file("//:app"), "app.bin"),
+    qstar.stage_file("src/main.c", "app.bin"),
+  },
+}
+EOF
+if "$qstar" --file "$tmp/stage-bad/qstar.lua" check > "$tmp/stage-bad-dup.out" 2> "$tmp/stage-bad-dup.err"; then
+	fail "duplicate stage destination unexpectedly succeeded"
+fi
+contains "$tmp/stage-bad-dup.err" "stage destination 'app.bin' in '//:bad' is duplicated"
+cat > "$tmp/stage-bad/qstar.lua" <<'EOF'
+qstar.stage "bad" {
+  root = "stage/bad",
+  files = {
+    qstar.stage_file(qstar.target_file("//:missing"), "missing.bin"),
+  },
+}
+EOF
+if "$qstar" --file "$tmp/stage-bad/qstar.lua" check > "$tmp/stage-bad-missing.out" 2> "$tmp/stage-bad-missing.err"; then
+	fail "unknown stage target_file unexpectedly succeeded"
+fi
+contains "$tmp/stage-bad-missing.err" "stage source target '//:missing' in '//:bad' is unknown"
+
 echo "qstar-smoke: passed"

@@ -1610,6 +1610,7 @@ int
 qstar_graph_check(struct qstar_graph *graph, const char *label, FILE *out)
 {
 	const struct qstar_genrule *genrule;
+	const struct qstar_stage *stage;
 	struct qstar_plan plan;
 	int rc;
 
@@ -1622,6 +1623,20 @@ qstar_graph_check(struct qstar_graph *graph, const char *label, FILE *out)
 		fprintf(out, "closure-order [%s]\n", label);
 		fputs("target-count 0\n", out);
 		fputs("generated-action-count 1\n", out);
+		fputs("stage-count 0\n", out);
+		fputs("status ok\n", out);
+		return 0;
+	}
+	stage = label && *label ? qstar_graph_find_stage(graph, label) : NULL;
+	if (stage) {
+		fputs("qstar check v1\n", out);
+		fprintf(out, "package-root %s\n", graph->package_root ? graph->package_root : ".");
+		fprintf(out, "root %s\n", label);
+		dump_plan_inputs(out, graph);
+		fprintf(out, "closure-order [%s]\n", label);
+		fputs("target-count 0\n", out);
+		fputs("generated-action-count 0\n", out);
+		fputs("stage-count 1\n", out);
 		fputs("status ok\n", out);
 		return 0;
 	}
@@ -1637,6 +1652,7 @@ qstar_graph_check(struct qstar_graph *graph, const char *label, FILE *out)
 	dump_closure_order(out, &plan);
 	fprintf(out, "target-count %zu\n", plan.len);
 	fprintf(out, "generated-action-count %zu\n", graph->genrule_len);
+	fprintf(out, "stage-count %zu\n", graph->stage_len);
 	fputs("file-inputs ok\n", out);
 	fputs("status ok\n", out);
 	free_plan(&plan);
@@ -1664,6 +1680,7 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 	fprintf(out, "target-count %zu\n", graph->len);
 	fprintf(out, "closure-target-count %zu\n", plan.len);
 	fprintf(out, "generated-action-count %zu\n", graph->genrule_len);
+	fprintf(out, "stage-count %zu\n", graph->stage_len);
 	if (plan.len > 0 && qstar_resolve_toolchain(graph, plan.order[0], &toolchain) == 0)
 		fprintf(out,
 		    "toolchain-sanity name=%s cc=%s cxx=%s cale=%s ar=%s linker=%s "

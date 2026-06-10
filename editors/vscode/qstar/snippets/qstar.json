@@ -66,6 +66,18 @@
     ],
     "description": "Create an external run target."
   },
+  "Stage package": {
+    "prefix": "qstage",
+    "body": [
+      "qstar.stage \"${1:esp}\" {",
+      "  root = \"${2:stage/esp}\",",
+      "  files = {",
+      "    qstar.stage_file(qstar.target_file(\"${3://:boot}\"), \"${4:EFI/BOOT/BOOTX64.EFI}\"),",
+      "  },",
+      "}"
+    ],
+    "description": "Create a copy-only boot/package staging rule."
+  },
   "Subdir fragment": {
     "prefix": "qsubdir",
     "body": [

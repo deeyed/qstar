@@ -98,6 +98,10 @@ int qstar_graph_artifact_output_path(const struct qstar_graph *graph,
 const struct qstar_genrule *qstar_graph_find_genrule(const struct qstar_graph *graph,
     const char *label);
 
+/** stage/package rule label로 staging rule을 찾는다. */
+const struct qstar_stage *qstar_graph_find_stage(const struct qstar_graph *graph,
+    const char *label);
+
 /** generated output metadata의 output group을 기본값 포함해 반환한다. */
 const char *qstar_genrule_output_group(const struct qstar_genrule *genrule, size_t index);
 

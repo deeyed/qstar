@@ -178,6 +178,26 @@ validate_genrule_ownership(struct qstar_graph *graph, const struct qstar_genrule
 	return 0;
 }
 
+/** stage rule label도 선언 fragment package에만 소유되도록 제한한다. */
+static int
+validate_stage_ownership(struct qstar_graph *graph, const struct qstar_stage *stage)
+{
+	char package[QSTAR_PATH_MAX];
+
+	if (qstar_label_package_path(stage->label, package, sizeof(package)) < 0)
+		return qstar_set_error_origin(graph, stage->origin_file,
+		    stage->origin_line, "label", stage->label,
+		    "qstar: external stage label '%s' cannot be declared in this package",
+		    stage->label);
+	if (strcmp(package, stage->fragment_dir) != 0)
+		return qstar_set_error_origin(graph, stage->origin_file,
+		    stage->origin_line, "label", stage->label,
+		    "qstar: stage '%s' is owned by package '%s' but declared in package '%s'",
+		    stage->label, package[0] ? package : "<root>",
+		    stage->fragment_dir[0] ? stage->fragment_dir : "<root>");
+	return 0;
+}
+
 static int
 visibility_pattern_matches(const char *pattern, const char *consumer_label,
     const char *consumer_package)
@@ -439,6 +459,83 @@ validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 	return 0;
 }
 
+/** stage source token에서 target_file label을 추출한다. */
+static int
+stage_target_file_label(const char *src, char *label, size_t labellen)
+{
+	const char *prefix = "<qstar-target-file:";
+	size_t n, payload;
+
+	if (strncmp(src, prefix, strlen(prefix)) != 0)
+		return 0;
+	n = strlen(src);
+	if (n <= strlen(prefix) + 1 || src[n - 1] != '>')
+		return -1;
+	payload = n - strlen(prefix) - 1;
+	if (payload + 1 > labellen)
+		return -1;
+	memcpy(label, src + strlen(prefix), payload);
+	label[payload] = '\0';
+	return 1;
+}
+
+/** copy-only stage rule 하나의 root/source/destination edge를 검증한다. */
+static int
+validate_stage(struct qstar_graph *graph, const struct qstar_stage *stage)
+{
+	const char *dup;
+	char label[QSTAR_PATH_MAX];
+	size_t i;
+	int rc;
+
+	if (!stage->root || !*stage->root)
+		return qstar_set_error_origin(graph, stage->origin_file, stage->origin_line,
+		    "root", stage->label, "qstar: stage '%s' requires root", stage->label);
+	if (!qstar_path_is_package_relative(stage->root))
+		return qstar_set_error_origin(graph, stage->origin_file, stage->origin_line,
+		    "root", stage->label,
+		    "qstar: stage root '%s' in '%s' must be package-relative",
+		    stage->root, stage->label);
+	if (stage->srcs.len == 0)
+		return qstar_set_error_origin(graph, stage->origin_file, stage->origin_line,
+		    "files", stage->label, "qstar: stage '%s' has no files", stage->label);
+	if (stage->srcs.len != stage->dsts.len)
+		return qstar_set_error_origin(graph, stage->origin_file, stage->origin_line,
+		    "files", stage->label, "qstar: stage '%s' has mismatched file edges",
+		    stage->label);
+	if (list_has_duplicate(&stage->dsts, &dup))
+		return qstar_set_error_origin(graph, stage->origin_file, stage->origin_line,
+		    "files", stage->label,
+		    "qstar: stage destination '%s' in '%s' is duplicated", dup,
+		    stage->label);
+	for (i = 0; i < stage->srcs.len; i++) {
+		rc = stage_target_file_label(stage->srcs.items[i], label, sizeof(label));
+		if (rc < 0)
+			return qstar_set_error_origin(graph, stage->origin_file,
+			    stage->origin_line, "files", stage->label,
+			    "qstar: malformed stage target_file source '%s'",
+			    stage->srcs.items[i]);
+		if (rc == 1) {
+			if (!find_target(graph, label) && !qstar_graph_find_genrule(graph, label))
+				return qstar_set_error_origin(graph, stage->origin_file,
+				    stage->origin_line, "files", stage->label,
+				    "qstar: stage source target '%s' in '%s' is unknown",
+				    label, stage->label);
+		} else if (!qstar_path_is_package_relative(stage->srcs.items[i])) {
+			return qstar_set_error_origin(graph, stage->origin_file,
+			    stage->origin_line, "files", stage->label,
+			    "qstar: stage source '%s' in '%s' must be package-relative",
+			    stage->srcs.items[i], stage->label);
+		}
+		if (!qstar_path_is_package_relative(stage->dsts.items[i]))
+			return qstar_set_error_origin(graph, stage->origin_file,
+			    stage->origin_line, "files", stage->label,
+			    "qstar: stage destination '%s' in '%s' must be package-relative",
+			    stage->dsts.items[i], stage->label);
+	}
+	return 0;
+}
+
 /** QStar generated output edge skeleton을 검증한다. */
 int
 qstar_graph_validate_generated_outputs(struct qstar_graph *graph)
@@ -447,6 +544,10 @@ qstar_graph_validate_generated_outputs(struct qstar_graph *graph)
 
 	for (i = 0; i < graph->genrule_len; i++) {
 		if (validate_genrule(graph, &graph->genrules[i]) < 0)
+			return -1;
+	}
+	for (i = 0; i < graph->stage_len; i++) {
+		if (validate_stage(graph, &graph->stages[i]) < 0)
 			return -1;
 	}
 	return 0;
@@ -474,6 +575,10 @@ qstar_graph_validate_packages(struct qstar_graph *graph)
 
 	for (i = 0; i < graph->genrule_len; i++) {
 		if (validate_genrule_ownership(graph, &graph->genrules[i]) < 0)
+			return -1;
+	}
+	for (i = 0; i < graph->stage_len; i++) {
+		if (validate_stage_ownership(graph, &graph->stages[i]) < 0)
 			return -1;
 	}
 	for (i = 0; i < graph->len; i++) {
@@ -569,6 +674,31 @@ validate_genrule_file_inputs(struct qstar_graph *graph, const struct qstar_genru
 	return 0;
 }
 
+/** stage plain source 파일이 package root 아래 존재하는지 검증한다. */
+static int
+validate_stage_file_inputs(struct qstar_graph *graph, const struct qstar_stage *stage)
+{
+	char label[QSTAR_PATH_MAX];
+	const char *path;
+	size_t i;
+	int rc;
+
+	for (i = 0; i < stage->srcs.len; i++) {
+		path = stage->srcs.items[i];
+		rc = stage_target_file_label(path, label, sizeof(label));
+		if (rc != 0)
+			continue;
+		if (valid_generated_output_root(path) && qstar_graph_find_output_owner(graph, path))
+			continue;
+		if (!file_exists_under_root(graph, path))
+			return qstar_set_error_origin(graph, stage->origin_file,
+			    stage->origin_line, "files", stage->label,
+			    "qstar: stage source file '%s' in '%s' does not exist under package root",
+			    path, stage->label);
+	}
+	return 0;
+}
+
 /** QStar authoring input file이 package root 아래 실제로 존재하는지 검증한다. */
 int
 qstar_graph_validate_file_inputs(struct qstar_graph *graph)
@@ -577,6 +707,10 @@ qstar_graph_validate_file_inputs(struct qstar_graph *graph)
 
 	for (i = 0; i < graph->genrule_len; i++) {
 		if (validate_genrule_file_inputs(graph, &graph->genrules[i]) < 0)
+			return -1;
+	}
+	for (i = 0; i < graph->stage_len; i++) {
+		if (validate_stage_file_inputs(graph, &graph->stages[i]) < 0)
 			return -1;
 	}
 	for (i = 0; i < graph->len; i++) {

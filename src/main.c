@@ -18,6 +18,7 @@ usage(FILE *out)
 	fputs("       qstar [options] build [label]\n", out);
 	fputs("       qstar [options] test [label|//...]\n", out);
 	fputs("       qstar [options] install [label] --prefix path [--dry-run]\n", out);
+	fputs("       qstar [options] stage <label> [--root path] [--dry-run]\n", out);
 	fputs("       qstar [options] why-rebuild [label]\n", out);
 	fputs("       qstar [options] clean [--target label]\n", out);
 	fputs("       qstar [options] log [label]\n", out);
@@ -128,12 +129,14 @@ main(int argc, char **argv)
 	const char *cli_profile, *cli_target, *cli_toolchain, *cli_stdlib;
 	struct qstar_build_options build_options;
 	struct qstar_install_options install_options;
+	struct qstar_stage_options stage_options;
 	char init_error[512];
 	int arg, rc;
 
 	qstar_graph_init(&graph);
 	memset(&build_options, 0, sizeof(build_options));
 	memset(&install_options, 0, sizeof(install_options));
+	memset(&stage_options, 0, sizeof(stage_options));
 	file = "qstar.lua";
 	diagnostic_format = "text";
 	lint_format = "text";
@@ -289,8 +292,7 @@ main(int argc, char **argv)
 	if (strcmp(cmd, "explain") == 0 || strcmp(cmd, "dry-run") == 0 ||
 	    strcmp(cmd, "check") == 0 || strcmp(cmd, "query") == 0 ||
 	    strcmp(cmd, "build") == 0 || strcmp(cmd, "test") == 0 ||
-	    strcmp(cmd, "why-rebuild") == 0 ||
-	    strcmp(cmd, "log") == 0 ||
+	    strcmp(cmd, "why-rebuild") == 0 || strcmp(cmd, "log") == 0 ||
 	    strcmp(cmd, "action-log") == 0 || strcmp(cmd, "replay") == 0) {
 		if (arg < argc)
 			label = argv[arg++];
@@ -336,6 +338,27 @@ main(int argc, char **argv)
 				arg += 2;
 			} else if (strcmp(argv[arg], "--dry-run") == 0) {
 				install_options.dry_run = 1;
+				arg++;
+			} else if (!label) {
+				label = argv[arg++];
+			} else {
+				usage(stderr);
+				qstar_graph_free(&graph);
+				return 2;
+			}
+		}
+	} else if (strcmp(cmd, "stage") == 0) {
+		while (arg < argc) {
+			if (strcmp(argv[arg], "--root") == 0) {
+				if (arg + 1 >= argc) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				stage_options.root = argv[arg + 1];
+				arg += 2;
+			} else if (strcmp(argv[arg], "--dry-run") == 0) {
+				stage_options.dry_run = 1;
 				arg++;
 			} else if (!label) {
 				label = argv[arg++];
@@ -406,6 +429,11 @@ main(int argc, char **argv)
 		qstar_graph_free(&graph);
 		return 2;
 	}
+	if (strcmp(cmd, "stage") == 0 && (!label || !*label)) {
+		usage(stderr);
+		qstar_graph_free(&graph);
+		return 2;
+	}
 	if (arg != argc) {
 		usage(stderr);
 		qstar_graph_free(&graph);
@@ -431,7 +459,8 @@ main(int argc, char **argv)
 		rc = qstar_graph_validate_headers(&graph);
 	if (rc == 0 && (strcmp(cmd, "check") == 0 || strcmp(cmd, "doctor") == 0 ||
 	    strcmp(cmd, "build") == 0 || strcmp(cmd, "test") == 0 ||
-	    strcmp(cmd, "install") == 0 || strcmp(cmd, "why-rebuild") == 0 ||
+	    strcmp(cmd, "install") == 0 || strcmp(cmd, "stage") == 0 ||
+	    strcmp(cmd, "why-rebuild") == 0 ||
 	    strcmp(cmd, "lint") == 0))
 		rc = qstar_graph_validate_file_inputs(&graph);
 	if (strcmp(cmd, "lint") == 0) {
@@ -454,6 +483,8 @@ main(int argc, char **argv)
 			rc = qstar_graph_test(&graph, label, stdout);
 		else if (strcmp(cmd, "install") == 0)
 			rc = qstar_graph_install(&graph, label, &install_options, stdout);
+		else if (strcmp(cmd, "stage") == 0)
+			rc = qstar_graph_stage(&graph, label, &stage_options, stdout);
 		else if (strcmp(cmd, "why-rebuild") == 0)
 			rc = qstar_graph_why_rebuild(&graph, label, stdout);
 		else if (strcmp(cmd, "clean") == 0)
