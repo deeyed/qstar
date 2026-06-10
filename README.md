@@ -139,7 +139,7 @@ qstar.executable "app" {
 }
 ```
 
-`build`는 제한적 local executor v9이다. package-local generated tool, `qstar.configure_file`, C/Cale source compile argv, static archive, exe/test link를 다루며 산출물은 `.qstar/out`, 로그는 `.qstar/logs` 아래에 둔다. Round 14/15부터 `.qstar/state/actions.json` action manifest, `compile_commands.json`, cache-hit skip, `why-rebuild`, `log`, `last-failure`, `clean`, JSON diagnostic skeleton을 제공한다. Round 16/17부터 Cale source는 frontend/backend 내부 API가 아니라 `cale -c ... -o ...` process invocation으로만 다룬다. Round 18/19부터 static library dependency link order, public/private include propagation, system library flag rendering, test runner, install skeleton을 제공한다. Round 29부터 executor는 dependency-first closure를 action DAG로 실행하고, 실패는 stop-on-first-failure로 전파한다. Build action timeout은 기본 30초이며 timeout 시 process를 kill하고 replay file을 남긴다. Round 32부터 `--jobs N`과 `--schedule-trace`를 받는다. `jobs > 1`은 같은 target 안의 independent compile action을 process-level parallel batch로 실행하고, generated action과 final archive/link는 deterministic order를 유지한다. Round 35부터 긴 compile/link command는 profile capability가 허용할 때 실제 `.qstar/rsp/*.rsp` response file로 내려가며, POSIX/Windows/MSVC style과 digest를 plan/build/replay에 기록한다. Round 36부터 parallel compile은 `process-v2` event stream을 출력한다. Queue order, slot assignment, start/finish/fail/timeout/cancel state, `retry=next-build`, active child cancel propagation을 deterministic하게 기록해 실패 로그를 사람이 읽을 수 있게 한다. Round 37부터 `.qstar/state/graph.json` graph snapshot과 `.qstar/state/last-summary.json` 마지막 build summary를 저장하고, `qstar action-log <action-id>`와 `qstar replay <action-id>`로 action 단위 로그/재현 명령을 조회한다.
+`build`는 제한적 local executor v10이다. package-local generated tool, profile-allowlisted external generated tool, `qstar.configure_file`, C/Cale source compile argv, static archive, exe/test link를 다루며 산출물은 `.qstar/out`, 로그는 `.qstar/logs` 아래에 둔다. Round 14/15부터 `.qstar/state/actions.json` action manifest, `compile_commands.json`, cache-hit skip, `why-rebuild`, `log`, `last-failure`, `clean`, JSON diagnostic skeleton을 제공한다. Round 16/17부터 Cale source는 frontend/backend 내부 API가 아니라 `cale -c ... -o ...` process invocation으로만 다룬다. Round 18/19부터 static library dependency link order, public/private include propagation, system library flag rendering, test runner, install skeleton을 제공한다. Round 29부터 executor는 dependency-first closure를 action DAG로 실행하고, 실패는 stop-on-first-failure로 전파한다. Build action timeout은 기본 30초이며 timeout 시 process를 kill하고 replay file을 남긴다. Round 32부터 `--jobs N`과 `--schedule-trace`를 받는다. `jobs > 1`은 같은 target 안의 independent compile action을 process-level parallel batch로 실행하고, generated action과 final archive/link는 deterministic order를 유지한다. Round 35부터 긴 compile/link command는 profile capability가 허용할 때 실제 `.qstar/rsp/*.rsp` response file로 내려가며, POSIX/Windows/MSVC style과 digest를 plan/build/replay에 기록한다. Round 36부터 parallel compile은 `process-v2` event stream을 출력한다. Queue order, slot assignment, start/finish/fail/timeout/cancel state, `retry=next-build`, active child cancel propagation을 deterministic하게 기록해 실패 로그를 사람이 읽을 수 있게 한다. Round 37부터 `.qstar/state/graph.json` graph snapshot과 `.qstar/state/last-summary.json` 마지막 build summary를 저장하고, `qstar action-log <action-id>`와 `qstar replay <action-id>`로 action 단위 로그/재현 명령을 조회한다.
 
 ## 아직 하지 않는 일
 
@@ -147,7 +147,7 @@ qstar.executable "app" {
 - Ninja generator
 - full `.cale` semantic integration
 - assembly source build
-- arbitrary external generator execution
+- arbitrary external generator execution without profile allowlist
 - full recursive package resolver
 - shared library local build
 - remote/package install metadata
@@ -378,6 +378,14 @@ profile로 고정한다. `freestanding=true`는 `-ffreestanding`, `-fno-builtin`
 `linker_script`, `defsyms`는 profile과 target 양쪽에서 줄 수 있고, target
 `linker_script`가 profile 값을 override한다. Package-relative linker script는 link
 action input으로 추적되어 script 내용 변경이 link rebuild reason에 반영된다.
+
+Round 52부터 `qstar.custom_target`의 첫 argv는 external tool policy를 따른다.
+`tools/gen.sh`처럼 path separator가 있는 package-relative tool은 기본 허용된다.
+`llvm-objcopy` 같은 bare PATH tool은 profile의 `path_tools = ["llvm-objcopy"]`에
+명시해야 하며, absolute tool path는 `allow_absolute_tools = true`가 있어야만 허용된다.
+`tool_overrides = ["llvm-objcopy=tools/fake-objcopy.sh"]`는 authoring surface를
+`command = qstar.cli { "llvm-objcopy", ... }`로 유지하면서 profile별 실제 실행 tool을
+바꾼다. `qstar doctor`는 allowlist tool의 PATH discovery와 override 상태를 출력한다.
 
 Command rendering은 shell string이 아니라 argv-vector가 canonical이다. Explain/dry-run
 dump는 argv item을 quoting하고 deterministic `digest=`를 붙인다. 긴 command에는

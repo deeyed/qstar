@@ -343,6 +343,7 @@ compute_profile_key(struct qstar_graph *graph,
     const struct qstar_resolved_toolchain *toolchain, char *dst, size_t dstlen)
 {
 	unsigned long long h = QSTAR_HASH_INIT;
+	size_t i;
 
 	hash_str(&h, graph->profile.name ? graph->profile.name : "default");
 	hash_str(&h, graph->profile.target ? graph->profile.target : "host");
@@ -350,6 +351,12 @@ compute_profile_key(struct qstar_graph *graph,
 	hash_str(&h, graph->profile.arch ? graph->profile.arch : "");
 	hash_str(&h, graph->profile.cpu ? graph->profile.cpu : "");
 	hash_str(&h, graph->profile.abi ? graph->profile.abi : "");
+	hash_str(&h, graph->profile.allow_absolute_tools ?
+	    graph->profile.allow_absolute_tools : "false");
+	for (i = 0; i < graph->profile.path_tools.len; i++)
+		hash_str(&h, graph->profile.path_tools.items[i]);
+	for (i = 0; i < graph->profile.tool_overrides.len; i++)
+		hash_str(&h, graph->profile.tool_overrides.items[i]);
 	if (toolchain) {
 		hash_str(&h, toolchain->name);
 		hash_str(&h, toolchain->target);
@@ -397,6 +404,12 @@ compute_action_key(struct qstar_graph *graph, const struct qstar_target *target,
 	hash_str(&h, graph->profile.arch ? graph->profile.arch : "");
 	hash_str(&h, graph->profile.cpu ? graph->profile.cpu : "");
 	hash_str(&h, graph->profile.abi ? graph->profile.abi : "");
+	hash_str(&h, graph->profile.allow_absolute_tools ?
+	    graph->profile.allow_absolute_tools : "false");
+	for (i = 0; i < graph->profile.path_tools.len; i++)
+		hash_str(&h, graph->profile.path_tools.items[i]);
+	for (i = 0; i < graph->profile.tool_overrides.len; i++)
+		hash_str(&h, graph->profile.tool_overrides.items[i]);
 	if (toolchain) {
 		hash_str(&h, toolchain->name);
 		hash_str(&h, toolchain->target);
@@ -1744,20 +1757,28 @@ run_generated_actions(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 {
 	const struct qstar_genrule *genrule;
 	char id[QSTAR_PATH_MAX], key[32];
+	char resolved_tool[QSTAR_PATH_MAX], tool_mode[64], tool_error[QSTAR_PATH_MAX];
 	char *argv[QSTAR_EXEC_MAX_ARGV];
 	struct qstar_string_list inputs;
 	struct qstar_resolved_toolchain toolchain;
 	struct qstar_action_material material;
-	size_t i, argc;
+	size_t i, argc, argi, inputi;
 
 	for (i = 0; i < graph->genrule_len; i++) {
 		genrule = &graph->genrules[i];
 		if (!target_consumes_genrule(target, genrule))
 			continue;
-		if (!genrule->config_header && !qstar_path_is_package_relative(genrule->tool))
-			return qstar_set_error(graph,
-			    "qstar: generated action tool '%s' must be package-relative",
-			    genrule->tool);
+		if (!genrule->config_header &&
+		    qstar_profile_resolve_command_tool(graph, genrule->tool, resolved_tool,
+		    sizeof(resolved_tool), tool_mode, sizeof(tool_mode), tool_error,
+		    sizeof(tool_error)) < 0)
+			return qstar_set_error_origin(graph, genrule->origin_file,
+			    genrule->origin_line, "command", genrule->label, "%s",
+			    tool_error);
+		if (genrule->config_header) {
+			snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
+			snprintf(tool_mode, sizeof(tool_mode), "builtin");
+		}
 		if (genrule->args.len + 2 > QSTAR_EXEC_MAX_ARGV)
 			return qstar_set_error(graph, "qstar: generated action argv too long");
 		for (argc = 0; argc < genrule->args.len; argc++) {
@@ -1774,9 +1795,9 @@ run_generated_actions(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		}
 		snprintf(id, sizeof(id), "%s:generate:0", genrule->label);
 		argc = 0;
-		if (push_resolved_command_argv(graph, argv, &argc, genrule->tool) < 0)
+		if (push_resolved_command_argv(graph, argv, &argc, resolved_tool) < 0)
 			return -1;
-		for (size_t argi = 0; argi < genrule->args.len; argi++) {
+		for (argi = 0; argi < genrule->args.len; argi++) {
 			if (push_resolved_command_argv(graph, argv, &argc,
 			    genrule->args.items[argi]) < 0) {
 				free_owned_argv(argv, argc);
@@ -1784,14 +1805,16 @@ run_generated_actions(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			}
 		}
 		memset(&inputs, 0, sizeof(inputs));
-		for (size_t inputi = 0; inputi < genrule->inputs.len; inputi++) {
+		for (inputi = 0; inputi < genrule->inputs.len; inputi++) {
 			if (qstar_string_list_push(&inputs, genrule->inputs.items[inputi]) < 0) {
 				qstar_string_list_free(&inputs);
 				free_owned_argv(argv, argc);
 				return qstar_set_error(graph, "qstar: out of memory");
 			}
 		}
-		if (!genrule->config_header && qstar_string_list_push(&inputs, genrule->tool) < 0) {
+		if (!genrule->config_header &&
+		    qstar_profile_tool_mode_is_package_input(tool_mode) &&
+		    qstar_string_list_push(&inputs, resolved_tool) < 0) {
 			qstar_string_list_free(&inputs);
 			free_owned_argv(argv, argc);
 			return qstar_set_error(graph, "qstar: out of memory");
@@ -1805,8 +1828,8 @@ run_generated_actions(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    &material);
 		qstar_string_list_free(&inputs);
 		fprintf(ctx->out,
-		    "generated_sandbox id=%s inputs=package-root outputs=generated-only cwd=package-root network=disabled\n",
-		    genrule->label);
+		    "generated_sandbox id=%s inputs=package-root outputs=generated-only cwd=package-root network=disabled tool=%s tool_mode=%s resolved_tool=%s\n",
+		    genrule->label, genrule->tool, tool_mode, resolved_tool);
 		if (genrule->config_header) {
 			if (run_config_header_action(graph, ctx, target, genrule, id, key,
 			    argv, &material) < 0) {

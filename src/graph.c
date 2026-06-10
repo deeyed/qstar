@@ -186,10 +186,13 @@ free_profile_input(struct qstar_profile_input *profile)
 	free(profile->response_files);
 	free(profile->response_style);
 	free(profile->linker_script);
+	free(profile->allow_absolute_tools);
 	qstar_string_list_free(&profile->include_dirs);
 	qstar_string_list_free(&profile->lib_dirs);
 	qstar_string_list_free(&profile->link_options);
 	qstar_string_list_free(&profile->defsyms);
+	qstar_string_list_free(&profile->path_tools);
+	qstar_string_list_free(&profile->tool_overrides);
 }
 
 /** lint diagnostic entry가 소유한 문자열을 해제한다. */
@@ -710,6 +713,12 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 	dump_list(out, &graph->profile.link_options);
 	fputs(" defsyms=", out);
 	dump_list(out, &graph->profile.defsyms);
+	fputc('\n', out);
+	fprintf(out, "profile_external_tools allow_absolute=%s path_tools=",
+	    graph->profile.allow_absolute_tools ? graph->profile.allow_absolute_tools : "false");
+	dump_list(out, &graph->profile.path_tools);
+	fputs(" tool_overrides=", out);
+	dump_list(out, &graph->profile.tool_overrides);
 	fputc('\n', out);
 	dump_package_aliases(out, graph);
 	for (i = 0; i < graph->genrule_len; i++)

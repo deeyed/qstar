@@ -114,6 +114,26 @@ qstar.executable "app" {
 목록을 가리키는 command placeholder다. `qstar.output("generated/value.c")`는 source
 list나 header list에서 generated path를 쓰기 위한 helper다.
 
+### External tool policy
+
+`qstar.custom_target`은 여전히 `command = qstar.cli { ... }`만 사용한다. `tool = ...`
+필드는 되살리지 않는다. 대신 command 첫 argv를 profile capability로 해석한다.
+
+- `tools/gen-source.sh`: package-relative tool이므로 기본 허용.
+- `llvm-objcopy`: bare PATH tool이므로 profile `path_tools` allowlist 필요.
+- `/opt/tool/bin/objcopy`: absolute tool path이므로 `allow_absolute_tools = true` 필요.
+- `tool_overrides`: build file spelling은 유지하고 profile별 실제 tool만 바꿈.
+
+```toml
+[profile.rpi5]
+path_tools = ["llvm-objcopy", "qemu-system-aarch64"]
+tool_overrides = ["llvm-objcopy=tools/fake-objcopy.sh"]
+allow_absolute_tools = false
+```
+
+`qstar doctor`는 allowlist tool이 PATH에서 발견되는지, override가 package path/absolute
+path/PATH tool 중 무엇으로 해석되는지 출력한다.
+
 ## Run target
 
 `qstar.run_target`은 build artifact를 만든 뒤 외부 smoke command를 실행한다. QEMU,

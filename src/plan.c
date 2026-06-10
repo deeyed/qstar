@@ -330,6 +330,12 @@ dump_plan_inputs(FILE *out, const struct qstar_graph *graph)
 	fputs(" defsyms=", out);
 	dump_list(out, &graph->profile.defsyms);
 	fputc('\n', out);
+	fprintf(out, "profile_external_tools allow_absolute=%s path_tools=",
+	    profile_or_default(graph->profile.allow_absolute_tools, "false"));
+	dump_list(out, &graph->profile.path_tools);
+	fputs(" tool_overrides=", out);
+	dump_list(out, &graph->profile.tool_overrides);
+	fputc('\n', out);
 	fputs("package_aliases ", out);
 	dump_package_aliases(out, graph);
 	fputc('\n', out);
@@ -822,15 +828,28 @@ dump_link_policy_argv(FILE *out, struct qstar_argv_dump *dump,
 
 /** generated action의 실제 argv plan을 출력한다. */
 static void
-dump_genrule_argv(FILE *out, const struct qstar_genrule *genrule)
+dump_genrule_argv(FILE *out, const struct qstar_graph *graph,
+    const struct qstar_genrule *genrule)
 {
 	size_t i;
 	struct qstar_argv_dump dump;
-	char id[QSTAR_PATH_MAX];
+	char id[QSTAR_PATH_MAX], resolved_tool[QSTAR_PATH_MAX], tool_mode[64];
+	char tool_error[QSTAR_PATH_MAX];
 
 	snprintf(id, sizeof(id), "%s:generate:0", genrule->label);
 	begin_argv(out, &dump, id, 1 + genrule->args.len, NULL);
-	argv_item(out, &dump, genrule->tool);
+	if (genrule->config_header) {
+		snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
+		snprintf(tool_mode, sizeof(tool_mode), "builtin");
+		argv_item(out, &dump, resolved_tool);
+	} else if (qstar_profile_resolve_command_tool(graph, genrule->tool, resolved_tool,
+	    sizeof(resolved_tool), tool_mode, sizeof(tool_mode), tool_error,
+	    sizeof(tool_error)) == 0)
+		argv_item(out, &dump, resolved_tool);
+	else {
+		snprintf(tool_mode, sizeof(tool_mode), "invalid");
+		argv_item(out, &dump, genrule->tool);
+	}
 	for (i = 0; i < genrule->args.len; i++)
 		argv_item(out, &dump, genrule->args.items[i]);
 	end_argv(out, &dump);
@@ -997,6 +1016,7 @@ dump_consumed_genrules(FILE *out, const struct qstar_plan *plan,
 {
 	const struct qstar_genrule *genrule;
 	char inputs[QSTAR_PATH_MAX], outputs[QSTAR_PATH_MAX];
+	char resolved_tool[QSTAR_PATH_MAX], tool_mode[64], tool_error[QSTAR_PATH_MAX];
 	size_t i;
 
 	for (i = 0; i < plan->graph->genrule_len; i++) {
@@ -1005,8 +1025,18 @@ dump_consumed_genrules(FILE *out, const struct qstar_plan *plan,
 			continue;
 		format_list_field(inputs, sizeof(inputs), &genrule->inputs);
 		format_list_field(outputs, sizeof(outputs), &genrule->outputs);
-		fprintf(out, "  generated_action id=%s tool=%s inputs=%s outputs=%s args=",
-		    genrule->label, genrule->tool, inputs, outputs);
+		if (genrule->config_header) {
+			snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
+			snprintf(tool_mode, sizeof(tool_mode), "builtin");
+		} else if (qstar_profile_resolve_command_tool(plan->graph, genrule->tool,
+		    resolved_tool, sizeof(resolved_tool), tool_mode, sizeof(tool_mode),
+		    tool_error, sizeof(tool_error)) < 0) {
+			snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
+			snprintf(tool_mode, sizeof(tool_mode), "invalid");
+		}
+		fprintf(out,
+		    "  generated_action id=%s tool=%s tool_mode=%s resolved_tool=%s inputs=%s outputs=%s args=",
+		    genrule->label, genrule->tool, tool_mode, resolved_tool, inputs, outputs);
 		dump_list(out, &genrule->args);
 		fputs(" execute=no\n", out);
 		fprintf(out,
@@ -1021,12 +1051,12 @@ dump_consumed_genrules(FILE *out, const struct qstar_plan *plan,
 		fputc('\n', out);
 		fprintf(out,
 		    "  command_skeleton id=%s:generate:0 phase=generate language=generated "
-		    "tool=%s toolchain=%s target=%s stdlib=%s input=%s output=%s "
+		    "tool=%s resolved_tool=%s tool_mode=%s toolchain=%s target=%s stdlib=%s input=%s output=%s "
 		    "consumer=%s execute=no\n",
-		    genrule->label, genrule->tool, target->toolchain,
-		    profile_or_default(plan->graph->profile.target, "host"),
+		    genrule->label, genrule->tool, resolved_tool, tool_mode,
+		    target->toolchain, profile_or_default(plan->graph->profile.target, "host"),
 		    target->stdlib_policy, inputs, outputs, target->label);
-		dump_genrule_argv(out, genrule);
+		dump_genrule_argv(out, plan->graph, genrule);
 	}
 }
 
@@ -1049,6 +1079,93 @@ dump_resolved_toolchain(FILE *out, const struct qstar_plan *plan,
 	    resolved->resource_dir[0] ? resolved->resource_dir : "<none>",
 	    resolved->response_files ? "on" : "off", resolved->response_style);
 	return 0;
+}
+
+/** tool override entry의 NAME=VALUE를 doctor 출력용으로 분리한다. */
+static int
+split_tool_override_for_doctor(const char *entry, char *name, size_t name_len,
+    char *value, size_t value_len)
+{
+	const char *eq;
+	size_t n;
+
+	eq = entry ? strchr(entry, '=') : NULL;
+	if (!eq || eq == entry || eq[1] == '\0')
+		return 0;
+	n = (size_t)(eq - entry);
+	if (n + 1 > name_len || strlen(eq + 1) + 1 > value_len)
+		return 0;
+	memcpy(name, entry, n);
+	name[n] = '\0';
+	snprintf(value, value_len, "%s", eq + 1);
+	return 1;
+}
+
+/** package-relative file 존재 여부를 doctor 출력용으로 확인한다. */
+static int
+doctor_package_file_exists(const struct qstar_graph *graph, const char *rel)
+{
+	char full[QSTAR_PATH_MAX];
+	FILE *f;
+
+	if (!rel || !*rel || !qstar_path_is_package_relative(rel))
+		return 0;
+	if (qstar_path_join(graph->package_root ? graph->package_root : ".", rel, full,
+	    sizeof(full)) < 0)
+		return 0;
+	f = fopen(full, "rb");
+	if (!f)
+		return 0;
+	fclose(f);
+	return 1;
+}
+
+/** profile external tool discovery 상태를 doctor output에 출력한다. */
+static void
+dump_external_tool_doctor(FILE *out, const struct qstar_graph *graph)
+{
+	char found[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], value[QSTAR_PATH_MAX];
+	size_t i;
+
+	fprintf(out, "external-tool-policy path_tools=%zu tool_overrides=%zu allow_absolute=%s\n",
+	    graph->profile.path_tools.len, graph->profile.tool_overrides.len,
+	    profile_or_default(graph->profile.allow_absolute_tools, "false"));
+	for (i = 0; i < graph->profile.path_tools.len; i++) {
+		if (qstar_profile_find_path_tool(graph->profile.path_tools.items[i], found,
+		    sizeof(found)))
+			fprintf(out, "external-tool name=%s mode=path status=found path=%s\n",
+			    graph->profile.path_tools.items[i], found);
+		else
+			fprintf(out, "external-tool name=%s mode=path status=missing path=<none>\n",
+			    graph->profile.path_tools.items[i]);
+	}
+	for (i = 0; i < graph->profile.tool_overrides.len; i++) {
+		if (!split_tool_override_for_doctor(graph->profile.tool_overrides.items[i],
+		    name, sizeof(name), value, sizeof(value))) {
+			fprintf(out, "external-tool-override entry=%s status=invalid\n",
+			    graph->profile.tool_overrides.items[i]);
+			continue;
+		}
+		if (strchr(value, '/') || strchr(value, '\\')) {
+			if (value[0] == '/')
+				fprintf(out,
+				    "external-tool-override name=%s value=%s mode=absolute status=configured\n",
+				    name, value);
+			else
+				fprintf(out,
+				    "external-tool-override name=%s value=%s mode=package status=%s\n",
+				    name, value,
+				    doctor_package_file_exists(graph, value) ? "found" : "missing");
+		} else if (qstar_profile_find_path_tool(value, found, sizeof(found))) {
+			fprintf(out,
+			    "external-tool-override name=%s value=%s mode=path status=found path=%s\n",
+			    name, value, found);
+		} else {
+			fprintf(out,
+			    "external-tool-override name=%s value=%s mode=path status=missing path=<none>\n",
+			    name, value);
+		}
+	}
 }
 
 /** target 하나의 non-executing command-plan record를 출력한다. */
@@ -1207,6 +1324,7 @@ dump_dry_run_genrules(FILE *out, const struct qstar_plan *plan,
 {
 	const struct qstar_genrule *genrule;
 	char inputs[QSTAR_PATH_MAX], outputs[QSTAR_PATH_MAX];
+	char resolved_tool[QSTAR_PATH_MAX], tool_mode[64], tool_error[QSTAR_PATH_MAX];
 	size_t i;
 
 	for (i = 0; i < plan->graph->genrule_len; i++) {
@@ -1215,14 +1333,23 @@ dump_dry_run_genrules(FILE *out, const struct qstar_plan *plan,
 			continue;
 		format_list_field(inputs, sizeof(inputs), &genrule->inputs);
 		format_list_field(outputs, sizeof(outputs), &genrule->outputs);
+		if (genrule->config_header) {
+			snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
+			snprintf(tool_mode, sizeof(tool_mode), "builtin");
+		} else if (qstar_profile_resolve_command_tool(plan->graph, genrule->tool,
+		    resolved_tool, sizeof(resolved_tool), tool_mode, sizeof(tool_mode),
+		    tool_error, sizeof(tool_error)) < 0) {
+			snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
+			snprintf(tool_mode, sizeof(tool_mode), "invalid");
+		}
 		fprintf(out,
 		    "dry_run_step id=%s:generate:0 owner=%s consumer=%s kind=generate "
-		    "tool=%s inputs=%s outputs=%s args=",
-		    genrule->label, genrule->label, target->label, genrule->tool, inputs,
-		    outputs);
+		    "tool=%s tool_mode=%s resolved_tool=%s inputs=%s outputs=%s args=",
+		    genrule->label, genrule->label, target->label, genrule->tool,
+		    tool_mode, resolved_tool, inputs, outputs);
 		dump_list(out, &genrule->args);
 		fputs(" execute=no\n", out);
-		dump_genrule_argv(out, genrule);
+		dump_genrule_argv(out, plan->graph, genrule);
 	}
 }
 
@@ -1397,6 +1524,7 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 	    graph->profile.stdlib_policy ? graph->profile.stdlib_policy : "system");
 	fprintf(out, "profile-schema v2 include_dirs=%zu lib_dirs=%zu\n",
 	    graph->profile.include_dirs.len, graph->profile.lib_dirs.len);
+	dump_external_tool_doctor(out, graph);
 	fputs("diagnostics ok\n", out);
 	fputs("file-inputs ok\n", out);
 	fputs("status ok\n", out);

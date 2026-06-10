@@ -100,10 +100,13 @@ struct qstar_profile_input {
 	char *response_files;
 	char *response_style;
 	char *linker_script;
+	char *allow_absolute_tools;
 	struct qstar_string_list include_dirs;
 	struct qstar_string_list lib_dirs;
 	struct qstar_string_list link_options;
 	struct qstar_string_list defsyms;
+	struct qstar_string_list path_tools;
+	struct qstar_string_list tool_overrides;
 };
 
 struct qstar_lint_diagnostic {

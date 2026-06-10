@@ -1844,6 +1844,148 @@ if "$qstar" --file "$tmp/freestanding/qstar.lua" check //:missing_profile_script
 fi
 contains "$tmp/freestanding-missing-profile.err" "profile linker_script 'linker/missing.ld' does not exist"
 
+mkdir -p "$tmp/exttool/bin" "$tmp/exttool/src" "$tmp/exttool/tools"
+cat > "$tmp/exttool/bin/qstar-extgen" <<'EOF'
+#!/bin/sh
+set -eu
+out=$1
+mkdir -p "$(dirname "$out")"
+printf 'int ext_value(void) { return 3; }\n' > "$out"
+EOF
+chmod +x "$tmp/exttool/bin/qstar-extgen"
+cat > "$tmp/exttool/src/main.c" <<'EOF'
+int ext_value(void);
+int main(void) { return ext_value() - 3; }
+EOF
+cat > "$tmp/exttool/Cale.toml" <<'EOF'
+profile = "tools"
+
+[profile.tools]
+path_tools = ["qstar-extgen"]
+EOF
+cat > "$tmp/exttool/qstar.lua" <<'EOF'
+qstar.custom_target "generated_ext" {
+  outputs = {qstar.output("generated/ext.c")},
+  command = qstar.cli {"qstar-extgen", qstar.output(0)},
+}
+
+qstar.executable "app" {
+  sources = {
+    "src/main.c",
+    qstar.output("generated/ext.c"),
+  },
+}
+EOF
+PATH="$tmp/exttool/bin:$PATH" "$qstar" --file "$tmp/exttool/qstar.lua" doctor > "$tmp/exttool-doctor.out" 2> "$tmp/exttool-doctor.err"
+contains "$tmp/exttool-doctor.out" "profile_external_tools allow_absolute=false path_tools=[qstar-extgen] tool_overrides=[]"
+contains "$tmp/exttool-doctor.out" "external-tool-policy path_tools=1 tool_overrides=0 allow_absolute=false"
+contains "$tmp/exttool-doctor.out" "external-tool name=qstar-extgen mode=path status=found"
+PATH="$tmp/exttool/bin:$PATH" "$qstar" --file "$tmp/exttool/qstar.lua" dry-run //:app > "$tmp/exttool-dry.out" 2> "$tmp/exttool-dry.err"
+contains "$tmp/exttool-dry.out" "dry_run_step id=//:generated_ext:generate:0"
+contains "$tmp/exttool-dry.out" "tool=qstar-extgen tool_mode=path resolved_tool=qstar-extgen"
+contains "$tmp/exttool-dry.out" "command_argv id=//:generated_ext:generate:0"
+PATH="$tmp/exttool/bin:$PATH" "$qstar" --file "$tmp/exttool/qstar.lua" build //:app > "$tmp/exttool-build.out" 2> "$tmp/exttool-build.err"
+contains "$tmp/exttool-build.out" "generated_sandbox id=//:generated_ext inputs=package-root outputs=generated-only cwd=package-root network=disabled tool=qstar-extgen tool_mode=path resolved_tool=qstar-extgen"
+contains "$tmp/exttool-build.out" "status ok"
+contains "$tmp/exttool/.qstar/logs/___generated_ext_generate_0.log" "argv[0]=qstar-extgen"
+"$tmp/exttool/.qstar/out/___app/app"
+
+mkdir -p "$tmp/exttool-deny/src"
+cat > "$tmp/exttool-deny/src/main.c" <<'EOF'
+int main(void) { return 0; }
+EOF
+cat > "$tmp/exttool-deny/qstar.lua" <<'EOF'
+qstar.custom_target "generated_ext" {
+  outputs = {qstar.output("generated/ext.c")},
+  command = qstar.cli {"qstar-extgen", qstar.output(0)},
+}
+
+qstar.executable "app" {
+  sources = {
+    "src/main.c",
+    qstar.output("generated/ext.c"),
+  },
+}
+EOF
+if "$qstar" --file "$tmp/exttool-deny/qstar.lua" check //:app > "$tmp/exttool-deny.out" 2> "$tmp/exttool-deny.err"; then
+	fail "unallowlisted PATH tool unexpectedly succeeded"
+fi
+contains "$tmp/exttool-deny.err" "generated action PATH tool 'qstar-extgen' is not allowed by profile path_tools"
+
+mkdir -p "$tmp/tool-override/src" "$tmp/tool-override/tools"
+cat > "$tmp/tool-override/tools/fake-objcopy.sh" <<'EOF'
+#!/bin/sh
+set -eu
+out=$1
+mkdir -p "$(dirname "$out")"
+printf 'int override_value(void) { return 4; }\n' > "$out"
+EOF
+chmod +x "$tmp/tool-override/tools/fake-objcopy.sh"
+cat > "$tmp/tool-override/src/main.c" <<'EOF'
+int override_value(void);
+int main(void) { return override_value() - 4; }
+EOF
+cat > "$tmp/tool-override/Cale.toml" <<'EOF'
+profile = "tools"
+
+[profile.tools]
+tool_overrides = ["llvm-objcopy=tools/fake-objcopy.sh"]
+EOF
+cat > "$tmp/tool-override/qstar.lua" <<'EOF'
+qstar.custom_target "generated_ext" {
+  outputs = {qstar.output("generated/override.c")},
+  command = qstar.cli {"llvm-objcopy", qstar.output(0)},
+}
+
+qstar.executable "app" {
+  sources = {
+    "src/main.c",
+    qstar.output("generated/override.c"),
+  },
+}
+EOF
+"$qstar" --file "$tmp/tool-override/qstar.lua" doctor > "$tmp/tool-override-doctor.out" 2> "$tmp/tool-override-doctor.err"
+contains "$tmp/tool-override-doctor.out" "external-tool-policy path_tools=0 tool_overrides=1 allow_absolute=false"
+contains "$tmp/tool-override-doctor.out" "external-tool-override name=llvm-objcopy value=tools/fake-objcopy.sh mode=package status=found"
+"$qstar" --file "$tmp/tool-override/qstar.lua" dry-run //:app > "$tmp/tool-override-dry.out" 2> "$tmp/tool-override-dry.err"
+contains "$tmp/tool-override-dry.out" "tool=llvm-objcopy tool_mode=override-package resolved_tool=tools/fake-objcopy.sh"
+contains "$tmp/tool-override-dry.out" "argv=[tools/fake-objcopy.sh"
+"$qstar" --file "$tmp/tool-override/qstar.lua" build //:app > "$tmp/tool-override-build.out" 2> "$tmp/tool-override-build.err"
+contains "$tmp/tool-override-build.out" "tool=llvm-objcopy tool_mode=override-package resolved_tool=tools/fake-objcopy.sh"
+contains "$tmp/tool-override/.qstar/logs/___generated_ext_generate_0.log" "argv[0]=tools/fake-objcopy.sh"
+"$tmp/tool-override/.qstar/out/___app/app"
+
+mkdir -p "$tmp/absolute-tool/src"
+cat > "$tmp/absolute-tool/src/main.c" <<'EOF'
+int main(void) { return 0; }
+EOF
+cat > "$tmp/absolute-tool/qstar.lua" <<EOF
+qstar.custom_target "generated_ext" {
+  outputs = {qstar.output("generated/ext.c")},
+  command = qstar.cli {"$tmp/exttool/bin/qstar-extgen", qstar.output(0)},
+}
+
+qstar.executable "app" {
+  sources = {
+    "src/main.c",
+    qstar.output("generated/ext.c"),
+  },
+}
+EOF
+if "$qstar" --file "$tmp/absolute-tool/qstar.lua" check //:app > "$tmp/absolute-tool-deny.out" 2> "$tmp/absolute-tool-deny.err"; then
+	fail "absolute external tool unexpectedly succeeded without profile capability"
+fi
+contains "$tmp/absolute-tool-deny.err" "requires allow_absolute_tools=true"
+cat > "$tmp/absolute-tool/Cale.toml" <<'EOF'
+profile = "abs"
+
+[profile.abs]
+allow_absolute_tools = true
+EOF
+"$qstar" --file "$tmp/absolute-tool/qstar.lua" dry-run //:app > "$tmp/absolute-tool-dry.out" 2> "$tmp/absolute-tool-dry.err"
+contains "$tmp/absolute-tool-dry.out" "tool_mode=absolute"
+contains "$tmp/absolute-tool-dry.out" "$tmp/exttool/bin/qstar-extgen"
+
 mkdir -p "$tmp/longcmd/src"
 cat > "$tmp/longcmd/src/main.c" <<'EOF'
 int main(void) { return 0; }

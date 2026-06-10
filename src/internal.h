@@ -65,6 +65,17 @@ int qstar_label_package_path(const char *label, char *dst, size_t dstlen);
 int qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *target,
     struct qstar_resolved_toolchain *resolved);
 
+/** profile external tool policy로 custom_target 첫 argv를 실행 path로 해석한다. */
+int qstar_profile_resolve_command_tool(const struct qstar_graph *graph, const char *tool,
+    char *resolved, size_t resolved_len, char *mode, size_t mode_len, char *error,
+    size_t error_len);
+
+/** resolved tool mode가 package-local file input으로 action key에 들어가야 하는지 본다. */
+int qstar_profile_tool_mode_is_package_input(const char *mode);
+
+/** PATH에서 실행 tool을 찾고 발견한 절대 path를 반환한다. */
+int qstar_profile_find_path_tool(const char *tool, char *dst, size_t dstlen);
+
 /** target label을 .qstar/out 아래 파일명에 안전한 이름으로 바꾼다. */
 void qstar_mangle_label(const char *label, char *dst, size_t dstlen);
 

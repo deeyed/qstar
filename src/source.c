@@ -353,16 +353,18 @@ static int
 validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 {
 	const char *path;
+	char resolved_tool[QSTAR_PATH_MAX], tool_mode[64], tool_error[QSTAR_PATH_MAX];
 	size_t i, j, k;
 
 	if (!genrule->tool || !*genrule->tool)
 		return qstar_set_error(graph, "qstar: generated action '%s' has empty tool",
 		    genrule->label);
-	if (!genrule->config_header && !qstar_path_is_package_relative(genrule->tool))
-		return qstar_set_error_origin(graph, genrule->origin_file, genrule->origin_line,
-		    "tool", genrule->label,
-		    "qstar: generated action tool '%s' in '%s' must be package-relative",
-		    genrule->tool, genrule->label);
+	if (!genrule->config_header &&
+	    qstar_profile_resolve_command_tool(graph, genrule->tool, resolved_tool,
+	    sizeof(resolved_tool), tool_mode, sizeof(tool_mode), tool_error,
+	    sizeof(tool_error)) < 0)
+		return qstar_set_error_origin(graph, genrule->origin_file,
+		    genrule->origin_line, "command", genrule->label, "%s", tool_error);
 	if (genrule->outputs.len == 0)
 		return qstar_set_error(graph, "qstar: generated action '%s' has no outputs",
 		    genrule->label);
