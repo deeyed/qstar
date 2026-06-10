@@ -1,0 +1,210 @@
+# QStar Specification
+
+이 폴더는 QStar의 상세 사양을 둔다. QStar는 Cale 생태계의 build graph manager이며,
+Cale 언어 문법 자체가 아니다. Cale 문법은 Cale repository의
+`docs/architecture/03-문법.md`에 두고, QStar/Calua/package/build graph 세부 정책은
+이 폴더에서 관리한다. HCL 파일은 QStar 관점에서 header file path일 뿐이며, HCL
+내용 해석은 Cale compiler/HCL checker가 맡는다.
+
+## Core Rule
+
+QStar는 build graph만 담당한다.
+
+QStar 파일에는 다음을 넣지 않는다.
+
+- secure profile이나 UB category override
+- audit profile
+- compiler safety policy
+- dependency version resolution
+- package lock data
+- registry publish/fetch policy
+
+이 정보는 `Cale.toml`, `Cale.lock`, `.cale/profiles/<name>.toml`, package manager가 맡는다.
+
+## File Roles
+
+| File or directory | 역할 |
+| --- | --- |
+| `Cale.toml` | package metadata, dependency metadata, default compiler/profile reference |
+| `Cale.lock` | resolved dependency, source hash, toolchain/runtime lock |
+| `.cale/profiles/<name>.toml` | secure profile, audit profile, toolchain/profile override |
+| `qstar.lua` | package root의 QStar orchestration file, optional `qstar.project` metadata |
+| `<dirname>.qst` | 큰 프로젝트의 subdir QStar fragment |
+| `src/` | `.cale` implementation module root |
+| `include/` | public header/install surface root |
+
+작은 프로젝트는 root `qstar.lua` 하나로 충분하다. 큰 프로젝트는 root `qstar.lua`가 `qstar.subdir(...)`로 subdir fragment를 불러오고, subdir에는 `<dirname>.qst`를 권장한다.
+
+## Documents
+
+- `syntax.md`: Calua/QStar subset과 `qstar.*` API 문법.
+- `model.md`: workspace, package, target, module, source/header file 모델.
+- `graph-ir.md`: Internal canonical Graph IR와 deterministic text dump 정책.
+- `pipeline.md`: explain-first v0 build pipeline과 future executor 방향.
+- `qstar-v0-seal.md`: v0 authoring compatibility contract.
+- `qstar-v0.1-hardening-seal.md`: v0.1 standalone hardening/release gate contract.
+- `qstar-v0.2-authoring-spec.md`: v0.2 hard-cut authoring surface와 `lang.*` 정책.
+- `qstar-v0.2-release-candidate-seal.md`: v0.2 RC stable/experimental surface와 release gate.
+- `qstar-v0.3-seal.md`: v0.3 standalone release-candidate surface와 editor/corpus seal.
+- `qstar-submodule-extraction-prep.md`: 독립 repo/submodule 전환 직전 체크리스트.
+- `../wiki/`: 사용자/AI가 QStar project를 직접 작성할 수 있는 한국어 wiki.
+- `network-policy.md`: Fetch-only network policy와 offline/frozen/locked mode.
+- `examples.md`: 작은 앱, header facade, monorepo, generated source, platform split 예시.
+- Cale package docs: `Cale.toml`, `Cale.lock`, package resolver, dependency source
+  model은 Cale repository의 package docs가 맡는다. QStar standalone repo는 resolved
+  package/profile input을 소비하는 build-system surface만 소유한다.
+
+## Canonical Status
+
+Cale repository의 `docs/design/qstar-calua-build-model.md`는 배경/요약 문서다. QStar의
+상세 문법과 pipeline 사양은 이 `docs/` 폴더를 canonical 위치로 본다.
+
+Round 47부터 authoring syntax의 정본은 QStar v0.2다. Target top-level C/C++/Cale
+language option은 제거됐고, header/include/compile/module option은 반드시
+`lang.c`, `lang.cxx`, `lang.asm`, `lang.cale` 아래에 둔다. `qstar.exe`,
+`qstar.genrule`, `qstar.config_header`,
+`qstar.write_config_header`는 compatibility alias가 아니라 stable diagnostic을 내는
+removed API다.
+
+Round 48부터 generic command model은 `qstar.cli { ... }` argv-vector를 사용한다.
+`qstar.custom_target`은 `command = qstar.cli { ... }`로 generated action을 만들고,
+`qstar.run_target`은 build artifact 이후 external smoke command를 실행한다.
+
+Round 55부터 boot/package staging은 `qstar.stage`가 담당한다. `qstar stage`는
+install prefix와 별개로 ESP/RPi/firmware layout 같은 copy-only package tree를 만들고,
+`.qstar/stage/<label>/manifest.json`에 staged manifest와 dry-run diff를 남긴다.
+
+Round 60부터 v0.2 RC contract는 `qstar-v0.2-release-candidate-seal.md`에 둔다.
+이 문서는 release-candidate surface와 experimental/deferred surface를 분리하고,
+QStar-local full regression gate 이름을 고정한다.
+
+Round 65부터 v0.3 RC contract는 `qstar-v0.3-seal.md`에 둔다. v0.3은 `.qst`,
+`qstar.project`, `lang.*`, generic `qstar.cli`, systems firmware corpus,
+stage/package/run target, VSCode/LSP/lint/formatter를 standalone build-system
+surface로 봉인한다. Runtime version은 `qstar --version`과 `QSTAR_VERSION`이 같은
+`0.3.0`이어야 한다.
+
+## Round 15 구현 상태
+
+QStar Round 14/15 기준으로 QStar는 독립 build-system binary다. 빌드는
+`make -C qstar`로 수행하고, 기본 binary path는 `qstar/build/bin/qstar`다. 루트
+Cale `Makefile`은 더 이상 QStar build/test/install target을 직접 소유하지 않는다.
+또한 QStar는 아직 `cale build`에 연결되어 있지 않다.
+
+Evaluator는 공식 Lua repository를 `vendor/lua` git submodule로 사용하며,
+tag `v5.4.8`에 고정한다. Lua license 전문은 `LICENSE/lua.txt`에 보존한다.
+
+현재 지원 command는 다음과 같다.
+
+```txt
+qstar --file qstar.lua --dump-graph
+qstar --file qstar.lua list-targets
+qstar --file qstar.lua query //:target
+qstar --file qstar.lua doctor
+qstar --file qstar.lua check //:target
+qstar --file qstar.lua explain //:target
+qstar --file qstar.lua dry-run //:target
+qstar --file qstar.lua build //:target
+qstar --file qstar.lua build //:target --explain-cache
+qstar --file qstar.lua why-rebuild //:target
+qstar --file qstar.lua log //:target
+qstar --file qstar.lua last-failure
+qstar --file qstar.lua clean --target //:target
+qstar --file qstar.lua clean
+qstar --file qstar.lua --diagnostics json check //:target
+qstar --file qstar.lua --package-alias @core=/path/to/core explain //:target
+qstar --file qstar.lua --profile debug --target arm64-apple-macos explain //:target
+```
+
+`--dump-graph`는 diagnostic용 raw Graph IR을 출력한다. `explain`은 target closure
+검증, dependency-first ordering, action key 재료가 들어간 Build Plan IR 출력을
+수행한다. 아직 compile, archive, link, package fetch, cache, Ninja action을 실행하지
+않는다. `dry-run`은 같은 closure를 검증한 뒤 executor 모양의 step record를 출력하지만,
+실제 action은 실행하지 않는다. `check`는 실제 작성 상태를 검증한다. package-root
+source file, public/private header, generated action input은 존재해야 하고, generated
+output은 정확히 하나의 `qstar.custom_target`이 만들 때만 아직 없어도 된다.
+
+Round 3은 package alias map과 profile input의 뼈대를 추가했다. Alias map은 CLI fixture
+input으로 주어지며 package resolver가 아니다. `--package-alias @core=/path/to/core`가
+있으면 `@core//:core` 같은 external label을 resolved external dependency로 보고할 수
+있지만, QStar가 그 package graph를 직접 읽지는 않는다.
+
+Round 4는 header-file graph policy validation을 추가했다. Public header는 `include/`
+아래 package-relative path여야 하고, private header도 package-relative path여야 한다.
+Round 5부터는 QStar가 HCL을 해석한다는 암시를 제거했다. `qstar explain`은 header file을
+opaque build-system entry로만 보고한다.
+
+Round 5는 action key skeleton line도 추가했다. 이 line은 future cache key, Ninja
+generation, internal executor에 필요한 deterministic material을 보여주지만 action을
+실행하지는 않는다.
+
+Round 6은 source discovery skeleton을 추가했다. 명시된 `sources` entry는
+package-relative path인지 검증하고, suffix에 따라 C, Cale, assembler, preprocessed
+assembler로 분류한다. `qstar explain`은 `source_file`과 `command_skeleton` line을
+출력하지만 directory scan, glob expansion, tool 실행, object 생성은 하지 않는다.
+
+Round 50은 `.s`/`.S` source를 local executor에 연결했다. QStar는 별도 standalone
+assembler profile을 소유하지 않고 host/clang compiler driver에 `-x assembler` 또는
+`-x assembler-with-cpp`를 넘겨 object를 만든다. `lang.asm.include_dirs`,
+`lang.asm.compile_options`, `lang.asm.preprocess`는 asm action에만 적용된다.
+
+Round 7은 generated output edge skeleton을 추가했다. 현재 정본 surface에서는
+`qstar.custom_target`이 `inputs`, `outputs`, `command = qstar.cli { ... }`를 기록하고,
+`qstar.output(path)`는 path spelling helper로 받아들인다. `generated/` 아래 generated
+source path는 정확히 하나의 generated action이 만들어야 한다. `qstar explain`은
+`generated_edge`, `generated_action`, resolver-skeleton record를 출력하고, local
+executor는 package-local generated action을 실행할 수 있다.
+
+Round 8은 dry-run executor skeleton과 QStar-local sample project
+`qstar/tests/manual/hello`를 추가했다. 이 sample은 root `qstar.lua`, subdir
+`src/foo/foo.qst`, C source, public header, generated-source edge를 가진다. Cale
+frontend/backend code를 건드리지 않고 `qstar --dump-graph`, `qstar explain`,
+`qstar dry-run`을 시도하기 위한 첫 hand-authored fixture다.
+
+Round 9는 authoring check를 추가했다. `qstar check`는 선언된 source/header/input file이
+실제로 disk에 있어야 한다고 요구하는 첫 command다. 이 덕분에 `explain`은 초기 graph
+sketch에 계속 유용하고, 실제 project에는 “나중에 build할 수 있을 만큼 coherent한가”를
+더 엄격히 확인할 수 있다.
+
+Round 10은 diagnostic origin과 query UX를 추가했다. Target declaration과 generated
+action은 Lua source file/line을 보존하고, validation diagnostic은 가능한 경우
+`field`/`label` metadata를 붙인다. Round 15의 `--diagnostics json`은 machine-readable
+diagnostic skeleton을 출력한다. `list-targets`, `query`, `doctor`는 지금은 human-facing
+command이고, 나중에는 LSP/query-server source가 될 수 있다.
+
+Round 11은 실제 source selection skeleton을 추가했다. `qstar.files`는 package-root glob
+pattern을 deterministic sorting과 `exclude` filtering으로 확장한다. 중복 source entry는
+diagnostic으로 막고, `qstar.select`는 CLI/profile target input에서 실제 branch를 고른다.
+아직 directory scanner나 일반 executor는 아니다.
+
+Round 12는 read-only minimal profile file input과 builtin toolchain resolver를 추가했다.
+`Cale.toml`과 `.cale/profiles/<name>.toml`은 `profile`, `target`, `toolchain`, `stdlib`
+scalar field를 줄 수 있다. `host`, `clang`, `cale` toolchain profile은 deterministic
+`.qstar/out` path를 가진 real `command_argv` record를 만든다.
+
+Round 13은 제한된 local executor로서 `qstar build`를 추가했다. Package-local generated
+tool 실행, C source compile, static library archive, executable link를 수행할 수 있다.
+stdout/stderr/action log는 `.qstar/logs`에 저장하고 artifact는 `.qstar/out` 아래에 쓴다.
+Full Cale source build, assembly, remote package, cache, Ninja generation, 일반 process
+execution은 아직 범위 밖이다.
+
+Round 14/15는 incremental state와 diagnostic UX를 추가했다. QStar는
+`.qstar/state/actions.json`을 쓰고, action key와 output이 그대로이면 action을 건너뛴다.
+또한 `compile_commands.json`, `why-rebuild`, `clean`, `log`, `last-failure`,
+`--diagnostics json`을 제공한다. Action key v1에는 argv, input path metadata/content
+hash, output path, selected profile/toolchain, 작은 environment whitelist가 들어간다.
+이 executor는 아직 local developer executor이며, distributed cache나 Ninja-compatible
+protocol은 아니다.
+
+## Authoring Preview
+
+작은 `qstar.lua`와 subdir `<dirname>.qst`를 직접 써보는 시점은 지금부터 가능하다.
+Round 14/15에서는 `qstar list-targets`, `qstar query`, `qstar doctor`, `qstar check`,
+`qstar explain`, `qstar dry-run`으로 graph shape, package-root file existence,
+generated output edge, source classification, glob expansion, profile select,
+dependency order, Build Plan IR/action key, command skeleton, dry-run step ordering이
+기대대로 나오는지 볼 수 있다. C-only local fixture는 `qstar build`로 실제
+compile/archive/link를 실행하고, 두 번째 빌드부터 cache-hit skip과
+`compile_commands.json`까지 확인할 수 있다. Full Cale compiler integration, remote
+package graph loading, distributed cache, Ninja generation은 아직 고정된 authoring
+contract가 아니다.

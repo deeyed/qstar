@@ -79,11 +79,14 @@ qstar.run_target "smoke" {
 }
 ```
 
-상세한 한국어 사용 문서는 `qstar/wiki/README.md`에서 시작한다.
+상세한 한국어 사용 문서는 `wiki/README.md`에서 시작한다.
 
 ## Lua evaluator
 
-QStar evaluator는 `qstar/vendor/lua`에 있는 Lua submodule을 사용한다. tag는 `v5.4.8`에 고정되어 있으며, license text는 `LICENSE/lua.txt`에 보존한다. vendored source의 원출처 정보는 license/notice 정책을 따른다.
+QStar evaluator는 현재 Cale monorepo 안에서는 `qstar/vendor/lua`에 있는 Lua
+submodule을 사용한다. 독립 repo로 분리된 뒤에는 같은 submodule이 `vendor/lua`가
+된다. tag는 `v5.4.8`에 고정되어 있으며, license text는 `LICENSE/lua.txt`에 보존한다.
+vendored source의 원출처 정보는 license/notice 정책을 따른다.
 
 ## 주요 명령
 
@@ -360,7 +363,7 @@ files are release artifacts only.
 Round 20 기준 QStar는 개발용 v0 build system으로 봉인되어 있다. Round 21부터
 `qstar init`은 sample corpus 기반 project skeleton을 생성한다. 유지할
 `qstar.lua` surface, manual sample corpus, deferred integration 항목은
-`docs/qstar/qstar-v0-seal.md`에 적는다. Root `Makefile`과 `cale build` integration은
+`docs/qstar-v0-seal.md`에 적는다. Root `Makefile`과 `cale build` integration은
 아직 열지 않으며, QStar는 `qstar/Makefile` 안에서 독립적으로 build/check/install된다.
 
 Manual sample:
@@ -387,7 +390,7 @@ binary blob embed, multi-package dependency, install, rebuild, and
 `compile_commands.json` coverage를 한 번에 묶는다.
 
 Round 22부터 source kind와 target kind는 registry 기반 rule model로 분리한다.
-자세한 경계는 `docs/qstar/rule-model.md`에 둔다.
+자세한 경계는 `docs/rule-model.md`에 둔다.
 
 Round 23/24부터 QStar는 C/C++ compiler depfile을 읽어 header 변경을 compile action
 key에 반영하고, `.cc/.cpp/.cxx/.hpp`를 build-system source/header kind로 인식한다.
@@ -502,7 +505,7 @@ C/C++/Cale-by-process project를 authoring, build, test, install, rebuild 추적
 있어야 한다.
 
 Compatibility contract와 release gate는
-`docs/qstar/qstar-v0.1-hardening-seal.md`에 둔다. 현재 seal target은 다음이다.
+`docs/qstar-v0.1-hardening-seal.md`에 둔다. 현재 seal target은 다음이다.
 
 ```txt
 make -C qstar qstar-v0.1-release-tests
@@ -517,7 +520,7 @@ file, parallel executor smoke를 함께 검증한다.
 ## v0.2 release candidate seal
 
 Round 60 기준 v0.2 RC contract는
-`docs/qstar/qstar-v0.2-release-candidate-seal.md`가 canonical이다. Stable surface는
+`docs/qstar-v0.2-release-candidate-seal.md`가 canonical이다. Stable surface는
 v0.2 authoring API, `lang.*` language option, local executor, incremental cache,
 diagnostics/replay, LSP/VSCode authoring UX, systems firmware corpus를 포함한다.
 Experimental surface는 `cale build` integration, remote package resolver, Ninja
@@ -533,7 +536,7 @@ make -C qstar qstar-systems-corpus-tests
 
 ## v0.3 release candidate seal
 
-Round 65 기준 v0.3 RC contract는 `docs/qstar/qstar-v0.3-seal.md`가 canonical이다.
+Round 65 기준 v0.3 RC contract는 `docs/qstar-v0.3-seal.md`가 canonical이다.
 Stable surface는 `.qst`, `qstar.project`, `lang.*`, generic `qstar.cli`, staged
 package, systems firmware corpus, action replay, LSP/VSCode/lint/formatter UX를
 포함한다. Experimental surface는 `cale build` 통합, remote package resolver,
@@ -546,3 +549,12 @@ qstar version
 make -C qstar qstar-v0.3-rc-tests
 make -C qstar vscode-extension-tests
 ```
+
+## Submodule extraction prep
+
+QStar는 독립 repository로 분리하고 Cale repository의 `qstar/`를 submodule pin으로
+교체할 준비 단계에 있다. 실제 split은 다음 라운드로 미루며, 이번 tree는 standalone
+repo가 될 때 필요한 `docs/`, `LICENSE/`, `wiki/`, `tests/`, `editors/vscode/qstar`
+surface를 QStar 내부에 보존한다.
+
+자세한 전환 체크리스트는 `docs/qstar-submodule-extraction-prep.md`에 둔다.
