@@ -93,6 +93,13 @@ struct qstar_stage {
 	struct qstar_string_list dsts;
 };
 
+struct qstar_project {
+	int present;
+	char *name;
+	char *version;
+	char *root;
+};
+
 struct qstar_package_alias {
 	char *alias;
 	char *root;
@@ -177,6 +184,7 @@ struct qstar_graph {
 	size_t lint_len;
 	size_t lint_cap;
 	struct qstar_string_list evaluated_fragments;
+	struct qstar_project project;
 	struct qstar_profile_input profile;
 	char error[512];
 	char error_file[QSTAR_PATH_MAX];
@@ -209,6 +217,10 @@ void qstar_graph_free(struct qstar_graph *graph);
 
 /** QStar package root를 graph에 기록한다. */
 int qstar_graph_set_package_root(struct qstar_graph *graph, const char *root);
+
+/** qstar.project metadata를 graph에 기록한다. */
+int qstar_graph_set_project(struct qstar_graph *graph, const char *name,
+    const char *version, const char *root);
 
 /** QStar graph에 새 target을 추가하고 중복 label을 stable error로 막는다. */
 struct qstar_target *qstar_graph_add_target(struct qstar_graph *graph, const char *label,

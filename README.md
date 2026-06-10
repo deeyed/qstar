@@ -159,11 +159,14 @@ QStar는 build graph와 command planning을 먼저 안정화하는 단계다. �
 
 ## fragment naming과 lint
 
-Round 39부터 authoring entry 이름은 LSP 준비를 위해 고정된다.
+Round 61부터 authoring entry 이름은 LSP 준비와 Q# extension 충돌 회피를 위해
+hard cut으로 고정된다.
 
 - workspace/package root entry는 `qstar.lua`다.
-- `qstar.subdir("foo")`는 `foo/foo.qs`를 canonical fragment로 요구한다.
-- `foo/qstar.qs`는 v0 compatibility fallback으로 평가하지만 `QSTAR003` warning을 낸다.
+- `qstar.subdir("foo")`는 `foo/foo.qst`를 canonical fragment로 요구한다.
+- `foo/qstar.qst` fallback은 없다. fragment는 항상 `<folder>.qst`다.
+- `qstar.project { name = "...", version = "...", root = "." }`가 root metadata를
+  선언한다. v1에서 `root`는 `"."`만 허용한다.
 - missing fragment는 `QSTAR002`, root entry 이름 drift는 `QSTAR001`이다.
 - unknown/bad label은 `QSTAR010`, package 밖 path는 `QSTAR020`, private include leakage는 `QSTAR030`으로 lint에 통합된다.
 
@@ -181,7 +184,7 @@ Round 43부터 lint는 build 전 authoring mistake를 더 적극적으로 잡는
 - Cale source가 있는데 `toolchain = "cale"` 계열이 아닌 경우 `QSTAR045` warning
 - visibility typo는 `QSTAR050` error
 - generated output collision은 `QSTAR060` error
-- `qstar.subdir()`로 도달하지 않는 orphan `.qs`는 `QSTAR070`/`QSTAR071` warning
+- `qstar.subdir()`로 도달하지 않는 orphan `.qst`는 `QSTAR070`/`QSTAR071` warning
 
 ## LSP v1
 
@@ -207,14 +210,13 @@ fragment의 target/genrule/config_header를 나열하고, workspace symbols는 g
 ## VSCode extension v1
 
 Round 41부터 개발용 VSCode extension skeleton은 `editors/vscode/qstar/`에 둔다.
-이 확장은 `qstar.lua`, `*.qs`, `qstar.workspace`를 `qstar` language id로 연결하고,
-`files.associations` 기본값으로 `*.qs`가 Q# 확장에 잡히는 경우를 줄이며,
+이 확장은 `qstar.lua`와 `*.qst`를 `qstar` language id로 연결하고,
+`files.associations` 기본값으로 `.qst`가 QStar로 잡히게 하며,
 syntax highlighting, snippets, LSP client, QStar terminal commands를 제공한다.
 LSP client는 `qstar lsp --stdio`만 시작하며, build/test를 자동 실행하지 않는다.
 `QStar: Build Target` 같은 명령은 사용자가 명시적으로 실행하는 terminal invocation이다.
-Q# 같은 다른 확장이 `.qs`를 계속 선점하면 workspace setting에서
-`"files.associations": {"*.qs": "qstar"}`를 명시한다. `.qst` 같은 대체 suffix는
-future hard-cut 후보지만 v0.2 canonical fragment suffix는 여전히 `.qs`다.
+다른 확장이나 사용자 설정이 `.qst`를 계속 선점하면 workspace setting에서
+`"files.associations": {"*.qst": "qstar"}`를 명시한다.
 
 Round 42부터 extension은 `list-targets --format json`을 사용해 Explorer 안에
 `QStar` tree view를 만든다. Tree는 targets, generated actions, tests,
@@ -382,14 +384,14 @@ key에 반영하고, `.cc/.cpp/.cxx/.hpp`를 build-system source/header kind로 
 C++ source가 있는 target은 `c++` 또는 `clang++` linker path를 사용한다. QStar는 C++
 문법을 해석하지 않으며 C++ modules는 아직 stable gate다.
 
-Round 25/26부터 QStar는 `qstar.workspace` marker를 workspace root discovery 기준으로
-사용한다. Marker가 없으면 기존처럼 `--file qstar.lua`의 directory가 package root다.
-Marker가 있으면 그 directory가 workspace root이고, 하위 `<folder>.qs`에서 선언한
-`:name` target은 `//sub/path:name` label을 얻는다. Source/header/output path는
-계속 workspace-root 상대 path이며, `../`나 absolute path는 package 밖 참조로 reject된다.
+Round 61부터 QStar는 `qstar.workspace` marker를 사용하지 않는다. Root discovery는
+현재 authoring file에서 위로 올라가며 가장 가까운 `qstar.lua`를 찾는다. 그 directory가
+package root이고, 하위 `<folder>.qst`에서 선언한 `:name` target은 `//sub/path:name`
+label을 얻는다. Source/header/output path는 계속 package-root 상대 path이며, `../`나
+absolute path는 package 밖 참조로 reject된다.
 
 Target은 선언 fragment와 label package가 일치해야 한다. 예를 들어
-`pkg/pkg.qs` 안의 `qstar.executable "app"`은 `//pkg:app`을 만들고, 같은 파일에서
+`pkg/pkg.qst` 안의 `qstar.executable "app"`은 `//pkg:app`을 만들고, 같은 파일에서
 `qstar.executable "//other:app"`처럼 다른 package 소유 label을 선언하는 것은 금지된다.
 
 `visibility = {"//...", "//pkg:..."}`는 v1 skeleton으로 들어왔다. Visibility를

@@ -1,4 +1,15 @@
 {
+  "Project metadata": {
+    "prefix": "qproject",
+    "body": [
+      "qstar.project {",
+      "  name = \"${1:my-project}\",",
+      "  version = \"${2:0.1.0}\",",
+      "  root = \".\",",
+      "}"
+    ],
+    "description": "Declare QStar project metadata."
+  },
   "Executable target": {
     "prefix": "qexe",
     "body": [
@@ -84,6 +95,6 @@
     "body": [
       "qstar.subdir(\"${1:src}\")"
     ],
-    "description": "Include a canonical subdir fragment named <folder>.qs."
+    "description": "Include a canonical subdir fragment named <folder>.qst."
   }
 }

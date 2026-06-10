@@ -1,3 +1,9 @@
+qstar.project {
+  name = "systems-firmware",
+  version = "0.1.0",
+  root = ".",
+}
+
 qstar.executable "kernel" {
   sources = {
     "boot/start.S",

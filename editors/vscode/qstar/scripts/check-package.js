@@ -71,6 +71,7 @@ function walk(dir, out) {
 
 const pkg = readJson("package.json");
 const sourceLogoPath = path.resolve(root, "../../../assets/qstar_logo.png");
+const sourceLogoSvgPath = path.resolve(root, "../../../assets/qstar_logo.svg");
 
 if (pkg.name !== "qstar-vscode") fail("package name drifted");
 if (pkg.main !== "./extension.js") fail("main must stay ./extension.js");
@@ -111,15 +112,19 @@ for (const requiredPattern of [
 const languages = (((pkg.contributes || {}).languages) || []);
 const qstarLang = languages.find((lang) => lang.id === "qstar");
 if (!qstarLang) fail("missing qstar language contribution");
-if (!new Set(qstarLang.extensions || []).has(".qs")) fail("missing .qs association");
-if (!new Set(qstarLang.filenamePatterns || []).has("*.qs")) {
-  fail("missing *.qs filename pattern association");
+if (!new Set(qstarLang.extensions || []).has(".qst")) fail("missing .qst association");
+if (new Set(qstarLang.extensions || []).has(".qs")) fail(".qs association must stay removed");
+if (!new Set(qstarLang.filenamePatterns || []).has("*.qst")) {
+  fail("missing *.qst filename pattern association");
+}
+if (new Set(qstarLang.filenamePatterns || []).has("*.qs")) {
+  fail("*.qs filename pattern association must stay removed");
 }
 const filenames = new Set(qstarLang.filenames || []);
 if (!filenames.has("qstar.lua")) fail("missing qstar.lua association");
-if (!filenames.has("qstar.workspace")) fail("missing qstar.workspace association");
-if (!qstarLang.icon || qstarLang.icon.light !== "./media/qstar_logo.png" ||
-    qstarLang.icon.dark !== "./media/qstar_logo.png") {
+if (filenames.has("qstar.workspace")) fail("qstar.workspace association must stay removed");
+if (!qstarLang.icon || qstarLang.icon.light !== "./media/qstar_logo.svg" ||
+    qstarLang.icon.dark !== "./media/qstar_logo.svg") {
   fail("qstar language contribution must use QStar logo");
 }
 
@@ -131,15 +136,18 @@ if (qstarIconTheme.path !== "./icons/qstar-icon-theme.json") {
 }
 const iconTheme = readJson("icons/qstar-icon-theme.json");
 if (!iconTheme.iconDefinitions || !iconTheme.iconDefinitions._qstar_file ||
-    iconTheme.iconDefinitions._qstar_file.iconPath !== "../media/qstar_logo.png") {
+    iconTheme.iconDefinitions._qstar_file.iconPath !== "../media/qstar_logo.svg") {
   fail("qstar file icon theme must reference packaged QStar logo");
 }
-if (!iconTheme.fileExtensions || iconTheme.fileExtensions.qs !== "_qstar_file") {
-  fail("qstar file icon theme must map .qs");
+if (!iconTheme.fileExtensions || iconTheme.fileExtensions.qst !== "_qstar_file") {
+  fail("qstar file icon theme must map .qst");
 }
-if (!iconTheme.fileNames || iconTheme.fileNames["qstar.lua"] !== "_qstar_file" ||
-    iconTheme.fileNames["qstar.workspace"] !== "_qstar_file") {
-  fail("qstar file icon theme must map qstar.lua and qstar.workspace");
+if (iconTheme.fileExtensions.qs) fail("qstar file icon theme must not map .qs");
+if (!iconTheme.fileNames || iconTheme.fileNames["qstar.lua"] !== "_qstar_file") {
+  fail("qstar file icon theme must map qstar.lua");
+}
+if (iconTheme.fileNames["qstar.workspace"]) {
+  fail("qstar file icon theme must not map qstar.workspace");
 }
 if (!iconTheme.languageIds || iconTheme.languageIds.qstar !== "_qstar_file") {
   fail("qstar file icon theme must map qstar language id");
@@ -147,10 +155,12 @@ if (!iconTheme.languageIds || iconTheme.languageIds.qstar !== "_qstar_file") {
 
 const configDefaults = ((pkg.contributes || {}).configurationDefaults) || {};
 const fileAssociations = configDefaults["files.associations"] || {};
-if (fileAssociations["*.qs"] !== "qstar" ||
-    fileAssociations["qstar.lua"] !== "qstar" ||
-    fileAssociations["qstar.workspace"] !== "qstar") {
+if (fileAssociations["*.qst"] !== "qstar" ||
+    fileAssociations["qstar.lua"] !== "qstar") {
   fail("qstar extension must default QStar file associations");
+}
+if (fileAssociations["*.qs"] || fileAssociations["qstar.workspace"]) {
+  fail("removed QStar file associations must stay removed");
 }
 
 const views = (((pkg.contributes || {}).views) || {}).explorer || [];
@@ -174,13 +184,14 @@ for (const rel of [
   "extension.js",
   "language-configuration.json",
   "media/qstar_logo.png",
+  "media/qstar_logo.svg",
   "icons/qstar-icon-theme.json",
   "syntaxes/qstar.tmLanguage.json",
   "snippets/qstar.json",
   "scripts/package-vsix.sh",
   "samples/workspace/qstar.lua",
-  "samples/workspace/app/app.qs",
-  "samples/workspace/lib/lib.qs",
+  "samples/workspace/app/app.qst",
+  "samples/workspace/lib/lib.qst",
   "samples/workspace/app/src/main.c",
   "samples/workspace/lib/include/sample/core.h",
   "samples/workspace/lib/src/core.c",
@@ -196,9 +207,16 @@ readJson("snippets/qstar.json");
 if (!fs.existsSync(sourceLogoPath)) {
   fail("missing source QStar logo at qstar/assets/qstar_logo.png");
 }
+if (!fs.existsSync(sourceLogoSvgPath)) {
+  fail("missing source QStar logo at qstar/assets/qstar_logo.svg");
+}
 if (!fs.readFileSync(path.join(root, "media/qstar_logo.png")).equals(
     fs.readFileSync(sourceLogoPath))) {
   fail("packaged QStar logo must match qstar/assets/qstar_logo.png");
+}
+if (!fs.readFileSync(path.join(root, "media/qstar_logo.svg")).equals(
+    fs.readFileSync(sourceLogoSvgPath))) {
+  fail("packaged QStar SVG logo must match qstar/assets/qstar_logo.svg");
 }
 
 const allFiles = [];

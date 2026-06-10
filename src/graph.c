@@ -175,6 +175,16 @@ free_stage(struct qstar_stage *stage)
 	qstar_string_list_free(&stage->dsts);
 }
 
+/** qstar.project metadata가 소유한 문자열을 해제한다. */
+static void
+free_project(struct qstar_project *project)
+{
+	free(project->name);
+	free(project->version);
+	free(project->root);
+	memset(project, 0, sizeof(*project));
+}
+
 /** package alias entry가 소유한 문자열을 해제한다. */
 static void
 free_package_alias(struct qstar_package_alias *pkg)
@@ -244,6 +254,7 @@ qstar_graph_free(struct qstar_graph *graph)
 		free_lint_diagnostic(&graph->lint_diagnostics[i]);
 	for (i = 0; i < graph->package_len; i++)
 		free_package_alias(&graph->packages[i]);
+	free_project(&graph->project);
 	free_profile_input(&graph->profile);
 	free(graph->targets);
 	free(graph->packages);
@@ -265,6 +276,33 @@ qstar_graph_set_package_root(struct qstar_graph *graph, const char *root)
 		return qstar_set_error(graph, "qstar: out of memory");
 	free(graph->package_root);
 	graph->package_root = copy;
+	return 0;
+}
+
+/** qstar.project metadata를 graph에 기록한다. */
+int
+qstar_graph_set_project(struct qstar_graph *graph, const char *name,
+    const char *version, const char *root)
+{
+	char *name_copy, *version_copy, *root_copy;
+
+	if (graph->project.present)
+		return qstar_set_error(graph, "qstar: qstar.project already declared");
+	if (root && *root && strcmp(root, ".") != 0)
+		return qstar_set_error(graph, "qstar: qstar.project root must be \".\" in v1");
+	name_copy = qstar_strdup(name ? name : "");
+	version_copy = qstar_strdup(version ? version : "");
+	root_copy = qstar_strdup(root && *root ? root : ".");
+	if (!name_copy || !version_copy || !root_copy) {
+		free(name_copy);
+		free(version_copy);
+		free(root_copy);
+		return qstar_set_error(graph, "qstar: out of memory");
+	}
+	graph->project.present = 1;
+	graph->project.name = name_copy;
+	graph->project.version = version_copy;
+	graph->project.root = root_copy;
 	return 0;
 }
 
@@ -934,6 +972,11 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 		qsort(copy, n, sizeof(copy[0]), target_cmp);
 	}
 	fputs("qstar graph v1\n", out);
+	fprintf(out, "project name=%s version=%s root=%s\n",
+	    graph->project.name && *graph->project.name ? graph->project.name : "<unnamed>",
+	    graph->project.version && *graph->project.version ?
+	    graph->project.version : "<unspecified>",
+	    graph->project.root && *graph->project.root ? graph->project.root : ".");
 	fprintf(out, "profile name=%s target=%s toolchain=%s stdlib=%s\n",
 	    profile_or_default(graph->profile.name, "default"),
 	    profile_or_default(graph->profile.target, "host"),
@@ -1248,6 +1291,16 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	sort_stage_ptrs(stages, graph->stage_len);
 	fputs("{\"schema\":\"qstar-targets-v1\",\"package_root\":", out);
 	dump_json_string(out, graph->package_root ? graph->package_root : ".");
+	fputs(",\"project\":{\"name\":", out);
+	dump_json_string(out, graph->project.name && *graph->project.name ?
+	    graph->project.name : "");
+	fputs(",\"version\":", out);
+	dump_json_string(out, graph->project.version && *graph->project.version ?
+	    graph->project.version : "");
+	fputs(",\"root\":", out);
+	dump_json_string(out, graph->project.root && *graph->project.root ?
+	    graph->project.root : ".");
+	fputc('}', out);
 	fprintf(out,
 	    ",\"target_count\":%zu,\"generated_action_count\":%zu,\"stage_count\":%zu",
 	    graph->len, graph->genrule_len, graph->stage_len);

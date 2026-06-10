@@ -1,3 +1,9 @@
+qstar.project {
+  name = "generated",
+  version = "0.1.0",
+  root = ".",
+}
+
 qstar.configure_file "cfg" {
   output = qstar.output("generated/config.h"),
   defines = {"APP_VALUE=42", "APP_FEATURE"},

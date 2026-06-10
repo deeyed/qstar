@@ -1,3 +1,9 @@
+qstar.project {
+  name = "c-app-lib-test",
+  version = "0.1.0",
+  root = ".",
+}
+
 qstar.staticlib "core" {
   sources = {"src/core.c"},
   public_headers = {"include/corpus.h"},

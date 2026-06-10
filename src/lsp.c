@@ -30,6 +30,7 @@ struct qstar_lsp_hover_entry {
 };
 
 static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
+	{ "qstar.project", "Declare package-root project metadata. v1 requires root = \".\"." },
 	{ "qstar.executable", "Create an executable target." },
 	{ "qstar.staticlib", "Create a static library target." },
 	{ "qstar.sharedlib", "Create a shared library target, if the profile supports it." },
@@ -41,7 +42,7 @@ static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 	{ "qstar.stage_file", "Map a source artifact or file into a staging destination path." },
 	{ "qstar.cli", "Build an argv-vector command for custom_target or run_target." },
 	{ "qstar.input", "Reference a custom_target input by index inside qstar.cli." },
-	{ "qstar.subdir", "Load a canonical subdir fragment named <folder>.qs." },
+	{ "qstar.subdir", "Load a canonical subdir fragment named <folder>.qst." },
 	{ "qstar.files", "Return an explicit file list for target fields." },
 	{ "qstar.output", "Declare a generated output path, or reference an output by index inside qstar.cli." },
 	{ "qstar.target_file", "Reference another target artifact path inside qstar.cli." },
@@ -496,12 +497,6 @@ find_root_file(const char *path, char *root_file, size_t root_file_len)
 		    0 : -1;
 	}
 	for (;;) {
-		if (qstar_path_join(dir, "qstar.workspace", candidate, sizeof(candidate)) == 0 &&
-		    file_exists(candidate)) {
-			if (qstar_path_join(dir, "qstar.lua", root_file, root_file_len) < 0)
-				return -1;
-			return file_exists(root_file) ? 0 : -1;
-		}
 		if (qstar_path_join(dir, "qstar.lua", candidate, sizeof(candidate)) == 0 &&
 		    file_exists(candidate)) {
 			return snprintf(root_file, root_file_len, "%s", candidate) <

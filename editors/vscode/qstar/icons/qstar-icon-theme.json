@@ -1,15 +1,14 @@
 {
   "iconDefinitions": {
     "_qstar_file": {
-      "iconPath": "../media/qstar_logo.png"
+      "iconPath": "../media/qstar_logo.svg"
     }
   },
   "fileExtensions": {
-    "qs": "_qstar_file"
+    "qst": "_qstar_file"
   },
   "fileNames": {
-    "qstar.lua": "_qstar_file",
-    "qstar.workspace": "_qstar_file"
+    "qstar.lua": "_qstar_file"
   },
   "languageIds": {
     "qstar": "_qstar_file"

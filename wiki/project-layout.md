@@ -1,11 +1,12 @@
 # Project Layout
 
-QStar package root에는 `qstar.lua`를 둔다. Workspace marker는 `qstar.workspace`다.
+QStar package root에는 반드시 `qstar.lua`를 둔다. QStar는 현재 authoring file에서
+위로 올라가며 가장 가까운 `qstar.lua`를 package root로 삼는다. `qstar.workspace`
+marker는 제거되었다.
 
 ```txt
 .
 ├── qstar.lua
-├── qstar.workspace
 └── src
     └── main.c
 ```
@@ -17,21 +18,21 @@ qstar.subdir("lib")
 qstar.subdir("app/src")
 ```
 
-`qstar.subdir("lib")`는 `lib/lib.qs`를 요구한다. `qstar.subdir("app/src")`는
-`app/src/src.qs`를 요구한다.
+`qstar.subdir("lib")`는 `lib/lib.qst`를 요구한다. `qstar.subdir("app/src")`는
+`app/src/src.qst`를 요구한다.
 
 ## Package-root style
 
 ```txt
 lib/
-├── lib.qs
+├── lib.qst
 ├── include/
 │   └── core.h
 └── src/
     └── core.c
 ```
 
-`lib/lib.qs`:
+`lib/lib.qst`:
 
 ```lua
 qstar.staticlib "core" {
@@ -52,11 +53,11 @@ qstar.staticlib "core" {
 ```txt
 app/
 └── src/
-    ├── src.qs
+    ├── src.qst
     └── main.c
 ```
 
-`app/src/src.qs`:
+`app/src/src.qst`:
 
 ```lua
 qstar.executable "app" {
@@ -72,7 +73,7 @@ qstar.executable "app" {
 kernel/
 └── arch/
     └── aarch64/
-        ├── aarch64.qs
+        ├── aarch64.qst
         ├── boot.c
         └── start.S
 ```
@@ -83,10 +84,10 @@ Root `qstar.lua`:
 qstar.subdir("kernel/arch/aarch64")
 ```
 
-`kernel/arch/aarch64/aarch64.qs`의 target label은
+`kernel/arch/aarch64/aarch64.qst`의 target label은
 `//kernel/arch/aarch64:<name>`이 된다.
 
-## Deprecated fallback
+## Removed fallback
 
-`foo/qstar.qs`는 deprecated fragment name이다. Lint는 `QSTAR003` warning을 낸다.
-새 project에서는 항상 `<folder>.qs`를 사용한다.
+`foo/qstar.qst` fallback은 없다. Fragment는 항상 `<folder>.qst`다.
+`.qs` fragment가 남아 있으면 lint는 `QSTAR003` error를 낸다.

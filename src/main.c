@@ -12,7 +12,7 @@ usage(FILE *out)
 	fputs("       qstar [options] doctor\n", out);
 	fputs("       qstar [options] check [label]\n", out);
 	fputs("       qstar [options] lint [label|//...] [--format text|json]\n", out);
-	fputs("       qstar [options] fmt [--check] [qstar.lua|fragment.qs]\n", out);
+	fputs("       qstar [options] fmt [--check] [qstar.lua|fragment.qst]\n", out);
 	fputs("       qstar [options] explain [label]\n", out);
 	fputs("       qstar [options] dry-run [label]\n", out);
 	fputs("       qstar [options] build [label]\n", out);

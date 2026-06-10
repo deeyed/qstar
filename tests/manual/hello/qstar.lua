@@ -1,3 +1,9 @@
+qstar.project {
+  name = "hello",
+  version = "0.1.0",
+  root = ".",
+}
+
 qstar.subdir("src/foo")
 
 qstar.custom_target "version" {

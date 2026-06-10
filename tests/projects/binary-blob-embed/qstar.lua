@@ -1,3 +1,9 @@
+qstar.project {
+  name = "binary-blob-embed",
+  version = "0.1.0",
+  root = ".",
+}
+
 qstar.custom_target "embed_object" {
   inputs = {
     "fixtures/payload.elf",

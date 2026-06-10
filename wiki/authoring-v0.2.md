@@ -15,6 +15,19 @@ qstar.configure_file "cfg" { ... }
 qstar.stage "esp" { ... }
 ```
 
+## Project metadata
+
+Root `qstar.lua`는 project metadata를 선언할 수 있다. v1에서 `root`는 `"."`만
+허용하며, package root는 가장 가까운 상위 `qstar.lua` directory로 결정된다.
+
+```lua
+qstar.project {
+  name = "my-project",
+  version = "0.1.0",
+  root = ".",
+}
+```
+
 ## Executable
 
 ```lua

@@ -355,7 +355,7 @@ function isQStarDocument(document) {
     return true;
   }
   const base = path.basename(document.uri.fsPath);
-  return base === "qstar.lua" || base === "qstar.workspace" || base.endsWith(".qs");
+  return base === "qstar.lua" || base.endsWith(".qst");
 }
 
 function workspaceRoot() {
@@ -377,11 +377,7 @@ function findRootFile(startPath) {
     return startPath;
   }
   for (;;) {
-    const workspaceMarker = path.join(dir, "qstar.workspace");
     const rootEntry = path.join(dir, "qstar.lua");
-    if (fs.existsSync(workspaceMarker) && fs.existsSync(rootEntry)) {
-      return rootEntry;
-    }
     if (fs.existsSync(rootEntry)) {
       return rootEntry;
     }

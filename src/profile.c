@@ -6,15 +6,12 @@
 #include <string.h>
 #include <unistd.h>
 
-/** directory에 qstar.workspace marker가 있는지 확인한다. */
+/** 일반 파일이 존재하는지 확인한다. */
 static int
-workspace_marker_exists(const char *dir)
+regular_file_exists(const char *path)
 {
-	char path[QSTAR_PATH_MAX];
 	FILE *f;
 
-	if (qstar_path_join(dir, "qstar.workspace", path, sizeof(path)) < 0)
-		return 0;
 	f = fopen(path, "rb");
 	if (!f)
 		return 0;
@@ -22,15 +19,17 @@ workspace_marker_exists(const char *dir)
 	return 1;
 }
 
-/** qstar.lua 위치에서 위로 올라가며 profile root로 쓸 workspace를 찾는다. */
+/** qstar authoring file 위치에서 위로 올라가며 profile root qstar.lua를 찾는다. */
 static int
 discover_profile_root(const char *file_dir, char *root, size_t rootlen)
 {
 	char cur[QSTAR_PATH_MAX], parent[QSTAR_PATH_MAX];
+	char qstar_lua[QSTAR_PATH_MAX];
 
 	snprintf(cur, sizeof(cur), "%s", file_dir && *file_dir ? file_dir : ".");
 	for (;;) {
-		if (workspace_marker_exists(cur))
+		if (qstar_path_join(cur, "qstar.lua", qstar_lua, sizeof(qstar_lua)) == 0 &&
+		    regular_file_exists(qstar_lua))
 			return snprintf(root, rootlen, "%s", cur) < (int)rootlen ? 0 : -1;
 		if (strcmp(cur, ".") == 0 || strcmp(cur, "/") == 0)
 			break;
@@ -39,8 +38,7 @@ discover_profile_root(const char *file_dir, char *root, size_t rootlen)
 			break;
 		snprintf(cur, sizeof(cur), "%s", parent);
 	}
-	return snprintf(root, rootlen, "%s", file_dir && *file_dir ? file_dir : ".") <
-	    (int)rootlen ? 0 : -1;
+	return -1;
 }
 
 /** 앞뒤 공백을 제거한 문자열 시작 위치를 반환하고 오른쪽 공백은 in-place로 지운다. */
@@ -292,7 +290,8 @@ qstar_graph_load_profile_files(struct qstar_graph *graph, const char *qstar_file
 	if (qstar_dirname(qstar_file, root, sizeof(root)) < 0)
 		return qstar_set_error(graph, "qstar: qstar file path too long");
 	if (discover_profile_root(root, root, sizeof(root)) < 0)
-		return qstar_set_error(graph, "qstar: profile root path too long");
+		return qstar_set_error(graph,
+		    "qstar: could not find qstar.lua package root for '%s'", qstar_file);
 	if (qstar_graph_set_package_root(graph, root) < 0)
 		return -1;
 	if (qstar_path_join(root, "Cale.toml", path, sizeof(path)) < 0)

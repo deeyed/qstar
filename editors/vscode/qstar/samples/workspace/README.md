@@ -17,5 +17,5 @@ qstar --file qstar.lua build //app:app
 The sample intentionally uses the canonical fragment names:
 
 - root: `qstar.lua`
-- app fragment: `app/app.qs`
-- library fragment: `lib/lib.qs`
+- app fragment: `app/app.qst`
+- library fragment: `lib/lib.qst`

@@ -15,6 +15,12 @@ struct init_file {
 
 static const struct init_file c_app_files[] = {
 	{ "qstar.lua",
+	  "qstar.project {\n"
+	  "  name = \"c-app\",\n"
+	  "  version = \"0.1.0\",\n"
+	  "  root = \".\",\n"
+	  "}\n"
+	  "\n"
 	  "qstar.executable \"app\" {\n"
 	  "  sources = {\"src/main.c\"},\n"
 	  "}\n", 0 },
@@ -28,6 +34,12 @@ static const struct init_file c_app_files[] = {
 
 static const struct init_file c_lib_files[] = {
 	{ "qstar.lua",
+	  "qstar.project {\n"
+	  "  name = \"c-lib\",\n"
+	  "  version = \"0.1.0\",\n"
+	  "  root = \".\",\n"
+	  "}\n"
+	  "\n"
 	  "qstar.staticlib \"core\" {\n"
 	  "  sources = {\"src/core.c\"},\n"
 	  "  public_headers = {\"include/core.h\"},\n"
@@ -69,6 +81,12 @@ static const struct init_file c_lib_files[] = {
 
 static const struct init_file generated_files[] = {
 	{ "qstar.lua",
+	  "qstar.project {\n"
+	  "  name = \"generated\",\n"
+	  "  version = \"0.1.0\",\n"
+	  "  root = \".\",\n"
+	  "}\n"
+	  "\n"
 	  "qstar.configure_file \"cfg\" {\n"
 	  "  output = qstar.output(\"generated/config.h\"),\n"
 	  "  defines = {\"APP_VALUE=42\", \"APP_FEATURE\"},\n"
@@ -114,6 +132,12 @@ static const struct init_file generated_files[] = {
 
 static const struct init_file mixed_cale_files[] = {
 	{ "qstar.lua",
+	  "qstar.project {\n"
+	  "  name = \"mixed-cale\",\n"
+	  "  version = \"0.1.0\",\n"
+	  "  root = \".\",\n"
+	  "}\n"
+	  "\n"
 	  "qstar.executable \"mixed\" {\n"
 	  "  toolchain = \"cale\",\n"
 	  "  sources = {\"src/main.c\", \"src/plugin.cale\"},\n"

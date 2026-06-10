@@ -21,6 +21,12 @@ qstar/build/bin/qstar --file /tmp/qstar-hello/qstar.lua build //:app
 직접 작성할 때 package root에는 `qstar.lua`를 둔다.
 
 ```lua
+qstar.project {
+  name = "hello",
+  version = "0.1.0",
+  root = ".",
+}
+
 qstar.executable "app" {
   sources = {
     "src/main.c",
@@ -42,7 +48,7 @@ qstar/build/bin/qstar --file qstar.lua build //:app
 
 - `authoring-v0.2.md`: QStar v0.2 정본 문법과 target/rule API.
 - `language-options.md`: `lang.c`, `lang.cxx`, `lang.asm`, `lang.cale` option.
-- `project-layout.md`: `qstar.lua`, `<folder>.qs`, package-root/source-dir style.
+- `project-layout.md`: `qstar.lua`, `<folder>.qst`, package-root/source-dir style.
 - `../../docs/qstar/qstar-v0.2-release-candidate-seal.md`: v0.2 RC에서 stable로 보는
   기능과 아직 experimental인 기능.
 

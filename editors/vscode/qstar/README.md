@@ -5,8 +5,7 @@ This developer extension gives QStar authoring files a first editor surface.
 Supported files:
 
 - `qstar.lua`
-- `*.qs`
-- `qstar.workspace`
+- `*.qst`
 
 Features:
 
@@ -28,34 +27,34 @@ graph evaluation and never runs `qstar build` by itself.
 
 ## File Icons
 
-VSCode installations that already have Q# support may show `.qs` files with the
-Microsoft Q# icon. This extension contributes the QStar logo for the `qstar`
-language, defaults `*.qs`/`qstar.lua`/`qstar.workspace` to the `qstar` language
-id, and also ships a fallback file icon theme named `QStar File Icons`.
+VSCode installations that already have Q# support may show legacy `.qs` files
+with the Microsoft Q# icon. QStar no longer owns `.qs`; canonical fragments use
+`.qst`. This extension contributes the QStar logo for the `qstar` language,
+defaults `*.qst` and `qstar.lua` to the `qstar` language id, and also ships a
+fallback file icon theme named `QStar File Icons`.
 
-If `.qs`, `qstar.lua`, or `qstar.workspace` still show the wrong icon, run:
+If `.qst` or `qstar.lua` still show the wrong icon, run:
 
 ```txt
 Preferences: File Icon Theme
 ```
 
-and select `QStar File Icons`. The theme maps `.qs`, `qstar.lua`,
-`qstar.workspace`, and the `qstar` language id to `media/qstar_logo.png`.
+and select `QStar File Icons`. The theme maps `.qst`, `qstar.lua`, and the
+`qstar` language id to `media/qstar_logo.svg`.
 
-If another extension or user setting still wins the `.qs` association, add this
+If another extension or user setting still wins the `.qst` association, add this
 workspace setting:
 
 ```json
 {
   "files.associations": {
-    "*.qs": "qstar"
+    "*.qst": "qstar"
   }
 }
 ```
 
-QStar keeps `.qs` as the v0.2 canonical fragment suffix. If the ecosystem keeps
-colliding with Q# in practice, a future hard-cut may reserve a new suffix such
-as `.qst`, but this extension does not make `.qst` canonical yet.
+QStar keeps `.qst` as the v0.2 canonical fragment suffix. `.qs` is intentionally
+left to other ecosystems and is reported by `qstar lint` as a removed suffix.
 
 ## Development
 
@@ -119,7 +118,7 @@ triggered by the LSP server.
 The formatter is intentionally conservative. It delegates to:
 
 ```txt
-qstar fmt --stdout path/to/file.qs
+qstar fmt --stdout path/to/file.qst
 ```
 
 v1 only canonicalizes simple QStar target/action blocks. Use VSCode's built-in

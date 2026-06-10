@@ -17,6 +17,9 @@ contains_text(const char *message, const char *needle)
 static const char *
 classify_error_code(const char *message)
 {
+	if (contains_text(message, "could not find qstar.lua") ||
+	    contains_text(message, "root entry must be qstar.lua"))
+		return "QSTAR001";
 	if (contains_text(message, "leaks private include") ||
 	    contains_text(message, "exposes private header"))
 		return "QSTAR030";
@@ -219,14 +222,14 @@ fragment_was_evaluated(const struct qstar_graph *graph, const char *path)
 	return 0;
 }
 
-/** qstar source path가 canonical <folder>/<folder>.qs 형태인지 검사한다. */
+/** qstar source path가 canonical <folder>/<folder>.qst 형태인지 검사한다. */
 static int
 is_canonical_subdir_fragment(const char *path)
 {
 	const char *slash, *base, *dot;
 	size_t folder_len, base_len;
 
-	if (!has_suffix(path, ".qs"))
+	if (!has_suffix(path, ".qst"))
 		return 0;
 	slash = strrchr(path, '/');
 	if (!slash)
@@ -257,7 +260,7 @@ skip_lint_dir(const char *name)
 	    strcmp(name, "vendor") == 0;
 }
 
-/** package root 아래 .qs fragment를 재귀적으로 찾아 orphan warning을 추가한다. */
+/** package root 아래 .qst fragment를 재귀적으로 찾아 orphan warning을 추가한다. */
 static int
 scan_orphan_fragments(struct qstar_graph *graph, const char *rel_dir)
 {
@@ -292,7 +295,26 @@ scan_orphan_fragments(struct qstar_graph *graph, const char *rel_dir)
 			}
 			continue;
 		}
-		if (!has_suffix(rel, ".qs") || fragment_was_evaluated(graph, rel))
+		if (has_suffix(rel, ".qs")) {
+			if (qstar_graph_add_lint(graph, "QSTAR003", "error", rel,
+			    1, "subdir", "<none>",
+			    ".qs fragments were removed; rename '%s' to .qst",
+			    rel) < 0) {
+				closedir(dir);
+				return -1;
+			}
+			continue;
+		}
+		if (strcmp(ent->d_name, "qstar.workspace") == 0) {
+			if (qstar_graph_add_lint(graph, "QSTAR004", "error", rel,
+			    1, "file", "<none>",
+			    "qstar.workspace was removed; qstar.lua is the package root marker") < 0) {
+				closedir(dir);
+				return -1;
+			}
+			continue;
+		}
+		if (!has_suffix(rel, ".qst") || fragment_was_evaluated(graph, rel))
 			continue;
 		if (is_canonical_subdir_fragment(rel)) {
 			if (qstar_graph_add_lint(graph, "QSTAR071", "warning", rel,
@@ -304,7 +326,7 @@ scan_orphan_fragments(struct qstar_graph *graph, const char *rel_dir)
 			}
 		} else if (qstar_graph_add_lint(graph, "QSTAR070", "warning", rel,
 		    1, "subdir", "<none>",
-		    "orphan .qs fragment '%s' is not reached by qstar.subdir()",
+		    "orphan .qst fragment '%s' is not reached by qstar.subdir()",
 		    rel) < 0) {
 			closedir(dir);
 			return -1;
@@ -499,7 +521,7 @@ qstar_graph_lint(struct qstar_graph *graph, const char *label, const char *forma
 {
 	int errors, warnings;
 
-	if (run_deep_lint(graph, label) < 0)
+	if (!graph->error[0] && run_deep_lint(graph, label) < 0)
 		return -1;
 	if (label && *label && strcmp(label, "//...") != 0 && !target_exists(graph, label)) {
 		if (qstar_graph_add_lint(graph, "QSTAR010", "error", "<command-line>", 0,

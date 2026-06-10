@@ -373,7 +373,7 @@ format_statement(struct fmt_buf *out, const char *start, size_t len)
 	return fmt_append(out, "}\n");
 }
 
-/** qstar.lua/.qs 전체 text를 simple canonical style로 변환한다. */
+/** qstar.lua/.qst 전체 text를 simple canonical style로 변환한다. */
 static int
 format_text(const char *src, struct fmt_buf *out)
 {

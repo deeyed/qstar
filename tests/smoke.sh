@@ -26,6 +26,12 @@ mkdir -p "$tmp/src"
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
 cat > "$tmp/qstar.lua" <<'EOF'
+qstar.project {
+  name = "smoke",
+  version = "0.1.0",
+  root = ".",
+}
+
 qstar.executable "app" {
   sources = {"src/main.c"},
 }
@@ -47,6 +53,7 @@ test -f "$tmp/.qstar/state/actions.json" || fail "missing action state"
 test -f "$tmp/.qstar/state/graph.json" || fail "missing graph snapshot"
 test -f "$tmp/.qstar/state/last-summary.json" || fail "missing build summary"
 contains "$tmp/.qstar/state/graph.json" "\"schema\":\"qstar-graph-snapshot-v1\""
+contains "$tmp/.qstar/state/graph.json" "\"project\":{\"name\":\"smoke\""
 contains "$tmp/.qstar/state/graph.json" "\"label\":\"//:app\""
 contains "$tmp/.qstar/state/last-summary.json" "\"schema\":\"qstar-build-summary-v1\""
 contains "$tmp/.qstar/state/last-summary.json" "\"status\":\"success\""
@@ -67,11 +74,24 @@ contains "$tmp/lint-json.out" "\"schema\":\"qstar-lint-v1\""
 contains "$tmp/lint-json.out" "\"diagnostics\":[]"
 "$qstar" --file "$tmp/qstar.lua" list-targets --format json > "$tmp/targets-json.out" 2> "$tmp/targets-json.err"
 contains "$tmp/targets-json.out" "\"schema\":\"qstar-targets-v1\""
+contains "$tmp/targets-json.out" "\"project\":{\"name\":\"smoke\""
 contains "$tmp/targets-json.out" "\"target_count\":1"
 contains "$tmp/targets-json.out" "\"generated_action_count\":0"
 contains "$tmp/targets-json.out" "\"label\":\"//:app\""
 contains "$tmp/targets-json.out" "\"is_test\":false"
 contains "$tmp/targets-json.out" "\"installable\":true"
+
+mkdir -p "$tmp/project-root-reject"
+cat > "$tmp/project-root-reject/qstar.lua" <<'EOF'
+qstar.project {
+  name = "bad-root",
+  root = "src",
+}
+EOF
+if "$qstar" --file "$tmp/project-root-reject/qstar.lua" lint > "$tmp/project-root-reject.out" 2> "$tmp/project-root-reject.err"; then
+	fail "qstar.project non-dot root unexpectedly succeeded"
+fi
+contains "$tmp/project-root-reject.out" "qstar.project root must be \".\" in v1"
 
 mkdir -p "$tmp/fmt"
 cat > "$tmp/fmt/qstar.lua" <<'EOF'
@@ -135,7 +155,6 @@ contains "$tmp/lsp-missing.out" "QSTAR002"
 contains "$tmp/lsp-missing.out" "missing fragment"
 
 mkdir -p "$tmp/lsp-nav/lib" "$tmp/lsp-nav/app"
-touch "$tmp/lsp-nav/qstar.workspace"
 cat > "$tmp/lsp-nav/qstar.lua" <<'EOF'
 qstar.configure_file "cfg" {
   output = qstar.output("generated/cfg.h"),
@@ -150,17 +169,17 @@ qstar.custom_target "gen" {
 qstar.subdir("lib")
 qstar.subdir("app")
 EOF
-cat > "$tmp/lsp-nav/lib/lib.qs" <<'EOF'
+cat > "$tmp/lsp-nav/lib/lib.qst" <<'EOF'
 qstar.staticlib "core" {}
 EOF
-cat > "$tmp/lsp-nav/app/app.qs" <<'EOF'
+cat > "$tmp/lsp-nav/app/app.qst" <<'EOF'
 qstar.executable "app" {
   deps = {"//lib:core"},
 }
 EOF
 lsp_nav_root_uri="file://$tmp/lsp-nav/qstar.lua"
-lsp_nav_lib_uri="file://$tmp/lsp-nav/lib/lib.qs"
-lsp_nav_app_uri="file://$tmp/lsp-nav/app/app.qs"
+lsp_nav_lib_uri="file://$tmp/lsp-nav/lib/lib.qst"
+lsp_nav_app_uri="file://$tmp/lsp-nav/app/app.qst"
 {
 	send_lsp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
 	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_nav_root_uri"'","languageId":"qstar","version":1,"text":"qstar.configure_file \"cfg\" {\n  output = qstar.output(\"generated/cfg.h\"),\n  defines = {\"HAVE_CFG\"},\n}\n\nqstar.custom_target \"gen\" {\n  outputs = {qstar.output(\"generated/gen.c\")},\n  command = qstar.cli {\"tools/gen.sh\", qstar.output(0)},\n}\n\nqstar.subdir(\"lib\")\nqstar.subdir(\"app\")\n"}}}'
@@ -192,12 +211,14 @@ test -f "$vscode_ext/snippets/qstar.json" || fail "missing QStar snippets"
 test -f "$vscode_ext/scripts/package-vsix.sh" || fail "missing QStar VSCode package script"
 test -f "$vscode_ext/scripts/check-package.js" || fail "missing QStar VSCode package check"
 test -f "$vscode_ext/samples/workspace/qstar.lua" || fail "missing QStar VSCode sample root"
-test -f "$vscode_ext/samples/workspace/app/app.qs" || fail "missing QStar VSCode app sample"
-test -f "$vscode_ext/samples/workspace/lib/lib.qs" || fail "missing QStar VSCode lib sample"
+test -f "$vscode_ext/samples/workspace/app/app.qst" || fail "missing QStar VSCode app sample"
+test -f "$vscode_ext/samples/workspace/lib/lib.qst" || fail "missing QStar VSCode lib sample"
 contains "$vscode_ext/package.json" "\"id\": \"qstar\""
 contains "$vscode_ext/package.json" "\"qstar.lua\""
-contains "$vscode_ext/package.json" "\".qs\""
-contains "$vscode_ext/package.json" "\"qstar.workspace\""
+contains "$vscode_ext/package.json" "\".qst\""
+if grep -F '"qstar.workspace"' "$vscode_ext/package.json" >/dev/null 2>&1; then
+	fail "qstar.workspace association must stay removed"
+fi
 contains "$vscode_ext/package.json" "\"package:vsix\""
 contains "$vscode_ext/package.json" "\"directory\": \"qstar/editors/vscode/qstar\""
 contains "$vscode_ext/.vscodeignore" "*.vsix"
@@ -261,9 +282,9 @@ contains "$tmp/vscode-sample-targets.out" "\"label\":\"//lib:core\""
 "$qstar" --file "$vscode_ext/samples/workspace/qstar.lua" explain //app:app > "$tmp/vscode-sample-explain.out" 2> "$tmp/vscode-sample-explain.err"
 contains "$tmp/vscode-sample-explain.out" "target //app:app"
 contains "$tmp/vscode-sample-explain.out" "closure-order [//lib:core, //app:app]"
-"$qstar" fmt --check "$vscode_ext/samples/workspace/app/app.qs" > "$tmp/vscode-sample-app-fmt.out" 2> "$tmp/vscode-sample-app-fmt.err"
+"$qstar" fmt --check "$vscode_ext/samples/workspace/app/app.qst" > "$tmp/vscode-sample-app-fmt.out" 2> "$tmp/vscode-sample-app-fmt.err"
 contains "$tmp/vscode-sample-app-fmt.out" "status ok"
-"$qstar" fmt --check "$vscode_ext/samples/workspace/lib/lib.qs" > "$tmp/vscode-sample-lib-fmt.out" 2> "$tmp/vscode-sample-lib-fmt.err"
+"$qstar" fmt --check "$vscode_ext/samples/workspace/lib/lib.qst" > "$tmp/vscode-sample-lib-fmt.out" 2> "$tmp/vscode-sample-lib-fmt.err"
 contains "$tmp/vscode-sample-lib-fmt.out" "status ok"
 
 "$qstar" --file "$tmp/qstar.lua" action-log //:app:compile:0 > "$tmp/action-log.out" 2> "$tmp/action-log.err"
@@ -330,23 +351,24 @@ mkdir -p "$tmp/lint-canonical/foo"
 cat > "$tmp/lint-canonical/qstar.lua" <<'EOF'
 qstar.subdir("foo")
 EOF
-cat > "$tmp/lint-canonical/foo/foo.qs" <<'EOF'
+cat > "$tmp/lint-canonical/foo/foo.qst" <<'EOF'
 qstar.staticlib "core" {}
 EOF
 "$qstar" --file "$tmp/lint-canonical/qstar.lua" lint //... > "$tmp/lint-canonical.out" 2> "$tmp/lint-canonical.err"
 contains "$tmp/lint-canonical.out" "status ok"
 
-mkdir -p "$tmp/lint-deprecated/foo"
-cat > "$tmp/lint-deprecated/qstar.lua" <<'EOF'
-qstar.subdir("foo")
+mkdir -p "$tmp/lint-removed-qs/foo"
+cat > "$tmp/lint-removed-qs/qstar.lua" <<'EOF'
+qstar.executable "app" {}
 EOF
-cat > "$tmp/lint-deprecated/foo/qstar.qs" <<'EOF'
+cat > "$tmp/lint-removed-qs/foo/foo.qs" <<'EOF'
 qstar.staticlib "core" {}
 EOF
-"$qstar" --file "$tmp/lint-deprecated/qstar.lua" lint --format json > "$tmp/lint-deprecated.out" 2> "$tmp/lint-deprecated.err"
-contains "$tmp/lint-deprecated.out" "\"code\":\"QSTAR003\""
-contains "$tmp/lint-deprecated.out" "deprecated-fragment-name"
-contains "$tmp/lint-deprecated.out" "\"status\":\"warning\""
+if "$qstar" --file "$tmp/lint-removed-qs/qstar.lua" lint --format json > "$tmp/lint-removed-qs.out" 2> "$tmp/lint-removed-qs.err"; then
+	fail "removed .qs fragment lint unexpectedly succeeded"
+fi
+contains "$tmp/lint-removed-qs.out" "\"code\":\"QSTAR003\""
+contains "$tmp/lint-removed-qs.out" ".qs fragments were removed"
 
 mkdir -p "$tmp/lint-missing"
 cat > "$tmp/lint-missing/qstar.lua" <<'EOF'
@@ -358,15 +380,18 @@ fi
 contains "$tmp/lint-missing.out" "QSTAR002"
 contains "$tmp/lint-missing.out" "missing fragment"
 
-mkdir -p "$tmp/lint-badroot"
-cat > "$tmp/lint-badroot/build.lua" <<'EOF'
+badroot_tmp="${tmp}.badroot"
+rm -rf "$badroot_tmp"
+mkdir -p "$badroot_tmp"
+cat > "$badroot_tmp/build.lua" <<'EOF'
 qstar.executable "app" {}
 EOF
-if "$qstar" --file "$tmp/lint-badroot/build.lua" lint > "$tmp/lint-badroot.out" 2> "$tmp/lint-badroot.err"; then
+if "$qstar" --file "$badroot_tmp/build.lua" lint > "$tmp/lint-badroot.out" 2> "$tmp/lint-badroot.err"; then
 	fail "bad root file naming unexpectedly succeeded"
 fi
 contains "$tmp/lint-badroot.out" "QSTAR001"
-contains "$tmp/lint-badroot.out" "root entry must be qstar.lua"
+contains "$tmp/lint-badroot.out" "could not find qstar.lua"
+rm -rf "$badroot_tmp"
 
 mkdir -p "$tmp/lint-outside"
 cat > "$tmp/lint-outside/qstar.lua" <<'EOF'
@@ -630,7 +655,7 @@ mkdir -p "$tmp/lint-orphan/foo"
 cat > "$tmp/lint-orphan/qstar.lua" <<'EOF'
 qstar.executable "app" {}
 EOF
-cat > "$tmp/lint-orphan/foo/foo.qs" <<'EOF'
+cat > "$tmp/lint-orphan/foo/foo.qst" <<'EOF'
 qstar.staticlib "core" {}
 EOF
 "$qstar" --file "$tmp/lint-orphan/qstar.lua" lint --format json > "$tmp/lint-orphan.out" 2> "$tmp/lint-orphan.err"
@@ -1759,15 +1784,16 @@ if "$qstar" --file "$tmp/asm/qstar.lua" build //:bad_asm_toolchain > "$tmp/asm-b
 fi
 contains "$tmp/asm-bad-toolchain.err" "assembler source 'asm/value.S' requires host or clang toolchain"
 
-cat > "$tmp/cxx-module.qstar.lua" <<'EOF'
+mkdir -p "$tmp/cxx-module/src"
+cat > "$tmp/cxx-module/qstar.lua" <<'EOF'
 qstar.executable "bad_module" {
   sources = {"src/module.cppm"},
 }
 EOF
-cat > "$tmp/src/module.cppm" <<'EOF'
+cat > "$tmp/cxx-module/src/module.cppm" <<'EOF'
 export module bad;
 EOF
-if "$qstar" --file "$tmp/cxx-module.qstar.lua" build //:bad_module > "$tmp/cxx-module.out" 2> "$tmp/cxx-module.err"; then
+if "$qstar" --file "$tmp/cxx-module/qstar.lua" build //:bad_module > "$tmp/cxx-module.out" 2> "$tmp/cxx-module.err"; then
 	fail "C++ module source unexpectedly built"
 fi
 contains "$tmp/cxx-module.err" "C++ modules are not supported"
@@ -1813,7 +1839,6 @@ contains "$tmp/lang-surface.out" "lang.cale.compile_options [--profile=safe]"
 contains "$tmp/lang-surface.out" "lang.cale.profile safe"
 
 mkdir -p "$tmp/workspace/app/src" "$tmp/workspace/lib/src" "$tmp/workspace/lib/include" "$tmp/workspace/lib/private"
-touch "$tmp/workspace/qstar.workspace"
 cat > "$tmp/workspace/lib/include/core.h" <<'EOF'
 int core_value(void);
 EOF
@@ -1828,7 +1853,7 @@ cat > "$tmp/workspace/app/src/main.c" <<'EOF'
 #include "core.h"
 int main(void) { return core_value() - 5; }
 EOF
-cat > "$tmp/workspace/lib/lib.qs" <<'EOF'
+cat > "$tmp/workspace/lib/lib.qst" <<'EOF'
 qstar.staticlib "core" {
   sources = {"lib/src/core.c"},
   public_headers = {"lib/include/core.h"},
@@ -1842,7 +1867,7 @@ qstar.staticlib "core" {
   visibility = {"//app:..."},
 }
 EOF
-cat > "$tmp/workspace/app/app.qs" <<'EOF'
+cat > "$tmp/workspace/app/app.qst" <<'EOF'
 qstar.executable "app" {
   sources = {"app/src/main.c"},
   deps = {"//lib:core"},
@@ -1852,7 +1877,7 @@ cat > "$tmp/workspace/qstar.lua" <<'EOF'
 qstar.subdir("lib")
 qstar.subdir("app")
 EOF
-"$qstar" --file "$tmp/workspace/app/app.qs" query //app:app > "$tmp/workspace-query.out" 2> "$tmp/workspace-query.err"
+"$qstar" --file "$tmp/workspace/app/app.qst" query //app:app > "$tmp/workspace-query.out" 2> "$tmp/workspace-query.err"
 contains "$tmp/workspace-query.out" "target //app:app"
 contains "$tmp/workspace-query.out" "package app"
 "$qstar" --file "$tmp/workspace/qstar.lua" build //app:app > "$tmp/workspace-build.out" 2> "$tmp/workspace-build.err"
@@ -1860,7 +1885,7 @@ contains "$tmp/workspace-build.out" "package-root $tmp/workspace"
 contains "$tmp/workspace-build.out" "status ok"
 "$tmp/workspace/.qstar/out/__app_app/app"
 
-cat > "$tmp/workspace/app/app.qs" <<'EOF'
+cat > "$tmp/workspace/app/app.qst" <<'EOF'
 qstar.executable "bad_leak" {
   sources = {"app/src/main.c"},
   deps = {"//lib:core"},
@@ -1881,7 +1906,7 @@ fi
 contains "$tmp/private-leak-lint.out" "QSTAR030"
 contains "$tmp/private-leak-lint.out" "leaks private include directory"
 
-cat > "$tmp/workspace/lib/lib.qs" <<'EOF'
+cat > "$tmp/workspace/lib/lib.qst" <<'EOF'
 qstar.staticlib "core" {
   sources = {"lib/src/core.c"},
   public_headers = {"lib/include/core.h"},
@@ -1893,7 +1918,7 @@ qstar.staticlib "core" {
   visibility = {"//other:..."},
 }
 EOF
-cat > "$tmp/workspace/app/app.qs" <<'EOF'
+cat > "$tmp/workspace/app/app.qst" <<'EOF'
 qstar.executable "blocked" {
   sources = {"app/src/main.c"},
   deps = {"//lib:core"},
@@ -1904,22 +1929,22 @@ if "$qstar" --file "$tmp/workspace/qstar.lua" check //app:blocked > "$tmp/visibi
 fi
 contains "$tmp/visibility.err" "is not visible"
 
-cat > "$tmp/workspace/app/app.qs" <<'EOF'
+cat > "$tmp/workspace/app/app.qst" <<'EOF'
 qstar.executable "//other:oops" {
   sources = {"app/src/main.c"},
 }
 EOF
-if "$qstar" --file "$tmp/workspace/app/app.qs" check //other:oops > "$tmp/ownership.out" 2> "$tmp/ownership.err"; then
+if "$qstar" --file "$tmp/workspace/app/app.qst" check //other:oops > "$tmp/ownership.out" 2> "$tmp/ownership.err"; then
 	fail "cross-package ownership unexpectedly succeeded"
 fi
 contains "$tmp/ownership.err" "owned by package"
 
-cat > "$tmp/workspace/app/app.qs" <<'EOF'
+cat > "$tmp/workspace/app/app.qst" <<'EOF'
 qstar.executable "outside" {
   sources = {"../outside.c"},
 }
 EOF
-if "$qstar" --file "$tmp/workspace/app/app.qs" check //app:outside > "$tmp/outside-source.out" 2> "$tmp/outside-source.err"; then
+if "$qstar" --file "$tmp/workspace/app/app.qst" check //app:outside > "$tmp/outside-source.out" 2> "$tmp/outside-source.err"; then
 	fail "outside source path unexpectedly succeeded"
 fi
 contains "$tmp/outside-source.err" "must be package-relative"

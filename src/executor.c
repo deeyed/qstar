@@ -1112,6 +1112,13 @@ graph_snapshot_write(struct qstar_graph *graph)
 		return qstar_set_error(graph, "qstar: could not write graph snapshot");
 	fputs("{\"schema\":\"qstar-graph-snapshot-v1\",\"package_root\":", f);
 	json_string(f, graph->package_root ? graph->package_root : ".");
+	fputs(",\"project\":{\"name\":", f);
+	json_string(f, graph->project.name ? graph->project.name : "");
+	fputs(",\"version\":", f);
+	json_string(f, graph->project.version ? graph->project.version : "");
+	fputs(",\"root\":", f);
+	json_string(f, graph->project.root ? graph->project.root : ".");
+	fputc('}', f);
 	fputs(",\"profile\":{", f);
 	fputs("\"name\":", f);
 	json_string(f, graph->profile.name ? graph->profile.name : "default");
