@@ -17,6 +17,7 @@ static const struct source_rule source_rules[] = {
 	{ ".h", { NULL, "header", "header-input", "c", "headers", 0, 1 } },
 	{ ".hpp", { NULL, "cxx-header", "header-input", "cxx", "headers", 0, 1 } },
 	{ ".hh", { NULL, "cxx-header", "header-input", "cxx", "headers", 0, 1 } },
+	{ ".cl", { NULL, "cale", "cale-compiler", "cale", "objects", 1, 0 } },
 	{ ".cale", { NULL, "cale", "cale-compiler", "cale", "objects", 1, 0 } },
 	{ ".s", { NULL, "asm", "assembler", "asm", "objects", 0, 0 } },
 	{ ".S", { NULL, "asm-cpp", "preprocessed-assembler", "asm", "objects", 0, 0 } },
@@ -28,6 +29,7 @@ static const struct qstar_target_rule_info target_rules[] = {
 	{ "staticlib", "native", "archive", "libs", "lib", ".a", 0, 1, 1 },
 	{ "sharedlib", "native", "link-shared", "libs", "lib", ".so", 0, 0, 0 },
 	{ "objectlib", "native", "compile-objects", "objects", "", "", 0, 0, 0 },
+	{ "run_target", "generic", "run", "generic", "", "", 0, 0, 0 },
 	{ "target", "generic", "materialize", "generic", "", "", 0, 0, 0 },
 };
 

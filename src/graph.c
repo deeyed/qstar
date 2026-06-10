@@ -126,7 +126,12 @@ free_target(struct qstar_target *target)
 	qstar_string_list_free(&target->frameworks);
 	qstar_string_list_free(&target->cflags);
 	qstar_string_list_free(&target->cxxflags);
+	qstar_string_list_free(&target->asm_include_dirs);
+	qstar_string_list_free(&target->asm_compile_options);
+	qstar_string_list_free(&target->cale_hcl_include_dirs);
+	qstar_string_list_free(&target->cale_compile_options);
 	free(target->cxx_standard);
+	free(target->cale_profile);
 	free(target->toolchain);
 	free(target->stdlib_policy);
 }
@@ -380,9 +385,10 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	target->toolchain = qstar_strdup("host");
 	target->stdlib_policy = qstar_strdup("system");
 	target->cxx_standard = qstar_strdup("");
+	target->cale_profile = qstar_strdup("");
 	if (!target->label || !target->name || !target->kind || !target->fragment_dir ||
 	    !target->origin_file || !target->toolchain || !target->stdlib_policy ||
-	    !target->cxx_standard) {
+	    !target->cxx_standard || !target->cale_profile) {
 		qstar_set_error(graph, "qstar: out of memory");
 		return NULL;
 	}
@@ -594,6 +600,20 @@ dump_target(const struct qstar_target *target, FILE *out)
 	dump_list(out, &target->cxxflags);
 	fputc('\n', out);
 	fprintf(out, "  cxx_standard %s\n", target->cxx_standard);
+	fputs("  lang.asm.include_dirs ", out);
+	dump_list(out, &target->asm_include_dirs);
+	fputc('\n', out);
+	fputs("  lang.asm.compile_options ", out);
+	dump_list(out, &target->asm_compile_options);
+	fputc('\n', out);
+	fprintf(out, "  lang.asm.preprocess %s\n", target->asm_preprocess ? "true" : "false");
+	fputs("  lang.cale.hcl_include_dirs ", out);
+	dump_list(out, &target->cale_hcl_include_dirs);
+	fputc('\n', out);
+	fputs("  lang.cale.compile_options ", out);
+	dump_list(out, &target->cale_compile_options);
+	fputc('\n', out);
+	fprintf(out, "  lang.cale.profile %s\n", target->cale_profile);
 	fprintf(out, "  toolchain %s\n", target->toolchain);
 	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
 }
@@ -766,6 +786,12 @@ dump_target_json(FILE *out, const struct qstar_target *target)
 	dump_json_string(out, target->toolchain);
 	fputs(",\"cxx_standard\":", out);
 	dump_json_string(out, target->cxx_standard);
+	fputs(",\"lang_cxx_standard\":", out);
+	dump_json_string(out, target->cxx_standard);
+	fputs(",\"lang_asm_preprocess\":", out);
+	fprintf(out, "%s", target->asm_preprocess ? "true" : "false");
+	fputs(",\"lang_cale_profile\":", out);
+	dump_json_string(out, target->cale_profile);
 	fprintf(out, ",\"is_test\":%s", strcmp(target->kind, "test") == 0 ? "true" : "false");
 	fprintf(out, ",\"installable\":%s", qstar_target_is_installable(target) ? "true" : "false");
 	fputc('}', out);
@@ -894,6 +920,20 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	dump_list(out, &target->cxxflags);
 	fputc('\n', out);
 	fprintf(out, "  cxx_standard %s\n", target->cxx_standard);
+	fputs("  lang.asm.include_dirs ", out);
+	dump_list(out, &target->asm_include_dirs);
+	fputc('\n', out);
+	fputs("  lang.asm.compile_options ", out);
+	dump_list(out, &target->asm_compile_options);
+	fputc('\n', out);
+	fprintf(out, "  lang.asm.preprocess %s\n", target->asm_preprocess ? "true" : "false");
+	fputs("  lang.cale.hcl_include_dirs ", out);
+	dump_list(out, &target->cale_hcl_include_dirs);
+	fputc('\n', out);
+	fputs("  lang.cale.compile_options ", out);
+	dump_list(out, &target->cale_compile_options);
+	fputc('\n', out);
+	fprintf(out, "  lang.cale.profile %s\n", target->cale_profile);
 	fprintf(out, "  toolchain %s\n", target->toolchain);
 	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
 	return 0;

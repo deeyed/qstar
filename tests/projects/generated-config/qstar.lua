@@ -1,16 +1,20 @@
-qstar.config_header "cfg" {
+qstar.configure_file "cfg" {
   output = qstar.output("generated/config.h"),
   defines = {"QSTAR_PROJECT_VALUE=17"},
 }
 
-qstar.genrule "generated_source" {
+qstar.custom_target "generated_source" {
   tool = "tools/gen-value.sh",
   outputs = {qstar.output("generated/value.c")},
   args = {"generated/value.c"},
 }
 
-qstar.exe "app" {
+qstar.executable "app" {
   sources = {"src/main.c", qstar.output("generated/value.c")},
   private_headers = {qstar.output("generated/config.h")},
-  include_dirs = {"generated"},
+  lang = {
+    c = {
+      include_dirs = {"generated"},
+    },
+  },
 }

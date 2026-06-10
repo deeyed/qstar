@@ -26,7 +26,7 @@ mkdir -p "$tmp/src"
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
 cat > "$tmp/qstar.lua" <<'EOF'
-qstar.exe "app" {
+qstar.executable "app" {
   sources = {"src/main.c"},
 }
 EOF
@@ -73,7 +73,7 @@ contains "$tmp/targets-json.out" "\"installable\":true"
 
 mkdir -p "$tmp/fmt"
 cat > "$tmp/fmt/qstar.lua" <<'EOF'
-qstar.exe "app" {
+qstar.executable "app" {
 sources={"src/main.c"},
 deps={"//lib:core"},
 }
@@ -84,7 +84,7 @@ fi
 contains "$tmp/fmt-check-before.out" "qstar fmt v1"
 contains "$tmp/fmt-check-before.out" "status needs-format"
 "$qstar" fmt --stdout "$tmp/fmt/qstar.lua" > "$tmp/fmt-stdout.out" 2> "$tmp/fmt-stdout.err"
-contains "$tmp/fmt-stdout.out" "qstar.exe \"app\" {"
+contains "$tmp/fmt-stdout.out" "qstar.executable \"app\" {"
 contains "$tmp/fmt-stdout.out" "  sources = {"
 contains "$tmp/fmt-stdout.out" "    \"src/main.c\","
 contains "$tmp/fmt-stdout.out" "  deps = {"
@@ -105,8 +105,8 @@ contains "$tmp/lint-missing-label.out" "unknown target label"
 lsp_uri="file://$tmp/qstar.lua"
 {
 	send_lsp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
-	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_uri"'","languageId":"qstar","version":1,"text":"qstar.exe \"app\" {\n  sources = {\"src/main.c\"},\n}\n"}}}'
-	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":"'"$lsp_uri"'","version":2},"contentChanges":[{"text":"qstar.exe \"app\" {\n  sources = {\"src/main.c\"},\n}\n"}]}}'
+	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_uri"'","languageId":"qstar","version":1,"text":"qstar.executable \"app\" {\n  sources = {\"src/main.c\"},\n}\n"}}}'
+	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":"'"$lsp_uri"'","version":2},"contentChanges":[{"text":"qstar.executable \"app\" {\n  sources = {\"src/main.c\"},\n}\n"}]}}'
 	send_lsp '{"jsonrpc":"2.0","id":2,"method":"textDocument/hover","params":{"textDocument":{"uri":"'"$lsp_uri"'"},"position":{"line":0,"character":7}}}'
 	send_lsp '{"jsonrpc":"2.0","id":3,"method":"textDocument/completion","params":{"textDocument":{"uri":"'"$lsp_uri"'"},"position":{"line":1,"character":2}}}'
 	send_lsp '{"jsonrpc":"2.0","id":4,"method":"shutdown","params":{}}'
@@ -116,7 +116,7 @@ contains "$tmp/lsp.out" "\"name\":\"qstar-lsp\""
 contains "$tmp/lsp.out" "textDocument/publishDiagnostics"
 contains "$tmp/lsp.out" "\"diagnostics\":[]"
 contains "$tmp/lsp.out" "Create an executable target."
-contains "$tmp/lsp.out" "\"label\":\"qstar.config_header\""
+contains "$tmp/lsp.out" "\"label\":\"qstar.configure_file\""
 
 mkdir -p "$tmp/lsp-missing"
 cat > "$tmp/lsp-missing/qstar.lua" <<'EOF'
@@ -135,12 +135,12 @@ contains "$tmp/lsp-missing.out" "missing fragment"
 mkdir -p "$tmp/lsp-nav/lib" "$tmp/lsp-nav/app"
 touch "$tmp/lsp-nav/qstar.workspace"
 cat > "$tmp/lsp-nav/qstar.lua" <<'EOF'
-qstar.config_header "cfg" {
+qstar.configure_file "cfg" {
   output = qstar.output("generated/cfg.h"),
   defines = {"HAVE_CFG"},
 }
 
-qstar.genrule "gen" {
+qstar.custom_target "gen" {
   tool = "tools/gen.sh",
   outputs = {qstar.output("generated/gen.c")},
 }
@@ -152,7 +152,7 @@ cat > "$tmp/lsp-nav/lib/lib.qs" <<'EOF'
 qstar.staticlib "core" {}
 EOF
 cat > "$tmp/lsp-nav/app/app.qs" <<'EOF'
-qstar.exe "app" {
+qstar.executable "app" {
   deps = {"//lib:core"},
 }
 EOF
@@ -161,9 +161,9 @@ lsp_nav_lib_uri="file://$tmp/lsp-nav/lib/lib.qs"
 lsp_nav_app_uri="file://$tmp/lsp-nav/app/app.qs"
 {
 	send_lsp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
-	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_nav_root_uri"'","languageId":"qstar","version":1,"text":"qstar.config_header \"cfg\" {\n  output = qstar.output(\"generated/cfg.h\"),\n  defines = {\"HAVE_CFG\"},\n}\n\nqstar.genrule \"gen\" {\n  tool = \"tools/gen.sh\",\n  outputs = {qstar.output(\"generated/gen.c\")},\n}\n\nqstar.subdir(\"lib\")\nqstar.subdir(\"app\")\n"}}}'
+	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_nav_root_uri"'","languageId":"qstar","version":1,"text":"qstar.configure_file \"cfg\" {\n  output = qstar.output(\"generated/cfg.h\"),\n  defines = {\"HAVE_CFG\"},\n}\n\nqstar.custom_target \"gen\" {\n  tool = \"tools/gen.sh\",\n  outputs = {qstar.output(\"generated/gen.c\")},\n}\n\nqstar.subdir(\"lib\")\nqstar.subdir(\"app\")\n"}}}'
 	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_nav_lib_uri"'","languageId":"qstar","version":1,"text":"qstar.staticlib \"core\" {}\n"}}}'
-	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_nav_app_uri"'","languageId":"qstar","version":1,"text":"qstar.exe \"app\" {\n  deps = {\"//lib:core\"},\n}\n"}}}'
+	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_nav_app_uri"'","languageId":"qstar","version":1,"text":"qstar.executable \"app\" {\n  deps = {\"//lib:core\"},\n}\n"}}}'
 	send_lsp '{"jsonrpc":"2.0","id":2,"method":"textDocument/definition","params":{"textDocument":{"uri":"'"$lsp_nav_app_uri"'"},"position":{"line":1,"character":14}}}'
 	send_lsp '{"jsonrpc":"2.0","id":3,"method":"textDocument/references","params":{"textDocument":{"uri":"'"$lsp_nav_app_uri"'"},"position":{"line":1,"character":14},"context":{"includeDeclaration":false}}}'
 	send_lsp '{"jsonrpc":"2.0","id":4,"method":"textDocument/documentSymbol","params":{"textDocument":{"uri":"'"$lsp_nav_lib_uri"'"}}}'
@@ -197,10 +197,12 @@ contains "$vscode_ext/package.json" "\"qstar.lua\""
 contains "$vscode_ext/package.json" "\".qs\""
 contains "$vscode_ext/package.json" "\"qstar.workspace\""
 contains "$vscode_ext/package.json" "\"package:vsix\""
-contains "$vscode_ext/package.json" "\"files\""
+contains "$vscode_ext/package.json" "\"directory\": \"qstar/editors/vscode/qstar\""
 contains "$vscode_ext/.vscodeignore" "*.vsix"
 contains "$vscode_ext/.vscodeignore" "dist/"
 contains "$vscode_ext/.vscodeignore" "node_modules/"
+contains "$vscode_ext/.vscodeignore" "**/.qstar/**"
+contains "$vscode_ext/.vscodeignore" "**/compile_commands.json"
 contains "$vscode_ext/package.json" "\"qstar.server.path\""
 contains "$vscode_ext/package.json" "\"qstar.trace.server\""
 contains "$vscode_ext/package.json" "\"qstarGraph\""
@@ -229,11 +231,11 @@ contains "$vscode_ext/extension.js" "last-summary.json"
 contains "$vscode_ext/syntaxes/qstar.tmLanguage.json" "entity.name.label.qstar"
 contains "$vscode_ext/snippets/qstar.json" "\"qexe\""
 contains "$vscode_ext/snippets/qstar.json" "\"qstaticlib\""
-contains "$vscode_ext/snippets/qstar.json" "\"qgenrule\""
+contains "$vscode_ext/snippets/qstar.json" "\"qcustom\""
 if find "$vscode_ext" -type d -name node_modules | grep . >/dev/null 2>&1; then
 	fail "node_modules must not be present under QStar VSCode extension"
 fi
-if find "$vscode_ext" -type f -name '*.vsix' | grep . >/dev/null 2>&1; then
+if find "$vscode_ext" -path "$vscode_ext/dist" -prune -o -type f -name '*.vsix' -print | grep . >/dev/null 2>&1; then
 	fail "VSIX artifacts must not be committed under QStar VSCode extension"
 fi
 if command -v node >/dev/null 2>&1; then
@@ -355,7 +357,7 @@ contains "$tmp/lint-missing.out" "missing fragment"
 
 mkdir -p "$tmp/lint-badroot"
 cat > "$tmp/lint-badroot/build.lua" <<'EOF'
-qstar.exe "app" {}
+qstar.executable "app" {}
 EOF
 if "$qstar" --file "$tmp/lint-badroot/build.lua" lint > "$tmp/lint-badroot.out" 2> "$tmp/lint-badroot.err"; then
 	fail "bad root file naming unexpectedly succeeded"
@@ -365,7 +367,7 @@ contains "$tmp/lint-badroot.out" "root entry must be qstar.lua"
 
 mkdir -p "$tmp/lint-outside"
 cat > "$tmp/lint-outside/qstar.lua" <<'EOF'
-qstar.exe "bad" {
+qstar.executable "bad" {
   sources = {"../escape.c"},
 }
 EOF
@@ -377,7 +379,7 @@ contains "$tmp/lint-outside.out" "must be package-relative"
 
 mkdir -p "$tmp/lint-duplicate"
 cat > "$tmp/lint-duplicate/qstar.lua" <<'EOF'
-qstar.exe "dup" {}
+qstar.executable "dup" {}
 qstar.staticlib "dup" {}
 EOF
 if "$qstar" --file "$tmp/lint-duplicate/qstar.lua" lint > "$tmp/lint-duplicate.out" 2> "$tmp/lint-duplicate.err"; then
@@ -388,13 +390,54 @@ contains "$tmp/lint-duplicate.out" "duplicate target label"
 
 mkdir -p "$tmp/lint-badlabel"
 cat > "$tmp/lint-badlabel/qstar.lua" <<'EOF'
-qstar.exe "bad label" {}
+qstar.executable "bad label" {}
 EOF
 if "$qstar" --file "$tmp/lint-badlabel/qstar.lua" lint > "$tmp/lint-badlabel.out" 2> "$tmp/lint-badlabel.err"; then
 	fail "bad label lint unexpectedly succeeded"
 fi
 contains "$tmp/lint-badlabel.out" "QSTAR010"
 contains "$tmp/lint-badlabel.out" "invalid target name"
+
+mkdir -p "$tmp/old-api"
+cat > "$tmp/old-api/qstar.lua" <<'EOF'
+qstar.exe "app" {}
+EOF
+if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-api.out" 2> "$tmp/old-api.err"; then
+	fail "removed qstar.exe unexpectedly succeeded"
+fi
+contains "$tmp/old-api.err" "qstar.exe removed; use qstar.executable"
+cat > "$tmp/old-api/qstar.lua" <<'EOF'
+qstar.genrule "g" {}
+EOF
+if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-genrule.out" 2> "$tmp/old-genrule.err"; then
+	fail "removed qstar.genrule unexpectedly succeeded"
+fi
+contains "$tmp/old-genrule.err" "qstar.genrule removed; use qstar.custom_target"
+cat > "$tmp/old-api/qstar.lua" <<'EOF'
+qstar.config_header "cfg" {}
+EOF
+if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-config.out" 2> "$tmp/old-config.err"; then
+	fail "removed qstar.config_header unexpectedly succeeded"
+fi
+contains "$tmp/old-config.err" "qstar.config_header removed; use qstar.configure_file"
+cat > "$tmp/old-api/qstar.lua" <<'EOF'
+qstar.executable "app" {
+  include_dirs = {"include"},
+}
+EOF
+if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-include.out" 2> "$tmp/old-include.err"; then
+	fail "top-level include_dirs unexpectedly succeeded"
+fi
+contains "$tmp/old-include.err" "top-level include_dirs is not allowed; use lang.c.include_dirs or lang.cxx.include_dirs"
+cat > "$tmp/old-api/qstar.lua" <<'EOF'
+qstar.executable "app" {
+  cxx_standard = "c++20",
+}
+EOF
+if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-cxx-standard.out" 2> "$tmp/old-cxx-standard.err"; then
+	fail "top-level cxx_standard unexpectedly succeeded"
+fi
+contains "$tmp/old-cxx-standard.err" "top-level cxx_standard is not allowed; use lang.cxx.standard"
 
 mkdir -p "$tmp/lint-header-source/include" "$tmp/lint-header-source/src"
 cat > "$tmp/lint-header-source/include/app.h" <<'EOF'
@@ -405,9 +448,13 @@ cat > "$tmp/lint-header-source/src/main.c" <<'EOF'
 int main(void) { return APP_VALUE - 1; }
 EOF
 cat > "$tmp/lint-header-source/qstar.lua" <<'EOF'
-qstar.exe "app" {
+qstar.executable "app" {
   sources = {"src/main.c", "include/app.h"},
-  include_dirs = {"include"},
+  lang = {
+    c = {
+      include_dirs = {"include"},
+    },
+  },
 }
 EOF
 "$qstar" --file "$tmp/lint-header-source/qstar.lua" lint --format json > "$tmp/lint-header-source.out" 2> "$tmp/lint-header-source.err"
@@ -417,7 +464,7 @@ contains "$tmp/lint-header-source.out" "\"status\":\"warning\""
 
 mkdir -p "$tmp/lint-public-generated"
 cat > "$tmp/lint-public-generated/qstar.lua" <<'EOF'
-qstar.config_header "cfg" {
+qstar.configure_file "cfg" {
   output = qstar.output("generated/public_config.h"),
   defines = {"HAVE_CFG"},
 }
@@ -447,7 +494,11 @@ cat > "$tmp/lint-private-dep/qstar.lua" <<'EOF'
 qstar.staticlib "lib" {
   sources = {"src/lib.c"},
   public_headers = {"include/lib.h"},
-  public_include_dirs = {"include"},
+  lang = {
+    c = {
+      public_include_dirs = {"include"},
+    },
+  },
 }
 
 qstar.staticlib "wrapper" {
@@ -482,7 +533,7 @@ cat > "$tmp/lint-cxx-info/src/main.cpp" <<'EOF'
 int main() { return 0; }
 EOF
 cat > "$tmp/lint-cxx-info/qstar.lua" <<'EOF'
-qstar.exe "cpp" {
+qstar.executable "cpp" {
   sources = {"src/main.cpp"},
 }
 EOF
@@ -518,12 +569,12 @@ contains "$tmp/lint-visibility.out" "invalid visibility pattern"
 
 mkdir -p "$tmp/lint-output-collision"
 cat > "$tmp/lint-output-collision/qstar.lua" <<'EOF'
-qstar.genrule "one" {
+qstar.custom_target "one" {
   tool = "tools/gen.sh",
   outputs = {qstar.output("generated/same.c")},
 }
 
-qstar.genrule "two" {
+qstar.custom_target "two" {
   tool = "tools/gen.sh",
   outputs = {qstar.output("generated/same.c")},
 }
@@ -536,7 +587,7 @@ contains "$tmp/lint-output-collision.out" "multiple producers"
 
 mkdir -p "$tmp/lint-orphan/foo"
 cat > "$tmp/lint-orphan/qstar.lua" <<'EOF'
-qstar.exe "app" {}
+qstar.executable "app" {}
 EOF
 cat > "$tmp/lint-orphan/foo/foo.qs" <<'EOF'
 qstar.staticlib "core" {}
@@ -558,21 +609,25 @@ EOF
 chmod +x "$tmp/tools/gen-value.sh"
 
 cat > "$tmp/qstar.lua" <<'EOF'
-qstar.config_header "cfg" {
+qstar.configure_file "cfg" {
   output = qstar.output("generated/config.h"),
   defines = {"APP_VALUE=41", "APP_FEATURE"},
 }
 
-qstar.genrule "make_value" {
+qstar.custom_target "make_value" {
   tool = "tools/gen-value.sh",
   outputs = {qstar.output("generated/value.c")},
   args = {"generated/value.c"},
 }
 
-qstar.exe "genapp" {
+qstar.executable "genapp" {
   sources = {"src/main.c", qstar.output("generated/value.c")},
   private_headers = {qstar.output("generated/config.h")},
-  include_dirs = {"generated"},
+  lang = {
+    c = {
+      include_dirs = {"generated"},
+    },
+  },
 }
 EOF
 
@@ -591,21 +646,25 @@ test -f "$tmp/generated/value.c" || fail "missing generated source"
 contains "$tmp/generated/config.h" "#define APP_VALUE 41"
 
 cat > "$tmp/qstar.lua" <<'EOF'
-qstar.config_header "cfg" {
+qstar.configure_file "cfg" {
   output = qstar.output("generated/config.h"),
   defines = {"APP_VALUE=42", "APP_FEATURE"},
 }
 
-qstar.genrule "make_value" {
+qstar.custom_target "make_value" {
   tool = "tools/gen-value.sh",
   outputs = {qstar.output("generated/value.c")},
   args = {"generated/value.c"},
 }
 
-qstar.exe "genapp" {
+qstar.executable "genapp" {
   sources = {"src/main.c", qstar.output("generated/value.c")},
   private_headers = {qstar.output("generated/config.h")},
-  include_dirs = {"generated"},
+  lang = {
+    c = {
+      include_dirs = {"generated"},
+    },
+  },
 }
 EOF
 
@@ -615,13 +674,13 @@ contains "$tmp/generated-second.out" "cache_miss id=//:genapp:compile:0"
 contains "$tmp/generated/config.h" "#define APP_VALUE 42"
 
 cat > "$tmp/qstar.lua" <<'EOF'
-qstar.genrule "one" {
+qstar.custom_target "one" {
   tool = "tools/gen-value.sh",
   outputs = {qstar.output("generated/collision.c")},
   args = {"generated/collision.c"},
 }
 
-qstar.genrule "two" {
+qstar.custom_target "two" {
   tool = "tools/gen-value.sh",
   outputs = {qstar.output("generated/collision.c")},
   args = {"generated/collision.c"},
@@ -634,7 +693,7 @@ fi
 contains "$tmp/collision.err" "multiple producers"
 
 cat > "$tmp/qstar.lua" <<'EOF'
-qstar.genrule "bad_out" {
+qstar.custom_target "bad_out" {
   tool = "tools/gen-value.sh",
   outputs = {qstar.output("../bad.c")},
   args = {"../bad.c"},
@@ -647,13 +706,13 @@ fi
 contains "$tmp/outside.err" "must be package-relative"
 
 cat > "$tmp/qstar.lua" <<'EOF'
-qstar.genrule "bad_arg" {
+qstar.custom_target "bad_arg" {
   tool = "tools/gen-value.sh",
   outputs = {qstar.output("generated/safe.c")},
   args = {"../escape.c"},
 }
 
-qstar.exe "bad_gen" {
+qstar.executable "bad_gen" {
   sources = {qstar.output("generated/safe.c")},
 }
 EOF
@@ -664,7 +723,7 @@ fi
 contains "$tmp/bad-arg.err" "escapes package root"
 
 cat > "$tmp/qstar.lua" <<'EOF'
-qstar.exe "bad_suffix" {
+qstar.executable "bad_suffix" {
   sources = {"src/main.txt"},
 }
 EOF
@@ -717,7 +776,7 @@ EOF
 chmod +x "$tmp/tools/cale"
 
 cat > "$tmp/qstar.lua" <<'EOF'
-qstar.exe "mixed" {
+qstar.executable "mixed" {
   toolchain = "cale",
   sources = {"src/main.c", "src/unit.cale"},
 }
@@ -777,8 +836,12 @@ cat > "$tmp/qstar.lua" <<'EOF'
 qstar.staticlib "core" {
   sources = {"src/core.c"},
   public_headers = {"include/core.h"},
-  public_include_dirs = {"include"},
-  private_include_dirs = {"src/core_private"},
+  lang = {
+    c = {
+      public_include_dirs = {"include"},
+      private_include_dirs = {"src/core_private"},
+    },
+  },
 }
 
 qstar.staticlib "util" {
@@ -786,17 +849,17 @@ qstar.staticlib "util" {
   deps = {"//:core"},
 }
 
-qstar.exe "linkapp" {
+qstar.executable "linkapp" {
   sources = {"src/link_main.c"},
   deps = {"//:util"},
 }
 
-qstar.exe "bad_private" {
+qstar.executable "bad_private" {
   sources = {"src/bad_private.c"},
   deps = {"//:core"},
 }
 
-qstar.exe "sysflags" {
+qstar.executable "sysflags" {
   sources = {"src/link_main.c"},
   libs = {"m"},
   lib_dirs = {"lib"},
@@ -842,7 +905,7 @@ cat > "$tmp/src/install_main.c" <<'EOF'
 int main(void) { return core_value() - 13; }
 EOF
 cat > "$tmp/qstar.lua" <<'EOF'
-qstar.config_header "install_cfg" {
+qstar.configure_file "install_cfg" {
   output = qstar.output("generated/install_config.h"),
   defines = {"INSTALL_FEATURE=1"},
 }
@@ -862,11 +925,15 @@ qstar.test "unit_timeout" {
 qstar.staticlib "install_core" {
   sources = {"src/core.c"},
   public_headers = {"include/core.h", qstar.output("generated/install_config.h")},
-  public_include_dirs = {"include"},
-  private_include_dirs = {"src/core_private"},
+  lang = {
+    c = {
+      public_include_dirs = {"include"},
+      private_include_dirs = {"src/core_private"},
+    },
+  },
 }
 
-qstar.exe "install_app" {
+qstar.executable "install_app" {
   sources = {"src/install_main.c"},
   deps = {"//:install_core"},
 }
@@ -1012,15 +1079,19 @@ int b_value(void);
 int main(void) { return a_value() + b_value() - 15; }
 EOF
 cat > "$tmp/fanout/qstar.lua" <<'EOF'
-qstar.config_header "cfg" {
+qstar.configure_file "cfg" {
   output = qstar.output("generated/config.h"),
   defines = {"FANOUT_VALUE=7"},
 }
 
-qstar.exe "app" {
+qstar.executable "app" {
   sources = {"src/a.c", "src/b.c", "src/main.c"},
   private_headers = {qstar.output("generated/config.h")},
-  include_dirs = {"generated"},
+  lang = {
+    c = {
+      include_dirs = {"generated"},
+    },
+  },
 }
 EOF
 "$qstar" --file "$tmp/fanout/qstar.lua" build //:app --jobs 2 --schedule-trace > "$tmp/fanout-build.out" 2> "$tmp/fanout-build.err"
@@ -1075,7 +1146,7 @@ profile = "fake"
 cc = "tools/fake-cc.sh"
 EOF
 cat > "$tmp/parallel-fail/qstar.lua" <<'EOF'
-qstar.exe "race" {
+qstar.executable "race" {
   sources = {"src/slow.c", "src/fail.c", "src/ok.c"},
 }
 EOF
@@ -1114,7 +1185,7 @@ profile = "fake"
 cc = "tools/fake-cc.sh"
 EOF
 cat > "$tmp/parallel-timeout/qstar.lua" <<'EOF'
-qstar.exe "timeout" {
+qstar.executable "timeout" {
   sources = {"src/timeout.c", "src/other.c"},
 }
 EOF
@@ -1214,9 +1285,13 @@ cat > "$tmp/depfile/src/main.c" <<'EOF'
 int main(void) { return DEP_VALUE - 11; }
 EOF
 cat > "$tmp/depfile/qstar.lua" <<'EOF'
-qstar.exe "app" {
+qstar.executable "app" {
   sources = {"src/main.c"},
-  include_dirs = {"include"},
+  lang = {
+    c = {
+      include_dirs = {"include"},
+    },
+  },
 }
 EOF
 "$qstar" --file "$tmp/depfile/qstar.lua" build //:app > "$tmp/depfile-first.out" 2> "$tmp/depfile-first.err"
@@ -1254,12 +1329,19 @@ int cpp_value(void);
 int main(void) { return cpp_value() - 42; }
 EOF
 	cat > "$tmp/cxx/qstar.lua" <<'EOF'
-qstar.exe "mixed" {
+qstar.executable "mixed" {
   sources = {"src/main.c", "src/cpp.cpp"},
-  include_dirs = {"include"},
-  cflags = {"-DQSTAR_C_FLAG=1"},
-  cxxflags = {"-DQSTAR_CXX_FLAG=5"},
-  cxx_standard = "c++11",
+  lang = {
+    c = {
+      include_dirs = {"include"},
+      compile_options = {"-DQSTAR_C_FLAG=1"},
+    },
+    cxx = {
+      include_dirs = {"include"},
+      compile_options = {"-DQSTAR_CXX_FLAG=5"},
+      standard = "c++11",
+    },
+  },
 }
 EOF
 	"$qstar" --file "$tmp/cxx/qstar.lua" dry-run //:mixed > "$tmp/cxx-dry.out" 2> "$tmp/cxx-dry.err"
@@ -1274,7 +1356,7 @@ EOF
 fi
 
 cat > "$tmp/cxx-module.qstar.lua" <<'EOF'
-qstar.exe "bad_module" {
+qstar.executable "bad_module" {
   sources = {"src/module.cppm"},
 }
 EOF
@@ -1285,6 +1367,46 @@ if "$qstar" --file "$tmp/cxx-module.qstar.lua" build //:bad_module > "$tmp/cxx-m
 	fail "C++ module source unexpectedly built"
 fi
 contains "$tmp/cxx-module.err" "C++ modules are not supported"
+
+mkdir -p "$tmp/lang-surface/boot/include" "$tmp/lang-surface/src" "$tmp/lang-surface/include"
+cat > "$tmp/lang-surface/qstar.lua" <<'EOF'
+qstar.staticlib "boot" {
+  sources = {"boot/start.S"},
+  lang = {
+    asm = {
+      include_dirs = {"boot/include"},
+      compile_options = {"-ffreestanding"},
+      preprocess = true,
+    },
+  },
+}
+
+qstar.staticlib "cale_core" {
+  toolchain = "cale",
+  sources = {"src/core.cl"},
+  lang = {
+    cale = {
+      profile = "safe",
+      compile_options = {"--profile=safe"},
+      hcl_include_dirs = {"include"},
+    },
+  },
+}
+EOF
+cat > "$tmp/lang-surface/boot/start.S" <<'EOF'
+.globl _start
+_start:
+EOF
+cat > "$tmp/lang-surface/src/core.cl" <<'EOF'
+fn core() -> int { return 0; }
+EOF
+"$qstar" --file "$tmp/lang-surface/qstar.lua" --dump-graph > "$tmp/lang-surface.out" 2> "$tmp/lang-surface.err"
+contains "$tmp/lang-surface.out" "lang.asm.include_dirs [boot/include]"
+contains "$tmp/lang-surface.out" "lang.asm.compile_options [-ffreestanding]"
+contains "$tmp/lang-surface.out" "lang.asm.preprocess true"
+contains "$tmp/lang-surface.out" "lang.cale.hcl_include_dirs [include]"
+contains "$tmp/lang-surface.out" "lang.cale.compile_options [--profile=safe]"
+contains "$tmp/lang-surface.out" "lang.cale.profile safe"
 
 mkdir -p "$tmp/workspace/app/src" "$tmp/workspace/lib/src" "$tmp/workspace/lib/include" "$tmp/workspace/lib/private"
 touch "$tmp/workspace/qstar.workspace"
@@ -1307,13 +1429,17 @@ qstar.staticlib "core" {
   sources = {"lib/src/core.c"},
   public_headers = {"lib/include/core.h"},
   private_headers = {"lib/private/core_private.h"},
-  public_include_dirs = {"lib/include"},
-  private_include_dirs = {"lib/private"},
+  lang = {
+    c = {
+      public_include_dirs = {"lib/include"},
+      private_include_dirs = {"lib/private"},
+    },
+  },
   visibility = {"//app:..."},
 }
 EOF
 cat > "$tmp/workspace/app/app.qs" <<'EOF'
-qstar.exe "app" {
+qstar.executable "app" {
   sources = {"app/src/main.c"},
   deps = {"//lib:core"},
 }
@@ -1331,10 +1457,14 @@ contains "$tmp/workspace-build.out" "status ok"
 "$tmp/workspace/.qstar/out/__app_app/app"
 
 cat > "$tmp/workspace/app/app.qs" <<'EOF'
-qstar.exe "bad_leak" {
+qstar.executable "bad_leak" {
   sources = {"app/src/main.c"},
   deps = {"//lib:core"},
-  include_dirs = {"lib/private"},
+  lang = {
+    c = {
+      include_dirs = {"lib/private"},
+    },
+  },
 }
 EOF
 if "$qstar" --file "$tmp/workspace/qstar.lua" check //app:bad_leak > "$tmp/private-leak.out" 2> "$tmp/private-leak.err"; then
@@ -1351,12 +1481,16 @@ cat > "$tmp/workspace/lib/lib.qs" <<'EOF'
 qstar.staticlib "core" {
   sources = {"lib/src/core.c"},
   public_headers = {"lib/include/core.h"},
-  public_include_dirs = {"lib/include"},
+  lang = {
+    c = {
+      public_include_dirs = {"lib/include"},
+    },
+  },
   visibility = {"//other:..."},
 }
 EOF
 cat > "$tmp/workspace/app/app.qs" <<'EOF'
-qstar.exe "blocked" {
+qstar.executable "blocked" {
   sources = {"app/src/main.c"},
   deps = {"//lib:core"},
 }
@@ -1367,7 +1501,7 @@ fi
 contains "$tmp/visibility.err" "is not visible"
 
 cat > "$tmp/workspace/app/app.qs" <<'EOF'
-qstar.exe "//other:oops" {
+qstar.executable "//other:oops" {
   sources = {"app/src/main.c"},
 }
 EOF
@@ -1377,7 +1511,7 @@ fi
 contains "$tmp/ownership.err" "owned by package"
 
 cat > "$tmp/workspace/app/app.qs" <<'EOF'
-qstar.exe "outside" {
+qstar.executable "outside" {
   sources = {"../outside.c"},
 }
 EOF
@@ -1408,7 +1542,7 @@ cat > "$tmp/profile/src/main.c" <<'EOF'
 int main(void) { return 0; }
 EOF
 cat > "$tmp/profile/qstar.lua" <<'EOF'
-qstar.exe "app" {
+qstar.executable "app" {
   sources = {"src/main.c"},
   libs = {"m"},
 }
@@ -1430,29 +1564,33 @@ cat > "$tmp/longcmd/src/main.c" <<'EOF'
 int main(void) { return 0; }
 EOF
 cat > "$tmp/longcmd/qstar.lua" <<'EOF'
-qstar.exe "app" {
+qstar.executable "app" {
   sources = {"src/main.c"},
-  include_dirs = {
-    "include/very/long/path/segment/000",
-    "include/very/long/path/segment/001",
-    "include/very/long/path/segment/002",
-    "include/very/long/path/segment/003",
-    "include/very/long/path/segment/004",
-    "include/very/long/path/segment/005",
-    "include/very/long/path/segment/006",
-    "include/very/long/path/segment/007",
-    "include/very/long/path/segment/008",
-    "include/very/long/path/segment/009",
-    "include/very/long/path/segment/010",
-    "include/very/long/path/segment/011",
-    "include/very/long/path/segment/012",
-    "include/very/long/path/segment/013",
-    "include/very/long/path/segment/014",
-    "include/very/long/path/segment/015",
-    "include/very/long/path/segment/016",
-    "include/very/long/path/segment/017",
-    "include/very/long/path/segment/018",
-    "include/very/long/path/segment/019",
+  lang = {
+    c = {
+      include_dirs = {
+        "include/very/long/path/segment/000",
+        "include/very/long/path/segment/001",
+        "include/very/long/path/segment/002",
+        "include/very/long/path/segment/003",
+        "include/very/long/path/segment/004",
+        "include/very/long/path/segment/005",
+        "include/very/long/path/segment/006",
+        "include/very/long/path/segment/007",
+        "include/very/long/path/segment/008",
+        "include/very/long/path/segment/009",
+        "include/very/long/path/segment/010",
+        "include/very/long/path/segment/011",
+        "include/very/long/path/segment/012",
+        "include/very/long/path/segment/013",
+        "include/very/long/path/segment/014",
+        "include/very/long/path/segment/015",
+        "include/very/long/path/segment/016",
+        "include/very/long/path/segment/017",
+        "include/very/long/path/segment/018",
+        "include/very/long/path/segment/019",
+      },
+    },
   },
 }
 EOF
@@ -1491,21 +1629,25 @@ target = "x86_64-unknown-none-elf"
 response_files = "off"
 EOF
 cat > "$tmp/rsppolicy/qstar.lua" <<'EOF'
-qstar.exe "app" {
+qstar.executable "app" {
   sources = {"src/main.c"},
-  include_dirs = {
-    "include/very/long/path/segment/000",
-    "include/very/long/path/segment/001",
-    "include/very/long/path/segment/002",
-    "include/very/long/path/segment/003",
-    "include/very/long/path/segment/004",
-    "include/very/long/path/segment/005",
-    "include/very/long/path/segment/006",
-    "include/very/long/path/segment/007",
-    "include/very/long/path/segment/008",
-    "include/very/long/path/segment/009",
-    "include/very/long/path/segment/010",
-    "include/very/long/path/segment/011",
+  lang = {
+    c = {
+      include_dirs = {
+        "include/very/long/path/segment/000",
+        "include/very/long/path/segment/001",
+        "include/very/long/path/segment/002",
+        "include/very/long/path/segment/003",
+        "include/very/long/path/segment/004",
+        "include/very/long/path/segment/005",
+        "include/very/long/path/segment/006",
+        "include/very/long/path/segment/007",
+        "include/very/long/path/segment/008",
+        "include/very/long/path/segment/009",
+        "include/very/long/path/segment/010",
+        "include/very/long/path/segment/011",
+      },
+    },
   },
 }
 EOF
@@ -1529,21 +1671,25 @@ linker = "clang-cl"
 response_style = "msvc"
 EOF
 cat > "$tmp/windows/qstar.lua" <<'EOF'
-qstar.exe "app" {
+qstar.executable "app" {
   sources = {"src/main.c"},
-  include_dirs = {
-    "win include dir",
-    "sdk\\include\\tail\\",
-    "include/very/long/path/segment/000",
-    "include/very/long/path/segment/001",
-    "include/very/long/path/segment/002",
-    "include/very/long/path/segment/003",
-    "include/very/long/path/segment/004",
-    "include/very/long/path/segment/005",
-    "include/very/long/path/segment/006",
-    "include/very/long/path/segment/007",
-    "include/very/long/path/segment/008",
-    "include/very/long/path/segment/009",
+  lang = {
+    c = {
+      include_dirs = {
+        "win include dir",
+        "sdk\\include\\tail\\",
+        "include/very/long/path/segment/000",
+        "include/very/long/path/segment/001",
+        "include/very/long/path/segment/002",
+        "include/very/long/path/segment/003",
+        "include/very/long/path/segment/004",
+        "include/very/long/path/segment/005",
+        "include/very/long/path/segment/006",
+        "include/very/long/path/segment/007",
+        "include/very/long/path/segment/008",
+        "include/very/long/path/segment/009",
+      },
+    },
   },
   lib_dirs = {"win lib"},
   libs = {"user32"},

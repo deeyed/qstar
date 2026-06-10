@@ -6,6 +6,11 @@
   "publisher": "cale",
   "license": "UNLICENSED",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/deeyed/cale.git",
+    "directory": "qstar/editors/vscode/qstar"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -13,17 +18,6 @@
     "check": "node scripts/check-package.js",
     "package:vsix": "sh scripts/package-vsix.sh"
   },
-  "files": [
-    ".vscodeignore",
-    "README.md",
-    "extension.js",
-    "language-configuration.json",
-    "package.json",
-    "samples/**",
-    "scripts/**",
-    "snippets/**",
-    "syntaxes/**"
-  ],
   "categories": [
     "Programming Languages",
     "Linters"

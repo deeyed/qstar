@@ -14,6 +14,42 @@ QStar의 목적은 Cale package graph를 deterministic하게 평가하는 것이
 - 제한적 local executor
 - profile/toolchain resolver 실험
 
+## v0.2 authoring surface
+
+Round 47부터 QStar v0.2 authoring surface는 hard cut이다. 새 project는 다음 API만
+정본으로 사용한다.
+
+```lua
+qstar.executable "app" { ... }
+qstar.staticlib "core" { ... }
+qstar.sharedlib "plugin" { ... }
+qstar.test "unit" { ... }
+qstar.custom_target "generated" { ... }
+qstar.run_target "smoke" { ... }
+qstar.configure_file "cfg" { ... }
+```
+
+`qstar.exe`, `qstar.genrule`, `qstar.config_header`, `qstar.write_config_header`는
+제거됐다. Target top-level의 `include_dirs`, `public_include_dirs`,
+`private_include_dirs`, `system_include_dirs`, `cflags`, `cxxflags`, `cxx_standard`도
+제거됐다. Include/compile option은 항상 `lang.*` 아래에 둔다.
+
+```lua
+qstar.staticlib "core" {
+  sources = {"lib/src/core.c"},
+  public_headers = {"lib/include/core.h"},
+  lang = {
+    c = {
+      public_include_dirs = {"lib/include"},
+      compile_options = {"-ffreestanding"},
+      defines = {"CORE_BUILD=1"},
+    },
+  },
+}
+```
+
+상세한 한국어 사용 문서는 `qstar/wiki/README.md`에서 시작한다.
+
 ## Lua evaluator
 
 QStar evaluator는 `qstar/vendor/lua`에 있는 Lua submodule을 사용한다. tag는 `v5.4.8`에 고정되어 있으며, license text는 `LICENSE/lua.txt`에 보존한다. vendored source의 원출처 정보는 license/notice 정책을 따른다.
@@ -72,7 +108,7 @@ QStar block을 다음 스타일로 정리한다. VSCode extension은 `qstar fmt 
 사용해 document formatting edit을 만든다.
 
 ```lua
-qstar.exe "app" {
+qstar.executable "app" {
   sources = {
     "src/main.c",
   },
@@ -82,7 +118,7 @@ qstar.exe "app" {
 }
 ```
 
-`build`는 제한적 local executor v9이다. package-local generated tool, `qstar.config_header`, C/Cale source compile argv, static archive, exe/test link를 다루며 산출물은 `.qstar/out`, 로그는 `.qstar/logs` 아래에 둔다. Round 14/15부터 `.qstar/state/actions.json` action manifest, `compile_commands.json`, cache-hit skip, `why-rebuild`, `log`, `last-failure`, `clean`, JSON diagnostic skeleton을 제공한다. Round 16/17부터 Cale source는 frontend/backend 내부 API가 아니라 `cale -c ... -o ...` process invocation으로만 다룬다. Round 18/19부터 static library dependency link order, public/private include propagation, system library flag rendering, test runner, install skeleton을 제공한다. Round 29부터 executor는 dependency-first closure를 action DAG로 실행하고, 실패는 stop-on-first-failure로 전파한다. Build action timeout은 기본 30초이며 timeout 시 process를 kill하고 replay file을 남긴다. Round 32부터 `--jobs N`과 `--schedule-trace`를 받는다. `jobs > 1`은 같은 target 안의 independent compile action을 process-level parallel batch로 실행하고, generated action과 final archive/link는 deterministic order를 유지한다. Round 35부터 긴 compile/link command는 profile capability가 허용할 때 실제 `.qstar/rsp/*.rsp` response file로 내려가며, POSIX/Windows/MSVC style과 digest를 plan/build/replay에 기록한다. Round 36부터 parallel compile은 `process-v2` event stream을 출력한다. Queue order, slot assignment, start/finish/fail/timeout/cancel state, `retry=next-build`, active child cancel propagation을 deterministic하게 기록해 실패 로그를 사람이 읽을 수 있게 한다. Round 37부터 `.qstar/state/graph.json` graph snapshot과 `.qstar/state/last-summary.json` 마지막 build summary를 저장하고, `qstar action-log <action-id>`와 `qstar replay <action-id>`로 action 단위 로그/재현 명령을 조회한다.
+`build`는 제한적 local executor v9이다. package-local generated tool, `qstar.configure_file`, C/Cale source compile argv, static archive, exe/test link를 다루며 산출물은 `.qstar/out`, 로그는 `.qstar/logs` 아래에 둔다. Round 14/15부터 `.qstar/state/actions.json` action manifest, `compile_commands.json`, cache-hit skip, `why-rebuild`, `log`, `last-failure`, `clean`, JSON diagnostic skeleton을 제공한다. Round 16/17부터 Cale source는 frontend/backend 내부 API가 아니라 `cale -c ... -o ...` process invocation으로만 다룬다. Round 18/19부터 static library dependency link order, public/private include propagation, system library flag rendering, test runner, install skeleton을 제공한다. Round 29부터 executor는 dependency-first closure를 action DAG로 실행하고, 실패는 stop-on-first-failure로 전파한다. Build action timeout은 기본 30초이며 timeout 시 process를 kill하고 replay file을 남긴다. Round 32부터 `--jobs N`과 `--schedule-trace`를 받는다. `jobs > 1`은 같은 target 안의 independent compile action을 process-level parallel batch로 실행하고, generated action과 final archive/link는 deterministic order를 유지한다. Round 35부터 긴 compile/link command는 profile capability가 허용할 때 실제 `.qstar/rsp/*.rsp` response file로 내려가며, POSIX/Windows/MSVC style과 digest를 plan/build/replay에 기록한다. Round 36부터 parallel compile은 `process-v2` event stream을 출력한다. Queue order, slot assignment, start/finish/fail/timeout/cancel state, `retry=next-build`, active child cancel propagation을 deterministic하게 기록해 실패 로그를 사람이 읽을 수 있게 한다. Round 37부터 `.qstar/state/graph.json` graph snapshot과 `.qstar/state/last-summary.json` 마지막 build summary를 저장하고, `qstar action-log <action-id>`와 `qstar replay <action-id>`로 action 단위 로그/재현 명령을 조회한다.
 
 ## 아직 하지 않는 일
 
@@ -117,7 +153,7 @@ Round 43부터 lint는 build 전 authoring mistake를 더 적극적으로 잡는
 - generated public header가 `include/` install surface 밖에 있는 경우 `QSTAR041` warning
 - public header를 가진 target이 public include surface를 가진 target을 `private_deps`로만 잡은 경우 `QSTAR042` warning
 - 같은 source file이 여러 target에 들어간 경우 `QSTAR043` warning
-- C++ source가 있는데 `cxx_standard`가 없는 경우 `QSTAR044` info
+- C++ source가 있는데 `lang.cxx.standard`가 없는 경우 `QSTAR044` info
 - Cale source가 있는데 `toolchain = "cale"` 계열이 아닌 경우 `QSTAR045` warning
 - visibility typo는 `QSTAR050` error
 - generated output collision은 `QSTAR060` error
@@ -133,8 +169,8 @@ Round 40부터 `qstar lsp --stdio`가 개발용 Language Server Protocol 서버�
 
 Diagnostics는 현재 파일 경로에서 workspace root와 root `qstar.lua`를 찾고,
 기존 lint core와 같은 `QSTAR###` diagnostic을 LSP diagnostic으로 변환한다.
-v1은 현재 파일에 해당하는 diagnostic만 publish한다. Hover는 `qstar.exe`,
-`qstar.staticlib`, `qstar.test`, `qstar.genrule`, `qstar.config_header`, 주요 field,
+v1은 현재 파일에 해당하는 diagnostic만 publish한다. Hover는 `qstar.executable`,
+`qstar.staticlib`, `qstar.test`, `qstar.custom_target`, `qstar.configure_file`, `lang.*` 주요 field,
 그리고 `//pkg:target` label의 kind/origin/source summary를 제공한다.
 Completion은 top-level `qstar.*` API와 target field 이름을 제공한다.
 Round 44부터 label navigation도 제공한다. `deps = {"//lib:core"}` 같은 canonical
@@ -167,11 +203,11 @@ profile, command plan을 편집하고 진단하는 역할로 제한한다.
 Round 16/17 기준 source policy:
 
 - `.c`는 `host`/`clang`/`cale` toolchain profile에 따라 C compiler invocation으로 낮춘다.
-- `.cale`은 `toolchain = "cale"` 또는 `cale-sol`에서만 object-producing compile action으로 낮춘다.
+- `.cl`/`.cale`은 `toolchain = "cale"` 또는 `cale-sol`에서만 object-producing compile action으로 낮춘다.
 - Cale source는 `cale` process를 호출할 뿐 Cale frontend/backend 내부 API와 연결하지 않는다.
 - `.h`는 source kind로 인식하지만 compile source가 아니라 `public_headers`/`private_headers`에 둬야 한다.
-- `qstar.genrule` output은 target `sources` 또는 header list에서 소비될 수 있다.
-- `qstar.config_header`는 package root 아래 `generated/` output만 만들 수 있고, generated header 변경은 dependent compile action cache key에 반영된다.
+- `qstar.custom_target` output은 target `sources` 또는 header list에서 소비될 수 있다.
+- `qstar.configure_file`는 package root 아래 `generated/` output만 만들 수 있고, generated header 변경은 dependent compile action cache key에 반영된다.
 - `deps`/`public_deps`는 public/interface include directory를 소비자에게 전파한다.
 - `private_deps`는 build/link에는 참여하지만 include directory를 소비자에게 전파하지 않는다.
 - `libs`, `lib_dirs`, `frameworks`는 target profile별 link flag로 렌더링된다.
@@ -179,15 +215,19 @@ Round 16/17 기준 source policy:
 예:
 
 ```lua
-qstar.config_header "cfg" {
+qstar.configure_file "cfg" {
   output = qstar.output("generated/config.h"),
   defines = {"APP_VALUE=42", "HAVE_FEATURE"},
 }
 
-qstar.exe "app" {
+qstar.executable "app" {
   sources = {"src/main.c"},
   private_headers = {qstar.output("generated/config.h")},
-  include_dirs = {"generated"},
+  lang = {
+    c = {
+      include_dirs = {"generated"},
+    },
+  },
 }
 ```
 
@@ -292,8 +332,8 @@ Marker가 있으면 그 directory가 workspace root이고, 하위 `<folder>.qs`�
 계속 workspace-root 상대 path이며, `../`나 absolute path는 package 밖 참조로 reject된다.
 
 Target은 선언 fragment와 label package가 일치해야 한다. 예를 들어
-`pkg/pkg.qs` 안의 `qstar.exe "app"`은 `//pkg:app`을 만들고, 같은 파일에서
-`qstar.exe "//other:app"`처럼 다른 package 소유 label을 선언하는 것은 금지된다.
+`pkg/pkg.qs` 안의 `qstar.executable "app"`은 `//pkg:app`을 만들고, 같은 파일에서
+`qstar.executable "//other:app"`처럼 다른 package 소유 label을 선언하는 것은 금지된다.
 
 `visibility = {"//...", "//pkg:..."}`는 v1 skeleton으로 들어왔다. Visibility를
 명시하지 않은 target은 v0 compatibility를 위해 workspace-local target에서 볼 수

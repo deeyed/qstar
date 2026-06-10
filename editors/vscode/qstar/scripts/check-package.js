@@ -2,6 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const childProcess = require("child_process");
 
 const root = path.resolve(process.argv[2] || path.join(__dirname, ".."));
 const packagePath = path.join(root, "package.json");
@@ -34,20 +35,36 @@ function requireDir(rel) {
   }
 }
 
+function trackedFilesUnderRoot() {
+  try {
+    const toplevel = childProcess
+      .execFileSync("git", ["-C", root, "rev-parse", "--show-toplevel"], { encoding: "utf8" })
+      .trim();
+    const prefix = path.relative(toplevel, root).split(path.sep).join("/");
+    const out = childProcess.execFileSync("git", ["-C", toplevel, "ls-files"], {
+      encoding: "utf8",
+    });
+    return out
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .filter((file) => file === prefix || file.startsWith(`${prefix}/`))
+      .map((file) => file.slice(prefix.length + 1));
+  } catch (_err) {
+    return [];
+  }
+}
+
 function walk(dir, out) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     const rel = path.relative(root, full).split(path.sep).join("/");
     if (entry.isDirectory()) {
-      if (entry.name === "node_modules") {
-        fail(`node_modules must not be present in extension tree: ${rel}`);
+      if (entry.name === "node_modules" || entry.name === "dist") {
+        continue;
       }
       walk(full, out);
     } else if (entry.isFile()) {
       out.push(rel);
-      if (entry.name.endsWith(".vsix")) {
-        fail(`VSIX release artifact must not be committed: ${rel}`);
-      }
     }
   }
 }
@@ -57,6 +74,9 @@ const pkg = readJson("package.json");
 if (pkg.name !== "qstar-vscode") fail("package name drifted");
 if (pkg.main !== "./extension.js") fail("main must stay ./extension.js");
 if (!pkg.private) fail("extension package must stay private in-repo");
+if (!pkg.repository || pkg.repository.directory !== "qstar/editors/vscode/qstar") {
+  fail("repository metadata must point at the extension subdirectory");
+}
 if (!pkg.scripts || pkg.scripts.check !== "node scripts/check-package.js") {
   fail("missing stable package check script");
 }
@@ -64,22 +84,26 @@ if (!pkg.scripts || pkg.scripts["package:vsix"] !== "sh scripts/package-vsix.sh"
   fail("missing stable package:vsix script");
 }
 
-const files = new Set(pkg.files || []);
-for (const required of [
-  ".vscodeignore",
-  "README.md",
-  "extension.js",
-  "language-configuration.json",
-  "package.json",
-  "samples/**",
-  "scripts/**",
-  "snippets/**",
-  "syntaxes/**",
-]) {
-  if (!files.has(required)) fail(`package files list missing ${required}`);
+if (Object.prototype.hasOwnProperty.call(pkg, "files")) {
+  fail("VSCE cannot combine package.json files with .vscodeignore");
 }
-for (const forbidden of ["node_modules", "node_modules/**", "*.vsix", "dist/**"]) {
-  if (files.has(forbidden)) fail(`package files list must not include ${forbidden}`);
+
+const vscodeIgnore = fs.readFileSync(path.join(root, ".vscodeignore"), "utf8");
+for (const requiredPattern of [
+  "*.vsix",
+  "dist/",
+  "node_modules/",
+  ".qstar/",
+  "**/.qstar/**",
+  "build/",
+  "**/build/**",
+  "compile_commands.json",
+  "**/compile_commands.json",
+  ".gitignore",
+]) {
+  if (!vscodeIgnore.includes(requiredPattern)) {
+    fail(`.vscodeignore missing ${requiredPattern}`);
+  }
 }
 
 const languages = (((pkg.contributes || {}).languages) || []);
@@ -131,5 +155,14 @@ readJson("snippets/qstar.json");
 const allFiles = [];
 walk(root, allFiles);
 if (!allFiles.includes("README.md")) fail("walk sanity failed");
+for (const rel of trackedFilesUnderRoot()) {
+  if (rel.endsWith(".vsix")) fail(`VSIX release artifact must not be committed: ${rel}`);
+  if (rel === "node_modules" || rel.startsWith("node_modules/")) {
+    fail(`node_modules must not be committed under extension tree: ${rel}`);
+  }
+  if (rel === "dist" || rel.startsWith("dist/")) {
+    fail(`dist artifacts must not be committed under extension tree: ${rel}`);
+  }
+}
 
 console.log("qstar-vscode-package-check: ok");

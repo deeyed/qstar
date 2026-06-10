@@ -123,6 +123,249 @@ read_list_field(lua_State *L, int table, const char *field, struct qstar_string_
 	return rc;
 }
 
+static int append_list(struct qstar_graph *graph, struct qstar_string_list *dst,
+    const struct qstar_string_list *src);
+
+static int
+reject_top_level_field(lua_State *L, int table, struct qstar_graph *graph,
+    const char *field, const char *message)
+{
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_getfield(L, table, field);
+	if (!lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "%s", message);
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+static int
+push_define_option(struct qstar_graph *graph, struct qstar_string_list *list, const char *def)
+{
+	char buf[QSTAR_PATH_MAX];
+
+	if (snprintf(buf, sizeof(buf), "-D%s", def) >= (int)sizeof(buf))
+		return qstar_set_error(graph, "qstar: lang define '%s' is too long", def);
+	return qstar_string_list_push(list, buf) < 0 ?
+	    qstar_set_error(graph, "qstar: out of memory") : 0;
+}
+
+static int
+read_lang_defines(lua_State *L, int lang, const char *name, struct qstar_string_list *list,
+    struct qstar_graph *graph)
+{
+	size_t i, n;
+
+	lua_getfield(L, lang, name);
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: lang.%s.defines must be a list", name);
+	}
+	n = lua_rawlen(L, -1);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, -1, (lua_Integer)i);
+		if (!lua_isstring(L, -1)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph, "qstar: lang.%s.defines contains non-string item",
+			    name);
+		}
+		if (push_define_option(graph, list, lua_tostring(L, -1)) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+static int
+append_lang_include_self(struct qstar_graph *graph, struct qstar_string_list *compile_dirs,
+    const struct qstar_string_list *extra)
+{
+	return append_list(graph, compile_dirs, extra);
+}
+
+static int
+read_lang_c(lua_State *L, int lang, struct qstar_target *target, struct qstar_graph *graph)
+{
+	int rc;
+
+	lua_getfield(L, lang, "c");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: lang.c must be a table");
+	}
+	rc = read_list_field(L, -1, "include_dirs", &target->include_dirs, graph, 0,
+	    target->fragment_dir);
+	if (rc == 0)
+		rc = read_list_field(L, -1, "public_include_dirs", &target->public_include_dirs,
+		    graph, 0, target->fragment_dir);
+	if (rc == 0)
+		rc = read_list_field(L, -1, "private_include_dirs", &target->private_include_dirs,
+		    graph, 0, target->fragment_dir);
+	if (rc == 0)
+		rc = read_list_field(L, -1, "system_include_dirs", &target->system_include_dirs,
+		    graph, 0, target->fragment_dir);
+	if (rc == 0)
+		rc = read_list_field(L, -1, "compile_options", &target->cflags, graph, 0,
+		    target->fragment_dir);
+	if (rc == 0)
+		rc = read_lang_defines(L, -1, "c", &target->cflags, graph);
+	if (rc == 0)
+		rc = append_lang_include_self(graph, &target->include_dirs,
+		    &target->private_include_dirs);
+	if (rc == 0)
+		rc = append_lang_include_self(graph, &target->include_dirs,
+		    &target->public_include_dirs);
+	lua_pop(L, 1);
+	return rc;
+}
+
+static int
+read_lang_cxx(lua_State *L, int lang, struct qstar_target *target, struct qstar_graph *graph)
+{
+	const char *standard;
+	int rc;
+
+	lua_getfield(L, lang, "cxx");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: lang.cxx must be a table");
+	}
+	rc = read_list_field(L, -1, "include_dirs", &target->include_dirs, graph, 0,
+	    target->fragment_dir);
+	if (rc == 0)
+		rc = read_list_field(L, -1, "public_include_dirs", &target->public_include_dirs,
+		    graph, 0, target->fragment_dir);
+	if (rc == 0)
+		rc = read_list_field(L, -1, "private_include_dirs", &target->private_include_dirs,
+		    graph, 0, target->fragment_dir);
+	if (rc == 0)
+		rc = read_list_field(L, -1, "system_include_dirs", &target->system_include_dirs,
+		    graph, 0, target->fragment_dir);
+	if (rc == 0)
+		rc = read_list_field(L, -1, "compile_options", &target->cxxflags, graph, 0,
+		    target->fragment_dir);
+	if (rc == 0)
+		rc = read_lang_defines(L, -1, "cxx", &target->cxxflags, graph);
+	standard = check_string_field(L, -1, "standard");
+	if (standard) {
+		free(target->cxx_standard);
+		target->cxx_standard = qstar_strdup(standard);
+		if (!target->cxx_standard)
+			rc = qstar_set_error(graph, "qstar: out of memory");
+	}
+	if (rc == 0)
+		rc = append_lang_include_self(graph, &target->include_dirs,
+		    &target->private_include_dirs);
+	if (rc == 0)
+		rc = append_lang_include_self(graph, &target->include_dirs,
+		    &target->public_include_dirs);
+	lua_pop(L, 1);
+	return rc;
+}
+
+static int
+read_lang_asm(lua_State *L, int lang, struct qstar_target *target, struct qstar_graph *graph)
+{
+	int rc;
+
+	lua_getfield(L, lang, "asm");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: lang.asm must be a table");
+	}
+	rc = read_list_field(L, -1, "include_dirs", &target->asm_include_dirs, graph, 0,
+	    target->fragment_dir);
+	if (rc == 0)
+		rc = read_list_field(L, -1, "compile_options", &target->asm_compile_options,
+		    graph, 0, target->fragment_dir);
+	lua_getfield(L, -1, "preprocess");
+	if (!lua_isnil(L, -1))
+		target->asm_preprocess = lua_toboolean(L, -1) ? 1 : 0;
+	lua_pop(L, 1);
+	lua_pop(L, 1);
+	return rc;
+}
+
+static int
+read_lang_cale(lua_State *L, int lang, struct qstar_target *target, struct qstar_graph *graph)
+{
+	const char *profile;
+	int rc;
+
+	lua_getfield(L, lang, "cale");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: lang.cale must be a table");
+	}
+	rc = read_list_field(L, -1, "hcl_include_dirs", &target->cale_hcl_include_dirs,
+	    graph, 0, target->fragment_dir);
+	if (rc == 0)
+		rc = read_list_field(L, -1, "compile_options", &target->cale_compile_options,
+		    graph, 0, target->fragment_dir);
+	profile = check_string_field(L, -1, "profile");
+	if (profile) {
+		free(target->cale_profile);
+		target->cale_profile = qstar_strdup(profile);
+		if (!target->cale_profile)
+			rc = qstar_set_error(graph, "qstar: out of memory");
+	}
+	lua_pop(L, 1);
+	return rc;
+}
+
+static int
+read_lang_options(lua_State *L, int table, struct qstar_target *target,
+    struct qstar_graph *graph)
+{
+	int rc;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_getfield(L, table, "lang");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: field 'lang' must be a table");
+	}
+	rc = read_lang_c(L, -1, target, graph);
+	if (rc == 0)
+		rc = read_lang_cxx(L, -1, target, graph);
+	if (rc == 0)
+		rc = read_lang_asm(L, -1, target, graph);
+	if (rc == 0)
+		rc = read_lang_cale(L, -1, target, graph);
+	lua_pop(L, 1);
+	return rc;
+}
+
 static int
 append_list(struct qstar_graph *graph, struct qstar_string_list *dst,
     const struct qstar_string_list *src)
@@ -172,7 +415,7 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	struct qstar_lua_context *ctx;
 	struct qstar_target *target;
 	struct qstar_graph *graph;
-	const char *kind, *toolchain, *stdlib_policy, *cxx_standard;
+	const char *kind, *toolchain, *stdlib_policy;
 	char label[QSTAR_PATH_MAX], rawlabel[QSTAR_PATH_MAX];
 	char origin_file[QSTAR_PATH_MAX];
 	int origin_line;
@@ -200,16 +443,28 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	    origin_line);
 	if (!target)
 		return luaL_error(L, "%s", graph->error);
+	if (reject_top_level_field(L, table_index, graph, "include_dirs",
+	    "top-level include_dirs is not allowed; use lang.c.include_dirs or lang.cxx.include_dirs") < 0 ||
+	    reject_top_level_field(L, table_index, graph, "public_include_dirs",
+	    "top-level public_include_dirs is not allowed; use lang.c.public_include_dirs or lang.cxx.public_include_dirs") < 0 ||
+	    reject_top_level_field(L, table_index, graph, "private_include_dirs",
+	    "top-level private_include_dirs is not allowed; use lang.c.private_include_dirs or lang.cxx.private_include_dirs") < 0 ||
+	    reject_top_level_field(L, table_index, graph, "system_include_dirs",
+	    "top-level system_include_dirs is not allowed; use lang.c.system_include_dirs or lang.cxx.system_include_dirs") < 0 ||
+	    reject_top_level_field(L, table_index, graph, "interface_include_dirs",
+	    "top-level interface_include_dirs is not allowed; use lang.c.public_include_dirs or lang.cxx.public_include_dirs") < 0 ||
+	    reject_top_level_field(L, table_index, graph, "cflags",
+	    "top-level cflags is not allowed; use lang.c.compile_options") < 0 ||
+	    reject_top_level_field(L, table_index, graph, "cxxflags",
+	    "top-level cxxflags is not allowed; use lang.cxx.compile_options") < 0 ||
+	    reject_top_level_field(L, table_index, graph, "cxx_standard",
+	    "top-level cxx_standard is not allowed; use lang.cxx.standard") < 0)
+		return luaL_error(L, "%s", graph->error);
 	if (read_modules(L, table_index, target, graph) < 0)
 		return luaL_error(L, "%s", graph->error);
 	if (read_list_field(L, table_index, "sources", &target->sources, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "public_headers", &target->public_headers, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "private_headers", &target->private_headers, graph, 0, target->fragment_dir) < 0 ||
-	    read_list_field(L, table_index, "include_dirs", &target->include_dirs, graph, 0, target->fragment_dir) < 0 ||
-	    read_list_field(L, table_index, "public_include_dirs", &target->public_include_dirs, graph, 0, target->fragment_dir) < 0 ||
-	    read_list_field(L, table_index, "private_include_dirs", &target->private_include_dirs, graph, 0, target->fragment_dir) < 0 ||
-	    read_list_field(L, table_index, "interface_include_dirs", &target->interface_include_dirs, graph, 0, target->fragment_dir) < 0 ||
-	    read_list_field(L, table_index, "system_include_dirs", &target->system_include_dirs, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "deps", &target->deps, graph, 1, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "public_deps", &target->deps, graph, 1, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "private_deps", &target->private_deps, graph, 1, target->fragment_dir) < 0 ||
@@ -217,14 +472,10 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	    read_list_field(L, table_index, "libs", &target->libs, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "lib_dirs", &target->lib_dirs, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "frameworks", &target->frameworks, graph, 0, target->fragment_dir) < 0 ||
-	    read_list_field(L, table_index, "cflags", &target->cflags, graph, 0, target->fragment_dir) < 0 ||
-	    read_list_field(L, table_index, "cxxflags", &target->cxxflags, graph, 0, target->fragment_dir) < 0 ||
-	    append_list(graph, &target->include_dirs, &target->private_include_dirs) < 0 ||
-	    append_list(graph, &target->include_dirs, &target->public_include_dirs) < 0)
+	    read_lang_options(L, table_index, target, graph) < 0)
 		return luaL_error(L, "%s", graph->error);
 	toolchain = check_string_field(L, table_index, "toolchain");
 	stdlib_policy = check_string_field(L, table_index, "stdlib");
-	cxx_standard = check_string_field(L, table_index, "cxx_standard");
 	if (toolchain) {
 		free(target->toolchain);
 		target->toolchain = qstar_strdup(toolchain);
@@ -232,10 +483,6 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	if (stdlib_policy) {
 		free(target->stdlib_policy);
 		target->stdlib_policy = qstar_strdup(stdlib_policy);
-	}
-	if (cxx_standard) {
-		free(target->cxx_standard);
-		target->cxx_standard = qstar_strdup(cxx_standard);
 	}
 	if (!target->toolchain || !target->stdlib_policy || !target->cxx_standard)
 		return luaL_error(L, "qstar: out of memory");
@@ -270,6 +517,15 @@ qstar_lua_target(lua_State *L)
 		return 1;
 	}
 	return add_target(L, name, 2, default_kind, ctx->current_dir);
+}
+
+static int
+qstar_lua_removed_api(lua_State *L)
+{
+	const char *message;
+
+	message = lua_tostring(L, lua_upvalueindex(1));
+	return luaL_error(L, "%s", message ? message : "qstar: removed API");
 }
 
 static int
@@ -320,7 +576,7 @@ add_genrule(lua_State *L, const char *name, int table_index, const char *fragmen
 	return 0;
 }
 
-/** qstar.config_header 선언을 generated header action으로 graph에 추가한다. */
+/** qstar.configure_file 선언을 generated header action으로 graph에 추가한다. */
 static int
 add_config_header(lua_State *L, const char *name, int table_index, const char *fragment_dir)
 {
@@ -894,7 +1150,13 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "target");
 	lua_pushstring(L, "exe");
 	lua_pushcclosure(L, qstar_lua_target, 1);
+	lua_setfield(L, -2, "executable");
+	lua_pushstring(L, "qstar.exe removed; use qstar.executable");
+	lua_pushcclosure(L, qstar_lua_removed_api, 1);
 	lua_setfield(L, -2, "exe");
+	lua_pushstring(L, "run_target");
+	lua_pushcclosure(L, qstar_lua_target, 1);
+	lua_setfield(L, -2, "run_target");
 	lua_pushstring(L, "staticlib");
 	lua_pushcclosure(L, qstar_lua_target, 1);
 	lua_setfield(L, -2, "staticlib");
@@ -905,10 +1167,17 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_pushcclosure(L, qstar_lua_target, 1);
 	lua_setfield(L, -2, "test");
 	lua_pushcfunction(L, qstar_lua_genrule);
+	lua_setfield(L, -2, "custom_target");
+	lua_pushcfunction(L, qstar_lua_config_header);
+	lua_setfield(L, -2, "configure_file");
+	lua_pushstring(L, "qstar.genrule removed; use qstar.custom_target");
+	lua_pushcclosure(L, qstar_lua_removed_api, 1);
 	lua_setfield(L, -2, "genrule");
-	lua_pushcfunction(L, qstar_lua_config_header);
+	lua_pushstring(L, "qstar.config_header removed; use qstar.configure_file");
+	lua_pushcclosure(L, qstar_lua_removed_api, 1);
 	lua_setfield(L, -2, "config_header");
-	lua_pushcfunction(L, qstar_lua_config_header);
+	lua_pushstring(L, "qstar.write_config_header removed; use qstar.configure_file");
+	lua_pushcclosure(L, qstar_lua_removed_api, 1);
 	lua_setfield(L, -2, "write_config_header");
 	lua_pushcfunction(L, qstar_lua_output);
 	lua_setfield(L, -2, "output");

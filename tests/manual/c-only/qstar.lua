@@ -1,10 +1,14 @@
 qstar.staticlib "core" {
   sources = {"src/core.c"},
   public_headers = {"include/corpus.h"},
-  public_include_dirs = {"include"},
+  lang = {
+    c = {
+      public_include_dirs = {"include"},
+    },
+  },
 }
 
-qstar.exe "app" {
+qstar.executable "app" {
   sources = {"src/main.c"},
   deps = {"//:core"},
 }

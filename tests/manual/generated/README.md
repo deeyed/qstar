@@ -1,7 +1,7 @@
 # QStar generated source/header sample
 
 이 fixture는 Round 20 v0에서 손으로 작성한 corpus sample이다.
-`qstar.genrule`이 C source를 만들고, `qstar.config_header`가 generated header를
+`qstar.custom_target`이 C source를 만들고, `qstar.configure_file`가 generated header를
 만드는 흐름을 확인한다.
 
 ```txt

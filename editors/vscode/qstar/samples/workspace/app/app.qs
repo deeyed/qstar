@@ -1,4 +1,4 @@
-qstar.exe "app" {
+qstar.executable "app" {
   sources = {
     "app/src/main.c",
   },

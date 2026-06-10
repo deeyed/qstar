@@ -567,7 +567,7 @@ class QStarGraphProvider {
 
   generatedItem(action) {
     const item = new QStarGraphNode(action.label, vscode.TreeItemCollapsibleState.None, "generated", action);
-    item.description = action.config_header ? "config_header" : "genrule";
+    item.description = action.config_header ? "configure_file" : "custom_target";
     item.tooltip = `${action.label}\norigin: ${action.origin_file}:${action.origin_line}\noutputs: ${(action.outputs || []).join(", ")}`;
     item.contextValue = "qstarGenerated";
     item.iconPath = new vscode.ThemeIcon("gear");

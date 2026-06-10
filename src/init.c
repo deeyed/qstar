@@ -15,7 +15,7 @@ struct init_file {
 
 static const struct init_file c_app_files[] = {
 	{ "qstar.lua",
-	  "qstar.exe \"app\" {\n"
+	  "qstar.executable \"app\" {\n"
 	  "  sources = {\"src/main.c\"},\n"
 	  "}\n", 0 },
 	{ "src/main.c",
@@ -31,7 +31,11 @@ static const struct init_file c_lib_files[] = {
 	  "qstar.staticlib \"core\" {\n"
 	  "  sources = {\"src/core.c\"},\n"
 	  "  public_headers = {\"include/core.h\"},\n"
-	  "  public_include_dirs = {\"include\"},\n"
+	  "  lang = {\n"
+	  "    c = {\n"
+	  "      public_include_dirs = {\"include\"},\n"
+	  "    },\n"
+	  "  },\n"
 	  "}\n"
 	  "\n"
 	  "qstar.test \"unit\" {\n"
@@ -65,21 +69,25 @@ static const struct init_file c_lib_files[] = {
 
 static const struct init_file generated_files[] = {
 	{ "qstar.lua",
-	  "qstar.config_header \"cfg\" {\n"
+	  "qstar.configure_file \"cfg\" {\n"
 	  "  output = qstar.output(\"generated/config.h\"),\n"
 	  "  defines = {\"APP_VALUE=42\", \"APP_FEATURE\"},\n"
 	  "}\n"
 	  "\n"
-	  "qstar.genrule \"generated_value\" {\n"
+	  "qstar.custom_target \"generated_value\" {\n"
 	  "  tool = \"tools/gen-value.sh\",\n"
 	  "  outputs = {qstar.output(\"generated/value.c\")},\n"
 	  "  args = {\"generated/value.c\"},\n"
 	  "}\n"
 	  "\n"
-	  "qstar.exe \"app\" {\n"
+	  "qstar.executable \"app\" {\n"
 	  "  sources = {\"src/main.c\", qstar.output(\"generated/value.c\")},\n"
 	  "  private_headers = {qstar.output(\"generated/config.h\")},\n"
-	  "  include_dirs = {\"generated\"},\n"
+	  "  lang = {\n"
+	  "    c = {\n"
+	  "      include_dirs = {\"generated\"},\n"
+	  "    },\n"
+	  "  },\n"
 	  "}\n", 0 },
 	{ "src/main.c",
 	  "#include \"config.h\"\n"
@@ -107,9 +115,16 @@ static const struct init_file generated_files[] = {
 
 static const struct init_file mixed_cale_files[] = {
 	{ "qstar.lua",
-	  "qstar.exe \"mixed\" {\n"
+	  "qstar.executable \"mixed\" {\n"
 	  "  toolchain = \"cale\",\n"
 	  "  sources = {\"src/main.c\", \"src/plugin.cale\"},\n"
+	  "  lang = {\n"
+	  "    cale = {\n"
+	  "      profile = \"safe\",\n"
+	  "      compile_options = {},\n"
+	  "      hcl_include_dirs = {},\n"
+	  "    },\n"
+	  "  },\n"
 	  "}\n", 0 },
 	{ "src/main.c",
 	  "int cale_plugin_value(void);\n"

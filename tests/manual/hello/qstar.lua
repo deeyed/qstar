@@ -1,6 +1,6 @@
 qstar.subdir("src/foo")
 
-qstar.genrule "version" {
+qstar.custom_target "version" {
     tool = "version-gen",
     inputs = {
         "VERSION",
@@ -14,7 +14,7 @@ qstar.genrule "version" {
     },
 }
 
-qstar.exe "app" {
+qstar.executable "app" {
     deps = {
         "//src/foo:foo",
     },
@@ -25,9 +25,13 @@ qstar.exe "app" {
     public_headers = {
         "include/hello/api.h",
     },
-    include_dirs = {
-        "include",
-        "generated",
+    lang = {
+        c = {
+            include_dirs = {
+                "include",
+                "generated",
+            },
+        },
     },
     toolchain = "host",
     stdlib = "system",

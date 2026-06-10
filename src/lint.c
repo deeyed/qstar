@@ -343,9 +343,9 @@ lint_target_shape(struct qstar_graph *graph, const struct qstar_target *target,
 		    !saw_cxx_missing_standard) {
 			saw_cxx_missing_standard = 1;
 			if (qstar_graph_add_lint(graph, "QSTAR044", "info",
-			    target->origin_file, target->origin_line, "cxx_standard",
+			    target->origin_file, target->origin_line, "lang.cxx.standard",
 			    target->label,
-			    "C++ source in '%s' has no cxx_standard; default compiler mode will be used",
+			    "C++ source in '%s' has no lang.cxx.standard; default compiler mode will be used",
 			    target->label) < 0)
 				return -1;
 		}

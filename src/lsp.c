@@ -30,11 +30,13 @@ struct qstar_lsp_hover_entry {
 };
 
 static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
-	{ "qstar.exe", "Create an executable target." },
+	{ "qstar.executable", "Create an executable target." },
 	{ "qstar.staticlib", "Create a static library target." },
+	{ "qstar.sharedlib", "Create a shared library target, if the profile supports it." },
 	{ "qstar.test", "Create a test executable target." },
-	{ "qstar.genrule", "Create a package-local generated action." },
-	{ "qstar.config_header", "Generate a deterministic config header." },
+	{ "qstar.custom_target", "Create a package-local generated action." },
+	{ "qstar.run_target", "Declare a named external run action." },
+	{ "qstar.configure_file", "Generate a deterministic config header or configured file." },
 	{ "qstar.subdir", "Load a canonical subdir fragment named <folder>.qs." },
 	{ "qstar.files", "Return an explicit file list for target fields." },
 	{ "qstar.output", "Declare a generated output path under generated/." },
@@ -47,13 +49,23 @@ static const struct qstar_lsp_hover_entry qstar_lsp_fields[] = {
 	{ "private_deps", "Private dependency edges used for build/link without public include propagation." },
 	{ "public_headers", "Headers exported by this target." },
 	{ "private_headers", "Headers owned by this target but not exported." },
-	{ "include_dirs", "Target-local include directories." },
-	{ "public_include_dirs", "Include directories propagated to public dependents." },
+	{ "lang", "Per-language option namespace." },
+	{ "c", "C language options under lang.c." },
+	{ "cxx", "C++ language options under lang.cxx." },
+	{ "asm", "Assembly language options under lang.asm." },
+	{ "cale", "Cale language options under lang.cale." },
+	{ "include_dirs", "Language-local include directories under lang.<language>." },
+	{ "public_include_dirs", "Language include directories propagated to public dependents." },
+	{ "private_include_dirs", "Language include directories used only by this target." },
+	{ "system_include_dirs", "Language system include directories under lang.c or lang.cxx." },
+	{ "compile_options", "Language-specific compiler options." },
+	{ "defines", "Language-specific preprocessor defines." },
+	{ "standard", "C++ standard string under lang.cxx.standard." },
+	{ "preprocess", "Assembly preprocessing switch under lang.asm.preprocess." },
+	{ "hcl_include_dirs", "Cale HCL include directories under lang.cale." },
+	{ "profile", "Cale language profile under lang.cale.profile." },
 	{ "visibility", "Package visibility patterns that may depend on this target." },
 	{ "toolchain", "Toolchain profile name for this target." },
-	{ "cxx_standard", "C++ standard string for C++ sources in this target." },
-	{ "cflags", "Additional C compile flags for this target." },
-	{ "cxxflags", "Additional C++ compile flags for this target." },
 	{ "libs", "System libraries rendered by the selected target profile." },
 	{ "frameworks", "Darwin frameworks rendered by the selected target profile." },
 };
@@ -1071,7 +1083,7 @@ handle_document_symbols(struct qstar_lsp_server *server, FILE *out, const char *
 			if (strcmp(graph.genrules[i].origin_file, doc->path) != 0)
 				continue;
 			if (append_document_symbol(&payload, graph.genrules[i].label,
-			    13, graph.genrules[i].config_header ? "config_header" : "genrule",
+			    13, graph.genrules[i].config_header ? "configure_file" : "custom_target",
 			    graph.genrules[i].origin_line, first) < 0)
 				goto fail_graph;
 			first = 0;
@@ -1147,7 +1159,7 @@ handle_workspace_symbols(struct qstar_lsp_server *server, FILE *out, const char 
 			if (query && *query && !strstr(graph.genrules[i].label, query))
 				continue;
 			if (append_workspace_symbol(&payload, graph.genrules[i].label,
-			    13, graph.genrules[i].config_header ? "config_header" : "genrule",
+			    13, graph.genrules[i].config_header ? "configure_file" : "custom_target",
 			    graph.genrules[i].origin_file, graph.genrules[i].origin_line,
 			    first) < 0)
 				goto fail_graph;

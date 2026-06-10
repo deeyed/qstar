@@ -45,7 +45,13 @@ struct qstar_target {
 	struct qstar_string_list frameworks;
 	struct qstar_string_list cflags;
 	struct qstar_string_list cxxflags;
+	struct qstar_string_list asm_include_dirs;
+	struct qstar_string_list asm_compile_options;
+	struct qstar_string_list cale_hcl_include_dirs;
+	struct qstar_string_list cale_compile_options;
 	char *cxx_standard;
+	char *cale_profile;
+	int asm_preprocess;
 	char *toolchain;
 	char *stdlib_policy;
 };

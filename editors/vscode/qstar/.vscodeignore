@@ -2,6 +2,11 @@
 dist/
 node_modules/
 .qstar/
+**/.qstar/**
 build/
+**/build/**
 compile_commands.json
+**/compile_commands.json
 *.log
+**/*.log
+.gitignore

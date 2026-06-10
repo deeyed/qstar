@@ -1,7 +1,14 @@
-qstar.exe "mixed" {
+qstar.executable "mixed" {
   sources = {"src/main.c", "src/cpp.cpp"},
-  include_dirs = {"include"},
-  cflags = {"-DQSTAR_PROJECT_C_FLAG=1"},
-  cxxflags = {"-DQSTAR_PROJECT_CXX_FLAG=2"},
-  cxx_standard = "c++11",
+  lang = {
+    c = {
+      include_dirs = {"include"},
+      compile_options = {"-DQSTAR_PROJECT_C_FLAG=1"},
+    },
+    cxx = {
+      include_dirs = {"include"},
+      compile_options = {"-DQSTAR_PROJECT_CXX_FLAG=2"},
+      standard = "c++11",
+    },
+  },
 }
