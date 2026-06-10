@@ -311,7 +311,9 @@ validate_link_lists(struct qstar_graph *graph, const struct qstar_target *target
 	    validate_include_dir_list(graph, target, &target->private_include_dirs,
 	    "private_include_dirs") < 0 ||
 	    validate_include_dir_list(graph, target, &target->interface_include_dirs,
-	    "interface_include_dirs") < 0)
+	    "interface_include_dirs") < 0 ||
+	    validate_include_dir_list(graph, target, &target->asm_include_dirs,
+	    "lang.asm.include_dirs") < 0)
 		return -1;
 	return 0;
 }

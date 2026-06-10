@@ -19,8 +19,8 @@ static const struct source_rule source_rules[] = {
 	{ ".hh", { NULL, "cxx-header", "header-input", "cxx", "headers", 0, 1 } },
 	{ ".cl", { NULL, "cale", "cale-compiler", "cale", "objects", 1, 0 } },
 	{ ".cale", { NULL, "cale", "cale-compiler", "cale", "objects", 1, 0 } },
-	{ ".s", { NULL, "asm", "assembler", "asm", "objects", 0, 0 } },
-	{ ".S", { NULL, "asm-cpp", "preprocessed-assembler", "asm", "objects", 0, 0 } },
+	{ ".s", { NULL, "asm", "assembler", "asm", "objects", 1, 0 } },
+	{ ".S", { NULL, "asm-cpp", "preprocessed-assembler", "asm", "objects", 1, 0 } },
 };
 
 static const struct qstar_target_rule_info target_rules[] = {

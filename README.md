@@ -11,7 +11,8 @@ QStar의 목적은 Cale package graph를 deterministic하게 평가하는 것이
 - dependency closure 설명
 - authoring check
 - dry-run build plan
-- 제한적 local executor
+- 제한적 local executor: C, C++, compiler-driver 기반 `.s`/`.S` assembler,
+  generated/config action, test/install
 - profile/toolchain resolver 실험
 
 ## v0.2 authoring surface

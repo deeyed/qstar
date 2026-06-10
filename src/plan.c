@@ -550,6 +550,23 @@ collect_compile_include_dirs(const struct qstar_graph *graph, const struct qstar
 	return 0;
 }
 
+/** source language가 assembler 계열인지 확인한다. */
+static int
+source_is_asm(const struct qstar_source_info *source)
+{
+	return strcmp(source->language, "asm") == 0 ||
+	    strcmp(source->language, "asm-cpp") == 0;
+}
+
+/** ASM source가 C preprocessor를 거쳐야 하는지 확인한다. */
+static int
+source_uses_asm_preprocessor(const struct qstar_target *target,
+    const struct qstar_source_info *source)
+{
+	return strcmp(source->language, "asm-cpp") == 0 ||
+	    (strcmp(source->language, "asm") == 0 && target->asm_preprocess);
+}
+
 /** compile action의 실제 argv plan을 출력한다. */
 static void
 dump_compile_argv(FILE *out, const struct qstar_target *target,
@@ -563,27 +580,33 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	struct qstar_string_list includes;
 	struct qstar_argv_dump dump;
 	size_t argc, i;
-	int cross, is_cxx, wants_depfile;
+	int cross, is_asm, is_cale, is_cxx, wants_depfile;
 
 	memset(&includes, 0, sizeof(includes));
 	collect_compile_include_dirs(graph, target, &includes);
 	snprintf(id, sizeof(id), "%s:compile:%zu", target->label, index);
 	qstar_depfile_output_path(target, index, depfile, sizeof(depfile));
+	is_asm = source_is_asm(source);
+	is_cale = strcmp(source->language, "cale") == 0;
 	is_cxx = strcmp(source->language, "cxx") == 0;
-	wants_depfile = (strcmp(source->language, "c") == 0 || is_cxx) &&
+	wants_depfile = (strcmp(source->language, "c") == 0 || is_cxx ||
+	    source_uses_asm_preprocessor(target, source)) &&
 	    strcmp(toolchain->name, "cale") != 0 && strcmp(toolchain->name, "cale-sol") != 0;
-	tool = strcmp(source->language, "cale") == 0 ? toolchain->cale :
+	tool = is_cale ? toolchain->cale :
 	    is_cxx ? toolchain->cxx : toolchain->cc;
 	cross = (strcmp(toolchain->name, "clang") == 0 ||
 	    strcmp(toolchain->name, "cale") == 0 ||
 	    strcmp(toolchain->name, "cale-sol") == 0) &&
 	    strcmp(toolchain->target, "host") != 0;
-	argc = 5 + includes.len * 2 + graph->profile.include_dirs.len * 2 +
-	    target->system_include_dirs.len * 2 +
+	argc = 5 + graph->profile.include_dirs.len * 2 +
+	    (is_asm ? target->asm_include_dirs.len * 2 : includes.len * 2) +
+	    (is_asm ? 0 : target->system_include_dirs.len * 2) +
 	    (cross ? 1 : 0) + (wants_depfile ? 3 : 0) +
 	    (toolchain->sysroot[0] ? 1 : 0) + (toolchain->resource_dir[0] ? 2 : 0) +
+	    (is_asm ? 2 : 0) +
 	    (is_cxx && target->cxx_standard[0] ? 1 : 0) +
-	    (is_cxx ? target->cxxflags.len : target->cflags.len);
+	    (is_asm ? target->asm_compile_options.len :
+	    is_cxx ? target->cxxflags.len : is_cale ? 0 : target->cflags.len);
 	snprintf(target_arg, sizeof(target_arg), "--target=%s", toolchain->target);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
 	snprintf(sysroot_arg, sizeof(sysroot_arg), "--sysroot=%s", toolchain->sysroot);
@@ -597,6 +620,11 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 		argv_item(out, &dump, "-resource-dir");
 		argv_item(out, &dump, toolchain->resource_dir);
 	}
+	if (is_asm) {
+		argv_item(out, &dump, "-x");
+		argv_item(out, &dump, source_uses_asm_preprocessor(target, source) ?
+		    "assembler-with-cpp" : "assembler");
+	}
 	argv_item(out, &dump, "-c");
 	argv_item(out, &dump, input);
 	argv_item(out, &dump, "-o");
@@ -608,19 +636,25 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	}
 	if (is_cxx && target->cxx_standard[0])
 		argv_item(out, &dump, std_arg);
-	for (i = 0; !is_cxx && i < target->cflags.len; i++)
+	for (i = 0; !is_asm && !is_cxx && !is_cale && i < target->cflags.len; i++)
 		argv_item(out, &dump, target->cflags.items[i]);
 	for (i = 0; is_cxx && i < target->cxxflags.len; i++)
 		argv_item(out, &dump, target->cxxflags.items[i]);
+	for (i = 0; is_asm && i < target->asm_compile_options.len; i++)
+		argv_item(out, &dump, target->asm_compile_options.items[i]);
 	for (i = 0; i < graph->profile.include_dirs.len; i++) {
 		argv_item(out, &dump, "-I");
 		argv_item(out, &dump, graph->profile.include_dirs.items[i]);
 	}
-	for (i = 0; i < includes.len; i++) {
+	for (i = 0; !is_asm && i < includes.len; i++) {
 		argv_item(out, &dump, "-I");
 		argv_item(out, &dump, includes.items[i]);
 	}
-	for (i = 0; i < target->system_include_dirs.len; i++) {
+	for (i = 0; is_asm && i < target->asm_include_dirs.len; i++) {
+		argv_item(out, &dump, "-I");
+		argv_item(out, &dump, target->asm_include_dirs.items[i]);
+	}
+	for (i = 0; !is_asm && i < target->system_include_dirs.len; i++) {
 		argv_item(out, &dump, "-isystem");
 		argv_item(out, &dump, target->system_include_dirs.items[i]);
 	}

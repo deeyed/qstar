@@ -49,8 +49,9 @@ lang = {
 }
 ```
 
-v0.2에서 `lang.asm`은 parser/plan surface다. 실제 assembler executor는 후속 round에서
-연다.
+Round 50부터 `.s`/`.S` source는 compiler driver 기반 assembler executor로 object를
+만든다. `.S`와 `preprocess = true`인 `.s`는 `assembler-with-cpp` mode로 낮추며,
+`include_dirs`와 `compile_options`를 asm action에만 적용한다.
 
 ## Cale
 
@@ -71,4 +72,3 @@ Cale compiler/HCL checker에 전달할 계획 surface다.
 
 Rust, Zig, Go 같은 future language provider는 include directory 개념을 강제로 갖지
 않는다. 필요한 option은 해당 provider namespace에 새로 정의한다.
-

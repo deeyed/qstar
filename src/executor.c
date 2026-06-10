@@ -1415,6 +1415,23 @@ collect_compile_include_dirs(const struct qstar_graph *graph, const struct qstar
 	return 0;
 }
 
+/** source language가 assembler 계열인지 확인한다. */
+static int
+source_is_asm(const struct qstar_source_info *source)
+{
+	return strcmp(source->language, "asm") == 0 ||
+	    strcmp(source->language, "asm-cpp") == 0;
+}
+
+/** ASM source가 C preprocessor를 거쳐야 하는지 확인한다. */
+static int
+source_uses_asm_preprocessor(const struct qstar_target *target,
+    const struct qstar_source_info *source)
+{
+	return strcmp(source->language, "asm-cpp") == 0 ||
+	    (strcmp(source->language, "asm") == 0 && target->asm_preprocess);
+}
+
 /** generated output list가 target 파일 입력 list에 소비되는지 검사한다. */
 static int
 generated_output_in_list(const struct qstar_genrule *genrule, const struct qstar_string_list *list)
@@ -1967,11 +1984,17 @@ validate_compile_source(struct qstar_graph *graph, const struct qstar_target *ta
 		    "sources", target->label,
 		    "qstar: C++ modules are not supported in QStar local executor v1");
 	if (strcmp(source->language, "c") != 0 && strcmp(source->language, "cxx") != 0 &&
-	    strcmp(source->language, "cale") != 0)
+	    strcmp(source->language, "cale") != 0 && !source_is_asm(source))
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "sources", target->label,
 		    "qstar: local executor does not support source '%s' with language '%s'",
 		    target->sources.items[index], source->language);
+	if (source_is_asm(source) &&
+	    (strcmp(toolchain->name, "cale") == 0 || strcmp(toolchain->name, "cale-sol") == 0))
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "sources", target->label,
+		    "qstar: assembler source '%s' requires host or clang toolchain",
+		    target->sources.items[index]);
 	if (strcmp(source->language, "cale") == 0 &&
 	    strcmp(toolchain->name, "cale") != 0 &&
 	    strcmp(toolchain->name, "cale-sol") != 0)
@@ -1996,6 +2019,11 @@ validate_compile_source(struct qstar_graph *graph, const struct qstar_target *ta
 		    "sources", target->label,
 		    "qstar: C++ compiler '%s' not found for source '%s'",
 		    toolchain->cxx, target->sources.items[index]);
+	if (source_is_asm(source) && !command_exists(toolchain->cc))
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "sources", target->label,
+		    "qstar: assembler compiler driver '%s' not found for source '%s'",
+		    toolchain->cc, target->sources.items[index]);
 	return 0;
 }
 
@@ -2056,7 +2084,7 @@ refresh_compile_state_after_depfile(struct qstar_graph *graph, struct qstar_buil
 	return 0;
 }
 
-/** C/C++/Cale source 하나를 compile action으로 준비한다. */
+/** C/C++/Cale/ASM source 하나를 compile action으로 준비한다. */
 static int
 prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
@@ -2067,7 +2095,7 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	char sysroot_arg[QSTAR_PATH_MAX];
 	const char *compiler;
 	struct qstar_string_list inputs, dep_inputs, outputs, includes;
-	int cross, wants_depfile, is_cxx;
+	int cross, wants_depfile, is_asm, is_cale, is_cxx;
 	size_t i;
 
 	memset(action, 0, sizeof(*action));
@@ -2087,13 +2115,19 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	memset(&includes, 0, sizeof(includes));
 	if (collect_compile_include_dirs(graph, target, &includes) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
+	is_asm = source_is_asm(&source);
+	is_cale = strcmp(source.language, "cale") == 0;
 	is_cxx = strcmp(source.language, "cxx") == 0;
-	wants_depfile = (strcmp(source.language, "c") == 0 || is_cxx) &&
+	wants_depfile = (strcmp(source.language, "c") == 0 || is_cxx ||
+	    source_uses_asm_preprocessor(target, &source)) &&
 	    strcmp(toolchain->name, "cale") != 0 && strcmp(toolchain->name, "cale-sol") != 0;
 	action->wants_depfile = wants_depfile;
-	if (includes.len * 2 + graph->profile.include_dirs.len * 2 +
-	    target->system_include_dirs.len * 2 +
-	    target->cflags.len + target->cxxflags.len + 16 > QSTAR_EXEC_MAX_ARGV) {
+	if (graph->profile.include_dirs.len * 2 +
+	    (is_asm ? target->asm_include_dirs.len * 2 : includes.len * 2) +
+	    (is_asm ? 0 : target->system_include_dirs.len * 2) +
+	    (is_asm ? target->asm_compile_options.len :
+	    is_cxx ? target->cxxflags.len : is_cale ? 0 : target->cflags.len) +
+	    18 > QSTAR_EXEC_MAX_ARGV) {
 		qstar_string_list_free(&includes);
 		return qstar_set_error(graph, "qstar: compile argv too long");
 	}
@@ -2101,7 +2135,7 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	snprintf(target_arg, sizeof(target_arg), "--target=%s", toolchain->target);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
 	snprintf(sysroot_arg, sizeof(sysroot_arg), "--sysroot=%s", toolchain->sysroot);
-	compiler = strcmp(source.language, "cale") == 0 ? toolchain->cale :
+	compiler = is_cale ? toolchain->cale :
 	    is_cxx ? toolchain->cxx : toolchain->cc;
 	cross = (strcmp(toolchain->name, "clang") == 0 ||
 	    strcmp(toolchain->name, "cale") == 0 ||
@@ -2119,6 +2153,13 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    prepared_action_push_argv(graph, action, toolchain->resource_dir) < 0)
 			goto fail;
 	}
+	if (is_asm) {
+		if (prepared_action_push_argv(graph, action, "-x") < 0 ||
+		    prepared_action_push_argv(graph, action,
+		    source_uses_asm_preprocessor(target, &source) ?
+		    "assembler-with-cpp" : "assembler") < 0)
+			goto fail;
+	}
 	if (prepared_action_push_argv(graph, action, "-c") < 0 ||
 	    prepared_action_push_argv(graph, action, target->sources.items[index]) < 0 ||
 	    prepared_action_push_argv(graph, action, "-o") < 0 ||
@@ -2133,12 +2174,17 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	if (is_cxx && target->cxx_standard[0] &&
 	    prepared_action_push_argv(graph, action, std_arg) < 0)
 		goto fail;
-	for (i = 0; !is_cxx && i < target->cflags.len; i++) {
+	for (i = 0; !is_asm && !is_cxx && !is_cale && i < target->cflags.len; i++) {
 		if (prepared_action_push_argv(graph, action, target->cflags.items[i]) < 0)
 			goto fail;
 	}
 	for (i = 0; is_cxx && i < target->cxxflags.len; i++) {
 		if (prepared_action_push_argv(graph, action, target->cxxflags.items[i]) < 0)
+			goto fail;
+	}
+	for (i = 0; is_asm && i < target->asm_compile_options.len; i++) {
+		if (prepared_action_push_argv(graph, action,
+		    target->asm_compile_options.items[i]) < 0)
 			goto fail;
 	}
 	for (i = 0; i < graph->profile.include_dirs.len; i++) {
@@ -2147,12 +2193,18 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    graph->profile.include_dirs.items[i]) < 0)
 			goto fail;
 	}
-	for (i = 0; i < includes.len; i++) {
+	for (i = 0; !is_asm && i < includes.len; i++) {
 		if (prepared_action_push_argv(graph, action, "-I") < 0 ||
 		    prepared_action_push_argv(graph, action, includes.items[i]) < 0)
 			goto fail;
 	}
-	for (i = 0; i < target->system_include_dirs.len; i++) {
+	for (i = 0; is_asm && i < target->asm_include_dirs.len; i++) {
+		if (prepared_action_push_argv(graph, action, "-I") < 0 ||
+		    prepared_action_push_argv(graph, action,
+		    target->asm_include_dirs.items[i]) < 0)
+			goto fail;
+	}
+	for (i = 0; !is_asm && i < target->system_include_dirs.len; i++) {
 		if (prepared_action_push_argv(graph, action, "-isystem") < 0 ||
 		    prepared_action_push_argv(graph, action,
 		    target->system_include_dirs.items[i]) < 0)
@@ -2213,7 +2265,7 @@ fail:
 	return -1;
 }
 
-/** C 또는 Cale source 하나를 object로 compile한다. */
+/** C/C++/Cale/ASM source 하나를 object로 compile한다. */
 static int
 run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct qstar_target *target,
     const struct qstar_resolved_toolchain *toolchain, size_t index)

@@ -1418,6 +1418,83 @@ EOF
 	contains "$tmp/cxx/compile_commands.json" "src/cpp.cpp"
 fi
 
+mkdir -p "$tmp/asm/asm/include" "$tmp/asm/src"
+cat > "$tmp/asm/asm/include/asm_value.inc" <<'EOF'
+#define QSTAR_ASM_RETURN QSTAR_ASM_VALUE
+EOF
+cat > "$tmp/asm/asm/value.S" <<'EOF'
+#include "asm_value.inc"
+#if defined(__aarch64__) || defined(__arm64__)
+#if defined(__APPLE__)
+.globl _asm_value
+.p2align 2
+_asm_value:
+#else
+.globl asm_value
+.p2align 2
+asm_value:
+#endif
+	mov w0, #QSTAR_ASM_RETURN
+	ret
+#elif defined(__x86_64__)
+#if defined(__APPLE__)
+.globl _asm_value
+_asm_value:
+#else
+.globl asm_value
+asm_value:
+#endif
+	movl $QSTAR_ASM_RETURN, %eax
+	ret
+#else
+#error unsupported qstar asm smoke architecture
+#endif
+EOF
+cat > "$tmp/asm/asm/empty.s" <<'EOF'
+.text
+EOF
+cat > "$tmp/asm/src/main.c" <<'EOF'
+int asm_value(void);
+int main(void) { return asm_value() == 42 ? 0 : 1; }
+EOF
+cat > "$tmp/asm/qstar.lua" <<'EOF'
+qstar.staticlib "plainasm" {
+  sources = {"asm/empty.s"},
+}
+
+qstar.executable "asmapp" {
+  sources = {"src/main.c", "asm/value.S"},
+  lang = {
+    asm = {
+      include_dirs = {"asm/include"},
+      compile_options = {"-DQSTAR_ASM_VALUE=42"},
+      preprocess = true,
+    },
+  },
+}
+
+qstar.executable "bad_asm_toolchain" {
+  toolchain = "cale",
+  sources = {"asm/value.S"},
+}
+EOF
+"$qstar" --file "$tmp/asm/qstar.lua" dry-run //:asmapp > "$tmp/asm-dry.out" 2> "$tmp/asm-dry.err"
+contains "$tmp/asm-dry.out" "language=asm-cpp"
+contains "$tmp/asm-dry.out" "argv=[cc, -x, assembler-with-cpp, -c, asm/value.S"
+contains "$tmp/asm-dry.out" "-DQSTAR_ASM_VALUE=42"
+contains "$tmp/asm-dry.out" "asm/include"
+"$qstar" --file "$tmp/asm/qstar.lua" build //:plainasm > "$tmp/asm-plain-build.out" 2> "$tmp/asm-plain-build.err"
+contains "$tmp/asm-plain-build.out" "status ok"
+"$qstar" --file "$tmp/asm/qstar.lua" build //:asmapp > "$tmp/asm-build.out" 2> "$tmp/asm-build.err"
+contains "$tmp/asm-build.out" "status ok"
+"$tmp/asm/.qstar/out/___asmapp/asmapp"
+contains "$tmp/asm/compile_commands.json" "asm/value.S"
+contains "$tmp/asm/compile_commands.json" "-x assembler-with-cpp"
+if "$qstar" --file "$tmp/asm/qstar.lua" build //:bad_asm_toolchain > "$tmp/asm-bad-toolchain.out" 2> "$tmp/asm-bad-toolchain.err"; then
+	fail "assembler with Cale toolchain unexpectedly succeeded"
+fi
+contains "$tmp/asm-bad-toolchain.err" "assembler source 'asm/value.S' requires host or clang toolchain"
+
 cat > "$tmp/cxx-module.qstar.lua" <<'EOF'
 qstar.executable "bad_module" {
   sources = {"src/module.cppm"},

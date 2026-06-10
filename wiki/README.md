@@ -50,5 +50,5 @@ QStar v0.2는 독립 build system으로 사용할 수 있는 개발용 surface�
 staticlib archive, exe/test link, generated action, config header, install/test,
 incremental rebuild, compile database, VSCode/LSP authoring 지원을 제공한다.
 
-아직 remote package fetch, Ninja generator, full sharedlib executor, full assembler
-executor, Cale compiler 내부 API integration은 정식 surface가 아니다.
+아직 remote package fetch, Ninja generator, full sharedlib executor, standalone assembler
+tool profile, Cale compiler 내부 API integration은 정식 surface가 아니다.
