@@ -360,13 +360,14 @@ Project corpus:
 qstar/tests/projects/c-app-lib-test
 qstar/tests/projects/cxx-mixed
 qstar/tests/projects/generated-config
+qstar/tests/projects/binary-blob-embed
 qstar/tests/projects/multipkg
 ```
 
 `tests/projects`는 `/tmp` ad-hoc smoke가 아니라 repository 안에 고정된 QStar
 real-project corpus다. C app/lib/test, C++ mixed target, generated config/source,
-multi-package dependency, install, rebuild, and `compile_commands.json` coverage를
-한 번에 묶는다.
+binary blob embed, multi-package dependency, install, rebuild, and
+`compile_commands.json` coverage를 한 번에 묶는다.
 
 Round 22부터 source kind와 target kind는 registry 기반 rule model로 분리한다.
 자세한 경계는 `docs/qstar/rule-model.md`에 둔다.
@@ -428,6 +429,16 @@ path뿐 아니라 group/format/address/layout metadata가 포함된다. QStar는
 artifact가 둘 이상 있으면 collision으로 거절한다. `qstar build //:image_rule`처럼
 generated action label을 직접 빌드할 수 있고, `qstar.target_file("//:image_rule")`는
 그 action의 첫 output path로 해석된다.
+
+Round 57부터 binary blob input을 generated assembly 또는 object로 바꿔 이후 target
+입력으로 소비하는 흐름을 지원한다. `qstar.custom_target`이
+`generated/embed.S`를 만들고 target `sources`가 그 output을 참조하면 QStar는 먼저
+generated action을 실행한 뒤 assembler compile action을 실행한다.
+`qstar.output("generated/blob.o", {format = "object"})`는 group을 생략해도 `objects`
+group으로 분류되며, target `sources`에서 compile 없이 final archive/link input으로
+직접 들어간다. Depfile이 없는 binary fixture와 generated object도 action key의
+`input_key`에 content hash로 들어가므로 ELF fixture가 바뀌면 generator와 downstream
+compile/link action이 `input-changed`로 rebuild된다.
 
 Round 54부터 PE/COFF/UEFI link surface는 dedicated `uefi_app` target kind가 아니라
 generic executable + profile link policy로 표현한다. `lld-link`/`link.exe` 계열 linker는

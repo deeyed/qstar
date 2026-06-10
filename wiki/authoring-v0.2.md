@@ -149,8 +149,41 @@ metadata를 실제 linker/objcopy option으로 바꾸지 않는다. 실제 변�
 
 `qstar build //:kernel_img`는 generated action 자체를 직접 실행한다.
 `qstar.target_file("//:kernel_img")`는 generated action의 첫 output path로 해석된다.
-Generated action을 target dependency closure 안에서 자동으로 빌드하는 깊은 edge는
-v0.2 이후 확장 후보로 둔다.
+
+Round 57부터 generated output은 target의 `sources`, `public_headers`,
+`private_headers`에서 소비될 때 dependency closure 안에서 먼저 실행된다. 이 정책으로
+ELF fixture나 firmware blob을 assembly/object로 embed하는 패턴을 표현할 수 있다.
+
+```lua
+qstar.custom_target "embed_object" {
+  inputs = {
+    "fixtures/payload.elf",
+  },
+  outputs = {
+    qstar.output("generated/payload.o", {
+      format = "object",
+      layout = "rpi5-elf-fixture-embed",
+    }),
+  },
+  command = qstar.cli {
+    "tools/embed-object.sh",
+    qstar.input(0),
+    qstar.output(0),
+  },
+}
+
+qstar.executable "kernel_probe" {
+  sources = {
+    "src/main.c",
+    qstar.output("generated/payload.o"),
+  },
+}
+```
+
+`format = "object"`는 `group`을 생략하면 자동으로 `objects` group이 된다. `.o`와
+`.obj` source는 compile action을 만들지 않고 final archive/link input으로 직접
+들어간다. Blob input, package-local embed tool, generated output content는 cache key에
+반영되므로 depfile이 없는 binary/generated 흐름도 입력 변경 시 rebuild된다.
 
 ### External tool policy
 

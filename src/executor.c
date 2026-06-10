@@ -1618,6 +1618,75 @@ source_uses_asm_preprocessor(const struct qstar_target *target,
 	    (strcmp(source->language, "asm") == 0 && target->asm_preprocess);
 }
 
+static int validate_compile_source(struct qstar_graph *graph,
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
+    const struct qstar_source_info *source, size_t index);
+
+/** source registry 기준으로 compile action이 필요한 입력인지 확인한다. */
+static int
+source_requires_compile(const struct qstar_source_info *source)
+{
+	return source->compile_input;
+}
+
+/** 이미 만들어진 object 파일을 final archive/link 입력으로 직접 소비하는지 확인한다. */
+static int
+source_is_link_object(const struct qstar_source_info *source)
+{
+	return strcmp(source->language, "object") == 0;
+}
+
+/** target source가 final action에 제공하는 object path를 계산한다. */
+static int
+target_source_object_input(struct qstar_graph *graph, const struct qstar_target *target,
+    size_t index, char *dst, size_t dstlen)
+{
+	struct qstar_source_info source;
+
+	if (qstar_source_classify(target->sources.items[index], &source) < 0)
+		return qstar_set_error(graph, "qstar: unsupported source '%s'",
+		    target->sources.items[index]);
+	if (source_is_link_object(&source)) {
+		return snprintf(dst, dstlen, "%s", target->sources.items[index]) <
+		    (int)dstlen ? 0 : -1;
+	}
+	return qstar_object_output_path(target, index, dst, dstlen);
+}
+
+/** target 안에서 실제 compiler process가 필요한 source 개수를 센다. */
+static size_t
+target_compile_input_count(const struct qstar_target *target)
+{
+	struct qstar_source_info source;
+	size_t i, count;
+
+	count = 0;
+	for (i = 0; i < target->sources.len; i++) {
+		if (qstar_source_classify(target->sources.items[i], &source) == 0 &&
+		    source_requires_compile(&source))
+			count++;
+	}
+	return count;
+}
+
+/** compile action을 만들지 않는 source가 link-only object인지 검증한다. */
+static int
+validate_noncompile_sources(struct qstar_graph *graph, const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain)
+{
+	struct qstar_source_info source;
+	size_t i;
+
+	for (i = 0; i < target->sources.len; i++) {
+		qstar_source_classify(target->sources.items[i], &source);
+		if (source_requires_compile(&source) || source_is_link_object(&source))
+			continue;
+		if (validate_compile_source(graph, target, toolchain, &source, i) < 0)
+			return -1;
+	}
+	return 0;
+}
+
 /** generated output list가 target 파일 입력 list에 소비되는지 검사한다. */
 static int
 generated_output_in_list(const struct qstar_genrule *genrule, const struct qstar_string_list *list)
@@ -2541,8 +2610,15 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
     const struct qstar_resolved_toolchain *toolchain, size_t index)
 {
 	struct qstar_prepared_action action;
+	struct qstar_source_info source;
 	int rc;
 
+	qstar_source_classify(target->sources.items[index], &source);
+	if (!source_requires_compile(&source)) {
+		if (!source_is_link_object(&source))
+			return validate_compile_source(graph, target, toolchain, &source, index);
+		return 0;
+	}
 	if (prepare_compile_action(graph, ctx, target, toolchain, index, &action) < 0)
 		return -1;
 	rc = run_action(graph, ctx, target, action.id, action.kind, action.key,
@@ -2732,24 +2808,38 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 {
 	struct qstar_prepared_action *actions;
 	struct qstar_running_action *running;
-	size_t i, next, active, jobs, slot;
+	size_t *indices;
+	size_t i, j, next, active, jobs, slot, compile_count;
 	int rc, status, progressed;
 	pid_t waited;
+	struct qstar_source_info source;
 
 	if (target->sources.len == 0)
 		return 0;
+	compile_count = target_compile_input_count(target);
+	if (compile_count == 0)
+		return 0;
 	jobs = ctx->jobs > 1 ? (size_t)ctx->jobs : 1;
-	actions = calloc(target->sources.len, sizeof(actions[0]));
+	indices = calloc(compile_count, sizeof(indices[0]));
+	actions = calloc(compile_count, sizeof(actions[0]));
 	running = calloc(jobs, sizeof(running[0]));
-	if (!actions || !running) {
+	if (!indices || !actions || !running) {
+		free(indices);
 		free(actions);
 		free(running);
 		return qstar_set_error(graph, "qstar: out of memory");
 	}
-	for (i = 0; i < target->sources.len; i++) {
-		if (prepare_compile_action(graph, ctx, target, toolchain, i, &actions[i]) < 0) {
+	for (i = 0, j = 0; i < target->sources.len; i++) {
+		qstar_source_classify(target->sources.items[i], &source);
+		if (source_requires_compile(&source))
+			indices[j++] = i;
+	}
+	for (i = 0; i < compile_count; i++) {
+		if (prepare_compile_action(graph, ctx, target, toolchain, indices[i],
+		    &actions[i]) < 0) {
 			while (i > 0)
 				prepared_action_free(&actions[--i]);
+			free(indices);
 			free(actions);
 			free(running);
 			return -1;
@@ -2760,9 +2850,9 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	rc = 0;
 	fprintf(ctx->out,
 	    "parallel_batch target=%s jobs=%zu total=%zu policy=fifo fairness=source-order cancel=kill-active retry=next-build\n",
-	    target->label, jobs, target->sources.len);
-	while (next < target->sources.len || active > 0) {
-		while (next < target->sources.len && active < jobs) {
+	    target->label, jobs, compile_count);
+	while (next < compile_count || active > 0) {
+		while (next < compile_count && active < jobs) {
 			slot = find_free_slot(running, jobs);
 			if (slot >= jobs) {
 				rc = qstar_set_error(graph, "qstar: no free parallel slot");
@@ -2831,7 +2921,7 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		if (!progressed)
 			sleep(1);
 	}
-	for (i = 0; i < target->sources.len; i++) {
+	for (i = 0; i < compile_count; i++) {
 		if (check_compile_depfile(graph, &actions[i]) < 0) {
 			rc = -1;
 			break;
@@ -2845,8 +2935,9 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 fail:
 	if (rc < 0 && active > 0)
 		cancel_running_actions(ctx, running, jobs);
-	for (i = 0; i < target->sources.len; i++)
+	for (i = 0; i < compile_count; i++)
 		prepared_action_free(&actions[i]);
+	free(indices);
 	free(actions);
 	free(running);
 	return rc;
@@ -3171,7 +3262,7 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 		return -1;
 	}
 	for (i = 0; i < target->sources.len; i++) {
-		if (qstar_object_output_path(target, i, object, sizeof(object)) < 0)
+		if (target_source_object_input(graph, target, i, object, sizeof(object)) < 0)
 			return qstar_set_error(graph, "qstar: object output path too long");
 		argv[argc++] = qstar_strdup(object);
 		if (!argv[argc - 1])
@@ -3197,7 +3288,7 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 	memset(&inputs, 0, sizeof(inputs));
 	memset(&outputs, 0, sizeof(outputs));
 	for (i = 0; i < target->sources.len; i++) {
-		if (qstar_object_output_path(target, i, object, sizeof(object)) < 0)
+		if (target_source_object_input(graph, target, i, object, sizeof(object)) < 0)
 			return qstar_set_error(graph, "qstar: object output path too long");
 		if (qstar_string_list_push(&inputs, object) < 0) {
 			qstar_string_list_free(&inputs);
@@ -3237,7 +3328,7 @@ build_target(struct qstar_graph *graph, const struct qstar_target *target, size_
 {
 	struct qstar_build_ctx *ctx = user;
 	struct qstar_resolved_toolchain toolchain;
-	size_t i;
+	size_t i, compile_count;
 
 	fprintf(ctx->out, "build_target %s order=%zu kind=%s\n", target->label, order,
 	    target->kind);
@@ -3258,12 +3349,15 @@ build_target(struct qstar_graph *graph, const struct qstar_target *target, size_
 	    "resolved_toolchain owner=%s toolchain=%s target=%s cc=%s cxx=%s ar=%s linker=%s\n",
 	    target->label, toolchain.name, toolchain.target, toolchain.cc, toolchain.cxx,
 	    toolchain.ar, toolchain.linker);
+	if (validate_noncompile_sources(graph, target, &toolchain) < 0)
+		return -1;
 	if (run_generated_actions(graph, ctx, target) < 0)
 		return -1;
-	if (ctx->jobs > 1 && target->sources.len > 1) {
+	compile_count = target_compile_input_count(target);
+	if (ctx->jobs > 1 && compile_count > 1) {
 		fprintf(ctx->out,
 		    "parallel_compile target=%s jobs=%d sources=%zu mode=process-v2 failure=cancel-active fairness=fifo\n",
-		    target->label, ctx->jobs, target->sources.len);
+		    target->label, ctx->jobs, compile_count);
 		if (run_compile_parallel(graph, ctx, target, &toolchain) < 0)
 			return -1;
 	} else {

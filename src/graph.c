@@ -602,6 +602,8 @@ qstar_genrule_output_group(const struct qstar_genrule *genrule, size_t index)
 	group = genrule_meta_or_default(&genrule->output_groups, index, "");
 	if (*group)
 		return group;
+	if (strcmp(qstar_genrule_output_format(genrule, index), "object") == 0)
+		return "objects";
 	return strcmp(qstar_genrule_output_format(genrule, index), "raw-binary") == 0 ?
 	    "images" : "generated";
 }

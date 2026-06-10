@@ -675,6 +675,13 @@ source_uses_asm_preprocessor(const struct qstar_target *target,
 	    (strcmp(source->language, "asm") == 0 && target->asm_preprocess);
 }
 
+/** source registry 기준으로 compile action이 필요한 입력인지 확인한다. */
+static int
+source_requires_compile(const struct qstar_source_info *source)
+{
+	return source->compile_input;
+}
+
 /** compile action의 실제 argv plan을 출력한다. */
 static void
 dump_compile_argv(FILE *out, const struct qstar_target *target,
@@ -1391,6 +1398,18 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 		return -1;
 	for (i = 0; i < target->sources.len; i++) {
 		qstar_source_classify(target->sources.items[i], &source);
+		if (!source_requires_compile(&source)) {
+			fprintf(out,
+			    "  action link-input source=%s language=%s output=%s\n",
+			    target->sources.items[i], source.language, target->sources.items[i]);
+			dump_action_key(out, plan->graph, target, "link-input",
+			    target->sources.items[i], target->sources.items[i],
+			    source.language, i);
+			dump_command_skeleton(out, plan->graph, target, "link-input",
+			    target->sources.items[i], target->sources.items[i],
+			    source.language, source.tool_role, i);
+			continue;
+		}
 		if (qstar_object_output_path(target, i, output, sizeof(output)) < 0)
 			return qstar_set_error(plan->graph, "qstar: object output path too long");
 		fprintf(out, "  action compile source=%s output=%s\n",
@@ -1509,6 +1528,15 @@ dump_dry_run_compiles(FILE *out, const struct qstar_plan *plan,
 		return -1;
 	for (i = 0; i < target->sources.len; i++) {
 		qstar_source_classify(target->sources.items[i], &source);
+		if (!source_requires_compile(&source)) {
+			fprintf(out,
+			    "dry_run_step id=%s:link-input:%zu owner=%s kind=link-input "
+			    "language=%s tool=%s toolchain=%s input=%s output=%s execute=no\n",
+			    target->label, i, target->label, source.language,
+			    source.tool_role, toolchain.name, target->sources.items[i],
+			    target->sources.items[i]);
+			continue;
+		}
 		if (qstar_object_output_path(target, i, output, sizeof(output)) < 0)
 			return qstar_set_error(plan->graph, "qstar: object output path too long");
 		fprintf(out,

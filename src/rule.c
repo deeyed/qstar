@@ -21,6 +21,8 @@ static const struct source_rule source_rules[] = {
 	{ ".cale", { NULL, "cale", "cale-compiler", "cale", "objects", 1, 0 } },
 	{ ".s", { NULL, "asm", "assembler", "asm", "objects", 1, 0 } },
 	{ ".S", { NULL, "asm-cpp", "preprocessed-assembler", "asm", "objects", 1, 0 } },
+	{ ".o", { NULL, "object", "link-object", "native", "objects", 0, 0 } },
+	{ ".obj", { NULL, "object", "link-object", "native", "objects", 0, 0 } },
 };
 
 static const struct qstar_target_rule_info target_rules[] = {

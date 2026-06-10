@@ -1,0 +1,23 @@
+qstar.custom_target "embed_object" {
+  inputs = {
+    "fixtures/payload.elf",
+  },
+  outputs = {
+    qstar.output("generated/payload.o", {
+      format = "object",
+      layout = "rpi5-elf-fixture-embed",
+    }),
+  },
+  command = qstar.cli {
+    "tools/embed-object.sh",
+    qstar.input(0),
+    qstar.output(0),
+  },
+}
+
+qstar.executable "probe" {
+  sources = {
+    "src/main.c",
+    qstar.output("generated/payload.o"),
+  },
+}

@@ -1347,6 +1347,20 @@ contains "$tmp/project-generated/.qstar/state/graph.json" "\"schema\":\"qstar-gr
 "$qstar" --file "$tmp/project-generated/qstar.lua" build //:app > "$tmp/project-generated-skip.out" 2> "$tmp/project-generated-skip.err"
 contains "$tmp/project-generated-skip.out" "status=skip"
 
+cp -R "$project_root/binary-blob-embed" "$tmp/project-blob"
+"$qstar" --file "$tmp/project-blob/qstar.lua" build //:probe --explain-cache > "$tmp/project-blob-build.out" 2> "$tmp/project-blob-build.err"
+contains "$tmp/project-blob-build.out" "build_action id=//:embed_object:generate:0 status=run"
+contains "$tmp/project-blob-build.out" "build_action id=//:probe:link:0 status=run"
+contains "$tmp/project-blob-build.out" "status ok"
+"$tmp/project-blob/.qstar/out/___probe/probe"
+"$qstar" --file "$tmp/project-blob/qstar.lua" build //:probe --explain-cache > "$tmp/project-blob-skip.out" 2> "$tmp/project-blob-skip.err"
+contains "$tmp/project-blob-skip.out" "build_action id=//:embed_object:generate:0 status=skip"
+contains "$tmp/project-blob-skip.out" "build_action id=//:probe:link:0 status=skip"
+printf 'payload-v2\n' >> "$tmp/project-blob/fixtures/payload.elf"
+"$qstar" --file "$tmp/project-blob/qstar.lua" build //:probe --explain-cache > "$tmp/project-blob-rebuild.out" 2> "$tmp/project-blob-rebuild.err"
+contains "$tmp/project-blob-rebuild.out" "cache_miss id=//:embed_object:generate:0 reason=input-changed"
+contains "$tmp/project-blob-rebuild.out" "cache_miss id=//:probe:link:0 reason=input-changed"
+
 cp -R "$project_root/multipkg" "$tmp/project-multipkg"
 "$qstar" --file "$tmp/project-multipkg/qstar.lua" build //app:app > "$tmp/project-multipkg-build.out" 2> "$tmp/project-multipkg-build.err"
 contains "$tmp/project-multipkg-build.out" "package-root $tmp/project-multipkg"
@@ -2355,6 +2369,123 @@ if "$qstar" --file "$tmp/artifact-badmeta/qstar.lua" check > "$tmp/artifact-badm
 	fail "non-string artifact metadata unexpectedly succeeded"
 fi
 contains "$tmp/artifact-badmeta-type.err" "qstar.output metadata field 'format' must be a string"
+
+mkdir -p "$tmp/blob-embed/tools" "$tmp/blob-embed/fixtures" "$tmp/blob-embed/src"
+cat > "$tmp/blob-embed/fixtures/payload.elf" <<'EOF'
+ELF-FIXTURE-V1
+payload
+EOF
+cat > "$tmp/blob-embed/tools/embed-asm.sh" <<'EOF'
+#!/bin/sh
+set -eu
+input=$1
+output=$2
+bytes=$(wc -c < "$input" | tr -d ' ')
+mkdir -p "$(dirname "$output")"
+{
+	printf '/* qstar binary blob assembly placeholder */\n'
+	printf '/* input=%s bytes=%s */\n' "$input" "$bytes"
+} > "$output"
+EOF
+chmod +x "$tmp/blob-embed/tools/embed-asm.sh"
+cat > "$tmp/blob-embed/src/main.c" <<'EOF'
+int main(void) { return 0; }
+EOF
+cat > "$tmp/blob-embed/qstar.lua" <<'EOF'
+qstar.custom_target "embed_asm" {
+  inputs = {"fixtures/payload.elf"},
+  outputs = {
+    qstar.output("generated/blob.S", {
+      group = "objects",
+      format = "assembly",
+      layout = "rpi5-elf-fixture-embed",
+    }),
+  },
+  command = qstar.cli {"tools/embed-asm.sh", qstar.input(0), qstar.output(0)},
+}
+
+qstar.executable "app" {
+  sources = {
+    "src/main.c",
+    qstar.output("generated/blob.S"),
+  },
+}
+EOF
+"$qstar" --file "$tmp/blob-embed/qstar.lua" explain //:app > "$tmp/blob-embed-explain.out" 2> "$tmp/blob-embed-explain.err"
+contains "$tmp/blob-embed-explain.out" "generated_edge source=generated/blob.S generator=//:embed_asm"
+contains "$tmp/blob-embed-explain.out" "generated_artifact output=generated/blob.S group=objects format=assembly"
+"$qstar" --file "$tmp/blob-embed/qstar.lua" build //:app --explain-cache > "$tmp/blob-embed-first.out" 2> "$tmp/blob-embed-first.err"
+contains "$tmp/blob-embed-first.out" "build_action id=//:embed_asm:generate:0 status=run"
+contains "$tmp/blob-embed-first.out" "build_action id=//:app:compile:1 status=run"
+contains "$tmp/blob-embed-first.out" "status ok"
+test -f "$tmp/blob-embed/generated/blob.S" || fail "missing generated blob assembly"
+"$qstar" --file "$tmp/blob-embed/qstar.lua" build //:app --explain-cache > "$tmp/blob-embed-second.out" 2> "$tmp/blob-embed-second.err"
+contains "$tmp/blob-embed-second.out" "build_action id=//:embed_asm:generate:0 status=skip"
+contains "$tmp/blob-embed-second.out" "build_action id=//:app:compile:1 status=skip"
+printf 'payload-v2\n' >> "$tmp/blob-embed/fixtures/payload.elf"
+"$qstar" --file "$tmp/blob-embed/qstar.lua" build //:app --explain-cache > "$tmp/blob-embed-third.out" 2> "$tmp/blob-embed-third.err"
+contains "$tmp/blob-embed-third.out" "cache_miss id=//:embed_asm:generate:0 reason=input-changed"
+contains "$tmp/blob-embed-third.out" "cache_miss id=//:app:compile:1 reason=depfile-changed"
+
+mkdir -p "$tmp/blob-object/tools" "$tmp/blob-object/fixtures" "$tmp/blob-object/src"
+cat > "$tmp/blob-object/fixtures/payload.elf" <<'EOF'
+ELF-FIXTURE-OBJECT-V1
+payload
+EOF
+cat > "$tmp/blob-object/tools/embed-object.sh" <<'EOF'
+#!/bin/sh
+set -eu
+input=$1
+output=$2
+bytes=$(wc -c < "$input" | tr -d ' ')
+mkdir -p "$(dirname "$output")"
+tmp="${output}.c"
+cat > "$tmp" <<EOF_C
+int qstar_embedded_blob_len = $bytes;
+EOF_C
+${CC:-cc} -c "$tmp" -o "$output"
+EOF
+chmod +x "$tmp/blob-object/tools/embed-object.sh"
+cat > "$tmp/blob-object/src/main.c" <<'EOF'
+extern int qstar_embedded_blob_len;
+int main(void) { return qstar_embedded_blob_len > 0 ? 0 : 1; }
+EOF
+cat > "$tmp/blob-object/qstar.lua" <<'EOF'
+qstar.custom_target "embed_object" {
+  inputs = {"fixtures/payload.elf"},
+  outputs = {
+    qstar.output("generated/blob.o", {
+      format = "object",
+      layout = "rpi5-elf-fixture-embed",
+    }),
+  },
+  command = qstar.cli {"tools/embed-object.sh", qstar.input(0), qstar.output(0)},
+}
+
+qstar.executable "objapp" {
+  sources = {
+    "src/main.c",
+    qstar.output("generated/blob.o"),
+  },
+}
+EOF
+"$qstar" --file "$tmp/blob-object/qstar.lua" explain //:objapp > "$tmp/blob-object-explain.out" 2> "$tmp/blob-object-explain.err"
+contains "$tmp/blob-object-explain.out" "generated_artifact output=generated/blob.o group=objects format=object"
+contains "$tmp/blob-object-explain.out" "action link-input source=generated/blob.o language=object output=generated/blob.o"
+"$qstar" --file "$tmp/blob-object/qstar.lua" dry-run //:objapp > "$tmp/blob-object-dry.out" 2> "$tmp/blob-object-dry.err"
+contains "$tmp/blob-object-dry.out" "dry_run_step id=//:objapp:link-input:1 owner=//:objapp kind=link-input language=object"
+"$qstar" --file "$tmp/blob-object/qstar.lua" build //:objapp --explain-cache > "$tmp/blob-object-first.out" 2> "$tmp/blob-object-first.err"
+contains "$tmp/blob-object-first.out" "build_action id=//:embed_object:generate:0 status=run"
+contains "$tmp/blob-object-first.out" "build_action id=//:objapp:link:0 status=run"
+contains "$tmp/blob-object-first.out" "status ok"
+"$tmp/blob-object/.qstar/out/___objapp/objapp"
+"$qstar" --file "$tmp/blob-object/qstar.lua" build //:objapp --explain-cache > "$tmp/blob-object-second.out" 2> "$tmp/blob-object-second.err"
+contains "$tmp/blob-object-second.out" "build_action id=//:embed_object:generate:0 status=skip"
+contains "$tmp/blob-object-second.out" "build_action id=//:objapp:link:0 status=skip"
+printf 'payload-v2\n' >> "$tmp/blob-object/fixtures/payload.elf"
+"$qstar" --file "$tmp/blob-object/qstar.lua" build //:objapp --explain-cache > "$tmp/blob-object-third.out" 2> "$tmp/blob-object-third.err"
+contains "$tmp/blob-object-third.out" "cache_miss id=//:embed_object:generate:0 reason=input-changed"
+contains "$tmp/blob-object-third.out" "cache_miss id=//:objapp:link:0 reason=input-changed"
 
 mkdir -p "$tmp/uefi/src" "$tmp/uefi/tools"
 cat > "$tmp/uefi/tools/fake-clang.sh" <<'EOF'
