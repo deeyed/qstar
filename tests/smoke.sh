@@ -1724,6 +1724,63 @@ contains "Makefile" "qstar-release-candidate-tests"
 contains "Makefile" "qstar-full-regression-tests"
 contains "Makefile" "qstar-systems-corpus-tests"
 
+wiki_docs="
+wiki/README.md
+wiki/getting-started.md
+wiki/installation.md
+wiki/concepts/workspace-project-package.md
+wiki/concepts/labels-and-fragments.md
+wiki/concepts/targets-and-actions.md
+wiki/concepts/language-namespaces.md
+wiki/reference/qstar-lua.md
+wiki/reference/target-rules.md
+wiki/reference/lang-c.md
+wiki/reference/lang-cxx.md
+wiki/reference/lang-cale.md
+wiki/reference/custom-target.md
+wiki/reference/run-target.md
+wiki/reference/profiles.md
+wiki/reference/diagnostics.md
+wiki/tutorials/c-app.md
+wiki/tutorials/c-staticlib.md
+wiki/tutorials/generated-config.md
+wiki/tutorials/cxx-mixed.md
+wiki/tutorials/freestanding-image.md
+wiki/cookbook/objcopy.md
+wiki/cookbook/staging.md
+wiki/cookbook/qemu-smoke.md
+wiki/cookbook/response-files.md
+wiki/migration/from-cmake.md
+wiki/migration/from-meson.md
+wiki/migration/qstar-v0.2-to-v0.3.md
+"
+for doc in $wiki_docs; do
+	test -f "$doc" || fail "missing QStar wiki document: $doc"
+	contains "$doc" "특정 언어에 종속되지 않는 빌드시스템"
+	contains "$doc" "## 최소 예제"
+	contains "$doc" "## 전체 예제"
+	contains "$doc" "## 실패 예제"
+	contains "$doc" "## 관련 CLI"
+	contains "$doc" "## 관련 diagnostic"
+done
+if grep -R -n --include='*.md' -E '\.qs\b' wiki >/dev/null; then
+	fail "QStar wiki contains stale authoring surface"
+fi
+for removed_wiki in wiki/authoring-v0.2.md wiki/language-options.md wiki/project-layout.md; do
+	if test -e "$removed_wiki"; then
+		fail "QStar wiki contains removed summary page: $removed_wiki"
+	fi
+done
+contains "wiki/README.md" "reference/qstar-lua.md"
+contains "wiki/reference/qstar-lua.md" "QSTAR_VERSION"
+contains "wiki/reference/lang-c.md" "lang.c.public_headers"
+contains "wiki/reference/lang-cxx.md" "lang.cxx.modules"
+contains "wiki/reference/lang-cale.md" "HCL도 header surface"
+contains "wiki/reference/custom-target.md" "qstar.cli"
+contains "wiki/tutorials/freestanding-image.md" "linker_script"
+contains "wiki/cookbook/qemu-smoke.md" "qstar.run_target"
+contains "wiki/migration/from-cmake.md" "target_include_directories"
+
 "$qstar" init c-app "$tmp/init-c-app" > "$tmp/init-c-app.out" 2> "$tmp/init-c-app.err"
 contains "$tmp/init-c-app.out" "qstar init v1"
 contains "$tmp/init-c-app.out" "template c-app"
