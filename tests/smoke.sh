@@ -65,6 +65,11 @@ contains "$tmp/.qstar/state/actions.json" "\"external_tool_key\":"
 test -f "$tmp/compile_commands.json" || fail "missing compile_commands.json"
 contains "$tmp/compile_commands.json" "src/main.c"
 
+"$qstar" --version > "$tmp/version-flag.out" 2> "$tmp/version-flag.err"
+test "$(cat "$tmp/version-flag.out")" = "qstar 0.3.0" || fail "qstar --version drifted"
+"$qstar" version > "$tmp/version-cmd.out" 2> "$tmp/version-cmd.err"
+test "$(cat "$tmp/version-cmd.out")" = "qstar 0.3.0" || fail "qstar version drifted"
+
 "$qstar" --file "$tmp/qstar.lua" lint > "$tmp/lint-ok.out" 2> "$tmp/lint-ok.err"
 contains "$tmp/lint-ok.out" "qstar lint v1"
 contains "$tmp/lint-ok.out" "summary errors=0 warnings=0"
@@ -139,8 +144,8 @@ EOF
 "$qstar" --file "$tmp/lua-authoring/qstar.lua" --dump-graph > "$tmp/lua-authoring.out" 2> "$tmp/lua-authoring.err"
 contains "$tmp/lua-authoring.out" "cflags [-Wall, -Wextra"
 contains "$tmp/lua-authoring.out" "-DQSTAR_PROFILE=DEFAULT"
-contains "$tmp/lua-authoring.out" "-DQSTAR_VERSION=0.2.0"
-contains "$tmp/lua-authoring.out" "-DQSTAR_VERSION_MINOR=2"
+contains "$tmp/lua-authoring.out" "-DQSTAR_VERSION=0.3.0"
+contains "$tmp/lua-authoring.out" "-DQSTAR_VERSION_MINOR=3"
 contains "$tmp/lua-authoring.out" "-DQSTAR_HOST_OS="
 contains "$tmp/lua-authoring.out" "-DQSTAR_HOST_ARCH="
 contains "$tmp/lua-authoring.out" "-DQSTAR_PACKAGE_ROOT="
@@ -295,6 +300,7 @@ test -f "$vscode_ext/samples/workspace/lib/lib.qst" || fail "missing QStar VSCod
 contains "$vscode_ext/package.json" "\"id\": \"qstar\""
 contains "$vscode_ext/package.json" "\"qstar.lua\""
 contains "$vscode_ext/package.json" "\".qst\""
+contains "$vscode_ext/package.json" "\"version\": \"0.2.0\""
 if grep -F '"qstar.workspace"' "$vscode_ext/package.json" >/dev/null 2>&1; then
 	fail "qstar.workspace association must stay removed"
 fi
@@ -449,6 +455,17 @@ fi
 contains "$tmp/lint-removed-qs.out" "\"code\":\"QSTAR003\""
 contains "$tmp/lint-removed-qs.out" ".qs fragments were removed"
 
+mkdir -p "$tmp/lint-removed-workspace"
+cat > "$tmp/lint-removed-workspace/qstar.lua" <<'EOF'
+qstar.executable "app" {}
+EOF
+touch "$tmp/lint-removed-workspace/qstar.workspace"
+if "$qstar" --file "$tmp/lint-removed-workspace/qstar.lua" lint --format json > "$tmp/lint-removed-workspace.out" 2> "$tmp/lint-removed-workspace.err"; then
+	fail "removed qstar.workspace lint unexpectedly succeeded"
+fi
+contains "$tmp/lint-removed-workspace.out" "\"code\":\"QSTAR004\""
+contains "$tmp/lint-removed-workspace.out" "qstar.workspace was removed"
+
 mkdir -p "$tmp/lint-missing"
 cat > "$tmp/lint-missing/qstar.lua" <<'EOF'
 qstar.subdir("foo")
@@ -556,6 +573,15 @@ fi
 contains "$tmp/old-public-headers.err" "top-level public_headers is not allowed; use lang.c.public_headers, lang.cxx.public_headers, or lang.cale.public_headers"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.staticlib "core" {
+  private_headers = {"src/core_private.h"},
+}
+EOF
+if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-private-headers.out" 2> "$tmp/old-private-headers.err"; then
+	fail "top-level private_headers unexpectedly succeeded"
+fi
+contains "$tmp/old-private-headers.err" "top-level private_headers is not allowed; use lang.c.private_headers, lang.cxx.private_headers, or lang.cale.private_headers"
+cat > "$tmp/old-api/qstar.lua" <<'EOF'
+qstar.staticlib "core" {
   modules = qstar.modules { root = "src" },
 }
 EOF
@@ -563,6 +589,15 @@ if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-modules.out" 2> "$
 	fail "top-level modules unexpectedly succeeded"
 fi
 contains "$tmp/old-modules.err" "top-level modules is not allowed; use lang.cale.modules or lang.cxx.modules"
+cat > "$tmp/old-api/qstar.lua" <<'EOF'
+qstar.staticlib "core" {
+  hcl_include_dirs = {"include"},
+}
+EOF
+if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-top-hcl-include.out" 2> "$tmp/old-top-hcl-include.err"; then
+	fail "top-level hcl_include_dirs unexpectedly succeeded"
+fi
+contains "$tmp/old-top-hcl-include.err" "hcl_include_dirs is removed; use lang.cale.public_include_dirs or lang.cale.private_include_dirs"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.staticlib "core" {
   lang = {
@@ -1718,8 +1753,15 @@ contains "README.md" "qstar-v0.2-rc-tests"
 contains "../docs/qstar/qstar-v0.2-release-candidate-seal.md" "status: v0.2 release candidate"
 contains "../docs/qstar/qstar-v0.2-release-candidate-seal.md" "qstar-v0.2-rc-tests"
 contains "../docs/qstar/qstar-v0.2-release-candidate-seal.md" "qstar-systems-corpus-tests"
+contains "../docs/qstar/qstar-v0.3-seal.md" "status: v0.3 release candidate"
+contains "../docs/qstar/qstar-v0.3-seal.md" "qstar-v0.3-rc-tests"
+contains "../docs/qstar/qstar-v0.3-seal.md" "qstar --version"
+contains "../docs/qstar/qstar-v0.3-seal.md" "stable surface"
+contains "../docs/qstar/qstar-v0.3-seal.md" "experimental surface"
 contains "../docs/qstar/README.md" "qstar-v0.2-release-candidate-seal.md"
+contains "../docs/qstar/README.md" "qstar-v0.3-seal.md"
 contains "Makefile" "qstar-v0.2-rc-tests"
+contains "Makefile" "qstar-v0.3-rc-tests"
 contains "Makefile" "qstar-release-candidate-tests"
 contains "Makefile" "qstar-full-regression-tests"
 contains "Makefile" "qstar-systems-corpus-tests"

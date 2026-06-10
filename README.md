@@ -89,6 +89,8 @@ QStar evaluator는 `qstar/vendor/lua`에 있는 Lua submodule을 사용한다. t
 
 ```txt
 qstar --file qstar.lua --dump-graph
+qstar --version
+qstar version
 qstar --file qstar.lua list-targets
 qstar --file qstar.lua list-targets --format json
 qstar --file qstar.lua query //:app
@@ -527,4 +529,20 @@ make -C qstar qstar-v0.2-rc-tests
 make -C qstar qstar-release-candidate-tests
 make -C qstar qstar-full-regression-tests
 make -C qstar qstar-systems-corpus-tests
+```
+
+## v0.3 release candidate seal
+
+Round 65 기준 v0.3 RC contract는 `docs/qstar/qstar-v0.3-seal.md`가 canonical이다.
+Stable surface는 `.qst`, `qstar.project`, `lang.*`, generic `qstar.cli`, staged
+package, systems firmware corpus, action replay, LSP/VSCode/lint/formatter UX를
+포함한다. Experimental surface는 `cale build` 통합, remote package resolver,
+Ninja generator, full sharedlib executor, Cale internal compiler API, C++ modules,
+HCL semantic checking으로 분리한다.
+
+```txt
+qstar --version
+qstar version
+make -C qstar qstar-v0.3-rc-tests
+make -C qstar vscode-extension-tests
 ```

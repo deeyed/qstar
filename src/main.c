@@ -7,6 +7,8 @@ static void
 usage(FILE *out)
 {
 	fputs("usage: qstar [options] list-targets\n", out);
+	fputs("       qstar --version\n", out);
+	fputs("       qstar version\n", out);
 	fputs("       qstar [options] list-targets --format json\n", out);
 	fputs("       qstar [options] query [label]\n", out);
 	fputs("       qstar [options] doctor\n", out);
@@ -37,6 +39,13 @@ usage(FILE *out)
 	fputs("build options:\n", out);
 	fputs("       --jobs N\n", out);
 	fputs("       --schedule-trace\n", out);
+}
+
+/** QStar runtime version을 CLI와 authoring 상수의 단일 source로 출력한다. */
+static void
+print_version(FILE *out)
+{
+	fprintf(out, "qstar %s\n", QSTAR_VERSION);
 }
 
 /** JSON diagnostic string을 stderr에 출력한다. */
@@ -145,6 +154,11 @@ main(int argc, char **argv)
 	cli_target = NULL;
 	cli_toolchain = NULL;
 	cli_stdlib = NULL;
+	if (argc == 2 && strcmp(argv[1], "--version") == 0) {
+		print_version(stdout);
+		qstar_graph_free(&graph);
+		return 0;
+	}
 	arg = 1;
 	while (arg < argc && strncmp(argv[arg], "--", 2) == 0 &&
 	    strcmp(argv[arg], "--dump-graph") != 0) {
@@ -211,6 +225,16 @@ main(int argc, char **argv)
 	}
 	cmd = argv[arg++];
 	build_options.jobs = 1;
+	if (strcmp(cmd, "version") == 0) {
+		if (arg != argc) {
+			usage(stderr);
+			qstar_graph_free(&graph);
+			return 2;
+		}
+		print_version(stdout);
+		qstar_graph_free(&graph);
+		return 0;
+	}
 	if (strcmp(cmd, "init") == 0) {
 		const char *template_name, *directory;
 
