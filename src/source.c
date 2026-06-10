@@ -372,6 +372,12 @@ validate_link_lists(struct qstar_graph *graph, const struct qstar_target *target
 		    "linker_script", target->label,
 		    "qstar: linker_script '%s' in '%s' must be package-relative",
 		    target->linker_script, target->label);
+	if (target->run_marker_log && *target->run_marker_log &&
+	    !qstar_path_is_package_relative(target->run_marker_log))
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "marker_log", target->label,
+		    "qstar: run_target marker_log '%s' in '%s' must be package-relative",
+		    target->run_marker_log, target->label);
 	for (i = 0; i < target->defsyms.len; i++) {
 		if (!valid_defsym(target->defsyms.items[i]))
 			return qstar_set_error_origin(graph, target->origin_file,

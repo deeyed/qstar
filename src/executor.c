@@ -651,10 +651,12 @@ write_skip_log(const char *path, char *const argv[])
 	fclose(f);
 }
 
-/** 실패한 action을 직접 재현할 수 있는 argv 파일을 갱신한다. */
+/** 실패한 action을 직접 재현할 수 있는 argv 파일을 상세 metadata와 함께 갱신한다. */
 static void
-write_failure_replay(const struct qstar_graph *graph, const char *id,
-    const struct qstar_resolved_toolchain *toolchain, char *const argv[])
+write_failure_replay_detail(const struct qstar_graph *graph, const char *id,
+    const struct qstar_resolved_toolchain *toolchain, char *const argv[],
+    const char *failure_kind, const char *label, const char *stdout_rel,
+    const char *stderr_rel, const char *marker, const char *marker_log_rel)
 {
 	char path[QSTAR_PATH_MAX];
 	FILE *f;
@@ -669,6 +671,14 @@ write_failure_replay(const struct qstar_graph *graph, const char *id,
 		return;
 	fprintf(f, "# qstar failure replay v2\ncd %s\n",
 	    graph->package_root ? graph->package_root : ".");
+	fprintf(f, "failure_kind=%s\n", failure_kind && *failure_kind ? failure_kind :
+	    "action-failure");
+	fprintf(f, "label=%s\n", label && *label ? label : id);
+	fprintf(f, "stdout=%s\n", stdout_rel && *stdout_rel ? stdout_rel : "<none>");
+	fprintf(f, "stderr=%s\n", stderr_rel && *stderr_rel ? stderr_rel : "<none>");
+	fprintf(f, "marker=%s\n", marker && *marker ? marker : "<none>");
+	fprintf(f, "marker_log=%s\n", marker_log_rel && *marker_log_rel ? marker_log_rel :
+	    "<none>");
 	digest = QSTAR_HASH_INIT;
 	for (i = 0; argv[i]; i++)
 		hash_str(&digest, argv[i]);
@@ -691,6 +701,15 @@ write_failure_replay(const struct qstar_graph *graph, const char *id,
 	}
 	fputc('\n', f);
 	fclose(f);
+}
+
+/** 기존 action failure 경로가 쓰는 replay writer wrapper다. */
+static void
+write_failure_replay(const struct qstar_graph *graph, const char *id,
+    const struct qstar_resolved_toolchain *toolchain, char *const argv[])
+{
+	write_failure_replay_detail(graph, id, toolchain, argv, "action-failure", id,
+	    NULL, NULL, NULL, NULL);
 }
 
 /** JSON string에 들어갈 최소 escape를 출력한다. */
@@ -1367,12 +1386,31 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 				kill(pid, SIGKILL);
 				waitpid(pid, &status, 0);
 				write_action_log(action_log, argv, 124);
-				write_failure_replay(graph, id, toolchain, argv);
+				if (strcmp(kind, "run") == 0)
+					write_failure_replay_detail(graph, id, toolchain, argv,
+					    "timeout", target ? target->label : id,
+					    child_stdout_path, child_stderr_path,
+					    target ? target->run_marker : NULL,
+					    target ? target->run_marker_log : NULL);
+				else
+					write_failure_replay(graph, id, toolchain, argv);
 				ctx->fail_count++;
 				ctx->cancelled = 1;
 				fprintf(ctx->out,
 				    "build_action id=%s status=timeout timeout_sec=%d\n",
 				    id, ctx->action_timeout_sec);
+				if (strcmp(kind, "run") == 0) {
+					fprintf(ctx->out,
+					    "run_target_result label=%s status=timeout timeout_sec=%d replay=.qstar/logs/last-failure.replay stdout=%s stderr=%s\n",
+					    target ? target->label : id, ctx->action_timeout_sec,
+					    child_stdout_path, child_stderr_path);
+					return qstar_set_error_origin(graph,
+					    target ? target->origin_file : "",
+					    target ? target->origin_line : 0, "timeout",
+					    target ? target->label : id,
+					    "qstar: run_target '%s' timed out after %d seconds; replay=.qstar/logs/last-failure.replay",
+					    target ? target->label : id, ctx->action_timeout_sec);
+				}
 				return qstar_set_error_origin(graph,
 				    target ? target->origin_file : "",
 				    target ? target->origin_line : 0, "action",
@@ -1387,9 +1425,25 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	write_action_log(action_log, argv, exit_code);
 	if (exit_code != 0) {
 		fprintf(ctx->out, "build_action id=%s status=fail exit=%d\n", id, exit_code);
-		write_failure_replay(graph, id, toolchain, argv);
+		if (strcmp(kind, "run") == 0)
+			write_failure_replay_detail(graph, id, toolchain, argv,
+			    "exit-code", target ? target->label : id, child_stdout_path,
+			    child_stderr_path, target ? target->run_marker : NULL,
+			    target ? target->run_marker_log : NULL);
+		else
+			write_failure_replay(graph, id, toolchain, argv);
 		ctx->fail_count++;
 		ctx->cancelled = 1;
+		if (strcmp(kind, "run") == 0) {
+			fprintf(ctx->out,
+			    "run_target_result label=%s status=exit-code exit=%d replay=.qstar/logs/last-failure.replay stdout=%s stderr=%s\n",
+			    target ? target->label : id, exit_code, child_stdout_path,
+			    child_stderr_path);
+			return qstar_set_error_origin(graph, target ? target->origin_file : "",
+			    target ? target->origin_line : 0, "exit", target ? target->label : id,
+			    "qstar: run_target '%s' failed with exit code %d; replay=.qstar/logs/last-failure.replay",
+			    target ? target->label : id, exit_code);
+		}
 		return qstar_set_error_origin(graph, target ? target->origin_file : "",
 		    target ? target->origin_line : 0, "action", target ? target->label : id,
 		    "qstar: action '%s' failed with status %d; replay=.qstar/logs/last-failure.replay",
@@ -1905,22 +1959,16 @@ run_generated_actions(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	return 0;
 }
 
-/** run target stdout log에 marker 문자열이 들어 있는지 확인한다. */
+/** full path 파일 안에 marker 문자열이 들어 있는지 확인한다. */
 static int
-stdout_contains_marker(struct qstar_graph *graph, const char *id, const char *marker)
+file_contains_marker(const char *path, const char *marker)
 {
-	char logdir[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], stdout_path[QSTAR_PATH_MAX];
 	FILE *f;
 	char buf[4096];
 
 	if (!marker || !*marker)
 		return 1;
-	if (qstar_path_join(graph->package_root ? graph->package_root : ".",
-	    ".qstar/logs", logdir, sizeof(logdir)) < 0)
-		return 0;
-	action_log_name(id, name, sizeof(name));
-	snprintf(stdout_path, sizeof(stdout_path), "%s/%s.stdout", logdir, name);
-	f = fopen(stdout_path, "rb");
+	f = fopen(path, "rb");
 	if (!f)
 		return 0;
 	while (fgets(buf, sizeof(buf), f)) {
@@ -1930,6 +1978,38 @@ stdout_contains_marker(struct qstar_graph *graph, const char *id, const char *ma
 		}
 	}
 	fclose(f);
+	return 0;
+}
+
+/** run_target marker를 stdout/stderr와 선택적 serial log에서 찾는다. */
+static int
+run_marker_match(struct qstar_graph *graph, const char *id, const char *marker,
+    const char *marker_log, char *source, size_t sourcelen, char *rel, size_t rellen)
+{
+	char name[QSTAR_PATH_MAX], stdout_rel[QSTAR_PATH_MAX], stderr_rel[QSTAR_PATH_MAX];
+	char full[QSTAR_PATH_MAX];
+	const char *sources[] = { "stdout", "stderr", "marker_log" };
+	const char *paths[3];
+	size_t i;
+
+	if (!marker || !*marker)
+		return 1;
+	action_log_name(id, name, sizeof(name));
+	snprintf(stdout_rel, sizeof(stdout_rel), ".qstar/logs/%s.stdout", name);
+	snprintf(stderr_rel, sizeof(stderr_rel), ".qstar/logs/%s.stderr", name);
+	paths[0] = stdout_rel;
+	paths[1] = stderr_rel;
+	paths[2] = marker_log && *marker_log ? marker_log : NULL;
+	for (i = 0; i < 3; i++) {
+		if (!paths[i])
+			continue;
+		if (full_path_under_root(graph, paths[i], full, sizeof(full)) == 0 &&
+		    file_contains_marker(full, marker)) {
+			snprintf(source, sourcelen, "%s", sources[i]);
+			snprintf(rel, rellen, "%s", paths[i]);
+			return 1;
+		}
+	}
 	return 0;
 }
 
@@ -1960,6 +2040,8 @@ run_target_command(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	struct qstar_action_material material;
 	char *argv[QSTAR_EXEC_MAX_ARGV];
 	char id[QSTAR_PATH_MAX], stamp[QSTAR_PATH_MAX], key[32], artifact[QSTAR_PATH_MAX];
+	char marker_source[32], marker_path[QSTAR_PATH_MAX];
+	char action_name[QSTAR_PATH_MAX], stdout_rel[QSTAR_PATH_MAX], stderr_rel[QSTAR_PATH_MAX];
 	char owner[QSTAR_PATH_MAX];
 	size_t argc, i;
 	int old_timeout, rc;
@@ -2001,25 +2083,45 @@ run_target_command(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	compute_action_key(graph, target, NULL, id, "run", argv, &inputs, NULL, stamp,
 	    key, sizeof(key), &material);
 	fprintf(ctx->out,
-	    "run_target label=%s command=argv timeout_sec=%d marker=%s\n",
+	    "run_target label=%s command=argv timeout_sec=%d marker=%s marker_log=%s\n",
 	    target->label, target->run_timeout_sec ? target->run_timeout_sec :
 	    ctx->action_timeout_sec,
-	    target->run_marker && *target->run_marker ? target->run_marker : "<none>");
+	    target->run_marker && *target->run_marker ? target->run_marker : "<none>",
+	    target->run_marker_log && *target->run_marker_log ? target->run_marker_log :
+	    "<none>");
 	old_timeout = ctx->action_timeout_sec;
 	if (target->run_timeout_sec > 0)
 		ctx->action_timeout_sec = target->run_timeout_sec;
 	rc = run_action(graph, ctx, target, id, "run", key, &outputs, argv, NULL, &material);
 	ctx->action_timeout_sec = old_timeout;
-	if (rc == 0 && write_run_stamp(graph, stamp) < 0)
-		rc = -1;
-	if (rc == 0 && !stdout_contains_marker(graph, id, target->run_marker))
+	if (rc == 0 && target->run_marker && *target->run_marker &&
+	    !run_marker_match(graph, id, target->run_marker, target->run_marker_log,
+	    marker_source, sizeof(marker_source), marker_path, sizeof(marker_path))) {
+		action_log_name(id, action_name, sizeof(action_name));
+		snprintf(stdout_rel, sizeof(stdout_rel), ".qstar/logs/%s.stdout",
+		    action_name);
+		snprintf(stderr_rel, sizeof(stderr_rel), ".qstar/logs/%s.stderr",
+		    action_name);
+		write_failure_replay_detail(graph, id, NULL, argv, "marker-missing",
+		    target->label, stdout_rel, stderr_rel, target->run_marker,
+		    target->run_marker_log);
+		ctx->fail_count++;
+		ctx->cancelled = 1;
+		fprintf(ctx->out,
+		    "run_target_result label=%s status=marker-missing marker=%s stdout=%s stderr=%s marker_log=%s replay=.qstar/logs/last-failure.replay\n",
+		    target->label, target->run_marker, stdout_rel, stderr_rel,
+		    target->run_marker_log && *target->run_marker_log ?
+		    target->run_marker_log : "<none>");
 		rc = qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "marker", target->label,
-		    "qstar: run_target '%s' stdout did not contain marker '%s'",
+		    "qstar: run_target '%s' marker '%s' was not found; replay=.qstar/logs/last-failure.replay",
 		    target->label, target->run_marker);
+	}
+	if (rc == 0 && write_run_stamp(graph, stamp) < 0)
+		rc = -1;
 	if (rc == 0 && target->run_marker && *target->run_marker)
-		fprintf(ctx->out, "run_marker label=%s status=matched marker=%s\n",
-		    target->label, target->run_marker);
+		fprintf(ctx->out, "run_marker label=%s status=matched marker=%s source=%s path=%s\n",
+		    target->label, target->run_marker, marker_source, marker_path);
 	qstar_string_list_free(&inputs);
 	qstar_string_list_free(&outputs);
 	free_owned_argv(argv, argc);

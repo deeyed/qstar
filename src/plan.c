@@ -1376,6 +1376,9 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 		fprintf(out, "  run.timeout_sec %d\n", target->run_timeout_sec);
 		fprintf(out, "  run.marker %s\n",
 		    target->run_marker && *target->run_marker ? target->run_marker : "<none>");
+		fprintf(out, "  run.marker_log %s\n",
+		    target->run_marker_log && *target->run_marker_log ?
+		    target->run_marker_log : "<none>");
 		fprintf(out, "  action run output=.qstar/out/<run-stamp>\n");
 		dump_action_key(out, plan->graph, target, "run", "<run-command>",
 		    ".qstar/out/<run-stamp>", "generic", 0);

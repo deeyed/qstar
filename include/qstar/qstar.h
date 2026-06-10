@@ -57,6 +57,7 @@ struct qstar_target {
 	char *cale_profile;
 	char *linker_script;
 	char *run_marker;
+	char *run_marker_log;
 	int run_timeout_sec;
 	int asm_preprocess;
 	char *toolchain;

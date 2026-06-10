@@ -176,7 +176,7 @@ path/PATH tool 중 무엇으로 해석되는지 출력한다.
 
 `qstar.run_target`은 build artifact를 만든 뒤 외부 smoke command를 실행한다. QEMU,
 UEFI image smoke, serial log marker check 같은 흐름은 별도 built-in keyword가 아니라
-`qstar.cli`, `qstar.target_file`, `timeout`, `marker` 조합으로 표현한다.
+`qstar.cli`, `qstar.target_file`, `timeout`, `marker`, `marker_log` 조합으로 표현한다.
 
 ```lua
 qstar.run_target "smoke" {
@@ -188,8 +188,20 @@ qstar.run_target "smoke" {
   },
   timeout = 5,
   marker = "OK",
+  marker_log = "serial.log",
 }
 ```
+
+`marker`는 stdout, stderr, 그리고 선택적 `marker_log` 파일에서 찾는다. QEMU wrapper가
+serial output을 `serial.log`에 쓰게 하면 QStar가 그 파일에서 boot marker를 확인할 수
+있다. 실패는 세 종류로 분리된다.
+
+- `status=marker-missing`: process는 성공했지만 marker가 없다.
+- `status=timeout`: timeout 안에 종료하지 않았다.
+- `status=exit-code`: process가 0이 아닌 exit code로 끝났다.
+
+세 경우 모두 `qstar last-failure`와 `qstar replay <action-id>`가 재현 command를
+출력한다.
 
 ## Freestanding profile과 linker script
 

@@ -700,6 +700,92 @@ contains "$tmp/run-target-smoke.out" "status ok"
 contains "$tmp/run-target-marker.out" "run_marker label=//:marker status=matched"
 contains "$tmp/run-target-marker.out" "status ok"
 
+mkdir -p "$tmp/qemu/tools"
+cat > "$tmp/qemu/tools/fake-qemu.sh" <<'EOF'
+#!/bin/sh
+set -eu
+mode=$1
+serial=$2
+case "$mode" in
+	ok)
+		printf "booting\n"
+		printf "SERIAL-READY\n" > "$serial"
+		;;
+	missing)
+		printf "booting without marker\n"
+		printf "NO-MARKER\n" > "$serial"
+		;;
+	exit)
+		printf "fatal boot error\n" >&2
+		exit 7
+		;;
+	timeout)
+		sleep 5
+		;;
+esac
+EOF
+chmod +x "$tmp/qemu/tools/fake-qemu.sh"
+cat > "$tmp/qemu/qstar.lua" <<'EOF'
+qstar.run_target "qemu_ok" {
+  command = qstar.cli {"tools/fake-qemu.sh", "ok", "serial.log"},
+  timeout = 2,
+  marker = "SERIAL-READY",
+  marker_log = "serial.log",
+}
+
+qstar.run_target "qemu_marker_missing" {
+  command = qstar.cli {"tools/fake-qemu.sh", "missing", "serial.log"},
+  timeout = 2,
+  marker = "SERIAL-READY",
+  marker_log = "serial.log",
+}
+
+qstar.run_target "qemu_exit" {
+  command = qstar.cli {"tools/fake-qemu.sh", "exit", "serial.log"},
+  timeout = 2,
+  marker = "SERIAL-READY",
+  marker_log = "serial.log",
+}
+
+qstar.run_target "qemu_timeout" {
+  command = qstar.cli {"tools/fake-qemu.sh", "timeout", "serial.log"},
+  timeout = 1,
+  marker = "SERIAL-READY",
+  marker_log = "serial.log",
+}
+EOF
+"$qstar" --file "$tmp/qemu/qstar.lua" build //:qemu_ok > "$tmp/qemu-ok.out" 2> "$tmp/qemu-ok.err"
+contains "$tmp/qemu-ok.out" "run_target label=//:qemu_ok command=argv timeout_sec=2 marker=SERIAL-READY marker_log=serial.log"
+contains "$tmp/qemu-ok.out" "run_marker label=//:qemu_ok status=matched marker=SERIAL-READY source=marker_log path=serial.log"
+contains "$tmp/qemu-ok.out" "status ok"
+if "$qstar" --file "$tmp/qemu/qstar.lua" build //:qemu_marker_missing > "$tmp/qemu-missing.out" 2> "$tmp/qemu-missing.err"; then
+	fail "qemu marker missing unexpectedly succeeded"
+fi
+contains "$tmp/qemu-missing.out" "run_target_result label=//:qemu_marker_missing status=marker-missing marker=SERIAL-READY"
+contains "$tmp/qemu-missing.out" "marker_log=serial.log"
+contains "$tmp/qemu-missing.err" "marker 'SERIAL-READY' was not found"
+contains "$tmp/qemu/.qstar/logs/last-failure.replay" "failure_kind=marker-missing"
+contains "$tmp/qemu/.qstar/logs/last-failure.replay" "marker_log=serial.log"
+"$qstar" --file "$tmp/qemu/qstar.lua" last-failure > "$tmp/qemu-last-failure.out" 2> "$tmp/qemu-last-failure.err"
+contains "$tmp/qemu-last-failure.out" "qstar last-failure v1"
+contains "$tmp/qemu-last-failure.out" "failure_kind=marker-missing"
+contains "$tmp/qemu-last-failure.out" "tools/fake-qemu.sh missing serial.log"
+"$qstar" --file "$tmp/qemu/qstar.lua" replay //:qemu_marker_missing:run:0 > "$tmp/qemu-replay.out" 2> "$tmp/qemu-replay.err"
+contains "$tmp/qemu-replay.out" "qstar replay v1"
+contains "$tmp/qemu-replay.out" "tools/fake-qemu.sh missing serial.log"
+if "$qstar" --file "$tmp/qemu/qstar.lua" build //:qemu_exit > "$tmp/qemu-exit.out" 2> "$tmp/qemu-exit.err"; then
+	fail "qemu exit failure unexpectedly succeeded"
+fi
+contains "$tmp/qemu-exit.out" "run_target_result label=//:qemu_exit status=exit-code exit=7"
+contains "$tmp/qemu-exit.err" "failed with exit code 7"
+contains "$tmp/qemu/.qstar/logs/last-failure.replay" "failure_kind=exit-code"
+if "$qstar" --file "$tmp/qemu/qstar.lua" build //:qemu_timeout > "$tmp/qemu-timeout.out" 2> "$tmp/qemu-timeout.err"; then
+	fail "qemu timeout unexpectedly succeeded"
+fi
+contains "$tmp/qemu-timeout.out" "run_target_result label=//:qemu_timeout status=timeout timeout_sec=1"
+contains "$tmp/qemu-timeout.err" "timed out after 1 seconds"
+contains "$tmp/qemu/.qstar/logs/last-failure.replay" "failure_kind=timeout"
+
 cat > "$tmp/qstar.lua" <<'EOF'
 qstar.configure_file "cfg" {
   output = qstar.output("generated/config.h"),

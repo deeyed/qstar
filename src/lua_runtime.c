@@ -958,11 +958,20 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 			    target->label);
 		free(target->run_marker);
 		target->run_marker = qstar_strdup(check_string_field(L, table_index, "marker"));
-		if (!target->run_marker)
+		free(target->run_marker_log);
+		target->run_marker_log = qstar_strdup(check_string_field(L, table_index,
+		    "marker_log"));
+		if (target->run_marker_log && *target->run_marker_log &&
+		    !qstar_path_is_package_relative(target->run_marker_log))
+			return luaL_error(L,
+			    "qstar: run_target '%s' marker_log must be package-relative",
+			    target->label);
+		if (!target->run_marker || !target->run_marker_log)
 			return luaL_error(L, "qstar: out of memory");
 	}
 	if (!target->toolchain || !target->stdlib_policy || !target->artifact_name ||
-	    !target->cxx_standard || !target->linker_script)
+	    !target->cxx_standard || !target->linker_script || !target->run_marker ||
+	    !target->run_marker_log)
 		return luaL_error(L, "qstar: out of memory");
 	return 0;
 }

@@ -62,6 +62,7 @@
       "  command = qstar.cli {qstar.target_file(\"${2://:app}\")},",
       "  timeout = ${3:5},",
       "  marker = \"${4:OK}\",",
+      "  marker_log = \"${5:serial.log}\",",
       "}"
     ],
     "description": "Create an external run target."
