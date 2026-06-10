@@ -112,6 +112,9 @@ const languages = (((pkg.contributes || {}).languages) || []);
 const qstarLang = languages.find((lang) => lang.id === "qstar");
 if (!qstarLang) fail("missing qstar language contribution");
 if (!new Set(qstarLang.extensions || []).has(".qs")) fail("missing .qs association");
+if (!new Set(qstarLang.filenamePatterns || []).has("*.qs")) {
+  fail("missing *.qs filename pattern association");
+}
 const filenames = new Set(qstarLang.filenames || []);
 if (!filenames.has("qstar.lua")) fail("missing qstar.lua association");
 if (!filenames.has("qstar.workspace")) fail("missing qstar.workspace association");
@@ -140,6 +143,14 @@ if (!iconTheme.fileNames || iconTheme.fileNames["qstar.lua"] !== "_qstar_file" |
 }
 if (!iconTheme.languageIds || iconTheme.languageIds.qstar !== "_qstar_file") {
   fail("qstar file icon theme must map qstar language id");
+}
+
+const configDefaults = ((pkg.contributes || {}).configurationDefaults) || {};
+const fileAssociations = configDefaults["files.associations"] || {};
+if (fileAssociations["*.qs"] !== "qstar" ||
+    fileAssociations["qstar.lua"] !== "qstar" ||
+    fileAssociations["qstar.workspace"] !== "qstar") {
+  fail("qstar extension must default QStar file associations");
 }
 
 const views = (((pkg.contributes || {}).views) || {}).explorer || [];

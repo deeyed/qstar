@@ -208,9 +208,13 @@ fragment의 target/genrule/config_header를 나열하고, workspace symbols는 g
 
 Round 41부터 개발용 VSCode extension skeleton은 `editors/vscode/qstar/`에 둔다.
 이 확장은 `qstar.lua`, `*.qs`, `qstar.workspace`를 `qstar` language id로 연결하고,
+`files.associations` 기본값으로 `*.qs`가 Q# 확장에 잡히는 경우를 줄이며,
 syntax highlighting, snippets, LSP client, QStar terminal commands를 제공한다.
 LSP client는 `qstar lsp --stdio`만 시작하며, build/test를 자동 실행하지 않는다.
 `QStar: Build Target` 같은 명령은 사용자가 명시적으로 실행하는 terminal invocation이다.
+Q# 같은 다른 확장이 `.qs`를 계속 선점하면 workspace setting에서
+`"files.associations": {"*.qs": "qstar"}`를 명시한다. `.qst` 같은 대체 suffix는
+future hard-cut 후보지만 v0.2 canonical fragment suffix는 여전히 `.qs`다.
 
 Round 42부터 extension은 `list-targets --format json`을 사용해 Explorer 안에
 `QStar` tree view를 만든다. Tree는 targets, generated actions, tests,

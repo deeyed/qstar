@@ -30,7 +30,8 @@ graph evaluation and never runs `qstar build` by itself.
 
 VSCode installations that already have Q# support may show `.qs` files with the
 Microsoft Q# icon. This extension contributes the QStar logo for the `qstar`
-language and also ships a fallback file icon theme named `QStar File Icons`.
+language, defaults `*.qs`/`qstar.lua`/`qstar.workspace` to the `qstar` language
+id, and also ships a fallback file icon theme named `QStar File Icons`.
 
 If `.qs`, `qstar.lua`, or `qstar.workspace` still show the wrong icon, run:
 
@@ -40,6 +41,21 @@ Preferences: File Icon Theme
 
 and select `QStar File Icons`. The theme maps `.qs`, `qstar.lua`,
 `qstar.workspace`, and the `qstar` language id to `media/qstar_logo.png`.
+
+If another extension or user setting still wins the `.qs` association, add this
+workspace setting:
+
+```json
+{
+  "files.associations": {
+    "*.qs": "qstar"
+  }
+}
+```
+
+QStar keeps `.qs` as the v0.2 canonical fragment suffix. If the ecosystem keeps
+colliding with Q# in practice, a future hard-cut may reserve a new suffix such
+as `.qst`, but this extension does not make `.qst` canonical yet.
 
 ## Development
 
@@ -136,7 +152,7 @@ npm run package:vsix
 The packaging script writes `dist/qstar-vscode-<version>.vsix`. Install it with:
 
 ```txt
-code --install-extension dist/qstar-vscode-0.1.0.vsix
+code --install-extension dist/qstar-vscode-0.1.1.vsix --force
 ```
 
 `node_modules/`, `dist/`, and `*.vsix` are local artifacts only. The extension

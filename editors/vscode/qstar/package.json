@@ -2,7 +2,7 @@
   "name": "qstar-vscode",
   "displayName": "QStar",
   "description": "Language support for QStar qstar.lua and .qs build files.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "cale",
   "license": "UNLICENSED",
   "private": true,
@@ -48,6 +48,9 @@
         "extensions": [
           ".qs"
         ],
+        "filenamePatterns": [
+          "*.qs"
+        ],
         "filenames": [
           "qstar.lua",
           "qstar.workspace"
@@ -79,6 +82,13 @@
         "path": "./snippets/qstar.json"
       }
     ],
+    "configurationDefaults": {
+      "files.associations": {
+        "*.qs": "qstar",
+        "qstar.lua": "qstar",
+        "qstar.workspace": "qstar"
+      }
+    },
     "views": {
       "explorer": [
         {
