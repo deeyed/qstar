@@ -70,6 +70,7 @@ function walk(dir, out) {
 }
 
 const pkg = readJson("package.json");
+const sourceLogoPath = path.resolve(root, "../../../assets/qstar_logo.png");
 
 if (pkg.name !== "qstar-vscode") fail("package name drifted");
 if (pkg.main !== "./extension.js") fail("main must stay ./extension.js");
@@ -77,6 +78,7 @@ if (!pkg.private) fail("extension package must stay private in-repo");
 if (!pkg.repository || pkg.repository.directory !== "qstar/editors/vscode/qstar") {
   fail("repository metadata must point at the extension subdirectory");
 }
+if (pkg.icon !== "media/qstar_logo.png") fail("extension icon must use QStar logo");
 if (!pkg.scripts || pkg.scripts.check !== "node scripts/check-package.js") {
   fail("missing stable package check script");
 }
@@ -113,6 +115,32 @@ if (!new Set(qstarLang.extensions || []).has(".qs")) fail("missing .qs associati
 const filenames = new Set(qstarLang.filenames || []);
 if (!filenames.has("qstar.lua")) fail("missing qstar.lua association");
 if (!filenames.has("qstar.workspace")) fail("missing qstar.workspace association");
+if (!qstarLang.icon || qstarLang.icon.light !== "./media/qstar_logo.png" ||
+    qstarLang.icon.dark !== "./media/qstar_logo.png") {
+  fail("qstar language contribution must use QStar logo");
+}
+
+const iconThemes = (((pkg.contributes || {}).iconThemes) || []);
+const qstarIconTheme = iconThemes.find((theme) => theme.id === "qstar-file-icons");
+if (!qstarIconTheme) fail("missing qstar file icon theme");
+if (qstarIconTheme.path !== "./icons/qstar-icon-theme.json") {
+  fail("qstar file icon theme path drifted");
+}
+const iconTheme = readJson("icons/qstar-icon-theme.json");
+if (!iconTheme.iconDefinitions || !iconTheme.iconDefinitions._qstar_file ||
+    iconTheme.iconDefinitions._qstar_file.iconPath !== "../media/qstar_logo.png") {
+  fail("qstar file icon theme must reference packaged QStar logo");
+}
+if (!iconTheme.fileExtensions || iconTheme.fileExtensions.qs !== "_qstar_file") {
+  fail("qstar file icon theme must map .qs");
+}
+if (!iconTheme.fileNames || iconTheme.fileNames["qstar.lua"] !== "_qstar_file" ||
+    iconTheme.fileNames["qstar.workspace"] !== "_qstar_file") {
+  fail("qstar file icon theme must map qstar.lua and qstar.workspace");
+}
+if (!iconTheme.languageIds || iconTheme.languageIds.qstar !== "_qstar_file") {
+  fail("qstar file icon theme must map qstar language id");
+}
 
 const views = (((pkg.contributes || {}).views) || {}).explorer || [];
 if (!views.some((view) => view.id === "qstarGraph")) fail("missing qstarGraph view");
@@ -134,6 +162,8 @@ for (const command of [
 for (const rel of [
   "extension.js",
   "language-configuration.json",
+  "media/qstar_logo.png",
+  "icons/qstar-icon-theme.json",
   "syntaxes/qstar.tmLanguage.json",
   "snippets/qstar.json",
   "scripts/package-vsix.sh",
@@ -151,6 +181,14 @@ requireDir("samples/workspace");
 readJson("language-configuration.json");
 readJson("syntaxes/qstar.tmLanguage.json");
 readJson("snippets/qstar.json");
+
+if (!fs.existsSync(sourceLogoPath)) {
+  fail("missing source QStar logo at qstar/assets/qstar_logo.png");
+}
+if (!fs.readFileSync(path.join(root, "media/qstar_logo.png")).equals(
+    fs.readFileSync(sourceLogoPath))) {
+  fail("packaged QStar logo must match qstar/assets/qstar_logo.png");
+}
 
 const allFiles = [];
 walk(root, allFiles);

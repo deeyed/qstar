@@ -11,6 +11,7 @@ Supported files:
 Features:
 
 - syntax highlighting for QStar Lua-like files
+- QStar extension icon, language icon, and optional QStar file icon theme
 - snippets for common target and generated-action forms
 - diagnostics through `qstar lsp --stdio`
 - hover for QStar API names, field names, and `//pkg:target` labels
@@ -24,6 +25,21 @@ Features:
 
 The language server is intentionally read-only. It performs lint/check style
 graph evaluation and never runs `qstar build` by itself.
+
+## File Icons
+
+VSCode installations that already have Q# support may show `.qs` files with the
+Microsoft Q# icon. This extension contributes the QStar logo for the `qstar`
+language and also ships a fallback file icon theme named `QStar File Icons`.
+
+If `.qs`, `qstar.lua`, or `qstar.workspace` still show the wrong icon, run:
+
+```txt
+Preferences: File Icon Theme
+```
+
+and select `QStar File Icons`. The theme maps `.qs`, `qstar.lua`,
+`qstar.workspace`, and the `qstar` language id to `media/qstar_logo.png`.
 
 ## Development
 

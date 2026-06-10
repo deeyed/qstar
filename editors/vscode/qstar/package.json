@@ -6,6 +6,7 @@
   "publisher": "cale",
   "license": "UNLICENSED",
   "private": true,
+  "icon": "media/qstar_logo.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/deeyed/cale.git",
@@ -51,7 +52,18 @@
           "qstar.lua",
           "qstar.workspace"
         ],
+        "icon": {
+          "light": "./media/qstar_logo.png",
+          "dark": "./media/qstar_logo.png"
+        },
         "configuration": "./language-configuration.json"
+      }
+    ],
+    "iconThemes": [
+      {
+        "id": "qstar-file-icons",
+        "label": "QStar File Icons",
+        "path": "./icons/qstar-icon-theme.json"
       }
     ],
     "grammars": [
