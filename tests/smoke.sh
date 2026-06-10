@@ -2270,4 +2270,174 @@ if "$qstar" --file "$tmp/artifact-badmeta/qstar.lua" check > "$tmp/artifact-badm
 fi
 contains "$tmp/artifact-badmeta-type.err" "qstar.output metadata field 'format' must be a string"
 
+mkdir -p "$tmp/uefi/src" "$tmp/uefi/tools"
+cat > "$tmp/uefi/tools/fake-clang.sh" <<'EOF'
+#!/bin/sh
+set -eu
+out=
+dep=
+src=
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		-o)
+			shift
+			out=$1
+			;;
+		-MF)
+			shift
+			dep=$1
+			;;
+		-c)
+			shift
+			src=$1
+			;;
+	esac
+	shift || break
+done
+test -n "$out"
+mkdir -p "$(dirname "$out")"
+printf "pe-coff-object\n" > "$out"
+if [ -n "$dep" ]; then
+	mkdir -p "$(dirname "$dep")"
+	printf "%s: %s\n" "$out" "$src" > "$dep"
+fi
+EOF
+cat > "$tmp/uefi/tools/fake-lld-link.sh" <<'EOF'
+#!/bin/sh
+set -eu
+out=
+subsystem=0
+entry=0
+nodefault=0
+for arg in "$@"; do
+	case "$arg" in
+		/out:*)
+			out=${arg#/out:}
+			;;
+		/subsystem:efi_application)
+			subsystem=1
+			;;
+		/entry:efi_main)
+			entry=1
+			;;
+		/nodefaultlib)
+			nodefault=1
+			;;
+	esac
+done
+test -n "$out"
+test "$subsystem" = 1
+test "$entry" = 1
+test "$nodefault" = 1
+mkdir -p "$(dirname "$out")"
+printf "MZ\nUEFI\n" > "$out"
+EOF
+chmod +x "$tmp/uefi/tools/fake-clang.sh" "$tmp/uefi/tools/fake-lld-link.sh"
+cat > "$tmp/uefi/src/efi_main.c" <<'EOF'
+int efi_main(void *image, void *system_table) {
+	(void)image;
+	(void)system_table;
+	return 0;
+}
+EOF
+cat > "$tmp/uefi/qstar.lua" <<'EOF'
+qstar.executable "boot" {
+  sources = {"src/efi_main.c"},
+  lang = {
+    c = {
+      compile_options = {"-ffreestanding"},
+    },
+  },
+  link_options = {
+    "/subsystem:efi_application",
+    "/entry:efi_main",
+    "/nodefaultlib",
+  },
+}
+EOF
+cat > "$tmp/uefi/Cale.toml" <<'EOF'
+profile = "uefi-x64"
+
+[profile.uefi-x64]
+toolchain = "clang"
+target = "x86_64-pc-windows-msvc"
+cc = "tools/fake-clang.sh"
+linker = "tools/fake-lld-link.sh"
+response_style = "msvc"
+artifact_names = ["//:boot=BOOTX64.EFI"]
+EOF
+"$qstar" --file "$tmp/uefi/qstar.lua" dry-run //:boot > "$tmp/uefi-x64-dry.out" 2> "$tmp/uefi-x64-dry.err"
+contains "$tmp/uefi-x64-dry.out" "response_style=msvc"
+contains "$tmp/uefi-x64-dry.out" "/out:.qstar/out/___boot/BOOTX64.EFI"
+contains "$tmp/uefi-x64-dry.out" "/subsystem:efi_application"
+contains "$tmp/uefi-x64-dry.out" "/entry:efi_main"
+contains "$tmp/uefi-x64-dry.out" "/nodefaultlib"
+"$qstar" --file "$tmp/uefi/qstar.lua" build //:boot > "$tmp/uefi-x64-build.out" 2> "$tmp/uefi-x64-build.err"
+contains "$tmp/uefi-x64-build.out" "status ok"
+test -f "$tmp/uefi/.qstar/out/___boot/BOOTX64.EFI" || fail "missing UEFI x64 artifact"
+contains "$tmp/uefi/.qstar/logs/___boot_link_0.log" "argv[0]=tools/fake-lld-link.sh"
+contains "$tmp/uefi/.qstar/logs/___boot_link_0.log" "argv[1]=/out:.qstar/out/___boot/BOOTX64.EFI"
+contains "$tmp/uefi/.qstar/logs/___boot_link_0.log" "argv[2]=/subsystem:efi_application"
+contains "$tmp/uefi/.qstar/state/graph.json" "\"artifact_name\":\"\""
+cat > "$tmp/uefi/Cale.toml" <<'EOF'
+profile = "uefi-aa64"
+
+[profile.uefi-aa64]
+toolchain = "clang"
+target = "aarch64-pc-windows-msvc"
+cc = "tools/fake-clang.sh"
+linker = "tools/fake-lld-link.sh"
+response_style = "msvc"
+artifact_names = ["//:boot=BOOTAA64.EFI"]
+EOF
+"$qstar" --file "$tmp/uefi/qstar.lua" dry-run //:boot > "$tmp/uefi-aa64-dry.out" 2> "$tmp/uefi-aa64-dry.err"
+contains "$tmp/uefi-aa64-dry.out" "/out:.qstar/out/___boot/BOOTAA64.EFI"
+"$qstar" --file "$tmp/uefi/qstar.lua" build //:boot > "$tmp/uefi-aa64-build.out" 2> "$tmp/uefi-aa64-build.err"
+contains "$tmp/uefi-aa64-build.out" "status ok"
+test -f "$tmp/uefi/.qstar/out/___boot/BOOTAA64.EFI" || fail "missing UEFI AArch64 artifact"
+cat > "$tmp/uefi/qstar.lua" <<'EOF'
+qstar.executable "boot" {
+  artifact_name = "BOOTLOCAL.EFI",
+  sources = {"src/efi_main.c"},
+  link_options = {
+    "/subsystem:efi_application",
+    "/entry:efi_main",
+    "/nodefaultlib",
+  },
+}
+EOF
+"$qstar" --file "$tmp/uefi/qstar.lua" dry-run //:boot > "$tmp/uefi-local-dry.out" 2> "$tmp/uefi-local-dry.err"
+contains "$tmp/uefi-local-dry.out" "/out:.qstar/out/___boot/BOOTLOCAL.EFI"
+"$qstar" --file "$tmp/uefi/qstar.lua" list-targets --format json > "$tmp/uefi-targets-json.out" 2> "$tmp/uefi-targets-json.err"
+contains "$tmp/uefi-targets-json.out" "\"artifact_name\":\"BOOTLOCAL.EFI\""
+cat > "$tmp/uefi/qstar.lua" <<'EOF'
+qstar.executable "boot" {
+  artifact_name = "EFI/BOOT/BOOTX64.EFI",
+  sources = {"src/efi_main.c"},
+}
+EOF
+if "$qstar" --file "$tmp/uefi/qstar.lua" check //:boot > "$tmp/uefi-bad-target-name.out" 2> "$tmp/uefi-bad-target-name.err"; then
+	fail "path-like artifact_name unexpectedly succeeded"
+fi
+contains "$tmp/uefi-bad-target-name.err" "artifact_name 'EFI/BOOT/BOOTX64.EFI' must be a filename, not a path"
+cat > "$tmp/uefi/qstar.lua" <<'EOF'
+qstar.executable "boot" {
+  sources = {"src/efi_main.c"},
+}
+EOF
+cat > "$tmp/uefi/Cale.toml" <<'EOF'
+profile = "bad"
+
+[profile.bad]
+toolchain = "clang"
+target = "x86_64-pc-windows-msvc"
+cc = "tools/fake-clang.sh"
+linker = "tools/fake-lld-link.sh"
+artifact_names = ["//:boot=EFI/BOOT/BOOTX64.EFI"]
+EOF
+if "$qstar" --file "$tmp/uefi/qstar.lua" check //:boot > "$tmp/uefi-bad-profile-name.out" 2> "$tmp/uefi-bad-profile-name.err"; then
+	fail "path-like profile artifact_names unexpectedly succeeded"
+fi
+contains "$tmp/uefi-bad-profile-name.err" "profile artifact_names entry '//:boot=EFI/BOOT/BOOTX64.EFI' must be LABEL=FILENAME"
+
 echo "qstar-smoke: passed"

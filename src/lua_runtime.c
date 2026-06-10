@@ -282,6 +282,21 @@ legacy_field_present(lua_State *L, int table, const char *field)
 	return present;
 }
 
+/** target artifact_name field가 filename basename으로 안전한지 검사한다. */
+static int
+valid_target_artifact_name(const char *s)
+{
+	const unsigned char *p;
+
+	if (!s || !*s)
+		return 1;
+	for (p = (const unsigned char *)s; *p; p++) {
+		if (!(isalnum(*p) || *p == '_' || *p == '-' || *p == '.' || *p == '+'))
+			return 0;
+	}
+	return 1;
+}
+
 /** output artifact metadata token이 deterministic identity에 안전한지 확인한다. */
 static int
 valid_output_metadata_token(const char *s)
@@ -839,7 +854,7 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	struct qstar_lua_context *ctx;
 	struct qstar_target *target;
 	struct qstar_graph *graph;
-	const char *kind, *toolchain, *stdlib_policy;
+	const char *kind, *toolchain, *stdlib_policy, *artifact_name;
 	char label[QSTAR_PATH_MAX], rawlabel[QSTAR_PATH_MAX];
 	char origin_file[QSTAR_PATH_MAX];
 	int origin_line;
@@ -902,6 +917,15 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 		return luaL_error(L, "%s", graph->error);
 	toolchain = check_string_field(L, table_index, "toolchain");
 	stdlib_policy = check_string_field(L, table_index, "stdlib");
+	artifact_name = check_string_field(L, table_index, "artifact_name");
+	if (artifact_name) {
+		if (!valid_target_artifact_name(artifact_name))
+			return luaL_error(L,
+			    "qstar: artifact_name '%s' must be a filename, not a path",
+			    artifact_name);
+		free(target->artifact_name);
+		target->artifact_name = qstar_strdup(artifact_name);
+	}
 	if (check_string_field(L, table_index, "linker_script")) {
 		free(target->linker_script);
 		target->linker_script = qstar_strdup(check_string_field(L, table_index,
@@ -937,8 +961,8 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 		if (!target->run_marker)
 			return luaL_error(L, "qstar: out of memory");
 	}
-	if (!target->toolchain || !target->stdlib_policy || !target->cxx_standard ||
-	    !target->linker_script)
+	if (!target->toolchain || !target->stdlib_policy || !target->artifact_name ||
+	    !target->cxx_standard || !target->linker_script)
 		return luaL_error(L, "qstar: out of memory");
 	return 0;
 }

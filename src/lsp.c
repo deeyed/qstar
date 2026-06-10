@@ -72,6 +72,7 @@ static const struct qstar_lsp_hover_entry qstar_lsp_fields[] = {
 	{ "marker", "run_target stdout marker string." },
 	{ "visibility", "Package visibility patterns that may depend on this target." },
 	{ "toolchain", "Toolchain profile name for this target." },
+	{ "artifact_name", "Target artifact filename override, for example BOOTX64.EFI." },
 	{ "libs", "System libraries rendered by the selected target profile." },
 	{ "link_options", "Raw target linker options appended before object inputs." },
 	{ "linker_script", "Package-relative linker script rendered as -T <script>." },

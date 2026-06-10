@@ -399,6 +399,15 @@ artifact가 둘 이상 있으면 collision으로 거절한다. `qstar build //:i
 generated action label을 직접 빌드할 수 있고, `qstar.target_file("//:image_rule")`는
 그 action의 첫 output path로 해석된다.
 
+Round 54부터 PE/COFF/UEFI link surface는 dedicated `uefi_app` target kind가 아니라
+generic executable + profile link policy로 표현한다. `lld-link`/`link.exe` 계열 linker는
+output option을 `/out:<artifact>`로 렌더링하고, UEFI에 필요한
+`/subsystem:efi_application`, `/entry:efi_main`, `/nodefaultlib`는 `link_options`에
+그대로 둔다. Profile `artifact_names = ["//:boot=BOOTX64.EFI"]`는 target label/name에
+따라 산출물 파일명을 바꾸며, target-local `artifact_name = "BOOTLOCAL.EFI"`가 있으면
+profile mapping보다 우선한다. `artifact_name`은 파일명 basename만 허용한다. ESP layout
+같은 directory staging은 별도 package/staging rule에서 다룬다.
+
 Command rendering은 shell string이 아니라 argv-vector가 canonical이다. Explain/dry-run
 dump는 argv item을 quoting하고 deterministic `digest=`를 붙인다. 긴 command에는
 `response=skeleton response_file=.qstar/rsp/... response_style=... response_digest=...`를

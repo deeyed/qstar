@@ -241,6 +241,52 @@ profile 값을 덮어쓴다. QStar는 linker script를 link action input으로 �
 script 내용이 바뀌면 object가 그대로여도 link action은 rebuild된다.
 `defsyms`는 항상 `NAME=VALUE` 형식이어야 한다.
 
+## UEFI/PE-COFF link 예시
+
+UEFI를 별도 target kind로 만들지 않는다. `qstar.executable`을 그대로 쓰고,
+profile이 PE/COFF linker와 산출물 이름을 고른다.
+
+```toml
+profile = "uefi-x64"
+
+[profile.uefi-x64]
+toolchain = "clang"
+target = "x86_64-pc-windows-msvc"
+cc = "clang"
+linker = "lld-link"
+response_style = "msvc"
+artifact_names = ["//:boot=BOOTX64.EFI"]
+```
+
+```lua
+qstar.executable "boot" {
+  sources = {
+    "src/efi_main.c",
+  },
+  lang = {
+    c = {
+      compile_options = {
+        "-ffreestanding",
+      },
+    },
+  },
+  link_options = {
+    "/subsystem:efi_application",
+    "/entry:efi_main",
+    "/nodefaultlib",
+  },
+}
+```
+
+`linker = "lld-link"` 또는 `link.exe` 계열이면 QStar는 output을
+`/out:.qstar/out/.../BOOTX64.EFI`로 렌더링한다. AArch64 UEFI profile은 같은
+target에 `artifact_names = ["//:boot=BOOTAA64.EFI"]`를 줄 수 있다. Target 안에
+`artifact_name = "BOOTLOCAL.EFI"`를 직접 쓰면 profile mapping보다 우선한다.
+
+`artifact_name`과 `artifact_names`의 filename 부분은 slash 없는 basename이어야 한다.
+`EFI/BOOT/BOOTX64.EFI`처럼 ESP 안에 배치하는 작업은 install/package/staging rule에서
+처리한다.
+
 ## Language namespace
 
 `lang` v0.2 schema:

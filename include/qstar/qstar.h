@@ -52,6 +52,7 @@ struct qstar_target {
 	struct qstar_string_list cale_hcl_include_dirs;
 	struct qstar_string_list cale_compile_options;
 	struct qstar_string_list run_command;
+	char *artifact_name;
 	char *cxx_standard;
 	char *cale_profile;
 	char *linker_script;
@@ -104,6 +105,7 @@ struct qstar_profile_input {
 	char *response_files;
 	char *response_style;
 	char *linker_script;
+	struct qstar_string_list artifact_names;
 	char *allow_absolute_tools;
 	struct qstar_string_list include_dirs;
 	struct qstar_string_list lib_dirs;

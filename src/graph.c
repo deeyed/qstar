@@ -133,6 +133,7 @@ free_target(struct qstar_target *target)
 	qstar_string_list_free(&target->cale_hcl_include_dirs);
 	qstar_string_list_free(&target->cale_compile_options);
 	qstar_string_list_free(&target->run_command);
+	free(target->artifact_name);
 	free(target->cxx_standard);
 	free(target->cale_profile);
 	free(target->linker_script);
@@ -191,6 +192,7 @@ free_profile_input(struct qstar_profile_input *profile)
 	free(profile->response_style);
 	free(profile->linker_script);
 	free(profile->allow_absolute_tools);
+	qstar_string_list_free(&profile->artifact_names);
 	qstar_string_list_free(&profile->include_dirs);
 	qstar_string_list_free(&profile->lib_dirs);
 	qstar_string_list_free(&profile->link_options);
@@ -404,12 +406,14 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	target->origin_line = origin_line;
 	target->toolchain = qstar_strdup("host");
 	target->stdlib_policy = qstar_strdup("system");
+	target->artifact_name = qstar_strdup("");
 	target->cxx_standard = qstar_strdup("");
 	target->cale_profile = qstar_strdup("");
 	target->linker_script = qstar_strdup("");
 	if (!target->label || !target->name || !target->kind || !target->fragment_dir ||
 	    !target->origin_file || !target->toolchain || !target->stdlib_policy ||
-	    !target->cxx_standard || !target->cale_profile || !target->linker_script) {
+	    !target->artifact_name || !target->cxx_standard || !target->cale_profile ||
+	    !target->linker_script) {
 		qstar_set_error(graph, "qstar: out of memory");
 		return NULL;
 	}
@@ -747,6 +751,9 @@ dump_target(const struct qstar_target *target, FILE *out)
 	fputc('\n', out);
 	fprintf(out, "  run.timeout_sec %d\n", target->run_timeout_sec);
 	fprintf(out, "  run.marker %s\n", target->run_marker ? target->run_marker : "");
+	fprintf(out, "  artifact_name %s\n",
+	    target->artifact_name && *target->artifact_name ? target->artifact_name :
+	    "<default>");
 	fprintf(out, "  toolchain %s\n", target->toolchain);
 	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
 }
@@ -951,6 +958,9 @@ dump_target_json(FILE *out, const struct qstar_target *target)
 	dump_json_list(out, &target->private_deps);
 	fputs(",\"toolchain\":", out);
 	dump_json_string(out, target->toolchain);
+	fputs(",\"artifact_name\":", out);
+	dump_json_string(out, target->artifact_name && *target->artifact_name ?
+	    target->artifact_name : "");
 	fputs(",\"cxx_standard\":", out);
 	dump_json_string(out, target->cxx_standard);
 	fputs(",\"lang_cxx_standard\":", out);

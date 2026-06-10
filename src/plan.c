@@ -801,6 +801,19 @@ toolchain_needs_msvc_link_boundary(const struct qstar_resolved_toolchain *toolch
 	return strstr(tool, "clang-cl") != NULL || strstr(tool, "cl.exe") != NULL;
 }
 
+/** lld-link/link.exe 계열 linker의 output option spelling을 확인한다. */
+static int
+toolchain_uses_msvc_out_arg(const struct qstar_resolved_toolchain *toolchain,
+    const struct qstar_target *target)
+{
+	const char *tool;
+
+	if (!toolchain || !target)
+		return 0;
+	tool = target_has_cxx_source(target) ? toolchain->cxx : toolchain->linker;
+	return strstr(tool, "lld-link") != NULL || strstr(tool, "link.exe") != NULL;
+}
+
 /** target linker_script가 있으면 우선하고 없으면 profile linker_script를 쓴다. */
 static const char *
 effective_linker_script(const struct qstar_graph *graph, const struct qstar_target *target)
@@ -902,10 +915,13 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 	size_t argc, i;
 	struct qstar_argv_dump dump;
 	int windows;
+	int msvc_out;
 
 	snprintf(id, sizeof(id), "%s:%s:0", target->label, action);
 	windows = strstr(toolchain->target, "windows") || strstr(toolchain->target, "msvc") ||
 	    strstr(toolchain->target, "mingw");
+	msvc_out = strcmp(action, "archive") != 0 &&
+	    toolchain_uses_msvc_out_arg(toolchain, target);
 	argc = strcmp(action, "archive") == 0 ? 4 :
 	    strcmp(action, "link-shared") == 0 ? 5 : 4;
 	if (strcmp(action, "archive") != 0)
@@ -914,6 +930,8 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 		    (windows ? 0 : target->frameworks.len * 2) +
 		    link_policy_arg_count(graph, target) +
 		    (toolchain_needs_msvc_link_boundary(toolchain, target) ? 1 : 0);
+	if (msvc_out)
+		argc--;
 	begin_argv(out, &dump, id, argc, toolchain);
 	if (strcmp(action, "archive") == 0) {
 		argv_item(out, &dump, toolchain->ar);
@@ -929,8 +947,13 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 		}
 		if (strcmp(action, "link-shared") == 0)
 			argv_item(out, &dump, "-shared");
-		argv_item(out, &dump, "-o");
-		argv_item(out, &dump, output);
+		if (msvc_out) {
+			snprintf(buf, sizeof(buf), "/out:%s", output);
+			argv_item(out, &dump, buf);
+		} else {
+			argv_item(out, &dump, "-o");
+			argv_item(out, &dump, output);
+		}
 		dump_link_policy_argv(out, &dump, graph, target);
 		argv_item(out, &dump, "<target-objects>");
 		if (toolchain_needs_msvc_link_boundary(toolchain, target))
@@ -1379,7 +1402,7 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	action = qstar_target_final_action(target);
 	final_tool = strcmp(action, "archive") == 0 ? "archiver" :
 	    strcmp(action, "compile-objects") == 0 ? "object-collector" : "linker";
-	if (qstar_artifact_output_path(target, output, sizeof(output)) < 0)
+	if (qstar_graph_artifact_output_path(plan->graph, target, output, sizeof(output)) < 0)
 		return qstar_set_error(plan->graph, "qstar: artifact output path too long");
 	fprintf(out, "  action %s output=%s\n", action, output);
 	dump_action_key(out, plan->graph, target, action, "<target-objects>", output,
@@ -1509,7 +1532,7 @@ dump_dry_run_final(FILE *out, const struct qstar_plan *plan, const struct qstar_
 	action = qstar_target_final_action(target);
 	tool = strcmp(action, "archive") == 0 ? "archiver" :
 	    strcmp(action, "compile-objects") == 0 ? "object-collector" : "linker";
-	if (qstar_artifact_output_path(target, output, sizeof(output)) < 0)
+	if (qstar_graph_artifact_output_path(plan->graph, target, output, sizeof(output)) < 0)
 		return qstar_set_error(plan->graph, "qstar: artifact output path too long");
 	fprintf(out,
 	    "dry_run_step id=%s:%s:0 owner=%s kind=%s tool=%s toolchain=%s "

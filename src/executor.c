@@ -1019,6 +1019,9 @@ graph_snapshot_write(struct qstar_graph *graph)
 		json_string(f, graph->targets[i].label);
 		fputs(",\"kind\":", f);
 		json_string(f, graph->targets[i].kind);
+		fputs(",\"artifact_name\":", f);
+		json_string(f, graph->targets[i].artifact_name &&
+		    *graph->targets[i].artifact_name ? graph->targets[i].artifact_name : "");
 		fputs(",\"origin\":", f);
 		json_string(f, graph->targets[i].origin_file);
 		fprintf(f, ",\"line\":%d,\"sources\":", graph->targets[i].origin_line);
@@ -1759,7 +1762,7 @@ resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
 		return qstar_set_error(graph, "qstar: target_file references unknown target '%s'",
 		    label);
 	}
-	if (qstar_artifact_output_path(target, dst, dstlen) < 0)
+	if (qstar_graph_artifact_output_path(graph, target, dst, dstlen) < 0)
 		return qstar_set_error(graph, "qstar: target_file artifact path is too long");
 	return 0;
 }
@@ -1979,7 +1982,7 @@ run_target_command(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	memset(&outputs, 0, sizeof(outputs));
 	for (i = 0; i < target->deps.len; i++) {
 		dep = find_target(graph, target->deps.items[i]);
-		if (!dep || qstar_artifact_output_path(dep, artifact, sizeof(artifact)) < 0)
+		if (!dep || qstar_graph_artifact_output_path(graph, dep, artifact, sizeof(artifact)) < 0)
 			continue;
 		if (qstar_string_list_push(&inputs, artifact) < 0) {
 			qstar_string_list_free(&inputs);
@@ -2783,7 +2786,7 @@ append_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *de
 		return 0;
 	if (qstar_string_list_push(seen, dep->label) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
-	if (qstar_artifact_output_path(dep, artifact, sizeof(artifact)) < 0)
+	if (qstar_graph_artifact_output_path(graph, dep, artifact, sizeof(artifact)) < 0)
 		return qstar_set_error(graph, "qstar: dependency artifact path too long");
 	if (append_owned_argv(graph, argv, argc, artifact) < 0)
 		return -1;
@@ -2891,6 +2894,19 @@ toolchain_needs_msvc_link_boundary(const struct qstar_resolved_toolchain *toolch
 		return 0;
 	tool = target_has_cxx_source(target) ? toolchain->cxx : toolchain->linker;
 	return strstr(tool, "clang-cl") != NULL || strstr(tool, "cl.exe") != NULL;
+}
+
+/** lld-link/link.exe 계열 linker의 output option spelling을 확인한다. */
+static int
+toolchain_uses_msvc_out_arg(const struct qstar_resolved_toolchain *toolchain,
+    const struct qstar_target *target)
+{
+	const char *tool;
+
+	if (!toolchain || !target)
+		return 0;
+	tool = target_has_cxx_source(target) ? toolchain->cxx : toolchain->linker;
+	return strstr(tool, "lld-link") != NULL || strstr(tool, "link.exe") != NULL;
 }
 
 /** target linker_script가 있으면 우선하고 없으면 profile linker_script를 쓴다. */
@@ -3003,6 +3019,7 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 {
 	char artifact[QSTAR_PATH_MAX], object[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX], key[32];
 	char sysroot_arg[QSTAR_PATH_MAX];
+	char out_arg[QSTAR_PATH_MAX];
 	char *argv[QSTAR_EXEC_MAX_ARGV];
 	struct qstar_string_list inputs, outputs;
 	struct qstar_action_material material;
@@ -3019,7 +3036,7 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 		    "kind", target->label,
 		    "qstar: local executor does not support target kind '%s'",
 		    target->kind);
-	if (qstar_artifact_output_path(target, artifact, sizeof(artifact)) < 0 ||
+	if (qstar_graph_artifact_output_path(graph, target, artifact, sizeof(artifact)) < 0 ||
 	    mkdir_parent_under_root(graph, artifact) < 0)
 		return qstar_set_error(graph, "qstar: could not create artifact output directory");
 	argc = 0;
@@ -3037,8 +3054,13 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 			    toolchain->sysroot);
 			argv[argc++] = sysroot_arg;
 		}
-		argv[argc++] = "-o";
-		argv[argc++] = artifact;
+		if (toolchain_uses_msvc_out_arg(toolchain, target)) {
+			snprintf(out_arg, sizeof(out_arg), "/out:%s", artifact);
+			argv[argc++] = out_arg;
+		} else {
+			argv[argc++] = "-o";
+			argv[argc++] = artifact;
+		}
 	}
 	owned_first = argc;
 	if (strcmp(target->kind, "staticlib") != 0 &&
@@ -3360,7 +3382,7 @@ run_test_artifact(struct qstar_graph *graph, const struct qstar_target *target, 
 	time_t start;
 	int status, fdout, fderr;
 
-	if (qstar_artifact_output_path(target, artifact, sizeof(artifact)) < 0 ||
+	if (qstar_graph_artifact_output_path(graph, target, artifact, sizeof(artifact)) < 0 ||
 	    full_path_under_root(graph, artifact, full, sizeof(full)) < 0)
 		return qstar_set_error(graph, "qstar: test artifact path too long");
 	if (!path_exists(full))
@@ -3657,7 +3679,7 @@ install_one_target(struct qstar_graph *graph, const struct qstar_target *target,
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "kind", target->label,
 		    "qstar: target '%s' is not installable", target->label);
-	if (qstar_artifact_output_path(target, artifact, sizeof(artifact)) < 0)
+	if (qstar_graph_artifact_output_path(graph, target, artifact, sizeof(artifact)) < 0)
 		return qstar_set_error(graph, "qstar: install artifact path too long");
 	if (strcmp(target->kind, "exe") == 0) {
 		role = "exe";

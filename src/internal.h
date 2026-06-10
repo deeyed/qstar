@@ -90,6 +90,10 @@ int qstar_depfile_output_path(const struct qstar_target *target, size_t index, c
 /** target artifact output path를 deterministic package-relative path로 만든다. */
 int qstar_artifact_output_path(const struct qstar_target *target, char *dst, size_t dstlen);
 
+/** profile/target artifact_name policy를 적용한 artifact output path를 만든다. */
+int qstar_graph_artifact_output_path(const struct qstar_graph *graph,
+    const struct qstar_target *target, char *dst, size_t dstlen);
+
 /** generated action label로 action을 찾는다. */
 const struct qstar_genrule *qstar_graph_find_genrule(const struct qstar_graph *graph,
     const char *label);

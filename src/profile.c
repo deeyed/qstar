@@ -202,6 +202,8 @@ apply_profile_list(struct qstar_graph *graph, const char *key, char *value)
 		return toml_string_list(graph, &graph->profile.link_options, value);
 	if (strcmp(key, "defsyms") == 0)
 		return toml_string_list(graph, &graph->profile.defsyms, value);
+	if (strcmp(key, "artifact_names") == 0)
+		return toml_string_list(graph, &graph->profile.artifact_names, value);
 	if (strcmp(key, "path_tools") == 0 || strcmp(key, "external_tools") == 0)
 		return toml_string_list(graph, &graph->profile.path_tools, value);
 	if (strcmp(key, "tool_overrides") == 0)
@@ -371,6 +373,57 @@ valid_defsym(const char *value)
 		return 0;
 	eq = strchr(value, '=');
 	return eq && eq != value && eq[1] != '\0';
+}
+
+/** target artifact filename이 package-local basename으로 안전한지 검사한다. */
+static int
+valid_artifact_name(const char *value)
+{
+	const unsigned char *p;
+
+	if (!value || !*value)
+		return 0;
+	for (p = (const unsigned char *)value; *p; p++) {
+		if (!(isalnum(*p) || *p == '_' || *p == '-' || *p == '.' || *p == '+'))
+			return 0;
+	}
+	return 1;
+}
+
+/** profile artifact_names entry의 target key를 제한한다. */
+static int
+valid_artifact_key(const char *key)
+{
+	const unsigned char *p;
+
+	if (!key || !*key)
+		return 0;
+	for (p = (const unsigned char *)key; *p; p++) {
+		if (!(isalnum(*p) || *p == '_' || *p == '-' || *p == '.' ||
+		    *p == ':' || *p == '/' || *p == '@'))
+			return 0;
+	}
+	return 1;
+}
+
+/** artifact_names entry의 KEY=NAME 형식을 분해한다. */
+static int
+split_artifact_name_entry(const char *entry, char *key, size_t key_len, char *name,
+    size_t name_len)
+{
+	const char *eq;
+	size_t n;
+
+	eq = entry ? strchr(entry, '=') : NULL;
+	if (!eq || eq == entry || eq[1] == '\0')
+		return 0;
+	n = (size_t)(eq - entry);
+	if (n + 1 > key_len || strlen(eq + 1) + 1 > name_len)
+		return 0;
+	memcpy(key, entry, n);
+	key[n] = '\0';
+	snprintf(name, name_len, "%s", eq + 1);
+	return 1;
 }
 
 /** 문자열 list에 값이 정확히 들어 있는지 확인한다. */
@@ -671,6 +724,15 @@ qstar_graph_validate_profile(struct qstar_graph *graph)
 			    "qstar: profile defsyms entry '%s' must be NAME=VALUE",
 			    graph->profile.defsyms.items[i]);
 	}
+	for (i = 0; i < graph->profile.artifact_names.len; i++) {
+		char key[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX];
+		if (!split_artifact_name_entry(graph->profile.artifact_names.items[i], key,
+		    sizeof(key), name, sizeof(name)) || !valid_artifact_key(key) ||
+		    !valid_artifact_name(name))
+			return qstar_set_error(graph,
+			    "qstar: profile artifact_names entry '%s' must be LABEL=FILENAME",
+			    graph->profile.artifact_names.items[i]);
+	}
 	for (i = 0; i < graph->profile.path_tools.len; i++) {
 		if (!valid_tool_name(graph->profile.path_tools.items[i]))
 			return qstar_set_error(graph,
@@ -856,12 +918,46 @@ qstar_depfile_output_path(const struct qstar_target *target, size_t index, char 
 int
 qstar_artifact_output_path(const struct qstar_target *target, char *dst, size_t dstlen)
 {
+	return qstar_graph_artifact_output_path(NULL, target, dst, dstlen);
+}
+
+/** profile artifact_names에서 target label/name에 맞는 override를 찾는다. */
+static const char *
+profile_artifact_name_for_target(const struct qstar_graph *graph,
+    const struct qstar_target *target)
+{
+	char key[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX];
+	size_t i;
+
+	if (!graph || !target)
+		return NULL;
+	for (i = 0; i < graph->profile.artifact_names.len; i++) {
+		if (!split_artifact_name_entry(graph->profile.artifact_names.items[i], key,
+		    sizeof(key), name, sizeof(name)))
+			continue;
+		if (strcmp(key, target->label) == 0 || strcmp(key, target->name) == 0)
+			return graph->profile.artifact_names.items[i] + strlen(key) + 1;
+	}
+	return NULL;
+}
+
+/** profile/target artifact_name policy를 적용한 artifact output path를 만든다. */
+int
+qstar_graph_artifact_output_path(const struct qstar_graph *graph,
+    const struct qstar_target *target, char *dst, size_t dstlen)
+{
 	char owner[QSTAR_PATH_MAX];
 	const struct qstar_target_rule_info *rule;
-	const char *prefix, *suffix;
+	const char *prefix, *suffix, *artifact_name;
 	int n;
 
 	qstar_mangle_label(target->label, owner, sizeof(owner));
+	artifact_name = target->artifact_name && *target->artifact_name ?
+	    target->artifact_name : profile_artifact_name_for_target(graph, target);
+	if (artifact_name && *artifact_name) {
+		n = snprintf(dst, dstlen, ".qstar/out/%s/%s", owner, artifact_name);
+		return n >= 0 && (size_t)n < dstlen ? 0 : -1;
+	}
 	rule = qstar_target_rule_lookup(target->kind);
 	prefix = rule ? rule->artifact_prefix : "";
 	suffix = rule ? rule->artifact_suffix : "";
