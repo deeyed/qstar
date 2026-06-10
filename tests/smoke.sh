@@ -93,6 +93,85 @@ if "$qstar" --file "$tmp/project-root-reject/qstar.lua" lint > "$tmp/project-roo
 fi
 contains "$tmp/project-root-reject.out" "qstar.project root must be \".\" in v1"
 
+mkdir -p "$tmp/lua-authoring/include" "$tmp/lua-authoring/src"
+cat > "$tmp/lua-authoring/src/core.c" <<'EOF'
+int core(void) { return 0; }
+EOF
+cat > "$tmp/lua-authoring/qstar.lua" <<'EOF'
+qstar.project {
+  name = "lua-authoring",
+  version = "0.1.0",
+  root = ".",
+}
+
+local function common_c()
+  local opts = {}
+  local count = 0
+  for _, flag in ipairs({"-Wall", "-Wextra"}) do
+    table.insert(opts, flag)
+  end
+  for _ in pairs({one = 1, two = 2}) do
+    count = count + 1
+  end
+  table.insert(opts, string.upper("-dqstar_profile=" .. QSTAR_PROFILE))
+  table.insert(opts, "-DQSTAR_VERSION=" .. qstar.version)
+  table.insert(opts, "-DQSTAR_VERSION_MINOR=" .. QSTAR_VERSION_MINOR)
+  table.insert(opts, "-DQSTAR_HOST_OS=" .. qstar.host.os)
+  table.insert(opts, "-DQSTAR_HOST_ARCH=" .. QSTAR_HOST_ARCH)
+  table.insert(opts, "-DQSTAR_PACKAGE_ROOT=" .. QSTAR_PACKAGE_ROOT)
+  table.insert(opts, "-DQSTAR_PROJECT_ROOT=" .. QSTAR_PROJECT_ROOT)
+  table.insert(opts, "-DQSTAR_PROJECT_NS_ROOT=" .. qstar.project.root)
+  table.insert(opts, "-DQSTAR_TARGET=" .. QSTAR_TARGET)
+  table.insert(opts, "-DQSTAR_PAIR_COUNT=" .. count)
+  return {
+    public_include_dirs = {"include"},
+    compile_options = opts,
+  }
+end
+
+qstar.staticlib "core" {
+  sources = {"src/core.c"},
+  lang = {
+    c = common_c(),
+  },
+}
+EOF
+"$qstar" --file "$tmp/lua-authoring/qstar.lua" --dump-graph > "$tmp/lua-authoring.out" 2> "$tmp/lua-authoring.err"
+contains "$tmp/lua-authoring.out" "cflags [-Wall, -Wextra"
+contains "$tmp/lua-authoring.out" "-DQSTAR_PROFILE=DEFAULT"
+contains "$tmp/lua-authoring.out" "-DQSTAR_VERSION=0.2.0"
+contains "$tmp/lua-authoring.out" "-DQSTAR_VERSION_MINOR=2"
+contains "$tmp/lua-authoring.out" "-DQSTAR_HOST_OS="
+contains "$tmp/lua-authoring.out" "-DQSTAR_HOST_ARCH="
+contains "$tmp/lua-authoring.out" "-DQSTAR_PACKAGE_ROOT="
+contains "$tmp/lua-authoring.out" "-DQSTAR_PROJECT_ROOT="
+contains "$tmp/lua-authoring.out" "-DQSTAR_PROJECT_NS_ROOT="
+contains "$tmp/lua-authoring.out" "-DQSTAR_TARGET=host"
+contains "$tmp/lua-authoring.out" "-DQSTAR_PAIR_COUNT=2"
+
+mkdir -p "$tmp/lua-global"
+cat > "$tmp/lua-global/qstar.lua" <<'EOF'
+qstar.project { name = "global-bad", root = "." }
+leaked_global = 1
+EOF
+if "$qstar" --file "$tmp/lua-global/qstar.lua" check > "$tmp/lua-global.out" 2> "$tmp/lua-global.err"; then
+	fail "global assignment unexpectedly succeeded"
+fi
+contains "$tmp/lua-global.err" "global assignment is not allowed: leaked_global"
+
+mkdir -p "$tmp/lua-forbidden"
+forbidden_cases="io.open os.execute require loadfile load dofile debug.getinfo package.loadlib"
+for api in $forbidden_cases; do
+	cat > "$tmp/lua-forbidden/qstar.lua" <<EOF
+qstar.project { name = "forbidden", root = "." }
+${api}("x")
+EOF
+	if "$qstar" --file "$tmp/lua-forbidden/qstar.lua" check > "$tmp/lua-forbidden-$api.out" 2> "$tmp/lua-forbidden-$api.err"; then
+		fail "forbidden Lua API $api unexpectedly succeeded"
+	fi
+	contains "$tmp/lua-forbidden-$api.err" "forbidden Lua API '$api'"
+done
+
 mkdir -p "$tmp/fmt"
 cat > "$tmp/fmt/qstar.lua" <<'EOF'
 qstar.executable "app" {

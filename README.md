@@ -38,6 +38,13 @@ qstar.stage "esp" { ... }
 `modules`, `cflags`, `cxxflags`, `cxx_standard`도 제거됐다. Header/include/compile
 option은 항상 `lang.*` 아래에 둔다.
 
+Round 63부터 QStar authoring file은 CMake식 기본 상수와 제한적 Lua helper를 공식
+지원한다. `local function`, local 변수, table literal, `ipairs`, `pairs`,
+`table.insert`, `string.*`는 허용된다. Global assignment는 error다. 상수는
+`QSTAR_VERSION`, `QSTAR_HOST_OS`, `QSTAR_HOST_ARCH`, `QSTAR_PACKAGE_ROOT`,
+`QSTAR_PROJECT_ROOT`, `QSTAR_PROFILE`, `QSTAR_TARGET`와 `qstar.version`,
+`qstar.host.os`, `qstar.host.arch`, `qstar.project.root`를 제공한다.
+
 ```lua
 qstar.staticlib "core" {
   sources = {"lib/src/core.c"},

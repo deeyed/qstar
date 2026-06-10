@@ -16,6 +16,38 @@ struct qstar_lua_context {
 	char current_dir[QSTAR_PATH_MAX];
 };
 
+static const char *
+qstar_host_os(void)
+{
+#if defined(_WIN32)
+	return "windows";
+#elif defined(__APPLE__) && defined(__MACH__)
+	return "macos";
+#elif defined(__linux__)
+	return "linux";
+#elif defined(__FreeBSD__)
+	return "freebsd";
+#else
+	return "unknown";
+#endif
+}
+
+static const char *
+qstar_host_arch(void)
+{
+#if defined(__aarch64__) || defined(_M_ARM64)
+	return "aarch64";
+#elif defined(__x86_64__) || defined(_M_X64)
+	return "x86_64";
+#elif defined(__riscv) && __riscv_xlen == 64
+	return "riscv64";
+#elif defined(__arm__) || defined(_M_ARM)
+	return "arm";
+#else
+	return "unknown";
+#endif
+}
+
 /** 현재 Lua 호출자의 source 위치를 QStar origin으로 가져온다. */
 static void
 current_origin(lua_State *L, char *file, size_t filelen, int *line)
@@ -1841,12 +1873,14 @@ qstar_lua_project(lua_State *L)
 {
 	struct qstar_lua_context *ctx;
 	const char *name, *version, *root;
+	int idx;
 
 	ctx = get_context(L);
-	luaL_checktype(L, 1, LUA_TTABLE);
-	name = check_string_field(L, 1, "name");
-	version = check_string_field(L, 1, "version");
-	root = check_string_field(L, 1, "root");
+	idx = lua_gettop(L) >= 2 && lua_istable(L, 2) ? 2 : 1;
+	luaL_checktype(L, idx, LUA_TTABLE);
+	name = check_string_field(L, idx, "name");
+	version = check_string_field(L, idx, "version");
+	root = check_string_field(L, idx, "root");
 	if (qstar_graph_set_project(ctx->graph, name, version, root) < 0)
 		return luaL_error(L, "%s", ctx->graph->error);
 	return 0;
@@ -1923,6 +1957,15 @@ forbidden(lua_State *L)
 	return luaL_error(L, "qstar: forbidden Lua API '%s'", name ? name : "unknown");
 }
 
+static int
+global_assignment_forbidden(lua_State *L)
+{
+	const char *name;
+
+	name = lua_isstring(L, 2) ? lua_tostring(L, 2) : "<non-string>";
+	return luaL_error(L, "qstar: global assignment is not allowed: %s", name);
+}
+
 static void
 set_forbidden_function(lua_State *L, const char *name)
 {
@@ -1978,6 +2021,62 @@ open_sandbox(lua_State *L)
 }
 
 static void
+push_authoring_env(lua_State *L)
+{
+	lua_newtable(L);
+	lua_newtable(L);
+	lua_pushglobaltable(L);
+	lua_setfield(L, -2, "__index");
+	lua_pushcfunction(L, global_assignment_forbidden);
+	lua_setfield(L, -2, "__newindex");
+	lua_setmetatable(L, -2);
+}
+
+static void
+set_global_string(lua_State *L, const char *name, const char *value)
+{
+	lua_pushstring(L, value ? value : "");
+	lua_setglobal(L, name);
+}
+
+static void
+set_global_integer(lua_State *L, const char *name, lua_Integer value)
+{
+	lua_pushinteger(L, value);
+	lua_setglobal(L, name);
+}
+
+static void
+set_table_string(lua_State *L, int table, const char *name, const char *value)
+{
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_pushstring(L, value ? value : "");
+	lua_setfield(L, table, name);
+}
+
+static void
+register_global_constants(lua_State *L, const struct qstar_lua_context *ctx)
+{
+	const struct qstar_graph *graph;
+	const char *profile, *target;
+
+	graph = ctx->graph;
+	profile = graph->profile.name && *graph->profile.name ? graph->profile.name : "default";
+	target = graph->profile.target && *graph->profile.target ? graph->profile.target : "host";
+	set_global_string(L, "QSTAR_VERSION", QSTAR_VERSION);
+	set_global_integer(L, "QSTAR_VERSION_MAJOR", QSTAR_VERSION_MAJOR);
+	set_global_integer(L, "QSTAR_VERSION_MINOR", QSTAR_VERSION_MINOR);
+	set_global_integer(L, "QSTAR_VERSION_PATCH", QSTAR_VERSION_PATCH);
+	set_global_string(L, "QSTAR_HOST_OS", qstar_host_os());
+	set_global_string(L, "QSTAR_HOST_ARCH", qstar_host_arch());
+	set_global_string(L, "QSTAR_PACKAGE_ROOT", ctx->root_dir);
+	set_global_string(L, "QSTAR_PROJECT_ROOT", ctx->root_dir);
+	set_global_string(L, "QSTAR_PROFILE", profile);
+	set_global_string(L, "QSTAR_TARGET", target);
+}
+
+static void
 register_conditions(lua_State *L)
 {
 	lua_newtable(L);
@@ -2005,7 +2104,18 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_pushlightuserdata(L, ctx);
 	lua_setfield(L, LUA_REGISTRYINDEX, "qstar.context");
 	register_conditions(L);
+	lua_pushstring(L, QSTAR_VERSION);
+	lua_setfield(L, -2, "version");
+	lua_newtable(L);
+	set_table_string(L, -1, "os", qstar_host_os());
+	set_table_string(L, -1, "arch", qstar_host_arch());
+	lua_setfield(L, -2, "host");
+	lua_newtable(L);
+	set_table_string(L, -1, "root", ctx->root_dir);
+	lua_newtable(L);
 	lua_pushcfunction(L, qstar_lua_project);
+	lua_setfield(L, -2, "__call");
+	lua_setmetatable(L, -2);
 	lua_setfield(L, -2, "project");
 	lua_pushstring(L, "target");
 	lua_pushcclosure(L, qstar_lua_target, 1);
@@ -2079,6 +2189,9 @@ eval_fragment(lua_State *L, struct qstar_lua_context *ctx, const char *file, con
 		return -1;
 	if (luaL_loadfilex(L, file, "t") != LUA_OK)
 		return -1;
+	push_authoring_env(L);
+	if (!lua_setupvalue(L, -2, 1))
+		lua_pop(L, 1);
 	if (lua_pcall(L, 0, 0, 0) != LUA_OK)
 		return -1;
 	snprintf(ctx->current_dir, sizeof(ctx->current_dir), "%s", old);
@@ -2191,6 +2304,7 @@ qstar_lua_eval_file(struct qstar_graph *graph, const char *file)
 	if (!L)
 		return qstar_set_error(graph, "qstar: could not create Lua state");
 	open_sandbox(L);
+	register_global_constants(L, &ctx);
 	register_qstar(L, &ctx);
 	rc = eval_fragment(L, &ctx, file, initial_fragment);
 	if (rc < 0)

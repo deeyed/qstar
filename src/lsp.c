@@ -46,6 +46,20 @@ static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 	{ "qstar.files", "Return an explicit file list for target fields." },
 	{ "qstar.output", "Declare a generated output path, or reference an output by index inside qstar.cli." },
 	{ "qstar.target_file", "Reference another target artifact path inside qstar.cli." },
+	{ "qstar.version", "QStar authoring/runtime version string." },
+	{ "qstar.host.os", "Host operating system identifier used by the QStar evaluator." },
+	{ "qstar.host.arch", "Host architecture identifier used by the QStar evaluator." },
+	{ "qstar.project.root", "Resolved package/project root path for the current qstar.lua." },
+	{ "QSTAR_VERSION", "QStar authoring/runtime version string." },
+	{ "QSTAR_VERSION_MAJOR", "QStar major version integer." },
+	{ "QSTAR_VERSION_MINOR", "QStar minor version integer." },
+	{ "QSTAR_VERSION_PATCH", "QStar patch version integer." },
+	{ "QSTAR_HOST_OS", "Host operating system identifier." },
+	{ "QSTAR_HOST_ARCH", "Host architecture identifier." },
+	{ "QSTAR_PACKAGE_ROOT", "Resolved package root path." },
+	{ "QSTAR_PROJECT_ROOT", "Resolved project root path." },
+	{ "QSTAR_PROFILE", "Active profile name." },
+	{ "QSTAR_TARGET", "Active target triple or host." },
 };
 
 static const struct qstar_lsp_hover_entry qstar_lsp_fields[] = {

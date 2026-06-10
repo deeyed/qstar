@@ -28,6 +28,32 @@ qstar.project {
 }
 ```
 
+## Constants and local helpers
+
+QStar authoring file은 deterministic Lua subset을 사용한다. `local function`,
+local 변수, table literal, `ipairs`, `pairs`, `table.insert`, `string.*`는 공식
+지원 범위다. Global assignment는 error이며 `io.open`, `os.execute`, `require`,
+`load`, `dofile`, `debug`, `package` 동적 로딩 계열은 계속 금지된다.
+
+```lua
+local function common_c()
+  local opts = {}
+  for _, flag in ipairs({"-Wall", "-Wextra"}) do
+    table.insert(opts, flag)
+  end
+  table.insert(opts, "-DQSTAR_TARGET=" .. QSTAR_TARGET)
+  table.insert(opts, "-DQSTAR_VERSION=" .. qstar.version)
+  return {
+    public_include_dirs = {"include"},
+    compile_options = opts,
+  }
+end
+```
+
+기본 상수는 `QSTAR_VERSION`, `QSTAR_HOST_OS`, `QSTAR_HOST_ARCH`,
+`QSTAR_PACKAGE_ROOT`, `QSTAR_PROJECT_ROOT`, `QSTAR_PROFILE`, `QSTAR_TARGET`와
+`qstar.version`, `qstar.host.os`, `qstar.host.arch`, `qstar.project.root`를 제공한다.
+
 ## Executable
 
 ```lua

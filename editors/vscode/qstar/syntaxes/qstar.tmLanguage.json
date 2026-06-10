@@ -16,6 +16,9 @@
       "include": "#qstarApi"
     },
     {
+      "include": "#constants"
+    },
+    {
       "include": "#fields"
     },
     {
@@ -90,6 +93,18 @@
         {
           "name": "variable.parameter.qstar",
           "match": "\\b(name|version|sources|deps|public_deps|private_deps|public_headers|private_headers|lang|c|cxx|asm|cale|include_dirs|public_include_dirs|private_include_dirs|system_include_dirs|compile_options|defines|standard|preprocess|profile|modules|enabled|visibility|toolchain|stdlib|libs|lib_dirs|frameworks|link_options|linker_script|defsyms|outputs|inputs|command|timeout|marker|marker_log|output|root|include|exclude)\\b(?=\\s*=)"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.qstar",
+          "match": "\\b(QSTAR_VERSION|QSTAR_VERSION_MAJOR|QSTAR_VERSION_MINOR|QSTAR_VERSION_PATCH|QSTAR_HOST_OS|QSTAR_HOST_ARCH|QSTAR_PACKAGE_ROOT|QSTAR_PROJECT_ROOT|QSTAR_PROFILE|QSTAR_TARGET)\\b"
+        },
+        {
+          "name": "constant.language.qstar",
+          "match": "\\bqstar\\.(version|host\\.(os|arch)|project\\.root)\\b"
         }
       ]
     },
