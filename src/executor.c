@@ -1413,7 +1413,7 @@ action_owner_label(const struct qstar_target *target, const char *id, char *dst,
 	return dst;
 }
 
-/** 실패한 executor action을 Ribon/debug UX용 stable kind로 분류한다. */
+/** 실패한 executor action을 debug UX용 stable kind로 분류한다. */
 static const char *
 classify_failure_kind(const char *kind, const struct qstar_target *target,
     char *const argv[], const char *base)

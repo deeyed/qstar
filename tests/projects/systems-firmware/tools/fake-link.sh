@@ -32,7 +32,7 @@ test "$map_seen" = 1
 mkdir -p "$(dirname "$out")"
 {
 	printf "ELF\n"
-	printf "RIBON-KERNEL\n"
+	printf "QSTAR-KERNEL\n"
 	printf "script=%s\n" "$script"
 	printf "defs=%s\n" "$defs"
 } > "$out"

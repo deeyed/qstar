@@ -30,6 +30,6 @@ test "$nodefault" = 1
 mkdir -p "$(dirname "$out")"
 {
 	printf "MZ\n"
-	printf "RIBON-UEFI\n"
+	printf "QSTAR-UEFI\n"
 	printf "out=%s\n" "$out"
 } > "$out"

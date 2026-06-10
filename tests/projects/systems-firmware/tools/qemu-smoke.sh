@@ -10,15 +10,15 @@ if command -v qemu-system-aarch64 >/dev/null 2>&1; then
 		reason="qemu-system-aarch64-version-failed"
 		printf "QSTAR_QEMU_SKIP reason=%s kernel=%s\n" "$reason" "$kernel"
 		{
-			printf "RIBON-SMOKE-SKIP reason=%s\n" "$reason"
-			printf "RIBON-SMOKE-DONE\n"
+			printf "QSTAR-SMOKE-SKIP reason=%s\n" "$reason"
+			printf "QSTAR-SMOKE-DONE\n"
 		} > "$serial"
 		exit 0
 	}
 	printf "QSTAR_QEMU_RUN qemu-system-aarch64 --version kernel=%s\n" "$kernel"
 	{
-		printf "RIBON-BOOT-OK\n"
-		printf "RIBON-SMOKE-DONE\n"
+		printf "QSTAR-FIRMWARE-OK\n"
+		printf "QSTAR-SMOKE-DONE\n"
 	} > "$serial"
 	exit 0
 fi
@@ -26,6 +26,6 @@ fi
 reason="qemu-system-aarch64-not-found"
 printf "QSTAR_QEMU_SKIP reason=%s kernel=%s\n" "$reason" "$kernel"
 {
-	printf "RIBON-SMOKE-SKIP reason=%s\n" "$reason"
-	printf "RIBON-SMOKE-DONE\n"
+	printf "QSTAR-SMOKE-SKIP reason=%s\n" "$reason"
+	printf "QSTAR-SMOKE-DONE\n"
 } > "$serial"

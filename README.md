@@ -328,6 +328,8 @@ make -C qstar check
 make -C qstar vscode-extension-tests
 make -C qstar qstar-v0-release-tests
 make -C qstar qstar-v0.1-release-tests
+make -C qstar qstar-v0.2-rc-tests
+make -C qstar qstar-release-candidate-tests
 make -C qstar qstar-standalone-integration-tests
 ```
 
@@ -401,7 +403,7 @@ Round 27/28부터 profile schema는 v2로 확장된다. `Cale.toml` 또는
 sysroot/resource/include/lib/response 설정이 반영된다.
 
 Round 51부터 profile schema는 freestanding/link policy까지 포함한다. `arch`, `cpu`,
-`abi`, `freestanding`은 target triple만으로는 부족한 kernel/bootloader compile policy를
+`abi`, `freestanding`은 target triple만으로는 부족한 kernel/firmware compile policy를
 profile로 고정한다. `freestanding=true`는 `-ffreestanding`, `-fno-builtin`,
 `-fno-stack-protector`를 compile argv에 추가하고, arch hint에 따라 `aarch64`는
 `-mgeneral-regs-only`, `x86_64`는 `-mno-red-zone`을 추가한다. `link_options`,
@@ -439,7 +441,7 @@ group으로 분류되며, target `sources`에서 compile 없이 final archive/li
 `input_key`에 content hash로 들어가므로 ELF fixture가 바뀌면 generator와 downstream
 compile/link action이 `input-changed`로 rebuild된다.
 
-Round 58부터 `qstar/tests/projects/ribon-bootloader-like`가 bootloader-grade release
+Round 58부터 `qstar/tests/projects/systems-firmware`가 systems-grade release
 corpus다. 이 corpus는 AArch64 freestanding C/ASM/linker script, `llvm-objcopy` raw
 image, RPi/ESP staging, UEFI PE/COFF profile output, QEMU wrapper smoke를 모두
 QStar의 generic target/rule API로 표현한다. `qstar.target_file("//:kernel")`가
@@ -495,3 +497,20 @@ make -C qstar qstar-standalone-integration-tests
 이 target들은 QStar-local `check` harness를 통해 manual sample, real project corpus,
 executor/profile/install/test/compile database, graph snapshot, action replay, response
 file, parallel executor smoke를 함께 검증한다.
+
+## v0.2 release candidate seal
+
+Round 60 기준 v0.2 RC contract는
+`docs/qstar/qstar-v0.2-release-candidate-seal.md`가 canonical이다. Stable surface는
+v0.2 authoring API, `lang.*` language option, local executor, incremental cache,
+diagnostics/replay, LSP/VSCode authoring UX, systems firmware corpus를 포함한다.
+Experimental surface는 `cale build` integration, remote package resolver, Ninja
+generator, full sharedlib executor, HCL semantics, Cale internal API integration으로
+분리한다.
+
+```txt
+make -C qstar qstar-v0.2-rc-tests
+make -C qstar qstar-release-candidate-tests
+make -C qstar qstar-full-regression-tests
+make -C qstar qstar-systems-corpus-tests
+```

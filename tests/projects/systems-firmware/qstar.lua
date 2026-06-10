@@ -18,7 +18,7 @@ qstar.executable "kernel" {
         "boot",
       },
       compile_options = {
-        "-D__RIBON_BOOT__=1",
+        "-D__QSTAR_FIRMWARE__=1",
       },
       preprocess = true,
     },
@@ -53,7 +53,7 @@ qstar.run_target "qemu_smoke" {
     "serial.log",
   },
   timeout = 3,
-  marker = "RIBON-SMOKE-DONE",
+  marker = "QSTAR-SMOKE-DONE",
   marker_log = "serial.log",
 }
 
