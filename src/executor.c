@@ -221,6 +221,22 @@ next:
 	return 0;
 }
 
+/** package-relative compiler path 또는 PATH command가 실행 가능한지 확인한다. */
+static int
+command_exists_in_graph(const struct qstar_graph *graph, const char *cmd)
+{
+	char full[QSTAR_PATH_MAX];
+
+	if (!cmd || !*cmd)
+		return 0;
+	if (strchr(cmd, '/') && cmd[0] != '/' && qstar_path_is_package_relative(cmd)) {
+		if (full_path_under_root(graph, cmd, full, sizeof(full)) < 0)
+			return 0;
+		return access(full, X_OK) == 0;
+	}
+	return command_exists(cmd);
+}
+
 /** 작은 FNV-1a hash에 문자열을 섞는다. */
 static void
 hash_str(unsigned long long *h, const char *s)
@@ -1851,27 +1867,42 @@ generated_arg_escapes_package(const char *arg)
 
 /** qstar.target_file placeholder를 target artifact path로 해석한다. */
 static int
+target_file_token_label(const char *arg, char *label, size_t labellen)
+{
+	const char *prefix = "<qstar-target-file:";
+	size_t n, payload;
+
+	if (strncmp(arg, prefix, strlen(prefix)) != 0)
+		return 0;
+	n = strlen(arg);
+	if (n <= strlen(prefix) + 1 || arg[n - 1] != '>')
+		return -1;
+	payload = n - strlen(prefix) - 1;
+	if (payload + 1 > labellen)
+		return -1;
+	memcpy(label, arg + strlen(prefix), payload);
+	label[payload] = '\0';
+	return 1;
+}
+
+/** qstar.target_file placeholder를 target artifact path로 해석한다. */
+static int
 resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
     size_t dstlen)
 {
-	const char *prefix = "<qstar-target-file:";
 	const struct qstar_target *target;
 	const struct qstar_genrule *genrule;
 	char label[QSTAR_PATH_MAX];
-	size_t n;
+	int rc;
 
-	if (strncmp(arg, prefix, strlen(prefix)) != 0) {
+	rc = target_file_token_label(arg, label, sizeof(label));
+	if (rc == 0) {
 		if (snprintf(dst, dstlen, "%s", arg) >= (int)dstlen)
 			return qstar_set_error(graph, "qstar: command argv item is too long");
 		return 0;
 	}
-	n = strlen(arg);
-	if (n <= strlen(prefix) + 1 || arg[n - 1] != '>')
+	if (rc < 0)
 		return qstar_set_error(graph, "qstar: malformed target_file placeholder");
-	if (n - strlen(prefix) >= sizeof(label))
-		return qstar_set_error(graph, "qstar: target_file label is too long");
-	memcpy(label, arg + strlen(prefix), n - strlen(prefix) - 1);
-	label[n - strlen(prefix) - 1] = '\0';
 	target = find_target(graph, label);
 	if (!target) {
 		genrule = qstar_graph_find_genrule(graph, label);
@@ -1887,6 +1918,32 @@ resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
 	}
 	if (qstar_graph_artifact_output_path(graph, target, dst, dstlen) < 0)
 		return qstar_set_error(graph, "qstar: target_file artifact path is too long");
+	return 0;
+}
+
+/** generated action argv 안의 target_file artifact를 cache input으로 추가한다. */
+static int
+push_target_file_argv_inputs(struct qstar_graph *graph, const struct qstar_genrule *genrule,
+    struct qstar_string_list *inputs)
+{
+	char label[QSTAR_PATH_MAX], resolved[QSTAR_PATH_MAX];
+	size_t i;
+	int rc;
+
+	for (i = 0; i < genrule->args.len; i++) {
+		rc = target_file_token_label(genrule->args.items[i], label, sizeof(label));
+		if (rc < 0)
+			return qstar_set_error_origin(graph, genrule->origin_file,
+			    genrule->origin_line, "command", genrule->label,
+			    "qstar: malformed target_file placeholder");
+		if (rc == 0)
+			continue;
+		if (resolve_target_file_token(graph, genrule->args.items[i],
+		    resolved, sizeof(resolved)) < 0)
+			return -1;
+		if (qstar_string_list_push(inputs, resolved) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+	}
 	return 0;
 }
 
@@ -1978,6 +2035,11 @@ run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			free_owned_argv(argv, argc);
 			return qstar_set_error(graph, "qstar: out of memory");
 		}
+	}
+	if (push_target_file_argv_inputs(graph, genrule, &inputs) < 0) {
+		qstar_string_list_free(&inputs);
+		free_owned_argv(argv, argc);
+		return -1;
 	}
 	if (!genrule->config_header &&
 	    qstar_profile_tool_mode_is_package_input(tool_mode) &&
@@ -2345,17 +2407,19 @@ validate_compile_source(struct qstar_graph *graph, const struct qstar_target *ta
 		    "qstar: C++ source '%s' requires host or clang toolchain",
 		    target->sources.items[index]);
 	if ((strcmp(toolchain->name, "cale") == 0 ||
-	    strcmp(toolchain->name, "cale-sol") == 0) && !command_exists(toolchain->cale))
+	    strcmp(toolchain->name, "cale-sol") == 0) &&
+	    !command_exists_in_graph(graph, toolchain->cale))
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "sources", target->label,
 		    "qstar: Cale compiler '%s' not found for source '%s'",
 		    toolchain->cale, target->sources.items[index]);
-	if (strcmp(source->language, "cxx") == 0 && !command_exists(toolchain->cxx))
+	if (strcmp(source->language, "cxx") == 0 &&
+	    !command_exists_in_graph(graph, toolchain->cxx))
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "sources", target->label,
 		    "qstar: C++ compiler '%s' not found for source '%s'",
 		    toolchain->cxx, target->sources.items[index]);
-	if (source_is_asm(source) && !command_exists(toolchain->cc))
+	if (source_is_asm(source) && !command_exists_in_graph(graph, toolchain->cc))
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "sources", target->label,
 		    "qstar: assembler compiler driver '%s' not found for source '%s'",

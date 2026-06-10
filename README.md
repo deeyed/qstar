@@ -150,7 +150,6 @@ qstar.executable "app" {
 - remote package fetch
 - Ninja generator
 - full `.cale` semantic integration
-- assembly source build
 - arbitrary external generator execution without profile allowlist
 - full recursive package resolver
 - shared library local build
@@ -439,6 +438,13 @@ group으로 분류되며, target `sources`에서 compile 없이 final archive/li
 직접 들어간다. Depfile이 없는 binary fixture와 generated object도 action key의
 `input_key`에 content hash로 들어가므로 ELF fixture가 바뀌면 generator와 downstream
 compile/link action이 `input-changed`로 rebuild된다.
+
+Round 58부터 `qstar/tests/projects/ribon-bootloader-like`가 bootloader-grade release
+corpus다. 이 corpus는 AArch64 freestanding C/ASM/linker script, `llvm-objcopy` raw
+image, RPi/ESP staging, UEFI PE/COFF profile output, QEMU wrapper smoke를 모두
+QStar의 generic target/rule API로 표현한다. `qstar.target_file("//:kernel")`가
+generated command argv에 들어가면 해당 artifact path도 action input으로 추적되어
+kernel ELF 변경이 raw image rebuild reason으로 이어진다.
 
 Round 54부터 PE/COFF/UEFI link surface는 dedicated `uefi_app` target kind가 아니라
 generic executable + profile link policy로 표현한다. `lld-link`/`link.exe` 계열 linker는
