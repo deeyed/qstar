@@ -370,6 +370,15 @@ Round 27/28부터 profile schema는 v2로 확장된다. `Cale.toml` 또는
 이 값을 resolver 결과에 포함해 보여주며, compile/link argv plan에도
 sysroot/resource/include/lib/response 설정이 반영된다.
 
+Round 51부터 profile schema는 freestanding/link policy까지 포함한다. `arch`, `cpu`,
+`abi`, `freestanding`은 target triple만으로는 부족한 kernel/bootloader compile policy를
+profile로 고정한다. `freestanding=true`는 `-ffreestanding`, `-fno-builtin`,
+`-fno-stack-protector`를 compile argv에 추가하고, arch hint에 따라 `aarch64`는
+`-mgeneral-regs-only`, `x86_64`는 `-mno-red-zone`을 추가한다. `link_options`,
+`linker_script`, `defsyms`는 profile과 target 양쪽에서 줄 수 있고, target
+`linker_script`가 profile 값을 override한다. Package-relative linker script는 link
+action input으로 추적되어 script 내용 변경이 link rebuild reason에 반영된다.
+
 Command rendering은 shell string이 아니라 argv-vector가 canonical이다. Explain/dry-run
 dump는 argv item을 quoting하고 deterministic `digest=`를 붙인다. 긴 command에는
 `response=skeleton response_file=.qstar/rsp/... response_style=... response_digest=...`를

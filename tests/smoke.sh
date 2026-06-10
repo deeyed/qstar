@@ -1699,6 +1699,151 @@ contains "$tmp/profile-dry.out" "digest="
 contains "$tmp/profile-doctor.out" "profile-schema v2 include_dirs=2 lib_dirs=1"
 contains "$tmp/profile-doctor.out" "toolchain-sanity name=clang cc=clang-custom cxx=clang++-custom cale=cale-custom ar=llvm-ar-custom linker=ld-custom"
 
+mkdir -p "$tmp/freestanding/src" "$tmp/freestanding/tools" "$tmp/freestanding/linker"
+cat > "$tmp/freestanding/tools/fake-cc.sh" <<'EOF'
+#!/bin/sh
+set -eu
+out=
+dep=
+src=
+while [ $# -gt 0 ]; do
+	case "$1" in
+	-o)
+		shift
+		out=$1
+		;;
+	-MF)
+		shift
+		dep=$1
+		;;
+	-c)
+		shift
+		src=$1
+		;;
+	esac
+	shift || break
+done
+mkdir -p "$(dirname "$out")"
+printf "fake object\n" > "$out"
+if [ -n "$dep" ]; then
+	mkdir -p "$(dirname "$dep")"
+	printf "%s: %s\n" "$out" "$src" > "$dep"
+fi
+EOF
+cat > "$tmp/freestanding/tools/fake-link.sh" <<'EOF'
+#!/bin/sh
+set -eu
+out=
+while [ $# -gt 0 ]; do
+	if [ "$1" = "-o" ]; then
+		shift
+		out=$1
+	fi
+	shift || break
+done
+mkdir -p "$(dirname "$out")"
+printf "fake link\n" > "$out"
+EOF
+chmod +x "$tmp/freestanding/tools/fake-cc.sh" "$tmp/freestanding/tools/fake-link.sh"
+cat > "$tmp/freestanding/src/kernel.c" <<'EOF'
+int kernel_main(void) { return 0; }
+EOF
+cat > "$tmp/freestanding/linker/profile.ld" <<'EOF'
+SECTIONS { . = 0x1000; }
+EOF
+cat > "$tmp/freestanding/linker/kernel.ld" <<'EOF'
+SECTIONS { . = 0x80000; }
+EOF
+cat > "$tmp/freestanding/Cale.toml" <<'EOF'
+profile = "kernel"
+
+[profile.kernel]
+toolchain = "clang"
+target = "aarch64-none-elf"
+arch = "aarch64"
+cpu = "cortex-a76"
+abi = "lp64"
+freestanding = true
+cc = "tools/fake-cc.sh"
+linker = "tools/fake-link.sh"
+linker_script = "linker/profile.ld"
+link_options = ["-nostdlib"]
+defsyms = ["__profile_base=0x1000"]
+EOF
+cat > "$tmp/freestanding/qstar.lua" <<'EOF'
+qstar.executable "kernel" {
+  sources = {"src/kernel.c"},
+  link_options = {"-Wl,-Map=kernel.map"},
+  linker_script = "linker/kernel.ld",
+  defsyms = {"__stack_top=0x80000"},
+}
+EOF
+"$qstar" --file "$tmp/freestanding/qstar.lua" dry-run //:kernel > "$tmp/freestanding-dry.out" 2> "$tmp/freestanding-dry.err"
+contains "$tmp/freestanding-dry.out" "profile_target arch=aarch64 cpu=cortex-a76 abi=lp64 freestanding=true"
+contains "$tmp/freestanding-dry.out" "profile_link linker_script=linker/profile.ld link_options=[-nostdlib] defsyms=[__profile_base=0x1000]"
+contains "$tmp/freestanding-dry.out" "-ffreestanding"
+contains "$tmp/freestanding-dry.out" "-fno-builtin"
+contains "$tmp/freestanding-dry.out" "-fno-stack-protector"
+contains "$tmp/freestanding-dry.out" "-mgeneral-regs-only"
+contains "$tmp/freestanding-dry.out" "-mcpu=cortex-a76"
+contains "$tmp/freestanding-dry.out" "-mabi=lp64"
+contains "$tmp/freestanding-dry.out" "-nostdlib"
+contains "$tmp/freestanding-dry.out" "-Wl,-Map=kernel.map"
+contains "$tmp/freestanding-dry.out" "-T"
+contains "$tmp/freestanding-dry.out" "linker/kernel.ld"
+contains "$tmp/freestanding-dry.out" "--defsym=__profile_base=0x1000"
+contains "$tmp/freestanding-dry.out" "--defsym=__stack_top=0x80000"
+"$qstar" --file "$tmp/freestanding/qstar.lua" build //:kernel > "$tmp/freestanding-build.out" 2> "$tmp/freestanding-build.err"
+contains "$tmp/freestanding-build.out" "status ok"
+contains "$tmp/freestanding/.qstar/logs/___kernel_compile_0.log" "-ffreestanding"
+contains "$tmp/freestanding/.qstar/logs/___kernel_compile_0.log" "-mgeneral-regs-only"
+contains "$tmp/freestanding/.qstar/logs/___kernel_link_0.log" "-T linker/kernel.ld"
+contains "$tmp/freestanding/.qstar/logs/___kernel_link_0.log" "--defsym=__stack_top=0x80000"
+cat > "$tmp/freestanding/linker/kernel.ld" <<'EOF'
+SECTIONS { . = 0x90000; }
+EOF
+"$qstar" --file "$tmp/freestanding/qstar.lua" build //:kernel --explain-cache > "$tmp/freestanding-rebuild.out" 2> "$tmp/freestanding-rebuild.err"
+contains "$tmp/freestanding-rebuild.out" "cache_miss id=//:kernel:link:0"
+contains "$tmp/freestanding-rebuild.out" "reason=input-changed"
+contains "$tmp/freestanding-rebuild.out" "status=skip"
+cat > "$tmp/freestanding/qstar.lua" <<'EOF'
+qstar.executable "bad_script" {
+  sources = {"src/kernel.c"},
+  linker_script = "../escape.ld",
+}
+EOF
+if "$qstar" --file "$tmp/freestanding/qstar.lua" check //:bad_script > "$tmp/freestanding-bad-script.out" 2> "$tmp/freestanding-bad-script.err"; then
+	fail "package-escaping linker_script unexpectedly succeeded"
+fi
+contains "$tmp/freestanding-bad-script.err" "linker_script '../escape.ld' in '//:bad_script' must be package-relative"
+cat > "$tmp/freestanding/qstar.lua" <<'EOF'
+qstar.executable "bad_defsym" {
+  sources = {"src/kernel.c"},
+  defsyms = {"BROKEN"},
+}
+EOF
+if "$qstar" --file "$tmp/freestanding/qstar.lua" check //:bad_defsym > "$tmp/freestanding-bad-defsym.out" 2> "$tmp/freestanding-bad-defsym.err"; then
+	fail "bad defsym unexpectedly succeeded"
+fi
+contains "$tmp/freestanding-bad-defsym.err" "defsym 'BROKEN' in '//:bad_defsym' must be NAME=VALUE"
+cat > "$tmp/freestanding/Cale.toml" <<'EOF'
+profile = "missing"
+
+[profile.missing]
+toolchain = "clang"
+target = "aarch64-none-elf"
+linker_script = "linker/missing.ld"
+EOF
+cat > "$tmp/freestanding/qstar.lua" <<'EOF'
+qstar.executable "missing_profile_script" {
+  sources = {"src/kernel.c"},
+}
+EOF
+if "$qstar" --file "$tmp/freestanding/qstar.lua" check //:missing_profile_script > "$tmp/freestanding-missing-profile.out" 2> "$tmp/freestanding-missing-profile.err"; then
+	fail "missing profile linker script unexpectedly succeeded"
+fi
+contains "$tmp/freestanding-missing-profile.err" "profile linker_script 'linker/missing.ld' does not exist"
+
 mkdir -p "$tmp/longcmd/src"
 cat > "$tmp/longcmd/src/main.c" <<'EOF'
 int main(void) { return 0; }

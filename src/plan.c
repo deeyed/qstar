@@ -319,6 +319,17 @@ dump_plan_inputs(FILE *out, const struct qstar_graph *graph)
 	    profile_or_default(graph->profile.target, "host"),
 	    profile_or_default(graph->profile.toolchain, "default"),
 	    profile_or_default(graph->profile.stdlib_policy, "default"));
+	fprintf(out, "profile_target arch=%s cpu=%s abi=%s freestanding=%s\n",
+	    profile_or_default(graph->profile.arch, "<auto>"),
+	    profile_or_default(graph->profile.cpu, "<none>"),
+	    profile_or_default(graph->profile.abi, "<none>"),
+	    profile_or_default(graph->profile.freestanding, "false"));
+	fprintf(out, "profile_link linker_script=%s link_options=",
+	    profile_or_default(graph->profile.linker_script, "<none>"));
+	dump_list(out, &graph->profile.link_options);
+	fputs(" defsyms=", out);
+	dump_list(out, &graph->profile.defsyms);
+	fputc('\n', out);
 	fputs("package_aliases ", out);
 	dump_package_aliases(out, graph);
 	fputc('\n', out);
@@ -550,6 +561,76 @@ collect_compile_include_dirs(const struct qstar_graph *graph, const struct qstar
 	return 0;
 }
 
+/** profile freestanding 값을 boolean으로 해석한다. */
+static int
+profile_is_freestanding(const struct qstar_graph *graph)
+{
+	const char *v;
+
+	v = graph->profile.freestanding;
+	return v && *v && strcmp(v, "false") != 0 && strcmp(v, "0") != 0 &&
+	    strcmp(v, "no") != 0 && strcmp(v, "off") != 0;
+}
+
+/** profile arch가 없을 때 target triple에서 arch 판단에 쓸 문자열을 고른다. */
+static const char *
+profile_arch_hint(const struct qstar_graph *graph)
+{
+	return graph->profile.arch && *graph->profile.arch ? graph->profile.arch :
+	    graph->profile.target && *graph->profile.target ? graph->profile.target : "";
+}
+
+/** freestanding/cpu/abi profile에서 자동 compile option 개수를 계산한다. */
+static size_t
+profile_compile_option_count(const struct qstar_graph *graph)
+{
+	size_t n;
+	const char *arch;
+
+	n = 0;
+	if (profile_is_freestanding(graph)) {
+		n += 3;
+		arch = profile_arch_hint(graph);
+		if (strstr(arch, "x86_64") || strstr(arch, "amd64"))
+			n++;
+		if (strstr(arch, "aarch64") || strstr(arch, "arm64"))
+			n++;
+	}
+	if (graph->profile.cpu && *graph->profile.cpu)
+		n++;
+	if (graph->profile.abi && *graph->profile.abi)
+		n++;
+	return n;
+}
+
+/** freestanding/cpu/abi profile에서 자동 compile option을 argv dump에 추가한다. */
+static void
+dump_profile_compile_options(FILE *out, struct qstar_argv_dump *dump,
+    const struct qstar_graph *graph)
+{
+	char arg[QSTAR_PATH_MAX];
+	const char *arch;
+
+	if (profile_is_freestanding(graph)) {
+		argv_item(out, dump, "-ffreestanding");
+		argv_item(out, dump, "-fno-builtin");
+		argv_item(out, dump, "-fno-stack-protector");
+		arch = profile_arch_hint(graph);
+		if (strstr(arch, "x86_64") || strstr(arch, "amd64"))
+			argv_item(out, dump, "-mno-red-zone");
+		if (strstr(arch, "aarch64") || strstr(arch, "arm64"))
+			argv_item(out, dump, "-mgeneral-regs-only");
+	}
+	if (graph->profile.cpu && *graph->profile.cpu) {
+		snprintf(arg, sizeof(arg), "-mcpu=%s", graph->profile.cpu);
+		argv_item(out, dump, arg);
+	}
+	if (graph->profile.abi && *graph->profile.abi) {
+		snprintf(arg, sizeof(arg), "-mabi=%s", graph->profile.abi);
+		argv_item(out, dump, arg);
+	}
+}
+
 /** source language가 assembler 계열인지 확인한다. */
 static int
 source_is_asm(const struct qstar_source_info *source)
@@ -605,6 +686,7 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	    (toolchain->sysroot[0] ? 1 : 0) + (toolchain->resource_dir[0] ? 2 : 0) +
 	    (is_asm ? 2 : 0) +
 	    (is_cxx && target->cxx_standard[0] ? 1 : 0) +
+	    profile_compile_option_count(graph) +
 	    (is_asm ? target->asm_compile_options.len :
 	    is_cxx ? target->cxxflags.len : is_cale ? 0 : target->cflags.len);
 	snprintf(target_arg, sizeof(target_arg), "--target=%s", toolchain->target);
@@ -642,6 +724,8 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 		argv_item(out, &dump, target->cxxflags.items[i]);
 	for (i = 0; is_asm && i < target->asm_compile_options.len; i++)
 		argv_item(out, &dump, target->asm_compile_options.items[i]);
+	if (!is_cale)
+		dump_profile_compile_options(out, &dump, graph);
 	for (i = 0; i < graph->profile.include_dirs.len; i++) {
 		argv_item(out, &dump, "-I");
 		argv_item(out, &dump, graph->profile.include_dirs.items[i]);
@@ -688,6 +772,52 @@ toolchain_needs_msvc_link_boundary(const struct qstar_resolved_toolchain *toolch
 		return 0;
 	tool = target_has_cxx_source(target) ? toolchain->cxx : toolchain->linker;
 	return strstr(tool, "clang-cl") != NULL || strstr(tool, "cl.exe") != NULL;
+}
+
+/** target linker_script가 있으면 우선하고 없으면 profile linker_script를 쓴다. */
+static const char *
+effective_linker_script(const struct qstar_graph *graph, const struct qstar_target *target)
+{
+	return target->linker_script && *target->linker_script ? target->linker_script :
+	    graph->profile.linker_script && *graph->profile.linker_script ?
+	    graph->profile.linker_script : NULL;
+}
+
+/** target/profile link policy가 argv에 추가할 argument 수를 계산한다. */
+static size_t
+link_policy_arg_count(const struct qstar_graph *graph, const struct qstar_target *target)
+{
+	return graph->profile.link_options.len + target->link_options.len +
+	    (effective_linker_script(graph, target) ? 2 : 0) +
+	    graph->profile.defsyms.len + target->defsyms.len;
+}
+
+/** target/profile link policy를 deterministic command argv dump에 추가한다. */
+static void
+dump_link_policy_argv(FILE *out, struct qstar_argv_dump *dump,
+    const struct qstar_graph *graph, const struct qstar_target *target)
+{
+	char arg[QSTAR_PATH_MAX];
+	const char *script;
+	size_t i;
+
+	for (i = 0; i < graph->profile.link_options.len; i++)
+		argv_item(out, dump, graph->profile.link_options.items[i]);
+	for (i = 0; i < target->link_options.len; i++)
+		argv_item(out, dump, target->link_options.items[i]);
+	script = effective_linker_script(graph, target);
+	if (script) {
+		argv_item(out, dump, "-T");
+		argv_item(out, dump, script);
+	}
+	for (i = 0; i < graph->profile.defsyms.len; i++) {
+		snprintf(arg, sizeof(arg), "--defsym=%s", graph->profile.defsyms.items[i]);
+		argv_item(out, dump, arg);
+	}
+	for (i = 0; i < target->defsyms.len; i++) {
+		snprintf(arg, sizeof(arg), "--defsym=%s", target->defsyms.items[i]);
+		argv_item(out, dump, arg);
+	}
 }
 
 /** generated action의 실제 argv plan을 출력한다. */
@@ -742,6 +872,7 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 		argc += target->lib_dirs.len + (toolchain->sysroot[0] ? 1 : 0) +
 		    graph->profile.lib_dirs.len + target->libs.len +
 		    (windows ? 0 : target->frameworks.len * 2) +
+		    link_policy_arg_count(graph, target) +
 		    (toolchain_needs_msvc_link_boundary(toolchain, target) ? 1 : 0);
 	begin_argv(out, &dump, id, argc, toolchain);
 	if (strcmp(action, "archive") == 0) {
@@ -760,6 +891,7 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 			argv_item(out, &dump, "-shared");
 		argv_item(out, &dump, "-o");
 		argv_item(out, &dump, output);
+		dump_link_policy_argv(out, &dump, graph, target);
 		argv_item(out, &dump, "<target-objects>");
 		if (toolchain_needs_msvc_link_boundary(toolchain, target))
 			argv_item(out, &dump, "/link");
@@ -978,6 +1110,14 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	fputc('\n', out);
 	fputs("  frameworks ", out);
 	dump_list(out, &target->frameworks);
+	fputc('\n', out);
+	fputs("  link_options ", out);
+	dump_list(out, &target->link_options);
+	fputc('\n', out);
+	fprintf(out, "  linker_script %s\n",
+	    target->linker_script && *target->linker_script ? target->linker_script : "<none>");
+	fputs("  defsyms ", out);
+	dump_list(out, &target->defsyms);
 	fputc('\n', out);
 	fputs("  cflags ", out);
 	dump_list(out, &target->cflags);

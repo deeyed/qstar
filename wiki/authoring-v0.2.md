@@ -133,6 +133,57 @@ qstar.run_target "smoke" {
 }
 ```
 
+## Freestanding profile과 linker script
+
+커널, 부트로더, 펌웨어 같은 freestanding build는 target rule을 새로 만들기보다
+profile로 toolchain 정책을 정한다. `Cale.toml` 또는 `.cale/profiles/<name>.toml`에
+아래 값을 둘 수 있다.
+
+```toml
+profile = "kernel"
+
+[profile.kernel]
+toolchain = "clang"
+target = "aarch64-none-elf"
+arch = "aarch64"
+cpu = "cortex-a76"
+abi = "lp64"
+freestanding = true
+cc = "clang"
+linker = "ld.lld"
+linker_script = "linker/kernel.ld"
+link_options = ["-nostdlib"]
+defsyms = ["__kernel_base=0x80000"]
+```
+
+`freestanding = true`는 compile action에 `-ffreestanding`, `-fno-builtin`,
+`-fno-stack-protector`를 추가한다. `arch = "aarch64"`는
+`-mgeneral-regs-only`, `arch = "x86_64"`는 `-mno-red-zone`을 추가한다. `cpu`와
+`abi`는 각각 `-mcpu=...`, `-mabi=...`로 내려간다.
+
+Target은 profile link policy를 보강하거나 linker script를 override할 수 있다.
+
+```lua
+qstar.executable "kernel" {
+  sources = {
+    "src/kernel.c",
+    "boot/start.S",
+  },
+  linker_script = "linker/rpi5-aarch64.ld",
+  link_options = {
+    "-Wl,-Map=kernel.map",
+  },
+  defsyms = {
+    "__stack_top=0x80000",
+  },
+}
+```
+
+`linker_script`는 package-relative path여야 한다. Target `linker_script`가 있으면
+profile 값을 덮어쓴다. QStar는 linker script를 link action input으로 추적하므로,
+script 내용이 바뀌면 object가 그대로여도 link action은 rebuild된다.
+`defsyms`는 항상 `NAME=VALUE` 형식이어야 한다.
+
 ## Language namespace
 
 `lang` v0.2 schema:

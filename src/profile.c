@@ -140,6 +140,18 @@ apply_profile_key(struct qstar_graph *graph, const char *key, const char *value,
 	if (strcmp(key, "stdlib") == 0 || strcmp(key, "stdlib_policy") == 0)
 		return profile_set(&graph->profile.stdlib_policy, value) < 0 ?
 		    qstar_set_error(graph, "qstar: out of memory") : 0;
+	if (strcmp(key, "freestanding") == 0)
+		return profile_set(&graph->profile.freestanding, value) < 0 ?
+		    qstar_set_error(graph, "qstar: out of memory") : 0;
+	if (strcmp(key, "arch") == 0)
+		return profile_set(&graph->profile.arch, value) < 0 ?
+		    qstar_set_error(graph, "qstar: out of memory") : 0;
+	if (strcmp(key, "cpu") == 0)
+		return profile_set(&graph->profile.cpu, value) < 0 ?
+		    qstar_set_error(graph, "qstar: out of memory") : 0;
+	if (strcmp(key, "abi") == 0)
+		return profile_set(&graph->profile.abi, value) < 0 ?
+		    qstar_set_error(graph, "qstar: out of memory") : 0;
 	if (strcmp(key, "cc") == 0 || strcmp(key, "c_compiler") == 0)
 		return profile_set(&graph->profile.cc, value) < 0 ?
 		    qstar_set_error(graph, "qstar: out of memory") : 0;
@@ -167,6 +179,9 @@ apply_profile_key(struct qstar_graph *graph, const char *key, const char *value,
 	if (strcmp(key, "response_style") == 0 || strcmp(key, "rsp_style") == 0)
 		return profile_set(&graph->profile.response_style, value) < 0 ?
 		    qstar_set_error(graph, "qstar: out of memory") : 0;
+	if (strcmp(key, "linker_script") == 0)
+		return profile_set(&graph->profile.linker_script, value) < 0 ?
+		    qstar_set_error(graph, "qstar: out of memory") : 0;
 	return 0;
 }
 
@@ -178,6 +193,10 @@ apply_profile_list(struct qstar_graph *graph, const char *key, char *value)
 		return toml_string_list(graph, &graph->profile.include_dirs, value);
 	if (strcmp(key, "lib_dirs") == 0)
 		return toml_string_list(graph, &graph->profile.lib_dirs, value);
+	if (strcmp(key, "link_options") == 0)
+		return toml_string_list(graph, &graph->profile.link_options, value);
+	if (strcmp(key, "defsyms") == 0)
+		return toml_string_list(graph, &graph->profile.defsyms, value);
 	return 0;
 }
 
@@ -284,6 +303,67 @@ valid_profile_path(const char *path)
 	return path && *path && (path[0] == '/' || qstar_path_is_package_relative(path));
 }
 
+/** profile linker_script가 실제 파일로 존재하는지 확인한다. */
+static int
+profile_linker_script_exists(const struct qstar_graph *graph, const char *path)
+{
+	char full[QSTAR_PATH_MAX];
+	FILE *f;
+
+	if (!path || !*path)
+		return 1;
+	if (path[0] == '/') {
+		f = fopen(path, "rb");
+	} else {
+		if (qstar_path_join(graph->package_root ? graph->package_root : ".", path, full,
+		    sizeof(full)) < 0)
+			return 0;
+		f = fopen(full, "rb");
+	}
+	if (!f)
+		return 0;
+	fclose(f);
+	return 1;
+}
+
+/** profile boolean string이 QStar v3 policy 안에 있는지 검사한다. */
+static int
+valid_profile_bool(const char *value)
+{
+	return !value || !*value || strcmp(value, "true") == 0 ||
+	    strcmp(value, "false") == 0 || strcmp(value, "1") == 0 ||
+	    strcmp(value, "0") == 0 || strcmp(value, "yes") == 0 ||
+	    strcmp(value, "no") == 0 || strcmp(value, "on") == 0 ||
+	    strcmp(value, "off") == 0;
+}
+
+/** arch/cpu/abi profile token을 command-line flag에 안전한 문자로 제한한다. */
+static int
+valid_profile_token(const char *value)
+{
+	const unsigned char *p;
+
+	if (!value || !*value)
+		return 1;
+	for (p = (const unsigned char *)value; *p; p++) {
+		if (!(isalnum(*p) || *p == '_' || *p == '-' || *p == '.' || *p == '+'))
+			return 0;
+	}
+	return 1;
+}
+
+/** defsym entry를 NAME=VALUE 형태로 제한한다. */
+static int
+valid_defsym(const char *value)
+{
+	const char *eq;
+
+	if (!value || !*value)
+		return 0;
+	eq = strchr(value, '=');
+	return eq && eq != value && eq[1] != '\0';
+}
+
 /** response_files profile 값이 QStar v1 policy 안에 있는지 검사한다. */
 static int
 valid_response_files_value(const char *value)
@@ -315,6 +395,23 @@ qstar_graph_validate_profile(struct qstar_graph *graph)
 	    !valid_profile_path(graph->profile.resource_dir))
 		return qstar_set_error(graph,
 		    "qstar: profile resource_dir must be absolute or workspace-relative");
+	if (graph->profile.linker_script && *graph->profile.linker_script &&
+	    !valid_profile_path(graph->profile.linker_script))
+		return qstar_set_error(graph,
+		    "qstar: profile linker_script must be absolute or workspace-relative");
+	if (!profile_linker_script_exists(graph, graph->profile.linker_script))
+		return qstar_set_error(graph,
+		    "qstar: profile linker_script '%s' does not exist",
+		    graph->profile.linker_script);
+	if (!valid_profile_bool(graph->profile.freestanding))
+		return qstar_set_error(graph,
+		    "qstar: profile freestanding must be true, false, 1, 0, yes, no, on, or off");
+	if (!valid_profile_token(graph->profile.arch))
+		return qstar_set_error(graph, "qstar: profile arch contains unsupported characters");
+	if (!valid_profile_token(graph->profile.cpu))
+		return qstar_set_error(graph, "qstar: profile cpu contains unsupported characters");
+	if (!valid_profile_token(graph->profile.abi))
+		return qstar_set_error(graph, "qstar: profile abi contains unsupported characters");
 	for (i = 0; i < graph->profile.include_dirs.len; i++) {
 		if (!valid_profile_path(graph->profile.include_dirs.items[i]))
 			return qstar_set_error(graph,
@@ -326,6 +423,12 @@ qstar_graph_validate_profile(struct qstar_graph *graph)
 			return qstar_set_error(graph,
 			    "qstar: profile lib_dirs entry '%s' must be absolute or workspace-relative",
 			    graph->profile.lib_dirs.items[i]);
+	}
+	for (i = 0; i < graph->profile.defsyms.len; i++) {
+		if (!valid_defsym(graph->profile.defsyms.items[i]))
+			return qstar_set_error(graph,
+			    "qstar: profile defsyms entry '%s' must be NAME=VALUE",
+			    graph->profile.defsyms.items[i]);
 	}
 	if (!valid_response_files_value(graph->profile.response_files))
 		return qstar_set_error(graph,

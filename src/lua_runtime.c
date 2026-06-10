@@ -735,10 +735,17 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	    read_list_field(L, table_index, "libs", &target->libs, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "lib_dirs", &target->lib_dirs, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "frameworks", &target->frameworks, graph, 0, target->fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "link_options", &target->link_options, graph, 0, target->fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "defsyms", &target->defsyms, graph, 0, target->fragment_dir) < 0 ||
 	    read_lang_options(L, table_index, target, graph) < 0)
 		return luaL_error(L, "%s", graph->error);
 	toolchain = check_string_field(L, table_index, "toolchain");
 	stdlib_policy = check_string_field(L, table_index, "stdlib");
+	if (check_string_field(L, table_index, "linker_script")) {
+		free(target->linker_script);
+		target->linker_script = qstar_strdup(check_string_field(L, table_index,
+		    "linker_script"));
+	}
 	if (toolchain) {
 		free(target->toolchain);
 		target->toolchain = qstar_strdup(toolchain);
@@ -769,7 +776,8 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 		if (!target->run_marker)
 			return luaL_error(L, "qstar: out of memory");
 	}
-	if (!target->toolchain || !target->stdlib_policy || !target->cxx_standard)
+	if (!target->toolchain || !target->stdlib_policy || !target->cxx_standard ||
+	    !target->linker_script)
 		return luaL_error(L, "qstar: out of memory");
 	return 0;
 }
@@ -1304,12 +1312,14 @@ static int
 qstar_lua_select(lua_State *L)
 {
 	struct qstar_lua_context *ctx;
-	const char *target, *key, *selected;
+	const char *arch, *target, *key, *selected;
 	int matched, has_default;
 
 	ctx = get_context(L);
 	target = ctx->graph->profile.target && *ctx->graph->profile.target ?
 	    ctx->graph->profile.target : "host";
+	arch = ctx->graph->profile.arch && *ctx->graph->profile.arch ?
+	    ctx->graph->profile.arch : target;
 	luaL_checktype(L, 1, LUA_TTABLE);
 	matched = 0;
 	selected = NULL;
@@ -1320,9 +1330,9 @@ qstar_lua_select(lua_State *L)
 		    (strstr(target, "apple") || strstr(target, "macos") || strstr(target, "darwin"))) ||
 		    (strcmp(key, "os=linux") == 0 && strstr(target, "linux")) ||
 		    (strcmp(key, "os=windows") == 0 && (strstr(target, "windows") || strstr(target, "win"))) ||
-		    (strcmp(key, "arch=x86_64") == 0 && (strstr(target, "x86_64") || strstr(target, "amd64"))) ||
-		    (strcmp(key, "arch=aarch64") == 0 && (strstr(target, "aarch64") || strstr(target, "arm64"))) ||
-		    (strcmp(key, "arch=riscv64") == 0 && (strstr(target, "riscv64") || strstr(target, "rv64"))))) {
+		    (strcmp(key, "arch=x86_64") == 0 && (strstr(arch, "x86_64") || strstr(arch, "amd64"))) ||
+		    (strcmp(key, "arch=aarch64") == 0 && (strstr(arch, "aarch64") || strstr(arch, "arm64"))) ||
+		    (strcmp(key, "arch=riscv64") == 0 && (strstr(arch, "riscv64") || strstr(arch, "rv64"))))) {
 			matched = 1;
 			lua_remove(L, -2);
 			break;

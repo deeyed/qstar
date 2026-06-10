@@ -43,6 +43,8 @@ struct qstar_target {
 	struct qstar_string_list libs;
 	struct qstar_string_list lib_dirs;
 	struct qstar_string_list frameworks;
+	struct qstar_string_list link_options;
+	struct qstar_string_list defsyms;
 	struct qstar_string_list cflags;
 	struct qstar_string_list cxxflags;
 	struct qstar_string_list asm_include_dirs;
@@ -52,6 +54,7 @@ struct qstar_target {
 	struct qstar_string_list run_command;
 	char *cxx_standard;
 	char *cale_profile;
+	char *linker_script;
 	char *run_marker;
 	int run_timeout_sec;
 	int asm_preprocess;
@@ -83,6 +86,10 @@ struct qstar_profile_input {
 	char *target;
 	char *toolchain;
 	char *stdlib_policy;
+	char *freestanding;
+	char *arch;
+	char *cpu;
+	char *abi;
 	char *cc;
 	char *cxx;
 	char *cale;
@@ -92,8 +99,11 @@ struct qstar_profile_input {
 	char *resource_dir;
 	char *response_files;
 	char *response_style;
+	char *linker_script;
 	struct qstar_string_list include_dirs;
 	struct qstar_string_list lib_dirs;
+	struct qstar_string_list link_options;
+	struct qstar_string_list defsyms;
 };
 
 struct qstar_lint_diagnostic {

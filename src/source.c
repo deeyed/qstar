@@ -60,6 +60,18 @@ list_pair_has_duplicate(const struct qstar_string_list *a,
 	return 0;
 }
 
+/** defsym entry를 NAME=VALUE 형태로 제한한다. */
+static int
+valid_defsym(const char *value)
+{
+	const char *eq;
+
+	if (!value || !*value)
+		return 0;
+	eq = strchr(value, '=');
+	return eq && eq != value && eq[1] != '\0';
+}
+
 static const struct qstar_target *
 find_target(const struct qstar_graph *graph, const char *label)
 {
@@ -289,6 +301,7 @@ static int
 validate_link_lists(struct qstar_graph *graph, const struct qstar_target *target)
 {
 	const char *dup;
+	size_t i;
 
 	if (list_has_duplicate(&target->deps, &dup) ||
 	    list_has_duplicate(&target->private_deps, &dup) ||
@@ -304,6 +317,23 @@ validate_link_lists(struct qstar_graph *graph, const struct qstar_target *target
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "frameworks", target->label,
 		    "qstar: duplicate framework '%s' in '%s'", dup, target->label);
+	if (list_has_duplicate(&target->defsyms, &dup))
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "defsyms", target->label,
+		    "qstar: duplicate defsym '%s' in '%s'", dup, target->label);
+	if (target->linker_script && *target->linker_script &&
+	    !qstar_path_is_package_relative(target->linker_script))
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "linker_script", target->label,
+		    "qstar: linker_script '%s' in '%s' must be package-relative",
+		    target->linker_script, target->label);
+	for (i = 0; i < target->defsyms.len; i++) {
+		if (!valid_defsym(target->defsyms.items[i]))
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, "defsyms", target->label,
+			    "qstar: defsym '%s' in '%s' must be NAME=VALUE",
+			    target->defsyms.items[i], target->label);
+	}
 	if (validate_include_dir_list(graph, target, &target->include_dirs,
 	    "include_dirs") < 0 ||
 	    validate_include_dir_list(graph, target, &target->public_include_dirs,
@@ -475,6 +505,12 @@ validate_target_file_inputs(struct qstar_graph *graph, const struct qstar_target
 			    "qstar: header file '%s' in '%s' does not exist under package root",
 			    path, target->label);
 	}
+	if (target->linker_script && *target->linker_script &&
+	    !file_exists_under_root(graph, target->linker_script))
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "linker_script", target->label,
+		    "qstar: linker script '%s' in '%s' does not exist under package root",
+		    target->linker_script, target->label);
 	return 0;
 }
 

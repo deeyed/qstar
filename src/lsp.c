@@ -73,6 +73,9 @@ static const struct qstar_lsp_hover_entry qstar_lsp_fields[] = {
 	{ "visibility", "Package visibility patterns that may depend on this target." },
 	{ "toolchain", "Toolchain profile name for this target." },
 	{ "libs", "System libraries rendered by the selected target profile." },
+	{ "link_options", "Raw target linker options appended before object inputs." },
+	{ "linker_script", "Package-relative linker script rendered as -T <script>." },
+	{ "defsyms", "Linker --defsym=NAME=VALUE entries." },
 	{ "frameworks", "Darwin frameworks rendered by the selected target profile." },
 };
 

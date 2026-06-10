@@ -124,6 +124,8 @@ free_target(struct qstar_target *target)
 	qstar_string_list_free(&target->libs);
 	qstar_string_list_free(&target->lib_dirs);
 	qstar_string_list_free(&target->frameworks);
+	qstar_string_list_free(&target->link_options);
+	qstar_string_list_free(&target->defsyms);
 	qstar_string_list_free(&target->cflags);
 	qstar_string_list_free(&target->cxxflags);
 	qstar_string_list_free(&target->asm_include_dirs);
@@ -133,6 +135,7 @@ free_target(struct qstar_target *target)
 	qstar_string_list_free(&target->run_command);
 	free(target->cxx_standard);
 	free(target->cale_profile);
+	free(target->linker_script);
 	free(target->run_marker);
 	free(target->toolchain);
 	free(target->stdlib_policy);
@@ -169,6 +172,10 @@ free_profile_input(struct qstar_profile_input *profile)
 	free(profile->target);
 	free(profile->toolchain);
 	free(profile->stdlib_policy);
+	free(profile->freestanding);
+	free(profile->arch);
+	free(profile->cpu);
+	free(profile->abi);
 	free(profile->cc);
 	free(profile->cxx);
 	free(profile->cale);
@@ -178,8 +185,11 @@ free_profile_input(struct qstar_profile_input *profile)
 	free(profile->resource_dir);
 	free(profile->response_files);
 	free(profile->response_style);
+	free(profile->linker_script);
 	qstar_string_list_free(&profile->include_dirs);
 	qstar_string_list_free(&profile->lib_dirs);
+	qstar_string_list_free(&profile->link_options);
+	qstar_string_list_free(&profile->defsyms);
 }
 
 /** lint diagnostic entry가 소유한 문자열을 해제한다. */
@@ -389,9 +399,10 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	target->stdlib_policy = qstar_strdup("system");
 	target->cxx_standard = qstar_strdup("");
 	target->cale_profile = qstar_strdup("");
+	target->linker_script = qstar_strdup("");
 	if (!target->label || !target->name || !target->kind || !target->fragment_dir ||
 	    !target->origin_file || !target->toolchain || !target->stdlib_policy ||
-	    !target->cxx_standard || !target->cale_profile) {
+	    !target->cxx_standard || !target->cale_profile || !target->linker_script) {
 		qstar_set_error(graph, "qstar: out of memory");
 		return NULL;
 	}
@@ -596,6 +607,14 @@ dump_target(const struct qstar_target *target, FILE *out)
 	fputs("  frameworks ", out);
 	dump_list(out, &target->frameworks);
 	fputc('\n', out);
+	fputs("  link_options ", out);
+	dump_list(out, &target->link_options);
+	fputc('\n', out);
+	fprintf(out, "  linker_script %s\n",
+	    target->linker_script && *target->linker_script ? target->linker_script : "<none>");
+	fputs("  defsyms ", out);
+	dump_list(out, &target->defsyms);
+	fputc('\n', out);
 	fputs("  cflags ", out);
 	dump_list(out, &target->cflags);
 	fputc('\n', out);
@@ -673,6 +692,11 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 	    profile_or_default(graph->profile.target, "host"),
 	    profile_or_default(graph->profile.toolchain, "default"),
 	    profile_or_default(graph->profile.stdlib_policy, "default"));
+	fprintf(out, "profile_target arch=%s cpu=%s abi=%s freestanding=%s\n",
+	    graph->profile.arch ? graph->profile.arch : "<auto>",
+	    graph->profile.cpu ? graph->profile.cpu : "<none>",
+	    graph->profile.abi ? graph->profile.abi : "<none>",
+	    graph->profile.freestanding ? graph->profile.freestanding : "false");
 	fprintf(out, "profile_tools cc=%s cxx=%s cale=%s ar=%s linker=%s sysroot=%s resource_dir=%s\n",
 	    graph->profile.cc ? graph->profile.cc : "<default>",
 	    graph->profile.cxx ? graph->profile.cxx : "<default>",
@@ -681,6 +705,12 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 	    graph->profile.linker ? graph->profile.linker : "<default>",
 	    graph->profile.sysroot ? graph->profile.sysroot : "<none>",
 	    graph->profile.resource_dir ? graph->profile.resource_dir : "<none>");
+	fprintf(out, "profile_link linker_script=%s link_options=",
+	    graph->profile.linker_script ? graph->profile.linker_script : "<none>");
+	dump_list(out, &graph->profile.link_options);
+	fputs(" defsyms=", out);
+	dump_list(out, &graph->profile.defsyms);
+	fputc('\n', out);
 	dump_package_aliases(out, graph);
 	for (i = 0; i < graph->genrule_len; i++)
 		dump_genrule(&graph->genrules[i], out);
