@@ -130,8 +130,10 @@ free_target(struct qstar_target *target)
 	qstar_string_list_free(&target->asm_compile_options);
 	qstar_string_list_free(&target->cale_hcl_include_dirs);
 	qstar_string_list_free(&target->cale_compile_options);
+	qstar_string_list_free(&target->run_command);
 	free(target->cxx_standard);
 	free(target->cale_profile);
+	free(target->run_marker);
 	free(target->toolchain);
 	free(target->stdlib_policy);
 }
@@ -148,6 +150,7 @@ free_genrule(struct qstar_genrule *genrule)
 	qstar_string_list_free(&genrule->inputs);
 	qstar_string_list_free(&genrule->outputs);
 	qstar_string_list_free(&genrule->args);
+	qstar_string_list_free(&genrule->command);
 }
 
 /** package alias entry가 소유한 문자열을 해제한다. */
@@ -614,6 +617,11 @@ dump_target(const struct qstar_target *target, FILE *out)
 	dump_list(out, &target->cale_compile_options);
 	fputc('\n', out);
 	fprintf(out, "  lang.cale.profile %s\n", target->cale_profile);
+	fputs("  run.command ", out);
+	dump_list(out, &target->run_command);
+	fputc('\n', out);
+	fprintf(out, "  run.timeout_sec %d\n", target->run_timeout_sec);
+	fprintf(out, "  run.marker %s\n", target->run_marker ? target->run_marker : "");
 	fprintf(out, "  toolchain %s\n", target->toolchain);
 	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
 }
@@ -636,6 +644,9 @@ dump_genrule(const struct qstar_genrule *genrule, FILE *out)
 	fputc('\n', out);
 	fputs("  args ", out);
 	dump_list(out, &genrule->args);
+	fputc('\n', out);
+	fputs("  command ", out);
+	dump_list(out, &genrule->command);
 	fputc('\n', out);
 }
 
@@ -792,6 +803,11 @@ dump_target_json(FILE *out, const struct qstar_target *target)
 	fprintf(out, "%s", target->asm_preprocess ? "true" : "false");
 	fputs(",\"lang_cale_profile\":", out);
 	dump_json_string(out, target->cale_profile);
+	fputs(",\"run_command\":", out);
+	dump_json_list(out, &target->run_command);
+	fprintf(out, ",\"run_timeout_sec\":%d", target->run_timeout_sec);
+	fputs(",\"run_marker\":", out);
+	dump_json_string(out, target->run_marker ? target->run_marker : "");
 	fprintf(out, ",\"is_test\":%s", strcmp(target->kind, "test") == 0 ? "true" : "false");
 	fprintf(out, ",\"installable\":%s", qstar_target_is_installable(target) ? "true" : "false");
 	fputc('}', out);
@@ -818,6 +834,8 @@ dump_genrule_json(FILE *out, const struct qstar_genrule *genrule)
 	dump_json_list(out, &genrule->inputs);
 	fputs(",\"outputs\":", out);
 	dump_json_list(out, &genrule->outputs);
+	fputs(",\"command\":", out);
+	dump_json_list(out, &genrule->command);
 	fputc('}', out);
 }
 
@@ -934,6 +952,11 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	dump_list(out, &target->cale_compile_options);
 	fputc('\n', out);
 	fprintf(out, "  lang.cale.profile %s\n", target->cale_profile);
+	fputs("  run.command ", out);
+	dump_list(out, &target->run_command);
+	fputc('\n', out);
+	fprintf(out, "  run.timeout_sec %d\n", target->run_timeout_sec);
+	fprintf(out, "  run.marker %s\n", target->run_marker ? target->run_marker : "");
 	fprintf(out, "  toolchain %s\n", target->toolchain);
 	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
 	return 0;

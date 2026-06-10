@@ -49,8 +49,11 @@ struct qstar_target {
 	struct qstar_string_list asm_compile_options;
 	struct qstar_string_list cale_hcl_include_dirs;
 	struct qstar_string_list cale_compile_options;
+	struct qstar_string_list run_command;
 	char *cxx_standard;
 	char *cale_profile;
+	char *run_marker;
+	int run_timeout_sec;
 	int asm_preprocess;
 	char *toolchain;
 	char *stdlib_policy;
@@ -67,6 +70,7 @@ struct qstar_genrule {
 	struct qstar_string_list inputs;
 	struct qstar_string_list outputs;
 	struct qstar_string_list args;
+	struct qstar_string_list command;
 };
 
 struct qstar_package_alias {

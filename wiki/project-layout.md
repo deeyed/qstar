@@ -66,8 +66,27 @@ qstar.executable "app" {
 
 이 target label은 `//app/src:app`다.
 
+깊은 source-dir fragment도 같은 규칙을 따른다.
+
+```txt
+kernel/
+└── arch/
+    └── aarch64/
+        ├── aarch64.qs
+        ├── boot.c
+        └── start.S
+```
+
+Root `qstar.lua`:
+
+```lua
+qstar.subdir("kernel/arch/aarch64")
+```
+
+`kernel/arch/aarch64/aarch64.qs`의 target label은
+`//kernel/arch/aarch64:<name>`이 된다.
+
 ## Deprecated fallback
 
 `foo/qstar.qs`는 deprecated fragment name이다. Lint는 `QSTAR003` warning을 낸다.
 새 project에서는 항상 `<folder>.qs`를 사용한다.
-

@@ -1577,6 +1577,66 @@ generated_arg_escapes_package(const char *arg)
 	    strstr(arg, "=../") || strstr(arg, ":../"));
 }
 
+/** qstar.target_file placeholder를 target artifact path로 해석한다. */
+static int
+resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
+    size_t dstlen)
+{
+	const char *prefix = "<qstar-target-file:";
+	const struct qstar_target *target;
+	char label[QSTAR_PATH_MAX];
+	size_t n;
+
+	if (strncmp(arg, prefix, strlen(prefix)) != 0) {
+		if (snprintf(dst, dstlen, "%s", arg) >= (int)dstlen)
+			return qstar_set_error(graph, "qstar: command argv item is too long");
+		return 0;
+	}
+	n = strlen(arg);
+	if (n <= strlen(prefix) + 1 || arg[n - 1] != '>')
+		return qstar_set_error(graph, "qstar: malformed target_file placeholder");
+	if (n - strlen(prefix) >= sizeof(label))
+		return qstar_set_error(graph, "qstar: target_file label is too long");
+	memcpy(label, arg + strlen(prefix), n - strlen(prefix) - 1);
+	label[n - strlen(prefix) - 1] = '\0';
+	target = find_target(graph, label);
+	if (!target)
+		return qstar_set_error(graph, "qstar: target_file references unknown target '%s'",
+		    label);
+	if (qstar_artifact_output_path(target, dst, dstlen) < 0)
+		return qstar_set_error(graph, "qstar: target_file artifact path is too long");
+	return 0;
+}
+
+/** command list item 하나를 실행 argv용 소유 문자열로 복사한다. */
+static int
+push_resolved_command_argv(struct qstar_graph *graph, char **argv, size_t *argc,
+    const char *arg)
+{
+	char resolved[QSTAR_PATH_MAX];
+
+	if (*argc + 1 >= QSTAR_EXEC_MAX_ARGV)
+		return qstar_set_error(graph, "qstar: command argv too long");
+	if (resolve_target_file_token(graph, arg, resolved, sizeof(resolved)) < 0)
+		return -1;
+	argv[*argc] = qstar_strdup(resolved);
+	if (!argv[*argc])
+		return qstar_set_error(graph, "qstar: out of memory");
+	(*argc)++;
+	argv[*argc] = NULL;
+	return 0;
+}
+
+/** 소유 argv storage를 해제한다. */
+static void
+free_owned_argv(char **argv, size_t argc)
+{
+	size_t i;
+
+	for (i = 0; i < argc; i++)
+		free(argv[i]);
+}
+
 /** target이 소비하는 generated action을 package-local tool policy로 실행한다. */
 static int
 run_generated_actions(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
@@ -1613,19 +1673,27 @@ run_generated_actions(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 				    "qstar: could not create generated output directory");
 		}
 		snprintf(id, sizeof(id), "%s:generate:0", genrule->label);
-		argv[0] = genrule->tool;
-		for (argc = 0; argc < genrule->args.len; argc++)
-			argv[argc + 1] = genrule->args.items[argc];
-		argv[genrule->args.len + 1] = NULL;
+		argc = 0;
+		if (push_resolved_command_argv(graph, argv, &argc, genrule->tool) < 0)
+			return -1;
+		for (size_t argi = 0; argi < genrule->args.len; argi++) {
+			if (push_resolved_command_argv(graph, argv, &argc,
+			    genrule->args.items[argi]) < 0) {
+				free_owned_argv(argv, argc);
+				return -1;
+			}
+		}
 		memset(&inputs, 0, sizeof(inputs));
-		for (argc = 0; argc < genrule->inputs.len; argc++) {
-			if (qstar_string_list_push(&inputs, genrule->inputs.items[argc]) < 0) {
+		for (size_t inputi = 0; inputi < genrule->inputs.len; inputi++) {
+			if (qstar_string_list_push(&inputs, genrule->inputs.items[inputi]) < 0) {
 				qstar_string_list_free(&inputs);
+				free_owned_argv(argv, argc);
 				return qstar_set_error(graph, "qstar: out of memory");
 			}
 		}
 		if (!genrule->config_header && qstar_string_list_push(&inputs, genrule->tool) < 0) {
 			qstar_string_list_free(&inputs);
+			free_owned_argv(argv, argc);
 			return qstar_set_error(graph, "qstar: out of memory");
 		}
 		memset(&toolchain, 0, sizeof(toolchain));
@@ -1641,14 +1709,139 @@ run_generated_actions(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    genrule->label);
 		if (genrule->config_header) {
 			if (run_config_header_action(graph, ctx, target, genrule, id, key,
-			    argv, &material) < 0)
+			    argv, &material) < 0) {
+				free_owned_argv(argv, argc);
 				return -1;
+			}
 		} else if (run_action(graph, ctx, target, id, "generate", key,
 		    &genrule->outputs, argv, NULL, &material) < 0) {
+			free_owned_argv(argv, argc);
+			return -1;
+		}
+		free_owned_argv(argv, argc);
+	}
+	return 0;
+}
+
+/** run target stdout log에 marker 문자열이 들어 있는지 확인한다. */
+static int
+stdout_contains_marker(struct qstar_graph *graph, const char *id, const char *marker)
+{
+	char logdir[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], stdout_path[QSTAR_PATH_MAX];
+	FILE *f;
+	char buf[4096];
+
+	if (!marker || !*marker)
+		return 1;
+	if (qstar_path_join(graph->package_root ? graph->package_root : ".",
+	    ".qstar/logs", logdir, sizeof(logdir)) < 0)
+		return 0;
+	action_log_name(id, name, sizeof(name));
+	snprintf(stdout_path, sizeof(stdout_path), "%s/%s.stdout", logdir, name);
+	f = fopen(stdout_path, "rb");
+	if (!f)
+		return 0;
+	while (fgets(buf, sizeof(buf), f)) {
+		if (strstr(buf, marker)) {
+			fclose(f);
+			return 1;
+		}
+	}
+	fclose(f);
+	return 0;
+}
+
+/** run target cache stamp를 package-local output으로 만든다. */
+static int
+write_run_stamp(struct qstar_graph *graph, const char *stamp)
+{
+	char full[QSTAR_PATH_MAX];
+	FILE *f;
+
+	if (mkdir_parent_under_root(graph, stamp) < 0 ||
+	    full_path_under_root(graph, stamp, full, sizeof(full)) < 0)
+		return qstar_set_error(graph, "qstar: could not create run stamp directory");
+	f = fopen(full, "w");
+	if (!f)
+		return qstar_set_error(graph, "qstar: could not write run stamp");
+	fputs("qstar run_target stamp\n", f);
+	fclose(f);
+	return 0;
+}
+
+/** qstar.run_target command를 dependency build 이후 실행한다. */
+static int
+run_target_command(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const struct qstar_target *target)
+{
+	struct qstar_string_list inputs, outputs;
+	struct qstar_action_material material;
+	char *argv[QSTAR_EXEC_MAX_ARGV];
+	char id[QSTAR_PATH_MAX], stamp[QSTAR_PATH_MAX], key[32], artifact[QSTAR_PATH_MAX];
+	char owner[QSTAR_PATH_MAX];
+	size_t argc, i;
+	int old_timeout, rc;
+	const struct qstar_target *dep;
+
+	if (target->run_command.len == 0)
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "command", target->label,
+		    "qstar: run_target '%s' requires command = qstar.cli { ... }",
+		    target->label);
+	argc = 0;
+	for (i = 0; i < target->run_command.len; i++) {
+		if (push_resolved_command_argv(graph, argv, &argc,
+		    target->run_command.items[i]) < 0) {
+			free_owned_argv(argv, argc);
 			return -1;
 		}
 	}
-	return 0;
+	memset(&inputs, 0, sizeof(inputs));
+	memset(&outputs, 0, sizeof(outputs));
+	for (i = 0; i < target->deps.len; i++) {
+		dep = find_target(graph, target->deps.items[i]);
+		if (!dep || qstar_artifact_output_path(dep, artifact, sizeof(artifact)) < 0)
+			continue;
+		if (qstar_string_list_push(&inputs, artifact) < 0) {
+			qstar_string_list_free(&inputs);
+			free_owned_argv(argv, argc);
+			return qstar_set_error(graph, "qstar: out of memory");
+		}
+	}
+	qstar_mangle_label(target->label, owner, sizeof(owner));
+	snprintf(stamp, sizeof(stamp), ".qstar/out/%s/run.stamp", owner);
+	if (qstar_string_list_push(&outputs, stamp) < 0) {
+		qstar_string_list_free(&inputs);
+		free_owned_argv(argv, argc);
+		return qstar_set_error(graph, "qstar: out of memory");
+	}
+	snprintf(id, sizeof(id), "%s:run:0", target->label);
+	compute_action_key(graph, target, NULL, id, "run", argv, &inputs, NULL, stamp,
+	    key, sizeof(key), &material);
+	fprintf(ctx->out,
+	    "run_target label=%s command=argv timeout_sec=%d marker=%s\n",
+	    target->label, target->run_timeout_sec ? target->run_timeout_sec :
+	    ctx->action_timeout_sec,
+	    target->run_marker && *target->run_marker ? target->run_marker : "<none>");
+	old_timeout = ctx->action_timeout_sec;
+	if (target->run_timeout_sec > 0)
+		ctx->action_timeout_sec = target->run_timeout_sec;
+	rc = run_action(graph, ctx, target, id, "run", key, &outputs, argv, NULL, &material);
+	ctx->action_timeout_sec = old_timeout;
+	if (rc == 0 && write_run_stamp(graph, stamp) < 0)
+		rc = -1;
+	if (rc == 0 && !stdout_contains_marker(graph, id, target->run_marker))
+		rc = qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "marker", target->label,
+		    "qstar: run_target '%s' stdout did not contain marker '%s'",
+		    target->label, target->run_marker);
+	if (rc == 0 && target->run_marker && *target->run_marker)
+		fprintf(ctx->out, "run_marker label=%s status=matched marker=%s\n",
+		    target->label, target->run_marker);
+	qstar_string_list_free(&inputs);
+	qstar_string_list_free(&outputs);
+	free_owned_argv(argv, argc);
+	return rc;
 }
 
 /** compile action key에 target header inputs를 포함한다. */
@@ -2650,6 +2843,8 @@ build_target(struct qstar_graph *graph, const struct qstar_target *target, size_
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "kind", target->label,
 		    "qstar: sharedlib targets are plan-only in local executor v1");
+	if (strcmp(target->kind, "run_target") == 0)
+		return run_target_command(graph, ctx, target);
 	if (qstar_resolve_toolchain(graph, target, &toolchain) < 0)
 		return -1;
 	fprintf(ctx->out,

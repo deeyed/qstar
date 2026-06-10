@@ -60,6 +60,111 @@ check_string_field(lua_State *L, int idx, const char *field)
 }
 
 static int
+check_int_field(lua_State *L, int idx, const char *field, int fallback)
+{
+	int value;
+
+	lua_getfield(L, idx, field);
+	value = lua_isnumber(L, -1) ? (int)lua_tointeger(L, -1) : fallback;
+	lua_pop(L, 1);
+	return value;
+}
+
+static const char *
+qstar_table_kind(lua_State *L, int idx)
+{
+	const char *kind;
+
+	if (idx < 0)
+		idx = lua_gettop(L) + idx + 1;
+	if (!lua_istable(L, idx))
+		return NULL;
+	lua_getfield(L, idx, "__qstar_kind");
+	kind = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+	lua_pop(L, 1);
+	return kind;
+}
+
+/** QStar Lua helper가 넘긴 placeholder table을 argv token 문자열로 변환한다. */
+static int
+format_placeholder_token(lua_State *L, int idx, char *dst, size_t dstlen)
+{
+	const char *kind, *label;
+	lua_Integer index;
+
+	kind = qstar_table_kind(L, idx);
+	if (!kind)
+		return -1;
+	if (strcmp(kind, "input") == 0 || strcmp(kind, "output") == 0) {
+		lua_getfield(L, idx, "index");
+		if (!lua_isinteger(L, -1)) {
+			lua_pop(L, 1);
+			return -1;
+		}
+		index = lua_tointeger(L, -1);
+		lua_pop(L, 1);
+		return snprintf(dst, dstlen, "<qstar-%s:%lld>", kind,
+		    (long long)index) < (int)dstlen ? 0 : -1;
+	}
+	if (strcmp(kind, "target_file") == 0) {
+		lua_getfield(L, idx, "label");
+		label = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+		if (!label) {
+			lua_pop(L, 1);
+			return -1;
+		}
+		if (snprintf(dst, dstlen, "<qstar-target-file:%s>", label) >=
+		    (int)dstlen) {
+			lua_pop(L, 1);
+			return -1;
+		}
+		lua_pop(L, 1);
+		return 0;
+	}
+	return -1;
+}
+
+/** qstar.cli table을 내부 argv token list로 읽는다. */
+static int
+read_cli_command(lua_State *L, int idx, struct qstar_string_list *list,
+    struct qstar_graph *graph, const char *field)
+{
+	size_t i, n;
+	const char *kind, *s;
+	char token[QSTAR_PATH_MAX];
+
+	if (idx < 0)
+		idx = lua_gettop(L) + idx + 1;
+	if (lua_isnil(L, idx))
+		return 0;
+	if (!lua_istable(L, idx))
+		return qstar_set_error(graph, "qstar: field '%s' must be qstar.cli { ... }", field);
+	kind = qstar_table_kind(L, idx);
+	if (!kind || strcmp(kind, "cli") != 0)
+		return qstar_set_error(graph, "qstar: field '%s' must be qstar.cli { ... }", field);
+	n = lua_rawlen(L, idx);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, idx, (lua_Integer)i);
+		if (lua_type(L, -1) == LUA_TSTRING) {
+			s = lua_tostring(L, -1);
+		} else if (lua_istable(L, -1) &&
+		    format_placeholder_token(L, -1, token, sizeof(token)) == 0) {
+			s = token;
+		} else {
+			lua_pop(L, 1);
+			return qstar_set_error(graph,
+			    "qstar: field '%s' contains unsupported argv item", field);
+		}
+		if (qstar_string_list_push(list, s) < 0) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph, "qstar: out of memory");
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
 push_table_strings(lua_State *L, int idx, struct qstar_string_list *list, struct qstar_graph *graph,
     const char *field, int canonicalize, const char *fragment_dir)
 {
@@ -125,6 +230,95 @@ read_list_field(lua_State *L, int table, const char *field, struct qstar_string_
 
 static int append_list(struct qstar_graph *graph, struct qstar_string_list *dst,
     const struct qstar_string_list *src);
+
+static int
+read_command_field(lua_State *L, int table, const char *field, struct qstar_string_list *list,
+    struct qstar_graph *graph)
+{
+	int rc;
+
+	lua_getfield(L, table, field);
+	rc = read_cli_command(L, -1, list, graph, field);
+	lua_pop(L, 1);
+	return rc;
+}
+
+static int
+legacy_field_present(lua_State *L, int table, const char *field)
+{
+	int present;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_getfield(L, table, field);
+	present = !lua_isnil(L, -1);
+	lua_pop(L, 1);
+	return present;
+}
+
+static int
+parse_placeholder_index(const char *s, const char *prefix, long *index)
+{
+	const char *p;
+	char *end;
+
+	if (strncmp(s, prefix, strlen(prefix)) != 0)
+		return 0;
+	p = s + strlen(prefix);
+	*index = strtol(p, &end, 10);
+	return end && strcmp(end, ">") == 0 ? 1 : -1;
+}
+
+static int
+resolve_cli_placeholders(struct qstar_graph *graph, struct qstar_string_list *command,
+    const struct qstar_string_list *inputs, const struct qstar_string_list *outputs,
+    const char *field)
+{
+	struct qstar_string_list resolved;
+	const char *item;
+	long index;
+	size_t i;
+	int rc;
+
+	memset(&resolved, 0, sizeof(resolved));
+	for (i = 0; i < command->len; i++) {
+		item = command->items[i];
+		rc = parse_placeholder_index(item, "<qstar-input:", &index);
+		if (rc == 1) {
+			if (index < 0 || (size_t)index >= inputs->len) {
+				qstar_string_list_free(&resolved);
+				return qstar_set_error(graph,
+				    "qstar: %s references missing qstar.input(%ld)", field,
+				    index);
+			}
+			item = inputs->items[index];
+		} else if (rc < 0) {
+			qstar_string_list_free(&resolved);
+			return qstar_set_error(graph, "qstar: malformed input placeholder");
+		} else {
+			rc = parse_placeholder_index(item, "<qstar-output:", &index);
+			if (rc == 1) {
+				if (index < 0 || (size_t)index >= outputs->len) {
+					qstar_string_list_free(&resolved);
+					return qstar_set_error(graph,
+					    "qstar: %s references missing qstar.output(%ld)",
+					    field, index);
+				}
+				item = outputs->items[index];
+			} else if (rc < 0) {
+				qstar_string_list_free(&resolved);
+				return qstar_set_error(graph, "qstar: malformed output placeholder");
+			}
+		}
+		if (qstar_string_list_push(&resolved, item) < 0) {
+			qstar_string_list_free(&resolved);
+			return qstar_set_error(graph, "qstar: out of memory");
+		}
+	}
+	qstar_string_list_free(command);
+	*command = resolved;
+	return 0;
+}
 
 static int
 reject_top_level_field(lua_State *L, int table, struct qstar_graph *graph,
@@ -193,8 +387,45 @@ append_lang_include_self(struct qstar_graph *graph, struct qstar_string_list *co
 }
 
 static int
+string_in_set(const char *s, const char *const *items)
+{
+	size_t i;
+
+	for (i = 0; items[i]; i++) {
+		if (strcmp(s, items[i]) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+static int
+validate_lang_fields(lua_State *L, int table, const char *lang_name,
+    const char *const *allowed, struct qstar_graph *graph)
+{
+	const char *key;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_pushnil(L);
+	while (lua_next(L, table) != 0) {
+		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (!key || !string_in_set(key, allowed)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph, "qstar: unknown field lang.%s.%s",
+			    lang_name, key ? key : "<non-string>");
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
 read_lang_c(lua_State *L, int lang, struct qstar_target *target, struct qstar_graph *graph)
 {
+	static const char *const allowed[] = {
+		"include_dirs", "public_include_dirs", "private_include_dirs",
+		"system_include_dirs", "compile_options", "defines", NULL
+	};
 	int rc;
 
 	lua_getfield(L, lang, "c");
@@ -206,7 +437,9 @@ read_lang_c(lua_State *L, int lang, struct qstar_target *target, struct qstar_gr
 		lua_pop(L, 1);
 		return qstar_set_error(graph, "qstar: lang.c must be a table");
 	}
-	rc = read_list_field(L, -1, "include_dirs", &target->include_dirs, graph, 0,
+	rc = validate_lang_fields(L, -1, "c", allowed, graph);
+	if (rc == 0)
+		rc = read_list_field(L, -1, "include_dirs", &target->include_dirs, graph, 0,
 	    target->fragment_dir);
 	if (rc == 0)
 		rc = read_list_field(L, -1, "public_include_dirs", &target->public_include_dirs,
@@ -235,6 +468,10 @@ read_lang_c(lua_State *L, int lang, struct qstar_target *target, struct qstar_gr
 static int
 read_lang_cxx(lua_State *L, int lang, struct qstar_target *target, struct qstar_graph *graph)
 {
+	static const char *const allowed[] = {
+		"standard", "include_dirs", "public_include_dirs", "private_include_dirs",
+		"system_include_dirs", "compile_options", "defines", NULL
+	};
 	const char *standard;
 	int rc;
 
@@ -247,7 +484,9 @@ read_lang_cxx(lua_State *L, int lang, struct qstar_target *target, struct qstar_
 		lua_pop(L, 1);
 		return qstar_set_error(graph, "qstar: lang.cxx must be a table");
 	}
-	rc = read_list_field(L, -1, "include_dirs", &target->include_dirs, graph, 0,
+	rc = validate_lang_fields(L, -1, "cxx", allowed, graph);
+	if (rc == 0)
+		rc = read_list_field(L, -1, "include_dirs", &target->include_dirs, graph, 0,
 	    target->fragment_dir);
 	if (rc == 0)
 		rc = read_list_field(L, -1, "public_include_dirs", &target->public_include_dirs,
@@ -283,6 +522,9 @@ read_lang_cxx(lua_State *L, int lang, struct qstar_target *target, struct qstar_
 static int
 read_lang_asm(lua_State *L, int lang, struct qstar_target *target, struct qstar_graph *graph)
 {
+	static const char *const allowed[] = {
+		"include_dirs", "compile_options", "preprocess", NULL
+	};
 	int rc;
 
 	lua_getfield(L, lang, "asm");
@@ -294,7 +536,9 @@ read_lang_asm(lua_State *L, int lang, struct qstar_target *target, struct qstar_
 		lua_pop(L, 1);
 		return qstar_set_error(graph, "qstar: lang.asm must be a table");
 	}
-	rc = read_list_field(L, -1, "include_dirs", &target->asm_include_dirs, graph, 0,
+	rc = validate_lang_fields(L, -1, "asm", allowed, graph);
+	if (rc == 0)
+		rc = read_list_field(L, -1, "include_dirs", &target->asm_include_dirs, graph, 0,
 	    target->fragment_dir);
 	if (rc == 0)
 		rc = read_list_field(L, -1, "compile_options", &target->asm_compile_options,
@@ -310,6 +554,9 @@ read_lang_asm(lua_State *L, int lang, struct qstar_target *target, struct qstar_
 static int
 read_lang_cale(lua_State *L, int lang, struct qstar_target *target, struct qstar_graph *graph)
 {
+	static const char *const allowed[] = {
+		"profile", "compile_options", "hcl_include_dirs", NULL
+	};
 	const char *profile;
 	int rc;
 
@@ -322,7 +569,9 @@ read_lang_cale(lua_State *L, int lang, struct qstar_target *target, struct qstar
 		lua_pop(L, 1);
 		return qstar_set_error(graph, "qstar: lang.cale must be a table");
 	}
-	rc = read_list_field(L, -1, "hcl_include_dirs", &target->cale_hcl_include_dirs,
+	rc = validate_lang_fields(L, -1, "cale", allowed, graph);
+	if (rc == 0)
+		rc = read_list_field(L, -1, "hcl_include_dirs", &target->cale_hcl_include_dirs,
 	    graph, 0, target->fragment_dir);
 	if (rc == 0)
 		rc = read_list_field(L, -1, "compile_options", &target->cale_compile_options,
@@ -342,6 +591,10 @@ static int
 read_lang_options(lua_State *L, int table, struct qstar_target *target,
     struct qstar_graph *graph)
 {
+	static const char *const allowed_langs[] = {
+		"c", "cxx", "asm", "cale", NULL
+	};
+	const char *key;
 	int rc;
 
 	if (table < 0)
@@ -354,6 +607,16 @@ read_lang_options(lua_State *L, int table, struct qstar_target *target,
 	if (!lua_istable(L, -1)) {
 		lua_pop(L, 1);
 		return qstar_set_error(graph, "qstar: field 'lang' must be a table");
+	}
+	lua_pushnil(L);
+	while (lua_next(L, -2) != 0) {
+		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (!key || !string_in_set(key, allowed_langs)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph, "qstar: unknown language namespace lang.%s",
+			    key ? key : "<non-string>");
+		}
+		lua_pop(L, 1);
 	}
 	rc = read_lang_c(L, -1, target, graph);
 	if (rc == 0)
@@ -484,6 +747,28 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 		free(target->stdlib_policy);
 		target->stdlib_policy = qstar_strdup(stdlib_policy);
 	}
+	if (strcmp(target->kind, "run_target") == 0) {
+		struct qstar_string_list empty;
+
+		memset(&empty, 0, sizeof(empty));
+		if (read_command_field(L, table_index, "command", &target->run_command,
+		    graph) < 0 ||
+		    resolve_cli_placeholders(graph, &target->run_command, &empty, &empty,
+		    "run_target command") < 0)
+			return luaL_error(L, "%s", graph->error);
+		if (target->run_command.len == 0)
+			return luaL_error(L,
+			    "qstar: run_target '%s' requires command = qstar.cli { ... }",
+			    target->label);
+		target->run_timeout_sec = check_int_field(L, table_index, "timeout", 0);
+		if (target->run_timeout_sec < 0)
+			return luaL_error(L, "qstar: run_target '%s' timeout must be >= 0",
+			    target->label);
+		free(target->run_marker);
+		target->run_marker = qstar_strdup(check_string_field(L, table_index, "marker"));
+		if (!target->run_marker)
+			return luaL_error(L, "qstar: out of memory");
+	}
 	if (!target->toolchain || !target->stdlib_policy || !target->cxx_standard)
 		return luaL_error(L, "qstar: out of memory");
 	return 0;
@@ -559,6 +844,10 @@ add_genrule(lua_State *L, const char *name, int table_index, const char *fragmen
 	    origin_line);
 	if (!genrule)
 		return luaL_error(L, "%s", graph->error);
+	if (legacy_field_present(L, table_index, "tool") ||
+	    legacy_field_present(L, table_index, "args"))
+		return luaL_error(L,
+		    "qstar: custom_target uses command = qstar.cli { ... }; tool/args are removed");
 	tool = check_string_field(L, table_index, "tool");
 	if (tool) {
 		free(genrule->tool);
@@ -568,9 +857,22 @@ add_genrule(lua_State *L, const char *name, int table_index, const char *fragmen
 	    genrule->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "outputs", &genrule->outputs, graph, 0,
 	    genrule->fragment_dir) < 0 ||
-	    read_list_field(L, table_index, "args", &genrule->args, graph, 0,
-	    genrule->fragment_dir) < 0)
+	    read_command_field(L, table_index, "command", &genrule->command, graph) < 0 ||
+	    resolve_cli_placeholders(graph, &genrule->command, &genrule->inputs,
+	    &genrule->outputs, "custom_target command") < 0)
 		return luaL_error(L, "%s", graph->error);
+	if (genrule->command.len == 0)
+		return luaL_error(L,
+		    "qstar: custom_target '%s' requires command = qstar.cli { ... }",
+		    genrule->label);
+	free(genrule->tool);
+	genrule->tool = qstar_strdup(genrule->command.items[0]);
+	if (!genrule->tool)
+		return luaL_error(L, "qstar: out of memory");
+	for (size_t i = 1; i < genrule->command.len; i++) {
+		if (qstar_string_list_push(&genrule->args, genrule->command.items[i]) < 0)
+			return luaL_error(L, "qstar: out of memory");
+	}
 	if (!genrule->tool)
 		return luaL_error(L, "qstar: out of memory");
 	return 0;
@@ -918,7 +1220,83 @@ qstar_lua_files(lua_State *L)
 static int
 qstar_lua_output(lua_State *L)
 {
+	lua_Integer index;
+
+	if (lua_isinteger(L, 1)) {
+		index = lua_tointeger(L, 1);
+		if (index < 0)
+			return luaL_error(L, "qstar: qstar.output index must be >= 0");
+		lua_newtable(L);
+		lua_pushstring(L, "output");
+		lua_setfield(L, -2, "__qstar_kind");
+		lua_pushinteger(L, index);
+		lua_setfield(L, -2, "index");
+		return 1;
+	}
 	lua_pushstring(L, luaL_checkstring(L, 1));
+	return 1;
+}
+
+static int
+qstar_lua_input(lua_State *L)
+{
+	lua_Integer index;
+
+	index = luaL_checkinteger(L, 1);
+	if (index < 0)
+		return luaL_error(L, "qstar: qstar.input index must be >= 0");
+	lua_newtable(L);
+	lua_pushstring(L, "input");
+	lua_setfield(L, -2, "__qstar_kind");
+	lua_pushinteger(L, index);
+	lua_setfield(L, -2, "index");
+	return 1;
+}
+
+static int
+qstar_lua_target_file(lua_State *L)
+{
+	struct qstar_lua_context *ctx;
+	const char *raw;
+	char label[QSTAR_PATH_MAX];
+
+	ctx = get_context(L);
+	raw = luaL_checkstring(L, 1);
+	if (qstar_label_canonicalize(raw, ctx->current_dir, label, sizeof(label)) < 0)
+		return luaL_error(L, "qstar: invalid target_file label '%s'", raw);
+	lua_newtable(L);
+	lua_pushstring(L, "target_file");
+	lua_setfield(L, -2, "__qstar_kind");
+	lua_pushstring(L, label);
+	lua_setfield(L, -2, "label");
+	return 1;
+}
+
+static int
+qstar_lua_cli(lua_State *L)
+{
+	size_t i, n;
+	char token[QSTAR_PATH_MAX];
+
+	luaL_checktype(L, 1, LUA_TTABLE);
+	lua_newtable(L);
+	lua_pushstring(L, "cli");
+	lua_setfield(L, -2, "__qstar_kind");
+	n = lua_rawlen(L, 1);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, 1, (lua_Integer)i);
+		if (lua_isstring(L, -1)) {
+			lua_pushvalue(L, -1);
+		} else if (lua_istable(L, -1) &&
+		    format_placeholder_token(L, -1, token, sizeof(token)) == 0) {
+			lua_pushstring(L, token);
+		} else {
+			lua_pop(L, 2);
+			return luaL_error(L, "qstar: qstar.cli contains unsupported argv item");
+		}
+		lua_rawseti(L, -3, (lua_Integer)i);
+		lua_pop(L, 1);
+	}
 	return 1;
 }
 
@@ -1181,6 +1559,12 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "write_config_header");
 	lua_pushcfunction(L, qstar_lua_output);
 	lua_setfield(L, -2, "output");
+	lua_pushcfunction(L, qstar_lua_input);
+	lua_setfield(L, -2, "input");
+	lua_pushcfunction(L, qstar_lua_target_file);
+	lua_setfield(L, -2, "target_file");
+	lua_pushcfunction(L, qstar_lua_cli);
+	lua_setfield(L, -2, "cli");
 	lua_pushcfunction(L, qstar_lua_identity_table);
 	lua_setfield(L, -2, "modules");
 	lua_pushcfunction(L, qstar_lua_files);

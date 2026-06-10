@@ -37,9 +37,12 @@ static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 	{ "qstar.custom_target", "Create a package-local generated action." },
 	{ "qstar.run_target", "Declare a named external run action." },
 	{ "qstar.configure_file", "Generate a deterministic config header or configured file." },
+	{ "qstar.cli", "Build an argv-vector command for custom_target or run_target." },
+	{ "qstar.input", "Reference a custom_target input by index inside qstar.cli." },
 	{ "qstar.subdir", "Load a canonical subdir fragment named <folder>.qs." },
 	{ "qstar.files", "Return an explicit file list for target fields." },
-	{ "qstar.output", "Declare a generated output path under generated/." },
+	{ "qstar.output", "Declare a generated output path, or reference an output by index inside qstar.cli." },
+	{ "qstar.target_file", "Reference another target artifact path inside qstar.cli." },
 };
 
 static const struct qstar_lsp_hover_entry qstar_lsp_fields[] = {
@@ -64,6 +67,9 @@ static const struct qstar_lsp_hover_entry qstar_lsp_fields[] = {
 	{ "preprocess", "Assembly preprocessing switch under lang.asm.preprocess." },
 	{ "hcl_include_dirs", "Cale HCL include directories under lang.cale." },
 	{ "profile", "Cale language profile under lang.cale.profile." },
+	{ "command", "argv-vector command built with qstar.cli." },
+	{ "timeout", "run_target timeout in seconds." },
+	{ "marker", "run_target stdout marker string." },
 	{ "visibility", "Package visibility patterns that may depend on this target." },
 	{ "toolchain", "Toolchain profile name for this target." },
 	{ "libs", "System libraries rendered by the selected target profile." },

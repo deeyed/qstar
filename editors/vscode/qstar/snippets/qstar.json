@@ -37,10 +37,9 @@
     "prefix": "qcustom",
     "body": [
       "qstar.custom_target \"${1:generate}\" {",
-      "  tool = \"${2:tools/generate.sh}\",",
       "  inputs = {\"${3:input.txt}\"},",
       "  outputs = {qstar.output(\"${4:generated/output.c}\")},",
-      "  args = {qstar.output(\"${4:generated/output.c}\")},",
+      "  command = qstar.cli {\"${2:tools/generate.sh}\", qstar.input(0), qstar.output(0)},",
       "}"
     ],
     "description": "Create a QStar generated action."
@@ -54,6 +53,18 @@
       "}"
     ],
     "description": "Create a generated config header."
+  },
+  "Run target": {
+    "prefix": "qrun",
+    "body": [
+      "qstar.run_target \"${1:smoke}\" {",
+      "  deps = {\"${2://:app}\"},",
+      "  command = qstar.cli {qstar.target_file(\"${2://:app}\")},",
+      "  timeout = ${3:5},",
+      "  marker = \"${4:OK}\",",
+      "}"
+    ],
+    "description": "Create an external run target."
   },
   "Subdir fragment": {
     "prefix": "qsubdir",

@@ -672,6 +672,21 @@ dump_genrule_argv(FILE *out, const struct qstar_genrule *genrule)
 	end_argv(out, &dump);
 }
 
+/** run_target command argv plan을 출력한다. */
+static void
+dump_run_argv(FILE *out, const struct qstar_target *target)
+{
+	struct qstar_argv_dump dump;
+	char id[QSTAR_PATH_MAX];
+	size_t i;
+
+	snprintf(id, sizeof(id), "%s:run:0", target->label);
+	begin_argv(out, &dump, id, target->run_command.len, NULL);
+	for (i = 0; i < target->run_command.len; i++)
+		argv_item(out, &dump, target->run_command.items[i]);
+	end_argv(out, &dump);
+}
+
 /** target final action의 실제 argv plan을 출력한다. */
 static void
 dump_final_argv(FILE *out, const struct qstar_target *target,
@@ -939,6 +954,21 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	fprintf(out, "  cxx_standard %s\n", target->cxx_standard);
 	fprintf(out, "  toolchain %s\n", target->toolchain);
 	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
+	if (strcmp(target->kind, "run_target") == 0) {
+		fputs("  run.command ", out);
+		dump_list(out, &target->run_command);
+		fputc('\n', out);
+		fprintf(out, "  run.timeout_sec %d\n", target->run_timeout_sec);
+		fprintf(out, "  run.marker %s\n",
+		    target->run_marker && *target->run_marker ? target->run_marker : "<none>");
+		fprintf(out, "  action run output=.qstar/out/<run-stamp>\n");
+		dump_action_key(out, plan->graph, target, "run", "<run-command>",
+		    ".qstar/out/<run-stamp>", "generic", 0);
+		dump_command_skeleton(out, plan->graph, target, "run", "<run-command>",
+		    ".qstar/out/<run-stamp>", "generic", "cli", 0);
+		dump_run_argv(out, target);
+		return 0;
+	}
 	if (dump_resolved_toolchain(out, plan, target, &toolchain) < 0)
 		return -1;
 	for (i = 0; i < target->sources.len; i++) {
@@ -1099,6 +1129,14 @@ qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out)
 		    qstar_target_output_group(plan.order[i]));
 		{
 		struct qstar_resolved_toolchain toolchain;
+		if (strcmp(plan.order[i]->kind, "run_target") == 0) {
+			fprintf(out,
+			    "  dry_run_step id=%s:run:0 owner=%s kind=run tool=cli "
+			    "input=<deps> output=.qstar/out/<run-stamp> execute=no\n",
+			    plan.order[i]->label, plan.order[i]->label);
+			dump_run_argv(out, plan.order[i]);
+			continue;
+		}
 		if (dump_resolved_toolchain(out, &plan, plan.order[i], &toolchain) < 0) {
 			free_plan(&plan);
 			return -1;

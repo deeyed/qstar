@@ -81,7 +81,7 @@
       "patterns": [
         {
           "name": "support.function.qstar",
-          "match": "\\bqstar\\.(executable|staticlib|sharedlib|test|custom_target|run_target|configure_file|subdir|files|output|modules|select|join|incompatible)\\b"
+          "match": "\\bqstar\\.(executable|staticlib|sharedlib|test|custom_target|run_target|configure_file|cli|input|output|target_file|subdir|files|modules|select|join|incompatible)\\b"
         }
       ]
     },
@@ -89,7 +89,7 @@
       "patterns": [
         {
           "name": "variable.parameter.qstar",
-          "match": "\\b(sources|deps|public_deps|private_deps|public_headers|private_headers|lang|c|cxx|asm|cale|include_dirs|public_include_dirs|private_include_dirs|system_include_dirs|compile_options|defines|standard|preprocess|hcl_include_dirs|profile|visibility|toolchain|stdlib|libs|lib_dirs|frameworks|outputs|inputs|args|output|root|include|exclude)\\b(?=\\s*=)"
+          "match": "\\b(sources|deps|public_deps|private_deps|public_headers|private_headers|lang|c|cxx|asm|cale|include_dirs|public_include_dirs|private_include_dirs|system_include_dirs|compile_options|defines|standard|preprocess|hcl_include_dirs|profile|visibility|toolchain|stdlib|libs|lib_dirs|frameworks|outputs|inputs|command|timeout|marker|output|root|include|exclude)\\b(?=\\s*=)"
         }
       ]
     },

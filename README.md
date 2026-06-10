@@ -17,7 +17,8 @@ QStar의 목적은 Cale package graph를 deterministic하게 평가하는 것이
 ## v0.2 authoring surface
 
 Round 47부터 QStar v0.2 authoring surface는 hard cut이다. 새 project는 다음 API만
-정본으로 사용한다.
+정본으로 사용한다. Round 48부터 generated/external command는 shell string이 아니라
+`qstar.cli { ... }` argv-vector로 표현한다.
 
 ```lua
 qstar.executable "app" { ... }
@@ -45,6 +46,25 @@ qstar.staticlib "core" {
       defines = {"CORE_BUILD=1"},
     },
   },
+}
+```
+
+```lua
+qstar.custom_target "generated_value" {
+  inputs = {"tools/value.txt"},
+  outputs = {qstar.output("generated/value.c")},
+  command = qstar.cli {
+    "tools/gen-value.sh",
+    qstar.input(0),
+    qstar.output(0),
+  },
+}
+
+qstar.run_target "smoke" {
+  deps = {"//:app"},
+  command = qstar.cli {qstar.target_file("//:app")},
+  timeout = 5,
+  marker = "OK",
 }
 ```
 

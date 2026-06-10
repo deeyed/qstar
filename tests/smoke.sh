@@ -141,8 +141,8 @@ qstar.configure_file "cfg" {
 }
 
 qstar.custom_target "gen" {
-  tool = "tools/gen.sh",
   outputs = {qstar.output("generated/gen.c")},
+  command = qstar.cli {"tools/gen.sh", qstar.output(0)},
 }
 
 qstar.subdir("lib")
@@ -161,7 +161,7 @@ lsp_nav_lib_uri="file://$tmp/lsp-nav/lib/lib.qs"
 lsp_nav_app_uri="file://$tmp/lsp-nav/app/app.qs"
 {
 	send_lsp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
-	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_nav_root_uri"'","languageId":"qstar","version":1,"text":"qstar.configure_file \"cfg\" {\n  output = qstar.output(\"generated/cfg.h\"),\n  defines = {\"HAVE_CFG\"},\n}\n\nqstar.custom_target \"gen\" {\n  tool = \"tools/gen.sh\",\n  outputs = {qstar.output(\"generated/gen.c\")},\n}\n\nqstar.subdir(\"lib\")\nqstar.subdir(\"app\")\n"}}}'
+	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_nav_root_uri"'","languageId":"qstar","version":1,"text":"qstar.configure_file \"cfg\" {\n  output = qstar.output(\"generated/cfg.h\"),\n  defines = {\"HAVE_CFG\"},\n}\n\nqstar.custom_target \"gen\" {\n  outputs = {qstar.output(\"generated/gen.c\")},\n  command = qstar.cli {\"tools/gen.sh\", qstar.output(0)},\n}\n\nqstar.subdir(\"lib\")\nqstar.subdir(\"app\")\n"}}}'
 	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_nav_lib_uri"'","languageId":"qstar","version":1,"text":"qstar.staticlib \"core\" {}\n"}}}'
 	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_nav_app_uri"'","languageId":"qstar","version":1,"text":"qstar.executable \"app\" {\n  deps = {\"//lib:core\"},\n}\n"}}}'
 	send_lsp '{"jsonrpc":"2.0","id":2,"method":"textDocument/definition","params":{"textDocument":{"uri":"'"$lsp_nav_app_uri"'"},"position":{"line":1,"character":14}}}'
@@ -438,6 +438,44 @@ if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-cxx-standard.out" 
 	fail "top-level cxx_standard unexpectedly succeeded"
 fi
 contains "$tmp/old-cxx-standard.err" "top-level cxx_standard is not allowed; use lang.cxx.standard"
+cat > "$tmp/old-api/qstar.lua" <<'EOF'
+qstar.custom_target "g" {
+  tool = "tools/gen.sh",
+  outputs = {qstar.output("generated/g.c")},
+}
+EOF
+if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-custom-tool.out" 2> "$tmp/old-custom-tool.err"; then
+	fail "custom_target tool syntax unexpectedly succeeded"
+fi
+contains "$tmp/old-custom-tool.err" "command = qstar.cli"
+cat > "$tmp/old-api/qstar.lua" <<'EOF'
+qstar.executable "app" {
+  sources = {"src/main.c"},
+  lang = {
+    rust = {
+      include_dirs = {"include"},
+    },
+  },
+}
+EOF
+if "$qstar" --file "$tmp/old-api/qstar.lua" lint --format json > "$tmp/lang-rust.out" 2> "$tmp/lang-rust.err"; then
+	fail "unknown lang namespace unexpectedly succeeded"
+fi
+contains "$tmp/lang-rust.out" "unknown language namespace lang.rust"
+cat > "$tmp/old-api/qstar.lua" <<'EOF'
+qstar.executable "app" {
+  sources = {"src/main.c"},
+  lang = {
+    c = {
+      unknown_option = true,
+    },
+  },
+}
+EOF
+if "$qstar" --file "$tmp/old-api/qstar.lua" lint --format json > "$tmp/lang-c-field.out" 2> "$tmp/lang-c-field.err"; then
+	fail "unknown lang.c field unexpectedly succeeded"
+fi
+contains "$tmp/lang-c-field.out" "unknown field lang.c.unknown_option"
 
 mkdir -p "$tmp/lint-header-source/include" "$tmp/lint-header-source/src"
 cat > "$tmp/lint-header-source/include/app.h" <<'EOF'
@@ -570,13 +608,13 @@ contains "$tmp/lint-visibility.out" "invalid visibility pattern"
 mkdir -p "$tmp/lint-output-collision"
 cat > "$tmp/lint-output-collision/qstar.lua" <<'EOF'
 qstar.custom_target "one" {
-  tool = "tools/gen.sh",
   outputs = {qstar.output("generated/same.c")},
+  command = qstar.cli {"tools/gen.sh", qstar.output(0)},
 }
 
 qstar.custom_target "two" {
-  tool = "tools/gen.sh",
   outputs = {qstar.output("generated/same.c")},
+  command = qstar.cli {"tools/gen.sh", qstar.output(0)},
 }
 EOF
 if "$qstar" --file "$tmp/lint-output-collision/qstar.lua" lint --format json > "$tmp/lint-output-collision.out" 2> "$tmp/lint-output-collision.err"; then
@@ -615,9 +653,8 @@ qstar.configure_file "cfg" {
 }
 
 qstar.custom_target "make_value" {
-  tool = "tools/gen-value.sh",
   outputs = {qstar.output("generated/value.c")},
-  args = {"generated/value.c"},
+  command = qstar.cli {"tools/gen-value.sh", qstar.output(0)},
 }
 
 qstar.executable "genapp" {
@@ -628,6 +665,18 @@ qstar.executable "genapp" {
       include_dirs = {"generated"},
     },
   },
+}
+
+qstar.run_target "smoke" {
+  deps = {"//:genapp"},
+  command = qstar.cli {qstar.target_file("//:genapp")},
+  timeout = 5,
+}
+
+qstar.run_target "marker" {
+  command = qstar.cli {"printf", "QSTAR-MARKER\n"},
+  timeout = 5,
+  marker = "QSTAR-MARKER",
 }
 EOF
 
@@ -644,6 +693,12 @@ contains "$tmp/generated-first.out" "status ok"
 test -f "$tmp/generated/config.h" || fail "missing generated config header"
 test -f "$tmp/generated/value.c" || fail "missing generated source"
 contains "$tmp/generated/config.h" "#define APP_VALUE 41"
+"$qstar" --file "$tmp/qstar.lua" build //:smoke > "$tmp/run-target-smoke.out" 2> "$tmp/run-target-smoke.err"
+contains "$tmp/run-target-smoke.out" "run_target label=//:smoke command=argv"
+contains "$tmp/run-target-smoke.out" "status ok"
+"$qstar" --file "$tmp/qstar.lua" build //:marker > "$tmp/run-target-marker.out" 2> "$tmp/run-target-marker.err"
+contains "$tmp/run-target-marker.out" "run_marker label=//:marker status=matched"
+contains "$tmp/run-target-marker.out" "status ok"
 
 cat > "$tmp/qstar.lua" <<'EOF'
 qstar.configure_file "cfg" {
@@ -652,9 +707,8 @@ qstar.configure_file "cfg" {
 }
 
 qstar.custom_target "make_value" {
-  tool = "tools/gen-value.sh",
   outputs = {qstar.output("generated/value.c")},
-  args = {"generated/value.c"},
+  command = qstar.cli {"tools/gen-value.sh", qstar.output(0)},
 }
 
 qstar.executable "genapp" {
@@ -675,15 +729,13 @@ contains "$tmp/generated/config.h" "#define APP_VALUE 42"
 
 cat > "$tmp/qstar.lua" <<'EOF'
 qstar.custom_target "one" {
-  tool = "tools/gen-value.sh",
   outputs = {qstar.output("generated/collision.c")},
-  args = {"generated/collision.c"},
+  command = qstar.cli {"tools/gen-value.sh", qstar.output(0)},
 }
 
 qstar.custom_target "two" {
-  tool = "tools/gen-value.sh",
   outputs = {qstar.output("generated/collision.c")},
-  args = {"generated/collision.c"},
+  command = qstar.cli {"tools/gen-value.sh", qstar.output(0)},
 }
 EOF
 
@@ -694,9 +746,8 @@ contains "$tmp/collision.err" "multiple producers"
 
 cat > "$tmp/qstar.lua" <<'EOF'
 qstar.custom_target "bad_out" {
-  tool = "tools/gen-value.sh",
   outputs = {qstar.output("../bad.c")},
-  args = {"../bad.c"},
+  command = qstar.cli {"tools/gen-value.sh", qstar.output(0)},
 }
 EOF
 
@@ -707,9 +758,8 @@ contains "$tmp/outside.err" "must be package-relative"
 
 cat > "$tmp/qstar.lua" <<'EOF'
 qstar.custom_target "bad_arg" {
-  tool = "tools/gen-value.sh",
   outputs = {qstar.output("generated/safe.c")},
-  args = {"../escape.c"},
+  command = qstar.cli {"tools/gen-value.sh", "../escape.c"},
 }
 
 qstar.executable "bad_gen" {
@@ -1222,6 +1272,19 @@ test -f "$tmp/project-multipkg-prefix/include/core.h" || fail "multipkg corpus h
 contains "$tmp/project-multipkg/.qstar/install/manifest.json" "\"schema\":\"qstar-install-manifest-v2\""
 contains "$tmp/project-multipkg/compile_commands.json" "lib/src/core.c"
 contains "$tmp/project-multipkg/compile_commands.json" "app/src/main.c"
+
+cp -R "$project_root/source-dir-style" "$tmp/project-source-dir"
+"$qstar" --file "$tmp/project-source-dir/qstar.lua" lint //... > "$tmp/project-source-dir-lint.out" 2> "$tmp/project-source-dir-lint.err"
+contains "$tmp/project-source-dir-lint.out" "status ok"
+"$qstar" --file "$tmp/project-source-dir/qstar.lua" explain //app/src:app > "$tmp/project-source-dir-explain.out" 2> "$tmp/project-source-dir-explain.err"
+contains "$tmp/project-source-dir-explain.out" "closure-order [//lib/src:core, //app/src:app]"
+"$qstar" --file "$tmp/project-source-dir/qstar.lua" dry-run //app/src:app > "$tmp/project-source-dir-dry.out" 2> "$tmp/project-source-dir-dry.err"
+contains "$tmp/project-source-dir-dry.out" "dry_run_target //app/src:app"
+"$qstar" --file "$tmp/project-source-dir/qstar.lua" build //app/src:app > "$tmp/project-source-dir-build.out" 2> "$tmp/project-source-dir-build.err"
+contains "$tmp/project-source-dir-build.out" "status ok"
+"$tmp/project-source-dir/.qstar/out/__app_src_app/app"
+contains "$tmp/project-source-dir/compile_commands.json" "lib/src/core.c"
+contains "$tmp/project-source-dir/compile_commands.json" "app/src/main.c"
 
 contains "../docs/qstar/qstar-v0-seal.md" "qstar/tests/manual/c-only"
 contains "../docs/qstar/qstar-v0-seal.md" "qstar/tests/manual/generated"

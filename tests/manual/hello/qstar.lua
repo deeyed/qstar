@@ -1,16 +1,16 @@
 qstar.subdir("src/foo")
 
 qstar.custom_target "version" {
-    tool = "version-gen",
     inputs = {
         "VERSION",
     },
     outputs = {
         qstar.output("generated/version.c"),
     },
-    args = {
+    command = qstar.cli {
+        "version-gen",
         "--in", "VERSION",
-        "--out", qstar.output("generated/version.c"),
+        "--out", qstar.output(0),
     },
 }
 

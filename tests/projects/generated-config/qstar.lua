@@ -4,9 +4,8 @@ qstar.configure_file "cfg" {
 }
 
 qstar.custom_target "generated_source" {
-  tool = "tools/gen-value.sh",
   outputs = {qstar.output("generated/value.c")},
-  args = {"generated/value.c"},
+  command = qstar.cli {"tools/gen-value.sh", qstar.output(0)},
 }
 
 qstar.executable "app" {
