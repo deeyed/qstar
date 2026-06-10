@@ -387,6 +387,18 @@ Round 52부터 `qstar.custom_target`의 첫 argv는 external tool policy를 따�
 `command = qstar.cli { "llvm-objcopy", ... }`로 유지하면서 profile별 실제 실행 tool을
 바꾼다. `qstar doctor`는 allowlist tool의 PATH discovery와 override 상태를 출력한다.
 
+Round 53부터 `qstar.output(path, metadata)`는 ELF에서 raw image를 만들거나 boot
+artifact를 분류하는 generated artifact identity를 표현한다. 예를 들어
+`qstar.output("generated/kernel8.img", {format = "raw-binary", address = "0x80000",
+layout = "rpi5-kernel8"})`는 `images/raw-binary` 산출물로 분류되고, identity에는
+path뿐 아니라 group/format/address/layout metadata가 포함된다. QStar는 이 metadata로
+`llvm-objcopy` command를 자동 생성하지 않는다. 변환은 여전히
+`qstar.custom_target`의 `command = qstar.cli { "llvm-objcopy", "-O", "binary", ... }`
+가 수행한다. 같은 package에서 같은 group/format/address/layout을 가진 generated
+artifact가 둘 이상 있으면 collision으로 거절한다. `qstar build //:image_rule`처럼
+generated action label을 직접 빌드할 수 있고, `qstar.target_file("//:image_rule")`는
+그 action의 첫 output path로 해석된다.
+
 Command rendering은 shell string이 아니라 argv-vector가 canonical이다. Explain/dry-run
 dump는 argv item을 quoting하고 deterministic `digest=`를 붙인다. 긴 command에는
 `response=skeleton response_file=.qstar/rsp/... response_style=... response_digest=...`를

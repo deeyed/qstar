@@ -2129,4 +2129,145 @@ contains "$tmp/windows-dry.out" "/link"
 contains "$tmp/windows-dry.out" "/LIBPATH:win lib"
 contains "$tmp/windows-dry.out" "user32.lib"
 
+mkdir -p "$tmp/artifact/tools" "$tmp/artifact/fixtures"
+cat > "$tmp/artifact/tools/fake-objcopy.sh" <<'EOF'
+#!/bin/sh
+set -eu
+fmt=
+in=
+out=
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		-O)
+			shift
+			fmt=$1
+			;;
+		*)
+			if [ -z "${in:-}" ]; then
+				in=$1
+			else
+				out=$1
+			fi
+			;;
+	esac
+	shift
+done
+test "$fmt" = binary
+test -n "$in"
+test -n "$out"
+mkdir -p "$(dirname "$out")"
+cp "$in" "$out"
+EOF
+chmod +x "$tmp/artifact/tools/fake-objcopy.sh"
+cat > "$tmp/artifact/fixtures/kernel.elf" <<'EOF'
+ELF-STUB
+payload
+EOF
+cat > "$tmp/artifact/Cale.toml" <<'EOF'
+profile = "boot"
+
+[profile.boot]
+tool_overrides = ["llvm-objcopy=tools/fake-objcopy.sh"]
+EOF
+cat > "$tmp/artifact/qstar.lua" <<'EOF'
+qstar.custom_target "kernel_img" {
+  inputs = {"fixtures/kernel.elf"},
+  outputs = {
+    qstar.output("generated/kernel8.img", {
+      group = "images",
+      format = "raw-binary",
+      address = "0x80000",
+      layout = "rpi5-kernel8",
+    }),
+  },
+  command = qstar.cli {
+    "llvm-objcopy",
+    "-O",
+    "binary",
+    qstar.input(0),
+    qstar.output(0),
+  },
+}
+
+qstar.run_target "smoke" {
+  command = qstar.cli {"tools/fake-objcopy.sh", "-O", "binary", qstar.target_file("//:kernel_img"), "generated/copy.img"},
+}
+EOF
+"$qstar" --file "$tmp/artifact/qstar.lua" check //:kernel_img > "$tmp/artifact-check.out" 2> "$tmp/artifact-check.err"
+contains "$tmp/artifact-check.out" "generated-action-count 1"
+"$qstar" --file "$tmp/artifact/qstar.lua" explain //:kernel_img > "$tmp/artifact-explain.out" 2> "$tmp/artifact-explain.err"
+contains "$tmp/artifact-explain.out" "plan_generated_action //:kernel_img"
+contains "$tmp/artifact-explain.out" "generated_artifact output=generated/kernel8.img group=images format=raw-binary address=0x80000 layout=rpi5-kernel8"
+contains "$tmp/artifact-explain.out" "identity=generated/kernel8.img|group=images|format=raw-binary|address=0x80000|layout=rpi5-kernel8"
+"$qstar" --file "$tmp/artifact/qstar.lua" dry-run //:kernel_img > "$tmp/artifact-dry.out" 2> "$tmp/artifact-dry.err"
+contains "$tmp/artifact-dry.out" "dry_run_generated_action //:kernel_img"
+contains "$tmp/artifact-dry.out" "tool=llvm-objcopy tool_mode=override-package resolved_tool=tools/fake-objcopy.sh"
+contains "$tmp/artifact-dry.out" "argv=[tools/fake-objcopy.sh, -O, binary, fixtures/kernel.elf, generated/kernel8.img]"
+"$qstar" --file "$tmp/artifact/qstar.lua" build //:kernel_img > "$tmp/artifact-build.out" 2> "$tmp/artifact-build.err"
+contains "$tmp/artifact-build.out" "build_generated_action //:kernel_img"
+contains "$tmp/artifact-build.out" "output_identity=[generated/kernel8.img|group=images|format=raw-binary|address=0x80000|layout=rpi5-kernel8]"
+contains "$tmp/artifact-build.out" "status ok"
+test -f "$tmp/artifact/generated/kernel8.img" || fail "missing generated raw image artifact"
+cmp "$tmp/artifact/fixtures/kernel.elf" "$tmp/artifact/generated/kernel8.img" >/dev/null || fail "raw image artifact content drifted"
+contains "$tmp/artifact/.qstar/state/graph.json" "\"output_artifacts\""
+contains "$tmp/artifact/.qstar/state/graph.json" "\"format\":\"raw-binary\""
+contains "$tmp/artifact/.qstar/state/actions.json" "\"output\":\"generated/kernel8.img\""
+contains "$tmp/artifact/.qstar/logs/___kernel_img_generate_0.log" "argv[0]=tools/fake-objcopy.sh"
+"$qstar" --file "$tmp/artifact/qstar.lua" build //:smoke > "$tmp/artifact-smoke.out" 2> "$tmp/artifact-smoke.err"
+contains "$tmp/artifact-smoke.out" "run_target label=//:smoke"
+test -f "$tmp/artifact/generated/copy.img" || fail "target_file generated artifact path was not consumed"
+"$qstar" --file "$tmp/artifact/qstar.lua" list-targets --format json > "$tmp/artifact-targets-json.out" 2> "$tmp/artifact-targets-json.err"
+contains "$tmp/artifact-targets-json.out" "\"output_artifacts\""
+contains "$tmp/artifact-targets-json.out" "\"group\":\"images\""
+contains "$tmp/artifact-targets-json.out" "\"format\":\"raw-binary\""
+
+mkdir -p "$tmp/artifact-collision/tools" "$tmp/artifact-collision/fixtures"
+cp "$tmp/artifact/tools/fake-objcopy.sh" "$tmp/artifact-collision/tools/fake-objcopy.sh"
+cp "$tmp/artifact/fixtures/kernel.elf" "$tmp/artifact-collision/fixtures/kernel.elf"
+cat > "$tmp/artifact-collision/Cale.toml" <<'EOF'
+profile = "boot"
+
+[profile.boot]
+tool_overrides = ["llvm-objcopy=tools/fake-objcopy.sh"]
+EOF
+cat > "$tmp/artifact-collision/qstar.lua" <<'EOF'
+qstar.custom_target "one" {
+  inputs = {"fixtures/kernel.elf"},
+  outputs = {qstar.output("generated/one.img", {format = "raw-binary", address = "0x80000", layout = "rpi5-kernel8"})},
+  command = qstar.cli {"llvm-objcopy", "-O", "binary", qstar.input(0), qstar.output(0)},
+}
+
+qstar.custom_target "two" {
+  inputs = {"fixtures/kernel.elf"},
+  outputs = {qstar.output("generated/two.img", {group = "images", format = "raw-binary", address = "0x80000", layout = "rpi5-kernel8"})},
+  command = qstar.cli {"llvm-objcopy", "-O", "binary", qstar.input(0), qstar.output(0)},
+}
+EOF
+if "$qstar" --file "$tmp/artifact-collision/qstar.lua" check > "$tmp/artifact-collision.out" 2> "$tmp/artifact-collision.err"; then
+	fail "duplicate artifact identity unexpectedly succeeded"
+fi
+contains "$tmp/artifact-collision.err" "generated artifact identity group=images format=raw-binary address=0x80000 layout=rpi5-kernel8 has multiple outputs"
+
+mkdir -p "$tmp/artifact-badmeta"
+cat > "$tmp/artifact-badmeta/qstar.lua" <<'EOF'
+qstar.custom_target "bad" {
+  outputs = {qstar.output("generated/bad.img", {unknown = "x"})},
+  command = qstar.cli {"tools/fake.sh", qstar.output(0)},
+}
+EOF
+if "$qstar" --file "$tmp/artifact-badmeta/qstar.lua" check > "$tmp/artifact-badmeta.out" 2> "$tmp/artifact-badmeta.err"; then
+	fail "unknown artifact metadata unexpectedly succeeded"
+fi
+contains "$tmp/artifact-badmeta.err" "unknown qstar.output metadata field 'unknown'"
+cat > "$tmp/artifact-badmeta/qstar.lua" <<'EOF'
+qstar.custom_target "bad" {
+  outputs = {qstar.output("generated/bad.img", {format = true})},
+  command = qstar.cli {"tools/fake.sh", qstar.output(0)},
+}
+EOF
+if "$qstar" --file "$tmp/artifact-badmeta/qstar.lua" check > "$tmp/artifact-badmeta-type.out" 2> "$tmp/artifact-badmeta-type.err"; then
+	fail "non-string artifact metadata unexpectedly succeeded"
+fi
+contains "$tmp/artifact-badmeta-type.err" "qstar.output metadata field 'format' must be a string"
+
 echo "qstar-smoke: passed"

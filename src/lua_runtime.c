@@ -4,6 +4,7 @@
 #include "lauxlib.h"
 #include "lualib.h"
 
+#include <ctype.h>
 #include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -83,6 +84,25 @@ qstar_table_kind(lua_State *L, int idx)
 	kind = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
 	lua_pop(L, 1);
 	return kind;
+}
+
+/** qstar.output(path, metadata)가 넘긴 output path table에서 path를 읽는다. */
+static const char *
+output_path_table_path(lua_State *L, int idx)
+{
+	const char *path;
+
+	if (idx < 0)
+		idx = lua_gettop(L) + idx + 1;
+	if (!lua_istable(L, idx))
+		return NULL;
+	if (!qstar_table_kind(L, idx) ||
+	    strcmp(qstar_table_kind(L, idx), "output_path") != 0)
+		return NULL;
+	lua_getfield(L, idx, "path");
+	path = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+	lua_pop(L, 1);
+	return path;
 }
 
 /** QStar Lua helper가 넘긴 placeholder table을 argv token 문자열로 변환한다. */
@@ -203,6 +223,12 @@ push_table_strings(lua_State *L, int idx, struct qstar_string_list *list, struct
 					lua_pop(L, 1);
 					return qstar_set_error(graph, "qstar: out of memory");
 				}
+			} else if (kind && strcmp(kind, "output_path") == 0) {
+				s = output_path_table_path(L, -1);
+				if (!s || qstar_string_list_push(list, s) < 0) {
+					lua_pop(L, 1);
+					return qstar_set_error(graph, "qstar: out of memory");
+				}
 			} else {
 				lua_pop(L, 1);
 				return qstar_set_error(graph, "qstar: field '%s' contains non-string item", field);
@@ -254,6 +280,141 @@ legacy_field_present(lua_State *L, int table, const char *field)
 	present = !lua_isnil(L, -1);
 	lua_pop(L, 1);
 	return present;
+}
+
+/** output artifact metadata token이 deterministic identity에 안전한지 확인한다. */
+static int
+valid_output_metadata_token(const char *s)
+{
+	const unsigned char *p;
+
+	if (!s || !*s)
+		return 1;
+	for (p = (const unsigned char *)s; *p; p++) {
+		if (!(isalnum(*p) || *p == '_' || *p == '-' || *p == '.' ||
+		    *p == ':' || *p == '+' || *p == '=' || *p == 'x'))
+			return 0;
+	}
+	return 1;
+}
+
+/** qstar.output metadata table에 알 수 없는 field와 비문자열 값을 검사한다. */
+static int
+validate_output_metadata_fields(lua_State *L, int table, struct qstar_graph *graph)
+{
+	const char *key;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_pushnil(L);
+	while (lua_next(L, table) != 0) {
+		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (!key || (strcmp(key, "group") != 0 &&
+		    strcmp(key, "output_group") != 0 && strcmp(key, "format") != 0 &&
+		    strcmp(key, "address") != 0 && strcmp(key, "layout") != 0)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph,
+			    "qstar: unknown qstar.output metadata field '%s'",
+			    key ? key : "<non-string>");
+		}
+		if (!lua_isstring(L, -1)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph,
+			    "qstar: qstar.output metadata field '%s' must be a string",
+			    key);
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+/** generated output path와 metadata를 genrule parallel lists에 추가한다. */
+static int
+push_genrule_output(lua_State *L, int idx, struct qstar_genrule *genrule,
+    struct qstar_graph *graph)
+{
+	const char *path, *group, *format, *address, *layout;
+	const char *kind;
+
+	if (idx < 0)
+		idx = lua_gettop(L) + idx + 1;
+	group = "";
+	format = "";
+	address = "";
+	layout = "";
+	if (lua_isstring(L, idx)) {
+		path = lua_tostring(L, idx);
+	} else if (lua_istable(L, idx)) {
+		kind = qstar_table_kind(L, idx);
+		if (!kind || strcmp(kind, "output_path") != 0)
+			return qstar_set_error(graph,
+			    "qstar: field 'outputs' contains non-output item");
+		path = output_path_table_path(L, idx);
+		lua_getfield(L, idx, "group");
+		group = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+		lua_pop(L, 1);
+		if (!*group) {
+			lua_getfield(L, idx, "output_group");
+			group = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+			lua_pop(L, 1);
+		}
+		lua_getfield(L, idx, "format");
+		format = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+		lua_pop(L, 1);
+		lua_getfield(L, idx, "address");
+		address = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+		lua_pop(L, 1);
+		lua_getfield(L, idx, "layout");
+		layout = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+		lua_pop(L, 1);
+	} else {
+		return qstar_set_error(graph, "qstar: field 'outputs' contains non-string item");
+	}
+	if (!path || !*path)
+		return qstar_set_error(graph, "qstar: generated output path is empty");
+	if (!valid_output_metadata_token(group) || !valid_output_metadata_token(format) ||
+	    !valid_output_metadata_token(address) || !valid_output_metadata_token(layout))
+		return qstar_set_error(graph,
+		    "qstar: generated output metadata for '%s' contains unsupported characters",
+		    path);
+	if (qstar_string_list_push(&genrule->outputs, path) < 0 ||
+	    qstar_string_list_push(&genrule->output_groups, group) < 0 ||
+	    qstar_string_list_push(&genrule->output_formats, format) < 0 ||
+	    qstar_string_list_push(&genrule->output_addresses, address) < 0 ||
+	    qstar_string_list_push(&genrule->output_layouts, layout) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	return 0;
+}
+
+/** custom_target outputs field를 qstar.output metadata까지 포함해 읽는다. */
+static int
+read_outputs_field(lua_State *L, int table, struct qstar_genrule *genrule,
+    struct qstar_graph *graph)
+{
+	size_t i, n;
+	int rc;
+
+	lua_getfield(L, table, "outputs");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: field 'outputs' must be a list");
+	}
+	n = lua_rawlen(L, -1);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, -1, (lua_Integer)i);
+		rc = push_genrule_output(L, -1, genrule, graph);
+		lua_pop(L, 1);
+		if (rc < 0) {
+			lua_pop(L, 1);
+			return -1;
+		}
+	}
+	lua_pop(L, 1);
+	return 0;
 }
 
 static int
@@ -863,8 +1024,7 @@ add_genrule(lua_State *L, const char *name, int table_index, const char *fragmen
 	}
 	if (read_list_field(L, table_index, "inputs", &genrule->inputs, graph, 0,
 	    genrule->fragment_dir) < 0 ||
-	    read_list_field(L, table_index, "outputs", &genrule->outputs, graph, 0,
-	    genrule->fragment_dir) < 0 ||
+	    read_outputs_field(L, table_index, genrule, graph) < 0 ||
 	    read_command_field(L, table_index, "command", &genrule->command, graph) < 0 ||
 	    resolve_cli_placeholders(graph, &genrule->command, &genrule->inputs,
 	    &genrule->outputs, "custom_target command") < 0)
@@ -1228,7 +1388,9 @@ qstar_lua_files(lua_State *L)
 static int
 qstar_lua_output(lua_State *L)
 {
+	struct qstar_lua_context *ctx;
 	lua_Integer index;
+	const char *path, *group, *format, *address, *layout;
 
 	if (lua_isinteger(L, 1)) {
 		index = lua_tointeger(L, 1);
@@ -1241,7 +1403,49 @@ qstar_lua_output(lua_State *L)
 		lua_setfield(L, -2, "index");
 		return 1;
 	}
-	lua_pushstring(L, luaL_checkstring(L, 1));
+	path = luaL_checkstring(L, 1);
+	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
+		lua_pushstring(L, path);
+		return 1;
+	}
+	ctx = get_context(L);
+	luaL_checktype(L, 2, LUA_TTABLE);
+	if (validate_output_metadata_fields(L, 2, ctx->graph) < 0)
+		return luaL_error(L, "%s", ctx->graph->error);
+	group = check_string_field(L, 2, "group");
+	if (!group || !*group)
+		group = check_string_field(L, 2, "output_group");
+	format = check_string_field(L, 2, "format");
+	address = check_string_field(L, 2, "address");
+	layout = check_string_field(L, 2, "layout");
+	if ((group && !valid_output_metadata_token(group)) ||
+	    (format && !valid_output_metadata_token(format)) ||
+	    (address && !valid_output_metadata_token(address)) ||
+	    (layout && !valid_output_metadata_token(layout)))
+		return luaL_error(L,
+		    "qstar: generated output metadata for '%s' contains unsupported characters",
+		    path);
+	lua_newtable(L);
+	lua_pushstring(L, "output_path");
+	lua_setfield(L, -2, "__qstar_kind");
+	lua_pushstring(L, path);
+	lua_setfield(L, -2, "path");
+	if (group) {
+		lua_pushstring(L, group);
+		lua_setfield(L, -2, "group");
+	}
+	if (format) {
+		lua_pushstring(L, format);
+		lua_setfield(L, -2, "format");
+	}
+	if (address) {
+		lua_pushstring(L, address);
+		lua_setfield(L, -2, "address");
+	}
+	if (layout) {
+		lua_pushstring(L, layout);
+		lua_setfield(L, -2, "layout");
+	}
 	return 1;
 }
 

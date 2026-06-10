@@ -114,6 +114,43 @@ qstar.executable "app" {
 목록을 가리키는 command placeholder다. `qstar.output("generated/value.c")`는 source
 list나 header list에서 generated path를 쓰기 위한 helper다.
 
+Round 53부터 binary/image 변환처럼 산출물 의미가 중요한 경우에는
+`qstar.output(path, metadata)`를 쓴다.
+
+```lua
+qstar.custom_target "kernel_img" {
+  inputs = {
+    "fixtures/kernel.elf",
+  },
+  outputs = {
+    qstar.output("generated/kernel8.img", {
+      group = "images",
+      format = "raw-binary",
+      address = "0x80000",
+      layout = "rpi5-kernel8",
+    }),
+  },
+  command = qstar.cli {
+    "llvm-objcopy",
+    "-O",
+    "binary",
+    qstar.input(0),
+    qstar.output(0),
+  },
+}
+```
+
+Metadata field는 `group`, `format`, `address`, `layout` 네 문자열만 허용된다.
+`format = "raw-binary"`는 `group`이 없으면 자동으로 `images` group이 된다. QStar는
+metadata를 실제 linker/objcopy option으로 바꾸지 않는다. 실제 변환은 위 예시처럼
+명시적인 argv-vector command가 한다. 같은 package 안에서 같은
+`group + format + address + layout`을 가진 output이 둘 이상 있으면 충돌로 거절한다.
+
+`qstar build //:kernel_img`는 generated action 자체를 직접 실행한다.
+`qstar.target_file("//:kernel_img")`는 generated action의 첫 output path로 해석된다.
+Generated action을 target dependency closure 안에서 자동으로 빌드하는 깊은 edge는
+v0.2 이후 확장 후보로 둔다.
+
 ### External tool policy
 
 `qstar.custom_target`은 여전히 `command = qstar.cli { ... }`만 사용한다. `tool = ...`

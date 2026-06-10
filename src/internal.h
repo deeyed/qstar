@@ -90,6 +90,30 @@ int qstar_depfile_output_path(const struct qstar_target *target, size_t index, c
 /** target artifact output path를 deterministic package-relative path로 만든다. */
 int qstar_artifact_output_path(const struct qstar_target *target, char *dst, size_t dstlen);
 
+/** generated action label로 action을 찾는다. */
+const struct qstar_genrule *qstar_graph_find_genrule(const struct qstar_graph *graph,
+    const char *label);
+
+/** generated output metadata의 output group을 기본값 포함해 반환한다. */
+const char *qstar_genrule_output_group(const struct qstar_genrule *genrule, size_t index);
+
+/** generated output metadata의 format을 기본값 포함해 반환한다. */
+const char *qstar_genrule_output_format(const struct qstar_genrule *genrule, size_t index);
+
+/** generated output metadata의 address를 기본값 포함해 반환한다. */
+const char *qstar_genrule_output_address(const struct qstar_genrule *genrule, size_t index);
+
+/** generated output metadata의 layout을 기본값 포함해 반환한다. */
+const char *qstar_genrule_output_layout(const struct qstar_genrule *genrule, size_t index);
+
+/** generated output path와 format/address/layout metadata를 action identity로 만든다. */
+int qstar_genrule_output_identity(const struct qstar_genrule *genrule, size_t index,
+    char *dst, size_t dstlen);
+
+/** generated output identity list를 action key material로 만든다. */
+int qstar_genrule_output_identity_list(const struct qstar_genrule *genrule, char *dst,
+    size_t dstlen);
+
 /** target kind의 최종 action 이름을 rule registry 기준으로 반환한다. */
 const char *qstar_target_final_action(const struct qstar_target *target);
 

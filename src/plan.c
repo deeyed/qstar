@@ -91,6 +91,27 @@ format_list_field(char *dst, size_t dstlen, const struct qstar_string_list *list
 	}
 }
 
+/** generated output artifact metadata line을 deterministic하게 출력한다. */
+static void
+dump_genrule_artifacts(FILE *out, const struct qstar_genrule *genrule, const char *prefix)
+{
+	char identity[QSTAR_PATH_MAX];
+	size_t i;
+
+	for (i = 0; i < genrule->outputs.len; i++) {
+		if (qstar_genrule_output_identity(genrule, i, identity,
+		    sizeof(identity)) < 0)
+			snprintf(identity, sizeof(identity), "<too-long>");
+		fprintf(out,
+		    "%sgenerated_artifact output=%s group=%s format=%s address=%s layout=%s identity=%s\n",
+		    prefix ? prefix : "", genrule->outputs.items[i],
+		    qstar_genrule_output_group(genrule, i),
+		    qstar_genrule_output_format(genrule, i),
+		    qstar_genrule_output_address(genrule, i),
+		    qstar_genrule_output_layout(genrule, i), identity);
+	}
+}
+
 /** canonical label에 대응하는 target index를 찾는다. */
 static int
 target_index(const struct qstar_graph *graph, const char *label)
@@ -969,6 +990,19 @@ genrule_output_in_list(const struct qstar_genrule *genrule,
 	return 0;
 }
 
+/** generated action에서 특정 output path의 index를 찾는다. */
+static size_t
+genrule_output_index_for_path(const struct qstar_genrule *genrule, const char *path)
+{
+	size_t i;
+
+	for (i = 0; i < genrule->outputs.len; i++) {
+		if (strcmp(genrule->outputs.items[i], path) == 0)
+			return i;
+	}
+	return 0;
+}
+
 /** generated action output 중 target file input으로 소비되는 것이 있는지 확인한다. */
 static int
 genrule_consumed_by_target(const struct qstar_genrule *genrule,
@@ -985,27 +1019,47 @@ dump_generated_edges(FILE *out, const struct qstar_plan *plan,
     const struct qstar_target *target)
 {
 	const struct qstar_genrule *owner;
-	size_t i;
+	char identity[QSTAR_PATH_MAX];
+	size_t i, oi;
 
 	for (i = 0; i < target->sources.len; i++) {
 		owner = qstar_graph_find_output_owner(plan->graph, target->sources.items[i]);
-		if (owner)
-			fprintf(out, "  generated_edge source=%s generator=%s output=%s\n",
-			    target->sources.items[i], owner->label, target->sources.items[i]);
+		if (owner) {
+			oi = genrule_output_index_for_path(owner, target->sources.items[i]);
+			if (qstar_genrule_output_identity(owner, oi, identity,
+			    sizeof(identity)) < 0)
+				snprintf(identity, sizeof(identity), "<too-long>");
+			fprintf(out,
+			    "  generated_edge source=%s generator=%s output=%s identity=%s\n",
+			    target->sources.items[i], owner->label, target->sources.items[i],
+			    identity);
+		}
 	}
 	for (i = 0; i < target->public_headers.len; i++) {
 		owner = qstar_graph_find_output_owner(plan->graph, target->public_headers.items[i]);
-		if (owner)
-			fprintf(out, "  generated_edge header=%s generator=%s output=%s\n",
+		if (owner) {
+			oi = genrule_output_index_for_path(owner, target->public_headers.items[i]);
+			if (qstar_genrule_output_identity(owner, oi, identity,
+			    sizeof(identity)) < 0)
+				snprintf(identity, sizeof(identity), "<too-long>");
+			fprintf(out,
+			    "  generated_edge header=%s generator=%s output=%s identity=%s\n",
 			    target->public_headers.items[i], owner->label,
-			    target->public_headers.items[i]);
+			    target->public_headers.items[i], identity);
+		}
 	}
 	for (i = 0; i < target->private_headers.len; i++) {
 		owner = qstar_graph_find_output_owner(plan->graph, target->private_headers.items[i]);
-		if (owner)
-			fprintf(out, "  generated_edge header=%s generator=%s output=%s\n",
+		if (owner) {
+			oi = genrule_output_index_for_path(owner, target->private_headers.items[i]);
+			if (qstar_genrule_output_identity(owner, oi, identity,
+			    sizeof(identity)) < 0)
+				snprintf(identity, sizeof(identity), "<too-long>");
+			fprintf(out,
+			    "  generated_edge header=%s generator=%s output=%s identity=%s\n",
 			    target->private_headers.items[i], owner->label,
-			    target->private_headers.items[i]);
+			    target->private_headers.items[i], identity);
+		}
 	}
 }
 
@@ -1015,7 +1069,7 @@ dump_consumed_genrules(FILE *out, const struct qstar_plan *plan,
     const struct qstar_target *target)
 {
 	const struct qstar_genrule *genrule;
-	char inputs[QSTAR_PATH_MAX], outputs[QSTAR_PATH_MAX];
+	char inputs[QSTAR_PATH_MAX], outputs[QSTAR_PATH_MAX], identities[QSTAR_PATH_MAX];
 	char resolved_tool[QSTAR_PATH_MAX], tool_mode[64], tool_error[QSTAR_PATH_MAX];
 	size_t i;
 
@@ -1025,6 +1079,9 @@ dump_consumed_genrules(FILE *out, const struct qstar_plan *plan,
 			continue;
 		format_list_field(inputs, sizeof(inputs), &genrule->inputs);
 		format_list_field(outputs, sizeof(outputs), &genrule->outputs);
+		if (qstar_genrule_output_identity_list(genrule, identities,
+		    sizeof(identities)) < 0)
+			snprintf(identities, sizeof(identities), "[<too-long>]");
 		if (genrule->config_header) {
 			snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
 			snprintf(tool_mode, sizeof(tool_mode), "builtin");
@@ -1035,15 +1092,17 @@ dump_consumed_genrules(FILE *out, const struct qstar_plan *plan,
 			snprintf(tool_mode, sizeof(tool_mode), "invalid");
 		}
 		fprintf(out,
-		    "  generated_action id=%s tool=%s tool_mode=%s resolved_tool=%s inputs=%s outputs=%s args=",
-		    genrule->label, genrule->tool, tool_mode, resolved_tool, inputs, outputs);
+		    "  generated_action id=%s tool=%s tool_mode=%s resolved_tool=%s inputs=%s outputs=%s output_identities=%s args=",
+		    genrule->label, genrule->tool, tool_mode, resolved_tool, inputs, outputs,
+		    identities);
 		dump_list(out, &genrule->args);
 		fputs(" execute=no\n", out);
+		dump_genrule_artifacts(out, genrule, "  ");
 		fprintf(out,
 		    "  action_key id=%s:generate:0 kind=generate owner=%s consumer=%s "
 		    "input=%s output=%s language=generated profile=%s target=%s "
 		    "toolchain=%s stdlib=%s deps=[] packages=",
-		    genrule->label, genrule->label, target->label, inputs, outputs,
+		    genrule->label, genrule->label, target->label, inputs, identities,
 		    profile_or_default(plan->graph->profile.name, "default"),
 		    profile_or_default(plan->graph->profile.target, "host"),
 		    target->toolchain, target->stdlib_policy);
@@ -1055,9 +1114,51 @@ dump_consumed_genrules(FILE *out, const struct qstar_plan *plan,
 		    "consumer=%s execute=no\n",
 		    genrule->label, genrule->tool, resolved_tool, tool_mode,
 		    target->toolchain, profile_or_default(plan->graph->profile.target, "host"),
-		    target->stdlib_policy, inputs, outputs, target->label);
+		    target->stdlib_policy, inputs, identities, target->label);
 		dump_genrule_argv(out, plan->graph, genrule);
 	}
+}
+
+/** 직접 선택된 generated action의 non-executing command-plan record를 출력한다. */
+static void
+dump_direct_genrule_plan(FILE *out, const struct qstar_graph *graph,
+    const struct qstar_genrule *genrule, const char *mode)
+{
+	char inputs[QSTAR_PATH_MAX], outputs[QSTAR_PATH_MAX], identities[QSTAR_PATH_MAX];
+	char resolved_tool[QSTAR_PATH_MAX], tool_mode[64], tool_error[QSTAR_PATH_MAX];
+
+	format_list_field(inputs, sizeof(inputs), &genrule->inputs);
+	format_list_field(outputs, sizeof(outputs), &genrule->outputs);
+	if (qstar_genrule_output_identity_list(genrule, identities, sizeof(identities)) < 0)
+		snprintf(identities, sizeof(identities), "[<too-long>]");
+	if (genrule->config_header) {
+		snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
+		snprintf(tool_mode, sizeof(tool_mode), "builtin");
+	} else if (qstar_profile_resolve_command_tool(graph, genrule->tool,
+	    resolved_tool, sizeof(resolved_tool), tool_mode, sizeof(tool_mode),
+	    tool_error, sizeof(tool_error)) < 0) {
+		snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
+		snprintf(tool_mode, sizeof(tool_mode), "invalid");
+	}
+	fprintf(out,
+	    "%s_generated_action %s tool=%s tool_mode=%s resolved_tool=%s inputs=%s outputs=%s output_identities=%s\n",
+	    mode, genrule->label, genrule->tool, tool_mode, resolved_tool, inputs, outputs,
+	    identities);
+	dump_genrule_artifacts(out, genrule, "  ");
+	fprintf(out,
+	    "  action_key id=%s:generate:0 kind=generate owner=%s consumer=<direct> "
+	    "input=%s output=%s language=generated profile=%s target=%s toolchain=custom stdlib=none deps=[] packages=",
+	    genrule->label, genrule->label, inputs, identities,
+	    profile_or_default(graph->profile.name, "default"),
+	    profile_or_default(graph->profile.target, "host"));
+	dump_package_aliases(out, graph);
+	fputc('\n', out);
+	fprintf(out,
+	    "  command_skeleton id=%s:generate:0 phase=generate language=generated "
+	    "tool=%s resolved_tool=%s tool_mode=%s toolchain=custom target=%s stdlib=none input=%s output=%s consumer=<direct> execute=no\n",
+	    genrule->label, genrule->tool, resolved_tool, tool_mode,
+	    profile_or_default(graph->profile.target, "host"), inputs, identities);
+	dump_genrule_argv(out, graph, genrule);
 }
 
 /** target-local toolchain/profile resolver skeleton을 출력한다. */
@@ -1293,10 +1394,21 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 int
 qstar_graph_explain_plan(struct qstar_graph *graph, const char *label, FILE *out)
 {
+	const struct qstar_genrule *genrule;
 	struct qstar_plan plan;
 	size_t i;
 	int rc;
 
+	genrule = label && *label ? qstar_graph_find_genrule(graph, label) : NULL;
+	if (genrule) {
+		fputs("qstar command plan v1\n", out);
+		fputs("build-plan-ir v1\n", out);
+		fprintf(out, "root %s\n", label);
+		dump_plan_inputs(out, graph);
+		fprintf(out, "closure-order [%s]\n", label);
+		dump_direct_genrule_plan(out, graph, genrule, "plan");
+		return 0;
+	}
 	rc = build_closure(graph, label, &plan);
 	if (rc < 0) {
 		free_plan(&plan);
@@ -1323,7 +1435,7 @@ dump_dry_run_genrules(FILE *out, const struct qstar_plan *plan,
     const struct qstar_target *target)
 {
 	const struct qstar_genrule *genrule;
-	char inputs[QSTAR_PATH_MAX], outputs[QSTAR_PATH_MAX];
+	char inputs[QSTAR_PATH_MAX], outputs[QSTAR_PATH_MAX], identities[QSTAR_PATH_MAX];
 	char resolved_tool[QSTAR_PATH_MAX], tool_mode[64], tool_error[QSTAR_PATH_MAX];
 	size_t i;
 
@@ -1333,6 +1445,9 @@ dump_dry_run_genrules(FILE *out, const struct qstar_plan *plan,
 			continue;
 		format_list_field(inputs, sizeof(inputs), &genrule->inputs);
 		format_list_field(outputs, sizeof(outputs), &genrule->outputs);
+		if (qstar_genrule_output_identity_list(genrule, identities,
+		    sizeof(identities)) < 0)
+			snprintf(identities, sizeof(identities), "[<too-long>]");
 		if (genrule->config_header) {
 			snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
 			snprintf(tool_mode, sizeof(tool_mode), "builtin");
@@ -1344,11 +1459,12 @@ dump_dry_run_genrules(FILE *out, const struct qstar_plan *plan,
 		}
 		fprintf(out,
 		    "dry_run_step id=%s:generate:0 owner=%s consumer=%s kind=generate "
-		    "tool=%s tool_mode=%s resolved_tool=%s inputs=%s outputs=%s args=",
+		    "tool=%s tool_mode=%s resolved_tool=%s inputs=%s outputs=%s output_identities=%s args=",
 		    genrule->label, genrule->label, target->label, genrule->tool,
-		    tool_mode, resolved_tool, inputs, outputs);
+		    tool_mode, resolved_tool, inputs, outputs, identities);
 		dump_list(out, &genrule->args);
 		fputs(" execute=no\n", out);
+		dump_genrule_artifacts(out, genrule, "");
 		dump_genrule_argv(out, plan->graph, genrule);
 	}
 }
@@ -1407,10 +1523,22 @@ dump_dry_run_final(FILE *out, const struct qstar_plan *plan, const struct qstar_
 int
 qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out)
 {
+	const struct qstar_genrule *genrule;
 	struct qstar_plan plan;
 	size_t i;
 	int rc;
 
+	genrule = label && *label ? qstar_graph_find_genrule(graph, label) : NULL;
+	if (genrule) {
+		fputs("qstar dry-run v1\n", out);
+		fprintf(out, "root %s\n", label);
+		dump_plan_inputs(out, graph);
+		fprintf(out, "closure-order [%s]\n", label);
+		fprintf(out, "dry_run_generated_action %s order=0 kind=custom_target\n",
+		    label);
+		dump_direct_genrule_plan(out, graph, genrule, "dry_run");
+		return 0;
+	}
 	rc = build_closure(graph, label, &plan);
 	if (rc < 0) {
 		free_plan(&plan);
@@ -1458,9 +1586,22 @@ qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out)
 int
 qstar_graph_check(struct qstar_graph *graph, const char *label, FILE *out)
 {
+	const struct qstar_genrule *genrule;
 	struct qstar_plan plan;
 	int rc;
 
+	genrule = label && *label ? qstar_graph_find_genrule(graph, label) : NULL;
+	if (genrule) {
+		fputs("qstar check v1\n", out);
+		fprintf(out, "package-root %s\n", graph->package_root ? graph->package_root : ".");
+		fprintf(out, "root %s\n", label);
+		dump_plan_inputs(out, graph);
+		fprintf(out, "closure-order [%s]\n", label);
+		fputs("target-count 0\n", out);
+		fputs("generated-action-count 1\n", out);
+		fputs("status ok\n", out);
+		return 0;
+	}
 	rc = build_closure(graph, label, &plan);
 	if (rc < 0) {
 		free_plan(&plan);

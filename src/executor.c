@@ -955,6 +955,37 @@ json_string_list(FILE *f, const struct qstar_string_list *list)
 	fputc(']', f);
 }
 
+/** generated action output artifact metadata를 graph snapshot JSON에 쓴다. */
+static void
+json_generated_output_artifacts(FILE *f, const struct qstar_genrule *genrule)
+{
+	char identity[QSTAR_PATH_MAX];
+	size_t i;
+
+	fputc('[', f);
+	for (i = 0; i < genrule->outputs.len; i++) {
+		if (i)
+			fputc(',', f);
+		if (qstar_genrule_output_identity(genrule, i, identity,
+		    sizeof(identity)) < 0)
+			snprintf(identity, sizeof(identity), "<too-long>");
+		fputs("{\"path\":", f);
+		json_string(f, genrule->outputs.items[i]);
+		fputs(",\"group\":", f);
+		json_string(f, qstar_genrule_output_group(genrule, i));
+		fputs(",\"format\":", f);
+		json_string(f, qstar_genrule_output_format(genrule, i));
+		fputs(",\"address\":", f);
+		json_string(f, qstar_genrule_output_address(genrule, i));
+		fputs(",\"layout\":", f);
+		json_string(f, qstar_genrule_output_layout(genrule, i));
+		fputs(",\"identity\":", f);
+		json_string(f, identity);
+		fputc('}', f);
+	}
+	fputc(']', f);
+}
+
 /** 현재 평가된 target/generated graph snapshot을 state에 저장한다. */
 static int
 graph_snapshot_write(struct qstar_graph *graph)
@@ -1008,6 +1039,8 @@ graph_snapshot_write(struct qstar_graph *graph)
 		fputs(graph->genrules[i].config_header ? "true" : "false", f);
 		fputs(",\"outputs\":", f);
 		json_string_list(f, &graph->genrules[i].outputs);
+		fputs(",\"output_artifacts\":", f);
+		json_generated_output_artifacts(f, &graph->genrules[i]);
 		fputc('}', f);
 	}
 	fputs("\n]}\n", f);
@@ -1697,6 +1730,7 @@ resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
 {
 	const char *prefix = "<qstar-target-file:";
 	const struct qstar_target *target;
+	const struct qstar_genrule *genrule;
 	char label[QSTAR_PATH_MAX];
 	size_t n;
 
@@ -1713,9 +1747,18 @@ resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
 	memcpy(label, arg + strlen(prefix), n - strlen(prefix) - 1);
 	label[n - strlen(prefix) - 1] = '\0';
 	target = find_target(graph, label);
-	if (!target)
+	if (!target) {
+		genrule = qstar_graph_find_genrule(graph, label);
+		if (genrule && genrule->outputs.len > 0) {
+			if (snprintf(dst, dstlen, "%s", genrule->outputs.items[0]) >=
+			    (int)dstlen)
+				return qstar_set_error(graph,
+				    "qstar: target_file generated output path is too long");
+			return 0;
+		}
 		return qstar_set_error(graph, "qstar: target_file references unknown target '%s'",
 		    label);
+	}
 	if (qstar_artifact_output_path(target, dst, dstlen) < 0)
 		return qstar_set_error(graph, "qstar: target_file artifact path is too long");
 	return 0;
@@ -1750,98 +1793,111 @@ free_owned_argv(char **argv, size_t argc)
 		free(argv[i]);
 }
 
-/** target이 소비하는 generated action을 package-local tool policy로 실행한다. */
+/** generated action 하나를 external tool policy와 cache key에 맞춰 실행한다. */
 static int
-run_generated_actions(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
-    const struct qstar_target *target)
+run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const struct qstar_target *target, const struct qstar_genrule *genrule)
 {
-	const struct qstar_genrule *genrule;
-	char id[QSTAR_PATH_MAX], key[32];
+	char id[QSTAR_PATH_MAX], key[32], output_identity[QSTAR_PATH_MAX];
 	char resolved_tool[QSTAR_PATH_MAX], tool_mode[64], tool_error[QSTAR_PATH_MAX];
 	char *argv[QSTAR_EXEC_MAX_ARGV];
 	struct qstar_string_list inputs;
 	struct qstar_resolved_toolchain toolchain;
 	struct qstar_action_material material;
-	size_t i, argc, argi, inputi;
+	size_t argc, argi, inputi;
 
-	for (i = 0; i < graph->genrule_len; i++) {
-		genrule = &graph->genrules[i];
-		if (!target_consumes_genrule(target, genrule))
-			continue;
-		if (!genrule->config_header &&
-		    qstar_profile_resolve_command_tool(graph, genrule->tool, resolved_tool,
-		    sizeof(resolved_tool), tool_mode, sizeof(tool_mode), tool_error,
-		    sizeof(tool_error)) < 0)
+	if (!genrule->config_header &&
+	    qstar_profile_resolve_command_tool(graph, genrule->tool, resolved_tool,
+	    sizeof(resolved_tool), tool_mode, sizeof(tool_mode), tool_error,
+	    sizeof(tool_error)) < 0)
+		return qstar_set_error_origin(graph, genrule->origin_file,
+		    genrule->origin_line, "command", genrule->label, "%s",
+		    tool_error);
+	if (genrule->config_header) {
+		snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
+		snprintf(tool_mode, sizeof(tool_mode), "builtin");
+	}
+	if (genrule->args.len + 2 > QSTAR_EXEC_MAX_ARGV)
+		return qstar_set_error(graph, "qstar: generated action argv too long");
+	for (argc = 0; argc < genrule->args.len; argc++) {
+		if (generated_arg_escapes_package(genrule->args.items[argc]))
 			return qstar_set_error_origin(graph, genrule->origin_file,
-			    genrule->origin_line, "command", genrule->label, "%s",
-			    tool_error);
-		if (genrule->config_header) {
-			snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
-			snprintf(tool_mode, sizeof(tool_mode), "builtin");
-		}
-		if (genrule->args.len + 2 > QSTAR_EXEC_MAX_ARGV)
-			return qstar_set_error(graph, "qstar: generated action argv too long");
-		for (argc = 0; argc < genrule->args.len; argc++) {
-			if (generated_arg_escapes_package(genrule->args.items[argc]))
-				return qstar_set_error_origin(graph, genrule->origin_file,
-				    genrule->origin_line, "args", genrule->label,
-				    "qstar: generated action arg '%s' escapes package root",
-				    genrule->args.items[argc]);
-		}
-		for (argc = 0; argc < genrule->outputs.len; argc++) {
-			if (mkdir_parent_under_root(graph, genrule->outputs.items[argc]) < 0)
-				return qstar_set_error(graph,
-				    "qstar: could not create generated output directory");
-		}
-		snprintf(id, sizeof(id), "%s:generate:0", genrule->label);
-		argc = 0;
-		if (push_resolved_command_argv(graph, argv, &argc, resolved_tool) < 0)
+			    genrule->origin_line, "args", genrule->label,
+			    "qstar: generated action arg '%s' escapes package root",
+			    genrule->args.items[argc]);
+	}
+	for (argc = 0; argc < genrule->outputs.len; argc++) {
+		if (mkdir_parent_under_root(graph, genrule->outputs.items[argc]) < 0)
+			return qstar_set_error(graph,
+			    "qstar: could not create generated output directory");
+	}
+	if (qstar_genrule_output_identity_list(genrule, output_identity,
+	    sizeof(output_identity)) < 0)
+		return qstar_set_error(graph, "qstar: generated output identity is too long");
+	snprintf(id, sizeof(id), "%s:generate:0", genrule->label);
+	argc = 0;
+	if (push_resolved_command_argv(graph, argv, &argc, resolved_tool) < 0)
+		return -1;
+	for (argi = 0; argi < genrule->args.len; argi++) {
+		if (push_resolved_command_argv(graph, argv, &argc,
+		    genrule->args.items[argi]) < 0) {
+			free_owned_argv(argv, argc);
 			return -1;
-		for (argi = 0; argi < genrule->args.len; argi++) {
-			if (push_resolved_command_argv(graph, argv, &argc,
-			    genrule->args.items[argi]) < 0) {
-				free_owned_argv(argv, argc);
-				return -1;
-			}
 		}
-		memset(&inputs, 0, sizeof(inputs));
-		for (inputi = 0; inputi < genrule->inputs.len; inputi++) {
-			if (qstar_string_list_push(&inputs, genrule->inputs.items[inputi]) < 0) {
-				qstar_string_list_free(&inputs);
-				free_owned_argv(argv, argc);
-				return qstar_set_error(graph, "qstar: out of memory");
-			}
-		}
-		if (!genrule->config_header &&
-		    qstar_profile_tool_mode_is_package_input(tool_mode) &&
-		    qstar_string_list_push(&inputs, resolved_tool) < 0) {
+	}
+	memset(&inputs, 0, sizeof(inputs));
+	for (inputi = 0; inputi < genrule->inputs.len; inputi++) {
+		if (qstar_string_list_push(&inputs, genrule->inputs.items[inputi]) < 0) {
 			qstar_string_list_free(&inputs);
 			free_owned_argv(argv, argc);
 			return qstar_set_error(graph, "qstar: out of memory");
 		}
-		memset(&toolchain, 0, sizeof(toolchain));
-		snprintf(toolchain.name, sizeof(toolchain.name), "%s", target->toolchain);
-		snprintf(toolchain.target, sizeof(toolchain.target), "%s",
-		    graph->profile.target ? graph->profile.target : "host");
-		compute_action_key(graph, target, &toolchain, id, "generate", argv,
-		    &inputs, NULL, genrule->outputs.items[0], key, sizeof(key),
-		    &material);
+	}
+	if (!genrule->config_header &&
+	    qstar_profile_tool_mode_is_package_input(tool_mode) &&
+	    qstar_string_list_push(&inputs, resolved_tool) < 0) {
 		qstar_string_list_free(&inputs);
-		fprintf(ctx->out,
-		    "generated_sandbox id=%s inputs=package-root outputs=generated-only cwd=package-root network=disabled tool=%s tool_mode=%s resolved_tool=%s\n",
-		    genrule->label, genrule->tool, tool_mode, resolved_tool);
-		if (genrule->config_header) {
-			if (run_config_header_action(graph, ctx, target, genrule, id, key,
-			    argv, &material) < 0) {
-				free_owned_argv(argv, argc);
-				return -1;
-			}
-		} else if (run_action(graph, ctx, target, id, "generate", key,
-		    &genrule->outputs, argv, NULL, &material) < 0) {
+		free_owned_argv(argv, argc);
+		return qstar_set_error(graph, "qstar: out of memory");
+	}
+	memset(&toolchain, 0, sizeof(toolchain));
+	snprintf(toolchain.name, sizeof(toolchain.name), "%s",
+	    target ? target->toolchain : "custom");
+	snprintf(toolchain.target, sizeof(toolchain.target), "%s",
+	    graph->profile.target ? graph->profile.target : "host");
+	compute_action_key(graph, target, &toolchain, id, "generate", argv,
+	    &inputs, NULL, output_identity, key, sizeof(key), &material);
+	qstar_string_list_free(&inputs);
+	fprintf(ctx->out,
+	    "generated_sandbox id=%s inputs=package-root outputs=generated-only cwd=package-root network=disabled tool=%s tool_mode=%s resolved_tool=%s output_identity=%s\n",
+	    genrule->label, genrule->tool, tool_mode, resolved_tool, output_identity);
+	if (genrule->config_header) {
+		if (run_config_header_action(graph, ctx, target, genrule, id, key,
+		    argv, &material) < 0) {
 			free_owned_argv(argv, argc);
 			return -1;
 		}
+	} else if (run_action(graph, ctx, target, id, "generate", key,
+	    &genrule->outputs, argv, NULL, &material) < 0) {
 		free_owned_argv(argv, argc);
+		return -1;
+	}
+	free_owned_argv(argv, argc);
+	return 0;
+}
+
+/** target이 소비하는 generated action을 package-local tool policy로 실행한다. */
+static int
+run_generated_actions(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const struct qstar_target *target)
+{
+	size_t i;
+
+	for (i = 0; i < graph->genrule_len; i++) {
+		if (!target_consumes_genrule(target, &graph->genrules[i]))
+			continue;
+		if (run_one_generated_action(graph, ctx, target, &graph->genrules[i]) < 0)
+			return -1;
 	}
 	return 0;
 }
@@ -3095,6 +3151,19 @@ build_target(struct qstar_graph *graph, const struct qstar_target *target, size_
 	return run_final(graph, ctx, target, &toolchain);
 }
 
+/** 직접 선택된 generated action label을 local executor로 실행한다. */
+static int
+build_direct_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const struct qstar_genrule *genrule)
+{
+	fprintf(ctx->out, "build_generated_action %s order=0 kind=custom_target\n",
+	    genrule->label);
+	fprintf(ctx->out,
+	    "action_dag target=%s order=0 parallel=no reason=direct-generated-action failure=stop-on-first-failure timeout_sec=%d\n",
+	    genrule->label, ctx->action_timeout_sec);
+	return run_one_generated_action(graph, ctx, NULL, genrule);
+}
+
 /** build context가 소유한 동적 저장소를 해제한다. */
 static void
 build_ctx_free(struct qstar_build_ctx *ctx)
@@ -3111,6 +3180,7 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
     const struct qstar_build_options *options, FILE *out)
 {
 	struct qstar_build_ctx ctx;
+	const struct qstar_genrule *genrule;
 	int rc;
 
 	memset(&ctx, 0, sizeof(ctx));
@@ -3132,7 +3202,10 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
 	    ctx.jobs > 1 ? "optional" : "no", ctx.jobs,
 	    ctx.jobs > 1 ? "compile-process-v2" : "serial", ctx.action_timeout_sec);
 	rc = graph_snapshot_write(graph);
-	if (rc == 0)
+	genrule = label && *label ? qstar_graph_find_genrule(graph, label) : NULL;
+	if (rc == 0 && genrule)
+		rc = build_direct_generated_action(graph, &ctx, genrule);
+	else if (rc == 0)
 		rc = qstar_graph_visit_closure(graph, label, build_target, &ctx);
 	if (rc == 0)
 		rc = state_write(graph, &ctx);
