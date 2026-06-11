@@ -28,7 +28,7 @@ qstar.stage "rpi" {
 }
 ```
 
-`stage --dry-run`은 diff를 출력하고 `.qstar/stage/<label>/manifest.json`을 남긴다.
+`stage --dry-run`은 diff를 출력하고 `build/qstar/stage/<label>/manifest.json`을 남긴다.
 
 ## 실패 예제
 

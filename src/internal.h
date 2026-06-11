@@ -76,16 +76,20 @@ int qstar_profile_tool_mode_is_package_input(const char *mode);
 /** PATH에서 실행 tool을 찾고 발견한 절대 path를 반환한다. */
 int qstar_profile_find_path_tool(const char *tool, char *dst, size_t dstlen);
 
-/** target label을 .qstar/out 아래 파일명에 안전한 이름으로 바꾼다. */
+/** build directory 아래 상대 path를 deterministic package-relative path로 만든다. */
+int qstar_graph_build_path(const struct qstar_graph *graph, const char *subpath,
+    char *dst, size_t dstlen);
+
+/** target label을 build output directory 아래 파일명에 안전한 이름으로 바꾼다. */
 void qstar_mangle_label(const char *label, char *dst, size_t dstlen);
 
 /** compile object output path를 deterministic package-relative path로 만든다. */
-int qstar_object_output_path(const struct qstar_target *target, size_t index, char *dst,
-    size_t dstlen);
+int qstar_graph_object_output_path(const struct qstar_graph *graph,
+    const struct qstar_target *target, size_t index, char *dst, size_t dstlen);
 
 /** compile depfile output path를 deterministic package-relative path로 만든다. */
-int qstar_depfile_output_path(const struct qstar_target *target, size_t index, char *dst,
-    size_t dstlen);
+int qstar_graph_depfile_output_path(const struct qstar_graph *graph,
+    const struct qstar_target *target, size_t index, char *dst, size_t dstlen);
 
 /** target artifact output path를 deterministic package-relative path로 만든다. */
 int qstar_artifact_output_path(const struct qstar_target *target, char *dst, size_t dstlen);

@@ -508,7 +508,7 @@ end_argv(FILE *out, const struct qstar_argv_dump *dump)
 	char rsp[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX];
 
 	qstar_mangle_label(dump->id, name, sizeof(name));
-	snprintf(rsp, sizeof(rsp), ".qstar/rsp/%s.rsp", name);
+	snprintf(rsp, sizeof(rsp), "build/qstar/rsp/%s.rsp", name);
 	fprintf(out, "] digest=%016llx response=%s",
 	    dump->digest,
 	    dump->text_len > QSTAR_RSP_SKELETON_THRESHOLD ?
@@ -700,7 +700,7 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	memset(&includes, 0, sizeof(includes));
 	collect_compile_include_dirs(graph, target, &includes);
 	snprintf(id, sizeof(id), "%s:compile:%zu", target->label, index);
-	qstar_depfile_output_path(target, index, depfile, sizeof(depfile));
+	qstar_graph_depfile_output_path(graph, target, index, depfile, sizeof(depfile));
 	is_asm = source_is_asm(source);
 	is_cale = strcmp(source->language, "cale") == 0;
 	is_cxx = strcmp(source->language, "cxx") == 0;
@@ -1389,11 +1389,11 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 		fprintf(out, "  run.marker_log %s\n",
 		    target->run_marker_log && *target->run_marker_log ?
 		    target->run_marker_log : "<none>");
-		fprintf(out, "  action run output=.qstar/out/<run-stamp>\n");
-		dump_action_key(out, plan->graph, target, "run", "<run-command>",
-		    ".qstar/out/<run-stamp>", "generic", 0);
-		dump_command_skeleton(out, plan->graph, target, "run", "<run-command>",
-		    ".qstar/out/<run-stamp>", "generic", "cli", 0);
+			fprintf(out, "  action run output=build/qstar/out/<run-stamp>\n");
+			dump_action_key(out, plan->graph, target, "run", "<run-command>",
+			    "build/qstar/out/<run-stamp>", "generic", 0);
+			dump_command_skeleton(out, plan->graph, target, "run", "<run-command>",
+			    "build/qstar/out/<run-stamp>", "generic", "cli", 0);
 		dump_run_argv(out, target);
 		return 0;
 	}
@@ -1413,7 +1413,8 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 			    source.language, source.tool_role, i);
 			continue;
 		}
-		if (qstar_object_output_path(target, i, output, sizeof(output)) < 0)
+		if (qstar_graph_object_output_path(plan->graph, target, i, output,
+		    sizeof(output)) < 0)
 			return qstar_set_error(plan->graph, "qstar: object output path too long");
 		fprintf(out, "  action compile source=%s output=%s\n",
 		    target->sources.items[i], output);
@@ -1540,7 +1541,8 @@ dump_dry_run_compiles(FILE *out, const struct qstar_plan *plan,
 			    target->sources.items[i]);
 			continue;
 		}
-		if (qstar_object_output_path(target, i, output, sizeof(output)) < 0)
+		if (qstar_graph_object_output_path(plan->graph, target, i, output,
+		    sizeof(output)) < 0)
 			return qstar_set_error(plan->graph, "qstar: object output path too long");
 		fprintf(out,
 		    "dry_run_step id=%s:compile:%zu owner=%s kind=compile language=%s "
@@ -1616,10 +1618,10 @@ qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out)
 		{
 		struct qstar_resolved_toolchain toolchain;
 		if (strcmp(plan.order[i]->kind, "run_target") == 0) {
-			fprintf(out,
-			    "  dry_run_step id=%s:run:0 owner=%s kind=run tool=cli "
-			    "input=<deps> output=.qstar/out/<run-stamp> execute=no\n",
-			    plan.order[i]->label, plan.order[i]->label);
+				fprintf(out,
+				    "  dry_run_step id=%s:run:0 owner=%s kind=run tool=cli "
+				    "input=<deps> output=build/qstar/out/<run-stamp> execute=no\n",
+				    plan.order[i]->label, plan.order[i]->label);
 			dump_run_argv(out, plan.order[i]);
 			continue;
 		}
@@ -1725,12 +1727,14 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 		    toolchain.sysroot[0] ? toolchain.sysroot : "<none>",
 		    toolchain.resource_dir[0] ? toolchain.resource_dir : "<none>",
 		    toolchain.response_files ? "on" : "off", toolchain.response_style);
-	if (qstar_path_join(graph->package_root ? graph->package_root : ".", ".qstar",
-	    state_dir, sizeof(state_dir)) == 0) {
+	if (qstar_path_join(graph->package_root ? graph->package_root : ".",
+	    qstar_graph_build_dir(graph), state_dir, sizeof(state_dir)) == 0) {
 		if (mkdir(state_dir, 0777) == 0 || access(state_dir, W_OK) == 0)
-			fputs("writable-state-dir yes\n", out);
+			fprintf(out, "writable-build-dir yes path=%s\n",
+			    qstar_graph_build_dir(graph));
 		else
-			fputs("writable-state-dir no\n", out);
+			fprintf(out, "writable-build-dir no path=%s\n",
+			    qstar_graph_build_dir(graph));
 	}
 	fprintf(out, "profile-dsl-input name=%s target=%s toolchain=%s stdlib=%s\n",
 	    graph->profile.name ? graph->profile.name : "default",

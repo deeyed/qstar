@@ -15,7 +15,7 @@ make -C qstar
 qstar/build/bin/qstar init c-app /tmp/qstar-hello
 qstar/build/bin/qstar --file /tmp/qstar-hello/qstar.lua lint //...
 qstar/build/bin/qstar --file /tmp/qstar-hello/qstar.lua build //:app
-/tmp/qstar-hello/.qstar/out/___app/app
+/tmp/qstar-hello/build/qstar/out/___app/app
 ```
 
 직접 작성하는 최소 project는 다음과 같다.

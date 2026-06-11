@@ -451,7 +451,7 @@ function execQStar(args, rootFile) {
 }
 
 function readLastBuildStatus(rootFile) {
-  const summaryPath = path.join(path.dirname(rootFile), ".qstar", "state", "last-summary.json");
+  const summaryPath = path.join(path.dirname(rootFile), "build/qstar", "state", "last-summary.json");
   try {
     const summary = JSON.parse(fs.readFileSync(summaryPath, "utf8"));
     return summary.status || "unknown";

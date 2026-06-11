@@ -216,7 +216,7 @@ Round 56부터 QEMU smoke도 dedicated keyword가 아니라 `run_target` 위에 
 Wrapper script가 serial output을 file로 저장하면 `marker_log`에 그 path를 둔다.
 QStar는 marker missing, timeout, nonzero exit code를 각각
 `status=marker-missing`, `status=timeout`, `status=exit-code`로 분리하고,
-`.qstar/logs/last-failure.replay`와 action log에 재현 command를 남긴다.
+`build/qstar/logs/last-failure.replay`와 action log에 재현 command를 남긴다.
 Round 59에서는 이 실패 surface를 release hardening 단계로 올려
 `qstar-action-diagnostic-v1` JSON record도 함께 출력한다. Link failure, objcopy
 failure, package/stage failure, QEMU timeout은 각각 `link-failure`,
@@ -240,7 +240,7 @@ first argv item through profile capability.
 ```lua
 qstar.custom_target "kernel_img" {
   inputs = {
-    ".qstar/out/__kernel/kernel.elf",
+    "build/qstar/out/__kernel/kernel.elf",
   },
   outputs = {
     qstar.output("generated/kernel8.img", {
@@ -492,7 +492,7 @@ qstar.executable "boot" {
 ```
 
 When the selected linker path contains `lld-link` or `link.exe`, QStar renders
-the output argument as `/out:.qstar/out/.../BOOTX64.EFI` instead of `-o`.
+the output argument as `/out:build/qstar/out/.../BOOTX64.EFI` instead of `-o`.
 `artifact_names` maps a target label or target name to a profile-specific
 filename. For AArch64 UEFI, the profile can map the same `//:boot` target to
 `BOOTAA64.EFI`. A target-local `artifact_name = "BOOTLOCAL.EFI"` overrides the

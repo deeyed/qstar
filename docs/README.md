@@ -77,7 +77,7 @@ Round 48부터 generic command model은 `qstar.cli { ... }` argv-vector를 사�
 
 Round 55부터 boot/package staging은 `qstar.stage`가 담당한다. `qstar stage`는
 install prefix와 별개로 ESP/RPi/firmware layout 같은 copy-only package tree를 만들고,
-`.qstar/stage/<label>/manifest.json`에 staged manifest와 dry-run diff를 남긴다.
+`build/qstar/stage/<label>/manifest.json`에 staged manifest와 dry-run diff를 남긴다.
 
 Round 60부터 v0.2 RC contract는 `qstar-v0.2-release-candidate-seal.md`에 둔다.
 이 문서는 release-candidate surface와 experimental/deferred surface를 분리하고,
@@ -184,16 +184,16 @@ diagnostic으로 막고, `qstar.select`는 CLI/profile target input에서 실제
 
 Round 66은 read-only external profile input을 제거하고 `qstar.profile` DSL을 profile
 authoring surface로 고정했다. `host`, `clang`, `cale` toolchain profile은
-deterministic `.qstar/out` path를 가진 real `command_argv` record를 만든다.
+deterministic `build/qstar/out` path를 가진 real `command_argv` record를 만든다.
 
 Round 13은 제한된 local executor로서 `qstar build`를 추가했다. Package-local generated
 tool 실행, C source compile, static library archive, executable link를 수행할 수 있다.
-stdout/stderr/action log는 `.qstar/logs`에 저장하고 artifact는 `.qstar/out` 아래에 쓴다.
+stdout/stderr/action log는 `build/qstar/logs`에 저장하고 artifact는 `build/qstar/out` 아래에 쓴다.
 Full Cale source build, assembly, remote package, cache, Ninja generation, 일반 process
 execution은 아직 범위 밖이다.
 
 Round 14/15는 incremental state와 diagnostic UX를 추가했다. QStar는
-`.qstar/state/actions.json`을 쓰고, action key와 output이 그대로이면 action을 건너뛴다.
+`build/qstar/state/actions.json`을 쓰고, action key와 output이 그대로이면 action을 건너뛴다.
 또한 `compile_commands.json`, `why-rebuild`, `clean`, `log`, `last-failure`,
 `--diagnostics json`을 제공한다. Action key v1에는 argv, input path metadata/content
 hash, output path, selected profile/toolchain, 작은 environment whitelist가 들어간다.

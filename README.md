@@ -155,7 +155,7 @@ qstar.executable "app" {
 }
 ```
 
-`build`는 제한적 local executor v10이다. package-local generated tool, profile-allowlisted external generated tool, `qstar.configure_file`, C/Cale source compile argv, static archive, exe/test link를 다루며 산출물은 `.qstar/out`, 로그는 `.qstar/logs` 아래에 둔다. Round 14/15부터 `.qstar/state/actions.json` action manifest, `compile_commands.json`, cache-hit skip, `why-rebuild`, `log`, `last-failure`, `clean`, JSON diagnostic skeleton을 제공한다. Round 16/17부터 Cale source는 frontend/backend 내부 API가 아니라 `cale -c ... -o ...` process invocation으로만 다룬다. Round 18/19부터 static library dependency link order, public/private include propagation, system library flag rendering, test runner, install skeleton을 제공한다. Round 29부터 executor는 dependency-first closure를 action DAG로 실행하고, 실패는 stop-on-first-failure로 전파한다. Build action timeout은 기본 30초이며 timeout 시 process를 kill하고 replay file을 남긴다. Round 32부터 `--jobs N`과 `--schedule-trace`를 받는다. `jobs > 1`은 같은 target 안의 independent compile action을 process-level parallel batch로 실행하고, generated action과 final archive/link는 deterministic order를 유지한다. Round 35부터 긴 compile/link command는 profile capability가 허용할 때 실제 `.qstar/rsp/*.rsp` response file로 내려가며, POSIX/Windows/MSVC style과 digest를 plan/build/replay에 기록한다. Round 36부터 parallel compile은 `process-v2` event stream을 출력한다. Queue order, slot assignment, start/finish/fail/timeout/cancel state, `retry=next-build`, active child cancel propagation을 deterministic하게 기록해 실패 로그를 사람이 읽기 쉽게 한다. Round 37부터 `.qstar/state/graph.json` graph snapshot과 `.qstar/state/last-summary.json` 마지막 build summary를 저장하고, `qstar action-log <action-id>`와 `qstar replay <action-id>`로 action 단위 로그/재현 명령을 조회한다. Round 56부터 `run_target`은 stdout/stderr/`marker_log` marker check를 지원하고, QEMU wrapper 실패를 `marker-missing`, `timeout`, `exit-code`로 분리해 `last-failure`와 `replay`에 남긴다. Round 59부터 실패 action은 `qstar-action-diagnostic-v1` JSON line도 출력하며, link, objcopy transform, package/stage, QEMU timeout을 각각 `link-failure`, `objcopy-failure`, `package-failure`, `qemu-timeout`으로 분리한다.
+`build`는 제한적 local executor v10이다. package-local generated tool, profile-allowlisted external generated tool, `qstar.configure_file`, C/Cale source compile argv, static archive, exe/test link를 다루며 산출물은 `build/qstar/out`, 로그는 `build/qstar/logs` 아래에 둔다. Round 14/15부터 `build/qstar/state/actions.json` action manifest, `compile_commands.json`, cache-hit skip, `why-rebuild`, `log`, `last-failure`, `clean`, JSON diagnostic skeleton을 제공한다. Round 16/17부터 Cale source는 frontend/backend 내부 API가 아니라 `cale -c ... -o ...` process invocation으로만 다룬다. Round 18/19부터 static library dependency link order, public/private include propagation, system library flag rendering, test runner, install skeleton을 제공한다. Round 29부터 executor는 dependency-first closure를 action DAG로 실행하고, 실패는 stop-on-first-failure로 전파한다. Build action timeout은 기본 30초이며 timeout 시 process를 kill하고 replay file을 남긴다. Round 32부터 `--jobs N`과 `--schedule-trace`를 받는다. `jobs > 1`은 같은 target 안의 independent compile action을 process-level parallel batch로 실행하고, generated action과 final archive/link는 deterministic order를 유지한다. Round 35부터 긴 compile/link command는 profile capability가 허용할 때 실제 `build/qstar/rsp/*.rsp` response file로 내려가며, POSIX/Windows/MSVC style과 digest를 plan/build/replay에 기록한다. Round 36부터 parallel compile은 `process-v2` event stream을 출력한다. Queue order, slot assignment, start/finish/fail/timeout/cancel state, `retry=next-build`, active child cancel propagation을 deterministic하게 기록해 실패 로그를 사람이 읽기 쉽게 한다. Round 37부터 `build/qstar/state/graph.json` graph snapshot과 `build/qstar/state/last-summary.json` 마지막 build summary를 저장하고, `qstar action-log <action-id>`와 `qstar replay <action-id>`로 action 단위 로그/재현 명령을 조회한다. Round 56부터 `run_target`은 stdout/stderr/`marker_log` marker check를 지원하고, QEMU wrapper 실패를 `marker-missing`, `timeout`, `exit-code`로 분리해 `last-failure`와 `replay`에 남긴다. Round 59부터 실패 action은 `qstar-action-diagnostic-v1` JSON line도 출력하며, link, objcopy transform, package/stage, QEMU timeout을 각각 `link-failure`, `objcopy-failure`, `package-failure`, `qemu-timeout`으로 분리한다.
 
 ## 아직 하지 않는 일
 
@@ -177,8 +177,13 @@ hard cut으로 고정된다.
 - workspace/package root entry는 `qstar.lua`다.
 - `qstar.subdir("foo")`는 `foo/foo.qst`를 canonical fragment로 요구한다.
 - `foo/qstar.qst` fallback은 없다. fragment는 항상 `<folder>.qst`다.
-- `qstar.project { name = "...", version = "...", root = "." }`가 root metadata를
+- `qstar.project { name = "...", version = "...", root = ".", build_dir =
+  "build/qstar", compile_commands = "build" }`가 root metadata와 output policy를
   선언한다. v1에서 `root`는 `"."`만 허용한다.
+- `build_dir` 기본값은 `build/qstar`다. state, logs, response files, outputs,
+  install/stage manifests, 기본 compile database가 이 directory 아래에 모인다.
+- `compile_commands`는 `"build"`(기본, `build/qstar/compile_commands.json`),
+  `"root"`(project root의 `compile_commands.json`), `"off"` 중 하나다.
 - missing fragment는 `QSTAR002`, root entry 이름 drift는 `QSTAR001`이다.
 - unknown/bad label은 `QSTAR010`, package 밖 path는 `QSTAR020`, private include leakage는 `QSTAR030`으로 lint에 통합된다.
 
@@ -232,7 +237,7 @@ LSP client는 `qstar lsp --stdio`만 시작하며, build/test를 자동 실행�
 
 Round 42부터 extension은 `list-targets --format json`을 사용해 Explorer 안에
 `QStar` tree view를 만든다. Tree는 targets, generated actions, tests,
-installable artifacts를 분리해서 보여주고, `.qstar/state/last-summary.json`이 있으면
+installable artifacts를 분리해서 보여주고, `build/qstar/state/last-summary.json`이 있으면
 마지막 build status를 함께 표시한다. Tree item의 explain, dry-run, build, test는
 명시적 command palette/terminal action으로만 실행된다.
 
@@ -276,13 +281,13 @@ qstar.executable "app" {
 ## test, install, stage
 
 `qstar.test`는 test executable target이다. `qstar test //:unit`은 먼저 해당 target을
-build한 뒤 `.qstar/logs/<target>.test.stdout`/`.stderr`에 출력을 저장하고 실행
+build한 뒤 `build/qstar/logs/<target>.test.stdout`/`.stderr`에 출력을 저장하고 실행
 결과를 보고한다. `qstar test //...`는 package 안의 모든 test target을 순서대로
 실행한다. 현재 timeout은 5초 고정이다.
 
 `qstar install`은 v2 skeleton이다. 실제 package fetch나 registry metadata 없이,
 이미 build된 local artifact와 public header만 prefix 아래 복사한다. install 실행은
-package-local `.qstar/install/manifest.json`을 남긴다. Manifest에는 exe/staticlib/header
+package-local `build/qstar/install/manifest.json`을 남긴다. Manifest에는 exe/staticlib/header
 entry, dry-run/copy mode, destination path가 기록된다. Generated public header도
 생성 action output이면 install 대상이 될 수 있다. CMake config 같은 export file은
 아직 만들지 않고 manifest에 deferred skeleton으로만 표시한다.
@@ -290,7 +295,7 @@ entry, dry-run/copy mode, destination path가 기록된다. Generated public hea
 Round 55부터 `qstar.stage`는 install과 별개인 copy-only staging/package rule이다.
 `install`은 prefix 아래 개발 산출물과 public header를 놓는 흐름이고, `stage`는 boot
 image나 firmware package처럼 정해진 directory layout을 만드는 흐름이다. `qstar stage`
-는 `.qstar/stage/<label>/manifest.json`을 남기며, `--dry-run`은 copy하지 않고
+는 `build/qstar/stage/<label>/manifest.json`을 남기며, `--dry-run`은 copy하지 않고
 would-create/would-update/unchanged diff만 출력한다.
 
 ```lua
@@ -478,7 +483,7 @@ profile mapping보다 우선한다. `artifact_name`은 파일명 basename만 허
 
 Command rendering은 shell string이 아니라 argv-vector가 canonical이다. Explain/dry-run
 dump는 argv item을 quoting하고 deterministic `digest=`를 붙인다. 긴 command에는
-`response=skeleton response_file=.qstar/rsp/... response_style=... response_digest=...`를
+`response=skeleton response_file=build/qstar/rsp/... response_style=... response_digest=...`를
 표시한다. 실제 executor는 같은 policy로 response file을 만들며, failure replay에는
 `argv_digest`와 response file path/style/digest가 함께 남는다. Action log와
 `compile_commands.json`, failure replay는 shell-safe quoting을 사용한다. Action state에는

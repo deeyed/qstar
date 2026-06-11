@@ -37,7 +37,7 @@ release gate: make -C qstar qstar-v0.3-rc-tests
   language-agnostic target field로 유지한다.
 - C, C++, assembler, Cale source는 process invocation 기반 build input으로 다룬다.
   QStar는 Cale compiler 내부 API나 HCL semantic checker에 연결되지 않는다.
-- Incremental cache, `.qstar/state/actions.json`, graph snapshot,
+- Incremental cache, `build/qstar/state/actions.json`, graph snapshot,
   `compile_commands.json`, action log, `last-failure`, `action-log`, `replay`,
   cache miss reason은 developer UX surface로 유지한다.
 - `qstar lint`, `qstar fmt`, `qstar lsp --stdio`, VSCode extension, target tree query,

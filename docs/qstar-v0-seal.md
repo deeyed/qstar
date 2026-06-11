@@ -43,7 +43,7 @@ stable public protocol은 아니다.
 - diagnostics: default text and `--diagnostics json` skeleton.
 
 이 contract는 v0 authoring을 깨뜨리지 않기 위한 최소 약속이다. 출력 text의 공백,
-action key hash, 내부 `.qstar/state/actions.json` schema는 아직 public cache protocol이
+action key hash, 내부 `build/qstar/state/actions.json` schema는 아직 public cache protocol이
 아니다.
 
 ## Sample Corpus
@@ -74,7 +74,7 @@ Generated sample:
 tmp=$(mktemp -d /tmp/qstar-generated.XXXXXX)
 cp -R qstar/tests/manual/generated "$tmp/generated"
 cd "$tmp/generated"
-rm -rf .qstar generated compile_commands.json
+rm -rf build/qstar generated compile_commands.json
 /Users/gungye/workspace/Cale/qstar/build/bin/qstar --file qstar.lua build //:app
 ```
 

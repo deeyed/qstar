@@ -207,7 +207,7 @@ generator yet.
 
 Round 8 adds `qstar dry-run <label>`, which reuses the validated graph closure
 and projects it into executor-shaped records. Round 12 upgrades that projection
-with real argv data and deterministic `.qstar/out` output paths:
+with real argv data and deterministic `build/qstar/out` output paths:
 
 ```txt
 qstar dry-run v1
@@ -215,35 +215,35 @@ root //:app
 closure-order [//src/foo:foo, //:app]
 dry_run_target //src/foo:foo order=0 kind=staticlib
   resolved_toolchain owner=//src/foo:foo toolchain=host profile=default target=host stdlib=system resolver=builtin-v1 cc=cc cale=cale ar=ar linker=cc
-  dry_run_step id=//src/foo:foo:compile:0 owner=//src/foo:foo kind=compile language=c tool=c-compiler toolchain=host input=src/foo/foo.c output=.qstar/out/__src_foo_foo/obj0.o execute=no
-  command_argv id=//src/foo:foo:compile:0 argc=5 argv=[cc, -c, src/foo/foo.c, -o, .qstar/out/__src_foo_foo/obj0.o]
-  dry_run_step id=//src/foo:foo:archive:0 owner=//src/foo:foo kind=archive tool=archiver toolchain=host input=<target-objects> output=.qstar/out/__src_foo_foo/libfoo.a execute=no
-  command_argv id=//src/foo:foo:archive:0 argc=4 argv=[ar, rcs, .qstar/out/__src_foo_foo/libfoo.a, <target-objects>]
+  dry_run_step id=//src/foo:foo:compile:0 owner=//src/foo:foo kind=compile language=c tool=c-compiler toolchain=host input=src/foo/foo.c output=build/qstar/out/__src_foo_foo/obj0.o execute=no
+  command_argv id=//src/foo:foo:compile:0 argc=5 argv=[cc, -c, src/foo/foo.c, -o, build/qstar/out/__src_foo_foo/obj0.o]
+  dry_run_step id=//src/foo:foo:archive:0 owner=//src/foo:foo kind=archive tool=archiver toolchain=host input=<target-objects> output=build/qstar/out/__src_foo_foo/libfoo.a execute=no
+  command_argv id=//src/foo:foo:archive:0 argc=4 argv=[ar, rcs, build/qstar/out/__src_foo_foo/libfoo.a, <target-objects>]
 dry_run_target //:app order=1 kind=exe
   dry_run_step id=//:version:generate:0 owner=//:version consumer=//:app kind=generate tool=version-gen inputs=[VERSION] outputs=[generated/version.c] args=[--in, VERSION, --out, generated/version.c] execute=no
   command_argv id=//:version:generate:0 argc=5 argv=[version-gen, --in, VERSION, --out, generated/version.c]
-  dry_run_step id=//:app:compile:0 owner=//:app kind=compile language=c tool=c-compiler toolchain=host input=generated/version.c output=.qstar/out/___app/obj0.o execute=no
-  command_argv id=//:app:compile:0 argc=5 argv=[cc, -c, generated/version.c, -o, .qstar/out/___app/obj0.o]
-  dry_run_step id=//:app:link:0 owner=//:app kind=link tool=linker toolchain=host input=<target-objects> output=.qstar/out/___app/app execute=no
-  command_argv id=//:app:link:0 argc=4 argv=[cc, -o, .qstar/out/___app/app, <target-objects>]
+  dry_run_step id=//:app:compile:0 owner=//:app kind=compile language=c tool=c-compiler toolchain=host input=generated/version.c output=build/qstar/out/___app/obj0.o execute=no
+  command_argv id=//:app:compile:0 argc=5 argv=[cc, -c, generated/version.c, -o, build/qstar/out/___app/obj0.o]
+  dry_run_step id=//:app:link:0 owner=//:app kind=link tool=linker toolchain=host input=<target-objects> output=build/qstar/out/___app/app execute=no
+  command_argv id=//:app:link:0 argc=4 argv=[cc, -o, build/qstar/out/___app/app, <target-objects>]
 ```
 
 The dry-run dump is a developer diagnostic surface. It is not a stable executor
 API, and none of the records are shell commands.
 
 Round 13 adds `qstar build <label>`, which executes a restricted subset of the
-same plan. Build artifacts live under `.qstar/out`; stdout, stderr, per-action
-logs, and the last failure replay argv live under `.qstar/logs`.
+same plan. Build artifacts live under `build/qstar/out`; stdout, stderr, per-action
+logs, and the last failure replay argv live under `build/qstar/logs`.
 
 Round 14/15 add local incremental build records. `qstar build` now writes
-`.qstar/state/actions.json` and `compile_commands.json`, and action output uses
+`build/qstar/state/actions.json` and `compile_commands.json`, and action output uses
 status markers:
 
 ```txt
 qstar build v2
 root //:app
-build_action id=//:app:compile:0 status=run stdout=.qstar/logs/___app_compile_0.stdout stderr=.qstar/logs/___app_compile_0.stderr
-build_action id=//:app:link:0 status=skip reason=cache-hit stdout=.qstar/logs/___app_link_0.stdout stderr=.qstar/logs/___app_link_0.stderr
+build_action id=//:app:compile:0 status=run stdout=build/qstar/logs/___app_compile_0.stdout stderr=build/qstar/logs/___app_compile_0.stderr
+build_action id=//:app:link:0 status=skip reason=cache-hit stdout=build/qstar/logs/___app_link_0.stdout stderr=build/qstar/logs/___app_link_0.stderr
 status ok
 ```
 
@@ -272,7 +272,7 @@ target //:app
   generated_edge header=generated/config.h generator=//:cfg output=generated/config.h
   source_file path=src/main.c language=c tool=c-compiler role=compile
   header_file private path=generated/config.h role=internal semantic=opaque-to-qstar
-  command_argv id=//:app:compile:0 argc=7 argv=[cc, -c, src/main.c, -o, .qstar/out/___app/obj0.o, -I, generated]
+  command_argv id=//:app:compile:0 argc=7 argv=[cc, -c, src/main.c, -o, build/qstar/out/___app/obj0.o, -I, generated]
 ```
 
 Source classification is intentionally shallow. QStar records `.c`, `.cale`,
@@ -409,7 +409,7 @@ Full executor, Ninja generator, binary cache는 future pipeline이다.
 Round 20 marks the Graph IR and command output as a v0 developer diagnostic
 surface. The supported authoring API is documented in
 `docs/qstar-v0-seal.md`, but Graph IR text, action key hashes, and
-`.qstar/state/actions.json` remain non-public implementation details.
+`build/qstar/state/actions.json` remain non-public implementation details.
 
 Round 22 adds rule metadata to target/source plan records. The registry boundary
 is documented in `docs/rule-model.md`.
@@ -420,6 +420,6 @@ package-local depfile-discovered headers. C++ compile steps use language `cxx`
 and tool role `cxx-compiler`.
 
 Round 38 keeps Graph IR diagnostic-only but includes the graph snapshot in the
-v0.1 hardening seal. `.qstar/state/graph.json` and
-`.qstar/state/last-summary.json` are local build UX artifacts, not stable public
+v0.1 hardening seal. `build/qstar/state/graph.json` and
+`build/qstar/state/last-summary.json` are local build UX artifacts, not stable public
 serialization formats.

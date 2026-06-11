@@ -745,7 +745,7 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 	return 0;
 }
 
-/** target label을 .qstar/out 아래 파일명에 안전한 이름으로 바꾼다. */
+/** target label을 build output directory 아래 파일명에 안전한 이름으로 바꾼다. */
 void
 qstar_mangle_label(const char *label, char *dst, size_t dstlen)
 {
@@ -763,28 +763,30 @@ qstar_mangle_label(const char *label, char *dst, size_t dstlen)
 
 /** compile object output path를 deterministic package-relative path로 만든다. */
 int
-qstar_object_output_path(const struct qstar_target *target, size_t index, char *dst,
-    size_t dstlen)
+qstar_graph_object_output_path(const struct qstar_graph *graph,
+    const struct qstar_target *target, size_t index, char *dst, size_t dstlen)
 {
-	char owner[QSTAR_PATH_MAX];
+	char owner[QSTAR_PATH_MAX], sub[QSTAR_PATH_MAX];
 	int n;
 
 	qstar_mangle_label(target->label, owner, sizeof(owner));
-	n = snprintf(dst, dstlen, ".qstar/out/%s/obj%zu.o", owner, index);
-	return n >= 0 && (size_t)n < dstlen ? 0 : -1;
+	n = snprintf(sub, sizeof(sub), "out/%s/obj%zu.o", owner, index);
+	return n >= 0 && (size_t)n < sizeof(sub) ?
+	    qstar_graph_build_path(graph, sub, dst, dstlen) : -1;
 }
 
 /** compile depfile output path를 deterministic package-relative path로 만든다. */
 int
-qstar_depfile_output_path(const struct qstar_target *target, size_t index, char *dst,
-    size_t dstlen)
+qstar_graph_depfile_output_path(const struct qstar_graph *graph,
+    const struct qstar_target *target, size_t index, char *dst, size_t dstlen)
 {
-	char owner[QSTAR_PATH_MAX];
+	char owner[QSTAR_PATH_MAX], sub[QSTAR_PATH_MAX];
 	int n;
 
 	qstar_mangle_label(target->label, owner, sizeof(owner));
-	n = snprintf(dst, dstlen, ".qstar/out/%s/obj%zu.d", owner, index);
-	return n >= 0 && (size_t)n < dstlen ? 0 : -1;
+	n = snprintf(sub, sizeof(sub), "out/%s/obj%zu.d", owner, index);
+	return n >= 0 && (size_t)n < sizeof(sub) ?
+	    qstar_graph_build_path(graph, sub, dst, dstlen) : -1;
 }
 
 /** target artifact output path를 deterministic package-relative path로 만든다. */
@@ -819,7 +821,7 @@ int
 qstar_graph_artifact_output_path(const struct qstar_graph *graph,
     const struct qstar_target *target, char *dst, size_t dstlen)
 {
-	char owner[QSTAR_PATH_MAX];
+	char owner[QSTAR_PATH_MAX], sub[QSTAR_PATH_MAX];
 	const struct qstar_target_rule_info *rule;
 	const char *prefix, *suffix, *artifact_name;
 	int n;
@@ -828,12 +830,14 @@ qstar_graph_artifact_output_path(const struct qstar_graph *graph,
 	artifact_name = target->artifact_name && *target->artifact_name ?
 	    target->artifact_name : profile_artifact_name_for_target(graph, target);
 	if (artifact_name && *artifact_name) {
-		n = snprintf(dst, dstlen, ".qstar/out/%s/%s", owner, artifact_name);
-		return n >= 0 && (size_t)n < dstlen ? 0 : -1;
+		n = snprintf(sub, sizeof(sub), "out/%s/%s", owner, artifact_name);
+		return n >= 0 && (size_t)n < sizeof(sub) ?
+		    qstar_graph_build_path(graph, sub, dst, dstlen) : -1;
 	}
 	rule = qstar_target_rule_lookup(target->kind);
 	prefix = rule ? rule->artifact_prefix : "";
 	suffix = rule ? rule->artifact_suffix : "";
-	n = snprintf(dst, dstlen, ".qstar/out/%s/%s%s%s", owner, prefix, target->name, suffix);
-	return n >= 0 && (size_t)n < dstlen ? 0 : -1;
+	n = snprintf(sub, sizeof(sub), "out/%s/%s%s%s", owner, prefix, target->name, suffix);
+	return n >= 0 && (size_t)n < sizeof(sub) ?
+	    qstar_graph_build_path(graph, sub, dst, dstlen) : -1;
 }

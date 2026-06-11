@@ -50,8 +50,8 @@ QStar를 독립 빌드시스템으로 시험할 수 있게 하는 최소 계약�
   `--dump-graph`.
 - Diagnostics: default text and `--diagnostics json` skeleton.
 
-Internal text dump spacing, action hash values, `.qstar/state/actions.json`, and
-`.qstar/state/graph.json` are diagnostic/cache implementation details. They are
+Internal text dump spacing, action hash values, `build/qstar/state/actions.json`, and
+`build/qstar/state/graph.json` are diagnostic/cache implementation details. They are
 regression-tested for QStar itself but are not yet a public remote-cache protocol.
 
 ## Integrated Smoke Surface
@@ -64,8 +64,8 @@ The v0.1 release gate ties these features together:
   resource dir, include dirs, lib dirs, response file policy.
 - Local executor: compile, archive, link, generated action, config header, test,
   install, failure replay.
-- Incremental state: `.qstar/state/actions.json`, `.qstar/state/graph.json`,
-  `.qstar/state/last-summary.json`, depfile-discovered input tracking, cache miss
+- Incremental state: `build/qstar/state/actions.json`, `build/qstar/state/graph.json`,
+  `build/qstar/state/last-summary.json`, depfile-discovered input tracking, cache miss
   reasons.
 - `compile_commands.json` generation.
 - Response files for long commands with POSIX/Windows/MSVC-style policy markers.

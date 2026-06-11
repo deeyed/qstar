@@ -181,6 +181,8 @@ free_project(struct qstar_project *project)
 	free(project->name);
 	free(project->version);
 	free(project->root);
+	free(project->build_dir);
+	free(project->compile_commands);
 	memset(project, 0, sizeof(*project));
 }
 
@@ -292,30 +294,90 @@ qstar_graph_set_package_root(struct qstar_graph *graph, const char *root)
 	return 0;
 }
 
+static int
+valid_project_relative(const char *path)
+{
+	return path && *path && qstar_path_is_package_relative(path);
+}
+
+/** QStar project의 effective build directory를 반환한다. */
+const char *
+qstar_graph_build_dir(const struct qstar_graph *graph)
+{
+	if (graph && graph->project.build_dir && *graph->project.build_dir)
+		return graph->project.build_dir;
+	return "build/qstar";
+}
+
+/** QStar project의 effective compile_commands policy를 반환한다. */
+const char *
+qstar_graph_compile_commands_policy(const struct qstar_graph *graph)
+{
+	if (graph && graph->project.compile_commands &&
+	    *graph->project.compile_commands)
+		return graph->project.compile_commands;
+	return "build";
+}
+
+/** build directory 아래 상대 path를 deterministic package-relative path로 만든다. */
+int
+qstar_graph_build_path(const struct qstar_graph *graph, const char *subpath, char *dst,
+    size_t dstlen)
+{
+	const char *build_dir;
+	int n;
+
+	build_dir = qstar_graph_build_dir(graph);
+	if (!subpath || !*subpath)
+		n = snprintf(dst, dstlen, "%s", build_dir);
+	else
+		n = snprintf(dst, dstlen, "%s/%s", build_dir, subpath);
+	return n >= 0 && (size_t)n < dstlen ? 0 : -1;
+}
+
 /** qstar.project metadata를 graph에 기록한다. */
 int
 qstar_graph_set_project(struct qstar_graph *graph, const char *name,
-    const char *version, const char *root)
+    const char *version, const char *root, const char *build_dir,
+    const char *compile_commands)
 {
-	char *name_copy, *version_copy, *root_copy;
+	char *name_copy, *version_copy, *root_copy, *build_copy, *compile_copy;
+	const char *effective_build_dir, *effective_compile;
 
 	if (graph->project.present)
 		return qstar_set_error(graph, "qstar: qstar.project already declared");
 	if (root && *root && strcmp(root, ".") != 0)
 		return qstar_set_error(graph, "qstar: qstar.project root must be \".\" in v1");
+	effective_build_dir = build_dir && *build_dir ? build_dir : "build/qstar";
+	if (!valid_project_relative(effective_build_dir))
+		return qstar_set_error(graph,
+		    "qstar: qstar.project build_dir must be package-relative");
+	effective_compile = compile_commands && *compile_commands ? compile_commands :
+	    "build";
+	if (strcmp(effective_compile, "build") != 0 &&
+	    strcmp(effective_compile, "root") != 0 &&
+	    strcmp(effective_compile, "off") != 0)
+		return qstar_set_error(graph,
+		    "qstar: qstar.project compile_commands must be \"root\", \"build\", or \"off\"");
 	name_copy = qstar_strdup(name ? name : "");
 	version_copy = qstar_strdup(version ? version : "");
 	root_copy = qstar_strdup(root && *root ? root : ".");
-	if (!name_copy || !version_copy || !root_copy) {
+	build_copy = qstar_strdup(effective_build_dir);
+	compile_copy = qstar_strdup(effective_compile);
+	if (!name_copy || !version_copy || !root_copy || !build_copy || !compile_copy) {
 		free(name_copy);
 		free(version_copy);
 		free(root_copy);
+		free(build_copy);
+		free(compile_copy);
 		return qstar_set_error(graph, "qstar: out of memory");
 	}
 	graph->project.present = 1;
 	graph->project.name = name_copy;
 	graph->project.version = version_copy;
 	graph->project.root = root_copy;
+	graph->project.build_dir = build_copy;
+	graph->project.compile_commands = compile_copy;
 	return 0;
 }
 
@@ -1087,11 +1149,12 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 		qsort(copy, n, sizeof(copy[0]), target_cmp);
 	}
 	fputs("qstar graph v1\n", out);
-	fprintf(out, "project name=%s version=%s root=%s\n",
+	fprintf(out, "project name=%s version=%s root=%s build_dir=%s compile_commands=%s\n",
 	    graph->project.name && *graph->project.name ? graph->project.name : "<unnamed>",
 	    graph->project.version && *graph->project.version ?
 	    graph->project.version : "<unspecified>",
-	    graph->project.root && *graph->project.root ? graph->project.root : ".");
+	    graph->project.root && *graph->project.root ? graph->project.root : ".",
+	    qstar_graph_build_dir(graph), qstar_graph_compile_commands_policy(graph));
 	fprintf(out, "profile name=%s target=%s toolchain=%s stdlib=%s\n",
 	    profile_or_default(graph->profile.name, "default"),
 	    profile_or_default(graph->profile.target, "host"),
@@ -1420,6 +1483,10 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	fputs(",\"root\":", out);
 	dump_json_string(out, graph->project.root && *graph->project.root ?
 	    graph->project.root : ".");
+	fputs(",\"build_dir\":", out);
+	dump_json_string(out, qstar_graph_build_dir(graph));
+	fputs(",\"compile_commands\":", out);
+	dump_json_string(out, qstar_graph_compile_commands_policy(graph));
 	fputc('}', out);
 	fprintf(out,
 	    ",\"target_count\":%zu,\"generated_action_count\":%zu,\"stage_count\":%zu",

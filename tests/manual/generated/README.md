@@ -9,7 +9,7 @@ make -C qstar
 qstar/build/bin/qstar --file qstar/tests/manual/generated/qstar.lua check //:app
 qstar/build/bin/qstar --file qstar/tests/manual/generated/qstar.lua dry-run //:app
 qstar/build/bin/qstar --file qstar/tests/manual/generated/qstar.lua build //:app
-qstar/tests/manual/generated/.qstar/out/___app/app
+qstar/tests/manual/generated/build/qstar/out/___app/app
 ```
 
 생성된 파일과 build state는 이 fixture directory 아래에만 남는다.

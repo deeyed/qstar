@@ -88,7 +88,7 @@ v0.2 RC keeps failure diagnosis as part of the developer contract:
 - `marker-missing`, `exit-code`, `timeout`: generic run target failure classes.
 
 These failure kinds appear in stdout action diagnostics, stderr JSON diagnostics
-when requested, `.qstar/logs/last-failure.replay`, and `qstar replay`.
+when requested, `build/qstar/logs/last-failure.replay`, and `qstar replay`.
 
 ## Experimental Or Deferred
 

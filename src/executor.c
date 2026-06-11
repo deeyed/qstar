@@ -156,6 +156,29 @@ full_path_under_root(const struct qstar_graph *graph, const char *rel, char *dst
 	    dstlen);
 }
 
+/** build directory 아래 상대 path를 package root 기준 절대 실행 path로 바꾼다. */
+static int
+full_path_under_build(const struct qstar_graph *graph, const char *subpath, char *dst,
+    size_t dstlen)
+{
+	char rel[QSTAR_PATH_MAX];
+
+	if (qstar_graph_build_path(graph, subpath, rel, sizeof(rel)) < 0)
+		return -1;
+	return full_path_under_root(graph, rel, dst, dstlen);
+}
+
+/** build directory 아래 파일 path의 parent directory를 만든다. */
+static int
+mkdir_parent_under_build(const struct qstar_graph *graph, const char *subpath)
+{
+	char rel[QSTAR_PATH_MAX];
+
+	if (qstar_graph_build_path(graph, subpath, rel, sizeof(rel)) < 0)
+		return -1;
+	return mkdir_parent_under_root(graph, rel);
+}
+
 /** 파일 존재 여부를 검사한다. */
 static int
 path_exists(const char *path)
@@ -613,7 +636,8 @@ prepare_response_file(struct qstar_graph *graph, const char *id,
     const struct qstar_resolved_toolchain *toolchain, char *const argv[], char *rsp_arg,
     size_t rsp_arg_len, FILE *out)
 {
-	char dir[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], rel[QSTAR_PATH_MAX];
+	char dir[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], sub[QSTAR_PATH_MAX];
+	char rel[QSTAR_PATH_MAX];
 	char full[QSTAR_PATH_MAX];
 	const char *style;
 	unsigned long long digest;
@@ -627,11 +651,12 @@ prepare_response_file(struct qstar_graph *graph, const char *id,
 		return 0;
 	}
 	style = toolchain->response_style[0] ? toolchain->response_style : "posix";
-	if (full_path_under_root(graph, ".qstar/rsp", dir, sizeof(dir)) < 0 ||
+	if (full_path_under_build(graph, "rsp", dir, sizeof(dir)) < 0 ||
 	    mkdir_p(dir) < 0)
 		return qstar_set_error(graph, "qstar: could not create response file dir");
 	action_log_name(id, name, sizeof(name));
-	if (snprintf(rel, sizeof(rel), ".qstar/rsp/%s.rsp", name) >= (int)sizeof(rel) ||
+	if (snprintf(sub, sizeof(sub), "rsp/%s.rsp", name) >= (int)sizeof(sub) ||
+	    qstar_graph_build_path(graph, sub, rel, sizeof(rel)) < 0 ||
 	    full_path_under_root(graph, rel, full, sizeof(full)) < 0)
 		return qstar_set_error(graph, "qstar: response file path too long");
 	f = fopen(full, "w");
@@ -726,8 +751,8 @@ write_failure_replay_detail(const struct qstar_graph *graph, const char *id,
 	size_t i;
 	unsigned long long digest;
 
-	if (qstar_path_join(graph->package_root ? graph->package_root : ".",
-	    ".qstar/logs/last-failure.replay", path, sizeof(path)) < 0)
+	if (full_path_under_build(graph, "logs/last-failure.replay", path,
+	    sizeof(path)) < 0)
 		return;
 	f = fopen(path, "w");
 	if (!f)
@@ -751,7 +776,12 @@ write_failure_replay_detail(const struct qstar_graph *graph, const char *id,
 		const char *style = toolchain->response_style[0] ?
 		    toolchain->response_style : "posix";
 		action_log_name(id, name, sizeof(name));
-		snprintf(rel, sizeof(rel), ".qstar/rsp/%s.rsp", name);
+		char sub[QSTAR_PATH_MAX];
+
+		snprintf(sub, sizeof(sub), "rsp/%s.rsp", name);
+		if (qstar_graph_build_path(graph, sub, rel, sizeof(rel)) < 0)
+			snprintf(rel, sizeof(rel), "%s/rsp/%s.rsp",
+			    qstar_graph_build_dir(graph), name);
 		fprintf(f, "response_file path=%s style=%s digest=%016llx\n", rel, style,
 		    response_file_digest(id, argv, style));
 	} else {
@@ -964,7 +994,7 @@ state_load(struct qstar_graph *graph, struct qstar_build_ctx *ctx)
 	struct qstar_action_material material;
 	FILE *f;
 
-	if (full_path_under_root(graph, ".qstar/state/actions.json", path, sizeof(path)) < 0)
+	if (full_path_under_build(graph, "state/actions.json", path, sizeof(path)) < 0)
 		return qstar_set_error(graph, "qstar: state path too long");
 	f = fopen(path, "r");
 	if (!f)
@@ -1008,9 +1038,9 @@ state_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 	FILE *f;
 	size_t i;
 
-	if (full_path_under_root(graph, ".qstar/state", dir, sizeof(dir)) < 0 ||
+	if (full_path_under_build(graph, "state", dir, sizeof(dir)) < 0 ||
 	    mkdir_p(dir) < 0 ||
-	    full_path_under_root(graph, ".qstar/state/actions.json", path, sizeof(path)) < 0)
+	    full_path_under_build(graph, "state/actions.json", path, sizeof(path)) < 0)
 		return qstar_set_error(graph, "qstar: could not create state dir");
 	snprintf(tmp, sizeof(tmp), "%s.tmp", path);
 	f = fopen(tmp, "w");
@@ -1106,9 +1136,9 @@ graph_snapshot_write(struct qstar_graph *graph)
 	FILE *f;
 	size_t i;
 
-	if (full_path_under_root(graph, ".qstar/state", dir, sizeof(dir)) < 0 ||
+	if (full_path_under_build(graph, "state", dir, sizeof(dir)) < 0 ||
 	    mkdir_p(dir) < 0 ||
-	    full_path_under_root(graph, ".qstar/state/graph.json", path, sizeof(path)) < 0)
+	    full_path_under_build(graph, "state/graph.json", path, sizeof(path)) < 0)
 		return qstar_set_error(graph, "qstar: could not create graph snapshot dir");
 	snprintf(tmp, sizeof(tmp), "%s.tmp", path);
 	f = fopen(tmp, "w");
@@ -1122,6 +1152,10 @@ graph_snapshot_write(struct qstar_graph *graph)
 	json_string(f, graph->project.version ? graph->project.version : "");
 	fputs(",\"root\":", f);
 	json_string(f, graph->project.root ? graph->project.root : ".");
+	fputs(",\"build_dir\":", f);
+	json_string(f, qstar_graph_build_dir(graph));
+	fputs(",\"compile_commands\":", f);
+	json_string(f, qstar_graph_compile_commands_policy(graph));
 	fputc('}', f);
 	fputs(",\"profile\":{", f);
 	fputs("\"name\":", f);
@@ -1180,9 +1214,9 @@ build_summary_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx
 	char dir[QSTAR_PATH_MAX], path[QSTAR_PATH_MAX], tmp[QSTAR_PATH_MAX];
 	FILE *f;
 
-	if (full_path_under_root(graph, ".qstar/state", dir, sizeof(dir)) < 0 ||
+	if (full_path_under_build(graph, "state", dir, sizeof(dir)) < 0 ||
 	    mkdir_p(dir) < 0 ||
-	    full_path_under_root(graph, ".qstar/state/last-summary.json", path,
+	    full_path_under_build(graph, "state/last-summary.json", path,
 	    sizeof(path)) < 0)
 		return qstar_set_error(graph, "qstar: could not create build summary dir");
 	snprintf(tmp, sizeof(tmp), "%s.tmp", path);
@@ -1292,7 +1326,23 @@ compile_db_free(struct qstar_compile_record *records, size_t len)
 	free(records);
 }
 
-/** build에서 수집한 compile_commands.json을 package root에 쓴다. */
+/** compile_commands policy에 따라 output path를 계산한다. */
+static int
+compile_db_path(struct qstar_graph *graph, char *path, size_t pathlen)
+{
+	const char *policy;
+
+	policy = qstar_graph_compile_commands_policy(graph);
+	if (strcmp(policy, "off") == 0) {
+		path[0] = '\0';
+		return 0;
+	}
+	if (strcmp(policy, "root") == 0)
+		return full_path_under_root(graph, "compile_commands.json", path, pathlen);
+	return full_path_under_build(graph, "compile_commands.json", path, pathlen);
+}
+
+/** build에서 수집한 compile_commands.json을 project policy에 따라 쓴다. */
 static int
 compile_db_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 {
@@ -1300,8 +1350,18 @@ compile_db_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 	FILE *f;
 	size_t i;
 
-	if (full_path_under_root(graph, "compile_commands.json", path, sizeof(path)) < 0)
+	if (compile_db_path(graph, path, sizeof(path)) < 0)
 		return qstar_set_error(graph, "qstar: compile_commands path too long");
+	if (!path[0])
+		return 0;
+	if (strcmp(qstar_graph_compile_commands_policy(graph), "root") != 0) {
+		char dir[QSTAR_PATH_MAX];
+
+		if (full_path_under_build(graph, "", dir, sizeof(dir)) < 0 ||
+		    mkdir_p(dir) < 0)
+			return qstar_set_error(graph,
+			    "qstar: could not create compile_commands dir");
+	}
 	snprintf(tmp, sizeof(tmp), "%s.tmp", path);
 	f = fopen(tmp, "w");
 	if (!f)
@@ -1449,7 +1509,7 @@ classify_failure_kind(const char *kind, const struct qstar_target *target,
 static void
 emit_action_diagnostic(FILE *out, const char *id, const char *kind, const char *label,
     const char *failure_kind, const char *status, int exit_code,
-    const char *stdout_rel, const char *stderr_rel)
+    const char *stdout_rel, const char *stderr_rel, const char *replay_rel)
 {
 	fputs("action_diagnostic_json ", out);
 	fputs("{\"schema\":\"qstar-action-diagnostic-v1\",\"id\":", out);
@@ -1466,7 +1526,10 @@ emit_action_diagnostic(FILE *out, const char *id, const char *kind, const char *
 	json_string(out, stdout_rel && *stdout_rel ? stdout_rel : "<none>");
 	fputs(",\"stderr\":", out);
 	json_string(out, stderr_rel && *stderr_rel ? stderr_rel : "<none>");
-	fputs(",\"replay\":\".qstar/logs/last-failure.replay\"}\n", out);
+	fputs(",\"replay\":", out);
+	json_string(out, replay_rel && *replay_rel ? replay_rel :
+	    "build/qstar/logs/last-failure.replay");
+	fputs("}\n", out);
 }
 
 /** 빈 stdout/stderr log 파일을 만든다. */
@@ -1480,6 +1543,26 @@ write_empty_log_file(const char *path)
 		fclose(f);
 }
 
+/** build log 상대 path를 계산한다. */
+static int
+build_log_rel(const struct qstar_graph *graph, const char *name, const char *suffix,
+    char *dst, size_t dstlen)
+{
+	char sub[QSTAR_PATH_MAX];
+	int n;
+
+	n = snprintf(sub, sizeof(sub), "logs/%s%s", name, suffix);
+	return n >= 0 && (size_t)n < sizeof(sub) ?
+	    qstar_graph_build_path(graph, sub, dst, dstlen) : -1;
+}
+
+/** last-failure replay 상대 path를 계산한다. */
+static int
+build_replay_rel(const struct qstar_graph *graph, char *dst, size_t dstlen)
+{
+	return qstar_graph_build_path(graph, "logs/last-failure.replay", dst, dstlen);
+}
+
 /** stdout/stderr를 log 파일에 연결해 package root 안에서 argv를 실행하거나 cache skip한다. */
 static int
 run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
@@ -1491,6 +1574,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	char logdir[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], stdout_path[QSTAR_PATH_MAX];
 	char stderr_path[QSTAR_PATH_MAX], action_log[QSTAR_PATH_MAX];
 	char child_stdout_path[QSTAR_PATH_MAX], child_stderr_path[QSTAR_PATH_MAX];
+	char replay_path[QSTAR_PATH_MAX];
 	char rsp_arg[QSTAR_PATH_MAX];
 	char *exec_argv[3];
 	char *const *child_argv;
@@ -1498,16 +1582,19 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	pid_t pid;
 	int status, fdout, fderr, exit_code, use_rsp;
 
-	if (qstar_path_join(graph->package_root ? graph->package_root : ".",
-	    ".qstar/logs", logdir, sizeof(logdir)) < 0 ||
+	if (full_path_under_build(graph, "logs", logdir, sizeof(logdir)) < 0 ||
 	    mkdir_p(logdir) < 0)
 		return qstar_set_error(graph, "qstar: could not create action log dir");
 	action_log_name(id, name, sizeof(name));
 	snprintf(stdout_path, sizeof(stdout_path), "%s/%s.stdout", logdir, name);
 	snprintf(stderr_path, sizeof(stderr_path), "%s/%s.stderr", logdir, name);
 	snprintf(action_log, sizeof(action_log), "%s/%s.log", logdir, name);
-	snprintf(child_stdout_path, sizeof(child_stdout_path), ".qstar/logs/%s.stdout", name);
-	snprintf(child_stderr_path, sizeof(child_stderr_path), ".qstar/logs/%s.stderr", name);
+	if (build_log_rel(graph, name, ".stdout", child_stdout_path,
+	    sizeof(child_stdout_path)) < 0 ||
+	    build_log_rel(graph, name, ".stderr", child_stderr_path,
+	    sizeof(child_stderr_path)) < 0 ||
+	    build_replay_rel(graph, replay_path, sizeof(replay_path)) < 0)
+		return qstar_set_error(graph, "qstar: action log path too long");
 	prev = state_find(ctx, id);
 	ctx->scheduled_count++;
 	if (ctx->schedule_trace)
@@ -1526,8 +1613,8 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	if (prev && strcmp(prev->key, key) == 0 && outputs_exist(graph, outputs)) {
 		fprintf(ctx->out,
-		    "build_action id=%s status=skip reason=cache-hit stdout=.qstar/logs/%s.stdout stderr=.qstar/logs/%s.stderr\n",
-		    id, name, name);
+		    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
+		    id, child_stdout_path, child_stderr_path);
 		write_skip_log(action_log, argv);
 		ctx->skip_count++;
 		return state_push(ctx, 1, id, key, outputs->items[0], "skip", kind,
@@ -1535,8 +1622,8 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    qstar_set_error(graph, "qstar: out of memory") : 0;
 	}
 	fprintf(ctx->out,
-	    "build_action id=%s status=run timeout_sec=%d stdout=.qstar/logs/%s.stdout stderr=.qstar/logs/%s.stderr\n",
-	    id, ctx->action_timeout_sec, name, name);
+	    "build_action id=%s status=run timeout_sec=%d stdout=%s stderr=%s\n",
+	    id, ctx->action_timeout_sec, child_stdout_path, child_stderr_path);
 	if (ctx->explain_cache)
 		fprintf(ctx->out, "cache_miss id=%s reason=%s key=%s previous=%s\n",
 		    id, cache_reason(graph, prev, key, outputs, material), key,
@@ -1602,25 +1689,27 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 				    id, ctx->action_timeout_sec);
 				emit_action_diagnostic(ctx->out, id, kind,
 				    diag_label, failure_kind, "timeout",
-				    124, child_stdout_path, child_stderr_path);
+				    124, child_stdout_path, child_stderr_path,
+				    replay_path);
 				if (strcmp(kind, "run") == 0) {
 					fprintf(ctx->out,
-					    "run_target_result label=%s status=timeout timeout_sec=%d replay=.qstar/logs/last-failure.replay stdout=%s stderr=%s\n",
+					    "run_target_result label=%s status=timeout timeout_sec=%d replay=%s stdout=%s stderr=%s\n",
 					    target ? target->label : id, ctx->action_timeout_sec,
-					    child_stdout_path, child_stderr_path);
+					    replay_path, child_stdout_path, child_stderr_path);
 					return qstar_set_error_origin(graph,
 					    target ? target->origin_file : "",
 					    target ? target->origin_line : 0, failure_kind,
 					    target ? target->label : id,
-					    "qstar: run_target '%s' timed out after %d seconds; replay=.qstar/logs/last-failure.replay",
-					    target ? target->label : id, ctx->action_timeout_sec);
+					    "qstar: run_target '%s' timed out after %d seconds; replay=%s",
+					    target ? target->label : id, ctx->action_timeout_sec,
+					    replay_path);
 				}
 				return qstar_set_error_origin(graph,
 				    target ? target->origin_file : "",
 				    target ? target->origin_line : 0, failure_kind,
 				    target ? target->label : id,
-				    "qstar: action '%s' timed out after %d seconds; replay=.qstar/logs/last-failure.replay",
-				    id, ctx->action_timeout_sec);
+				    "qstar: action '%s' timed out after %d seconds; replay=%s",
+				    id, ctx->action_timeout_sec, replay_path);
 			}
 			sleep(1);
 		}
@@ -1640,24 +1729,25 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    child_stderr_path, target ? target->run_marker : NULL,
 		    target ? target->run_marker_log : NULL);
 		emit_action_diagnostic(ctx->out, id, kind, diag_label,
-		    failure_kind, "fail", exit_code, child_stdout_path, child_stderr_path);
+		    failure_kind, "fail", exit_code, child_stdout_path, child_stderr_path,
+		    replay_path);
 		ctx->fail_count++;
 		ctx->cancelled = 1;
 		if (strcmp(kind, "run") == 0) {
 			fprintf(ctx->out,
-			    "run_target_result label=%s status=exit-code exit=%d replay=.qstar/logs/last-failure.replay stdout=%s stderr=%s\n",
-			    target ? target->label : id, exit_code, child_stdout_path,
-			    child_stderr_path);
+			    "run_target_result label=%s status=exit-code exit=%d replay=%s stdout=%s stderr=%s\n",
+			    target ? target->label : id, exit_code, replay_path,
+			    child_stdout_path, child_stderr_path);
 			return qstar_set_error_origin(graph, target ? target->origin_file : "",
 			    target ? target->origin_line : 0, failure_kind,
 			    target ? target->label : id,
-			    "qstar: run_target '%s' failed with exit code %d; replay=.qstar/logs/last-failure.replay",
-			    target ? target->label : id, exit_code);
+			    "qstar: run_target '%s' failed with exit code %d; replay=%s",
+			    target ? target->label : id, exit_code, replay_path);
 		}
 		return qstar_set_error_origin(graph, target ? target->origin_file : "",
 		    target ? target->origin_line : 0, failure_kind, diag_label,
-		    "qstar: action '%s' failed with status %d; replay=.qstar/logs/last-failure.replay",
-		    id, exit_code);
+		    "qstar: action '%s' failed with status %d; replay=%s",
+		    id, exit_code, replay_path);
 	}
 	ctx->run_count++;
 	if (state_push(ctx, 1, id, key, outputs->items[0], "run", kind, material) < 0)
@@ -1860,7 +1950,7 @@ target_source_object_input(struct qstar_graph *graph, const struct qstar_target 
 		return snprintf(dst, dstlen, "%s", target->sources.items[index]) <
 		    (int)dstlen ? 0 : -1;
 	}
-	return qstar_object_output_path(target, index, dst, dstlen);
+	return qstar_graph_object_output_path(graph, target, index, dst, dstlen);
 }
 
 /** target 안에서 실제 compiler process가 필요한 source 개수를 센다. */
@@ -1991,16 +2081,21 @@ run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 {
 	char logdir[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], stdout_path[QSTAR_PATH_MAX];
 	char stderr_path[QSTAR_PATH_MAX], action_log[QSTAR_PATH_MAX];
+	char child_stdout_path[QSTAR_PATH_MAX], child_stderr_path[QSTAR_PATH_MAX];
 	const struct qstar_state_entry *prev;
 
-	if (qstar_path_join(graph->package_root ? graph->package_root : ".",
-	    ".qstar/logs", logdir, sizeof(logdir)) < 0 ||
+	if (full_path_under_build(graph, "logs", logdir, sizeof(logdir)) < 0 ||
 	    mkdir_p(logdir) < 0)
 		return qstar_set_error(graph, "qstar: could not create action log dir");
 	action_log_name(id, name, sizeof(name));
 	snprintf(stdout_path, sizeof(stdout_path), "%s/%s.stdout", logdir, name);
 	snprintf(stderr_path, sizeof(stderr_path), "%s/%s.stderr", logdir, name);
 	snprintf(action_log, sizeof(action_log), "%s/%s.log", logdir, name);
+	if (build_log_rel(graph, name, ".stdout", child_stdout_path,
+	    sizeof(child_stdout_path)) < 0 ||
+	    build_log_rel(graph, name, ".stderr", child_stderr_path,
+	    sizeof(child_stderr_path)) < 0)
+		return qstar_set_error(graph, "qstar: action log path too long");
 	prev = state_find(ctx, id);
 	ctx->scheduled_count++;
 	if (ctx->schedule_trace)
@@ -2019,8 +2114,8 @@ run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	if (prev && strcmp(prev->key, key) == 0 && outputs_exist(graph, &genrule->outputs)) {
 		fprintf(ctx->out,
-		    "build_action id=%s status=skip reason=cache-hit stdout=.qstar/logs/%s.stdout stderr=.qstar/logs/%s.stderr\n",
-		    id, name, name);
+		    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
+		    id, child_stdout_path, child_stderr_path);
 		write_skip_log(action_log, argv);
 		ctx->skip_count++;
 		return state_push(ctx, 1, id, key, genrule->outputs.items[0], "skip",
@@ -2028,8 +2123,8 @@ run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    qstar_set_error(graph, "qstar: out of memory") : 0;
 	}
 	fprintf(ctx->out,
-	    "build_action id=%s status=run timeout_sec=internal stdout=.qstar/logs/%s.stdout stderr=.qstar/logs/%s.stderr\n",
-	    id, name, name);
+	    "build_action id=%s status=run timeout_sec=internal stdout=%s stderr=%s\n",
+	    id, child_stdout_path, child_stderr_path);
 	if (ctx->explain_cache)
 		fprintf(ctx->out, "cache_miss id=%s reason=%s key=%s previous=%s\n",
 		    id, cache_reason(graph, prev, key, &genrule->outputs, material), key,
@@ -2320,8 +2415,9 @@ run_marker_match(struct qstar_graph *graph, const char *id, const char *marker,
 	if (!marker || !*marker)
 		return 1;
 	action_log_name(id, name, sizeof(name));
-	snprintf(stdout_rel, sizeof(stdout_rel), ".qstar/logs/%s.stdout", name);
-	snprintf(stderr_rel, sizeof(stderr_rel), ".qstar/logs/%s.stderr", name);
+	if (build_log_rel(graph, name, ".stdout", stdout_rel, sizeof(stdout_rel)) < 0 ||
+	    build_log_rel(graph, name, ".stderr", stderr_rel, sizeof(stderr_rel)) < 0)
+		return 0;
 	paths[0] = stdout_rel;
 	paths[1] = stderr_rel;
 	paths[2] = marker_log && *marker_log ? marker_log : NULL;
@@ -2364,7 +2460,8 @@ run_target_command(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	struct qstar_string_list inputs, outputs;
 	struct qstar_action_material material;
 	char *argv[QSTAR_EXEC_MAX_ARGV];
-	char id[QSTAR_PATH_MAX], stamp[QSTAR_PATH_MAX], key[32], artifact[QSTAR_PATH_MAX];
+	char id[QSTAR_PATH_MAX], stamp[QSTAR_PATH_MAX], stamp_sub[QSTAR_PATH_MAX];
+	char key[32], artifact[QSTAR_PATH_MAX];
 	char marker_source[32], marker_path[QSTAR_PATH_MAX];
 	char action_name[QSTAR_PATH_MAX], stdout_rel[QSTAR_PATH_MAX], stderr_rel[QSTAR_PATH_MAX];
 	char owner[QSTAR_PATH_MAX];
@@ -2398,7 +2495,13 @@ run_target_command(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		}
 	}
 	qstar_mangle_label(target->label, owner, sizeof(owner));
-	snprintf(stamp, sizeof(stamp), ".qstar/out/%s/run.stamp", owner);
+	if (snprintf(stamp_sub, sizeof(stamp_sub), "out/%s/run.stamp", owner) >=
+	    (int)sizeof(stamp_sub) ||
+	    qstar_graph_build_path(graph, stamp_sub, stamp, sizeof(stamp)) < 0) {
+		qstar_string_list_free(&inputs);
+		free_owned_argv(argv, argc);
+		return qstar_set_error(graph, "qstar: run stamp path too long");
+	}
 	if (qstar_string_list_push(&outputs, stamp) < 0) {
 		qstar_string_list_free(&inputs);
 		free_owned_argv(argv, argc);
@@ -2423,24 +2526,29 @@ run_target_command(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	    !run_marker_match(graph, id, target->run_marker, target->run_marker_log,
 	    marker_source, sizeof(marker_source), marker_path, sizeof(marker_path))) {
 		action_log_name(id, action_name, sizeof(action_name));
-		snprintf(stdout_rel, sizeof(stdout_rel), ".qstar/logs/%s.stdout",
-		    action_name);
-		snprintf(stderr_rel, sizeof(stderr_rel), ".qstar/logs/%s.stderr",
-		    action_name);
+		if (build_log_rel(graph, action_name, ".stdout", stdout_rel,
+		    sizeof(stdout_rel)) < 0 ||
+		    build_log_rel(graph, action_name, ".stderr", stderr_rel,
+		    sizeof(stderr_rel)) < 0) {
+			qstar_string_list_free(&inputs);
+			qstar_string_list_free(&outputs);
+			free_owned_argv(argv, argc);
+			return qstar_set_error(graph, "qstar: action log path too long");
+		}
 		write_failure_replay_detail(graph, id, NULL, argv, "marker-missing",
 		    target->label, stdout_rel, stderr_rel, target->run_marker,
 		    target->run_marker_log);
 		ctx->fail_count++;
 		ctx->cancelled = 1;
 		fprintf(ctx->out,
-		    "run_target_result label=%s status=marker-missing marker=%s stdout=%s stderr=%s marker_log=%s replay=.qstar/logs/last-failure.replay\n",
+		    "run_target_result label=%s status=marker-missing marker=%s stdout=%s stderr=%s marker_log=%s replay=%s/logs/last-failure.replay\n",
 		    target->label, target->run_marker, stdout_rel, stderr_rel,
 		    target->run_marker_log && *target->run_marker_log ?
-		    target->run_marker_log : "<none>");
+		    target->run_marker_log : "<none>", qstar_graph_build_dir(graph));
 		rc = qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "marker", target->label,
-		    "qstar: run_target '%s' marker '%s' was not found; replay=.qstar/logs/last-failure.replay",
-		    target->label, target->run_marker);
+		    "qstar: run_target '%s' marker '%s' was not found; replay=%s/logs/last-failure.replay",
+		    target->label, target->run_marker, qstar_graph_build_dir(graph));
 	}
 	if (rc == 0 && write_run_stamp(graph, stamp) < 0)
 		rc = -1;
@@ -2701,8 +2809,9 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	qstar_source_classify(target->sources.items[index], &source);
 	if (validate_compile_source(graph, target, toolchain, &source, index) < 0)
 		return -1;
-	if (qstar_object_output_path(target, index, object, sizeof(object)) < 0 ||
-	    qstar_depfile_output_path(target, index, action->depfile,
+	if (qstar_graph_object_output_path(graph, target, index, object,
+	    sizeof(object)) < 0 ||
+	    qstar_graph_depfile_output_path(graph, target, index, action->depfile,
 	    sizeof(action->depfile)) < 0 ||
 	    mkdir_parent_under_root(graph, object) < 0)
 		return qstar_set_error(graph, "qstar: could not create object output directory");
@@ -2914,8 +3023,7 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	fprintf(ctx->out,
 	    "parallel_event target=%s event=queue id=%s order=%zu slot=%zu state=ready retry=no\n",
 	    action->target->label, action->id, queue_index, slot);
-	if (qstar_path_join(graph->package_root ? graph->package_root : ".",
-	    ".qstar/logs", logdir, sizeof(logdir)) < 0 ||
+	if (full_path_under_build(graph, "logs", logdir, sizeof(logdir)) < 0 ||
 	    mkdir_p(logdir) < 0)
 		return qstar_set_error(graph, "qstar: could not create action log dir");
 	action_log_name(action->id, running->name, sizeof(running->name));
@@ -2923,10 +3031,11 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	snprintf(stderr_path, sizeof(stderr_path), "%s/%s.stderr", logdir, running->name);
 	snprintf(running->action_log, sizeof(running->action_log), "%s/%s.log", logdir,
 	    running->name);
-	snprintf(child_stdout_path, sizeof(child_stdout_path), ".qstar/logs/%s.stdout",
-	    running->name);
-	snprintf(child_stderr_path, sizeof(child_stderr_path), ".qstar/logs/%s.stderr",
-	    running->name);
+	if (build_log_rel(graph, running->name, ".stdout", child_stdout_path,
+	    sizeof(child_stdout_path)) < 0 ||
+	    build_log_rel(graph, running->name, ".stderr", child_stderr_path,
+	    sizeof(child_stderr_path)) < 0)
+		return qstar_set_error(graph, "qstar: action log path too long");
 	prev = state_find(ctx, action->id);
 	ctx->scheduled_count++;
 	fprintf(ctx->out, "schedule_action id=%s kind=%s slot=%zu jobs=%d state=ready\n",
@@ -2934,8 +3043,8 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	if (prev && strcmp(prev->key, action->key) == 0 &&
 	    outputs_exist(graph, &action->outputs)) {
 		fprintf(ctx->out,
-		    "build_action id=%s status=skip reason=cache-hit stdout=.qstar/logs/%s.stdout stderr=.qstar/logs/%s.stderr\n",
-		    action->id, running->name, running->name);
+		    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
+		    action->id, child_stdout_path, child_stderr_path);
 		write_skip_log(running->action_log, action->argv);
 		ctx->skip_count++;
 		fprintf(ctx->out,
@@ -2946,8 +3055,8 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    qstar_set_error(graph, "qstar: out of memory") : 0;
 	}
 	fprintf(ctx->out,
-	    "build_action id=%s status=run timeout_sec=%d stdout=.qstar/logs/%s.stdout stderr=.qstar/logs/%s.stderr\n",
-	    action->id, ctx->action_timeout_sec, running->name, running->name);
+	    "build_action id=%s status=run timeout_sec=%d stdout=%s stderr=%s\n",
+	    action->id, ctx->action_timeout_sec, child_stdout_path, child_stderr_path);
 	if (ctx->explain_cache)
 		fprintf(ctx->out, "cache_miss id=%s reason=%s key=%s previous=%s\n",
 		    action->id, cache_reason(graph, prev, action->key, &action->outputs,
@@ -3009,10 +3118,10 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		write_failure_replay(graph, action->id, action->toolchain, action->argv);
 		ctx->fail_count++;
 		ctx->cancelled = 1;
-		return qstar_set_error_origin(graph, action->target->origin_file,
-		    action->target->origin_line, "action", action->target->label,
-		    "qstar: action '%s' failed with status %d; replay=.qstar/logs/last-failure.replay",
-		    action->id, exit_code);
+			return qstar_set_error_origin(graph, action->target->origin_file,
+			    action->target->origin_line, "action", action->target->label,
+			    "qstar: action '%s' failed with status %d; replay=%s/logs/last-failure.replay",
+			    action->id, exit_code, qstar_graph_build_dir(graph));
 	}
 	ctx->run_count++;
 	if (state_push(ctx, 1, action->id, action->key, action->outputs.items[0],
@@ -3161,10 +3270,11 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 					    running[i].action->id, running[i].slot);
 					rc = qstar_set_error_origin(graph,
 					    running[i].action->target->origin_file,
-					    running[i].action->target->origin_line, "action",
-					    running[i].action->target->label,
-					    "qstar: action '%s' timed out after %d seconds; replay=.qstar/logs/last-failure.replay",
-					    running[i].action->id, ctx->action_timeout_sec);
+						    running[i].action->target->origin_line, "action",
+						    running[i].action->target->label,
+						    "qstar: action '%s' timed out after %d seconds; replay=%s/logs/last-failure.replay",
+						    running[i].action->id, ctx->action_timeout_sec,
+						    qstar_graph_build_dir(graph));
 					goto fail;
 				}
 				continue;
@@ -3780,14 +3890,16 @@ remove_tree(const char *path)
 	return rmdir(path);
 }
 
-/** target 하나의 .qstar/out directory를 지운다. */
+/** target 하나의 build output directory를 지운다. */
 static int
 clean_target_output(struct qstar_graph *graph, const struct qstar_target *target)
 {
-	char owner[QSTAR_PATH_MAX], rel[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX];
+	char owner[QSTAR_PATH_MAX], sub[QSTAR_PATH_MAX], rel[QSTAR_PATH_MAX];
+	char full[QSTAR_PATH_MAX];
 
 	qstar_mangle_label(target->label, owner, sizeof(owner));
-	if (snprintf(rel, sizeof(rel), ".qstar/out/%s", owner) >= (int)sizeof(rel) ||
+	if (snprintf(sub, sizeof(sub), "out/%s", owner) >= (int)sizeof(sub) ||
+	    qstar_graph_build_path(graph, sub, rel, sizeof(rel)) < 0 ||
 	    full_path_under_root(graph, rel, full, sizeof(full)) < 0)
 		return qstar_set_error(graph, "qstar: clean path too long");
 	return remove_tree(full) < 0 ? qstar_set_error(graph, "qstar: clean failed for '%s'",
@@ -3819,13 +3931,19 @@ qstar_graph_clean(struct qstar_graph *graph, const char *label, FILE *out)
 		if (qstar_graph_visit_closure(graph, label, clean_target_cb, out) < 0)
 			return -1;
 	} else {
-		if (full_path_under_root(graph, ".qstar", full, sizeof(full)) < 0 ||
+		if (full_path_under_root(graph, qstar_graph_build_dir(graph), full,
+		    sizeof(full)) < 0 ||
 		    remove_tree(full) < 0)
-			return qstar_set_error(graph, "qstar: clean failed for '.qstar'");
-		if (full_path_under_root(graph, "compile_commands.json", full, sizeof(full)) < 0 ||
+			return qstar_set_error(graph, "qstar: clean failed for '%s'",
+			    qstar_graph_build_dir(graph));
+		if (strcmp(qstar_graph_compile_commands_policy(graph), "root") == 0 &&
+		    full_path_under_root(graph, "compile_commands.json", full, sizeof(full)) == 0 &&
 		    remove_tree(full) < 0)
-			return qstar_set_error(graph, "qstar: clean failed for compile_commands.json");
-		fputs("clean_all .qstar compile_commands.json\n", out);
+			return qstar_set_error(graph,
+			    "qstar: clean failed for root compile_commands.json");
+		fprintf(out, "clean_all %s compile_commands=%s\n",
+		    qstar_graph_build_dir(graph),
+		    qstar_graph_compile_commands_policy(graph));
 	}
 	fputs("status ok\n", out);
 	return 0;
@@ -3850,18 +3968,20 @@ run_test_artifact(struct qstar_graph *graph, const struct qstar_target *target, 
 		    "test", target->label,
 		    "qstar: test artifact '%s' is missing; run qstar build first",
 		    artifact);
-	if (qstar_path_join(graph->package_root ? graph->package_root : ".",
-	    ".qstar/logs", logdir, sizeof(logdir)) < 0 ||
+	if (full_path_under_build(graph, "logs", logdir, sizeof(logdir)) < 0 ||
 	    mkdir_p(logdir) < 0)
 		return qstar_set_error(graph, "qstar: could not create test log dir");
 	action_log_name(target->label, name, sizeof(name));
 	snprintf(stdout_path, sizeof(stdout_path), "%s/%s.test.stdout", logdir, name);
 	snprintf(stderr_path, sizeof(stderr_path), "%s/%s.test.stderr", logdir, name);
-	snprintf(child_stdout_path, sizeof(child_stdout_path), ".qstar/logs/%s.test.stdout", name);
-	snprintf(child_stderr_path, sizeof(child_stderr_path), ".qstar/logs/%s.test.stderr", name);
+	if (build_log_rel(graph, name, ".test.stdout", child_stdout_path,
+	    sizeof(child_stdout_path)) < 0 ||
+	    build_log_rel(graph, name, ".test.stderr", child_stderr_path,
+	    sizeof(child_stderr_path)) < 0)
+		return qstar_set_error(graph, "qstar: test log path too long");
 	fprintf(out,
-	    "test_run label=%s artifact=%s stdout=.qstar/logs/%s.test.stdout stderr=.qstar/logs/%s.test.stderr\n",
-	    target->label, artifact, name, name);
+	    "test_run label=%s artifact=%s stdout=%s stderr=%s\n",
+	    target->label, artifact, child_stdout_path, child_stderr_path);
 	pid = fork();
 	if (pid < 0)
 		return qstar_set_error(graph, "qstar: fork failed");
@@ -4023,9 +4143,9 @@ install_manifest_begin(struct qstar_graph *graph, struct qstar_install_ctx *ctx,
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->options = options;
 	ctx->out = out;
-	if (full_path_under_root(graph, ".qstar/install", dir, sizeof(dir)) < 0 ||
+	if (full_path_under_build(graph, "install", dir, sizeof(dir)) < 0 ||
 	    mkdir_p(dir) < 0 ||
-	    full_path_under_root(graph, ".qstar/install/manifest.json",
+	    full_path_under_build(graph, "install/manifest.json",
 	    ctx->manifest_path, sizeof(ctx->manifest_path)) < 0)
 		return qstar_set_error(graph, "qstar: could not create install manifest dir");
 	snprintf(ctx->manifest_tmp, sizeof(ctx->manifest_tmp), "%s.tmp", ctx->manifest_path);
@@ -4037,7 +4157,8 @@ install_manifest_begin(struct qstar_graph *graph, struct qstar_install_ctx *ctx,
 	fputs(",\n  \"mode\":", ctx->manifest);
 	json_string(ctx->manifest, options->dry_run ? "dry-run" : "copy");
 	fputs(",\n  \"entries\":[\n", ctx->manifest);
-	fprintf(out, "install_manifest .qstar/install/manifest.json\n");
+	fprintf(out, "install_manifest %s/install/manifest.json\n",
+	    qstar_graph_build_dir(graph));
 	return 0;
 }
 
@@ -4288,14 +4409,14 @@ stage_manifest_begin(struct qstar_graph *graph, struct qstar_stage_ctx *ctx,
 	else
 		snprintf(ctx->root_rel, sizeof(ctx->root_rel), "%s", stage->root);
 	qstar_mangle_label(stage->label, owner, sizeof(owner));
-	if (snprintf(dir, sizeof(dir), ".qstar/stage/%s", owner) >= (int)sizeof(dir) ||
-	    mkdir_parent_under_root(graph, ".qstar/stage/.keep") < 0 ||
-	    full_path_under_root(graph, dir, ctx->manifest_path, sizeof(ctx->manifest_path)) < 0 ||
+	if (snprintf(dir, sizeof(dir), "stage/%s", owner) >= (int)sizeof(dir) ||
+	    mkdir_parent_under_build(graph, "stage/.keep") < 0 ||
+	    full_path_under_build(graph, dir, ctx->manifest_path, sizeof(ctx->manifest_path)) < 0 ||
 	    mkdir_p(ctx->manifest_path) < 0)
 		return qstar_set_error(graph, "qstar: could not create stage manifest dir");
-	if (snprintf(dir, sizeof(dir), ".qstar/stage/%s/manifest.json", owner) >=
+	if (snprintf(dir, sizeof(dir), "stage/%s/manifest.json", owner) >=
 	    (int)sizeof(dir) ||
-	    full_path_under_root(graph, dir, ctx->manifest_path,
+	    full_path_under_build(graph, dir, ctx->manifest_path,
 	    sizeof(ctx->manifest_path)) < 0)
 		return qstar_set_error(graph, "qstar: stage manifest path too long");
 	snprintf(ctx->manifest_tmp, sizeof(ctx->manifest_tmp), "%s.tmp",
@@ -4310,7 +4431,8 @@ stage_manifest_begin(struct qstar_graph *graph, struct qstar_stage_ctx *ctx,
 	fputs(",\n  \"mode\":", ctx->manifest);
 	json_string(ctx->manifest, options && options->dry_run ? "dry-run" : "copy");
 	fputs(",\n  \"entries\":[\n", ctx->manifest);
-	fprintf(out, "stage_manifest .qstar/stage/%s/manifest.json\n", owner);
+	fprintf(out, "stage_manifest %s/stage/%s/manifest.json\n",
+	    qstar_graph_build_dir(graph), owner);
 	return 0;
 }
 
@@ -4472,13 +4594,13 @@ qstar_graph_stage(struct qstar_graph *graph, const char *label,
 		rc = -1;
 	if (rc == 0)
 		fputs("status ok\n", out);
-	else {
-		const char *failure_kind = graph->error_field[0] ?
-		    graph->error_field : "package-failure";
+		else {
+			const char *failure_kind = graph->error_field[0] ?
+			    graph->error_field : "package-failure";
 
-		fprintf(out,
-		    "stage_result label=%s status=fail failure_kind=%s replay=.qstar/logs/last-failure.replay\n",
-		    stage->label, failure_kind);
+			fprintf(out,
+			    "stage_result label=%s status=fail failure_kind=%s replay=%s/logs/last-failure.replay\n",
+			    stage->label, failure_kind, qstar_graph_build_dir(graph));
 		if (strcmp(failure_kind, "package-failure") == 0)
 			write_stage_failure_replay(graph, stage);
 	}
@@ -4530,7 +4652,7 @@ qstar_graph_log(struct qstar_graph *graph, const char *label, FILE *out)
 	qstar_mangle_label(label, owner, sizeof(owner));
 	snprintf(prefix, sizeof(prefix), "%s_", owner);
 	needle = prefix;
-	if (full_path_under_root(graph, ".qstar/logs", dirpath, sizeof(dirpath)) < 0)
+	if (full_path_under_build(graph, "logs", dirpath, sizeof(dirpath)) < 0)
 		return qstar_set_error(graph, "qstar: log path too long");
 	dir = opendir(dirpath);
 	fputs("qstar log v1\n", out);
@@ -4549,7 +4671,8 @@ qstar_graph_log(struct qstar_graph *graph, const char *label, FILE *out)
 	closedir(dir);
 	qsort(names, len, sizeof(names[0]), cmp_string_ptr);
 	for (i = 0; i < len; i++) {
-		fprintf(out, "log_file .qstar/logs/%s\n", names[i]);
+		fprintf(out, "log_file %s/logs/%s\n", qstar_graph_build_dir(graph),
+		    names[i]);
 		free(names[i]);
 	}
 	free(names);
@@ -4564,7 +4687,7 @@ qstar_graph_last_failure(struct qstar_graph *graph, FILE *out)
 	char path[QSTAR_PATH_MAX], line[4096];
 	FILE *f;
 
-	if (full_path_under_root(graph, ".qstar/logs/last-failure.replay", path,
+	if (full_path_under_build(graph, "logs/last-failure.replay", path,
 	    sizeof(path)) < 0)
 		return qstar_set_error(graph, "qstar: replay path too long");
 	fputs("qstar last-failure v1\n", out);
@@ -4590,7 +4713,7 @@ action_log_path_for_id(struct qstar_graph *graph, const char *action_id, char *r
 	if (!action_id || !*action_id)
 		return qstar_set_error(graph, "qstar: action id is required");
 	action_log_name(action_id, name, sizeof(name));
-	if (snprintf(rel, rel_len, ".qstar/logs/%s.log", name) >= (int)rel_len ||
+	if (build_log_rel(graph, name, ".log", rel, rel_len) < 0 ||
 	    full_path_under_root(graph, rel, full, full_len) < 0)
 		return qstar_set_error(graph, "qstar: action log path too long");
 	return 0;

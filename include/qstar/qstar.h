@@ -104,6 +104,8 @@ struct qstar_project {
 	char *name;
 	char *version;
 	char *root;
+	char *build_dir;
+	char *compile_commands;
 };
 
 struct qstar_package_alias {
@@ -238,7 +240,14 @@ int qstar_graph_set_package_root(struct qstar_graph *graph, const char *root);
 
 /** qstar.project metadata를 graph에 기록한다. */
 int qstar_graph_set_project(struct qstar_graph *graph, const char *name,
-    const char *version, const char *root);
+    const char *version, const char *root, const char *build_dir,
+    const char *compile_commands);
+
+/** QStar project의 effective build directory를 반환한다. */
+const char *qstar_graph_build_dir(const struct qstar_graph *graph);
+
+/** QStar project의 effective compile_commands policy를 반환한다. */
+const char *qstar_graph_compile_commands_policy(const struct qstar_graph *graph);
 
 /** QStar graph에 새 target을 추가하고 중복 label을 stable error로 막는다. */
 struct qstar_target *qstar_graph_add_target(struct qstar_graph *graph, const char *label,

@@ -1,8 +1,8 @@
 *.vsix
 dist/
 node_modules/
-.qstar/
-**/.qstar/**
+build/qstar/
+**/build/qstar/**
 build/
 **/build/**
 compile_commands.json

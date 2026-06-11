@@ -19,7 +19,7 @@ Features:
 - document/workspace symbols for targets and generated actions
 - document formatting through `qstar fmt --stdout`
 - Explorer tree view for targets, generated actions, tests, and installable artifacts
-- last build status from `.qstar/state/last-summary.json`
+- last build status from `build/qstar/state/last-summary.json`
 - terminal commands for check, explain, list, build, action-log, and replay
 
 The language server is intentionally read-only. It performs lint/check style
@@ -133,7 +133,7 @@ qstar --file qstar.lua list-targets --format json
 ```
 
 It groups graph data into targets, generated actions, tests, and installable
-artifacts. The view also reads `.qstar/state/last-summary.json` when present so
+artifacts. The view also reads `build/qstar/state/last-summary.json` when present so
 the editor can show the most recent build status without executing a build.
 
 ## Packaging

@@ -324,8 +324,8 @@ UEFI x64 profile은 `//:boot=BOOTX64.EFI`, AArch64 profile은
 
 Round 13부터 `qstar build`가 들어간다. v1 executor는 package-local generated
 tool, C source compile, static archive, exe link를 실행한다. `dry-run`은 계속
-process를 실행하지 않는 argv plan 출력이고, `build`만 `.qstar/out`과
-`.qstar/logs`에 파일을 만든다.
+process를 실행하지 않는 argv plan 출력이고, `build`만 `build/qstar/out`과
+`build/qstar/logs`에 파일을 만든다.
 
 Round 14/15부터 build executor는 반복 빌드용 state를 가진다.
 
@@ -339,9 +339,9 @@ qstar --file qstar.lua clean --target //:app
 qstar --file qstar.lua clean
 ```
 
-`build`는 `.qstar/state/actions.json`에 action key를 기록하고, key와 output이
+`build`는 `build/qstar/state/actions.json`에 action key를 기록하고, key와 output이
 그대로면 `status=skip`을 출력한다. `why-rebuild`는 같은 key 계산을 실행 없이
-보여준다. `clean`은 전체 `.qstar` 상태 또는 선택 target output을 지운다.
+보여준다. `clean`은 전체 `build/qstar` 상태 또는 선택 target output을 지운다.
 `--diagnostics json`은 editor/LSP 준비용 JSON diagnostic skeleton이다.
 
 Round 16부터 `.cale` source는 `toolchain = "cale"` 또는 `cale-sol`에서
@@ -435,7 +435,7 @@ qstar --file qstar.lua stage //:esp
 ```
 
 `qstar test`는 test executable을 먼저 build하고 실행한다. stdout/stderr는
-`.qstar/logs`에 보존된다. `qstar install`은 build된 exe/staticlib artifact와 public
+`build/qstar/logs`에 보존된다. `qstar install`은 build된 exe/staticlib artifact와 public
 header만 prefix로 복사한다. package fetch, registry metadata, sharedlib install은
 아직 범위 밖이다.
 
@@ -977,7 +977,7 @@ qstar.stage "rpi" {
 - `dst`는 stage root 기준 package-relative path다.
 - 같은 stage 안에서 duplicate destination은 거절한다.
 - `qstar stage //:esp --dry-run`은 copy하지 않고
-  `.qstar/stage/<label>/manifest.json`과 diff를 기록한다.
+  `build/qstar/stage/<label>/manifest.json`과 diff를 기록한다.
 - 실제 `qstar stage //:esp`는 target/generated artifact source를 먼저 build하고
   package-local stage root 아래로 copy한다.
 
