@@ -7,6 +7,8 @@
 .Sh SYNOPSIS
 .Nm
 .Op Fl -file Ar qstar.lua
+.Op Fl G Ar qstar_graph|ninja|auto
+.Op Fl B Ar path
 .Ar command
 .Op Ar arguments
 .Nm
@@ -31,6 +33,26 @@ toolchain profiles, but QStar does not interpret Cale or HCL semantics itself.
 Generated actions use
 .Ic qstar.cli
 argv vectors, not shell strings.
+.Sh OPTIONS
+.Bl -tag -width "--generator"
+.It Fl -file Ar qstar.lua
+Select the root QStar entrypoint.
+.It Fl G Ar qstar_graph|ninja|auto
+Select the effective generator.
+In this release,
+.Ar auto
+resolves to
+.Ar qstar_graph .
+.Ar ninja
+is recognized as a selector, but lowering and action execution are deferred.
+.It Fl -generator Ar qstar_graph|ninja|auto
+Alias for
+.Fl G .
+.It Fl B Ar path
+Override
+.Ic qstar.project
+build_dir with a package-relative build directory.
+.El
 .Sh COMMANDS
 .Bl -tag -width "last-failure"
 .It Ic docs

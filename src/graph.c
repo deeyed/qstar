@@ -282,6 +282,9 @@ qstar_graph_free(struct qstar_graph *graph)
 	for (i = 0; i < graph->profile_decl_len; i++)
 		free_profile_decl(&graph->profile_decls[i]);
 	free_project(&graph->project);
+	free(graph->generator);
+	free(graph->requested_generator);
+	free(graph->build_dir_override);
 	free_profile_input(&graph->profile);
 	free(graph->targets);
 	free(graph->packages);
@@ -318,9 +321,29 @@ valid_project_relative(const char *path)
 const char *
 qstar_graph_build_dir(const struct qstar_graph *graph)
 {
+	if (graph && graph->build_dir_override && *graph->build_dir_override)
+		return graph->build_dir_override;
 	if (graph && graph->project.build_dir && *graph->project.build_dir)
 		return graph->project.build_dir;
 	return "build/qstar";
+}
+
+/** QStar project의 effective generator를 반환한다. */
+const char *
+qstar_graph_generator(const struct qstar_graph *graph)
+{
+	if (graph && graph->generator && *graph->generator)
+		return graph->generator;
+	return "qstar_graph";
+}
+
+/** CLI가 요청한 generator 값을 반환한다. */
+const char *
+qstar_graph_requested_generator(const struct qstar_graph *graph)
+{
+	if (graph && graph->requested_generator && *graph->requested_generator)
+		return graph->requested_generator;
+	return "qstar_graph";
 }
 
 /** QStar project의 effective compile_commands policy를 반환한다. */
@@ -347,6 +370,48 @@ qstar_graph_build_path(const struct qstar_graph *graph, const char *subpath, cha
 	else
 		n = snprintf(dst, dstlen, "%s/%s", build_dir, subpath);
 	return n >= 0 && (size_t)n < dstlen ? 0 : -1;
+}
+
+static int
+valid_generator(const char *generator)
+{
+	return !generator || !*generator || strcmp(generator, "qstar_graph") == 0 ||
+	    strcmp(generator, "ninja") == 0 || strcmp(generator, "auto") == 0;
+}
+
+/** CLI generator/build directory override를 graph effective option으로 기록한다. */
+int
+qstar_graph_set_cli_overrides(struct qstar_graph *graph, const char *generator,
+    const char *build_dir)
+{
+	char *generator_copy, *requested_copy, *build_copy;
+	const char *requested, *effective;
+
+	if (!valid_generator(generator))
+		return qstar_set_error(graph,
+		    "qstar: invalid generator '%s'; expected qstar_graph, ninja, or auto",
+		    generator ? generator : "");
+	if (build_dir && *build_dir && !valid_project_relative(build_dir))
+		return qstar_set_error(graph,
+		    "qstar: CLI build directory override must be package-relative");
+	requested = generator && *generator ? generator : "qstar_graph";
+	effective = strcmp(requested, "auto") == 0 ? "qstar_graph" : requested;
+	requested_copy = qstar_strdup(requested);
+	generator_copy = qstar_strdup(effective);
+	build_copy = build_dir && *build_dir ? qstar_strdup(build_dir) : NULL;
+	if (!requested_copy || !generator_copy || (build_dir && *build_dir && !build_copy)) {
+		free(requested_copy);
+		free(generator_copy);
+		free(build_copy);
+		return qstar_set_error(graph, "qstar: out of memory");
+	}
+	free(graph->requested_generator);
+	free(graph->generator);
+	free(graph->build_dir_override);
+	graph->requested_generator = requested_copy;
+	graph->generator = generator_copy;
+	graph->build_dir_override = build_copy;
+	return 0;
 }
 
 /** qstar.project metadata를 graph에 기록한다. */
@@ -1253,12 +1318,14 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 		qsort(copy, n, sizeof(copy[0]), target_cmp);
 	}
 	fputs("qstar graph v1\n", out);
-	fprintf(out, "project name=%s version=%s root=%s build_dir=%s compile_commands=%s\n",
+	fprintf(out,
+	    "project name=%s version=%s root=%s build_dir=%s compile_commands=%s generator=%s requested_generator=%s\n",
 	    graph->project.name && *graph->project.name ? graph->project.name : "<unnamed>",
 	    graph->project.version && *graph->project.version ?
 	    graph->project.version : "<unspecified>",
 	    graph->project.root && *graph->project.root ? graph->project.root : ".",
-	    qstar_graph_build_dir(graph), qstar_graph_compile_commands_policy(graph));
+	    qstar_graph_build_dir(graph), qstar_graph_compile_commands_policy(graph),
+	    qstar_graph_generator(graph), qstar_graph_requested_generator(graph));
 	fprintf(out, "profile name=%s target=%s toolchain=%s stdlib=%s\n",
 	    profile_or_default(graph->profile.name, "default"),
 	    profile_or_default(graph->profile.target, "host"),
@@ -1652,6 +1719,10 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	dump_json_string(out, qstar_graph_build_dir(graph));
 	fputs(",\"compile_commands\":", out);
 	dump_json_string(out, qstar_graph_compile_commands_policy(graph));
+	fputs(",\"generator\":", out);
+	dump_json_string(out, qstar_graph_generator(graph));
+	fputs(",\"requested_generator\":", out);
+	dump_json_string(out, qstar_graph_requested_generator(graph));
 	fputc('}', out);
 	fprintf(out,
 	    ",\"target_count\":%zu,\"generated_action_count\":%zu,\"stage_count\":%zu,"

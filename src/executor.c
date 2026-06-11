@@ -1190,6 +1190,10 @@ graph_snapshot_write(struct qstar_graph *graph)
 	json_string(f, qstar_graph_build_dir(graph));
 	fputs(",\"compile_commands\":", f);
 	json_string(f, qstar_graph_compile_commands_policy(graph));
+	fputs(",\"generator\":", f);
+	json_string(f, qstar_graph_generator(graph));
+	fputs(",\"requested_generator\":", f);
+	json_string(f, qstar_graph_requested_generator(graph));
 	fputc('}', f);
 	fputs(",\"profile\":{", f);
 	fputs("\"name\":", f);

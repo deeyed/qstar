@@ -21,6 +21,15 @@ workspace marker file은 필요 없다.
 `build_dir` 기본값은 `"build/qstar"`다. QStar의 state, log, response file,
 generated output, stage/install manifest, default `compile_commands.json`은 이
 directory 아래에 모인다. 프로젝트 루트에 산출물을 흩뿌리지 않는 것이 기본 UX다.
+CLI `-B path`는 `qstar.project.build_dir`보다 우선한다. Override path도 package-relative
+normalized path여야 하며 absolute path, `..`, `.`은 diagnostic으로 거부된다.
+
+Generator는 CLI에서만 선택한다.
+
+- `-G qstar_graph`: 현재 기본 QStar graph executor를 사용한다.
+- `-G auto`: 현재는 `qstar_graph`로 resolve된다.
+- `-G ninja`: selector와 metadata surface는 열려 있지만, 실제 Ninja lowering/execution은
+  후속 라운드에서 구현된다.
 
 `compile_commands`는 세 값을 가진다.
 
@@ -71,6 +80,7 @@ v1에서 `root`는 `"."`만 허용된다.
 ```sh
 qstar --file qstar.lua query //app:app
 qstar --file qstar.lua list-targets --format json
+qstar --file qstar.lua -B out/qstar -G qstar_graph build //app:app
 qstar --file app/app.qst build //app:app
 ```
 
@@ -79,5 +89,7 @@ qstar --file app/app.qst build //app:app
 - `qstar.project root must be "." in v1`
 - `qstar.project build_dir must be package-relative`
 - `qstar.project compile_commands must be "root", "build", or "off"`
+- `invalid generator`
+- `CLI build directory override must be package-relative`
 - `target label is owned by another package`
 - `package root not found`

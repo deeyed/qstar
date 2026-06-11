@@ -34,6 +34,9 @@ usage(FILE *out)
 	fputs("       qstar [options] --dump-graph\n", out);
 	fputs("options:\n", out);
 	fputs("       --file qstar.lua\n", out);
+	fputs("       -G qstar_graph|ninja|auto\n", out);
+	fputs("       --generator qstar_graph|ninja|auto\n", out);
+	fputs("       -B path\n", out);
 	fputs("       --package-alias @name=/path\n", out);
 	fputs("       --profile name --target triple --toolchain name --stdlib policy\n", out);
 	fputs("       --diagnostics text|json\n", out);
@@ -179,6 +182,13 @@ print_json_string(const char *s)
 	fputc('"', stderr);
 }
 
+/** 아직 generator backend dispatch가 구현되지 않은 command인지 확인한다. */
+static int
+command_requires_qstar_graph_generator(const char *cmd)
+{
+	return strcmp(cmd, "build") == 0 || strcmp(cmd, "test") == 0;
+}
+
 /** QStar diagnostic을 text 또는 machine-readable skeleton으로 출력한다. */
 static void
 print_error(const struct qstar_graph *graph, const char *label, const char *format)
@@ -244,6 +254,7 @@ main(int argc, char **argv)
 	struct qstar_graph graph;
 	const char *file, *cmd, *label, *diagnostic_format, *lint_format, *list_format;
 	const char *cli_profile, *cli_target, *cli_toolchain, *cli_stdlib;
+	const char *cli_generator, *cli_build_dir;
 	struct qstar_build_options build_options;
 	struct qstar_install_options install_options;
 	struct qstar_stage_options stage_options;
@@ -262,6 +273,8 @@ main(int argc, char **argv)
 	cli_target = NULL;
 	cli_toolchain = NULL;
 	cli_stdlib = NULL;
+	cli_generator = NULL;
+	cli_build_dir = NULL;
 	if (argc == 2 && strcmp(argv[1], "--version") == 0) {
 		print_version(stdout);
 		qstar_graph_free(&graph);
@@ -273,7 +286,9 @@ main(int argc, char **argv)
 		return 0;
 	}
 	arg = 1;
-	while (arg < argc && strncmp(argv[arg], "--", 2) == 0 &&
+	while (arg < argc &&
+	    (strncmp(argv[arg], "--", 2) == 0 || strcmp(argv[arg], "-G") == 0 ||
+	    strcmp(argv[arg], "-B") == 0 || is_help_arg(argv[arg])) &&
 	    strcmp(argv[arg], "--dump-graph") != 0) {
 		if (is_help_arg(argv[arg])) {
 			usage(stdout);
@@ -286,6 +301,23 @@ main(int argc, char **argv)
 				return 2;
 			}
 			file = argv[arg + 1];
+			arg += 2;
+		} else if (strcmp(argv[arg], "-G") == 0 ||
+		    strcmp(argv[arg], "--generator") == 0) {
+			if (arg + 1 >= argc) {
+				usage(stderr);
+				qstar_graph_free(&graph);
+				return 2;
+			}
+			cli_generator = argv[arg + 1];
+			arg += 2;
+		} else if (strcmp(argv[arg], "-B") == 0) {
+			if (arg + 1 >= argc) {
+				usage(stderr);
+				qstar_graph_free(&graph);
+				return 2;
+			}
+			cli_build_dir = argv[arg + 1];
 			arg += 2;
 		} else if (strcmp(argv[arg], "--package-alias") == 0) {
 			if (arg + 1 >= argc) {
@@ -631,6 +663,8 @@ main(int argc, char **argv)
 	if (rc == 0)
 		rc = qstar_lua_eval_file(&graph, file);
 	if (rc == 0)
+		rc = qstar_graph_set_cli_overrides(&graph, cli_generator, cli_build_dir);
+	if (rc == 0)
 		rc = qstar_graph_apply_selected_profile(&graph);
 	if (rc == 0)
 		rc = qstar_graph_set_profile_input(&graph, cli_profile, cli_target,
@@ -658,6 +692,11 @@ main(int argc, char **argv)
 		qstar_graph_free(&graph);
 		return rc < 0 ? 1 : 0;
 	}
+	if (rc == 0 && command_requires_qstar_graph_generator(cmd) &&
+	    strcmp(qstar_graph_generator(&graph), "qstar_graph") != 0)
+		rc = qstar_set_error(&graph,
+		    "qstar: generator '%s' is recognized but action execution is not implemented yet; use -G qstar_graph",
+		    qstar_graph_generator(&graph));
 	if (rc == 0) {
 		if (strcmp(cmd, "explain") == 0)
 			rc = qstar_graph_explain_plan(&graph, label, stdout);

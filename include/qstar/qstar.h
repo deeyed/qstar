@@ -215,6 +215,9 @@ struct qstar_graph {
 	size_t lint_cap;
 	struct qstar_string_list evaluated_fragments;
 	struct qstar_project project;
+	char *generator;
+	char *requested_generator;
+	char *build_dir_override;
 	struct qstar_profile_input profile;
 	struct qstar_profile_decl *profile_decls;
 	size_t profile_decl_len;
@@ -256,8 +259,18 @@ int qstar_graph_set_project(struct qstar_graph *graph, const char *name,
     const char *version, const char *root, const char *build_dir,
     const char *compile_commands);
 
+/** CLI generator/build directory override를 graph effective option으로 기록한다. */
+int qstar_graph_set_cli_overrides(struct qstar_graph *graph, const char *generator,
+    const char *build_dir);
+
 /** QStar project의 effective build directory를 반환한다. */
 const char *qstar_graph_build_dir(const struct qstar_graph *graph);
+
+/** QStar project의 effective generator를 반환한다. */
+const char *qstar_graph_generator(const struct qstar_graph *graph);
+
+/** CLI가 요청한 generator 값을 반환한다. */
+const char *qstar_graph_requested_generator(const struct qstar_graph *graph);
 
 /** QStar project의 effective compile_commands policy를 반환한다. */
 const char *qstar_graph_compile_commands_policy(const struct qstar_graph *graph);

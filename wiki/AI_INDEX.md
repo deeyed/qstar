@@ -26,6 +26,8 @@ QStar가 하지 않는 일:
 - subdir fragment는 `<folder>/<folder>.qst`다.
 - legacy qs fragment suffix와 `qstar.workspace`는 제거된 surface다.
 - 산출물 기본 위치는 `build/qstar`다.
+- CLI `-B path`는 `qstar.project.build_dir`보다 우선한다.
+- CLI `-G auto`는 현재 `qstar_graph`로 resolve되고, `-G ninja`는 selector만 열린 상태다.
 - compile database 기본 위치는 `build/qstar/compile_commands.json`이다.
 - external command는 `qstar.cli { ... }` argv-vector로만 표현한다.
 - low-level/bootloader-style project도 generic primitive로 표현한다.
@@ -211,6 +213,7 @@ qstar --file qstar.lua list-targets --format json
 qstar --file qstar.lua explain //:target
 qstar --file qstar.lua dry-run //:target
 qstar --file qstar.lua build //:target --explain-cache
+qstar --file qstar.lua -B out/qstar -G qstar_graph build //:target
 qstar --file qstar.lua stage //:bundle --dry-run
 qstar --file qstar.lua last-failure
 qstar --file qstar.lua replay //:target:action:0

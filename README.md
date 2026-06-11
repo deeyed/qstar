@@ -109,6 +109,8 @@ qstar --file qstar.lua explain //:app
 qstar --file qstar.lua dry-run //:app
 qstar --file qstar.lua build //:app
 qstar --file qstar.lua build //:app --jobs 2 --schedule-trace
+qstar --file qstar.lua -B out/qstar -G qstar_graph build //:app
+qstar --file qstar.lua --generator ninja list-targets --format json
 qstar --file qstar.lua test //:unit
 qstar --file qstar.lua test //...
 qstar --file qstar.lua install //:app --prefix /tmp/qstar-install --dry-run
@@ -167,7 +169,7 @@ qstar.executable "app" {
 ## 아직 하지 않는 일
 
 - remote package fetch
-- Ninja generator
+- Ninja generator lowering/execution
 - full `.cale` semantic integration
 - arbitrary external generator execution without profile allowlist
 - full recursive package resolver
@@ -189,6 +191,11 @@ hard cut으로 고정된다.
   선언한다. v1에서 `root`는 `"."`만 허용한다.
 - `build_dir` 기본값은 `build/qstar`다. state, logs, response files, outputs,
   install/stage manifests, 기본 compile database가 이 directory 아래에 모인다.
+- CLI `-B path`는 `qstar.project.build_dir`보다 우선한다. Path는 package-relative여야
+  하며 absolute path, `..`, `.`은 거부된다.
+- CLI `-G qstar_graph|ninja|auto` 또는 `--generator`는 effective generator를 선택한다.
+  현재 action 실행 backend는 `qstar_graph`이며, `auto`도 `qstar_graph`로 resolve된다.
+  `ninja`는 selector/metadata surface만 먼저 열렸고 실제 lowering/execution은 deferred다.
 - `compile_commands`는 `"build"`(기본, `build/qstar/compile_commands.json`),
   `"root"`(project root의 `compile_commands.json`), `"off"` 중 하나다.
 - missing fragment는 `QSTAR002`, root entry 이름 drift는 `QSTAR001`이다.
@@ -553,7 +560,7 @@ Round 65 기준 v0.3 RC contract는 `docs/qstar-v0.3-seal.md`가 canonical이다
 Stable surface는 `.qst`, `qstar.project`, `lang.*`, generic `qstar.cli`, staged
 package, systems firmware corpus, action replay, LSP/VSCode/lint/formatter UX를
 포함한다. Experimental surface는 `cale build` 통합, remote package resolver,
-Ninja generator, full sharedlib executor, Cale internal compiler API, C++ modules,
+Ninja lowering/execution, full sharedlib executor, Cale internal compiler API, C++ modules,
 HCL semantic checking으로 분리한다.
 
 ```txt
