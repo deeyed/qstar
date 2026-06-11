@@ -30,6 +30,7 @@ struct qstar_build_ctx {
 	int schedule_trace;
 	int action_timeout_sec;
 	int cancelled;
+	int action_scheduler;
 	struct qstar_state_entry {
 		char *id;
 		char *key;
@@ -86,8 +87,61 @@ struct qstar_running_action {
 	pid_t pid;
 	time_t start;
 	size_t slot;
+	size_t node_index;
 	char name[QSTAR_PATH_MAX];
 	char action_log[QSTAR_PATH_MAX];
+};
+
+enum qstar_sched_node_kind {
+	QSTAR_SCHED_COMPILE,
+	QSTAR_SCHED_FINAL,
+	QSTAR_SCHED_GENERATE,
+	QSTAR_SCHED_RUN,
+	QSTAR_SCHED_GROUP
+};
+
+enum qstar_sched_node_state {
+	QSTAR_SCHED_PENDING,
+	QSTAR_SCHED_READY,
+	QSTAR_SCHED_RUNNING,
+	QSTAR_SCHED_DONE
+};
+
+struct qstar_sched_node {
+	enum qstar_sched_node_kind kind;
+	enum qstar_sched_node_state state;
+	const struct qstar_target *target;
+	const struct qstar_genrule *genrule;
+	struct qstar_resolved_toolchain *toolchain;
+	struct qstar_prepared_action action;
+	size_t source_index;
+	size_t target_queue_index;
+	size_t remaining;
+	size_t *deps;
+	size_t dep_len;
+	size_t dep_cap;
+	size_t *outs;
+	size_t out_len;
+	size_t out_cap;
+};
+
+struct qstar_scheduler {
+	struct qstar_graph *graph;
+	struct qstar_build_ctx *ctx;
+	struct qstar_sched_node *nodes;
+	size_t node_len;
+	size_t node_cap;
+	const struct qstar_target **targets;
+	size_t target_len;
+	size_t target_cap;
+	struct qstar_resolved_toolchain *toolchains;
+	int *target_seen;
+	int *genrule_needed;
+	int *target_final_node;
+	int *genrule_node;
+	size_t *ready;
+	size_t ready_len;
+	size_t ready_cap;
 };
 
 static int run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
@@ -2440,7 +2494,8 @@ run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	if (genrule->args.len + 2 > QSTAR_EXEC_MAX_ARGV)
 		return qstar_set_error(graph, "qstar: generated action argv too long");
-	if (build_generated_artifact_dependencies(graph, ctx, genrule) < 0)
+	if (!ctx->action_scheduler &&
+	    build_generated_artifact_dependencies(graph, ctx, genrule) < 0)
 		return -1;
 	for (argc = 0; argc < genrule->args.len; argc++) {
 		if (generated_arg_escapes_package(genrule->args.items[argc]))
@@ -3259,23 +3314,41 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
     struct qstar_running_action *running, int status)
 {
 	struct qstar_prepared_action *action = running->action;
+	char stdout_rel[QSTAR_PATH_MAX], stderr_rel[QSTAR_PATH_MAX], replay_rel[QSTAR_PATH_MAX];
+	const char *failure_kind;
 	int exit_code;
 
 	exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
 	write_action_log(running->action_log, action->argv, exit_code);
 	if (exit_code != 0) {
+		failure_kind = classify_failure_kind(action->kind, action->target,
+		    action->argv, "exit-code");
+		if (build_log_rel(graph, running->name, ".stdout", stdout_rel,
+		    sizeof(stdout_rel)) < 0)
+			snprintf(stdout_rel, sizeof(stdout_rel), "<none>");
+		if (build_log_rel(graph, running->name, ".stderr", stderr_rel,
+		    sizeof(stderr_rel)) < 0)
+			snprintf(stderr_rel, sizeof(stderr_rel), "<none>");
+		if (build_replay_rel(graph, replay_rel, sizeof(replay_rel)) < 0)
+			snprintf(replay_rel, sizeof(replay_rel),
+			    "build/qstar/logs/last-failure.replay");
 		fprintf(ctx->out, "build_action id=%s status=fail exit=%d\n",
 		    action->id, exit_code);
 		fprintf(ctx->out,
 		    "parallel_event target=%s event=fail id=%s slot=%zu exit=%d state=failed retry=next-build cancel=active\n",
 		    action->target->label, action->id, running->slot, exit_code);
-		write_failure_replay(graph, action->id, action->toolchain, action->argv);
+		write_failure_replay_detail(graph, action->id, action->toolchain,
+		    action->argv, failure_kind, action->target->label, stdout_rel,
+		    stderr_rel, NULL, NULL);
+		emit_action_diagnostic(ctx->out, action->id, action->kind,
+		    action->target->label, failure_kind, "fail", exit_code,
+		    stdout_rel, stderr_rel, replay_rel);
 		ctx->fail_count++;
 		ctx->cancelled = 1;
-			return qstar_set_error_origin(graph, action->target->origin_file,
-			    action->target->origin_line, "action", action->target->label,
-			    "qstar: action '%s' failed with status %d; replay=%s/logs/last-failure.replay",
-			    action->id, exit_code, qstar_graph_build_dir(graph));
+		return qstar_set_error_origin(graph, action->target->origin_file,
+		    action->target->origin_line, failure_kind, action->target->label,
+		    "qstar: action '%s' failed with status %d; replay=%s/logs/last-failure.replay",
+		    action->id, exit_code, qstar_graph_build_dir(graph));
 	}
 	ctx->run_count++;
 	if (state_push(ctx, 1, action->id, action->key, action->outputs.items[0],
@@ -3865,7 +3938,7 @@ build_target(struct qstar_graph *graph, const struct qstar_target *target, size_
 	fprintf(ctx->out,
 	    "action_dag target=%s order=%zu parallel=%s reason=deterministic-v3 failure=stop-on-first-failure timeout_sec=%d\n",
 	    target->label, order,
-	    ctx->jobs > 1 && target->sources.len > 1 ? "compile-process-v2" : "no",
+	    ctx->jobs > 1 && target->sources.len > 1 ? "compile-process-v3" : "no",
 	    ctx->action_timeout_sec);
 	if (strcmp(target->kind, "sharedlib") == 0)
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
@@ -3892,7 +3965,7 @@ build_target(struct qstar_graph *graph, const struct qstar_target *target, size_
 	compile_count = target_compile_input_count(target);
 	if (ctx->jobs > 1 && compile_count > 1) {
 		fprintf(ctx->out,
-		    "parallel_compile target=%s jobs=%d sources=%zu mode=process-v2 failure=cancel-active fairness=fifo\n",
+		    "parallel_compile target=%s jobs=%d sources=%zu mode=process-v3 failure=cancel-active fairness=fifo\n",
 		    target->label, ctx->jobs, compile_count);
 		if (run_compile_parallel(graph, ctx, target, &toolchain) < 0)
 			return -1;
@@ -3905,17 +3978,950 @@ build_target(struct qstar_graph *graph, const struct qstar_target *target, size_
 	return run_final(graph, ctx, target, &toolchain);
 }
 
-/** 직접 선택된 generated action label을 local executor로 실행한다. */
-static int
-build_direct_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
-    const struct qstar_genrule *genrule)
+/** scheduler node kind를 log-friendly 문자열로 변환한다. */
+static const char *
+sched_kind_name(enum qstar_sched_node_kind kind)
 {
-	fprintf(ctx->out, "build_generated_action %s order=0 kind=custom_target\n",
-	    genrule->label);
+	switch (kind) {
+	case QSTAR_SCHED_COMPILE:
+		return "compile";
+	case QSTAR_SCHED_FINAL:
+		return "final";
+	case QSTAR_SCHED_GENERATE:
+		return "generate";
+	case QSTAR_SCHED_RUN:
+		return "run";
+	case QSTAR_SCHED_GROUP:
+		return "group";
+	}
+	return "unknown";
+}
+
+/** target pointer를 graph target index로 변환한다. */
+static int
+sched_target_index(const struct qstar_graph *graph, const struct qstar_target *target)
+{
+	if (!target || target < graph->targets || target >= graph->targets + graph->len)
+		return -1;
+	return (int)(target - graph->targets);
+}
+
+/** label을 graph target index로 변환한다. */
+static int
+sched_target_index_label(const struct qstar_graph *graph, const char *label)
+{
+	const struct qstar_target *target;
+
+	target = find_target(graph, label);
+	return target ? sched_target_index(graph, target) : -1;
+}
+
+/** genrule pointer를 graph genrule index로 변환한다. */
+static int
+sched_genrule_index(const struct qstar_graph *graph, const struct qstar_genrule *genrule)
+{
+	if (!genrule || genrule < graph->genrules ||
+	    genrule >= graph->genrules + graph->genrule_len)
+		return -1;
+	return (int)(genrule - graph->genrules);
+}
+
+/** scheduler가 소유한 동적 저장소를 해제한다. */
+static void
+scheduler_free(struct qstar_scheduler *sched)
+{
+	size_t i;
+
+	if (sched->nodes) {
+		for (i = 0; i < sched->node_len; i++) {
+			free(sched->nodes[i].deps);
+			free(sched->nodes[i].outs);
+			prepared_action_free(&sched->nodes[i].action);
+		}
+	}
+	free(sched->nodes);
+	free(sched->targets);
+	free(sched->toolchains);
+	free(sched->target_seen);
+	free(sched->genrule_needed);
+	free(sched->target_final_node);
+	free(sched->genrule_node);
+	free(sched->ready);
+	memset(sched, 0, sizeof(*sched));
+}
+
+/** scheduler 배열과 index map을 초기화한다. */
+static int
+scheduler_init(struct qstar_scheduler *sched, struct qstar_graph *graph,
+    struct qstar_build_ctx *ctx)
+{
+	size_t i;
+
+	memset(sched, 0, sizeof(*sched));
+	sched->graph = graph;
+	sched->ctx = ctx;
+	sched->toolchains = calloc(graph->len ? graph->len : 1,
+	    sizeof(sched->toolchains[0]));
+	sched->target_seen = calloc(graph->len ? graph->len : 1,
+	    sizeof(sched->target_seen[0]));
+	sched->target_final_node = malloc((graph->len ? graph->len : 1) *
+	    sizeof(sched->target_final_node[0]));
+	sched->genrule_needed = calloc(graph->genrule_len ? graph->genrule_len : 1,
+	    sizeof(sched->genrule_needed[0]));
+	sched->genrule_node = malloc((graph->genrule_len ? graph->genrule_len : 1) *
+	    sizeof(sched->genrule_node[0]));
+	if (!sched->toolchains || !sched->target_seen || !sched->target_final_node ||
+	    !sched->genrule_needed || !sched->genrule_node) {
+		scheduler_free(sched);
+		return qstar_set_error(graph, "qstar: out of memory");
+	}
+	for (i = 0; i < graph->len; i++)
+		sched->target_final_node[i] = -1;
+	for (i = 0; i < graph->genrule_len; i++)
+		sched->genrule_node[i] = -1;
+	return 0;
+}
+
+/** scheduler target list에 closure target을 한 번만 추가한다. */
+static int
+scheduler_add_target(struct qstar_scheduler *sched, const struct qstar_target *target)
+{
+	int index;
+	const struct qstar_target **next;
+	size_t cap;
+
+	index = sched_target_index(sched->graph, target);
+	if (index < 0)
+		return qstar_set_error(sched->graph, "qstar: invalid scheduler target");
+	if (sched->target_seen[index])
+		return 0;
+	if (sched->target_len == sched->target_cap) {
+		cap = sched->target_cap ? sched->target_cap * 2 : 16;
+		next = realloc(sched->targets, cap * sizeof(sched->targets[0]));
+		if (!next)
+			return qstar_set_error(sched->graph, "qstar: out of memory");
+		sched->targets = next;
+		sched->target_cap = cap;
+	}
+	sched->target_seen[index] = 1;
+	sched->targets[sched->target_len++] = target;
+	return 0;
+}
+
+/** closure visitor에서 target을 scheduler discovery set에 넣는다. */
+static int
+scheduler_collect_target(struct qstar_graph *graph, const struct qstar_target *target,
+    size_t order, void *user)
+{
+	(void)graph;
+	(void)order;
+	return scheduler_add_target(user, target);
+}
+
+/** target label의 dependency closure를 scheduler discovery set에 추가한다. */
+static int
+scheduler_add_target_closure(struct qstar_scheduler *sched, const char *label)
+{
+	return qstar_graph_visit_closure(sched->graph, label, scheduler_collect_target,
+	    sched);
+}
+
+/** genrule을 scheduler discovery set에 추가한다. */
+static int
+scheduler_mark_genrule(struct qstar_scheduler *sched, const struct qstar_genrule *genrule)
+{
+	int index;
+
+	index = sched_genrule_index(sched->graph, genrule);
+	if (index < 0)
+		return qstar_set_error(sched->graph, "qstar: invalid scheduler genrule");
+	sched->genrule_needed[index] = 1;
+	return 0;
+}
+
+/** genrule input/argv dependency를 discovery set에 반영한다. */
+static int
+scheduler_discover_genrule_deps(struct qstar_scheduler *sched,
+    const struct qstar_genrule *genrule, int *changed)
+{
+	const struct qstar_genrule *owner;
+	char label[QSTAR_PATH_MAX];
+	size_t i;
+	int rc, target_index, gen_index, before_targets;
+
+	for (i = 0; i < genrule->inputs.len + genrule->args.len; i++) {
+		const char *item = i < genrule->inputs.len ? genrule->inputs.items[i] :
+		    genrule->args.items[i - genrule->inputs.len];
+
+		rc = qstar_target_file_token_label(item, label, sizeof(label));
+		if (rc < 0)
+			return qstar_set_error_origin(sched->graph, genrule->origin_file,
+			    genrule->origin_line, "inputs", genrule->label,
+			    "qstar: malformed target_file placeholder");
+		if (rc == 1) {
+			target_index = sched_target_index_label(sched->graph, label);
+			if (target_index >= 0) {
+				before_targets = (int)sched->target_len;
+				if (scheduler_add_target_closure(sched, label) < 0)
+					return -1;
+				if ((size_t)before_targets != sched->target_len)
+					*changed = 1;
+				continue;
+			}
+			owner = qstar_graph_find_genrule(sched->graph, label);
+			if (owner) {
+				gen_index = sched_genrule_index(sched->graph, owner);
+				if (gen_index >= 0 && !sched->genrule_needed[gen_index]) {
+					if (scheduler_mark_genrule(sched, owner) < 0)
+						return -1;
+					*changed = 1;
+				}
+			}
+			continue;
+		}
+		owner = qstar_graph_find_output_owner(sched->graph, item);
+		if (owner && owner != genrule) {
+			gen_index = sched_genrule_index(sched->graph, owner);
+			if (gen_index >= 0 && !sched->genrule_needed[gen_index]) {
+				if (scheduler_mark_genrule(sched, owner) < 0)
+					return -1;
+				*changed = 1;
+			}
+		}
+	}
+	return 0;
+}
+
+/** target이 소비하는 generated action을 discovery set에 반영한다. */
+static int
+scheduler_discover_target_genrules(struct qstar_scheduler *sched,
+    const struct qstar_target *target, int *changed)
+{
+	size_t i;
+
+	for (i = 0; i < sched->graph->genrule_len; i++) {
+		if (!target_consumes_genrule(target, &sched->graph->genrules[i]))
+			continue;
+		if (!sched->genrule_needed[i]) {
+			if (scheduler_mark_genrule(sched, &sched->graph->genrules[i]) < 0)
+				return -1;
+			*changed = 1;
+		}
+	}
+	return 0;
+}
+
+/** root label에서 필요한 target/genrule 닫힌 집합을 수집한다. */
+static int
+scheduler_discover(struct qstar_scheduler *sched, const char *label)
+{
+	const struct qstar_genrule *root_genrule;
+	size_t i;
+	int changed;
+
+	root_genrule = label && *label ? qstar_graph_find_genrule(sched->graph, label) :
+	    NULL;
+	if (root_genrule) {
+		if (scheduler_mark_genrule(sched, root_genrule) < 0)
+			return -1;
+	} else if (scheduler_add_target_closure(sched, label) < 0) {
+		return -1;
+	}
+	do {
+		changed = 0;
+		for (i = 0; i < sched->target_len; i++) {
+			if (scheduler_discover_target_genrules(sched, sched->targets[i],
+			    &changed) < 0)
+				return -1;
+		}
+		for (i = 0; i < sched->graph->genrule_len; i++) {
+			if (!sched->genrule_needed[i])
+				continue;
+			if (scheduler_discover_genrule_deps(sched,
+			    &sched->graph->genrules[i], &changed) < 0)
+				return -1;
+		}
+	} while (changed);
+	return 0;
+}
+
+/** scheduler node를 추가한다. */
+static int
+scheduler_add_node(struct qstar_scheduler *sched, enum qstar_sched_node_kind kind,
+    const struct qstar_target *target, const struct qstar_genrule *genrule,
+    size_t source_index, size_t target_queue_index, size_t *out_index)
+{
+	struct qstar_sched_node *next, *node;
+	size_t cap;
+
+	if (sched->node_len == sched->node_cap) {
+		cap = sched->node_cap ? sched->node_cap * 2 : 32;
+		next = realloc(sched->nodes, cap * sizeof(sched->nodes[0]));
+		if (!next)
+			return qstar_set_error(sched->graph, "qstar: out of memory");
+		sched->nodes = next;
+		sched->node_cap = cap;
+	}
+	node = &sched->nodes[sched->node_len];
+	memset(node, 0, sizeof(*node));
+	node->kind = kind;
+	node->state = QSTAR_SCHED_PENDING;
+	node->target = target;
+	node->genrule = genrule;
+	node->source_index = source_index;
+	node->target_queue_index = target_queue_index;
+	*out_index = sched->node_len++;
+	return 0;
+}
+
+/** scheduler index list에 값을 중복 없이 추가한다. */
+static int
+scheduler_index_list_push(size_t **items, size_t *len, size_t *cap, size_t value)
+{
+	size_t i, next_cap;
+	size_t *next;
+
+	for (i = 0; i < *len; i++) {
+		if ((*items)[i] == value)
+			return 0;
+	}
+	if (*len == *cap) {
+		next_cap = *cap ? *cap * 2 : 4;
+		next = realloc(*items, next_cap * sizeof((*items)[0]));
+		if (!next)
+			return -1;
+		*items = next;
+		*cap = next_cap;
+	}
+	(*items)[(*len)++] = value;
+	return 0;
+}
+
+/** dep -> user edge를 scheduler graph에 추가한다. */
+static int
+scheduler_add_edge(struct qstar_scheduler *sched, size_t dep, size_t user)
+{
+	if (dep == user)
+		return qstar_set_error(sched->graph, "qstar: scheduler self dependency");
+	if (scheduler_index_list_push(&sched->nodes[user].deps,
+	    &sched->nodes[user].dep_len, &sched->nodes[user].dep_cap, dep) < 0 ||
+	    scheduler_index_list_push(&sched->nodes[dep].outs,
+	    &sched->nodes[dep].out_len, &sched->nodes[dep].out_cap, user) < 0)
+		return qstar_set_error(sched->graph, "qstar: out of memory");
+	sched->nodes[user].remaining = sched->nodes[user].dep_len;
+	return 0;
+}
+
+/** ready queue에 scheduler node를 추가한다. */
+static int
+scheduler_ready_push(struct qstar_scheduler *sched, size_t node_index)
+{
+	size_t cap;
+	size_t *next;
+
+	if (sched->ready_len == sched->ready_cap) {
+		cap = sched->ready_cap ? sched->ready_cap * 2 : 32;
+		next = realloc(sched->ready, cap * sizeof(sched->ready[0]));
+		if (!next)
+			return qstar_set_error(sched->graph, "qstar: out of memory");
+		sched->ready = next;
+		sched->ready_cap = cap;
+	}
+	sched->nodes[node_index].state = QSTAR_SCHED_READY;
+	sched->ready[sched->ready_len++] = node_index;
+	return 0;
+}
+
+/** completed node의 dependent remaining count를 낮추고 ready queue를 채운다. */
+static int
+scheduler_complete_node(struct qstar_scheduler *sched, size_t node_index)
+{
+	struct qstar_sched_node *dep;
+	size_t i, out_index;
+
+	sched->nodes[node_index].state = QSTAR_SCHED_DONE;
+	for (i = 0; i < sched->nodes[node_index].out_len; i++) {
+		out_index = sched->nodes[node_index].outs[i];
+		dep = &sched->nodes[out_index];
+		if (dep->state != QSTAR_SCHED_PENDING)
+			continue;
+		if (dep->remaining > 0)
+			dep->remaining--;
+		if (dep->remaining == 0 && scheduler_ready_push(sched, out_index) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+/** target node skeleton을 만들고 final node index map을 채운다. */
+static int
+scheduler_create_target_nodes(struct qstar_scheduler *sched, const struct qstar_target *target,
+    size_t order)
+{
+	struct qstar_graph *graph = sched->graph;
+	struct qstar_build_ctx *ctx = sched->ctx;
+	struct qstar_resolved_toolchain *toolchain;
+	struct qstar_source_info source;
+	size_t i, node_index, compile_ordinal;
+	int target_index;
+
+	target_index = sched_target_index(graph, target);
+	if (target_index < 0)
+		return qstar_set_error(graph, "qstar: invalid scheduler target");
+	fprintf(ctx->out, "build_target %s order=%zu kind=%s\n", target->label, order,
+	    target->kind);
 	fprintf(ctx->out,
-	    "action_dag target=%s order=0 parallel=no reason=direct-generated-action failure=stop-on-first-failure timeout_sec=%d\n",
-	    genrule->label, ctx->action_timeout_sec);
-	return run_one_generated_action(graph, ctx, NULL, genrule);
+	    "action_dag target=%s order=%zu parallel=%s reason=ready-queue-v1 failure=stop-on-first-failure timeout_sec=%d\n",
+	    target->label, order,
+	    ctx->jobs > 1 && target_compile_input_count(target) > 0 ?
+	    "action-dag-ready-queue" : "no", ctx->action_timeout_sec);
+	if (strcmp(target->kind, "sharedlib") == 0)
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "kind", target->label,
+		    "qstar: sharedlib targets are plan-only in local executor v1");
+	if (strcmp(target->kind, "group") == 0) {
+		if (scheduler_add_node(sched, QSTAR_SCHED_GROUP, target, NULL, 0, 0,
+		    &node_index) < 0)
+			return -1;
+		sched->target_final_node[target_index] = (int)node_index;
+		return 0;
+	}
+	if (strcmp(target->kind, "run_target") == 0) {
+		if (scheduler_add_node(sched, QSTAR_SCHED_RUN, target, NULL, 0, 0,
+		    &node_index) < 0)
+			return -1;
+		sched->target_final_node[target_index] = (int)node_index;
+		return 0;
+	}
+	toolchain = &sched->toolchains[target_index];
+	if (qstar_resolve_toolchain(graph, target, toolchain) < 0)
+		return -1;
+	fprintf(ctx->out,
+	    "resolved_toolchain owner=%s toolchain=%s target=%s cc=%s cxx=%s ar=%s linker=%s\n",
+	    target->label, toolchain->name, toolchain->target, toolchain->cc,
+	    toolchain->cxx, toolchain->ar, toolchain->linker);
+	if (validate_noncompile_sources(graph, target, toolchain) < 0)
+		return -1;
+	compile_ordinal = 0;
+	for (i = 0; i < target->sources.len; i++) {
+		qstar_source_classify(target->sources.items[i], &source);
+		if (!source_requires_compile(&source))
+			continue;
+		if (scheduler_add_node(sched, QSTAR_SCHED_COMPILE, target, NULL, i,
+		    compile_ordinal, &node_index) < 0)
+			return -1;
+		sched->nodes[node_index].toolchain = toolchain;
+		compile_ordinal++;
+	}
+	if (compile_ordinal > 1)
+		fprintf(ctx->out,
+		    "parallel_batch target=%s jobs=%d total=%zu policy=fifo fairness=ready-queue cancel=kill-active retry=next-build\n",
+		    target->label, ctx->jobs, compile_ordinal);
+	if (compile_ordinal > 1)
+		fprintf(ctx->out,
+		    "parallel_compile target=%s jobs=%d sources=%zu mode=process-v3 failure=cancel-active fairness=ready-queue\n",
+		    target->label, ctx->jobs, compile_ordinal);
+	if (scheduler_add_node(sched, QSTAR_SCHED_FINAL, target, NULL, 0, 0,
+	    &node_index) < 0)
+		return -1;
+	sched->nodes[node_index].toolchain = toolchain;
+	sched->target_final_node[target_index] = (int)node_index;
+	return 0;
+}
+
+/** needed genrule node skeleton을 만든다. */
+static int
+scheduler_create_genrule_nodes(struct qstar_scheduler *sched)
+{
+	size_t i, node_index;
+
+	for (i = 0; i < sched->graph->genrule_len; i++) {
+		if (!sched->genrule_needed[i])
+			continue;
+		if (scheduler_add_node(sched, QSTAR_SCHED_GENERATE, NULL,
+		    &sched->graph->genrules[i], 0, 0, &node_index) < 0)
+			return -1;
+		sched->genrule_node[i] = (int)node_index;
+	}
+	return 0;
+}
+
+/** target_file/plain generated input을 node edge로 연결한다. */
+static int
+scheduler_add_genrule_item_edge(struct qstar_scheduler *sched,
+    const struct qstar_genrule *genrule, const char *item, size_t user_node)
+{
+	const struct qstar_genrule *owner;
+	char label[QSTAR_PATH_MAX];
+	int rc, target_index, gen_index;
+
+	rc = qstar_target_file_token_label(item, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error_origin(sched->graph, genrule->origin_file,
+		    genrule->origin_line, "inputs", genrule->label,
+		    "qstar: malformed target_file placeholder");
+	if (rc == 1) {
+		target_index = sched_target_index_label(sched->graph, label);
+		if (target_index >= 0 && sched->target_final_node[target_index] >= 0)
+			return scheduler_add_edge(sched,
+			    (size_t)sched->target_final_node[target_index], user_node);
+		owner = qstar_graph_find_genrule(sched->graph, label);
+		if (owner) {
+			gen_index = sched_genrule_index(sched->graph, owner);
+			if (gen_index >= 0 && sched->genrule_node[gen_index] >= 0)
+				return scheduler_add_edge(sched,
+				    (size_t)sched->genrule_node[gen_index], user_node);
+		}
+		return 0;
+	}
+	owner = qstar_graph_find_output_owner(sched->graph, item);
+	if (owner && owner != genrule) {
+		gen_index = sched_genrule_index(sched->graph, owner);
+		if (gen_index >= 0 && sched->genrule_node[gen_index] >= 0)
+			return scheduler_add_edge(sched,
+			    (size_t)sched->genrule_node[gen_index], user_node);
+	}
+	return 0;
+}
+
+/** genrule dependency edge를 scheduler graph에 연결한다. */
+static int
+scheduler_connect_genrule_edges(struct qstar_scheduler *sched)
+{
+	const struct qstar_genrule *genrule;
+	size_t i, j, node_index;
+
+	for (i = 0; i < sched->graph->genrule_len; i++) {
+		if (sched->genrule_node[i] < 0)
+			continue;
+		genrule = &sched->graph->genrules[i];
+		node_index = (size_t)sched->genrule_node[i];
+		for (j = 0; j < genrule->inputs.len; j++) {
+			if (scheduler_add_genrule_item_edge(sched, genrule,
+			    genrule->inputs.items[j], node_index) < 0)
+				return -1;
+		}
+		for (j = 0; j < genrule->args.len; j++) {
+			if (scheduler_add_genrule_item_edge(sched, genrule,
+			    genrule->args.items[j], node_index) < 0)
+				return -1;
+		}
+	}
+	return 0;
+}
+
+/** target dependency label list를 target node edge로 연결한다. */
+static int
+scheduler_connect_target_dep_list(struct qstar_scheduler *sched,
+    const struct qstar_string_list *deps, size_t user_node)
+{
+	int dep_index;
+	size_t i;
+
+	for (i = 0; i < deps->len; i++) {
+		if (deps->items[i][0] == '@')
+			continue;
+		dep_index = sched_target_index_label(sched->graph, deps->items[i]);
+		if (dep_index >= 0 && sched->target_final_node[dep_index] >= 0) {
+			if (scheduler_add_edge(sched,
+			    (size_t)sched->target_final_node[dep_index], user_node) < 0)
+				return -1;
+		}
+	}
+	return 0;
+}
+
+/** target이 소비하는 generated action edge를 node에 연결한다. */
+static int
+scheduler_connect_consumed_genrules(struct qstar_scheduler *sched,
+    const struct qstar_target *target, size_t user_node)
+{
+	size_t i;
+
+	for (i = 0; i < sched->graph->genrule_len; i++) {
+		if (sched->genrule_node[i] < 0 ||
+		    !target_consumes_genrule(target, &sched->graph->genrules[i]))
+			continue;
+		if (scheduler_add_edge(sched, (size_t)sched->genrule_node[i],
+		    user_node) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+/** target 내부 compile/final/run/group edge를 scheduler graph에 연결한다. */
+static int
+scheduler_connect_target_edges(struct qstar_scheduler *sched)
+{
+	const struct qstar_target *target;
+	struct qstar_sched_node *node;
+	size_t i, j, final_node;
+	int target_index;
+
+	for (i = 0; i < sched->target_len; i++) {
+		target = sched->targets[i];
+		target_index = sched_target_index(sched->graph, target);
+		if (target_index < 0 || sched->target_final_node[target_index] < 0)
+			return qstar_set_error(sched->graph, "qstar: missing target final node");
+		final_node = (size_t)sched->target_final_node[target_index];
+		if (scheduler_connect_target_dep_list(sched, &target->deps, final_node) < 0 ||
+		    scheduler_connect_target_dep_list(sched, &target->private_deps,
+		    final_node) < 0)
+			return -1;
+		if (strcmp(target->kind, "group") == 0 ||
+		    strcmp(target->kind, "run_target") == 0)
+			continue;
+		if (scheduler_connect_consumed_genrules(sched, target, final_node) < 0)
+			return -1;
+		for (j = 0; j < sched->node_len; j++) {
+			node = &sched->nodes[j];
+			if (node->kind != QSTAR_SCHED_COMPILE || node->target != target)
+				continue;
+			if (scheduler_add_edge(sched, j, final_node) < 0 ||
+			    scheduler_connect_target_dep_list(sched, &target->deps, j) < 0 ||
+			    scheduler_connect_target_dep_list(sched, &target->private_deps, j) < 0 ||
+			    scheduler_connect_consumed_genrules(sched, target, j) < 0)
+				return -1;
+		}
+	}
+	return 0;
+}
+
+/** discovery set에서 scheduler action graph를 만든다. */
+static int
+scheduler_build_nodes(struct qstar_scheduler *sched)
+{
+	size_t i;
+
+	for (i = 0; i < sched->target_len; i++) {
+		if (scheduler_create_target_nodes(sched, sched->targets[i], i) < 0)
+			return -1;
+	}
+	if (scheduler_create_genrule_nodes(sched) < 0)
+		return -1;
+	if (scheduler_connect_genrule_edges(sched) < 0 ||
+	    scheduler_connect_target_edges(sched) < 0)
+		return -1;
+	return 0;
+}
+
+/** compile cache hit을 ready queue 진입 전에 처리할 수 있는지 확인한다. */
+static int
+prepared_action_cache_hit(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const struct qstar_prepared_action *action)
+{
+	const struct qstar_state_entry *prev;
+
+	prev = state_find(ctx, action->id);
+	return prev && strcmp(prev->key, action->key) == 0 &&
+	    outputs_exist(graph, &action->outputs);
+}
+
+/** compile cache hit action을 process slot 배정 전에 skip 처리한다. */
+static int
+skip_prepared_action_prequeue(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    struct qstar_prepared_action *action)
+{
+	char logdir[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], action_log[QSTAR_PATH_MAX];
+	char child_stdout_path[QSTAR_PATH_MAX], child_stderr_path[QSTAR_PATH_MAX];
+
+	if (full_path_under_build(graph, "logs", logdir, sizeof(logdir)) < 0 ||
+	    mkdir_p(logdir) < 0)
+		return qstar_set_error(graph, "qstar: could not create action log dir");
+	action_log_name(action->id, name, sizeof(name));
+	snprintf(action_log, sizeof(action_log), "%s/%s.log", logdir, name);
+	if (build_log_rel(graph, name, ".stdout", child_stdout_path,
+	    sizeof(child_stdout_path)) < 0 ||
+	    build_log_rel(graph, name, ".stderr", child_stderr_path,
+	    sizeof(child_stderr_path)) < 0)
+		return qstar_set_error(graph, "qstar: action log path too long");
+	ctx->scheduled_count++;
+	fprintf(ctx->out,
+	    "schedule_action id=%s kind=%s slot=prequeue jobs=%d state=skipped-prequeue\n",
+	    action->id, action->kind, ctx->jobs);
+	fprintf(ctx->out,
+	    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
+	    action->id, child_stdout_path, child_stderr_path);
+	fprintf(ctx->out,
+	    "scheduler_event event=pre_skip id=%s target=%s state=cache-hit retry=no\n",
+	    action->id, action->target->label);
+	write_skip_log(action_log, action->argv);
+	ctx->skip_count++;
+	return state_push(ctx, 1, action->id, action->key, action->outputs.items[0],
+	    "skip", action->kind, &action->material) < 0 ?
+	    qstar_set_error(graph, "qstar: out of memory") : 0;
+}
+
+/** ready queue의 첫 항목을 꺼낸다. */
+static int
+scheduler_ready_pop(struct qstar_scheduler *sched, size_t *node_index)
+{
+	size_t i;
+
+	if (sched->ready_len == 0)
+		return 0;
+	*node_index = sched->ready[0];
+	for (i = 1; i < sched->ready_len; i++)
+		sched->ready[i - 1] = sched->ready[i];
+	sched->ready_len--;
+	return 1;
+}
+
+/** sync node를 실행한다. */
+static int
+scheduler_run_sync_node(struct qstar_scheduler *sched, size_t node_index)
+{
+	struct qstar_sched_node *node = &sched->nodes[node_index];
+	int rc;
+
+	fprintf(sched->ctx->out,
+	    "scheduler_event event=run_sync id=%zu kind=%s state=ready\n",
+	    node_index, sched_kind_name(node->kind));
+	if (node->kind == QSTAR_SCHED_GROUP) {
+		fprintf(sched->ctx->out,
+		    "group_target label=%s deps=%zu private_deps=%zu action=none artifact=<none>\n",
+		    node->target->label, node->target->deps.len,
+		    node->target->private_deps.len);
+		return 0;
+	}
+	if (node->kind == QSTAR_SCHED_GENERATE)
+		return run_one_generated_action(sched->graph, sched->ctx, NULL,
+		    node->genrule);
+	if (node->kind == QSTAR_SCHED_RUN)
+		return run_target_command(sched->graph, sched->ctx, node->target);
+	if (node->kind == QSTAR_SCHED_FINAL) {
+		rc = run_final(sched->graph, sched->ctx, node->target, node->toolchain);
+		return rc;
+	}
+	return qstar_set_error(sched->graph, "qstar: invalid sync scheduler node");
+}
+
+/** scheduler를 중지하면서 active compile process를 정리한다. */
+static void
+scheduler_cancel_active(struct qstar_build_ctx *ctx, struct qstar_running_action *running,
+    size_t jobs)
+{
+	cancel_running_actions(ctx, running, jobs);
+}
+
+/** ready-queue action DAG를 실행한다. */
+static int
+scheduler_execute(struct qstar_scheduler *sched)
+{
+	struct qstar_running_action *running;
+	size_t i, node_index, completed, active, jobs, slot;
+	int rc, status, popped, progressed;
+	pid_t waited;
+
+	jobs = sched->ctx->jobs > 1 ? (size_t)sched->ctx->jobs : 1;
+	running = calloc(jobs, sizeof(running[0]));
+	if (!running)
+		return qstar_set_error(sched->graph, "qstar: out of memory");
+	for (i = 0; i < sched->node_len; i++) {
+		if (sched->nodes[i].remaining == 0 &&
+		    scheduler_ready_push(sched, i) < 0) {
+			free(running);
+			return -1;
+		}
+	}
+	fprintf(sched->ctx->out,
+	    "action_scheduler version=v1 nodes=%zu ready=%zu jobs=%zu policy=ready-queue failure=stop-on-first-failure\n",
+	    sched->node_len, sched->ready_len, jobs);
+	completed = 0;
+	active = 0;
+	rc = 0;
+	while (completed < sched->node_len) {
+		progressed = 0;
+		while (sched->ready_len > 0) {
+			popped = scheduler_ready_pop(sched, &node_index);
+			if (!popped)
+				break;
+			if (sched->nodes[node_index].state != QSTAR_SCHED_READY)
+				continue;
+			if (sched->nodes[node_index].kind != QSTAR_SCHED_COMPILE) {
+				rc = scheduler_run_sync_node(sched, node_index);
+				if (rc < 0)
+					goto fail;
+				if (scheduler_complete_node(sched, node_index) < 0) {
+					rc = -1;
+					goto fail;
+				}
+				completed++;
+				progressed = 1;
+				continue;
+			}
+			if (sched->nodes[node_index].action.id[0] == '\0' &&
+			    prepare_compile_action(sched->graph, sched->ctx,
+			    sched->nodes[node_index].target,
+			    sched->nodes[node_index].toolchain,
+			    sched->nodes[node_index].source_index,
+			    &sched->nodes[node_index].action) < 0) {
+				rc = -1;
+				goto fail;
+			}
+			if (prepared_action_cache_hit(sched->graph, sched->ctx,
+			    &sched->nodes[node_index].action)) {
+				rc = skip_prepared_action_prequeue(sched->graph,
+				    sched->ctx, &sched->nodes[node_index].action);
+				if (rc < 0)
+					goto fail;
+				if (scheduler_complete_node(sched, node_index) < 0) {
+					rc = -1;
+					goto fail;
+				}
+				completed++;
+				progressed = 1;
+				continue;
+			}
+			if (active >= jobs) {
+				if (scheduler_ready_push(sched, node_index) < 0) {
+					rc = -1;
+					goto fail;
+				}
+				break;
+			}
+			slot = find_free_slot(running, jobs);
+			if (slot >= jobs) {
+				rc = qstar_set_error(sched->graph, "qstar: no free scheduler slot");
+				goto fail;
+			}
+			fprintf(sched->ctx->out,
+			    "parallel_slot target=%s slot=%zu state=assign action=%s queue=%zu scheduler=global\n",
+			    sched->nodes[node_index].target->label, slot,
+			    sched->nodes[node_index].action.id,
+			    sched->nodes[node_index].target_queue_index);
+			rc = start_prepared_action(sched->graph, sched->ctx,
+			    &sched->nodes[node_index].action, &running[slot], slot,
+			    sched->nodes[node_index].target_queue_index);
+			if (rc < 0)
+				goto fail;
+			if (rc == 1)
+				running[slot].node_index = node_index;
+			sched->nodes[node_index].state = rc == 1 ? QSTAR_SCHED_RUNNING :
+			    QSTAR_SCHED_DONE;
+			if (rc == 1)
+				active++;
+			else {
+				if (scheduler_complete_node(sched, node_index) < 0) {
+					rc = -1;
+					goto fail;
+				}
+				completed++;
+			}
+			progressed = 1;
+		}
+		for (i = 0; i < jobs; i++) {
+			if (running[i].pid <= 0)
+				continue;
+			waited = waitpid(running[i].pid, &status, WNOHANG);
+			if (waited == 0) {
+				if (time(NULL) - running[i].start >=
+				    sched->ctx->action_timeout_sec) {
+					kill(running[i].pid, SIGKILL);
+					waitpid(running[i].pid, &status, 0);
+					running[i].pid = 0;
+					write_action_log(running[i].action_log,
+					    running[i].action->argv, 124);
+					write_failure_replay(sched->graph,
+					    running[i].action->id,
+					    running[i].action->toolchain,
+					    running[i].action->argv);
+					sched->ctx->fail_count++;
+					sched->ctx->cancelled = 1;
+					fprintf(sched->ctx->out,
+					    "build_action id=%s status=timeout timeout_sec=%d\n",
+					    running[i].action->id,
+					    sched->ctx->action_timeout_sec);
+					fprintf(sched->ctx->out,
+					    "parallel_event target=%s event=timeout id=%s slot=%zu state=timeout retry=next-build cancel=active\n",
+					    running[i].action->target->label,
+					    running[i].action->id, running[i].slot);
+					rc = qstar_set_error_origin(sched->graph,
+					    running[i].action->target->origin_file,
+					    running[i].action->target->origin_line, "action",
+					    running[i].action->target->label,
+					    "qstar: action '%s' timed out after %d seconds; replay=%s/logs/last-failure.replay",
+					    running[i].action->id,
+					    sched->ctx->action_timeout_sec,
+					    qstar_graph_build_dir(sched->graph));
+					goto fail;
+				}
+				continue;
+			}
+			if (waited < 0) {
+				rc = qstar_set_error(sched->graph, "qstar: waitpid failed");
+				goto fail;
+			}
+			running[i].pid = 0;
+			node_index = running[i].node_index;
+			rc = finish_running_action(sched->graph, sched->ctx, &running[i],
+			    status);
+			if (rc == 0)
+				rc = check_compile_depfile(sched->graph,
+				    running[i].action);
+			if (rc == 0)
+				rc = refresh_compile_state_after_depfile(sched->graph,
+				    sched->ctx, running[i].action->target,
+				    running[i].action->toolchain, running[i].action);
+			running[i].action = NULL;
+			active--;
+			if (rc < 0)
+				goto fail;
+			if (scheduler_complete_node(sched, node_index) < 0) {
+				rc = -1;
+				goto fail;
+			}
+			completed++;
+			progressed = 1;
+			break;
+		}
+		if (!progressed) {
+			if (active == 0 && sched->ready_len == 0 && completed < sched->node_len) {
+				rc = qstar_set_error(sched->graph,
+				    "qstar: scheduler stalled with pending actions");
+				goto fail;
+			}
+			wait_poll_pause();
+		}
+	}
+	free(running);
+	return 0;
+fail:
+	if (active > 0)
+		scheduler_cancel_active(sched->ctx, running, jobs);
+	free(running);
+	return rc < 0 ? rc : -1;
+}
+
+/** QStar ready-queue action scheduler entry point다. */
+static int
+build_with_action_scheduler(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const char *label)
+{
+	struct qstar_scheduler sched;
+	const struct qstar_genrule *genrule;
+	int rc;
+
+	if (scheduler_init(&sched, graph, ctx) < 0)
+		return -1;
+	ctx->action_scheduler = 1;
+	genrule = label && *label ? qstar_graph_find_genrule(graph, label) : NULL;
+	if (genrule) {
+		fprintf(ctx->out, "build_generated_action %s order=0 kind=custom_target\n",
+		    genrule->label);
+		fprintf(ctx->out,
+		    "action_dag target=%s order=0 parallel=%s reason=ready-queue-v1 failure=stop-on-first-failure timeout_sec=%d\n",
+		    genrule->label, ctx->jobs > 1 ? "action-dag-ready-queue" : "no",
+		    ctx->action_timeout_sec);
+	}
+	rc = scheduler_discover(&sched, label);
+	if (rc == 0)
+		rc = scheduler_build_nodes(&sched);
+	if (rc == 0)
+		rc = scheduler_execute(&sched);
+	ctx->action_scheduler = 0;
+	scheduler_free(&sched);
+	return rc;
 }
 
 /** build context가 소유한 동적 저장소를 해제한다. */
@@ -3934,7 +4940,6 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
     const struct qstar_build_options *options, FILE *out)
 {
 	struct qstar_build_ctx ctx;
-	const struct qstar_genrule *genrule;
 	int rc;
 
 	memset(&ctx, 0, sizeof(ctx));
@@ -3952,15 +4957,13 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
 	fprintf(out, "root %s\n", ctx.root_label);
 	fprintf(out, "package-root %s\n", graph->package_root ? graph->package_root : ".");
 	fprintf(out,
-	    "executor-policy version=v3 parallel=%s jobs=%d active=%s failure=stop-on-first-failure action_timeout_sec=%d cancel=kill-process-and-stop-queue\n",
+	    "executor-policy version=v4 parallel=%s jobs=%d active=%s failure=stop-on-first-failure action_timeout_sec=%d cancel=kill-process-and-stop-queue\n",
 	    ctx.jobs > 1 ? "optional" : "no", ctx.jobs,
-	    ctx.jobs > 1 ? "compile-process-v2" : "serial", ctx.action_timeout_sec);
+	    ctx.jobs > 1 ? "action-dag-ready-queue" : "serial-ready-queue",
+	    ctx.action_timeout_sec);
 	rc = graph_snapshot_write(graph);
-	genrule = label && *label ? qstar_graph_find_genrule(graph, label) : NULL;
-	if (rc == 0 && genrule)
-		rc = build_direct_generated_action(graph, &ctx, genrule);
-	else if (rc == 0)
-		rc = qstar_graph_visit_closure(graph, label, build_target, &ctx);
+	if (rc == 0)
+		rc = build_with_action_scheduler(graph, &ctx, label);
 	if (rc == 0)
 		rc = state_write(graph, &ctx);
 	if (rc == 0)

@@ -44,7 +44,7 @@ EOF
 
 "$qstar" --file "$tmp/qstar.lua" build //:app --jobs 2 --schedule-trace > "$tmp/first.out" 2> "$tmp/first.err"
 contains "$tmp/first.out" "qstar build v2"
-contains "$tmp/first.out" "executor-policy version=v3"
+contains "$tmp/first.out" "executor-policy version=v4"
 contains "$tmp/first.out" "parallel=optional jobs=2"
 contains "$tmp/first.out" "action_dag target=//:app"
 contains "$tmp/first.out" "schedule_action id=//:app:compile:0"
@@ -2072,7 +2072,7 @@ contains "$tmp/project-c-rebuild.out" "status ok"
 if command -v c++ >/dev/null 2>&1; then
 	cp -R "$project_root/cxx-mixed" "$tmp/project-cxx"
 	"$qstar" --file "$tmp/project-cxx/qstar.lua" build //:mixed --jobs 2 --schedule-trace > "$tmp/project-cxx-build.out" 2> "$tmp/project-cxx-build.err"
-	contains "$tmp/project-cxx-build.out" "parallel_compile target=//:mixed jobs=2 sources=2 mode=process-v2"
+	contains "$tmp/project-cxx-build.out" "parallel_compile target=//:mixed jobs=2 sources=2 mode=process-v3"
 	contains "$tmp/project-cxx-build.out" "parallel_batch target=//:mixed jobs=2 total=2 policy=fifo"
 	contains "$tmp/project-cxx-build.out" "schedule_action id=//:mixed:compile:0"
 	contains "$tmp/project-cxx-build.out" "schedule_action id=//:mixed:compile:1"
@@ -2116,11 +2116,51 @@ qstar.executable "app" {
 EOF
 "$qstar" --file "$tmp/fanout/qstar.lua" build //:app --jobs 2 --schedule-trace > "$tmp/fanout-build.out" 2> "$tmp/fanout-build.err"
 contains "$tmp/fanout-build.out" "build_action id=//:cfg:generate:0 status=run"
-contains "$tmp/fanout-build.out" "parallel_compile target=//:app jobs=2 sources=3 mode=process-v2"
+contains "$tmp/fanout-build.out" "parallel_compile target=//:app jobs=2 sources=3 mode=process-v3"
 contains "$tmp/fanout-build.out" "parallel_slot target=//:app slot=0 state=assign action=//:app:compile:0 queue=0"
 contains "$tmp/fanout-build.out" "parallel_slot target=//:app slot=1 state=assign action=//:app:compile:1 queue=1"
 contains "$tmp/fanout-build.out" "action=//:app:compile:2 queue=2"
 contains "$tmp/fanout-build.out" "status ok"
+
+mkdir -p "$tmp/cross-target/src" "$tmp/cross-target/tools"
+cat > "$tmp/cross-target/tools/fake-cc.sh" <<'EOF'
+#!/bin/sh
+set -eu
+exec cc "$@"
+EOF
+chmod +x "$tmp/cross-target/tools/fake-cc.sh"
+cat > "$tmp/cross-target/src/a.c" <<'EOF'
+int a_value(void) { return 1; }
+EOF
+cat > "$tmp/cross-target/src/b.c" <<'EOF'
+int b_value(void) { return 2; }
+EOF
+cat > "$tmp/cross-target/qstar.lua" <<'EOF'
+qstar.profile "default" {
+  cc = "tools/fake-cc.sh",
+}
+
+qstar.staticlib "liba" {
+  sources = {"src/a.c"},
+}
+
+qstar.staticlib "libb" {
+  sources = {"src/b.c"},
+}
+
+qstar.group "all" {
+  deps = {
+    "//:liba",
+    "//:libb",
+  },
+}
+EOF
+"$qstar" --file "$tmp/cross-target/qstar.lua" build //:all --jobs 2 --schedule-trace > "$tmp/cross-target-build.out" 2> "$tmp/cross-target-build.err"
+contains "$tmp/cross-target-build.out" "action_scheduler version=v1"
+contains "$tmp/cross-target-build.out" "parallel_slot target=//:liba slot=0 state=assign action=//:liba:compile:0 queue=0 scheduler=global"
+contains "$tmp/cross-target-build.out" "parallel_slot target=//:libb slot=1 state=assign action=//:libb:compile:0 queue=0 scheduler=global"
+contains "$tmp/cross-target-build.out" "group_target label=//:all"
+contains "$tmp/cross-target-build.out" "status ok"
 
 mkdir -p "$tmp/parallel-fail/src" "$tmp/parallel-fail/tools"
 cat > "$tmp/parallel-fail/tools/fake-cc.sh" <<'EOF'
@@ -2171,7 +2211,7 @@ EOF
 if "$qstar" --file "$tmp/parallel-fail/qstar.lua" build //:race --jobs 2 --schedule-trace > "$tmp/parallel-fail.out" 2> "$tmp/parallel-fail.err"; then
 	fail "parallel failure unexpectedly succeeded"
 fi
-contains "$tmp/parallel-fail.out" "parallel_compile target=//:race jobs=2 sources=3 mode=process-v2"
+contains "$tmp/parallel-fail.out" "parallel_compile target=//:race jobs=2 sources=3 mode=process-v3"
 contains "$tmp/parallel-fail.out" "parallel_batch target=//:race jobs=2 total=3 policy=fifo"
 contains "$tmp/parallel-fail.out" "parallel_slot target=//:race slot=0 state=assign action=//:race:compile:0 queue=0"
 contains "$tmp/parallel-fail.out" "parallel_slot target=//:race slot=1 state=assign action=//:race:compile:1 queue=1"
@@ -2208,8 +2248,8 @@ EOF
 if QSTAR_TEST_ACTION_TIMEOUT_SEC=1 "$qstar" --file "$tmp/parallel-timeout/qstar.lua" build //:timeout --jobs 2 --schedule-trace > "$tmp/parallel-timeout.out" 2> "$tmp/parallel-timeout.err"; then
 	fail "parallel timeout unexpectedly succeeded"
 fi
-contains "$tmp/parallel-timeout.out" "executor-policy version=v3 parallel=optional jobs=2 active=compile-process-v2 failure=stop-on-first-failure action_timeout_sec=1"
-contains "$tmp/parallel-timeout.out" "parallel_compile target=//:timeout jobs=2 sources=2 mode=process-v2"
+contains "$tmp/parallel-timeout.out" "executor-policy version=v4 parallel=optional jobs=2 active=action-dag-ready-queue failure=stop-on-first-failure action_timeout_sec=1"
+contains "$tmp/parallel-timeout.out" "parallel_compile target=//:timeout jobs=2 sources=2 mode=process-v3"
 contains "$tmp/parallel-timeout.out" "parallel_event target=//:timeout event=timeout id=//:timeout:compile:0 slot=0 state=timeout retry=next-build cancel=active"
 contains "$tmp/parallel-timeout.out" "build_action id=//:timeout:compile:1 status=cancelled reason=parallel-failure retry=next-build"
 contains "$tmp/parallel-timeout.out" "parallel_event target=//:timeout event=cancel id=//:timeout:compile:1 slot=1 state=cancelled reason=parallel-failure retry=next-build"
