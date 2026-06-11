@@ -51,6 +51,7 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 - `qstar-v0.2-authoring-spec.md`: v0.2 hard-cut authoring surface와 `lang.*` 정책.
 - `qstar-v0.2-release-candidate-seal.md`: v0.2 RC stable/experimental surface와 release gate.
 - `qstar-v0.3-seal.md`: v0.3 standalone release-candidate surface와 editor/corpus seal.
+- `qstar-pilot-readiness-seal.md`: formatter/help/wiki/CLI sync까지 묶은 pilot-readiness gate.
 - `qstar-submodule-extraction-prep.md`: 독립 repo/submodule 전환 직전 체크리스트.
 - `../wiki/`: 사용자/AI가 QStar project를 직접 작성할 수 있는 한국어 wiki.
 - `network-policy.md`: Fetch-only network policy와 offline/frozen/locked mode.

@@ -23,7 +23,7 @@ qstar.run_target "qemu_smoke" {
     qstar.target_file("//:kernel_img"),
     "serial.log",
   },
-  timeout_sec = 3,
+  timeout = 3,
   marker = "QSTAR-SMOKE-DONE",
   marker_log = "serial.log",
 }
@@ -37,7 +37,7 @@ marker check, log/replay를 제공하는 generic surface다.
 ```lua
 qstar.run_target "bad" {
   command = qstar.cli {"tools/qemu-smoke.sh"},
-  timeout_sec = 1,
+  timeout = 1,
   marker = "READY",
 }
 ```

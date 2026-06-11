@@ -1,0 +1,63 @@
+# QStar Pilot Readiness Seal
+
+QStar pilot-readiness seal은 v0.3 standalone surface 위에 formatter/help/wiki/CLI
+동기화를 더해, 다음 real systems-project pilot에 넣어도 authoring UX가 크게 흔들리지
+않는 상태를 고정한다.
+
+```txt
+status: pilot-readiness seal
+runtime version: qstar 0.3.0
+release gate: make -C qstar qstar-pilot-readiness-tests
+```
+
+이 seal은 board-specific builtin을 뜻하지 않는다. UEFI, RPi, QEMU smoke, binary image
+변환은 모두 `qstar.profile`, `qstar.custom_target`, `qstar.run_target`, `qstar.stage`,
+`qstar.target_family` 같은 generic primitive로 표현한다.
+
+## Stable UX Contract
+
+- `qstar.lua`가 단일 project entrypoint다.
+- Subdir fragment는 `.qst`다.
+- Mandatory TOML 설정은 없다.
+- Default work directory는 `build/qstar`다.
+- `qstar <subcommand> --help`는 graph 평가 없이 help를 출력한다.
+- `qstar fmt`는 `qstar.*` authoring block만 canonicalize하고, `local function` 같은
+  ordinary Lua helper는 보존한다.
+- Wiki examples와 CLI behavior는 drift test로 묶는다.
+- Systems corpus는 firmware-specific builtin 없이 generic QStar primitive만 사용한다.
+
+## Release Gate
+
+Recommended local gate:
+
+```txt
+make -C qstar check
+make -C qstar qstar-pilot-readiness-tests
+make -C qstar qstar-wiki-cli-sync-tests
+make -C qstar qstar-systems-corpus-tests
+make -C qstar vscode-extension-tests
+```
+
+현재 Makefile alias는 모두 QStar-local smoke harness를 실행한다. Alias는 release script와
+외부 pilot automation이 안정적인 이름을 쓰기 위한 surface다.
+
+## Drift Lockdown
+
+다음 drift는 실패로 본다.
+
+- Wiki authoring example이 removed `timeout_sec` field를 쓰는 경우. Canonical field는
+  `timeout`이다.
+- `qstar build --help`, `qstar test --help`, `qstar stage --help`,
+  `qstar dry-run --help`가 target label처럼 처리되는 경우.
+- Systems corpus가 dedicated UEFI/RPi/embed-binary builtin 같은 board-specific
+  builtin을 쓰는 경우.
+- Root-scattered `.qstar/`, `generated/`, `stage/`, root `compile_commands.json`를
+  default output으로 되돌리는 경우.
+
+## Deferred
+
+- `cale build` integration.
+- Remote package resolver and lockfile policy.
+- Non-C/C++/Cale provider plugin ABI.
+- Full shared library executor policy.
+- C++ modules executor.

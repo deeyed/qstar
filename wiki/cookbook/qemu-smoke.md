@@ -8,7 +8,7 @@ special rule이 아니라 `qstar.run_target`으로 표현하는 external smoke c
 ```lua
 qstar.run_target "qemu_smoke" {
   command = qstar.cli {"tools/qemu-smoke.sh"},
-  timeout_sec = 3,
+  timeout = 3,
 }
 ```
 
@@ -22,7 +22,7 @@ qstar.run_target "qemu_smoke" {
     qstar.target_file("//:kernel_img"),
     "serial.log",
   },
-  timeout_sec = 3,
+  timeout = 3,
   marker = "QSTAR-SMOKE-DONE",
   marker_log = "serial.log",
 }
@@ -35,7 +35,7 @@ Marker check는 stdout/stderr 또는 marker log에서 expected string을 찾는�
 ```lua
 qstar.run_target "qemu_smoke" {
   command = qstar.cli {"tools/qemu-never-exits.sh"},
-  timeout_sec = 1,
+  timeout = 1,
   marker = "READY",
 }
 ```

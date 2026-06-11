@@ -242,6 +242,41 @@ contains "$tmp/fmt-check-after.out" "status ok"
 "$qstar" --file "$tmp/fmt/qstar.lua" fmt --check > "$tmp/fmt-file-option.out" 2> "$tmp/fmt-file-option.err"
 contains "$tmp/fmt-file-option.out" "status ok"
 
+mkdir -p "$tmp/fmt-heavy"
+cat > "$tmp/fmt-heavy/qstar.lua" <<'EOF'
+local function common_c()
+  return {
+    include_dirs = {"include"},
+    compile_options = {"-Wall"},
+  }
+end
+
+qstar.executable "app" {
+sources={"src/main.c"},
+lang={c=common_c()},
+}
+EOF
+"$qstar" fmt --stdout "$tmp/fmt-heavy/qstar.lua" > "$tmp/fmt-heavy.out" 2> "$tmp/fmt-heavy.err"
+contains "$tmp/fmt-heavy.out" "local function common_c()"
+contains "$tmp/fmt-heavy.out" "return {"
+contains "$tmp/fmt-heavy.out" "qstar.executable \"app\" {"
+contains "$tmp/fmt-heavy.out" "  sources = {"
+contains "$tmp/fmt-heavy.out" "  lang = {"
+contains "$tmp/fmt-heavy.out" "    c=common_c(),"
+
+for help_cmd in build test stage dry-run lint fmt list-targets check install last-failure replay; do
+	"$qstar" "$help_cmd" --help > "$tmp/help-$help_cmd.out" 2> "$tmp/help-$help_cmd.err"
+	contains "$tmp/help-$help_cmd.out" "usage: qstar"
+done
+"$qstar" --help > "$tmp/help-root.out" 2> "$tmp/help-root.err"
+contains "$tmp/help-root.out" "usage: qstar"
+"$qstar" help build > "$tmp/help-build-alias.out" 2> "$tmp/help-build-alias.err"
+contains "$tmp/help-build-alias.out" "usage: qstar [options] build"
+"$qstar" --file "$tmp/qstar.lua" build --help > "$tmp/help-build-with-file.out" 2> "$tmp/help-build-with-file.err"
+contains "$tmp/help-build-with-file.out" "usage: qstar [options] build"
+"$qstar" --file "$tmp/qstar.lua" check //... > "$tmp/check-all-label.out" 2> "$tmp/check-all-label.err"
+contains "$tmp/check-all-label.out" "root <all>"
+
 if "$qstar" --file "$tmp/qstar.lua" lint //:missing > "$tmp/lint-missing-label.out" 2> "$tmp/lint-missing-label.err"; then
 	fail "unknown lint label unexpectedly succeeded"
 fi
@@ -1836,6 +1871,9 @@ contains "docs/qstar-v0.3-seal.md" "qstar-v0.3-rc-tests"
 contains "docs/qstar-v0.3-seal.md" "qstar --version"
 contains "docs/qstar-v0.3-seal.md" "stable surface"
 contains "docs/qstar-v0.3-seal.md" "experimental surface"
+contains "docs/qstar-pilot-readiness-seal.md" "status: pilot-readiness seal"
+contains "docs/qstar-pilot-readiness-seal.md" "qstar-pilot-readiness-tests"
+contains "docs/qstar-pilot-readiness-seal.md" "qstar <subcommand> --help"
 contains "docs/qstar-submodule-extraction-prep.md" "standalone-repository-extracted"
 contains "docs/qstar-submodule-extraction-prep.md" "actual split: completed"
 contains "docs/qstar-submodule-extraction-prep.md" "vendor/lua"
@@ -1843,12 +1881,21 @@ contains "LICENSE/README.md" "standalone QStar license/notice bundle"
 contains "LICENSE/lua.txt" "Copyright (C) 1994-2025 Lua.org"
 contains "docs/README.md" "qstar-v0.2-release-candidate-seal.md"
 contains "docs/README.md" "qstar-v0.3-seal.md"
+contains "docs/README.md" "qstar-pilot-readiness-seal.md"
 contains "docs/README.md" "qstar-submodule-extraction-prep.md"
 contains "Makefile" "qstar-v0.2-rc-tests"
 contains "Makefile" "qstar-v0.3-rc-tests"
+contains "Makefile" "qstar-pilot-readiness-tests"
+contains "Makefile" "qstar-wiki-cli-sync-tests"
 contains "Makefile" "qstar-release-candidate-tests"
 contains "Makefile" "qstar-full-regression-tests"
 contains "Makefile" "qstar-systems-corpus-tests"
+if grep -R -n --include='*.md' -E 'timeout_sec[[:space:]]*=' docs wiki >/dev/null; then
+	fail "QStar docs/wiki contain stale timeout_sec authoring examples"
+fi
+if grep -R -n -E 'qstar\.(uefi_app|rpi_image|embed_binary)' tests/projects/systems-firmware docs wiki >/dev/null; then
+	fail "QStar systems corpus/docs contain board-specific builtin"
+fi
 
 wiki_docs="
 wiki/README.md

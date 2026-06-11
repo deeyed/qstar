@@ -129,13 +129,13 @@ qstar --file qstar.lua build //:app
 
 ## Release Gate
 
-QStar v0.2 RC gate는 다음 명령이다.
+QStar pilot-readiness gate는 다음 명령이다.
 
 ```sh
-make -C qstar qstar-v0.2-rc-tests
+make -C qstar qstar-pilot-readiness-tests
 ```
 
 이 gate는 QStar binary, sample corpus, lint/LSP, VSCode package, executor, cache/replay,
-systems-style firmware corpus를 함께 검증한다. 아직 remote package fetch, Ninja
-generator, full sharedlib executor, Cale compiler internal API integration은 정식 surface가
-아니다.
+systems-style firmware corpus, formatter, subcommand help, wiki/CLI drift guard를 함께
+검증한다. 아직 remote package fetch, Ninja generator, full sharedlib executor, Cale
+compiler internal API integration은 정식 surface가 아니다.

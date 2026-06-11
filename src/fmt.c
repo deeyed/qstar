@@ -127,6 +127,103 @@ skip_string(const char *p)
 	return p;
 }
 
+/** span이 keyword로 시작하고 뒤가 identifier 문자가 아닌지 확인한다. */
+static int
+starts_with_keyword(const char *p, const char *keyword)
+{
+	size_t n;
+
+	while (*p && isspace((unsigned char)*p))
+		p++;
+	n = strlen(keyword);
+	return strncmp(p, keyword, n) == 0 &&
+	    !(isalnum((unsigned char)p[n]) || p[n] == '_');
+}
+
+/** qstar.* authoring call인지 확인한다. */
+static int
+is_qstar_statement(const char *s, size_t len)
+{
+	trim_span(&s, &len);
+	return len >= 6 && strncmp(s, "qstar.", 6) == 0;
+}
+
+/** Lua block token 뒤 위치를 찾는다. */
+static const char *
+lua_token_end(const char *p)
+{
+	while (isalnum((unsigned char)*p) || *p == '_')
+		p++;
+	return p;
+}
+
+/** local function/for/if 같은 Lua helper block 전체 끝 위치를 찾는다. */
+static const char *
+find_lua_block_end(const char *p)
+{
+	const char *q, *tok, *end;
+	int depth;
+
+	q = p;
+	depth = 0;
+	while (*q) {
+		if (*q == '"' || *q == '\'') {
+			q = skip_string(q);
+			continue;
+		}
+		if (*q == '-' && q[1] == '-') {
+			while (*q && *q != '\n')
+				q++;
+			continue;
+		}
+		if (isalpha((unsigned char)*q) || *q == '_') {
+			tok = q;
+			end = lua_token_end(q);
+			if ((size_t)(end - tok) == 8 && strncmp(tok, "function", 8) == 0)
+				depth++;
+			else if ((size_t)(end - tok) == 4 &&
+			    (strncmp(tok, "then", 4) == 0 || strncmp(tok, "else", 4) == 0)) {
+				if (strncmp(tok, "then", 4) == 0)
+					depth++;
+			} else if ((size_t)(end - tok) == 2 && strncmp(tok, "do", 2) == 0)
+				depth++;
+			else if ((size_t)(end - tok) == 6 && strncmp(tok, "repeat", 6) == 0)
+				depth++;
+			else if ((size_t)(end - tok) == 3 && strncmp(tok, "end", 3) == 0) {
+				if (depth > 0)
+					depth--;
+				if (depth == 0) {
+					q = end;
+					while (*q == ' ' || *q == '\t')
+						q++;
+					if (*q == '\r')
+						q++;
+					if (*q == '\n')
+						q++;
+					return q;
+				}
+			} else if ((size_t)(end - tok) == 5 && strncmp(tok, "until", 5) == 0) {
+				if (depth > 0)
+					depth--;
+				if (depth == 0) {
+					q = end;
+					while (*q == ' ' || *q == '\t')
+						q++;
+					if (*q == '\r')
+						q++;
+					if (*q == '\n')
+						q++;
+					return q;
+				}
+			}
+			q = end;
+			continue;
+		}
+		q++;
+	}
+	return q;
+}
+
 /** top-level statement 끝 위치를 찾는다. */
 static const char *
 find_statement_end(const char *p)
@@ -134,6 +231,10 @@ find_statement_end(const char *p)
 	const char *q;
 	int depth, saw_block;
 
+	if (starts_with_keyword(p, "local function") || starts_with_keyword(p, "function") ||
+	    starts_with_keyword(p, "for") || starts_with_keyword(p, "while") ||
+	    starts_with_keyword(p, "if") || starts_with_keyword(p, "repeat"))
+		return find_lua_block_end(p);
 	depth = 0;
 	saw_block = 0;
 	for (q = p; *q; q++) {
@@ -329,6 +430,17 @@ format_statement(struct fmt_buf *out, const char *start, size_t len)
 	trim_span(&s, &len);
 	if (len == 0)
 		return 0;
+	if (!is_qstar_statement(s, len)) {
+		line = copy_trimmed(s, len);
+		if (!line)
+			return -1;
+		if (fmt_printf(out, "%s\n", line) < 0) {
+			free(line);
+			return -1;
+		}
+		free(line);
+		return 0;
+	}
 	open = memchr(s, '{', len);
 	if (!open) {
 		line = copy_trimmed(s, len);

@@ -41,6 +41,79 @@ usage(FILE *out)
 	fputs("       --schedule-trace\n", out);
 }
 
+/** argv item이 help 요청인지 확인한다. */
+static int
+is_help_arg(const char *arg)
+{
+	return arg && (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0);
+}
+
+/** subcommand별 help를 graph 평가 없이 출력한다. */
+static void
+command_help(FILE *out, const char *cmd)
+{
+	if (!cmd || !*cmd) {
+		usage(out);
+		return;
+	}
+	if (strcmp(cmd, "build") == 0) {
+		fputs("usage: qstar [options] build [label] [--jobs N] [--schedule-trace] [--explain-cache]\n", out);
+		fputs("Build a target, generated action, or run target in the validated graph.\n", out);
+		return;
+	}
+	if (strcmp(cmd, "test") == 0) {
+		fputs("usage: qstar [options] test [label|//...]\n", out);
+		fputs("Build and run qstar.test targets, storing stdout/stderr logs under build/qstar.\n", out);
+		return;
+	}
+	if (strcmp(cmd, "stage") == 0) {
+		fputs("usage: qstar [options] stage <label> [--root path] [--dry-run]\n", out);
+		fputs("Create a copy-only staged package tree and qstar-stage-manifest-v2.\n", out);
+		return;
+	}
+	if (strcmp(cmd, "dry-run") == 0) {
+		fputs("usage: qstar [options] dry-run [label]\n", out);
+		fputs("Render the command plan without executing actions.\n", out);
+		return;
+	}
+	if (strcmp(cmd, "lint") == 0) {
+		fputs("usage: qstar [options] lint [label|//...] [--format text|json]\n", out);
+		fputs("Evaluate QStar authoring diagnostics without running build actions.\n", out);
+		return;
+	}
+	if (strcmp(cmd, "fmt") == 0) {
+		fputs("usage: qstar [options] fmt [--check] [--stdout] [qstar.lua|fragment.qst]\n", out);
+		fputs("Format qstar.* authoring blocks while preserving ordinary Lua helpers.\n", out);
+		return;
+	}
+	if (strcmp(cmd, "list-targets") == 0) {
+		fputs("usage: qstar [options] list-targets [--format text|json]\n", out);
+		fputs("List targets, generated actions, stages, and target families.\n", out);
+		return;
+	}
+	if (strcmp(cmd, "check") == 0) {
+		fputs("usage: qstar [options] check [label|//...]\n", out);
+		fputs("Validate the graph and input files without executing actions.\n", out);
+		return;
+	}
+	if (strcmp(cmd, "install") == 0) {
+		fputs("usage: qstar [options] install [label] --prefix path [--dry-run]\n", out);
+		fputs("Install executable/staticlib/header artifacts into a prefix.\n", out);
+		return;
+	}
+	if (strcmp(cmd, "last-failure") == 0) {
+		fputs("usage: qstar [options] last-failure\n", out);
+		fputs("Print the last failure replay script from the active build directory.\n", out);
+		return;
+	}
+	if (strcmp(cmd, "replay") == 0) {
+		fputs("usage: qstar [options] replay <action-id>\n", out);
+		fputs("Print the stored replay command for an action id.\n", out);
+		return;
+	}
+	usage(out);
+}
+
 /** QStar runtime version을 CLI와 authoring 상수의 단일 source로 출력한다. */
 static void
 print_version(FILE *out)
@@ -159,10 +232,19 @@ main(int argc, char **argv)
 		qstar_graph_free(&graph);
 		return 0;
 	}
+	if (argc == 2 && is_help_arg(argv[1])) {
+		usage(stdout);
+		qstar_graph_free(&graph);
+		return 0;
+	}
 	arg = 1;
 	while (arg < argc && strncmp(argv[arg], "--", 2) == 0 &&
 	    strcmp(argv[arg], "--dump-graph") != 0) {
-		if (strcmp(argv[arg], "--file") == 0) {
+		if (is_help_arg(argv[arg])) {
+			usage(stdout);
+			qstar_graph_free(&graph);
+			return 0;
+		} else if (strcmp(argv[arg], "--file") == 0) {
 			if (arg + 1 >= argc) {
 				usage(stderr);
 				qstar_graph_free(&graph);
@@ -224,6 +306,24 @@ main(int argc, char **argv)
 		return 2;
 	}
 	cmd = argv[arg++];
+	if (strcmp(cmd, "help") == 0) {
+		if (arg < argc)
+			command_help(stdout, argv[arg++]);
+		else
+			usage(stdout);
+		if (arg != argc) {
+			usage(stderr);
+			qstar_graph_free(&graph);
+			return 2;
+		}
+		qstar_graph_free(&graph);
+		return 0;
+	}
+	if (arg < argc && is_help_arg(argv[arg])) {
+		command_help(stdout, cmd);
+		qstar_graph_free(&graph);
+		return arg + 1 == argc ? 0 : 2;
+	}
 	build_options.jobs = 1;
 	if (strcmp(cmd, "version") == 0) {
 		if (arg != argc) {
@@ -447,6 +547,8 @@ main(int argc, char **argv)
 		qstar_graph_free(&graph);
 		return 2;
 	}
+	if (strcmp(cmd, "check") == 0 && label && strcmp(label, "//...") == 0)
+		label = NULL;
 	if ((strcmp(cmd, "action-log") == 0 || strcmp(cmd, "replay") == 0) &&
 	    (!label || !*label)) {
 		usage(stderr);

@@ -412,11 +412,12 @@ and smoke wrappers are ordinary argv-vector actions, not built-in target kinds.
 `qstar doctor` reports PATH tool discovery and override status. The resolved
 tool path is used in dry-run/build argv and action key material.
 
-The systems firmware corpus follows the same rule. UEFI is not `qstar.uefi_app`; it is
-`qstar.executable` plus profile-selected artifact name (`BOOTX64.EFI` or
-`BOOTAA64.EFI`), MSVC response style, and `/subsystem:efi_application` link
-options. RPi packaging is not `qstar.rpi_image`; it is `qstar.custom_target` for
-the image and `qstar.stage` for the boot directory layout.
+The systems firmware corpus follows the same rule. UEFI is not a dedicated
+UEFI builtin; it is `qstar.executable` plus profile-selected artifact name
+(`BOOTX64.EFI` or `BOOTAA64.EFI`), MSVC response style, and
+`/subsystem:efi_application` link options. RPi packaging is not a dedicated
+RPi-image builtin; it is `qstar.custom_target` for the image and `qstar.stage`
+for the boot directory layout.
 
 ## Freestanding and linker policy
 
