@@ -124,6 +124,9 @@ qstar-executor-v2-tests: check
 install: all
 	mkdir -p "$(PREFIX)/bin"
 	cp "$(BIN_DIR)/qstar" "$(PREFIX)/bin/qstar"
+	if command -v codesign >/dev/null 2>&1 && [ "$$(uname -s)" = Darwin ]; then \
+		codesign --force --sign - "$(PREFIX)/bin/qstar"; \
+	fi
 	mkdir -p "$(DOC_DIR)"
 	rm -rf "$(DOC_DIR)/wiki"
 	cp -R wiki "$(DOC_DIR)/wiki"
