@@ -545,6 +545,47 @@ plan_find_target(const struct qstar_graph *graph, const char *label)
 	return NULL;
 }
 
+/** generated action input artifact edge를 explain/dry-run에 출력한다. */
+static void
+dump_genrule_input_edges(FILE *out, const struct qstar_graph *graph,
+    const struct qstar_genrule *genrule, const char *prefix)
+{
+	const struct qstar_genrule *producer;
+	const struct qstar_target *target;
+	char label[QSTAR_PATH_MAX], path[QSTAR_PATH_MAX];
+	const char *input;
+	size_t i;
+	int rc;
+
+	for (i = 0; i < genrule->inputs.len; i++) {
+		input = genrule->inputs.items[i];
+		rc = qstar_target_file_token_label(input, label, sizeof(label));
+		if (rc == 1) {
+			target = plan_find_target(graph, label);
+			if (target &&
+			    qstar_graph_artifact_output_path(graph, target, path,
+			    sizeof(path)) == 0) {
+				fprintf(out,
+				    "%sartifact_input_edge input=%s producer=%s path=%s\n",
+				    prefix ? prefix : "", input, label, path);
+				continue;
+			}
+			producer = qstar_graph_find_genrule(graph, label);
+			if (producer && producer->outputs.len > 0)
+				fprintf(out,
+				    "%sartifact_input_edge input=%s producer=%s path=%s\n",
+				    prefix ? prefix : "", input, label,
+				    producer->outputs.items[0]);
+			continue;
+		}
+		producer = qstar_graph_find_output_owner(graph, input);
+		if (producer && producer != genrule)
+			fprintf(out,
+			    "%sgenerated_input_edge input=%s producer=%s path=%s\n",
+			    prefix ? prefix : "", input, producer->label, input);
+	}
+}
+
 static int
 collect_public_includes_rec(const struct qstar_graph *graph, const struct qstar_target *target,
     struct qstar_string_list *out, int include_self)
@@ -871,6 +912,30 @@ dump_link_policy_argv(FILE *out, struct qstar_argv_dump *dump,
 }
 
 /** generated action의 실제 argv plan을 출력한다. */
+static const char *
+plan_resolve_target_file_arg(const struct qstar_graph *graph, const char *arg,
+    char *buf, size_t buflen)
+{
+	const struct qstar_genrule *genrule;
+	const struct qstar_target *target;
+	char label[QSTAR_PATH_MAX];
+	int rc;
+
+	rc = qstar_target_file_token_label(arg, label, sizeof(label));
+	if (rc <= 0)
+		return arg;
+	target = plan_find_target(graph, label);
+	if (target && qstar_graph_artifact_output_path(graph, target, buf, buflen) == 0)
+		return buf;
+	genrule = qstar_graph_find_genrule(graph, label);
+	if (genrule && genrule->outputs.len > 0) {
+		snprintf(buf, buflen, "%s", genrule->outputs.items[0]);
+		return buf;
+	}
+	return arg;
+}
+
+/** generated action의 실제 argv plan을 출력한다. */
 static void
 dump_genrule_argv(FILE *out, const struct qstar_graph *graph,
     const struct qstar_genrule *genrule)
@@ -878,6 +943,7 @@ dump_genrule_argv(FILE *out, const struct qstar_graph *graph,
 	size_t i;
 	struct qstar_argv_dump dump;
 	char id[QSTAR_PATH_MAX], resolved_tool[QSTAR_PATH_MAX], tool_mode[64];
+	char resolved_arg[QSTAR_PATH_MAX];
 	char tool_error[QSTAR_PATH_MAX];
 
 	snprintf(id, sizeof(id), "%s:generate:0", genrule->label);
@@ -895,7 +961,8 @@ dump_genrule_argv(FILE *out, const struct qstar_graph *graph,
 		argv_item(out, &dump, genrule->tool);
 	}
 	for (i = 0; i < genrule->args.len; i++)
-		argv_item(out, &dump, genrule->args.items[i]);
+		argv_item(out, &dump, plan_resolve_target_file_arg(graph,
+		    genrule->args.items[i], resolved_arg, sizeof(resolved_arg)));
 	end_argv(out, &dump);
 }
 
@@ -1130,6 +1197,7 @@ dump_consumed_genrules(FILE *out, const struct qstar_plan *plan,
 		    identities);
 		dump_list(out, &genrule->args);
 		fputs(" execute=no\n", out);
+		dump_genrule_input_edges(out, plan->graph, genrule, "  ");
 		dump_genrule_artifacts(out, genrule, "  ");
 		fprintf(out,
 		    "  action_key id=%s:generate:0 kind=generate owner=%s consumer=%s "
@@ -1177,6 +1245,7 @@ dump_direct_genrule_plan(FILE *out, const struct qstar_graph *graph,
 	    "%s_generated_action %s tool=%s tool_mode=%s resolved_tool=%s inputs=%s outputs=%s output_identities=%s\n",
 	    mode, genrule->label, genrule->tool, tool_mode, resolved_tool, inputs, outputs,
 	    identities);
+	dump_genrule_input_edges(out, graph, genrule, "  ");
 	dump_genrule_artifacts(out, genrule, "  ");
 	fprintf(out,
 	    "  action_key id=%s:generate:0 kind=generate owner=%s consumer=<direct> "

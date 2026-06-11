@@ -39,6 +39,10 @@ qstar.custom_target "kernel_img" {
 ```
 
 `qstar.cli`는 shell string이 아니라 argv-vector다.
+`inputs`에는 package-relative file path와 `qstar.target_file("//:label")`을 둘 수 있다.
+`qstar.target_file` input은 해당 target 또는 custom target output을 먼저 빌드하는 artifact
+dependency edge가 되며, `qstar.input(N)`으로 command에 전달하면 실제 산출물 path로
+해석된다.
 
 ## 실패 예제
 
@@ -61,5 +65,6 @@ qstar --file qstar.lua build //:kernel_img --explain-cache
 ## 관련 diagnostic
 
 - `generated output must be package-relative`
+- `generated input target is unknown`
 - `multiple producers`
 - `generated artifact identity has multiple outputs`

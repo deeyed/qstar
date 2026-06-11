@@ -90,6 +90,11 @@ struct qstar_running_action {
 	char action_log[QSTAR_PATH_MAX];
 };
 
+static int run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const struct qstar_target *target, const struct qstar_genrule *genrule);
+static int build_target(struct qstar_graph *graph, const struct qstar_target *target,
+    size_t order, void *user);
+
 /** 테스트 harness에서만 action timeout을 짧게 낮춘다. */
 static int
 action_timeout_sec_from_env(void)
@@ -1781,6 +1786,19 @@ push_unique_tmp(struct qstar_string_list *list, const char *s)
 	return qstar_string_list_push(list, s);
 }
 
+/** 임시 string list에 문자열이 이미 있는지 확인한다. */
+static int
+tmp_list_contains(const struct qstar_string_list *list, const char *s)
+{
+	size_t i;
+
+	for (i = 0; i < list->len; i++) {
+		if (strcmp(list->items[i], s) == 0)
+			return 1;
+	}
+	return 0;
+}
+
 /** public/interface include dirs를 public dependency graph를 따라 수집한다. */
 static int
 collect_public_includes_rec(const struct qstar_graph *graph, const struct qstar_target *target,
@@ -2156,26 +2174,6 @@ generated_arg_escapes_package(const char *arg)
 
 /** qstar.target_file placeholder를 target artifact path로 해석한다. */
 static int
-target_file_token_label(const char *arg, char *label, size_t labellen)
-{
-	const char *prefix = "<qstar-target-file:";
-	size_t n, payload;
-
-	if (strncmp(arg, prefix, strlen(prefix)) != 0)
-		return 0;
-	n = strlen(arg);
-	if (n <= strlen(prefix) + 1 || arg[n - 1] != '>')
-		return -1;
-	payload = n - strlen(prefix) - 1;
-	if (payload + 1 > labellen)
-		return -1;
-	memcpy(label, arg + strlen(prefix), payload);
-	label[payload] = '\0';
-	return 1;
-}
-
-/** qstar.target_file placeholder를 target artifact path로 해석한다. */
-static int
 resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
     size_t dstlen)
 {
@@ -2184,7 +2182,7 @@ resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
 	char label[QSTAR_PATH_MAX];
 	int rc;
 
-	rc = target_file_token_label(arg, label, sizeof(label));
+	rc = qstar_target_file_token_label(arg, label, sizeof(label));
 	if (rc == 0) {
 		if (snprintf(dst, dstlen, "%s", arg) >= (int)dstlen)
 			return qstar_set_error(graph, "qstar: command argv item is too long");
@@ -2210,6 +2208,28 @@ resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
 	return 0;
 }
 
+/** generated action input token을 실제 package-relative cache input으로 추가한다. */
+static int
+push_generated_action_input(struct qstar_graph *graph, struct qstar_string_list *inputs,
+    const char *input)
+{
+	char resolved[QSTAR_PATH_MAX];
+	int rc;
+
+	rc = qstar_target_file_token_label(input, (char[QSTAR_PATH_MAX]){0},
+	    QSTAR_PATH_MAX);
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: malformed target_file placeholder");
+	if (rc == 1) {
+		if (resolve_target_file_token(graph, input, resolved, sizeof(resolved)) < 0)
+			return -1;
+		return push_unique_tmp(inputs, resolved) < 0 ?
+		    qstar_set_error(graph, "qstar: out of memory") : 0;
+	}
+	return push_unique_tmp(inputs, input) < 0 ?
+	    qstar_set_error(graph, "qstar: out of memory") : 0;
+}
+
 /** generated action argv 안의 target_file artifact를 cache input으로 추가한다. */
 static int
 push_target_file_argv_inputs(struct qstar_graph *graph, const struct qstar_genrule *genrule,
@@ -2220,7 +2240,7 @@ push_target_file_argv_inputs(struct qstar_graph *graph, const struct qstar_genru
 	int rc;
 
 	for (i = 0; i < genrule->args.len; i++) {
-		rc = target_file_token_label(genrule->args.items[i], label, sizeof(label));
+		rc = qstar_target_file_token_label(genrule->args.items[i], label, sizeof(label));
 		if (rc < 0)
 			return qstar_set_error_origin(graph, genrule->origin_file,
 			    genrule->origin_line, "command", genrule->label,
@@ -2233,6 +2253,83 @@ push_target_file_argv_inputs(struct qstar_graph *graph, const struct qstar_genru
 		if (qstar_string_list_push(inputs, resolved) < 0)
 			return qstar_set_error(graph, "qstar: out of memory");
 	}
+	return 0;
+}
+
+/** generated action이 참조하는 target/custom artifact producer를 먼저 빌드한다. */
+static int
+build_generated_artifact_dependency(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const struct qstar_genrule *genrule, const char *input,
+    struct qstar_string_list *visited)
+{
+	const struct qstar_genrule *owner;
+	const struct qstar_target *target;
+	char label[QSTAR_PATH_MAX];
+	int rc;
+
+	rc = qstar_target_file_token_label(input, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error_origin(graph, genrule->origin_file,
+		    genrule->origin_line, "inputs", genrule->label,
+		    "qstar: malformed target_file placeholder");
+	if (rc == 1) {
+		if (tmp_list_contains(visited, input))
+			return 0;
+		if (qstar_string_list_push(visited, input) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+		if (strcmp(label, genrule->label) == 0)
+			return qstar_set_error_origin(graph, genrule->origin_file,
+			    genrule->origin_line, "inputs", genrule->label,
+			    "qstar: generated action '%s' cannot depend on itself",
+			    genrule->label);
+		target = find_target(graph, label);
+		if (target)
+			return qstar_graph_visit_closure(graph, label, build_target, ctx);
+		owner = qstar_graph_find_genrule(graph, label);
+		if (owner)
+			return run_one_generated_action(graph, ctx, NULL, owner);
+		return qstar_set_error_origin(graph, genrule->origin_file,
+		    genrule->origin_line, "inputs", genrule->label,
+		    "qstar: generated input target '%s' in '%s' is unknown",
+		    label, genrule->label);
+	}
+	owner = qstar_graph_find_output_owner(graph, input);
+	if (owner && owner != genrule) {
+		if (tmp_list_contains(visited, owner->label))
+			return 0;
+		if (qstar_string_list_push(visited, owner->label) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+		return run_one_generated_action(graph, ctx, NULL, owner);
+	}
+	return 0;
+}
+
+/** generated action의 inputs와 command target_file edge를 선행 action으로 실행한다. */
+static int
+build_generated_artifact_dependencies(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const struct qstar_genrule *genrule)
+{
+	struct qstar_string_list visited;
+	size_t i;
+	int rc;
+
+	memset(&visited, 0, sizeof(visited));
+	for (i = 0; i < genrule->inputs.len; i++) {
+		if (build_generated_artifact_dependency(graph, ctx, genrule,
+		    genrule->inputs.items[i], &visited) < 0) {
+			qstar_string_list_free(&visited);
+			return -1;
+		}
+	}
+	for (i = 0; i < genrule->args.len; i++) {
+		rc = build_generated_artifact_dependency(graph, ctx, genrule,
+		    genrule->args.items[i], &visited);
+		if (rc < 0) {
+			qstar_string_list_free(&visited);
+			return -1;
+		}
+	}
+	qstar_string_list_free(&visited);
 	return 0;
 }
 
@@ -2291,6 +2388,8 @@ run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	if (genrule->args.len + 2 > QSTAR_EXEC_MAX_ARGV)
 		return qstar_set_error(graph, "qstar: generated action argv too long");
+	if (build_generated_artifact_dependencies(graph, ctx, genrule) < 0)
+		return -1;
 	for (argc = 0; argc < genrule->args.len; argc++) {
 		if (generated_arg_escapes_package(genrule->args.items[argc]))
 			return qstar_set_error_origin(graph, genrule->origin_file,
@@ -2319,10 +2418,11 @@ run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	memset(&inputs, 0, sizeof(inputs));
 	for (inputi = 0; inputi < genrule->inputs.len; inputi++) {
-		if (qstar_string_list_push(&inputs, genrule->inputs.items[inputi]) < 0) {
+		if (push_generated_action_input(graph, &inputs,
+		    genrule->inputs.items[inputi]) < 0) {
 			qstar_string_list_free(&inputs);
 			free_owned_argv(argv, argc);
-			return qstar_set_error(graph, "qstar: out of memory");
+			return -1;
 		}
 	}
 	if (push_target_file_argv_inputs(graph, genrule, &inputs) < 0) {
@@ -4343,26 +4443,6 @@ struct qstar_stage_ctx {
 	size_t manifest_len;
 };
 
-/** stage source token에서 target_file label을 추출한다. */
-static int
-stage_target_file_label(const char *src, char *label, size_t labellen)
-{
-	const char *prefix = "<qstar-target-file:";
-	size_t n, payload;
-
-	if (strncmp(src, prefix, strlen(prefix)) != 0)
-		return 0;
-	n = strlen(src);
-	if (n <= strlen(prefix) + 1 || src[n - 1] != '>')
-		return -1;
-	payload = n - strlen(prefix) - 1;
-	if (payload + 1 > labellen)
-		return -1;
-	memcpy(label, src + strlen(prefix), payload);
-	label[payload] = '\0';
-	return 1;
-}
-
 /** 두 파일이 byte-for-byte 동일한지 확인한다. */
 static int
 file_content_equal(const char *a, const char *b)
@@ -4483,7 +4563,7 @@ stage_build_source_dependency(struct qstar_graph *graph, const char *src, int dr
 	char label[QSTAR_PATH_MAX];
 	int rc;
 
-	rc = stage_target_file_label(src, label, sizeof(label));
+	rc = qstar_target_file_token_label(src, label, sizeof(label));
 	if (rc < 0)
 		return qstar_set_error(graph, "qstar: malformed stage target_file source");
 	if (dry_run)

@@ -202,8 +202,11 @@ deterministic plan records. They are not shell commands and are not executed by
 QStar.
 
 Round 7 `generated_action` and `generated_edge` lines connect generated outputs
-to consuming target sources. They are plan records only; QStar does not run the
-generator yet.
+to consuming target sources. Round 68 adds `artifact_input_edge` for
+`custom_target.inputs = { qstar.target_file("//:label") }`, so generated actions
+can explicitly depend on compile/link target artifacts or another generated
+action's primary output. These plan records make objcopy/image edges visible
+before execution.
 
 Round 8 adds `qstar dry-run <label>`, which reuses the validated graph closure
 and projects it into executor-shaped records. Round 12 upgrades that projection

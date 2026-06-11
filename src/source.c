@@ -421,11 +421,41 @@ validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 		    genrule->label);
 	for (i = 0; i < genrule->inputs.len; i++) {
 		path = genrule->inputs.items[i];
+		int rc;
+		char label[QSTAR_PATH_MAX];
+
+		rc = qstar_target_file_token_label(path, label, sizeof(label));
+		if (rc < 0)
+			return qstar_set_error_origin(graph, genrule->origin_file,
+			    genrule->origin_line, "inputs", genrule->label,
+			    "qstar: malformed generated input target_file '%s'",
+			    path);
+		if (rc == 1) {
+			if (strcmp(label, genrule->label) == 0)
+				return qstar_set_error_origin(graph,
+				    genrule->origin_file, genrule->origin_line,
+				    "inputs", genrule->label,
+				    "qstar: generated action '%s' cannot depend on itself",
+				    genrule->label);
+			if (!find_target(graph, label) && !qstar_graph_find_genrule(graph, label))
+				return qstar_set_error_origin(graph,
+				    genrule->origin_file, genrule->origin_line,
+				    "inputs", genrule->label,
+				    "qstar: generated input target '%s' in '%s' is unknown",
+				    label, genrule->label);
+			continue;
+		}
 		if (!qstar_path_is_package_relative(path))
 			return qstar_set_error_origin(graph, genrule->origin_file,
 			    genrule->origin_line, "inputs", genrule->label,
 			    "qstar: generated input '%s' in '%s' must be package-relative",
 			    path, genrule->label);
+		if (valid_generated_output_root(path) &&
+		    qstar_graph_find_output_owner(graph, path) == genrule)
+			return qstar_set_error_origin(graph, genrule->origin_file,
+			    genrule->origin_line, "inputs", genrule->label,
+			    "qstar: generated action '%s' cannot consume its own output '%s'",
+			    genrule->label, path);
 	}
 	for (i = 0; i < genrule->outputs.len; i++) {
 		path = genrule->outputs.items[i];
@@ -465,26 +495,6 @@ validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 	return 0;
 }
 
-/** stage source token에서 target_file label을 추출한다. */
-static int
-stage_target_file_label(const char *src, char *label, size_t labellen)
-{
-	const char *prefix = "<qstar-target-file:";
-	size_t n, payload;
-
-	if (strncmp(src, prefix, strlen(prefix)) != 0)
-		return 0;
-	n = strlen(src);
-	if (n <= strlen(prefix) + 1 || src[n - 1] != '>')
-		return -1;
-	payload = n - strlen(prefix) - 1;
-	if (payload + 1 > labellen)
-		return -1;
-	memcpy(label, src + strlen(prefix), payload);
-	label[payload] = '\0';
-	return 1;
-}
-
 /** copy-only stage rule 하나의 root/source/destination edge를 검증한다. */
 static int
 validate_stage(struct qstar_graph *graph, const struct qstar_stage *stage)
@@ -515,7 +525,7 @@ validate_stage(struct qstar_graph *graph, const struct qstar_stage *stage)
 		    "qstar: stage destination '%s' in '%s' is duplicated", dup,
 		    stage->label);
 	for (i = 0; i < stage->srcs.len; i++) {
-		rc = stage_target_file_label(stage->srcs.items[i], label, sizeof(label));
+		rc = qstar_target_file_token_label(stage->srcs.items[i], label, sizeof(label));
 		if (rc < 0)
 			return qstar_set_error_origin(graph, stage->origin_file,
 			    stage->origin_line, "files", stage->label,
@@ -671,6 +681,11 @@ validate_genrule_file_inputs(struct qstar_graph *graph, const struct qstar_genru
 
 	for (i = 0; i < genrule->inputs.len; i++) {
 		path = genrule->inputs.items[i];
+		if (qstar_target_file_token_label(path, (char[QSTAR_PATH_MAX]){0},
+		    QSTAR_PATH_MAX) != 0)
+			continue;
+		if (valid_generated_output_root(path) && qstar_graph_find_output_owner(graph, path))
+			continue;
 		if (!file_exists_under_root(graph, path))
 			return qstar_set_error_origin(graph, genrule->origin_file,
 			    genrule->origin_line, "inputs", genrule->label,
@@ -691,7 +706,7 @@ validate_stage_file_inputs(struct qstar_graph *graph, const struct qstar_stage *
 
 	for (i = 0; i < stage->srcs.len; i++) {
 		path = stage->srcs.items[i];
-		rc = stage_target_file_label(path, label, sizeof(label));
+		rc = qstar_target_file_token_label(path, label, sizeof(label));
 		if (rc != 0)
 			continue;
 		if (valid_generated_output_root(path) && qstar_graph_find_output_owner(graph, path))

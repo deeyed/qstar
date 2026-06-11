@@ -234,9 +234,12 @@ qstar --file qstar/tests/manual/hello/qstar.lua dry-run //:app
 ```
 
 Round 9부터 `qstar check`를 사용할 수 있다. 이 command는 authoring gate다.
-`sources`, `public_headers`, `private_headers`, `qstar.custom_target`의 `inputs`가
-package root 아래 실제 파일로 존재해야 한다. `qstar.output("generated/foo.c")`로
-표시된 generated output은 producer가 있으면 아직 존재하지 않아도 된다.
+`sources`, `public_headers`, `private_headers`, `qstar.custom_target`의 plain file
+`inputs`가 package root 아래 실제 파일로 존재해야 한다.
+`qstar.output("generated/foo.c")`로 표시된 generated output은 producer가 있으면 아직
+존재하지 않아도 된다. Round 68부터 `qstar.custom_target`의 `inputs`는
+`qstar.target_file("//:label")`도 받을 수 있으며, 이 경우 해당 label의 artifact를 먼저
+빌드하는 graph edge로 취급한다.
 
 ```txt
 qstar --file qstar/tests/manual/hello/qstar.lua check //:app
@@ -940,11 +943,11 @@ qstar.output("generated/kernel8.img", {
 담당한다. 같은 package 안에서 같은 `group + format + address + layout` metadata를
 가진 output이 둘 이상 있으면 duplicate artifact collision으로 거절한다.
 
-Round 58부터 command argv 안의 `qstar.target_file("//:kernel")`도 generated action의
-cache input으로 추적한다. Direct generated build는 여전히 compile/link target closure를
-자동 구성하지 않지만, `qstar.stage` 파일 목록에서 `qstar.target_file("//:kernel")`을
-먼저 배치하면 stage 실행이 kernel을 빌드하고 이어지는 image transform이 그 artifact를
-안정적으로 소비한다. `qstar/tests/projects/systems-firmware`가 이 패턴의 canonical
+Round 68부터 `custom_target.inputs = { qstar.target_file("//:kernel") }`가 generated
+action의 artifact dependency edge로 추적된다. `qstar.input(0)`은 command argv에서 실제
+artifact path로 해석되고, action key는 token이 아니라 resolved artifact file을 입력으로
+hash한다. Direct generated build도 이 edge를 따라 kernel을 먼저 빌드한 뒤 image
+transform을 실행한다. `qstar/tests/projects/systems-firmware`가 이 패턴의 canonical
 corpus다.
 
 ## qstar.stage

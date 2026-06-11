@@ -2791,6 +2791,115 @@ contains "$tmp/artifact-targets-json.out" "\"output_artifacts\""
 contains "$tmp/artifact-targets-json.out" "\"group\":\"images\""
 contains "$tmp/artifact-targets-json.out" "\"format\":\"raw-binary\""
 
+mkdir -p "$tmp/artifact-dep/tools" "$tmp/artifact-dep/src" "$tmp/artifact-dep/fixtures"
+cat > "$tmp/artifact-dep/tools/fake-objcopy.sh" <<'EOF'
+#!/bin/sh
+set -eu
+fmt=
+in=
+out=
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		-O)
+			shift
+			fmt=$1
+			;;
+		*)
+			if [ -z "${in:-}" ]; then
+				in=$1
+			else
+				out=$1
+			fi
+			;;
+	esac
+	shift
+done
+test "$fmt" = binary
+test -f "$in"
+mkdir -p "$(dirname "$out")"
+cp "$in" "$out"
+EOF
+cat > "$tmp/artifact-dep/tools/copy.sh" <<'EOF'
+#!/bin/sh
+set -eu
+test -f "$1"
+mkdir -p "$(dirname "$2")"
+cp "$1" "$2"
+EOF
+chmod +x "$tmp/artifact-dep/tools/fake-objcopy.sh" "$tmp/artifact-dep/tools/copy.sh"
+cat > "$tmp/artifact-dep/src/kernel.c" <<'EOF'
+int main(void) { return 0; }
+EOF
+cat > "$tmp/artifact-dep/fixtures/blob.bin" <<'EOF'
+BLOB-V1
+EOF
+cat > "$tmp/artifact-dep/qstar.lua" <<'EOF'
+qstar.profile "default" {
+  tool_overrides = {"llvm-objcopy=tools/fake-objcopy.sh"},
+}
+
+qstar.executable "kernel" {
+  sources = {"src/kernel.c"},
+}
+
+qstar.custom_target "kernel_img" {
+  inputs = {
+    qstar.target_file("//:kernel"),
+  },
+  outputs = {
+    qstar.output("generated/kernel.img", {
+      group = "images",
+      format = "raw-binary",
+      layout = "host-kernel-image",
+    }),
+  },
+  command = qstar.cli {"llvm-objcopy", "-O", "binary", qstar.input(0), qstar.output(0)},
+}
+
+qstar.custom_target "raw_blob" {
+  inputs = {"fixtures/blob.bin"},
+  outputs = {qstar.output("generated/blob.raw", {format = "raw-binary"})},
+  command = qstar.cli {"tools/copy.sh", qstar.input(0), qstar.output(0)},
+}
+
+qstar.custom_target "blob_image" {
+  inputs = {
+    qstar.target_file("//:raw_blob"),
+  },
+  outputs = {qstar.output("generated/blob.img", {group = "images", format = "raw-binary"})},
+  command = qstar.cli {"tools/copy.sh", qstar.input(0), qstar.output(0)},
+}
+EOF
+"$qstar" --file "$tmp/artifact-dep/qstar.lua" explain //:kernel_img > "$tmp/artifact-dep-explain.out" 2> "$tmp/artifact-dep-explain.err"
+contains "$tmp/artifact-dep-explain.out" "artifact_input_edge input=<qstar-target-file://:kernel> producer=//:kernel path="
+"$qstar" --file "$tmp/artifact-dep/qstar.lua" dry-run //:kernel_img > "$tmp/artifact-dep-dry.out" 2> "$tmp/artifact-dep-dry.err"
+contains "$tmp/artifact-dep-dry.out" "artifact_input_edge input=<qstar-target-file://:kernel> producer=//:kernel path="
+contains "$tmp/artifact-dep-dry.out" "argv=[tools/fake-objcopy.sh, -O, binary, build/qstar/out/"
+"$qstar" --file "$tmp/artifact-dep/qstar.lua" build //:kernel_img > "$tmp/artifact-dep-build.out" 2> "$tmp/artifact-dep-build.err"
+contains "$tmp/artifact-dep-build.out" "build_target //:kernel"
+contains "$tmp/artifact-dep-build.out" "build_generated_action //:kernel_img"
+contains "$tmp/artifact-dep-build.out" "status ok"
+test -s "$tmp/artifact-dep/generated/kernel.img" || fail "target_file compile artifact input did not produce image"
+"$qstar" --file "$tmp/artifact-dep/qstar.lua" build //:blob_image > "$tmp/artifact-dep-blob.out" 2> "$tmp/artifact-dep-blob.err"
+contains "$tmp/artifact-dep-blob.out" "generated_sandbox id=//:raw_blob"
+contains "$tmp/artifact-dep-blob.out" "build_generated_action //:blob_image"
+cmp "$tmp/artifact-dep/fixtures/blob.bin" "$tmp/artifact-dep/generated/blob.img" >/dev/null || fail "target_file generated artifact input content drifted"
+
+mkdir -p "$tmp/artifact-unknown"
+cat > "$tmp/artifact-unknown/qstar.lua" <<'EOF'
+qstar.custom_target "bad" {
+  inputs = {
+    qstar.target_file("//:missing"),
+  },
+  outputs = {qstar.output("generated/bad.img")},
+  command = qstar.cli {"tools/missing.sh", qstar.input(0), qstar.output(0)},
+}
+EOF
+if "$qstar" --file "$tmp/artifact-unknown/qstar.lua" check > "$tmp/artifact-unknown.out" 2> "$tmp/artifact-unknown.err"; then
+	fail "unknown target_file input unexpectedly succeeded"
+fi
+contains "$tmp/artifact-unknown.err" "generated input target '//:missing' in '//:bad' is unknown"
+
 mkdir -p "$tmp/artifact-collision/tools" "$tmp/artifact-collision/fixtures"
 cp "$tmp/artifact/tools/fake-objcopy.sh" "$tmp/artifact-collision/tools/fake-objcopy.sh"
 cp "$tmp/artifact/fixtures/kernel.elf" "$tmp/artifact-collision/fixtures/kernel.elf"

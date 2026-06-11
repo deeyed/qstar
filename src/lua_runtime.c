@@ -464,6 +464,67 @@ read_outputs_field(lua_State *L, int table, struct qstar_genrule *genrule,
 	return 0;
 }
 
+/** generated action input item을 파일 path 또는 target artifact edge로 추가한다. */
+static int
+push_genrule_input(lua_State *L, int idx, struct qstar_genrule *genrule,
+    struct qstar_graph *graph)
+{
+	const char *kind, *path;
+	char token[QSTAR_PATH_MAX];
+
+	if (idx < 0)
+		idx = lua_gettop(L) + idx + 1;
+	if (lua_isstring(L, idx))
+		path = lua_tostring(L, idx);
+	else if (lua_istable(L, idx)) {
+		kind = qstar_table_kind(L, idx);
+		if (!kind || strcmp(kind, "target_file") != 0 ||
+		    format_placeholder_token(L, idx, token, sizeof(token)) < 0)
+			return qstar_set_error(graph,
+			    "qstar: field 'inputs' contains non-string or target_file item");
+		path = token;
+	} else {
+		return qstar_set_error(graph,
+		    "qstar: field 'inputs' contains non-string or target_file item");
+	}
+	if (!path || !*path)
+		return qstar_set_error(graph, "qstar: generated input path is empty");
+	if (qstar_string_list_push(&genrule->inputs, path) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	return 0;
+}
+
+/** custom_target inputs field를 qstar.target_file edge까지 포함해 읽는다. */
+static int
+read_genrule_inputs_field(lua_State *L, int table, struct qstar_genrule *genrule,
+    struct qstar_graph *graph)
+{
+	size_t i, n;
+	int rc;
+
+	lua_getfield(L, table, "inputs");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: field 'inputs' must be a list");
+	}
+	n = lua_rawlen(L, -1);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, -1, (lua_Integer)i);
+		rc = push_genrule_input(L, -1, genrule, graph);
+		lua_pop(L, 1);
+		if (rc < 0) {
+			lua_pop(L, 1);
+			return -1;
+		}
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
 static int
 parse_placeholder_index(const char *s, const char *prefix, long *index)
 {
@@ -1147,8 +1208,7 @@ add_genrule(lua_State *L, const char *name, int table_index, const char *fragmen
 		free(genrule->tool);
 		genrule->tool = qstar_strdup(tool);
 	}
-	if (read_list_field(L, table_index, "inputs", &genrule->inputs, graph, 0,
-	    genrule->fragment_dir) < 0 ||
+	if (read_genrule_inputs_field(L, table_index, genrule, graph) < 0 ||
 	    read_outputs_field(L, table_index, genrule, graph) < 0 ||
 	    read_command_field(L, table_index, "command", &genrule->command, graph) < 0 ||
 	    resolve_cli_placeholders(graph, &genrule->command, &genrule->inputs,

@@ -778,6 +778,26 @@ qstar_graph_find_genrule(const struct qstar_graph *graph, const char *label)
 	return NULL;
 }
 
+/** qstar.target_file placeholder token에서 canonical label을 추출한다. */
+int
+qstar_target_file_token_label(const char *arg, char *label, size_t labellen)
+{
+	const char *prefix = "<qstar-target-file:";
+	size_t n, payload;
+
+	if (!arg || strncmp(arg, prefix, strlen(prefix)) != 0)
+		return 0;
+	n = strlen(arg);
+	if (n <= strlen(prefix) + 1 || arg[n - 1] != '>')
+		return -1;
+	payload = n - strlen(prefix) - 1;
+	if (payload + 1 > labellen)
+		return -1;
+	memcpy(label, arg + strlen(prefix), payload);
+	label[payload] = '\0';
+	return 1;
+}
+
 /** stage/package rule label로 staging rule을 찾는다. */
 const struct qstar_stage *
 qstar_graph_find_stage(const struct qstar_graph *graph, const char *label)

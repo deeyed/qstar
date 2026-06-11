@@ -240,7 +240,7 @@ first argv item through profile capability.
 ```lua
 qstar.custom_target "kernel_img" {
   inputs = {
-    "build/qstar/out/__kernel/kernel.elf",
+    qstar.target_file("//:kernel"),
   },
   outputs = {
     qstar.output("generated/kernel8.img", {
@@ -273,6 +273,12 @@ generated build는 compile/link target closure를 만들지 않고 해당 genera
 실행한다. `qstar.target_file("//:kernel_img")`는 generated action의 첫 output path로
 해석된다.
 
+Round 68부터 `custom_target.inputs`도 `qstar.target_file("//:label")`을 받는다.
+이 표기는 command argv placeholder가 아니라 graph edge다. `qstar.input(0)`으로 command에
+전달하면 executor는 먼저 `//:label`을 빌드하고, cache key에는 token이 아니라 resolved
+artifact path와 file metadata/content hash를 넣는다. 따라서 `kernel.elf -> objcopy ->
+kernel8.img -> stage` 흐름이 wrapper script 없이 graph 안에서 표현된다.
+
 Round 57부터 generated action output은 다른 target의 `sources` 또는
 `lang.c`/`lang.cxx`/`lang.cale`의 `public_headers`/`private_headers`에 등장하면 해당
 target build 전에 실행된다. 이 edge는 C/C++ depfile 없이도 action key에 들어가며,
@@ -283,11 +289,11 @@ archive/link input으로 직접 소비된다.
 
 Round 58부터 `qstar/tests/projects/systems-firmware`가 이 흐름의 canonical release
 corpus다. Kernel ELF는 ordinary `qstar.executable` target으로 만들고,
-`qstar.custom_target "kernel_img"`는 command argv 안에서
-`qstar.target_file("//:kernel")`를 받아 `llvm-objcopy -O binary` 형태로 raw image를
-만든다. 이 target-file artifact edge는 generated action cache input에도 들어가므로
-kernel ELF가 바뀌면 image action도 rebuild 대상이 된다. Stage target은 kernel ELF를
-먼저 빌드한 뒤 image transform과 copy-only package layout을 실행한다.
+`qstar.custom_target "kernel_img"`는 `inputs = { qstar.target_file("//:kernel") }`와
+`qstar.input(0)`을 통해 `llvm-objcopy -O binary` 형태의 raw image를 만든다. 이
+target-file artifact edge는 generated action cache input에도 들어가므로 kernel ELF가
+바뀌면 image action도 rebuild 대상이 된다. Stage target은 kernel ELF를 먼저 빌드한 뒤
+image transform과 copy-only package layout을 실행한다.
 
 ```lua
 qstar.custom_target "embed_payload" {

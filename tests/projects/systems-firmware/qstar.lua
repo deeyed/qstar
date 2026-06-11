@@ -70,6 +70,9 @@ qstar.executable "kernel" {
 }
 
 qstar.custom_target "kernel_img" {
+  inputs = {
+    qstar.target_file("//:kernel"),
+  },
   outputs = {
     qstar.output("generated/kernel8.img", {
       group = "images",
@@ -82,7 +85,7 @@ qstar.custom_target "kernel_img" {
     "llvm-objcopy",
     "-O",
     "binary",
-    qstar.target_file("//:kernel"),
+    qstar.input(0),
     qstar.output(0),
   },
 }
