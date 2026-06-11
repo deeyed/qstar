@@ -5,11 +5,11 @@ line은 toolchain profile capability와 response file policy로 다룬다.
 
 ## 최소 예제
 
-```toml
-[profile]
-name = "msvc-uefi"
-response_files = true
-response_style = "msvc"
+```lua
+qstar.profile "msvc-uefi" {
+  response_files = "on",
+  response_style = "msvc",
+}
 ```
 
 ## 전체 예제
@@ -31,9 +31,10 @@ replay 정보를 안정적으로 남긴다.
 
 ## 실패 예제
 
-```toml
-[profile]
-response_files = false
+```lua
+qstar.profile "no-rsp" {
+  response_files = "off",
+}
 ```
 
 Command가 platform limit을 넘는데 response file을 사용할 수 없으면 stable diagnostic으로

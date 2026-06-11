@@ -10,6 +10,13 @@ Cale 언어 문법 자체가 아니다. Cale 문법은 Cale repository의
 
 QStar는 build graph만 담당한다.
 
+QStar 파일에는 다음을 넣을 수 있다.
+
+- target graph
+- package-local source/header/output path
+- `qstar.profile` toolchain/profile declaration
+- profile-selected target/link/external-tool policy
+
 QStar 파일에는 다음을 넣지 않는다.
 
 - secure profile이나 UB category override
@@ -19,16 +26,14 @@ QStar 파일에는 다음을 넣지 않는다.
 - package lock data
 - registry publish/fetch policy
 
-이 정보는 `Cale.toml`, `Cale.lock`, `.cale/profiles/<name>.toml`, package manager가 맡는다.
+QStar는 별도 mandatory profile config를 읽지 않는다. 설정 진입점은 `qstar.lua` 하나이며,
+dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 
 ## File Roles
 
 | File or directory | 역할 |
 | --- | --- |
-| `Cale.toml` | package metadata, dependency metadata, default compiler/profile reference |
-| `Cale.lock` | resolved dependency, source hash, toolchain/runtime lock |
-| `.cale/profiles/<name>.toml` | secure profile, audit profile, toolchain/profile override |
-| `qstar.lua` | package root의 QStar orchestration file, optional `qstar.project` metadata |
+| `qstar.lua` | package root의 QStar orchestration file, `qstar.project`, `qstar.profile` metadata |
 | `<dirname>.qst` | 큰 프로젝트의 subdir QStar fragment |
 | `src/` | `.cale` implementation module root |
 | `include/` | public header/install surface root |
@@ -50,9 +55,9 @@ QStar 파일에는 다음을 넣지 않는다.
 - `../wiki/`: 사용자/AI가 QStar project를 직접 작성할 수 있는 한국어 wiki.
 - `network-policy.md`: Fetch-only network policy와 offline/frozen/locked mode.
 - `examples.md`: 작은 앱, header facade, monorepo, generated source, platform split 예시.
-- Cale package docs: `Cale.toml`, `Cale.lock`, package resolver, dependency source
-  model은 Cale repository의 package docs가 맡는다. QStar standalone repo는 resolved
-  package/profile input을 소비하는 build-system surface만 소유한다.
+- Package resolver, dependency source model, lock data는 QStar core 밖의 package
+  manager가 맡는다. QStar standalone repo는 `qstar.lua`로 선언한 build graph와
+  profile/toolchain surface만 소유한다.
 
 ## Canonical Status
 
@@ -177,10 +182,9 @@ pattern을 deterministic sorting과 `exclude` filtering으로 확장한다. 중�
 diagnostic으로 막고, `qstar.select`는 CLI/profile target input에서 실제 branch를 고른다.
 아직 directory scanner나 일반 executor는 아니다.
 
-Round 12는 read-only minimal profile file input과 builtin toolchain resolver를 추가했다.
-`Cale.toml`과 `.cale/profiles/<name>.toml`은 `profile`, `target`, `toolchain`, `stdlib`
-scalar field를 줄 수 있다. `host`, `clang`, `cale` toolchain profile은 deterministic
-`.qstar/out` path를 가진 real `command_argv` record를 만든다.
+Round 66은 read-only external profile input을 제거하고 `qstar.profile` DSL을 profile
+authoring surface로 고정했다. `host`, `clang`, `cale` toolchain profile은
+deterministic `.qstar/out` path를 가진 real `command_argv` record를 만든다.
 
 Round 13은 제한된 local executor로서 `qstar build`를 추가했다. Package-local generated
 tool 실행, C source compile, static library archive, executable link를 수행할 수 있다.

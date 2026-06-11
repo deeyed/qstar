@@ -412,8 +412,9 @@ Target은 선언 fragment와 label package가 일치해야 한다. 예를 들어
 의존할 수 있다. QStar는 dependency target의 private include directory를 consumer가
 직접 include path로 끌어오는 accidental leakage도 authoring diagnostic으로 막는다.
 
-Round 27/28부터 profile schema는 v2로 확장된다. `Cale.toml` 또는
-`.cale/profiles/<name>.toml`은 `cc`, `cxx`, `cale`, `ar`, `linker`, `sysroot`,
+Round 66부터 profile schema는 `qstar.lua` 안의 `qstar.profile` DSL로만 선언된다.
+QStar는 별도 mandatory profile config file을 읽지 않는다.
+`qstar.profile`은 `cc`, `cxx`, `cale`, `ar`, `linker`, `sysroot`,
 `resource_dir`, `include_dirs`, `lib_dirs`, `response_files`, `response_style`을 줄 수
 있다. `response_files`는 `auto/on/off` 계열 값을 받고, `response_style`은
 `posix/windows/msvc`를 받는다. 기본 style은 target triple에서 추론한다. `qstar doctor`는

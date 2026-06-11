@@ -76,7 +76,7 @@ Round 12/13 add the first executable edge while keeping QStar standalone:
 
 ```txt
 qstar/build/bin/qstar
-  -> Cale.toml/.cale profile read-only input
+  -> qstar.profile in-DSL profile input
   -> builtin host/clang/cale toolchain resolver
   -> real argv command plan
   -> restricted local executor v1 for qstar build
@@ -213,9 +213,9 @@ HCL grammar와 C declaration import/export 모델은 Cale compiler/HCL checker �
 
 초기 pipeline은 다음 순서다.
 
-1. `Cale.toml`, `Cale.lock`, profile TOML을 읽는다.
-2. Package manager가 resolved package root map을 만든다.
-3. Root `qstar.lua`와 subdir `<dirname>.qst`를 평가한다.
+1. Root `qstar.lua`와 subdir `<dirname>.qst`를 평가한다.
+2. `qstar.profile` declaration과 CLI `--profile` selection으로 active profile을 확정한다.
+3. Package manager가 resolved package root map을 제공한 경우 label resolver input으로 소비한다.
 4. Internal canonical Graph IR를 생성한다.
 5. Graph validation을 수행한다.
 6. `qstar.files`와 `qstar.select`로 명시 source selection을 확정한다.
@@ -233,11 +233,9 @@ HCL grammar와 C declaration import/export 모델은 Cale compiler/HCL checker �
 
 Pipeline input:
 
-- `Cale.toml`
-- `Cale.lock`
-- `.cale/profiles/<name>.toml`
 - `qstar.lua`
 - `<dirname>.qst`
+- `qstar.profile` declarations inside QStar files
 - resolved package root map
 - selected target/profile/toolchain
 - command-line build options
@@ -432,9 +430,10 @@ Round 11 source-selection invariant:
 
 Round 12 profile/toolchain resolver invariant:
 
-- `Cale.toml` and `.cale/profiles/<name>.toml` are read-only inputs.
-- supported scalar keys are `profile`, `target`, `toolchain`, and `stdlib`.
-- CLI profile/target/toolchain/stdlib input overrides file input.
+- `qstar.profile` is the only built-in profile declaration surface.
+- supported keys include target/toolchain/stdlib plus compiler, linker, sysroot,
+  response-file, external-tool, freestanding, and artifact policy.
+- CLI profile/target/toolchain/stdlib input overrides QStar DSL input.
 - builtin toolchain profiles are `host`, `clang`, and `cale`.
 - command rendering emits `command_argv` records with deterministic `.qstar/out`
   paths; this is argv data, not shell text.

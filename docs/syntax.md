@@ -272,43 +272,42 @@ qstar.executable "app" {
 }
 ```
 
-Round 12부터 QStar는 profile 파일을 read-only로 읽는다. Round 51 기준 profile
-surface는 host application, freestanding kernel, firmware command planning에 필요한
-최소 key를 포함한다.
+Round 66부터 QStar는 profile 파일을 읽지 않는다. Profile은 `qstar.lua` 안의
+`qstar.profile` DSL로 선언한다. Round 66 기준 profile surface는 host application,
+freestanding kernel, firmware command planning에 필요한 최소 key를 포함한다.
 
-```toml
-profile = "kernel"
-
-[profile.kernel]
-target = "aarch64-none-elf"
-toolchain = "clang"
-stdlib = "none"
-arch = "aarch64"
-cpu = "cortex-a76"
-abi = "lp64"
-freestanding = true
-cc = "clang"
-cxx = "clang++"
-ar = "llvm-ar"
-linker = "ld.lld"
-sysroot = "sdk"
-resource_dir = "resource"
-include_dirs = ["profile/include"]
-lib_dirs = ["profile/lib"]
-link_options = ["-nostdlib"]
-linker_script = "linker/kernel.ld"
-defsyms = ["__kernel_base=0x80000"]
-artifact_names = ["//:boot=BOOTX64.EFI"]
-path_tools = ["llvm-objcopy"]
-tool_overrides = ["llvm-objcopy=tools/fake-objcopy.sh"]
-allow_absolute_tools = false
-response_files = "auto"
-response_style = "posix"
+```lua
+qstar.profile "kernel" {
+  target = "aarch64-none-elf",
+  toolchain = "clang",
+  stdlib = "none",
+  arch = "aarch64",
+  cpu = "cortex-a76",
+  abi = "lp64",
+  freestanding = true,
+  cc = "clang",
+  cxx = "clang++",
+  ar = "llvm-ar",
+  linker = "ld.lld",
+  sysroot = "sdk",
+  resource_dir = "resource",
+  include_dirs = {"profile/include"},
+  lib_dirs = {"profile/lib"},
+  link_options = {"-nostdlib"},
+  linker_script = "linker/kernel.ld",
+  defsyms = {"__kernel_base=0x80000"},
+  artifact_names = {"//:boot=BOOTX64.EFI"},
+  path_tools = {"llvm-objcopy"},
+  tool_overrides = {"llvm-objcopy=tools/fake-objcopy.sh"},
+  allow_absolute_tools = false,
+  response_files = "auto",
+  response_style = "posix",
+}
 ```
 
-`.cale/profiles/debug.toml`도 같은 key를 쓸 수 있다. CLI `--target`,
-`--toolchain`, `--stdlib`은 파일 입력보다 우선한다. 현재 resolver 이름은
-`builtin-v1`이며 toolchain profile은 `host`, `clang`, `cale`만 정의되어 있다.
+CLI `--target`, `--toolchain`, `--stdlib`은 `qstar.profile` 선언보다 우선한다.
+현재 resolver 이름은 `profile-schema-v2`이며 toolchain profile은 `host`, `clang`,
+`cale`만 정의되어 있다.
 
 `freestanding = true`는 C/C++/ASM compile action에 보수적 freestanding compile
 option을 추가한다. `arch`, `cpu`, `abi`는 target triple에서 모호한 policy를 분리하기
@@ -512,7 +511,8 @@ qstar.target "engine" {
 | `c` | C language mode 같은 build-relevant compile mode |
 | `cale` | Cale edition 같은 build-relevant compile mode |
 
-Secure profile과 UB category override는 여기 넣지 않는다. Secure, audit, safety policy는 TOML profile이 담당한다.
+Secure profile과 UB category override는 여기 넣지 않는다. Secure, audit, safety
+policy는 compiler/package policy layer가 담당하고 QStar core DSL에는 넣지 않는다.
 
 ## Convenience Target APIs
 
@@ -743,7 +743,8 @@ QStar는 incompatible target을 graph에서 skip하거나, 사용자가 직접 �
 | `//path:name` | current package root 기준 target |
 | `@pkg//path:name` | resolved dependency package target |
 
-`@pkg`는 package manager가 `Cale.toml`/`Cale.lock`에서 resolve한 alias만 사용할 수 있다. QStar가 dependency version을 직접 풀지 않는다.
+`@pkg`는 package manager나 CLI가 resolve한 alias만 사용할 수 있다. QStar가 dependency
+version을 직접 풀지 않는다.
 
 ## deps
 
@@ -841,7 +842,8 @@ secure = {
 }
 ```
 
-Secure policy와 UB category override는 `Cale.toml`과 `.cale/profiles/*.toml`에서 관리한다.
+Secure policy와 UB category override는 QStar core DSL 밖의 compiler/package policy
+layer에서 관리한다.
 
 ## qstar.option
 
@@ -870,7 +872,8 @@ CLI 방향:
 qstar build -Dwith_gui=true
 ```
 
-`qstar.option`은 build graph shape만 바꾼다. Compiler safety, UB, audit policy는 profile TOML이 맡는다.
+`qstar.option`은 build graph shape만 바꾼다. Compiler safety, UB, audit policy는
+QStar core DSL 밖의 compiler/package policy layer가 맡는다.
 
 ## qstar.custom_target
 
@@ -879,7 +882,7 @@ Generated file action이다.
 ```lua
 qstar.custom_target "version_header" {
     inputs = {
-        "Cale.toml",
+        "VERSION",
     },
     outputs = {
         qstar.output("generated/version.hcl"),

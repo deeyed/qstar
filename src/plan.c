@@ -713,7 +713,8 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	    strcmp(toolchain->name, "cale") == 0 ||
 	    strcmp(toolchain->name, "cale-sol") == 0) &&
 	    strcmp(toolchain->target, "host") != 0;
-	argc = 5 + graph->profile.include_dirs.len * 2 +
+	argc = 5 + graph->profile.compile_options.len +
+	    graph->profile.include_dirs.len * 2 +
 	    (is_asm ? target->asm_include_dirs.len * 2 : includes.len * 2) +
 	    (is_asm ? 0 : target->system_include_dirs.len * 2) +
 	    (cross ? 1 : 0) + (wants_depfile ? 3 : 0) +
@@ -760,6 +761,8 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 		argv_item(out, &dump, target->asm_compile_options.items[i]);
 	if (!is_cale)
 		dump_profile_compile_options(out, &dump, graph);
+	for (i = 0; !is_cale && i < graph->profile.compile_options.len; i++)
+		argv_item(out, &dump, graph->profile.compile_options.items[i]);
 	for (i = 0; i < graph->profile.include_dirs.len; i++) {
 		argv_item(out, &dump, "-I");
 		argv_item(out, &dump, graph->profile.include_dirs.items[i]);
@@ -1729,12 +1732,12 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 		else
 			fputs("writable-state-dir no\n", out);
 	}
-	fprintf(out, "profile-file-input name=%s target=%s toolchain=%s stdlib=%s\n",
+	fprintf(out, "profile-dsl-input name=%s target=%s toolchain=%s stdlib=%s\n",
 	    graph->profile.name ? graph->profile.name : "default",
 	    graph->profile.target ? graph->profile.target : "host",
 	    graph->profile.toolchain ? graph->profile.toolchain : "host",
 	    graph->profile.stdlib_policy ? graph->profile.stdlib_policy : "system");
-	fprintf(out, "profile-schema v2 include_dirs=%zu lib_dirs=%zu\n",
+	fprintf(out, "profile-schema in-dsl-v1 include_dirs=%zu lib_dirs=%zu\n",
 	    graph->profile.include_dirs.len, graph->profile.lib_dirs.len);
 	dump_external_tool_doctor(out, graph);
 	fputs("diagnostics ok\n", out);

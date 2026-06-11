@@ -84,18 +84,9 @@ CI:
 
 ## Lock And Checksum
 
-Network fetch는 반드시 `Cale.lock`과 checksum 기록을 남겨야 한다.
-
-```toml
-[[package]]
-name = "image"
-version = "0.2.1"
-source = "git+https://github.com/acme/image.cale.git"
-rev = "abc123"
-checksum = "sha256:..."
-```
-
-QStar graph evaluation은 이 lock 정보를 읽을 수는 있지만, lock을 갱신하거나 fetch를 수행하지 않는다.
+Network fetch는 반드시 package-manager-owned lock/checksum 기록을 남겨야 한다.
+QStar graph evaluation은 이미 resolve된 package root map만 소비하며, lock을 갱신하거나
+fetch를 수행하지 않는다.
 
 ## Rationale
 

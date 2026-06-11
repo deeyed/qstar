@@ -6,105 +6,6 @@
 #include <string.h>
 #include <unistd.h>
 
-/** 일반 파일이 존재하는지 확인한다. */
-static int
-regular_file_exists(const char *path)
-{
-	FILE *f;
-
-	f = fopen(path, "rb");
-	if (!f)
-		return 0;
-	fclose(f);
-	return 1;
-}
-
-/** qstar authoring file 위치에서 위로 올라가며 profile root qstar.lua를 찾는다. */
-static int
-discover_profile_root(const char *file_dir, char *root, size_t rootlen)
-{
-	char cur[QSTAR_PATH_MAX], parent[QSTAR_PATH_MAX];
-	char qstar_lua[QSTAR_PATH_MAX];
-
-	snprintf(cur, sizeof(cur), "%s", file_dir && *file_dir ? file_dir : ".");
-	for (;;) {
-		if (qstar_path_join(cur, "qstar.lua", qstar_lua, sizeof(qstar_lua)) == 0 &&
-		    regular_file_exists(qstar_lua))
-			return snprintf(root, rootlen, "%s", cur) < (int)rootlen ? 0 : -1;
-		if (strcmp(cur, ".") == 0 || strcmp(cur, "/") == 0)
-			break;
-		if (qstar_dirname(cur, parent, sizeof(parent)) < 0 ||
-		    strcmp(parent, cur) == 0)
-			break;
-		snprintf(cur, sizeof(cur), "%s", parent);
-	}
-	return -1;
-}
-
-/** 앞뒤 공백을 제거한 문자열 시작 위치를 반환하고 오른쪽 공백은 in-place로 지운다. */
-static char *
-trim(char *s)
-{
-	char *end;
-
-	while (*s && isspace((unsigned char)*s))
-		s++;
-	end = s + strlen(s);
-	while (end > s && isspace((unsigned char)end[-1]))
-		*--end = '\0';
-	return s;
-}
-
-/** TOML v1의 최소 quoted/unquoted scalar 값을 QStar 문자열로 정규화한다. */
-static char *
-toml_scalar(char *s)
-{
-	size_t n;
-
-	s = trim(s);
-	n = strlen(s);
-	if (n >= 2 && s[0] == '"' && s[n - 1] == '"') {
-		s[n - 1] = '\0';
-		return s + 1;
-	}
-	return s;
-}
-
-/** TOML v2 profile list parser가 허용하는 quoted string list item을 추가한다. */
-static int
-toml_string_list(struct qstar_graph *graph, struct qstar_string_list *list, char *s)
-{
-	char *p, *q;
-
-	s = trim(s);
-	if (*s != '[')
-		return qstar_set_error(graph, "qstar: profile list value must start with '['");
-	p = s + 1;
-	for (;;) {
-		p = trim(p);
-		if (*p == ']')
-			return 0;
-		if (*p != '"')
-			return qstar_set_error(graph, "qstar: profile list items must be quoted strings");
-		q = ++p;
-		while (*q && *q != '"')
-			q++;
-		if (*q != '"')
-			return qstar_set_error(graph, "qstar: unterminated profile list string");
-		*q++ = '\0';
-		if (qstar_string_list_push(list, p) < 0)
-			return qstar_set_error(graph, "qstar: out of memory");
-		q = trim(q);
-		if (*q == ',') {
-			p = q + 1;
-			continue;
-		}
-		if (*q == ']')
-			return 0;
-		return qstar_set_error(graph, "qstar: malformed profile list");
-	}
-}
-
 /** profile slot을 새 문자열로 교체한다. */
 static int
 profile_set(char **slot, const char *value)
@@ -119,192 +20,165 @@ profile_set(char **slot, const char *value)
 	return 0;
 }
 
-/** 최소 profile key/value를 graph profile에 반영한다. */
+/** profile list를 다른 list 뒤에 복사해 추가한다. */
 static int
-apply_profile_key(struct qstar_graph *graph, const char *key, const char *value,
-    int allow_name)
+append_profile_list(struct qstar_graph *graph, struct qstar_string_list *dst,
+    const struct qstar_string_list *src)
 {
-	if (strcmp(key, "profile") == 0) {
-		if (!allow_name || graph->profile.name)
-			return 0;
-		return profile_set(&graph->profile.name, value) < 0 ?
-		    qstar_set_error(graph, "qstar: out of memory") : 0;
+	size_t i;
+
+	for (i = 0; i < src->len; i++) {
+		if (qstar_string_list_push(dst, src->items[i]) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
 	}
-	if (strcmp(key, "target") == 0)
-		return profile_set(&graph->profile.target, value) < 0 ?
-		    qstar_set_error(graph, "qstar: out of memory") : 0;
-	if (strcmp(key, "toolchain") == 0)
-		return profile_set(&graph->profile.toolchain, value) < 0 ?
-		    qstar_set_error(graph, "qstar: out of memory") : 0;
-	if (strcmp(key, "stdlib") == 0 || strcmp(key, "stdlib_policy") == 0)
-		return profile_set(&graph->profile.stdlib_policy, value) < 0 ?
-		    qstar_set_error(graph, "qstar: out of memory") : 0;
-	if (strcmp(key, "freestanding") == 0)
-		return profile_set(&graph->profile.freestanding, value) < 0 ?
-		    qstar_set_error(graph, "qstar: out of memory") : 0;
-	if (strcmp(key, "arch") == 0)
-		return profile_set(&graph->profile.arch, value) < 0 ?
-		    qstar_set_error(graph, "qstar: out of memory") : 0;
-	if (strcmp(key, "cpu") == 0)
-		return profile_set(&graph->profile.cpu, value) < 0 ?
-		    qstar_set_error(graph, "qstar: out of memory") : 0;
-	if (strcmp(key, "abi") == 0)
-		return profile_set(&graph->profile.abi, value) < 0 ?
-		    qstar_set_error(graph, "qstar: out of memory") : 0;
-	if (strcmp(key, "cc") == 0 || strcmp(key, "c_compiler") == 0)
-		return profile_set(&graph->profile.cc, value) < 0 ?
-		    qstar_set_error(graph, "qstar: out of memory") : 0;
-	if (strcmp(key, "cxx") == 0 || strcmp(key, "cxx_compiler") == 0)
-		return profile_set(&graph->profile.cxx, value) < 0 ?
-		    qstar_set_error(graph, "qstar: out of memory") : 0;
-	if (strcmp(key, "cale") == 0 || strcmp(key, "cale_compiler") == 0)
-		return profile_set(&graph->profile.cale, value) < 0 ?
-		    qstar_set_error(graph, "qstar: out of memory") : 0;
-	if (strcmp(key, "ar") == 0 || strcmp(key, "archiver") == 0)
-		return profile_set(&graph->profile.ar, value) < 0 ?
-		    qstar_set_error(graph, "qstar: out of memory") : 0;
-	if (strcmp(key, "linker") == 0)
-		return profile_set(&graph->profile.linker, value) < 0 ?
-		    qstar_set_error(graph, "qstar: out of memory") : 0;
-	if (strcmp(key, "sysroot") == 0)
-		return profile_set(&graph->profile.sysroot, value) < 0 ?
-		    qstar_set_error(graph, "qstar: out of memory") : 0;
-	if (strcmp(key, "resource_dir") == 0)
-		return profile_set(&graph->profile.resource_dir, value) < 0 ?
-		    qstar_set_error(graph, "qstar: out of memory") : 0;
-	if (strcmp(key, "response_files") == 0 || strcmp(key, "rsp") == 0)
-		return profile_set(&graph->profile.response_files, value) < 0 ?
-		    qstar_set_error(graph, "qstar: out of memory") : 0;
-	if (strcmp(key, "response_style") == 0 || strcmp(key, "rsp_style") == 0)
-		return profile_set(&graph->profile.response_style, value) < 0 ?
-		    qstar_set_error(graph, "qstar: out of memory") : 0;
-	if (strcmp(key, "linker_script") == 0)
-		return profile_set(&graph->profile.linker_script, value) < 0 ?
-		    qstar_set_error(graph, "qstar: out of memory") : 0;
-	if (strcmp(key, "allow_absolute_tools") == 0 ||
-	    strcmp(key, "external_absolute_tools") == 0)
-		return profile_set(&graph->profile.allow_absolute_tools, value) < 0 ?
-		    qstar_set_error(graph, "qstar: out of memory") : 0;
 	return 0;
 }
 
-/** profile schema v2 list key를 graph profile에 반영한다. */
+/** profile input의 non-empty field를 active profile에 병합한다. */
 static int
-apply_profile_list(struct qstar_graph *graph, const char *key, char *value)
+merge_profile_input(struct qstar_graph *graph, const struct qstar_profile_input *src)
 {
-	if (strcmp(key, "include_dirs") == 0)
-		return toml_string_list(graph, &graph->profile.include_dirs, value);
-	if (strcmp(key, "lib_dirs") == 0)
-		return toml_string_list(graph, &graph->profile.lib_dirs, value);
-	if (strcmp(key, "link_options") == 0)
-		return toml_string_list(graph, &graph->profile.link_options, value);
-	if (strcmp(key, "defsyms") == 0)
-		return toml_string_list(graph, &graph->profile.defsyms, value);
-	if (strcmp(key, "artifact_names") == 0)
-		return toml_string_list(graph, &graph->profile.artifact_names, value);
-	if (strcmp(key, "path_tools") == 0 || strcmp(key, "external_tools") == 0)
-		return toml_string_list(graph, &graph->profile.path_tools, value);
-	if (strcmp(key, "tool_overrides") == 0)
-		return toml_string_list(graph, &graph->profile.tool_overrides, value);
+#define MERGE_PROFILE_STRING(field) \
+	do { \
+		if (src->field && *src->field && profile_set(&graph->profile.field, \
+		    src->field) < 0) \
+			return qstar_set_error(graph, "qstar: out of memory"); \
+	} while (0)
+
+	MERGE_PROFILE_STRING(target);
+	MERGE_PROFILE_STRING(toolchain);
+	MERGE_PROFILE_STRING(stdlib_policy);
+	MERGE_PROFILE_STRING(freestanding);
+	MERGE_PROFILE_STRING(arch);
+	MERGE_PROFILE_STRING(cpu);
+	MERGE_PROFILE_STRING(abi);
+	MERGE_PROFILE_STRING(cc);
+	MERGE_PROFILE_STRING(cxx);
+	MERGE_PROFILE_STRING(cale);
+	MERGE_PROFILE_STRING(ar);
+	MERGE_PROFILE_STRING(linker);
+	MERGE_PROFILE_STRING(sysroot);
+	MERGE_PROFILE_STRING(resource_dir);
+	MERGE_PROFILE_STRING(response_files);
+	MERGE_PROFILE_STRING(response_style);
+	MERGE_PROFILE_STRING(linker_script);
+	MERGE_PROFILE_STRING(allow_absolute_tools);
+#undef MERGE_PROFILE_STRING
+	if (append_profile_list(graph, &graph->profile.artifact_names,
+	    &src->artifact_names) < 0 ||
+	    append_profile_list(graph, &graph->profile.compile_options,
+	    &src->compile_options) < 0 ||
+	    append_profile_list(graph, &graph->profile.include_dirs,
+	    &src->include_dirs) < 0 ||
+	    append_profile_list(graph, &graph->profile.lib_dirs, &src->lib_dirs) < 0 ||
+	    append_profile_list(graph, &graph->profile.link_options,
+	    &src->link_options) < 0 ||
+	    append_profile_list(graph, &graph->profile.defsyms, &src->defsyms) < 0 ||
+	    append_profile_list(graph, &graph->profile.path_tools,
+	    &src->path_tools) < 0 ||
+	    append_profile_list(graph, &graph->profile.tool_overrides,
+	    &src->tool_overrides) < 0)
+		return -1;
 	return 0;
 }
 
-/** section header가 현재 profile에 대응하는 [profile.NAME]인지 검사한다. */
-static int
-section_matches_profile(const char *section, const char *profile)
+/** Active profile 적용 시 이름으로 declaration을 찾는다. */
+static const struct qstar_profile_decl *
+find_profile_decl(const struct qstar_graph *graph, const char *name)
 {
-	const char *name;
+	size_t i;
 
-	if (strncmp(section, "profile.", 8) != 0)
-		return 0;
-	name = section + 8;
-	return strcmp(name, profile && *profile ? profile : "default") == 0;
+	for (i = 0; i < graph->profile_decl_len; i++) {
+		if (strcmp(graph->profile_decls[i].name, name) == 0)
+			return &graph->profile_decls[i];
+	}
+	return NULL;
 }
 
-/** Cale.toml/.cale profile 파일의 read-only 최소 TOML key subset을 읽는다. */
-static int
-load_profile_toml(struct qstar_graph *graph, const char *path, int profile_file)
+/** CLI가 고른 profile 이름은 보존하고 나머지 active profile detail을 비운다. */
+static void
+clear_profile_details(struct qstar_profile_input *profile)
 {
-	FILE *f;
-	char line[1024], *s, *eq, *hash, *section_end;
-	char section[128];
-	int active;
+	char *name;
 
-	f = fopen(path, "r");
-	if (!f)
-		return 0;
-	section[0] = '\0';
-	active = 1;
-	while (fgets(line, sizeof(line), f)) {
-		hash = strchr(line, '#');
-		if (hash)
-			*hash = '\0';
-		s = trim(line);
-		if (!*s)
-			continue;
-		if (*s == '[') {
-			section_end = strchr(s, ']');
-			if (!section_end) {
-				fclose(f);
-				return qstar_set_error(graph, "qstar: malformed profile section in '%s'",
-				    path);
-			}
-			*section_end = '\0';
-			snprintf(section, sizeof(section), "%s", s + 1);
-			active = profile_file || section_matches_profile(section, graph->profile.name);
-			continue;
-		}
-		if (!active)
-			continue;
-		eq = strchr(s, '=');
-		if (!eq) {
-			fclose(f);
-			return qstar_set_error(graph, "qstar: malformed profile line in '%s'",
-			    path);
-		}
-		*eq = '\0';
-		s = trim(s);
-		if (*trim(eq + 1) == '[') {
-			if (apply_profile_list(graph, s, eq + 1) < 0) {
-				fclose(f);
-				return -1;
-			}
-			continue;
-		}
-		if (apply_profile_key(graph, s, toml_scalar(eq + 1), !profile_file) < 0) {
-			fclose(f);
+	name = profile->name;
+	profile->name = NULL;
+	free(profile->target);
+	free(profile->toolchain);
+	free(profile->stdlib_policy);
+	free(profile->freestanding);
+	free(profile->arch);
+	free(profile->cpu);
+	free(profile->abi);
+	free(profile->cc);
+	free(profile->cxx);
+	free(profile->cale);
+	free(profile->ar);
+	free(profile->linker);
+	free(profile->sysroot);
+	free(profile->resource_dir);
+	free(profile->response_files);
+	free(profile->response_style);
+	free(profile->linker_script);
+	free(profile->allow_absolute_tools);
+	qstar_string_list_free(&profile->artifact_names);
+	qstar_string_list_free(&profile->compile_options);
+	qstar_string_list_free(&profile->include_dirs);
+	qstar_string_list_free(&profile->lib_dirs);
+	qstar_string_list_free(&profile->link_options);
+	qstar_string_list_free(&profile->defsyms);
+	qstar_string_list_free(&profile->path_tools);
+	qstar_string_list_free(&profile->tool_overrides);
+	memset(profile, 0, sizeof(*profile));
+	profile->name = name;
+}
+
+/** base profile을 먼저 적용한 뒤 현재 declaration field를 덮어쓴다. */
+static int
+apply_profile_decl(struct qstar_graph *graph, const struct qstar_profile_decl *decl,
+    int depth)
+{
+	const struct qstar_profile_decl *base;
+
+	if (depth > 16)
+		return qstar_set_error(graph, "qstar: profile extends chain is too deep");
+	if (decl->extends && *decl->extends) {
+		base = find_profile_decl(graph, decl->extends);
+		if (!base)
+			return qstar_set_error_origin(graph, decl->origin_file,
+			    decl->origin_line, "profile", decl->name,
+			    "qstar: profile '%s' extends unknown profile '%s'",
+			    decl->name, decl->extends);
+		if (apply_profile_decl(graph, base, depth + 1) < 0)
 			return -1;
-		}
 	}
-	fclose(f);
-	return 0;
+	return merge_profile_input(graph, &decl->input);
 }
 
-/** Cale.toml과 .cale/profiles/<name>.toml의 최소 profile 입력을 읽어 graph에 반영한다. */
+/** 선택된 qstar.profile 선언과 extends chain을 active profile에 적용한다. */
 int
-qstar_graph_load_profile_files(struct qstar_graph *graph, const char *qstar_file)
+qstar_graph_apply_selected_profile(struct qstar_graph *graph)
 {
-	char root[QSTAR_PATH_MAX], path[QSTAR_PATH_MAX], profile_path[QSTAR_PATH_MAX];
-	const char *profile;
+	const struct qstar_profile_decl *decl;
+	const char *selected;
+	char *selected_copy;
 
-	if (qstar_dirname(qstar_file, root, sizeof(root)) < 0)
-		return qstar_set_error(graph, "qstar: qstar file path too long");
-	if (discover_profile_root(root, root, sizeof(root)) < 0)
-		return qstar_set_error(graph,
-		    "qstar: could not find qstar.lua package root for '%s'", qstar_file);
-	if (qstar_graph_set_package_root(graph, root) < 0)
-		return -1;
-	if (qstar_path_join(root, "Cale.toml", path, sizeof(path)) < 0)
-		return qstar_set_error(graph, "qstar: profile path too long");
-	if (load_profile_toml(graph, path, 0) < 0)
-		return -1;
-	profile = graph->profile.name && *graph->profile.name ? graph->profile.name : "default";
-	if (snprintf(profile_path, sizeof(profile_path), ".cale/profiles/%s.toml", profile) >=
-	    (int)sizeof(profile_path))
-		return qstar_set_error(graph, "qstar: profile name is too long");
-	if (qstar_path_join(root, profile_path, path, sizeof(path)) < 0)
-		return qstar_set_error(graph, "qstar: profile path too long");
-	return load_profile_toml(graph, path, 1);
+	selected = graph->profile.name && *graph->profile.name ?
+	    graph->profile.name : "default";
+	decl = find_profile_decl(graph, selected);
+	if (!decl) {
+		if (strcmp(selected, "default") == 0)
+			return 0;
+		return qstar_set_error(graph, "qstar: selected profile '%s' is not declared",
+		    selected);
+	}
+	selected_copy = qstar_strdup(selected);
+	if (!selected_copy)
+		return qstar_set_error(graph, "qstar: out of memory");
+	clear_profile_details(&graph->profile);
+	free(graph->profile.name);
+	graph->profile.name = selected_copy;
+	return apply_profile_decl(graph, decl, 0);
 }
 
 static int

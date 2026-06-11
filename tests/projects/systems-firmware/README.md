@@ -11,7 +11,8 @@ dedicated QStar keywords:
 - UEFI PE/COFF output naming and ESP staging through profile/link policy.
 
 The tools in `tools/` are deterministic fake tools. A real package can replace
-them through `Cale.toml` profile fields without changing the target model.
+them through `qstar.profile` declarations in `qstar.lua` without changing the
+target model.
 
 Useful commands:
 

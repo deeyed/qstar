@@ -24,14 +24,7 @@
 
 ```txt
 package/
-  Cale.toml
-  Cale.lock
   qstar.lua
-
-  .cale/
-    profiles/
-      safe.toml
-      c-compat.toml
 
   include/
     package/
@@ -51,17 +44,14 @@ package/
 
 - `src/`: implementation module root.
 - `include/`: public header install root.
-- `Cale.toml`: package metadata and policy references.
-- `Cale.lock`: resolved dependency and source/toolchain lock.
-- `.cale/profiles/<name>.toml`: UB/audit/toolchain profile.
-- `qstar.lua`: root build orchestration.
+- `qstar.lua`: root build orchestration, project metadata, and in-DSL profile declarations.
 - `<dirname>.qst`: subdir build graph fragment.
 
-Round 12 기준으로 QStar가 직접 읽는 profile file surface는 매우 작다.
-`Cale.toml`과 `.cale/profiles/<name>.toml`에서 `profile`, `target`,
-`toolchain`, `stdlib` scalar만 읽고, dependency resolution, secure profile,
-UB policy, audit profile은 아직 해석하지 않는다. 이 값들은 `qstar.select`와
-toolchain resolver의 입력일 뿐이다.
+Round 66 기준으로 QStar는 mandatory external config file을 읽지 않는다.
+Profile, target, toolchain, stdlib, linker, response-file, external-tool policy는
+`qstar.lua`의 `qstar.profile` declaration으로 들어온다. Dependency resolution,
+secure profile, UB policy, audit profile은 QStar core가 아니라 package/compiler
+policy layer의 책임이다.
 
 `mod.rs`, `module.cale`, 빈 placeholder 파일은 공식 구조로 두지 않는다.
 
@@ -101,13 +91,9 @@ import core::mem;
 - 이름 충돌이 있으면 명시 package prefix를 요구한다.
 - `../foo` 같은 filesystem relative import는 언어 문법에 넣지 않는다.
 
-Dependency alias는 `Cale.toml`에서 온다.
-
-```toml
-[dependencies]
-core = { path = "../core" }
-image = "1.2"
-```
+Dependency alias는 QStar core의 필수 설정 파일에서 오지 않는다. 외부 package
+resolver나 CLI-provided package alias map이 resolved package root를 전달하면,
+QStar는 그 결과를 label resolution input으로 소비한다.
 
 ```c
 import core::mem;
@@ -229,7 +215,6 @@ QStar fragment는 target declaration을 graph에 추가하는 build file이다. 
 
 ```txt
 hello/
-  Cale.toml
   qstar.lua
   src/
     app/
@@ -240,7 +225,6 @@ hello/
 
 ```txt
 engine/
-  Cale.toml
   qstar.lua
   src/
     render/

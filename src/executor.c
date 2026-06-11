@@ -373,6 +373,8 @@ compute_profile_key(struct qstar_graph *graph,
 	hash_str(&h, graph->profile.abi ? graph->profile.abi : "");
 	hash_str(&h, graph->profile.allow_absolute_tools ?
 	    graph->profile.allow_absolute_tools : "false");
+	for (i = 0; i < graph->profile.compile_options.len; i++)
+		hash_str(&h, graph->profile.compile_options.items[i]);
 	for (i = 0; i < graph->profile.path_tools.len; i++)
 		hash_str(&h, graph->profile.path_tools.items[i]);
 	for (i = 0; i < graph->profile.tool_overrides.len; i++)
@@ -465,6 +467,8 @@ compute_action_key(struct qstar_graph *graph, const struct qstar_target *target,
 	hash_str(&h, graph->profile.abi ? graph->profile.abi : "");
 	hash_str(&h, graph->profile.allow_absolute_tools ?
 	    graph->profile.allow_absolute_tools : "false");
+	for (i = 0; i < graph->profile.compile_options.len; i++)
+		hash_str(&h, graph->profile.compile_options.items[i]);
 	for (i = 0; i < graph->profile.path_tools.len; i++)
 		hash_str(&h, graph->profile.path_tools.items[i]);
 	for (i = 0; i < graph->profile.tool_overrides.len; i++)
@@ -2712,7 +2716,8 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	    source_uses_asm_preprocessor(target, &source)) &&
 	    strcmp(toolchain->name, "cale") != 0 && strcmp(toolchain->name, "cale-sol") != 0;
 	action->wants_depfile = wants_depfile;
-	if (graph->profile.include_dirs.len * 2 +
+	if (graph->profile.compile_options.len +
+	    graph->profile.include_dirs.len * 2 +
 	    (is_asm ? target->asm_include_dirs.len * 2 : includes.len * 2) +
 	    (is_asm ? 0 : target->system_include_dirs.len * 2) +
 	    (is_asm ? target->asm_compile_options.len :
@@ -2780,6 +2785,11 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	if (!is_cale && append_profile_compile_options(graph, action) < 0)
 		goto fail;
+	for (i = 0; !is_cale && i < graph->profile.compile_options.len; i++) {
+		if (prepared_action_push_argv(graph, action,
+		    graph->profile.compile_options.items[i]) < 0)
+			goto fail;
+	}
 	for (i = 0; i < graph->profile.include_dirs.len; i++) {
 		if (prepared_action_push_argv(graph, action, "-I") < 0 ||
 		    prepared_action_push_argv(graph, action,

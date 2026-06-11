@@ -351,25 +351,33 @@ manifest와 would-create/would-update/unchanged diff를 출력한다. 실제 `qs
 By default, only package-relative path tools such as `tools/gen.sh` are allowed.
 Bare PATH tools must be allowlisted in the active profile.
 
-```toml
-[profile.rpi5]
-path_tools = ["llvm-objcopy", "qemu-system-aarch64"]
+```lua
+qstar.profile "rpi5" {
+  path_tools = {
+    "llvm-objcopy",
+    "qemu-system-aarch64",
+  },
+}
 ```
 
 Absolute tools are disabled by default and require an explicit profile
 capability:
 
-```toml
-[profile.local]
-allow_absolute_tools = true
+```lua
+qstar.profile "local" {
+  allow_absolute_tools = true,
+}
 ```
 
 Profiles may override the implementation of a PATH tool without changing the
 build file spelling:
 
-```toml
-[profile.test]
-tool_overrides = ["llvm-objcopy=tools/fake-objcopy.sh"]
+```lua
+qstar.profile "test" {
+  tool_overrides = {
+    "llvm-objcopy=tools/fake-objcopy.sh",
+  },
+}
 ```
 
 This keeps QStar language-neutral: UEFI, RPi, image conversion, binary packing,
@@ -386,25 +394,28 @@ the image and `qstar.stage` for the boot directory layout.
 ## Freestanding and linker policy
 
 Freestanding, kernel, and firmware builds are profile-driven. The
-build file still describes targets and source edges, while `Cale.toml` or
-`.cale/profiles/<name>.toml` describes the selected target machine and toolchain
-policy.
+build file describes targets, source edges, and the selected machine/toolchain
+policy through `qstar.profile`. QStar has a single project entry point:
+`qstar.lua`.
 
-```toml
-profile = "rpi5"
-
-[profile.rpi5]
-toolchain = "clang"
-target = "aarch64-none-elf"
-arch = "aarch64"
-cpu = "cortex-a76"
-abi = "lp64"
-freestanding = true
-cc = "clang"
-linker = "ld.lld"
-linker_script = "linker/rpi5-aarch64.ld"
-link_options = ["-nostdlib"]
-defsyms = ["__kernel_base=0x80000"]
+```lua
+qstar.profile "rpi5" {
+  toolchain = "clang",
+  target = "aarch64-none-elf",
+  arch = "aarch64",
+  cpu = "cortex-a76",
+  abi = "lp64",
+  freestanding = true,
+  cc = "clang",
+  linker = "ld.lld",
+  linker_script = "linker/rpi5-aarch64.ld",
+  link_options = {
+    "-nostdlib",
+  },
+  defsyms = {
+    "__kernel_base=0x80000",
+  },
+}
 ```
 
 `freestanding = true` adds conservative compile flags through the profile:
@@ -447,16 +458,17 @@ must use `NAME=VALUE` spelling.
 QStar does not add a hardcoded `uefi_app` rule. UEFI applications are expressed
 as ordinary executable targets plus profile-selected linker/artifact policy.
 
-```toml
-profile = "uefi-x64"
-
-[profile.uefi-x64]
-toolchain = "clang"
-target = "x86_64-pc-windows-msvc"
-cc = "clang"
-linker = "lld-link"
-response_style = "msvc"
-artifact_names = ["//:boot=BOOTX64.EFI"]
+```lua
+qstar.profile "uefi-x64" {
+  toolchain = "clang",
+  target = "x86_64-pc-windows-msvc",
+  cc = "clang",
+  linker = "lld-link",
+  response_style = "msvc",
+  artifact_names = {
+    "//:boot=BOOTX64.EFI",
+  },
+}
 ```
 
 ```lua

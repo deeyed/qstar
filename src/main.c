@@ -465,14 +465,14 @@ main(int argc, char **argv)
 	}
 	rc = qstar_graph_set_profile_input(&graph, cli_profile, NULL, NULL, NULL);
 	if (rc == 0)
-		rc = qstar_graph_load_profile_files(&graph, file);
+		rc = qstar_lua_eval_file(&graph, file);
+	if (rc == 0)
+		rc = qstar_graph_apply_selected_profile(&graph);
 	if (rc == 0)
 		rc = qstar_graph_set_profile_input(&graph, cli_profile, cli_target,
 		    cli_toolchain, cli_stdlib);
 	if (rc == 0)
 		rc = qstar_graph_validate_profile(&graph);
-	if (rc == 0)
-		rc = qstar_lua_eval_file(&graph, file);
 	if (rc == 0)
 		rc = qstar_graph_validate_packages(&graph);
 	if (rc == 0)

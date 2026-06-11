@@ -132,12 +132,21 @@ struct qstar_profile_input {
 	char *linker_script;
 	struct qstar_string_list artifact_names;
 	char *allow_absolute_tools;
+	struct qstar_string_list compile_options;
 	struct qstar_string_list include_dirs;
 	struct qstar_string_list lib_dirs;
 	struct qstar_string_list link_options;
 	struct qstar_string_list defsyms;
 	struct qstar_string_list path_tools;
 	struct qstar_string_list tool_overrides;
+};
+
+struct qstar_profile_decl {
+	char *name;
+	char *extends;
+	char *origin_file;
+	int origin_line;
+	struct qstar_profile_input input;
 };
 
 struct qstar_lint_diagnostic {
@@ -192,6 +201,9 @@ struct qstar_graph {
 	struct qstar_string_list evaluated_fragments;
 	struct qstar_project project;
 	struct qstar_profile_input profile;
+	struct qstar_profile_decl *profile_decls;
+	size_t profile_decl_len;
+	size_t profile_decl_cap;
 	char error[512];
 	char error_file[QSTAR_PATH_MAX];
 	char error_field[64];
@@ -248,14 +260,19 @@ int qstar_graph_add_package_alias(struct qstar_graph *graph, const char *alias, 
 int qstar_graph_set_profile_input(struct qstar_graph *graph, const char *name,
     const char *target, const char *toolchain, const char *stdlib_policy);
 
+/** qstar.profile DSL 선언을 graph에 저장한다. */
+int qstar_graph_add_profile_decl(struct qstar_graph *graph, const char *name,
+    const char *extends, const char *origin_file, int origin_line,
+    const struct qstar_profile_input *input);
+
+/** 선택된 qstar.profile 선언과 extends chain을 active profile에 적용한다. */
+int qstar_graph_apply_selected_profile(struct qstar_graph *graph);
+
 /** QStar package alias map에서 alias를 찾는다. */
 const struct qstar_package_alias *qstar_graph_find_package_alias(const struct qstar_graph *graph,
     const char *alias);
 
-/** Cale.toml과 .cale/profiles/<name>.toml의 최소 profile 입력을 읽어 graph에 반영한다. */
-int qstar_graph_load_profile_files(struct qstar_graph *graph, const char *qstar_file);
-
-/** QStar profile schema v2 입력을 검증한다. */
+/** QStar in-DSL profile schema 입력을 검증한다. */
 int qstar_graph_validate_profile(struct qstar_graph *graph);
 
 /** QStar header file graph policy를 검증한다. */

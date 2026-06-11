@@ -31,8 +31,8 @@ generated header는 path/dependency/install surface이며, QStar가 C/HCL 내용
 - Helpers: `qstar.cli`, `qstar.input`, `qstar.output`, `qstar.target_file`,
   `qstar.files`, `qstar.subdir`, `qstar.select`, `qstar.join`.
 - Language namespaces: `lang.c`, `lang.cxx`, `lang.asm`, `lang.cale`.
-- Toolchain/profile input: `Cale.toml`, `.cale/profiles/*.toml`, `--profile`,
-  compiler path override, sysroot/resource-dir/include/linker settings.
+- Toolchain/profile input: `qstar.profile`, `--profile`, compiler path override,
+  sysroot/resource-dir/include/linker settings.
 - Executor: compile, archive, link, generated action, config header, test, install,
   stage, run target, incremental cache, depfile input tracking.
 - UX: `lint`, `fmt`, `list-targets --format json`, `query`, `doctor`, `explain`,

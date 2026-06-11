@@ -100,8 +100,8 @@ qstar init generated my-generated-app
 qstar init mixed-cale my-mixed-app
 ```
 
-`qstar init`은 project metadata manager가 아니다. `Cale.toml`, package registry,
-remote dependency, workspace policy는 아직 만들지 않는다.
+`qstar init`은 package registry, remote dependency, workspace policy를 만들지
+않는다. Project/profile metadata는 `qstar.lua` 안의 QStar DSL로만 선언한다.
 
 ## Release Gate
 

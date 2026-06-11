@@ -1867,6 +1867,238 @@ qstar_lua_incompatible(lua_State *L)
 	return 1;
 }
 
+/** Lua stack에서 임시로 만든 profile input을 해제한다. */
+static void
+free_lua_profile_input(struct qstar_profile_input *profile)
+{
+	free(profile->name);
+	free(profile->target);
+	free(profile->toolchain);
+	free(profile->stdlib_policy);
+	free(profile->freestanding);
+	free(profile->arch);
+	free(profile->cpu);
+	free(profile->abi);
+	free(profile->cc);
+	free(profile->cxx);
+	free(profile->cale);
+	free(profile->ar);
+	free(profile->linker);
+	free(profile->sysroot);
+	free(profile->resource_dir);
+	free(profile->response_files);
+	free(profile->response_style);
+	free(profile->linker_script);
+	free(profile->allow_absolute_tools);
+	qstar_string_list_free(&profile->artifact_names);
+	qstar_string_list_free(&profile->compile_options);
+	qstar_string_list_free(&profile->include_dirs);
+	qstar_string_list_free(&profile->lib_dirs);
+	qstar_string_list_free(&profile->link_options);
+	qstar_string_list_free(&profile->defsyms);
+	qstar_string_list_free(&profile->path_tools);
+	qstar_string_list_free(&profile->tool_overrides);
+	memset(profile, 0, sizeof(*profile));
+}
+
+/** qstar.profile table의 scalar/string-or-bool field 하나를 읽는다. */
+static int
+read_profile_scalar_field(lua_State *L, int table, const char *field, char **slot,
+    struct qstar_graph *graph)
+{
+	const char *value;
+	int type;
+
+	lua_getfield(L, table, field);
+	type = lua_type(L, -1);
+	if (type == LUA_TNIL) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (type == LUA_TBOOLEAN) {
+		value = lua_toboolean(L, -1) ? "true" : "false";
+	} else if (type == LUA_TSTRING) {
+		value = lua_tostring(L, -1);
+	} else {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: profile field '%s' must be a string",
+		    field);
+	}
+	free(*slot);
+	*slot = qstar_strdup(value);
+	lua_pop(L, 1);
+	return *slot ? 0 : qstar_set_error(graph, "qstar: out of memory");
+}
+
+/** 여러 alias field 중 처음 등장한 scalar 값을 profile slot에 저장한다. */
+static int
+read_profile_first_scalar(lua_State *L, int table, char **slot, struct qstar_graph *graph,
+    const char *a, const char *b, const char *c)
+{
+	if (read_profile_scalar_field(L, table, a, slot, graph) < 0)
+		return -1;
+	if (*slot || !b)
+		return 0;
+	if (read_profile_scalar_field(L, table, b, slot, graph) < 0)
+		return -1;
+	if (*slot || !c)
+		return 0;
+	return read_profile_scalar_field(L, table, c, slot, graph);
+}
+
+/** qstar.profile table을 내부 profile input 구조로 변환한다. */
+static int
+read_profile_table(lua_State *L, int table, struct qstar_profile_input *input,
+    struct qstar_graph *graph)
+{
+	if (read_profile_first_scalar(L, table, &input->target, graph, "target", NULL,
+	    NULL) < 0 ||
+	    read_profile_first_scalar(L, table, &input->toolchain, graph, "toolchain",
+	    NULL, NULL) < 0 ||
+	    read_profile_first_scalar(L, table, &input->stdlib_policy, graph, "stdlib",
+	    "stdlib_policy", NULL) < 0 ||
+	    read_profile_first_scalar(L, table, &input->freestanding, graph,
+	    "freestanding", NULL, NULL) < 0 ||
+	    read_profile_first_scalar(L, table, &input->arch, graph, "arch", NULL,
+	    NULL) < 0 ||
+	    read_profile_first_scalar(L, table, &input->cpu, graph, "cpu", NULL,
+	    NULL) < 0 ||
+	    read_profile_first_scalar(L, table, &input->abi, graph, "abi", NULL,
+	    NULL) < 0 ||
+	    read_profile_first_scalar(L, table, &input->cc, graph, "cc", "compiler",
+	    "c_compiler") < 0 ||
+	    read_profile_first_scalar(L, table, &input->cxx, graph, "cxx",
+	    "cxx_compiler", NULL) < 0 ||
+	    read_profile_first_scalar(L, table, &input->cale, graph, "cale",
+	    "cale_compiler", NULL) < 0 ||
+	    read_profile_first_scalar(L, table, &input->ar, graph, "ar", "archiver",
+	    NULL) < 0 ||
+	    read_profile_first_scalar(L, table, &input->linker, graph, "linker", NULL,
+	    NULL) < 0 ||
+	    read_profile_first_scalar(L, table, &input->sysroot, graph, "sysroot", NULL,
+	    NULL) < 0 ||
+	    read_profile_first_scalar(L, table, &input->resource_dir, graph,
+	    "resource_dir", NULL, NULL) < 0 ||
+	    read_profile_first_scalar(L, table, &input->response_files, graph,
+	    "response_files", "rsp", NULL) < 0 ||
+	    read_profile_first_scalar(L, table, &input->response_style, graph,
+	    "response_style", "rsp_style", NULL) < 0 ||
+	    read_profile_first_scalar(L, table, &input->linker_script, graph,
+	    "linker_script", NULL, NULL) < 0 ||
+	    read_profile_first_scalar(L, table, &input->allow_absolute_tools, graph,
+	    "allow_absolute_tools", "external_absolute_tools", NULL) < 0)
+		return -1;
+	if (read_list_field(L, table, "compile_options", &input->compile_options, graph,
+	    0, "") < 0 ||
+	    read_list_field(L, table, "include_dirs", &input->include_dirs, graph, 0,
+	    "") < 0 ||
+	    read_list_field(L, table, "lib_dirs", &input->lib_dirs, graph, 0, "") < 0 ||
+	    read_list_field(L, table, "link_options", &input->link_options, graph, 0,
+	    "") < 0 ||
+	    read_list_field(L, table, "defsyms", &input->defsyms, graph, 0, "") < 0 ||
+	    read_list_field(L, table, "artifact_names", &input->artifact_names, graph, 0,
+	    "") < 0 ||
+	    read_list_field(L, table, "path_tools", &input->path_tools, graph, 0,
+	    "") < 0 ||
+	    read_list_field(L, table, "external_tools", &input->path_tools, graph, 0,
+	    "") < 0 ||
+	    read_list_field(L, table, "tool_overrides", &input->tool_overrides, graph, 0,
+	    "") < 0)
+		return -1;
+	return 0;
+}
+
+/** qstar.profile v1에서 허용되지 않는 field를 stable diagnostic으로 막는다. */
+static int
+validate_profile_fields(lua_State *L, int table, struct qstar_graph *graph)
+{
+	static const char *const allowed[] = {
+		"extends", "target", "toolchain", "stdlib", "stdlib_policy",
+		"freestanding", "arch", "cpu", "abi", "cc", "compiler",
+		"c_compiler", "cxx", "cxx_compiler", "cale", "cale_compiler",
+		"ar", "archiver", "linker", "sysroot", "resource_dir",
+		"response_files", "rsp", "response_style", "rsp_style",
+		"linker_script", "allow_absolute_tools", "external_absolute_tools",
+		"compile_options", "include_dirs", "lib_dirs", "link_options",
+		"defsyms", "artifact_names", "path_tools", "external_tools",
+		"tool_overrides", NULL
+	};
+	const char *key;
+
+	lua_pushnil(L);
+	while (lua_next(L, table) != 0) {
+		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (!key || !string_in_set(key, allowed)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph,
+			    "qstar: unknown profile field '%s'", key ? key : "<non-string>");
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+/** Lua qstar.profile 호출을 graph declaration 추가로 낮춘다. */
+static int
+add_profile(lua_State *L, const char *name, int table_index)
+{
+	struct qstar_lua_context *ctx;
+	struct qstar_profile_input input;
+	struct qstar_graph *graph;
+	const char *extends, *selected;
+	char origin_file[QSTAR_PATH_MAX];
+	int origin_line, rc;
+
+	if (table_index < 0)
+		table_index = lua_gettop(L) + table_index + 1;
+	ctx = get_context(L);
+	graph = ctx->graph;
+	luaL_checktype(L, table_index, LUA_TTABLE);
+	memset(&input, 0, sizeof(input));
+	current_origin(L, origin_file, sizeof(origin_file), &origin_line);
+	extends = check_string_field(L, table_index, "extends");
+	if (validate_profile_fields(L, table_index, graph) < 0 ||
+	    read_profile_table(L, table_index, &input, graph) < 0) {
+		free_lua_profile_input(&input);
+		return luaL_error(L, "%s", graph->error);
+	}
+	rc = qstar_graph_add_profile_decl(graph, name, extends, origin_file, origin_line,
+	    &input);
+	free_lua_profile_input(&input);
+	if (rc < 0)
+		return luaL_error(L, "%s", graph->error);
+	selected = graph->profile.name && *graph->profile.name ? graph->profile.name :
+	    "default";
+	if (strcmp(selected, name) == 0 && qstar_graph_apply_selected_profile(graph) < 0)
+		return luaL_error(L, "%s", graph->error);
+	return 0;
+}
+
+/** qstar.profile "name" { ... } 형태의 후행 table call을 처리한다. */
+static int
+qstar_lua_profile_finish(lua_State *L)
+{
+	const char *name;
+
+	name = lua_tostring(L, lua_upvalueindex(1));
+	return add_profile(L, name, 1);
+}
+
+/** qstar.profile "name" API entry point다. */
+static int
+qstar_lua_profile(lua_State *L)
+{
+	const char *name;
+
+	name = luaL_checkstring(L, 1);
+	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
+		lua_pushstring(L, name);
+		lua_pushcclosure(L, qstar_lua_profile_finish, 1);
+		return 1;
+	}
+	return add_profile(L, name, 2);
+}
+
 /** qstar.project metadata를 graph에 등록하고 v1 root contract를 검증한다. */
 static int
 qstar_lua_project(lua_State *L)
@@ -2117,6 +2349,8 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "__call");
 	lua_setmetatable(L, -2);
 	lua_setfield(L, -2, "project");
+	lua_pushcfunction(L, qstar_lua_profile);
+	lua_setfield(L, -2, "profile");
 	lua_pushstring(L, "target");
 	lua_pushcclosure(L, qstar_lua_target, 1);
 	lua_setfield(L, -2, "target");

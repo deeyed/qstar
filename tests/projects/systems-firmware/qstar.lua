@@ -4,6 +4,44 @@ qstar.project {
   root = ".",
 }
 
+qstar.profile "default" {
+  toolchain = "clang",
+  target = "aarch64-none-elf",
+  arch = "aarch64",
+  cpu = "cortex-a76",
+  abi = "lp64",
+  freestanding = true,
+  cc = "tools/fake-clang.sh",
+  linker = "tools/fake-link.sh",
+  link_options = {"-nostdlib", "-Wl,-Map=kernel.map"},
+  defsyms = {"__rpi_load_addr=0x80000"},
+  tool_overrides = {"llvm-objcopy=tools/fake-objcopy.sh"},
+  artifact_names = {"//:kernel=kernel.elf"},
+}
+
+qstar.profile "uefi-base" {
+  toolchain = "clang",
+  arch = "x86_64",
+  abi = "msvc",
+  cc = "tools/fake-clang.sh",
+  linker = "tools/fake-lld-link.sh",
+  response_style = "msvc",
+  tool_overrides = {"llvm-objcopy=tools/fake-objcopy.sh"},
+}
+
+qstar.profile "uefi-x64" {
+  extends = "uefi-base",
+  target = "x86_64-pc-windows-msvc",
+  artifact_names = {"//:uefi_boot=BOOTX64.EFI"},
+}
+
+qstar.profile "uefi-aa64" {
+  extends = "uefi-base",
+  target = "aarch64-pc-windows-msvc",
+  arch = "aarch64",
+  artifact_names = {"//:uefi_boot=BOOTAA64.EFI"},
+}
+
 qstar.executable "kernel" {
   sources = {
     "boot/start.S",

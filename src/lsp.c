@@ -31,6 +31,7 @@ struct qstar_lsp_hover_entry {
 
 static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 	{ "qstar.project", "Declare package-root project metadata. v1 requires root = \".\"." },
+	{ "qstar.profile", "Declare an in-DSL toolchain/profile policy for qstar.lua." },
 	{ "qstar.executable", "Create an executable target." },
 	{ "qstar.staticlib", "Create a static library target." },
 	{ "qstar.sharedlib", "Create a shared library target, if the profile supports it." },
@@ -536,13 +537,13 @@ load_lint_graph(const char *root_file, struct qstar_graph *graph)
 	qstar_graph_init(graph);
 	rc = qstar_graph_set_profile_input(graph, NULL, NULL, NULL, NULL);
 	if (rc == 0)
-		rc = qstar_graph_load_profile_files(graph, root_file);
+		rc = qstar_lua_eval_file(graph, root_file);
+	if (rc == 0)
+		rc = qstar_graph_apply_selected_profile(graph);
 	if (rc == 0)
 		rc = qstar_graph_set_profile_input(graph, NULL, NULL, NULL, NULL);
 	if (rc == 0)
 		rc = qstar_graph_validate_profile(graph);
-	if (rc == 0)
-		rc = qstar_lua_eval_file(graph, root_file);
 	if (rc == 0)
 		rc = qstar_graph_validate_packages(graph);
 	if (rc == 0)
