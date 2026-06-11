@@ -1,6 +1,7 @@
 #include "internal.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static void
@@ -9,6 +10,7 @@ usage(FILE *out)
 	fputs("usage: qstar [options] list-targets\n", out);
 	fputs("       qstar --version\n", out);
 	fputs("       qstar version\n", out);
+	fputs("       qstar docs [--path|--ai-index]\n", out);
 	fputs("       qstar [options] list-targets --format json\n", out);
 	fputs("       qstar [options] query [label]\n", out);
 	fputs("       qstar [options] doctor\n", out);
@@ -59,6 +61,11 @@ command_help(FILE *out, const char *cmd)
 	if (strcmp(cmd, "build") == 0) {
 		fputs("usage: qstar [options] build [label] [--jobs N] [--schedule-trace] [--explain-cache]\n", out);
 		fputs("Build a target, generated action, or run target in the validated graph.\n", out);
+		return;
+	}
+	if (strcmp(cmd, "docs") == 0) {
+		fputs("usage: qstar docs [--path|--ai-index]\n", out);
+		fputs("Print local QStar documentation entrypoints for users and AI agents.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "test") == 0) {
@@ -112,6 +119,33 @@ command_help(FILE *out, const char *cmd)
 		return;
 	}
 	usage(out);
+}
+
+/** QStar 문서 위치를 환경 변수와 설치 convention 기준으로 출력한다. */
+static void
+print_docs(FILE *out, int path_only, int ai_index_only)
+{
+	const char *doc_dir;
+
+	doc_dir = getenv("QSTAR_DOC_DIR");
+	if (!doc_dir || !*doc_dir)
+		doc_dir = "<prefix>/share/doc/qstar";
+	if (path_only) {
+		fprintf(out, "%s/wiki\n", doc_dir);
+		return;
+	}
+	if (ai_index_only) {
+		fprintf(out, "%s/wiki/AI_INDEX.md\n", doc_dir);
+		return;
+	}
+	fputs("qstar docs v1\n", out);
+	fprintf(out, "installed_docs %s\n", doc_dir);
+	fprintf(out, "wiki %s/wiki/README.md\n", doc_dir);
+	fprintf(out, "ai_index %s/wiki/AI_INDEX.md\n", doc_dir);
+	fprintf(out, "man qstar\n");
+	fprintf(out, "man qstar-lua\n");
+	fprintf(out, "source_tree wiki/README.md\n");
+	fprintf(out, "source_tree wiki/AI_INDEX.md\n");
 }
 
 /** QStar runtime version을 CLI와 authoring 상수의 단일 source로 출력한다. */
@@ -332,6 +366,33 @@ main(int argc, char **argv)
 			return 2;
 		}
 		print_version(stdout);
+		qstar_graph_free(&graph);
+		return 0;
+	}
+	if (strcmp(cmd, "docs") == 0) {
+		int path_only, ai_index_only;
+
+		path_only = 0;
+		ai_index_only = 0;
+		while (arg < argc) {
+			if (strcmp(argv[arg], "--path") == 0) {
+				path_only = 1;
+				arg++;
+			} else if (strcmp(argv[arg], "--ai-index") == 0) {
+				ai_index_only = 1;
+				arg++;
+			} else {
+				usage(stderr);
+				qstar_graph_free(&graph);
+				return 2;
+			}
+		}
+		if (path_only && ai_index_only) {
+			usage(stderr);
+			qstar_graph_free(&graph);
+			return 2;
+		}
+		print_docs(stdout, path_only, ai_index_only);
 		qstar_graph_free(&graph);
 		return 0;
 	}

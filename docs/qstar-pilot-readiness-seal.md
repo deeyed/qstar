@@ -21,9 +21,12 @@ release gate: make -C qstar qstar-pilot-readiness-tests
 - Mandatory TOML 설정은 없다.
 - Default work directory는 `build/qstar`다.
 - `qstar <subcommand> --help`는 graph 평가 없이 help를 출력한다.
+- `qstar docs`는 installed wiki, AI index, manpage 진입점을 출력한다.
 - `qstar fmt`는 `qstar.*` authoring block만 canonicalize하고, `local function` 같은
   ordinary Lua helper는 보존한다.
 - Wiki examples와 CLI behavior는 drift test로 묶는다.
+- `wiki/AI_INDEX.md`와 installed manpage는 AI agent가 QStar surface를 빠르게 찾는
+  문서 entrypoint다.
 - Systems corpus는 firmware-specific builtin 없이 generic QStar primitive만 사용한다.
 
 ## Release Gate
@@ -49,6 +52,8 @@ make -C qstar vscode-extension-tests
   `timeout`이다.
 - `qstar build --help`, `qstar test --help`, `qstar stage --help`,
   `qstar dry-run --help`가 target label처럼 처리되는 경우.
+- `qstar docs`, `man qstar`, `wiki/AI_INDEX.md`가 서로 다른 entrypoint를 가리키는
+  경우.
 - Systems corpus가 dedicated UEFI/RPi/embed-binary builtin 같은 board-specific
   builtin을 쓰는 경우.
 - Root-scattered `.qstar/`, `generated/`, `stage/`, root `compile_commands.json`를

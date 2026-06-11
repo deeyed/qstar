@@ -264,7 +264,7 @@ contains "$tmp/fmt-heavy.out" "  sources = {"
 contains "$tmp/fmt-heavy.out" "  lang = {"
 contains "$tmp/fmt-heavy.out" "    c=common_c(),"
 
-for help_cmd in build test stage dry-run lint fmt list-targets check install last-failure replay; do
+for help_cmd in build test stage dry-run lint fmt list-targets check install last-failure replay docs; do
 	"$qstar" "$help_cmd" --help > "$tmp/help-$help_cmd.out" 2> "$tmp/help-$help_cmd.err"
 	contains "$tmp/help-$help_cmd.out" "usage: qstar"
 done
@@ -272,6 +272,15 @@ done
 contains "$tmp/help-root.out" "usage: qstar"
 "$qstar" help build > "$tmp/help-build-alias.out" 2> "$tmp/help-build-alias.err"
 contains "$tmp/help-build-alias.out" "usage: qstar [options] build"
+"$qstar" help docs > "$tmp/help-docs-alias.out" 2> "$tmp/help-docs-alias.err"
+contains "$tmp/help-docs-alias.out" "usage: qstar docs"
+"$qstar" docs > "$tmp/docs.out" 2> "$tmp/docs.err"
+contains "$tmp/docs.out" "qstar docs v1"
+contains "$tmp/docs.out" "wiki/AI_INDEX.md"
+"$qstar" docs --ai-index > "$tmp/docs-ai.out" 2> "$tmp/docs-ai.err"
+contains "$tmp/docs-ai.out" "wiki/AI_INDEX.md"
+"$qstar" docs --path > "$tmp/docs-path.out" 2> "$tmp/docs-path.err"
+contains "$tmp/docs-path.out" "/wiki"
 "$qstar" --file "$tmp/qstar.lua" build --help > "$tmp/help-build-with-file.out" 2> "$tmp/help-build-with-file.err"
 contains "$tmp/help-build-with-file.out" "usage: qstar [options] build"
 "$qstar" --file "$tmp/qstar.lua" check //... > "$tmp/check-all-label.out" 2> "$tmp/check-all-label.err"
@@ -1874,6 +1883,12 @@ contains "docs/qstar-v0.3-seal.md" "experimental surface"
 contains "docs/qstar-pilot-readiness-seal.md" "status: pilot-readiness seal"
 contains "docs/qstar-pilot-readiness-seal.md" "qstar-pilot-readiness-tests"
 contains "docs/qstar-pilot-readiness-seal.md" "qstar <subcommand> --help"
+contains "docs/README.md" "../wiki/AI_INDEX.md"
+contains "man/man1/qstar.1" "QSTAR_DOC_DIR"
+contains "man/man5/qstar-lua.5" "QSTAR_VERSION"
+contains "Makefile" "share/doc/qstar"
+contains "Makefile" "man/man1/qstar.1"
+contains "Makefile" "man/man5/qstar-lua.5"
 contains "docs/qstar-submodule-extraction-prep.md" "standalone-repository-extracted"
 contains "docs/qstar-submodule-extraction-prep.md" "actual split: completed"
 contains "docs/qstar-submodule-extraction-prep.md" "vendor/lua"
@@ -1883,6 +1898,11 @@ contains "docs/README.md" "qstar-v0.2-release-candidate-seal.md"
 contains "docs/README.md" "qstar-v0.3-seal.md"
 contains "docs/README.md" "qstar-pilot-readiness-seal.md"
 contains "docs/README.md" "qstar-submodule-extraction-prep.md"
+contains "README.md" "qstar docs --ai-index"
+contains "wiki/README.md" "AI_INDEX.md"
+contains "wiki/AI_INDEX.md" "QStar AI Index"
+contains "wiki/AI_INDEX.md" "qstar.custom_target"
+contains "wiki/AI_INDEX.md" "low-level/bootloader-style project"
 contains "Makefile" "qstar-v0.2-rc-tests"
 contains "Makefile" "qstar-v0.3-rc-tests"
 contains "Makefile" "qstar-pilot-readiness-tests"
@@ -1895,6 +1915,9 @@ if grep -R -n --include='*.md' -E 'timeout_sec[[:space:]]*=' docs wiki >/dev/nul
 fi
 if grep -R -n -E 'qstar\.(uefi_app|rpi_image|embed_binary)' tests/projects/systems-firmware docs wiki >/dev/null; then
 	fail "QStar systems corpus/docs contain board-specific builtin"
+fi
+if grep -R -n -i -E 'ribon|신Ribon' wiki >/dev/null; then
+	fail "QStar wiki must not mention a specific downstream project"
 fi
 
 wiki_docs="

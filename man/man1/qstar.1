@@ -1,0 +1,79 @@
+.Dd June 11, 2026
+.Dt QSTAR 1
+.Os
+.Sh NAME
+.Nm qstar
+.Nd standalone QStar build graph evaluator and local executor
+.Sh SYNOPSIS
+.Nm
+.Op Fl -file Ar qstar.lua
+.Ar command
+.Op Ar arguments
+.Nm
+.Ar docs
+.Op Fl -path | Fl -ai-index
+.Nm
+.Fl -version
+.Sh DESCRIPTION
+.Nm
+evaluates QStar authoring files, validates a target graph, renders command
+plans, and runs a limited local executor for build, test, install, stage, and
+external smoke actions.
+The project entrypoint is
+.Pa qstar.lua .
+Subdirectory fragments use the
+.Pa .qst
+suffix.
+.Pp
+QStar is a generic build system.
+C, C++, assembler, and Cale are supported through language namespaces and
+toolchain profiles, but QStar does not interpret Cale or HCL semantics itself.
+Generated actions use
+.Ic qstar.cli
+argv vectors, not shell strings.
+.Sh COMMANDS
+.Bl -tag -width "last-failure"
+.It Ic docs
+Print local documentation entrypoints, including the wiki and AI index.
+.It Ic lint
+Evaluate authoring diagnostics without executing build actions.
+.It Ic explain
+Print target closure and command-plan information.
+.It Ic dry-run
+Render action plans without running them.
+.It Ic build
+Run the local executor.
+.It Ic test
+Build and run QStar test targets.
+.It Ic stage
+Create a copy-only staged package tree.
+.It Ic last-failure
+Print the latest failure replay file.
+.It Ic replay
+Print the stored replay command for an action id.
+.El
+.Sh FILES
+.Bl -tag -width "share/doc/qstar/wiki/AI_INDEX.md"
+.It Pa qstar.lua
+Project root entrypoint.
+.It Pa *.qst
+QStar fragment file.
+.It Pa build/qstar
+Default state, log, response file, generated output, stage, and compile database
+directory.
+.It Pa share/doc/qstar/wiki/README.md
+Installed QStar wiki entrypoint.
+.It Pa share/doc/qstar/wiki/AI_INDEX.md
+Short documentation map for AI agents and automation.
+.El
+.Sh ENVIRONMENT
+.Bl -tag -width "QSTAR_DOC_DIR"
+.It Ev QSTAR_DOC_DIR
+Overrides the documentation directory printed by
+.Nm
+.Ic docs .
+.El
+.Sh SEE ALSO
+.Xr qstar-lua 5 ,
+.Pa share/doc/qstar/wiki/README.md ,
+.Pa share/doc/qstar/wiki/AI_INDEX.md

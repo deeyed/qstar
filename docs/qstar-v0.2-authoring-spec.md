@@ -363,7 +363,7 @@ Multi-arch firmware나 OS project는 같은 source file을 여러 target variant
 허용한다.
 
 ```lua
-qstar.target_family "ribon_boot" {
+qstar.target_family "boot_family" {
   variants = {"x86_64", "aarch64", "riscv64"},
   allow_shared_sources = true,
 }

@@ -93,6 +93,8 @@ QStar evaluator는 `vendor/lua`에 있는 Lua submodule을 사용한다. tag는 
 qstar --file qstar.lua --dump-graph
 qstar --version
 qstar version
+qstar docs
+qstar docs --ai-index
 qstar --file qstar.lua list-targets
 qstar --file qstar.lua list-targets --format json
 qstar --file qstar.lua query //:app
@@ -129,6 +131,10 @@ qstar --file qstar.lua --diagnostics json check //:app
 qstar --file qstar.lua --package-alias @core=/path/to/core explain //:app
 qstar --file qstar.lua --profile debug --target arm64-apple-macos explain //:app
 ```
+
+`make install PREFIX=/path`는 `qstar` binary와 함께 manpage, `wiki/`, AI index를
+`share/doc/qstar` 아래에 설치한다. `qstar docs`는 설치된 wiki/AI index 위치를 찾기
+위한 얇은 entrypoint다.
 
 ## 명령 의미
 

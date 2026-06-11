@@ -8,6 +8,8 @@ Meson처럼 project graph, command plan, build/test/install/stage 실행을 맡�
 사용 설명서다. 모든 예제는 v0.2 authoring surface 기준이며 root file은 `qstar.lua`,
 subdir fragment는 `<folder>.qst`, 언어별 option은 `lang.*` 아래에 둔다.
 
+AI agent가 빠르게 구조를 파악해야 한다면 [AI Index](AI_INDEX.md)를 먼저 읽는다.
+
 ## 빠른 시작
 
 ```sh
@@ -15,6 +17,8 @@ make -C qstar
 qstar/build/bin/qstar init c-app /tmp/qstar-hello
 qstar/build/bin/qstar --file /tmp/qstar-hello/qstar.lua lint //...
 qstar/build/bin/qstar --file /tmp/qstar-hello/qstar.lua build //:app
+qstar/build/bin/qstar docs
+qstar/build/bin/qstar docs --ai-index
 /tmp/qstar-hello/build/qstar/out/___app/app
 ```
 

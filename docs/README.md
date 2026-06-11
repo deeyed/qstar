@@ -54,6 +54,8 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 - `qstar-pilot-readiness-seal.md`: formatter/help/wiki/CLI sync까지 묶은 pilot-readiness gate.
 - `qstar-submodule-extraction-prep.md`: 독립 repo/submodule 전환 직전 체크리스트.
 - `../wiki/`: 사용자/AI가 QStar project를 직접 작성할 수 있는 한국어 wiki.
+- `../wiki/AI_INDEX.md`: Codex 같은 AI agent가 먼저 읽는 압축 색인.
+- `../man/`: installed `man qstar`, `man qstar-lua` entrypoint.
 - `network-policy.md`: Fetch-only network policy와 offline/frozen/locked mode.
 - `examples.md`: 작은 앱, header facade, monorepo, generated source, platform split 예시.
 - Package resolver, dependency source model, lock data는 QStar core 밖의 package

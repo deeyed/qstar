@@ -1,0 +1,76 @@
+.Dd June 11, 2026
+.Dt QSTAR-LUA 5
+.Os
+.Sh NAME
+.Nm qstar-lua
+.Nd QStar authoring file format
+.Sh DESCRIPTION
+QStar authoring files are sandboxed Lua 5.4 files that construct a deterministic
+build graph.
+The root file is
+.Pa qstar.lua .
+Subdirectory fragments are named
+.Pa <folder>.qst .
+.Pp
+The main entrypoints are:
+.Bl -tag -width "qstar.custom_target"
+.It Ic qstar.project
+Project metadata, including name, version, root, build_dir, and compile_commands.
+.It Ic qstar.profile
+In-DSL toolchain and target profile declaration.
+.It Ic qstar.executable
+Executable target.
+.It Ic qstar.staticlib
+Static library target.
+.It Ic qstar.test
+Test executable target.
+.It Ic qstar.custom_target
+Generated action using a
+.Ic qstar.cli
+argv vector.
+.It Ic qstar.run_target
+External smoke command with timeout and optional marker checks.
+.It Ic qstar.stage
+Copy-only package or staging tree.
+.El
+.Pp
+Language-specific options must live under
+.Ic lang.c ,
+.Ic lang.cxx ,
+.Ic lang.asm ,
+or
+.Ic lang.cale .
+Top-level include/header/module/compile fields are rejected.
+.Sh LUA SUBSET
+Allowed helper features include
+.Ic local function ,
+local variables, table literals,
+.Ic ipairs ,
+.Ic pairs ,
+.Ic table.insert ,
+and safe
+.Ic string.*
+helpers.
+Global assignment, filesystem/process/network APIs, dynamic loading, and debug
+interfaces are forbidden.
+.Sh CONSTANTS
+.Nm
+provides constants such as
+.Ic QSTAR_VERSION ,
+.Ic QSTAR_HOST_OS ,
+.Ic QSTAR_HOST_ARCH ,
+.Ic QSTAR_PACKAGE_ROOT ,
+.Ic QSTAR_PROJECT_ROOT ,
+.Ic QSTAR_PROFILE ,
+and
+.Ic QSTAR_TARGET .
+Namespace forms include
+.Ic qstar.version ,
+.Ic qstar.host.os ,
+.Ic qstar.host.arch ,
+and
+.Ic qstar.project.root .
+.Sh SEE ALSO
+.Xr qstar 1 ,
+.Pa share/doc/qstar/wiki/reference/qstar-lua.md ,
+.Pa share/doc/qstar/wiki/AI_INDEX.md

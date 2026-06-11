@@ -4,6 +4,8 @@ CC ?= cc
 BUILD_DIR ?= build
 BIN_DIR ?= $(BUILD_DIR)/bin
 PREFIX ?= /usr/local
+DOC_DIR ?= $(PREFIX)/share/doc/qstar
+MAN_DIR ?= $(PREFIX)/share/man
 QSTAR_BUILD = $(BUILD_DIR)/obj
 LUA_DIR = vendor/lua
 CFLAGS ?= -g -O0 -pipe
@@ -122,6 +124,12 @@ qstar-executor-v2-tests: check
 install: all
 	mkdir -p "$(PREFIX)/bin"
 	cp "$(BIN_DIR)/qstar" "$(PREFIX)/bin/qstar"
+	mkdir -p "$(DOC_DIR)"
+	rm -rf "$(DOC_DIR)/wiki"
+	cp -R wiki "$(DOC_DIR)/wiki"
+	mkdir -p "$(MAN_DIR)/man1" "$(MAN_DIR)/man5"
+	cp man/man1/qstar.1 "$(MAN_DIR)/man1/qstar.1"
+	cp man/man5/qstar-lua.5 "$(MAN_DIR)/man5/qstar-lua.5"
 
 clean:
 	rm -rf $(QSTAR_BUILD) $(BIN_DIR)/qstar
