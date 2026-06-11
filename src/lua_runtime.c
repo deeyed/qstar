@@ -14,6 +14,8 @@ struct qstar_lua_context {
 	struct qstar_graph *graph;
 	char root_dir[QSTAR_PATH_MAX];
 	char current_dir[QSTAR_PATH_MAX];
+	struct qstar_string_list import_stack;
+	int module_depth;
 };
 
 static const char *
@@ -79,6 +81,54 @@ get_context(lua_State *L)
 	ctx = lua_touserdata(L, -1);
 	lua_pop(L, 1);
 	return ctx;
+}
+
+/** 현재 평가 중인 .qsm module에서 graph 선언 API가 호출되지 않게 막는다. */
+static int
+reject_graph_declaration_in_module(lua_State *L, const char *api)
+{
+	struct qstar_lua_context *ctx;
+
+	ctx = get_context(L);
+	if (ctx && ctx->module_depth > 0)
+		return luaL_error(L, "qstar: %s is not allowed inside .qsm module",
+		    api);
+	return 0;
+}
+
+/** path가 suffix로 끝나는지 검사한다. */
+static int
+path_has_suffix(const char *path, const char *suffix)
+{
+	size_t npath, nsuffix;
+
+	npath = strlen(path ? path : "");
+	nsuffix = strlen(suffix ? suffix : "");
+	return npath >= nsuffix && strcmp(path + npath - nsuffix, suffix) == 0;
+}
+
+/** 문자열 list에 path가 이미 들어 있는지 검사한다. */
+static int
+string_list_contains(const struct qstar_string_list *list, const char *path)
+{
+	size_t i;
+
+	for (i = 0; i < list->len; i++) {
+		if (strcmp(list->items[i], path) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+/** stack처럼 쓰는 문자열 list의 마지막 항목을 제거한다. */
+static void
+string_list_pop(struct qstar_string_list *list)
+{
+	if (!list || list->len == 0)
+		return;
+	list->len--;
+	free(list->items[list->len]);
+	list->items[list->len] = NULL;
 }
 
 static const char *
@@ -1062,6 +1112,8 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 		table_index = lua_gettop(L) + table_index + 1;
 	ctx = get_context(L);
 	graph = ctx->graph;
+	if (reject_graph_declaration_in_module(L, "target declaration") != 0)
+		return 1;
 	luaL_checktype(L, table_index, LUA_TTABLE);
 	kind = check_string_field(L, table_index, "kind");
 	if (default_kind && strcmp(default_kind, "group") == 0 && kind && *kind &&
@@ -1204,6 +1256,8 @@ qstar_lua_target(lua_State *L)
 	const char *name, *default_kind;
 
 	ctx = get_context(L);
+	if (reject_graph_declaration_in_module(L, "target declaration") != 0)
+		return 1;
 	name = luaL_checkstring(L, 1);
 	default_kind = lua_tostring(L, lua_upvalueindex(1));
 	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
@@ -1240,6 +1294,8 @@ add_genrule(lua_State *L, const char *name, int table_index, const char *fragmen
 		table_index = lua_gettop(L) + table_index + 1;
 	ctx = get_context(L);
 	graph = ctx->graph;
+	if (reject_graph_declaration_in_module(L, "qstar.custom_target") != 0)
+		return 1;
 	luaL_checktype(L, table_index, LUA_TTABLE);
 	if (!name[0])
 		return luaL_error(L, "qstar: generated action name is empty");
@@ -1304,6 +1360,8 @@ add_config_header(lua_State *L, const char *name, int table_index, const char *f
 		table_index = lua_gettop(L) + table_index + 1;
 	ctx = get_context(L);
 	graph = ctx->graph;
+	if (reject_graph_declaration_in_module(L, "qstar.configure_file") != 0)
+		return 1;
 	luaL_checktype(L, table_index, LUA_TTABLE);
 	if (!name[0])
 		return luaL_error(L, "qstar: config header name is empty");
@@ -1353,6 +1411,8 @@ qstar_lua_genrule(lua_State *L)
 	const char *name;
 
 	ctx = get_context(L);
+	if (reject_graph_declaration_in_module(L, "qstar.custom_target") != 0)
+		return 1;
 	name = luaL_checkstring(L, 1);
 	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
 		lua_pushstring(L, name);
@@ -1380,6 +1440,8 @@ qstar_lua_config_header(lua_State *L)
 	const char *name;
 
 	ctx = get_context(L);
+	if (reject_graph_declaration_in_module(L, "qstar.configure_file") != 0)
+		return 1;
 	name = luaL_checkstring(L, 1);
 	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
 		lua_pushstring(L, name);
@@ -1485,6 +1547,8 @@ add_stage(lua_State *L, const char *name, int table_index, const char *fragment_
 		table_index = lua_gettop(L) + table_index + 1;
 	ctx = get_context(L);
 	graph = ctx->graph;
+	if (reject_graph_declaration_in_module(L, "qstar.stage") != 0)
+		return 1;
 	luaL_checktype(L, table_index, LUA_TTABLE);
 	if (!name[0])
 		return luaL_error(L, "qstar: stage name is empty");
@@ -1532,6 +1596,8 @@ qstar_lua_stage(lua_State *L)
 	const char *name;
 
 	ctx = get_context(L);
+	if (reject_graph_declaration_in_module(L, "qstar.stage") != 0)
+		return 1;
 	name = luaL_checkstring(L, 1);
 	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
 		lua_pushstring(L, name);
@@ -1578,6 +1644,8 @@ add_target_family(lua_State *L, const char *name, int table_index,
 		table_index = lua_gettop(L) + table_index + 1;
 	ctx = get_context(L);
 	graph = ctx->graph;
+	if (reject_graph_declaration_in_module(L, "qstar.target_family") != 0)
+		return 1;
 	luaL_checktype(L, table_index, LUA_TTABLE);
 	current_origin(L, origin_file, sizeof(origin_file), &origin_line);
 	family = qstar_graph_add_target_family(graph, name, fragment_dir, origin_file,
@@ -1614,6 +1682,8 @@ qstar_lua_target_family(lua_State *L)
 	const char *name;
 
 	ctx = get_context(L);
+	if (reject_graph_declaration_in_module(L, "qstar.target_family") != 0)
+		return 1;
 	name = luaL_checkstring(L, 1);
 	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
 		lua_pushstring(L, name);
@@ -2231,6 +2301,8 @@ add_profile(lua_State *L, const char *name, int table_index)
 		table_index = lua_gettop(L) + table_index + 1;
 	ctx = get_context(L);
 	graph = ctx->graph;
+	if (reject_graph_declaration_in_module(L, "qstar.profile") != 0)
+		return 1;
 	luaL_checktype(L, table_index, LUA_TTABLE);
 	memset(&input, 0, sizeof(input));
 	current_origin(L, origin_file, sizeof(origin_file), &origin_line);
@@ -2268,6 +2340,8 @@ qstar_lua_profile(lua_State *L)
 {
 	const char *name;
 
+	if (reject_graph_declaration_in_module(L, "qstar.profile") != 0)
+		return 1;
 	name = luaL_checkstring(L, 1);
 	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
 		lua_pushstring(L, name);
@@ -2286,6 +2360,8 @@ qstar_lua_project(lua_State *L)
 	int idx;
 
 	ctx = get_context(L);
+	if (reject_graph_declaration_in_module(L, "qstar.project") != 0)
+		return 1;
 	idx = lua_gettop(L) >= 2 && lua_istable(L, 2) ? 2 : 1;
 	luaL_checktype(L, idx, LUA_TTABLE);
 	name = check_string_field(L, idx, "name");
@@ -2301,22 +2377,150 @@ qstar_lua_project(lua_State *L)
 
 static int eval_fragment(lua_State *L, struct qstar_lua_context *ctx, const char *file,
     const char *fragment_dir);
+static int eval_module(lua_State *L, struct qstar_lua_context *ctx, const char *file,
+    const char *module_dir, const char *rel);
 
-/** 평가한 authoring fragment를 package-relative path로 graph에 기록한다. */
+/** filesystem path를 package-relative authoring input path로 변환한다. */
 static int
-remember_fragment(struct qstar_lua_context *ctx, const char *file)
+package_relative_input(struct qstar_lua_context *ctx, const char *file, char *rel,
+    size_t rellen)
 {
-	const char *rel;
+	const char *p;
 	size_t n;
 
-	rel = file;
+	p = file;
 	n = strlen(ctx->root_dir);
 	if (n > 0 && strcmp(ctx->root_dir, ".") != 0 &&
 	    strncmp(file, ctx->root_dir, n) == 0 && file[n] == '/')
-		rel = file + n + 1;
+		p = file + n + 1;
 	else if (strncmp(file, "./", 2) == 0)
-		rel = file + 2;
-	return qstar_string_list_push(&ctx->graph->evaluated_fragments, rel);
+		p = file + 2;
+	return snprintf(rel, rellen, "%s", p) < (int)rellen ? 0 : -1;
+}
+
+/** 평가한 authoring input을 graph와 import stack에 기록한다. */
+static int
+enter_authoring_input(struct qstar_lua_context *ctx, const char *rel)
+{
+	if (qstar_string_list_push(&ctx->graph->evaluated_fragments, rel) < 0)
+		return -1;
+	if (qstar_string_list_push(&ctx->import_stack, rel) < 0)
+		return -1;
+	return 0;
+}
+
+/** 현재 authoring input 평가 stack에서 빠져나온다. */
+static void
+leave_authoring_input(struct qstar_lua_context *ctx)
+{
+	string_list_pop(&ctx->import_stack);
+}
+
+/** package-root 기준 import path와 실제 path를 만든다. */
+static int
+resolve_import_path(struct qstar_lua_context *ctx, const char *raw, char *rel,
+    size_t rellen, char *full, size_t fulllen)
+{
+	if (!qstar_path_is_package_relative(raw))
+		return -1;
+	if (snprintf(rel, rellen, "%s", raw) >= (int)rellen)
+		return -1;
+	return qstar_path_join(ctx->root_dir, rel, full, fulllen);
+}
+
+/** folder path의 basename component를 반환한다. */
+static const char *
+path_basename_component(const char *path)
+{
+	const char *slash;
+
+	slash = strrchr(path, '/');
+	return slash ? slash + 1 : path;
+}
+
+/** qstar.import_file("path.qst")로 명시적 graph fragment를 평가한다. */
+static int
+qstar_lua_import_file(lua_State *L)
+{
+	struct qstar_lua_context *ctx;
+	const char *raw;
+	char rel[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX], fragment_dir[QSTAR_PATH_MAX];
+	FILE *f;
+
+	ctx = get_context(L);
+	if (reject_graph_declaration_in_module(L, "qstar.import_file") != 0)
+		return 1;
+	raw = luaL_checkstring(L, 1);
+	if (!path_has_suffix(raw, ".qst"))
+		return luaL_error(L, "qstar: import_file path '%s' must end with .qst",
+		    raw);
+	if (resolve_import_path(ctx, raw, rel, sizeof(rel), full, sizeof(full)) < 0)
+		return luaL_error(L,
+		    "qstar: import_file path '%s' must be package-relative", raw);
+	if (string_list_contains(&ctx->import_stack, rel))
+		return luaL_error(L, "qstar: circular import includes '%s'", rel);
+	if (string_list_contains(&ctx->graph->evaluated_fragments, rel))
+		return luaL_error(L, "qstar: duplicate import '%s'", rel);
+	f = fopen(full, "r");
+	if (!f)
+		return luaL_error(L, "qstar: import_file '%s' not found", rel);
+	fclose(f);
+	if (qstar_dirname(rel, fragment_dir, sizeof(fragment_dir)) < 0)
+		return luaL_error(L, "qstar: import_file path '%s' is too long", rel);
+	if (strcmp(fragment_dir, ".") == 0)
+		fragment_dir[0] = '\0';
+	if (eval_fragment(L, ctx, full, fragment_dir) < 0)
+		return lua_error(L);
+	return 0;
+}
+
+/** qstar.import_module("folder")를 folder/basename.qsm module table로 평가한다. */
+static int
+qstar_lua_import_module(lua_State *L)
+{
+	struct qstar_lua_context *ctx;
+	const char *raw, *base;
+	char rel_dir[QSTAR_PATH_MAX];
+	char rel[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX];
+	size_t n;
+	FILE *f;
+
+	ctx = get_context(L);
+	raw = luaL_checkstring(L, 1);
+	if (path_has_suffix(raw, ".qsm") || path_has_suffix(raw, ".qst") ||
+	    strcmp(raw, "qstar.lua") == 0)
+		return luaL_error(L,
+		    "qstar: import_module expects a folder path, not file '%s'", raw);
+	n = strlen(raw);
+	if (n == 0 || raw[n - 1] == '/')
+		return luaL_error(L,
+		    "qstar: import_module expects a normalized folder path, not '%s'",
+		    raw);
+	if (resolve_import_path(ctx, raw, rel_dir, sizeof(rel_dir), full,
+	    sizeof(full)) < 0)
+		return luaL_error(L,
+		    "qstar: import_module path '%s' must be package-relative", raw);
+	base = path_basename_component(rel_dir);
+	if (!base || !*base)
+		return luaL_error(L,
+		    "qstar: import_module path '%s' has no module basename", raw);
+	if (snprintf(rel, sizeof(rel), "%s/%s.qsm", rel_dir, base) >=
+	    (int)sizeof(rel) ||
+	    qstar_path_join(ctx->root_dir, rel, full, sizeof(full)) < 0)
+		return luaL_error(L, "qstar: import_module path '%s' is too long",
+		    raw);
+	if (string_list_contains(&ctx->import_stack, rel))
+		return luaL_error(L, "qstar: circular import includes '%s'", rel);
+	if (string_list_contains(&ctx->graph->evaluated_fragments, rel))
+		return luaL_error(L, "qstar: duplicate import '%s'", rel);
+	f = fopen(full, "r");
+	if (!f)
+		return luaL_error(L,
+		    "qstar: import_module '%s' not found; expected '%s'", raw, rel);
+	fclose(f);
+	if (eval_module(L, ctx, full, rel_dir, rel) < 0)
+		return lua_error(L);
+	return 1;
 }
 
 static int
@@ -2331,6 +2535,8 @@ qstar_lua_subdir(lua_State *L)
 	FILE *f;
 
 	ctx = get_context(L);
+	if (reject_graph_declaration_in_module(L, "qstar.subdir") != 0)
+		return 1;
 	dir = luaL_checkstring(L, 1);
 	current_origin(L, origin_file, sizeof(origin_file), &origin_line);
 	if (!qstar_path_is_package_relative(dir))
@@ -2349,6 +2555,10 @@ qstar_lua_subdir(lua_State *L)
 	f = fopen(candidate, "r");
 	if (f) {
 		fclose(f);
+		if (string_list_contains(&ctx->import_stack, path))
+			return luaL_error(L, "qstar: circular import includes '%s'", path);
+		if (string_list_contains(&ctx->graph->evaluated_fragments, path))
+			return luaL_error(L, "qstar: duplicate import '%s'", path);
 		if (eval_fragment(L, ctx, candidate, full_dir) < 0)
 			return lua_error(L);
 		return 0;
@@ -2593,6 +2803,10 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "select");
 	lua_pushcfunction(L, qstar_lua_incompatible);
 	lua_setfield(L, -2, "incompatible");
+	lua_pushcfunction(L, qstar_lua_import_file);
+	lua_setfield(L, -2, "import_file");
+	lua_pushcfunction(L, qstar_lua_import_module);
+	lua_setfield(L, -2, "import_module");
 	lua_pushcfunction(L, qstar_lua_subdir);
 	lua_setfield(L, -2, "subdir");
 	lua_setglobal(L, "qstar");
@@ -2601,20 +2815,66 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 static int
 eval_fragment(lua_State *L, struct qstar_lua_context *ctx, const char *file, const char *fragment_dir)
 {
-	char old[QSTAR_PATH_MAX];
+	char old[QSTAR_PATH_MAX], rel[QSTAR_PATH_MAX];
+	int rc;
 
 	snprintf(old, sizeof(old), "%s", ctx->current_dir);
 	snprintf(ctx->current_dir, sizeof(ctx->current_dir), "%s", fragment_dir ? fragment_dir : "");
-	if (remember_fragment(ctx, file) < 0)
+	if (package_relative_input(ctx, file, rel, sizeof(rel)) < 0) {
+		lua_pushstring(L, "qstar: authoring input path is too long");
 		return -1;
-	if (luaL_loadfilex(L, file, "t") != LUA_OK)
+	}
+	if (enter_authoring_input(ctx, rel) < 0) {
+		lua_pushstring(L, "qstar: out of memory");
 		return -1;
+	}
+	if (luaL_loadfilex(L, file, "t") != LUA_OK) {
+		leave_authoring_input(ctx);
+		snprintf(ctx->current_dir, sizeof(ctx->current_dir), "%s", old);
+		return -1;
+	}
 	push_authoring_env(L);
 	if (!lua_setupvalue(L, -2, 1))
 		lua_pop(L, 1);
-	if (lua_pcall(L, 0, 0, 0) != LUA_OK)
-		return -1;
+	rc = lua_pcall(L, 0, 0, 0);
+	leave_authoring_input(ctx);
 	snprintf(ctx->current_dir, sizeof(ctx->current_dir), "%s", old);
+	return rc == LUA_OK ? 0 : -1;
+}
+
+static int
+eval_module(lua_State *L, struct qstar_lua_context *ctx, const char *file,
+    const char *module_dir, const char *rel)
+{
+	char old[QSTAR_PATH_MAX];
+	int rc;
+
+	snprintf(old, sizeof(old), "%s", ctx->current_dir);
+	snprintf(ctx->current_dir, sizeof(ctx->current_dir), "%s", module_dir ? module_dir : "");
+	if (enter_authoring_input(ctx, rel) < 0) {
+		lua_pushstring(L, "qstar: out of memory");
+		return -1;
+	}
+	if (luaL_loadfilex(L, file, "t") != LUA_OK) {
+		leave_authoring_input(ctx);
+		snprintf(ctx->current_dir, sizeof(ctx->current_dir), "%s", old);
+		return -1;
+	}
+	push_authoring_env(L);
+	if (!lua_setupvalue(L, -2, 1))
+		lua_pop(L, 1);
+	ctx->module_depth++;
+	rc = lua_pcall(L, 0, 1, 0);
+	ctx->module_depth--;
+	leave_authoring_input(ctx);
+	snprintf(ctx->current_dir, sizeof(ctx->current_dir), "%s", old);
+	if (rc != LUA_OK)
+		return -1;
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		lua_pushfstring(L, "qstar: module '%s' must return a table", rel);
+		return -1;
+	}
 	return 0;
 }
 
@@ -2730,5 +2990,6 @@ qstar_lua_eval_file(struct qstar_graph *graph, const char *file)
 	if (rc < 0)
 		qstar_set_error(graph, "%s", lua_tostring(L, -1));
 	lua_close(L);
+	qstar_string_list_free(&ctx.import_stack);
 	return rc;
 }

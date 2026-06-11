@@ -46,6 +46,8 @@ static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 	{ "qstar.cli", "Build an argv-vector command for custom_target or run_target." },
 	{ "qstar.input", "Reference a custom_target input by index inside qstar.cli." },
 	{ "qstar.subdir", "Load a canonical subdir fragment named <folder>.qst." },
+	{ "qstar.import_file", "Load a package-relative .qst graph fragment exactly once." },
+	{ "qstar.import_module", "Load a package-relative module folder as <name>/<name>.qsm and return its table." },
 	{ "qstar.files", "Return an explicit file list for target fields." },
 	{ "qstar.output", "Declare a generated output path, or reference an output by index inside qstar.cli." },
 	{ "qstar.target_file", "Reference another target artifact path inside qstar.cli." },

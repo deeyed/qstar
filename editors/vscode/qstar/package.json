@@ -1,7 +1,7 @@
 {
   "name": "qstar-vscode",
   "displayName": "QStar",
-  "description": "Language support for QStar qstar.lua and .qst build files.",
+  "description": "Language support for QStar qstar.lua, .qst build files, and .qsm modules.",
   "version": "0.2.0",
   "publisher": "cale",
   "license": "UNLICENSED",
@@ -46,10 +46,12 @@
           "qstar"
         ],
         "extensions": [
-          ".qst"
+          ".qst",
+          ".qsm"
         ],
         "filenamePatterns": [
-          "*.qst"
+          "*.qst",
+          "*.qsm"
         ],
         "filenames": [
           "qstar.lua"
@@ -84,6 +86,7 @@
     "configurationDefaults": {
       "files.associations": {
         "*.qst": "qstar",
+        "*.qsm": "qstar",
         "qstar.lua": "qstar"
       }
     },

@@ -5,8 +5,8 @@ Meson처럼 project graph, command plan, build/test/install/stage 실행을 맡�
 의미론 자체는 각 compiler와 language provider가 맡는다.
 
 이 wiki는 구현 요약이 아니라 “이것만 보고 QStar project를 작성할 수 있는” 한국어
-사용 설명서다. 모든 예제는 v0.2 authoring surface 기준이며 root file은 `qstar.lua`,
-subdir fragment는 `<folder>.qst`, 언어별 option은 `lang.*` 아래에 둔다.
+사용 설명서다. Root file은 `qstar.lua`, subdir fragment는 `<folder>.qst`, helper
+module은 `<folder>/<folder>.qsm`, 언어별 option은 `lang.*` 아래에 둔다.
 
 AI agent가 빠르게 구조를 파악해야 한다면 [AI Index](AI_INDEX.md)를 먼저 읽는다.
 
@@ -101,6 +101,7 @@ qstar --file qstar.lua build //:app
 ## Reference
 
 - [QStar Lua](reference/qstar-lua.md)
+- [Imports And Modules](reference/modules.md)
 - [Target Rules](reference/target-rules.md)
 - [C Language Options](reference/lang-c.md)
 - [C++ Language Options](reference/lang-cxx.md)

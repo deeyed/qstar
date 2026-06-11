@@ -16,7 +16,7 @@ usage(FILE *out)
 	fputs("       qstar [options] doctor\n", out);
 	fputs("       qstar [options] check [label]\n", out);
 	fputs("       qstar [options] lint [label|//...] [--format text|json]\n", out);
-	fputs("       qstar [options] fmt [--check] [qstar.lua|fragment.qst]\n", out);
+	fputs("       qstar [options] fmt [--check] [qstar.lua|fragment.qst|module.qsm]\n", out);
 	fputs("       qstar [options] explain [label]\n", out);
 	fputs("       qstar [options] dry-run [label]\n", out);
 	fputs("       qstar [options] build [label]\n", out);
@@ -93,7 +93,7 @@ command_help(FILE *out, const char *cmd)
 		return;
 	}
 	if (strcmp(cmd, "fmt") == 0) {
-		fputs("usage: qstar [options] fmt [--check] [--stdout] [qstar.lua|fragment.qst]\n", out);
+		fputs("usage: qstar [options] fmt [--check] [--stdout] [qstar.lua|fragment.qst|module.qsm]\n", out);
 		fputs("Format qstar.* authoring blocks while preserving ordinary Lua helpers.\n", out);
 		return;
 	}

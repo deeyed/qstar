@@ -107,5 +107,32 @@
       "qstar.subdir(\"${1:src}\")"
     ],
     "description": "Include a canonical subdir fragment named <folder>.qst."
+  },
+  "Import file": {
+    "prefix": "qimportfile",
+    "body": [
+      "qstar.import_file(\"${1:qstar/policies/common.qst}\")"
+    ],
+    "description": "Import a package-relative .qst graph fragment."
+  },
+  "Import module": {
+    "prefix": "qimportmodule",
+    "body": [
+      "local ${1:mod} = qstar.import_module(\"${2:qstar/modules/common}\")"
+    ],
+    "description": "Import a package-relative .qsm helper module folder."
+  },
+  "Module table": {
+    "prefix": "qmodule",
+    "body": [
+      "local M = {}",
+      "",
+      "function M.${1:helper}(${2})",
+      "  return ${3:{}}",
+      "end",
+      "",
+      "return M"
+    ],
+    "description": "Create a .qsm helper module table."
   }
 }

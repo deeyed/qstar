@@ -26,6 +26,10 @@ The project entrypoint is
 Subdirectory fragments use the
 .Pa .qst
 suffix.
+Helper modules use the
+.Pa .qsm
+suffix and are imported through
+.Ic qstar.import_module .
 .Pp
 QStar is a generic build system.
 C, C++, assembler, and Cale are supported through language namespaces and
@@ -80,6 +84,8 @@ Print the stored replay command for an action id.
 Project root entrypoint.
 .It Pa *.qst
 QStar fragment file.
+.It Pa *.qsm
+QStar helper module file.
 .It Pa build/qstar
 Default state, log, response file, generated output, stage, and compile database
 directory.

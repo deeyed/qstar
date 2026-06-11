@@ -24,6 +24,9 @@ QStar가 하지 않는 일:
 - root entry는 `qstar.lua` 하나다.
 - project metadata는 `qstar.project { name, version, root = "." }`로 둔다.
 - subdir fragment는 `<folder>/<folder>.qst`다.
+- `qstar.import_file("path.qst")`는 package-root 기준 `.qst` graph fragment를 읽는다.
+- `qstar.import_module("folder/path")`는 `folder/path/path.qsm` helper module table을 읽는다.
+- `.qsm` 안에서는 target/profile/project 같은 graph declaration이 금지된다.
 - legacy qs fragment suffix와 `qstar.workspace`는 제거된 surface다.
 - 산출물 기본 위치는 `build/qstar`다.
 - CLI `-B path`는 `qstar.project.build_dir`보다 우선한다.
@@ -56,6 +59,8 @@ Command/path helper:
 - `qstar.stage_file`
 - `qstar.files`
 - `qstar.subdir`
+- `qstar.import_file`
+- `qstar.import_module`
 - `qstar.select`
 - `qstar.incompatible`
 
@@ -175,6 +180,13 @@ Failure class는 `marker-missing`, `timeout`, `exit-code`처럼 분리되고,
 - `debug`, `package`
 - process/network/time/random API
 
+Helper module은 Lua `require`가 아니라 `qstar.import_module`로 읽는다.
+
+```lua
+local common = qstar.import_module("qstar/modules/common")
+qstar.import_file("qstar/policies/warnings.qst")
+```
+
 ## 8. Agent가 먼저 읽을 파일
 
 일반 authoring:
@@ -189,11 +201,12 @@ Failure class는 `marker-missing`, `timeout`, `exit-code`처럼 분리되고,
 Reference:
 
 1. `reference/qstar-lua.md`
-2. `reference/target-rules.md`
-3. `reference/profiles.md`
-4. `reference/custom-target.md`
-5. `reference/run-target.md`
-6. `reference/diagnostics.md`
+2. `reference/modules.md`
+3. `reference/target-rules.md`
+4. `reference/profiles.md`
+5. `reference/custom-target.md`
+6. `reference/run-target.md`
+7. `reference/diagnostics.md`
 
 Low-level/bootloader-style project:
 

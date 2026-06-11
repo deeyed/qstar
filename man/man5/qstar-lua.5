@@ -11,6 +11,8 @@ The root file is
 .Pa qstar.lua .
 Subdirectory fragments are named
 .Pa <folder>.qst .
+Helper modules are named
+.Pa <folder>/<folder>.qsm .
 .Pp
 The main entrypoints are:
 .Bl -tag -width "qstar.custom_target"
@@ -37,6 +39,14 @@ External smoke command with timeout and optional marker checks.
 Deps-only aggregate target with no command, artifact, install output, or
 .Ic qstar.target_file
 artifact.
+.It Ic qstar.import_file
+Evaluate a package-relative
+.Pa .qst
+graph fragment exactly once.
+.It Ic qstar.import_module
+Evaluate a package-relative module folder as
+.Pa <name>/<name>.qsm
+and return its table.
 .It Ic qstar.stage
 Copy-only package or staging tree.
 .El
@@ -60,6 +70,15 @@ and safe
 helpers.
 Global assignment, filesystem/process/network APIs, dynamic loading, and debug
 interfaces are forbidden.
+Lua
+.Ic require
+is forbidden; use
+.Ic qstar.import_module
+for helper modules.
+.Pp
+.Pa .qsm
+modules must return a table and cannot declare graph nodes such as targets,
+profiles, project metadata, stages, or subdirs.
 .Sh CONSTANTS
 .Nm
 provides constants such as

@@ -355,7 +355,7 @@ function isQStarDocument(document) {
     return true;
   }
   const base = path.basename(document.uri.fsPath);
-  return base === "qstar.lua" || base.endsWith(".qst");
+  return base === "qstar.lua" || base.endsWith(".qst") || base.endsWith(".qsm");
 }
 
 function workspaceRoot() {

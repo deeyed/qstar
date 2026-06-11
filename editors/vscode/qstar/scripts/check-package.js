@@ -114,9 +114,13 @@ const languages = (((pkg.contributes || {}).languages) || []);
 const qstarLang = languages.find((lang) => lang.id === "qstar");
 if (!qstarLang) fail("missing qstar language contribution");
 if (!new Set(qstarLang.extensions || []).has(".qst")) fail("missing .qst association");
+if (!new Set(qstarLang.extensions || []).has(".qsm")) fail("missing .qsm association");
 if (new Set(qstarLang.extensions || []).has(".qs")) fail(".qs association must stay removed");
 if (!new Set(qstarLang.filenamePatterns || []).has("*.qst")) {
   fail("missing *.qst filename pattern association");
+}
+if (!new Set(qstarLang.filenamePatterns || []).has("*.qsm")) {
+  fail("missing *.qsm filename pattern association");
 }
 if (new Set(qstarLang.filenamePatterns || []).has("*.qs")) {
   fail("*.qs filename pattern association must stay removed");
@@ -140,8 +144,9 @@ if (!iconTheme.iconDefinitions || !iconTheme.iconDefinitions._qstar_file ||
     iconTheme.iconDefinitions._qstar_file.iconPath !== "../media/qstar_logo.svg") {
   fail("qstar file icon theme must reference packaged QStar logo");
 }
-if (!iconTheme.fileExtensions || iconTheme.fileExtensions.qst !== "_qstar_file") {
-  fail("qstar file icon theme must map .qst");
+if (!iconTheme.fileExtensions || iconTheme.fileExtensions.qst !== "_qstar_file" ||
+    iconTheme.fileExtensions.qsm !== "_qstar_file") {
+  fail("qstar file icon theme must map .qst and .qsm");
 }
 if (iconTheme.fileExtensions.qs) fail("qstar file icon theme must not map .qs");
 if (!iconTheme.fileNames || iconTheme.fileNames["qstar.lua"] !== "_qstar_file") {
@@ -157,6 +162,7 @@ if (!iconTheme.languageIds || iconTheme.languageIds.qstar !== "_qstar_file") {
 const configDefaults = ((pkg.contributes || {}).configurationDefaults) || {};
 const fileAssociations = configDefaults["files.associations"] || {};
 if (fileAssociations["*.qst"] !== "qstar" ||
+    fileAssociations["*.qsm"] !== "qstar" ||
     fileAssociations["qstar.lua"] !== "qstar") {
   fail("qstar extension must default QStar file associations");
 }

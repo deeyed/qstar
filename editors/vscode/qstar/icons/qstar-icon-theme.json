@@ -5,7 +5,8 @@
     }
   },
   "fileExtensions": {
-    "qst": "_qstar_file"
+    "qst": "_qstar_file",
+    "qsm": "_qstar_file"
   },
   "fileNames": {
     "qstar.lua": "_qstar_file"

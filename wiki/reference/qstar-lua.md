@@ -43,6 +43,33 @@ qstar.staticlib "core" {
 `QSTAR_PACKAGE_ROOT`, `QSTAR_PROJECT_ROOT`, `QSTAR_PROFILE`, `QSTAR_TARGET`,
 `qstar.version`, `qstar.host.os`, `qstar.host.arch`, `qstar.project.root`다.
 
+## Explicit imports
+
+```lua
+qstar.import_file("qstar/policies/freestanding.qst")
+local kernel = qstar.import_module("qstar/modules/kernel")
+```
+
+`qstar.import_file`은 package-root 기준 `.qst` fragment만 읽는다. 해당 file은 graph
+declaration을 포함할 수 있고 once-only로 평가된다.
+
+`qstar.import_module`은 folder path만 받는다. `qstar.import_module("qstar/modules/kernel")`은
+`qstar/modules/kernel/kernel.qsm`을 읽고, module은 반드시 table을 반환해야 한다.
+`.qsm` 안에서는 target/profile/project/subdir/import_file 같은 graph declaration이 금지된다.
+
+```lua
+local M = {}
+
+function M.common_c()
+  return {
+    public_include_dirs = {"include"},
+    compile_options = {"-Wall", "-Wextra"},
+  }
+end
+
+return M
+```
+
 ## 실패 예제
 
 ```lua
@@ -51,6 +78,7 @@ io.open("secret.txt")
 ```
 
 Global assignment와 filesystem/process/network/dynamic loading API는 금지된다.
+Lua `require`도 금지된다. Helper module은 `qstar.import_module`로만 불러온다.
 
 ## 관련 CLI
 
@@ -65,3 +93,6 @@ qstar --file qstar.lua --dump-graph
 - `qstar: global assignment is not allowed`
 - `qstar: forbidden Lua API 'io.open'`
 - `qstar: forbidden Lua API 'require'`
+- `qstar: duplicate import`
+- `qstar: circular import includes`
+- `qstar: module '...' must return a table`

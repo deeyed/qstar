@@ -6,6 +6,7 @@ Supported files:
 
 - `qstar.lua`
 - `*.qst`
+- `*.qsm`
 
 Features:
 
@@ -30,31 +31,33 @@ graph evaluation and never runs `qstar build` by itself.
 VSCode installations that already have Q# support may show legacy `.qs` files
 with the Microsoft Q# icon. QStar no longer owns `.qs`; canonical fragments use
 `.qst`. This extension contributes the QStar logo for the `qstar` language,
-defaults `*.qst` and `qstar.lua` to the `qstar` language id, and also ships a
+defaults `*.qst`, `*.qsm`, and `qstar.lua` to the `qstar` language id, and also ships a
 fallback file icon theme named `QStar File Icons`.
 
-If `.qst` or `qstar.lua` still show the wrong icon, run:
+If `.qst`, `.qsm`, or `qstar.lua` still show the wrong icon, run:
 
 ```txt
 Preferences: File Icon Theme
 ```
 
-and select `QStar File Icons`. The theme maps `.qst`, `qstar.lua`, and the
+and select `QStar File Icons`. The theme maps `.qst`, `.qsm`, `qstar.lua`, and the
 `qstar` language id to `media/qstar_logo.svg`.
 
-If another extension or user setting still wins the `.qst` association, add this
+If another extension or user setting still wins the `.qst` or `.qsm` association, add this
 workspace setting:
 
 ```json
 {
   "files.associations": {
-    "*.qst": "qstar"
+    "*.qst": "qstar",
+    "*.qsm": "qstar"
   }
 }
 ```
 
-QStar keeps `.qst` as the v0.2 canonical fragment suffix. `.qs` is intentionally
-left to other ecosystems and is reported by `qstar lint` as a removed suffix.
+QStar keeps `.qst` as the canonical graph fragment suffix and `.qsm` as the
+helper module suffix. `.qs` is intentionally left to other ecosystems and is
+reported by `qstar lint` as a removed suffix.
 
 ## Development
 

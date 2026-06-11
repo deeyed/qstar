@@ -333,6 +333,150 @@ contains "$tmp/lua-authoring.out" "-DQSTAR_PROJECT_NS_ROOT="
 contains "$tmp/lua-authoring.out" "-DQSTAR_TARGET=host"
 contains "$tmp/lua-authoring.out" "-DQSTAR_PAIR_COUNT=2"
 
+mkdir -p "$tmp/imports/qstar/policies" "$tmp/imports/qstar/modules/kernel" \
+	"$tmp/imports/include" "$tmp/imports/src"
+cat > "$tmp/imports/src/app.c" <<'EOF'
+int app(void) { return 0; }
+EOF
+cat > "$tmp/imports/src/policy.c" <<'EOF'
+int policy(void) { return 0; }
+EOF
+cat > "$tmp/imports/qstar.lua" <<'EOF'
+qstar.project {
+  name = "imports",
+  root = ".",
+}
+
+qstar.import_file("qstar/policies/common.qst")
+local kernel = qstar.import_module("qstar/modules/kernel")
+
+qstar.staticlib "app" {
+  sources = {"src/app.c"},
+  deps = {"//qstar/policies:policy_core"},
+  lang = {
+    c = kernel.common_c(),
+  },
+}
+EOF
+cat > "$tmp/imports/qstar/policies/common.qst" <<'EOF'
+qstar.staticlib "policy_core" {
+  sources = {"src/policy.c"},
+}
+EOF
+cat > "$tmp/imports/qstar/modules/kernel/kernel.qsm" <<'EOF'
+local M = {}
+
+function M.common_c()
+  return {
+    public_include_dirs = {"include"},
+    compile_options = {"-Wall", "-Wextra"},
+  }
+end
+
+return M
+EOF
+"$qstar" --file "$tmp/imports/qstar.lua" --dump-graph > "$tmp/imports-graph.out" 2> "$tmp/imports-graph.err"
+contains "$tmp/imports-graph.out" "target //qstar/policies:policy_core"
+contains "$tmp/imports-graph.out" "target //:app"
+contains "$tmp/imports-graph.out" "cflags [-Wall, -Wextra]"
+"$qstar" --file "$tmp/imports/qstar.lua" lint //... > "$tmp/imports-lint.out" 2> "$tmp/imports-lint.err"
+contains "$tmp/imports-lint.out" "status ok"
+"$qstar" fmt --check "$tmp/imports/qstar/modules/kernel/kernel.qsm" > "$tmp/imports-qsm-fmt.out" 2> "$tmp/imports-qsm-fmt.err"
+contains "$tmp/imports-qsm-fmt.out" "status ok"
+
+mkdir -p "$tmp/import-duplicate-file/p"
+cat > "$tmp/import-duplicate-file/qstar.lua" <<'EOF'
+qstar.project { name = "dup-file", root = "." }
+qstar.import_file("p/common.qst")
+qstar.import_file("p/common.qst")
+EOF
+cat > "$tmp/import-duplicate-file/p/common.qst" <<'EOF'
+local imported = true
+EOF
+if "$qstar" --file "$tmp/import-duplicate-file/qstar.lua" check > "$tmp/import-duplicate-file.out" 2> "$tmp/import-duplicate-file.err"; then
+	fail "duplicate import_file unexpectedly succeeded"
+fi
+contains "$tmp/import-duplicate-file.err" "duplicate import 'p/common.qst'"
+
+mkdir -p "$tmp/import-duplicate-module/mods/a"
+cat > "$tmp/import-duplicate-module/qstar.lua" <<'EOF'
+qstar.project { name = "dup-module", root = "." }
+local a = qstar.import_module("mods/a")
+local b = qstar.import_module("mods/a")
+EOF
+cat > "$tmp/import-duplicate-module/mods/a/a.qsm" <<'EOF'
+return {}
+EOF
+if "$qstar" --file "$tmp/import-duplicate-module/qstar.lua" check > "$tmp/import-duplicate-module.out" 2> "$tmp/import-duplicate-module.err"; then
+	fail "duplicate import_module unexpectedly succeeded"
+fi
+contains "$tmp/import-duplicate-module.err" "duplicate import 'mods/a/a.qsm'"
+
+mkdir -p "$tmp/import-missing-module"
+cat > "$tmp/import-missing-module/qstar.lua" <<'EOF'
+qstar.project { name = "missing-module", root = "." }
+qstar.import_module("mods/missing")
+EOF
+if "$qstar" --file "$tmp/import-missing-module/qstar.lua" check > "$tmp/import-missing-module.out" 2> "$tmp/import-missing-module.err"; then
+	fail "missing import_module unexpectedly succeeded"
+fi
+contains "$tmp/import-missing-module.err" "expected 'mods/missing/missing.qsm'"
+
+mkdir -p "$tmp/import-module-file-arg/mods/a"
+cat > "$tmp/import-module-file-arg/qstar.lua" <<'EOF'
+qstar.project { name = "module-file-arg", root = "." }
+qstar.import_module("mods/a/a.qsm")
+EOF
+if "$qstar" --file "$tmp/import-module-file-arg/qstar.lua" check > "$tmp/import-module-file-arg.out" 2> "$tmp/import-module-file-arg.err"; then
+	fail "file-path import_module unexpectedly succeeded"
+fi
+contains "$tmp/import-module-file-arg.err" "import_module expects a folder path"
+
+mkdir -p "$tmp/import-module-return/mods/a"
+cat > "$tmp/import-module-return/qstar.lua" <<'EOF'
+qstar.project { name = "module-return", root = "." }
+qstar.import_module("mods/a")
+EOF
+cat > "$tmp/import-module-return/mods/a/a.qsm" <<'EOF'
+local M = {}
+EOF
+if "$qstar" --file "$tmp/import-module-return/qstar.lua" check > "$tmp/import-module-return.out" 2> "$tmp/import-module-return.err"; then
+	fail "non-returning qsm unexpectedly succeeded"
+fi
+contains "$tmp/import-module-return.err" "module 'mods/a/a.qsm' must return a table"
+
+mkdir -p "$tmp/import-module-graph/mods/a"
+cat > "$tmp/import-module-graph/qstar.lua" <<'EOF'
+qstar.project { name = "module-graph", root = "." }
+qstar.import_module("mods/a")
+EOF
+cat > "$tmp/import-module-graph/mods/a/a.qsm" <<'EOF'
+qstar.staticlib "bad" {}
+return {}
+EOF
+if "$qstar" --file "$tmp/import-module-graph/qstar.lua" check > "$tmp/import-module-graph.out" 2> "$tmp/import-module-graph.err"; then
+	fail "qsm graph declaration unexpectedly succeeded"
+fi
+contains "$tmp/import-module-graph.err" "is not allowed inside .qsm module"
+
+mkdir -p "$tmp/import-circular/mods/a" "$tmp/import-circular/mods/b"
+cat > "$tmp/import-circular/qstar.lua" <<'EOF'
+qstar.project { name = "circular", root = "." }
+qstar.import_module("mods/a")
+EOF
+cat > "$tmp/import-circular/mods/a/a.qsm" <<'EOF'
+qstar.import_module("mods/b")
+return {}
+EOF
+cat > "$tmp/import-circular/mods/b/b.qsm" <<'EOF'
+qstar.import_module("mods/a")
+return {}
+EOF
+if "$qstar" --file "$tmp/import-circular/qstar.lua" check > "$tmp/import-circular.out" 2> "$tmp/import-circular.err"; then
+	fail "circular import unexpectedly succeeded"
+fi
+contains "$tmp/import-circular.err" "circular import includes 'mods/a/a.qsm'"
+
 mkdir -p "$tmp/lua-global"
 cat > "$tmp/lua-global/qstar.lua" <<'EOF'
 qstar.project { name = "global-bad", root = "." }
@@ -446,6 +590,7 @@ contains "$tmp/lsp.out" "textDocument/publishDiagnostics"
 contains "$tmp/lsp.out" "\"diagnostics\":[]"
 contains "$tmp/lsp.out" "Create an executable target."
 contains "$tmp/lsp.out" "\"label\":\"qstar.configure_file\""
+contains "$tmp/lsp.out" "\"label\":\"qstar.import_module\""
 
 mkdir -p "$tmp/lsp-missing"
 cat > "$tmp/lsp-missing/qstar.lua" <<'EOF'

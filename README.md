@@ -31,6 +31,8 @@ qstar.run_target "smoke" { ... }
 qstar.group "aggregate" { ... }
 qstar.configure_file "cfg" { ... }
 qstar.stage "esp" { ... }
+qstar.import_file("qstar/policies/common.qst")
+local helper = qstar.import_module("qstar/modules/common")
 ```
 
 `qstar.exe`, `qstar.genrule`, `qstar.config_header`, `qstar.write_config_header`는
@@ -45,6 +47,12 @@ Round 63부터 QStar authoring file은 CMake식 기본 상수와 제한적 Lua h
 `QSTAR_VERSION`, `QSTAR_HOST_OS`, `QSTAR_HOST_ARCH`, `QSTAR_PACKAGE_ROOT`,
 `QSTAR_PROJECT_ROOT`, `QSTAR_PROFILE`, `QSTAR_TARGET`와 `qstar.version`,
 `qstar.host.os`, `qstar.host.arch`, `qstar.project.root`를 제공한다.
+
+Round 74부터 명시적 authoring import가 있다. `qstar.import_file("path.qst")`는
+package-root 기준 `.qst` graph fragment를 once-only로 평가한다.
+`qstar.import_module("folder/path")`는 folder만 받고 `folder/path/path.qsm`을 읽어
+반드시 table을 반환해야 한다. `.qsm` module 안에서는 target/profile/project 같은 graph
+declaration이 금지되며 helper 함수, 상수, table export만 둔다.
 
 ```lua
 qstar.staticlib "core" {
@@ -150,7 +158,8 @@ dependency, toolchain, install/test 여부를 포함한다.
 
 `fmt`는 Round 45의 conservative formatter다. `qstar fmt --check qstar.lua`는
 rewrite 없이 canonical style drift를 검사하고, `qstar fmt qstar.lua`는 simple
-QStar block을 다음 스타일로 정리한다. VSCode extension은 `qstar fmt --stdout`을
+QStar block을 다음 스타일로 정리한다. `.qst` fragment와 `.qsm` helper module도 같은
+formatter entrypoint를 쓴다. VSCode extension은 `qstar fmt --stdout`을
 사용해 document formatting edit을 만든다.
 
 ```lua
@@ -185,6 +194,8 @@ hard cut으로 고정된다.
 
 - workspace/package root entry는 `qstar.lua`다.
 - `qstar.subdir("foo")`는 `foo/foo.qst`를 canonical fragment로 요구한다.
+- `qstar.import_file("path.qst")`는 package-root 기준 `.qst`를 명시적으로 읽는다.
+- `qstar.import_module("foo/bar")`는 `foo/bar/bar.qsm`을 helper module로 읽는다.
 - `foo/qstar.qst` fallback은 없다. fragment는 항상 `<folder>.qst`다.
 - `qstar.project { name = "...", version = "...", root = ".", build_dir =
   "build/qstar", compile_commands = "build" }`가 root metadata와 output policy를
@@ -242,13 +253,13 @@ fragment의 target/genrule/config_header를 나열하고, workspace symbols는 g
 ## VSCode extension v1
 
 Round 41부터 개발용 VSCode extension skeleton은 `editors/vscode/qstar/`에 둔다.
-이 확장은 `qstar.lua`와 `*.qst`를 `qstar` language id로 연결하고,
-`files.associations` 기본값으로 `.qst`가 QStar로 잡히게 하며,
+이 확장은 `qstar.lua`, `*.qst`, `*.qsm`을 `qstar` language id로 연결하고,
+`files.associations` 기본값으로 `.qst`와 `.qsm`이 QStar로 잡히게 하며,
 syntax highlighting, snippets, LSP client, QStar terminal commands를 제공한다.
 LSP client는 `qstar lsp --stdio`만 시작하며, build/test를 자동 실행하지 않는다.
 `QStar: Build Target` 같은 명령은 사용자가 명시적으로 실행하는 terminal invocation이다.
-다른 확장이나 사용자 설정이 `.qst`를 계속 선점하면 workspace setting에서
-`"files.associations": {"*.qst": "qstar"}`를 명시한다.
+다른 확장이나 사용자 설정이 `.qst`/`.qsm`을 계속 선점하면 workspace setting에서
+`"files.associations": {"*.qst": "qstar", "*.qsm": "qstar"}`를 명시한다.
 
 Round 42부터 extension은 `list-targets --format json`을 사용해 Explorer 안에
 `QStar` tree view를 만든다. Tree는 targets, generated actions, tests,
@@ -557,7 +568,7 @@ make -C qstar qstar-systems-corpus-tests
 ## v0.3 release candidate seal
 
 Round 65 기준 v0.3 RC contract는 `docs/qstar-v0.3-seal.md`가 canonical이다.
-Stable surface는 `.qst`, `qstar.project`, `lang.*`, generic `qstar.cli`, staged
+Stable surface는 `qstar.lua`, `.qst`, `.qsm`, `qstar.project`, `lang.*`, generic `qstar.cli`, staged
 package, systems firmware corpus, action replay, LSP/VSCode/lint/formatter UX를
 포함한다. Experimental surface는 `cale build` 통합, remote package resolver,
 Ninja lowering/execution, full sharedlib executor, Cale internal compiler API, C++ modules,
