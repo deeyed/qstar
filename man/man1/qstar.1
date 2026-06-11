@@ -1,4 +1,4 @@
-.Dd June 11, 2026
+.Dd June 12, 2026
 .Dt QSTAR 1
 .Os
 .Sh NAME
@@ -49,7 +49,12 @@ In this release,
 resolves to
 .Ar qstar_graph .
 .Ar ninja
-is recognized as a selector, but lowering and action execution are deferred.
+emits and runs a Ninja MVP for C/C++/ASM compile, static library archive, and
+group phony targets.
+Full executable, custom action, run target, stage, and test parity remains on
+the
+.Ar qstar_graph
+backend.
 .It Fl -generator Ar qstar_graph|ninja|auto
 Alias for
 .Fl G .
@@ -75,8 +80,27 @@ Evaluate authoring diagnostics without executing build actions.
 Print target closure and command-plan information.
 .It Ic dry-run
 Render action plans without running them.
+.It Ic emit-ninja
+Emit
+.Pa build/qstar/ninja/build.ninja
+and the policy-controlled
+.Pa compile_commands.json
+without running Ninja.
+The Round 79 MVP lowers C/C++/ASM compile actions, static libraries, and
+.Ic qstar.group
+phony targets.
 .It Ic build
-Run the local executor.
+Build using the effective generator.
+The
+.Ar qstar_graph
+generator runs the local executor.
+The
+.Ar ninja
+generator emits
+.Pa build/qstar/ninja/build.ninja
+and invokes
+.Xr ninja 1
+for the supported MVP graph.
 Build accepts
 .Fl -jobs Ar N ,
 .Fl -schedule-trace ,

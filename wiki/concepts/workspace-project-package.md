@@ -28,8 +28,9 @@ Generator는 CLI에서만 선택한다.
 
 - `-G qstar_graph`: 현재 기본 QStar graph executor를 사용한다.
 - `-G auto`: 현재는 `qstar_graph`로 resolve된다.
-- `-G ninja`: selector와 metadata surface는 열려 있지만, 실제 Ninja lowering/execution은
-  후속 라운드에서 구현된다.
+- `-G ninja`: Round 79 MVP에서 C/C++/ASM compile, staticlib archive, `qstar.group`
+  phony graph를 Ninja로 lower해 실행한다. Exe/test/custom/run/stage까지의 full parity는
+  후속 surface다.
 
 `compile_commands`는 세 값을 가진다.
 
@@ -81,6 +82,8 @@ v1에서 `root`는 `"."`만 허용된다.
 qstar --file qstar.lua query //app:app
 qstar --file qstar.lua list-targets --format json
 qstar --file qstar.lua -B out/qstar -G qstar_graph build //app:app
+qstar --file qstar.lua emit-ninja //lib:core
+qstar --file qstar.lua -G ninja build //lib:core
 qstar --file app/app.qst build //app:app
 ```
 

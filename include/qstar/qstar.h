@@ -427,6 +427,13 @@ int qstar_graph_build(struct qstar_graph *graph, const char *label, FILE *out);
 int qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
     const struct qstar_build_options *options, FILE *out);
 
+/** QStar graph를 Ninja build file과 compile database로 lower한다. */
+int qstar_graph_emit_ninja(struct qstar_graph *graph, const char *label, FILE *out);
+
+/** Ninja backend로 build.ninja를 emit한 뒤 requested target을 빌드한다. */
+int qstar_graph_build_ninja(struct qstar_graph *graph, const char *label,
+    const struct qstar_build_options *options, FILE *out);
+
 /** QStar action cache 기준으로 rebuild 이유를 설명한다. */
 int qstar_graph_why_rebuild(struct qstar_graph *graph, const char *label, FILE *out);
 

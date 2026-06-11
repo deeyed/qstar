@@ -145,5 +145,6 @@ make -C qstar qstar-pilot-readiness-tests
 
 이 gate는 QStar binary, sample corpus, lint/LSP, VSCode package, executor, cache/replay,
 systems-style firmware corpus, formatter, subcommand help, wiki/CLI drift guard를 함께
-검증한다. 아직 remote package fetch, Ninja lowering/execution, full sharedlib executor, Cale
-compiler internal API integration은 정식 surface가 아니다.
+검증한다. 아직 remote package fetch, full Ninja parity, full sharedlib executor, Cale
+compiler internal API integration은 정식 surface가 아니다. Round 79 Ninja MVP는
+C/C++/ASM compile, staticlib archive, `qstar.group` phony lowering/execution에 한정된다.

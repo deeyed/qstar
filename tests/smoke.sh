@@ -249,9 +249,9 @@ contains "$tmp/cli-overrides-json.out" "\"requested_generator\":\"auto\""
 contains "$tmp/cli-overrides-ninja-json.out" "\"generator\":\"ninja\""
 contains "$tmp/cli-overrides-ninja-json.out" "\"requested_generator\":\"ninja\""
 if "$qstar" --file "$tmp/cli-overrides/qstar.lua" -G ninja build //:app > "$tmp/cli-overrides-ninja-build.out" 2> "$tmp/cli-overrides-ninja-build.err"; then
-	fail "ninja generator build unexpectedly succeeded before ninja lowering"
+	fail "ninja MVP unexpectedly built executable target"
 fi
-contains "$tmp/cli-overrides-ninja-build.err" "generator 'ninja' is recognized but action execution is not implemented yet"
+contains "$tmp/cli-overrides-ninja-build.err" "ninja backend MVP supports staticlib and group targets only"
 if "$qstar" --file "$tmp/cli-overrides/qstar.lua" -G nope list-targets --format json > "$tmp/cli-overrides-bad-generator.out" 2> "$tmp/cli-overrides-bad-generator.err"; then
 	fail "invalid generator unexpectedly succeeded"
 fi
@@ -260,6 +260,113 @@ if "$qstar" --file "$tmp/cli-overrides/qstar.lua" -B /tmp/qstar-build list-targe
 	fail "absolute CLI build directory unexpectedly succeeded"
 fi
 contains "$tmp/cli-overrides-bad-builddir.err" "CLI build directory override must be package-relative"
+
+mkdir -p "$tmp/ninja-mvp/src" "$tmp/ninja-mvp/include"
+cat > "$tmp/ninja-mvp/qstar.lua" <<'EOF'
+qstar.project {
+  name = "ninja-mvp",
+  root = ".",
+  build_dir = "build/qstar",
+  compile_commands = "build",
+}
+
+qstar.staticlib "core" {
+  sources = {
+    "src/core.c",
+    "src/helper.cc",
+    "src/start.S",
+  },
+  lang = {
+    c = {
+      public_headers = {"include/core.h"},
+      public_include_dirs = {"include"},
+      compile_options = {"-Wall"},
+    },
+    cxx = {
+      standard = "c++11",
+      compile_options = {"-Wall"},
+    },
+  },
+}
+
+qstar.group "all" {
+  deps = {"//:core"},
+}
+EOF
+cat > "$tmp/ninja-mvp/include/core.h" <<'EOF'
+int core(void);
+EOF
+cat > "$tmp/ninja-mvp/src/core.c" <<'EOF'
+#include "core.h"
+int core(void) { return 1; }
+EOF
+cat > "$tmp/ninja-mvp/src/helper.cc" <<'EOF'
+extern "C" int helper(void) { return 2; }
+EOF
+cat > "$tmp/ninja-mvp/src/start.S" <<'EOF'
+/* intentionally empty assembler input for backend smoke */
+EOF
+"$qstar" --file "$tmp/ninja-mvp/qstar.lua" emit-ninja //:all > "$tmp/ninja-mvp-emit.out" 2> "$tmp/ninja-mvp-emit.err"
+contains "$tmp/ninja-mvp-emit.out" "ninja_file build/qstar/ninja/build.ninja"
+contains "$tmp/ninja-mvp-emit.out" "compile_commands build/qstar/compile_commands.json"
+contains "$tmp/ninja-mvp-emit.out" "ninja_default build/qstar/ninja/targets/___all"
+contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "rule qstar_compile"
+contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "rule qstar_archive"
+contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "qstar_action_id = //:core:compile:0"
+contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "qstar_action_id = //:core:compile:1"
+contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "qstar_action_id = //:core:compile:2"
+contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "qstar_action_id = //:core:archive:0"
+contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "qstar_action_id = //:all:group:0"
+contains "$tmp/ninja-mvp/build/qstar/compile_commands.json" "src/core.c"
+contains "$tmp/ninja-mvp/build/qstar/compile_commands.json" "src/helper.cc"
+contains "$tmp/ninja-mvp/build/qstar/compile_commands.json" "src/start.S"
+if command -v ninja >/dev/null 2>&1 && command -v c++ >/dev/null 2>&1; then
+	"$qstar" --file "$tmp/ninja-mvp/qstar.lua" -G ninja build //:all > "$tmp/ninja-mvp-build.out" 2> "$tmp/ninja-mvp-build.err"
+	contains "$tmp/ninja-mvp-build.out" "backend ninja"
+	contains "$tmp/ninja-mvp-build.out" "status ok"
+	test -f "$tmp/ninja-mvp/build/qstar/out/___core/libcore.a" || fail "ninja backend staticlib artifact missing"
+fi
+
+mkdir -p "$tmp/ninja-policy-root/src"
+cat > "$tmp/ninja-policy-root/qstar.lua" <<'EOF'
+qstar.project {
+  name = "ninja-policy-root",
+  root = ".",
+  build_dir = "out/qstar",
+  compile_commands = "root",
+}
+
+qstar.staticlib "core" {
+  sources = {"src/core.c"},
+}
+EOF
+cat > "$tmp/ninja-policy-root/src/core.c" <<'EOF'
+int root_policy(void) { return 0; }
+EOF
+"$qstar" --file "$tmp/ninja-policy-root/qstar.lua" emit-ninja //:core > "$tmp/ninja-policy-root.out" 2> "$tmp/ninja-policy-root.err"
+contains "$tmp/ninja-policy-root.out" "compile_commands compile_commands.json"
+test -f "$tmp/ninja-policy-root/compile_commands.json" || fail "ninja root compile_commands policy missing"
+test ! -f "$tmp/ninja-policy-root/out/qstar/compile_commands.json" || fail "ninja root policy wrote build db"
+
+mkdir -p "$tmp/ninja-policy-off/src"
+cat > "$tmp/ninja-policy-off/qstar.lua" <<'EOF'
+qstar.project {
+  name = "ninja-policy-off",
+  root = ".",
+  compile_commands = "off",
+}
+
+qstar.staticlib "core" {
+  sources = {"src/core.c"},
+}
+EOF
+cat > "$tmp/ninja-policy-off/src/core.c" <<'EOF'
+int off_policy(void) { return 0; }
+EOF
+"$qstar" --file "$tmp/ninja-policy-off/qstar.lua" emit-ninja //:core > "$tmp/ninja-policy-off.out" 2> "$tmp/ninja-policy-off.err"
+contains "$tmp/ninja-policy-off.out" "compile_commands <off>"
+test ! -f "$tmp/ninja-policy-off/build/qstar/compile_commands.json" || fail "ninja off policy wrote build db"
+test ! -f "$tmp/ninja-policy-off/compile_commands.json" || fail "ninja off policy wrote root db"
 
 "$qstar" --version > "$tmp/version-flag.out" 2> "$tmp/version-flag.err"
 test "$(cat "$tmp/version-flag.out")" = "qstar 0.3.0" || fail "qstar --version drifted"

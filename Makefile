@@ -22,6 +22,7 @@ QSTAR_SRCS = \
 	src/lint.c \
 	src/lsp.c \
 	src/lua_runtime.c \
+	src/ninja.c \
 	src/plan.c \
 	src/profile.c \
 	src/rule.c \

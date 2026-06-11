@@ -20,6 +20,7 @@ usage(FILE *out)
 	fputs("       qstar [options] fmt [--check] [qstar.lua|fragment.qst|module.qsm]\n", out);
 	fputs("       qstar [options] explain [label]\n", out);
 	fputs("       qstar [options] dry-run [label]\n", out);
+	fputs("       qstar [options] emit-ninja [label]\n", out);
 	fputs("       qstar [options] build [label]\n", out);
 	fputs("       qstar [options] test [label|//...]\n", out);
 	fputs("       qstar [options] install [label] --prefix path [--dry-run]\n", out);
@@ -91,6 +92,12 @@ command_help(FILE *out, const char *cmd)
 	if (strcmp(cmd, "dry-run") == 0) {
 		fputs("usage: qstar [options] dry-run [label]\n", out);
 		fputs("Render the command plan without executing actions.\n", out);
+		return;
+	}
+	if (strcmp(cmd, "emit-ninja") == 0) {
+		fputs("usage: qstar [options] emit-ninja [label]\n", out);
+		fputs("Emit build/qstar/ninja/build.ninja and policy-controlled compile_commands.json.\n", out);
+		fputs("Round 79 MVP lowers C/C++/ASM compile, staticlib archive, and group phony edges.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "lint") == 0) {
@@ -347,11 +354,11 @@ print_json_string(const char *s)
 	fputc('"', stderr);
 }
 
-/** 아직 generator backend dispatch가 구현되지 않은 command인지 확인한다. */
+/** qstar_graph executor가 아직 필요한 command인지 확인한다. */
 static int
 command_requires_qstar_graph_generator(const char *cmd)
 {
-	return strcmp(cmd, "build") == 0 || strcmp(cmd, "test") == 0;
+	return strcmp(cmd, "test") == 0;
 }
 
 /** QStar diagnostic을 text 또는 machine-readable skeleton으로 출력한다. */
@@ -716,6 +723,7 @@ main(int argc, char **argv)
 	}
 	label = NULL;
 	if (strcmp(cmd, "explain") == 0 || strcmp(cmd, "dry-run") == 0 ||
+	    strcmp(cmd, "emit-ninja") == 0 ||
 	    strcmp(cmd, "check") == 0 || strcmp(cmd, "query") == 0 ||
 	    strcmp(cmd, "test") == 0 ||
 	    strcmp(cmd, "why-rebuild") == 0 || strcmp(cmd, "log") == 0 ||
@@ -918,6 +926,7 @@ main(int argc, char **argv)
 		rc = qstar_graph_validate_headers(&graph);
 	if (rc == 0 && (strcmp(cmd, "check") == 0 || strcmp(cmd, "doctor") == 0 ||
 	    strcmp(cmd, "build") == 0 || strcmp(cmd, "test") == 0 ||
+	    strcmp(cmd, "emit-ninja") == 0 ||
 	    strcmp(cmd, "install") == 0 || strcmp(cmd, "stage") == 0 ||
 	    strcmp(cmd, "why-rebuild") == 0 ||
 	    strcmp(cmd, "lint") == 0))
@@ -942,8 +951,12 @@ main(int argc, char **argv)
 			rc = qstar_graph_dry_run(&graph, label, stdout);
 		else if (strcmp(cmd, "check") == 0)
 			rc = qstar_graph_check(&graph, label, stdout);
+		else if (strcmp(cmd, "emit-ninja") == 0)
+			rc = qstar_graph_emit_ninja(&graph, label, stdout);
 		else if (strcmp(cmd, "build") == 0)
-			rc = qstar_graph_build_with_options(&graph, label, &build_options, stdout);
+			rc = strcmp(qstar_graph_generator(&graph), "ninja") == 0 ?
+			    qstar_graph_build_ninja(&graph, label, &build_options, stdout) :
+			    qstar_graph_build_with_options(&graph, label, &build_options, stdout);
 		else if (strcmp(cmd, "test") == 0)
 			rc = qstar_graph_test(&graph, label, stdout);
 		else if (strcmp(cmd, "install") == 0)

@@ -33,7 +33,12 @@ QStar가 하지 않는 일:
 - generated action output 기본 root는 `generated`이고, `qstar.project.generated_dir`로
   package-relative generated root를 바꿀 수 있다.
 - CLI `-B path`는 `qstar.project.build_dir`보다 우선한다.
-- CLI `-G auto`는 현재 `qstar_graph`로 resolve되고, `-G ninja`는 selector만 열린 상태다.
+- CLI `-G auto`는 현재 `qstar_graph`로 resolve된다.
+- CLI `-G ninja build [label]`은 Round 79 MVP에서 C/C++/ASM compile, staticlib archive,
+  `qstar.group` phony graph를 Ninja로 실행한다. Exe/test/custom/run/stage는 아직
+  `qstar_graph` backend를 사용한다.
+- `qstar emit-ninja [label]`은 `build/qstar/ninja/build.ninja`와 policy-controlled
+  `compile_commands.json`을 생성한다.
 - compile database 기본 위치는 `build/qstar/compile_commands.json`이다.
 - external command는 `qstar.cli { ... }` argv-vector로만 표현한다.
 - low-level/bootloader-style project도 generic primitive로 표현한다.
