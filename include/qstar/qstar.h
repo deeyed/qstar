@@ -255,6 +255,22 @@ struct qstar_build_options {
 	int explain_cache;
 	int jobs;
 	int schedule_trace;
+	int verbose;
+	int quiet;
+	int progress_mode;
+	int color_mode;
+};
+
+enum {
+	QSTAR_PROGRESS_AUTO = 0,
+	QSTAR_PROGRESS_PLAIN = 1,
+	QSTAR_PROGRESS_OFF = 2
+};
+
+enum {
+	QSTAR_COLOR_AUTO = 0,
+	QSTAR_COLOR_ALWAYS = 1,
+	QSTAR_COLOR_NEVER = 2
 };
 
 struct qstar_install_options {
@@ -445,6 +461,10 @@ int qstar_graph_check(struct qstar_graph *graph, const char *label, FILE *out);
 
 /** QStar lint diagnostic을 text 또는 LSP-ready JSON으로 출력한다. */
 int qstar_graph_lint(struct qstar_graph *graph, const char *label, const char *format, FILE *out);
+
+/** QStar lint diagnostic을 color 정책과 함께 출력한다. */
+int qstar_graph_lint_with_color(struct qstar_graph *graph, const char *label,
+    const char *format, int color_mode, FILE *out);
 
 /** QStar 전체 package doctor 결과를 deterministic text로 출력한다. */
 int qstar_graph_doctor(struct qstar_graph *graph, FILE *out);

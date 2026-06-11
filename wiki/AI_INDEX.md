@@ -266,6 +266,8 @@ qstar --file qstar.lua list-targets --format json
 qstar --file qstar.lua explain //:target
 qstar --file qstar.lua dry-run //:target
 qstar --file qstar.lua build //:target --explain-cache
+qstar --file qstar.lua build //:target --verbose --progress plain
+qstar --file qstar.lua build //:target --progress off --color never
 qstar --file qstar.lua -B out/qstar -G qstar_graph build //:target
 qstar --file qstar.lua stage //:bundle --dry-run
 qstar --file qstar.lua last-failure

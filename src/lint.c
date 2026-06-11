@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 /** 메시지 문자열이 부분 문자열을 포함하는지 검사한다. */
 static int
@@ -159,6 +160,47 @@ count_diagnostics(const struct qstar_graph *graph, int *errors, int *warnings)
 		else if (strcmp(graph->lint_diagnostics[i].severity, "warning") == 0)
 			(*warnings)++;
 	}
+}
+
+/** lint text output에 ANSI color를 쓸지 결정한다. */
+static int
+lint_color_enabled(FILE *out, int color_mode)
+{
+	if (color_mode == QSTAR_COLOR_ALWAYS)
+		return 1;
+	if (color_mode == QSTAR_COLOR_NEVER)
+		return 0;
+	return isatty(fileno(out));
+}
+
+/** severity를 color policy에 맞게 출력한다. */
+static void
+print_colored_severity(FILE *out, const char *severity, int use_color)
+{
+	const char *color;
+
+	color = "";
+	if (use_color && strcmp(severity, "warning") == 0)
+		color = "\033[1;33m";
+	else if (use_color && strcmp(severity, "error") == 0)
+		color = "\033[1;31m";
+	fprintf(out, "%s%s%s", color, severity, use_color && *color ? "\033[0m" : "");
+}
+
+/** status를 color policy에 맞게 출력한다. */
+static void
+print_colored_status(FILE *out, const char *status, int use_color)
+{
+	const char *color;
+
+	color = "";
+	if (use_color && strcmp(status, "ok") == 0)
+		color = "\033[32m";
+	else if (use_color && strcmp(status, "warning") == 0)
+		color = "\033[1;33m";
+	else if (use_color && strcmp(status, "error") == 0)
+		color = "\033[1;31m";
+	fprintf(out, "%s%s%s", color, status, use_color && *color ? "\033[0m" : "");
 }
 
 /** path가 suffix로 끝나는지 검사한다. */
@@ -541,22 +583,29 @@ run_deep_lint(struct qstar_graph *graph, const char *label)
 
 /** text lint output을 deterministic line format으로 출력한다. */
 static void
-emit_text(const struct qstar_graph *graph, FILE *out)
+emit_text(const struct qstar_graph *graph, int color_mode, FILE *out)
 {
 	int errors, warnings;
+	int use_color;
 	size_t i;
 
+	use_color = lint_color_enabled(out, color_mode);
 	count_diagnostics(graph, &errors, &warnings);
 	fputs("qstar lint v1\n", out);
 	for (i = 0; i < graph->lint_len; i++) {
 		const struct qstar_lint_diagnostic *diag = &graph->lint_diagnostics[i];
 		fprintf(out,
-		    "diagnostic code=%s severity=%s file=%s line=%d field=%s label=%s message=%s\n",
-		    diag->code, diag->severity, diag->file, diag->line,
-		    diag->field, diag->label, diag->message);
+		    "diagnostic code=%s severity=", diag->code);
+		print_colored_severity(out, diag->severity, use_color);
+		fprintf(out,
+		    " file=%s line=%d field=%s label=%s message=%s\n",
+		    diag->file, diag->line, diag->field, diag->label, diag->message);
 	}
 	fprintf(out, "summary errors=%d warnings=%d\n", errors, warnings);
-	fprintf(out, "status %s\n", errors ? "error" : warnings ? "warning" : "ok");
+	fputs("status ", out);
+	print_colored_status(out, errors ? "error" : warnings ? "warning" : "ok",
+	    use_color);
+	fputc('\n', out);
 }
 
 /** JSON lint output을 단일 object로 출력한다. */
@@ -597,6 +646,14 @@ emit_json(const struct qstar_graph *graph, FILE *out)
 int
 qstar_graph_lint(struct qstar_graph *graph, const char *label, const char *format, FILE *out)
 {
+	return qstar_graph_lint_with_color(graph, label, format, QSTAR_COLOR_AUTO, out);
+}
+
+/** QStar lint diagnostic을 text 또는 LSP-ready JSON으로 출력한다. */
+int
+qstar_graph_lint_with_color(struct qstar_graph *graph, const char *label,
+    const char *format, int color_mode, FILE *out)
+{
 	int errors, warnings;
 
 	if (!graph->error[0] && run_deep_lint(graph, label) < 0)
@@ -607,7 +664,7 @@ qstar_graph_lint(struct qstar_graph *graph, const char *label, const char *forma
 			return -1;
 	}
 	if (!format || strcmp(format, "text") == 0)
-		emit_text(graph, out);
+		emit_text(graph, color_mode, out);
 	else if (strcmp(format, "json") == 0)
 		emit_json(graph, out);
 	else

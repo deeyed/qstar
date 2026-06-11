@@ -14,12 +14,15 @@ qstar --file qstar.lua lint --format json
 ```sh
 qstar --file qstar.lua --diagnostics text check //:app
 qstar --file qstar.lua --diagnostics json build //:app
+qstar --file qstar.lua --color always lint //...
 qstar --file qstar.lua last-failure
 qstar --file qstar.lua action-log //:app:compile:0
 qstar --file qstar.lua replay //:app:compile:0
 ```
 
 JSON diagnostics는 editor/LSP가 그대로 읽을 수 있는 machine-readable skeleton이다.
+`--color auto|always|never`는 text diagnostic과 build status에만 적용된다. JSON
+diagnostic object와 `qstar-action-diagnostic-v1` line에는 ANSI color를 넣지 않는다.
 
 ## 실패 예제
 

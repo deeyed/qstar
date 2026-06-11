@@ -16,6 +16,14 @@ contains() {
 	grep -F -q -- "$pat" "$file" || fail "missing pattern '$pat' in $file"
 }
 
+not_contains() {
+	file=$1
+	pat=$2
+	if grep -F -q -- "$pat" "$file"; then
+		fail "unexpected pattern '$pat' in $file"
+	fi
+}
+
 send_lsp() {
 	payload=$1
 	len=$(printf "%s" "$payload" | wc -c | tr -d ' ')
@@ -49,6 +57,7 @@ contains "$tmp/first.out" "parallel=optional jobs=2"
 contains "$tmp/first.out" "action_dag target=//:app"
 contains "$tmp/first.out" "schedule_action id=//:app:compile:0"
 contains "$tmp/first.out" "status=run"
+contains "$tmp/first.out" "[5%] Stage 1: prepare //:app"
 contains "$tmp/first.out" "status ok"
 test -f "$tmp/build/qstar/state/actions.json" || fail "missing action state"
 test -f "$tmp/build/qstar/state/graph.json" || fail "missing graph snapshot"
@@ -66,6 +75,14 @@ contains "$tmp/build/qstar/state/actions.json" "\"external_tool_key\":"
 test -f "$tmp/build/qstar/compile_commands.json" || fail "missing compile_commands.json"
 contains "$tmp/build/qstar/compile_commands.json" "src/main.c"
 test ! -f "$tmp/compile_commands.json" || fail "default compile_commands leaked to root"
+
+"$qstar" --file "$tmp/qstar.lua" build //:app --verbose --progress plain --color never > "$tmp/ui-verbose.out" 2> "$tmp/ui-verbose.err"
+contains "$tmp/ui-verbose.out" "Status: compiling //:app"
+contains "$tmp/ui-verbose.out" "[100%] Stage"
+esc=$(printf '\033')
+"$qstar" --file "$tmp/qstar.lua" build //:app --progress off --color always > "$tmp/ui-color.out" 2> "$tmp/ui-color.err"
+contains "$tmp/ui-color.out" "${esc}[32mstatus ok${esc}[0m"
+not_contains "$tmp/ui-color.out" "[5%]"
 
 mkdir -p "$group_tmp/group/lib/libk" "$group_tmp/group/sys/kern" "$group_tmp/group/sys/kern/mm" "$group_tmp/group/sys/kern/irq"
 cat > "$group_tmp/group/qstar.lua" <<'EOF'
@@ -969,6 +986,12 @@ contains "$tmp/fail.err" "\"field\":\"exit-code\""
 contains "$tmp/fail.out" "action_diagnostic_json"
 contains "$tmp/build/qstar/state/last-summary.json" "\"status\":\"failure\""
 test -f "$tmp/build/qstar/logs/last-failure.replay" || fail "missing failure replay"
+if "$qstar" --file "$tmp/qstar.lua" --diagnostics json --color always build //:app --progress off > "$tmp/fail-color.out" 2> "$tmp/fail-color.err"; then
+	fail "invalid C color build unexpectedly succeeded"
+fi
+not_contains "$tmp/fail-color.err" "$esc"
+grep '^action_diagnostic_json ' "$tmp/fail-color.out" > "$tmp/fail-color-action-json.out" || fail "missing action diagnostic json in color failure"
+not_contains "$tmp/fail-color-action-json.out" "$esc"
 
 "$qstar" --file "$tmp/qstar.lua" last-failure > "$tmp/replay.out" 2> "$tmp/replay.err"
 contains "$tmp/replay.out" "qstar last-failure v1"
@@ -3589,7 +3612,7 @@ contains "$tmp/artifact-dep-explain.out" "artifact_input_edge input=<qstar-targe
 "$qstar" --file "$tmp/artifact-dep/qstar.lua" dry-run //:kernel_img > "$tmp/artifact-dep-dry.out" 2> "$tmp/artifact-dep-dry.err"
 contains "$tmp/artifact-dep-dry.out" "artifact_input_edge input=<qstar-target-file://:kernel> producer=//:kernel path="
 contains "$tmp/artifact-dep-dry.out" "argv=[tools/fake-objcopy.sh, -O, binary, build/qstar/out/"
-"$qstar" --file "$tmp/artifact-dep/qstar.lua" build //:kernel_img > "$tmp/artifact-dep-build.out" 2> "$tmp/artifact-dep-build.err"
+"$qstar" --file "$tmp/artifact-dep/qstar.lua" build //:kernel_img --schedule-trace > "$tmp/artifact-dep-build.out" 2> "$tmp/artifact-dep-build.err"
 contains "$tmp/artifact-dep-build.out" "build_target //:kernel"
 contains "$tmp/artifact-dep-build.out" "build_generated_action //:kernel_img"
 contains "$tmp/artifact-dep-build.out" "status ok"

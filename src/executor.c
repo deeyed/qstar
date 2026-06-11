@@ -5,6 +5,7 @@
 #include <dirent.h>
 #include <ctype.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,6 +29,14 @@ struct qstar_build_ctx {
 	int explain_only;
 	int jobs;
 	int schedule_trace;
+	int verbose;
+	int quiet;
+	int progress_mode;
+	int color_mode;
+	int progress_enabled;
+	int color_enabled;
+	int progress_next_tick;
+	int progress_stage;
 	int action_timeout_sec;
 	int cancelled;
 	int action_scheduler;
@@ -48,6 +57,7 @@ struct qstar_build_ctx {
 	size_t prev_len, prev_cap, next_len, next_cap;
 	size_t run_count, skip_count, fail_count;
 	size_t scheduled_count;
+	size_t progress_total;
 	struct qstar_compile_record {
 		char *directory;
 		char *file;
@@ -143,6 +153,191 @@ struct qstar_scheduler {
 	size_t ready_len;
 	size_t ready_cap;
 };
+
+/** FILE stream이 terminal인지 안전하게 확인한다. */
+static int
+stream_is_tty(FILE *out)
+{
+	return out && isatty(fileno(out));
+}
+
+/** build color 정책을 terminal capability와 합쳐 최종 bool로 만든다. */
+static int
+build_color_enabled(FILE *out, int color_mode)
+{
+	if (color_mode == QSTAR_COLOR_ALWAYS)
+		return 1;
+	if (color_mode == QSTAR_COLOR_NEVER)
+		return 0;
+	return stream_is_tty(out);
+}
+
+/** build progress 정책을 terminal capability와 합쳐 최종 bool로 만든다. */
+static int
+build_progress_enabled(FILE *out, int progress_mode)
+{
+	(void)out;
+	return progress_mode != QSTAR_PROGRESS_OFF;
+}
+
+/** ANSI color prefix를 build color policy에 맞게 반환한다. */
+static const char *
+build_color(const struct qstar_build_ctx *ctx, const char *role)
+{
+	if (!ctx->color_enabled)
+		return "";
+	if (strcmp(role, "error") == 0)
+		return "\033[1;31m";
+	if (strcmp(role, "warning") == 0)
+		return "\033[1;33m";
+	if (strcmp(role, "success") == 0)
+		return "\033[32m";
+	if (strcmp(role, "stage") == 0)
+		return "\033[1m";
+	return "";
+}
+
+/** ANSI reset sequence를 build color policy에 맞게 반환한다. */
+static const char *
+build_color_reset(const struct qstar_build_ctx *ctx)
+{
+	return ctx->color_enabled ? "\033[0m" : "";
+}
+
+/** 상세 build event stream을 출력할지 결정한다. */
+static int
+build_trace_enabled(const struct qstar_build_ctx *ctx)
+{
+	return ctx->verbose || ctx->schedule_trace;
+}
+
+/** --verbose/--schedule-trace에서만 상세 build event를 출력한다. */
+static void
+build_tracef(struct qstar_build_ctx *ctx, const char *fmt, ...)
+{
+	va_list ap;
+
+	if (!build_trace_enabled(ctx))
+		return;
+	va_start(ap, fmt);
+	vfprintf(ctx->out, fmt, ap);
+	va_end(ap);
+}
+
+/** target kind에 맞는 final action stage 이름을 고른다. */
+static const char *
+final_stage_name(const struct qstar_target *target)
+{
+	if (!target)
+		return "finalizing";
+	if (strcmp(target->kind, "staticlib") == 0)
+		return "archiving";
+	if (strcmp(target->kind, "executable") == 0 || strcmp(target->kind, "test") == 0)
+		return "linking";
+	return "finalizing";
+}
+
+/** scheduler node에 대응하는 사용자-facing progress stage 이름을 반환한다. */
+static const char *
+progress_stage_name(const struct qstar_sched_node *node)
+{
+	switch (node->kind) {
+	case QSTAR_SCHED_COMPILE:
+		return "compiling";
+	case QSTAR_SCHED_FINAL:
+		return final_stage_name(node->target);
+	case QSTAR_SCHED_GENERATE:
+		return "generating";
+	case QSTAR_SCHED_RUN:
+		return "running";
+	case QSTAR_SCHED_GROUP:
+		return "grouping";
+	}
+	return "working";
+}
+
+/** scheduler node의 progress label을 반환한다. */
+static const char *
+progress_node_label(const struct qstar_sched_node *node)
+{
+	if (node->target)
+		return node->target->label;
+	if (node->genrule)
+		return node->genrule->label;
+	return "<action>";
+}
+
+/** progress tick 한 줄을 출력한다. */
+static void
+progress_tick(struct qstar_build_ctx *ctx, int pct, const char *stage,
+    const char *label)
+{
+	if (!ctx->progress_enabled || ctx->quiet)
+		return;
+	ctx->progress_stage++;
+	fprintf(ctx->out, "%s[%d%%]%s Stage %d: %s %s\n",
+	    build_color(ctx, "stage"), pct, build_color_reset(ctx),
+	    ctx->progress_stage, stage, label && *label ? label : ctx->root_label);
+}
+
+/** verbose build status 한 줄을 출력한다. */
+static void
+progress_status(struct qstar_build_ctx *ctx, const char *stage, const char *label)
+{
+	if (!ctx->progress_enabled || ctx->quiet || !ctx->verbose)
+		return;
+	fprintf(ctx->out, "Status: %s %s\n", stage,
+	    label && *label ? label : ctx->root_label);
+}
+
+/** action DAG progress를 초기화한다. */
+static void
+progress_begin(struct qstar_build_ctx *ctx, size_t total)
+{
+	ctx->progress_total = total ? total : 1;
+	ctx->progress_next_tick = 5;
+	ctx->progress_stage = 0;
+	progress_tick(ctx, 5, "prepare", ctx->root_label);
+	ctx->progress_next_tick = 10;
+}
+
+/** node 완료 수를 5% progress tick으로 변환한다. */
+static void
+progress_complete(struct qstar_build_ctx *ctx, const struct qstar_sched_node *node,
+    size_t completed)
+{
+	int pct;
+	const char *stage, *label;
+
+	if (!ctx->progress_enabled || ctx->quiet)
+		return;
+	if (ctx->progress_total == 0)
+		ctx->progress_total = 1;
+	pct = (int)((completed * 100) / ctx->progress_total);
+	if (pct > 100)
+		pct = 100;
+	pct = (pct / 5) * 5;
+	stage = progress_stage_name(node);
+	label = progress_node_label(node);
+	if (pct >= ctx->progress_next_tick && pct <= 100) {
+		progress_tick(ctx, pct, stage, label);
+		ctx->progress_next_tick = pct + 5;
+	}
+}
+
+/** build 종료 시 100% tick을 보장한다. */
+static void
+progress_finish(struct qstar_build_ctx *ctx, int success)
+{
+	if (!ctx->progress_enabled || ctx->quiet)
+		return;
+	if (success) {
+		if (ctx->progress_next_tick <= 100)
+			progress_tick(ctx, 100, "complete", ctx->root_label);
+	} else {
+		progress_status(ctx, "failed", ctx->root_label);
+	}
+}
 
 static int run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
     const struct qstar_target *target, const struct qstar_genrule *genrule);
@@ -3229,7 +3424,7 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	pid_t pid;
 	int fdout, fderr, use_rsp;
 
-	fprintf(ctx->out,
+	build_tracef(ctx,
 	    "parallel_event target=%s event=queue id=%s order=%zu slot=%zu state=ready retry=no\n",
 	    action->target->label, action->id, queue_index, slot);
 	if (full_path_under_build(graph, "logs", logdir, sizeof(logdir)) < 0 ||
@@ -3247,7 +3442,7 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		return qstar_set_error(graph, "qstar: action log path too long");
 	prev = state_find(ctx, action->id);
 	ctx->scheduled_count++;
-	fprintf(ctx->out, "schedule_action id=%s kind=%s slot=%zu jobs=%d state=ready\n",
+	build_tracef(ctx, "schedule_action id=%s kind=%s slot=%zu jobs=%d state=ready\n",
 	    action->id, action->kind, slot, ctx->jobs);
 	if (prev && strcmp(prev->key, action->key) == 0 &&
 	    outputs_exist(graph, &action->outputs)) {
@@ -3256,7 +3451,7 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    action->id, child_stdout_path, child_stderr_path);
 		write_skip_log(running->action_log, action->argv);
 		ctx->skip_count++;
-		fprintf(ctx->out,
+		build_tracef(ctx,
 		    "parallel_event target=%s event=skip id=%s slot=%zu state=cache-hit retry=no\n",
 		    action->target->label, action->id, slot);
 		return state_push(ctx, 1, action->id, action->key, action->outputs.items[0],
@@ -3300,9 +3495,9 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	running->pid = pid;
 	running->start = time(NULL);
 	running->slot = slot;
-	fprintf(ctx->out, "schedule_action id=%s slot=%zu pid=%ld state=started\n",
+	build_tracef(ctx, "schedule_action id=%s slot=%zu pid=%ld state=started\n",
 	    action->id, slot, (long)pid);
-	fprintf(ctx->out,
+	build_tracef(ctx,
 	    "parallel_event target=%s event=start id=%s slot=%zu pid=%ld state=running retry=on-failure\n",
 	    action->target->label, action->id, slot, (long)pid);
 	return 1;
@@ -3334,7 +3529,7 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			    "build/qstar/logs/last-failure.replay");
 		fprintf(ctx->out, "build_action id=%s status=fail exit=%d\n",
 		    action->id, exit_code);
-		fprintf(ctx->out,
+		build_tracef(ctx,
 		    "parallel_event target=%s event=fail id=%s slot=%zu exit=%d state=failed retry=next-build cancel=active\n",
 		    action->target->label, action->id, running->slot, exit_code);
 		write_failure_replay_detail(graph, action->id, action->toolchain,
@@ -3355,9 +3550,9 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	    "run", action->kind, &action->material) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
 	fprintf(ctx->out, "build_action id=%s status=done exit=0\n", action->id);
-	fprintf(ctx->out, "schedule_action id=%s slot=%zu state=finished\n", action->id,
+	build_tracef(ctx, "schedule_action id=%s slot=%zu state=finished\n", action->id,
 	    running->slot);
-	fprintf(ctx->out,
+	build_tracef(ctx,
 	    "parallel_event target=%s event=finish id=%s slot=%zu state=success retry=no\n",
 	    action->target->label, action->id, running->slot);
 	return 0;
@@ -3379,9 +3574,9 @@ cancel_running_actions(struct qstar_build_ctx *ctx, struct qstar_running_action 
 		fprintf(ctx->out,
 		    "build_action id=%s status=cancelled reason=parallel-failure retry=next-build\n",
 		    running[i].action->id);
-		fprintf(ctx->out, "schedule_action id=%s slot=%zu state=cancelled\n",
+		build_tracef(ctx, "schedule_action id=%s slot=%zu state=cancelled\n",
 		    running[i].action->id, running[i].slot);
-		fprintf(ctx->out,
+		build_tracef(ctx,
 		    "parallel_event target=%s event=cancel id=%s slot=%zu state=cancelled reason=parallel-failure retry=next-build\n",
 		    running[i].action->target->label, running[i].action->id,
 		    running[i].slot);
@@ -4368,9 +4563,9 @@ scheduler_create_target_nodes(struct qstar_scheduler *sched, const struct qstar_
 	target_index = sched_target_index(graph, target);
 	if (target_index < 0)
 		return qstar_set_error(graph, "qstar: invalid scheduler target");
-	fprintf(ctx->out, "build_target %s order=%zu kind=%s\n", target->label, order,
+	build_tracef(ctx, "build_target %s order=%zu kind=%s\n", target->label, order,
 	    target->kind);
-	fprintf(ctx->out,
+	build_tracef(ctx,
 	    "action_dag target=%s order=%zu parallel=%s reason=ready-queue-v1 failure=stop-on-first-failure timeout_sec=%d\n",
 	    target->label, order,
 	    ctx->jobs > 1 && target_compile_input_count(target) > 0 ?
@@ -4396,7 +4591,7 @@ scheduler_create_target_nodes(struct qstar_scheduler *sched, const struct qstar_
 	toolchain = &sched->toolchains[target_index];
 	if (qstar_resolve_toolchain(graph, target, toolchain) < 0)
 		return -1;
-	fprintf(ctx->out,
+	build_tracef(ctx,
 	    "resolved_toolchain owner=%s toolchain=%s target=%s cc=%s cxx=%s ar=%s linker=%s\n",
 	    target->label, toolchain->name, toolchain->target, toolchain->cc,
 	    toolchain->cxx, toolchain->ar, toolchain->linker);
@@ -4414,11 +4609,11 @@ scheduler_create_target_nodes(struct qstar_scheduler *sched, const struct qstar_
 		compile_ordinal++;
 	}
 	if (compile_ordinal > 1)
-		fprintf(ctx->out,
+		build_tracef(ctx,
 		    "parallel_batch target=%s jobs=%d total=%zu policy=fifo fairness=ready-queue cancel=kill-active retry=next-build\n",
 		    target->label, ctx->jobs, compile_ordinal);
 	if (compile_ordinal > 1)
-		fprintf(ctx->out,
+		build_tracef(ctx,
 		    "parallel_compile target=%s jobs=%d sources=%zu mode=process-v3 failure=cancel-active fairness=ready-queue\n",
 		    target->label, ctx->jobs, compile_ordinal);
 	if (scheduler_add_node(sched, QSTAR_SCHED_FINAL, target, NULL, 0, 0,
@@ -4636,13 +4831,13 @@ skip_prepared_action_prequeue(struct qstar_graph *graph, struct qstar_build_ctx 
 	    sizeof(child_stderr_path)) < 0)
 		return qstar_set_error(graph, "qstar: action log path too long");
 	ctx->scheduled_count++;
-	fprintf(ctx->out,
+	build_tracef(ctx,
 	    "schedule_action id=%s kind=%s slot=prequeue jobs=%d state=skipped-prequeue\n",
 	    action->id, action->kind, ctx->jobs);
 	fprintf(ctx->out,
 	    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
 	    action->id, child_stdout_path, child_stderr_path);
-	fprintf(ctx->out,
+	build_tracef(ctx,
 	    "scheduler_event event=pre_skip id=%s target=%s state=cache-hit retry=no\n",
 	    action->id, action->target->label);
 	write_skip_log(action_log, action->argv);
@@ -4674,7 +4869,7 @@ scheduler_run_sync_node(struct qstar_scheduler *sched, size_t node_index)
 	struct qstar_sched_node *node = &sched->nodes[node_index];
 	int rc;
 
-	fprintf(sched->ctx->out,
+	build_tracef(sched->ctx,
 	    "scheduler_event event=run_sync id=%zu kind=%s state=ready\n",
 	    node_index, sched_kind_name(node->kind));
 	if (node->kind == QSTAR_SCHED_GROUP) {
@@ -4724,9 +4919,10 @@ scheduler_execute(struct qstar_scheduler *sched)
 			return -1;
 		}
 	}
-	fprintf(sched->ctx->out,
+	build_tracef(sched->ctx,
 	    "action_scheduler version=v1 nodes=%zu ready=%zu jobs=%zu policy=ready-queue failure=stop-on-first-failure\n",
 	    sched->node_len, sched->ready_len, jobs);
+	progress_begin(sched->ctx, sched->node_len);
 	completed = 0;
 	active = 0;
 	rc = 0;
@@ -4739,6 +4935,9 @@ scheduler_execute(struct qstar_scheduler *sched)
 			if (sched->nodes[node_index].state != QSTAR_SCHED_READY)
 				continue;
 			if (sched->nodes[node_index].kind != QSTAR_SCHED_COMPILE) {
+				progress_status(sched->ctx,
+				    progress_stage_name(&sched->nodes[node_index]),
+				    progress_node_label(&sched->nodes[node_index]));
 				rc = scheduler_run_sync_node(sched, node_index);
 				if (rc < 0)
 					goto fail;
@@ -4747,6 +4946,8 @@ scheduler_execute(struct qstar_scheduler *sched)
 					goto fail;
 				}
 				completed++;
+				progress_complete(sched->ctx, &sched->nodes[node_index],
+				    completed);
 				progressed = 1;
 				continue;
 			}
@@ -4759,6 +4960,9 @@ scheduler_execute(struct qstar_scheduler *sched)
 				rc = -1;
 				goto fail;
 			}
+			progress_status(sched->ctx,
+			    progress_stage_name(&sched->nodes[node_index]),
+			    progress_node_label(&sched->nodes[node_index]));
 			if (prepared_action_cache_hit(sched->graph, sched->ctx,
 			    &sched->nodes[node_index].action)) {
 				rc = skip_prepared_action_prequeue(sched->graph,
@@ -4770,6 +4974,8 @@ scheduler_execute(struct qstar_scheduler *sched)
 					goto fail;
 				}
 				completed++;
+				progress_complete(sched->ctx, &sched->nodes[node_index],
+				    completed);
 				progressed = 1;
 				continue;
 			}
@@ -4785,7 +4991,7 @@ scheduler_execute(struct qstar_scheduler *sched)
 				rc = qstar_set_error(sched->graph, "qstar: no free scheduler slot");
 				goto fail;
 			}
-			fprintf(sched->ctx->out,
+			build_tracef(sched->ctx,
 			    "parallel_slot target=%s slot=%zu state=assign action=%s queue=%zu scheduler=global\n",
 			    sched->nodes[node_index].target->label, slot,
 			    sched->nodes[node_index].action.id,
@@ -4807,6 +5013,8 @@ scheduler_execute(struct qstar_scheduler *sched)
 					goto fail;
 				}
 				completed++;
+				progress_complete(sched->ctx, &sched->nodes[node_index],
+				    completed);
 			}
 			progressed = 1;
 		}
@@ -4832,7 +5040,7 @@ scheduler_execute(struct qstar_scheduler *sched)
 					    "build_action id=%s status=timeout timeout_sec=%d\n",
 					    running[i].action->id,
 					    sched->ctx->action_timeout_sec);
-					fprintf(sched->ctx->out,
+					build_tracef(sched->ctx,
 					    "parallel_event target=%s event=timeout id=%s slot=%zu state=timeout retry=next-build cancel=active\n",
 					    running[i].action->target->label,
 					    running[i].action->id, running[i].slot);
@@ -4872,6 +5080,8 @@ scheduler_execute(struct qstar_scheduler *sched)
 				goto fail;
 			}
 			completed++;
+			progress_complete(sched->ctx, &sched->nodes[node_index],
+			    completed);
 			progressed = 1;
 			break;
 		}
@@ -4909,7 +5119,7 @@ build_with_action_scheduler(struct qstar_graph *graph, struct qstar_build_ctx *c
 	if (genrule) {
 		fprintf(ctx->out, "build_generated_action %s order=0 kind=custom_target\n",
 		    genrule->label);
-		fprintf(ctx->out,
+		build_tracef(ctx,
 		    "action_dag target=%s order=0 parallel=%s reason=ready-queue-v1 failure=stop-on-first-failure timeout_sec=%d\n",
 		    genrule->label, ctx->jobs > 1 ? "action-dag-ready-queue" : "no",
 		    ctx->action_timeout_sec);
@@ -4948,6 +5158,12 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
 	ctx.explain_cache = options ? options->explain_cache : 0;
 	ctx.jobs = options && options->jobs > 0 ? options->jobs : default_job_count();
 	ctx.schedule_trace = options ? options->schedule_trace : 0;
+	ctx.verbose = options ? options->verbose : 0;
+	ctx.quiet = options ? options->quiet : 0;
+	ctx.progress_mode = options ? options->progress_mode : QSTAR_PROGRESS_AUTO;
+	ctx.color_mode = options ? options->color_mode : QSTAR_COLOR_AUTO;
+	ctx.progress_enabled = build_progress_enabled(out, ctx.progress_mode);
+	ctx.color_enabled = build_color_enabled(out, ctx.color_mode);
 	ctx.action_timeout_sec = action_timeout_sec_from_env();
 	if (state_load(graph, &ctx) < 0) {
 		build_ctx_free(&ctx);
@@ -4956,7 +5172,7 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
 	fputs("qstar build v2\n", out);
 	fprintf(out, "root %s\n", ctx.root_label);
 	fprintf(out, "package-root %s\n", graph->package_root ? graph->package_root : ".");
-	fprintf(out,
+	build_tracef(&ctx,
 	    "executor-policy version=v4 parallel=%s jobs=%d active=%s failure=stop-on-first-failure action_timeout_sec=%d cancel=kill-process-and-stop-queue\n",
 	    ctx.jobs > 1 ? "optional" : "no", ctx.jobs,
 	    ctx.jobs > 1 ? "action-dag-ready-queue" : "serial-ready-queue",
@@ -4971,15 +5187,18 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
 	if (build_summary_write(graph, &ctx, rc == 0 ? "success" : "failure") < 0 &&
 	    rc == 0)
 		rc = -1;
-	if (rc == 0)
-		fprintf(out, "status ok run=%zu skip=%zu fail=%zu\n",
+	progress_finish(&ctx, rc == 0);
+	if (rc == 0) {
+		fprintf(out, "%sstatus ok%s run=%zu skip=%zu fail=%zu\n",
+		    build_color(&ctx, "success"), build_color_reset(&ctx),
 		    ctx.run_count, ctx.skip_count, ctx.fail_count);
-	else {
+	} else {
 		if (ctx.cancelled)
 			fprintf(out,
 			    "cancel_propagation policy=stop-on-first-failure pending=not-started scheduled=%zu\n",
 			    ctx.scheduled_count);
-		fprintf(out, "status fail run=%zu skip=%zu fail=%zu\n",
+		fprintf(out, "%sstatus fail%s run=%zu skip=%zu fail=%zu\n",
+		    build_color(&ctx, "error"), build_color_reset(&ctx),
 		    ctx.run_count, ctx.skip_count, ctx.fail_count);
 	}
 	build_ctx_free(&ctx);

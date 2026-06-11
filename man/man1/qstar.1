@@ -9,6 +9,7 @@
 .Op Fl -file Ar qstar.lua
 .Op Fl G Ar qstar_graph|ninja|auto
 .Op Fl B Ar path
+.Op Fl -color Ar auto|always|never
 .Ar command
 .Op Ar arguments
 .Nm
@@ -56,6 +57,9 @@ Alias for
 Override
 .Ic qstar.project
 build_dir with a package-relative build directory.
+.It Fl -color Ar auto|always|never
+Control ANSI color for text output.
+JSON diagnostics are never colorized.
 .El
 .Sh COMMANDS
 .Bl -tag -width "last-failure"
@@ -73,6 +77,16 @@ Print target closure and command-plan information.
 Render action plans without running them.
 .It Ic build
 Run the local executor.
+Build accepts
+.Fl -jobs Ar N ,
+.Fl -schedule-trace ,
+.Fl -verbose ,
+.Fl -quiet ,
+and
+.Fl -progress Ar auto|plain|off .
+Default output is compact progress plus action summary.
+Verbose output adds status lines, and schedule trace enables deterministic
+scheduler events.
 .It Ic test
 Build and run QStar test targets.
 .It Ic stage

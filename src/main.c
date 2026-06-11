@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 static void
 usage(FILE *out)
@@ -41,9 +42,12 @@ usage(FILE *out)
 	fputs("       --profile name --target triple --toolchain name --stdlib policy\n", out);
 	fputs("       --diagnostics text|json\n", out);
 	fputs("       --diagnostic-format text|line  # compatibility alias\n", out);
+	fputs("       --color auto|always|never\n", out);
 	fputs("build options:\n", out);
 	fputs("       --jobs N  # default: host CPU count\n", out);
 	fputs("       --schedule-trace\n", out);
+	fputs("       --verbose | --quiet\n", out);
+	fputs("       --progress auto|plain|off\n", out);
 }
 
 /** argv item이 help 요청인지 확인한다. */
@@ -62,9 +66,10 @@ command_help(FILE *out, const char *cmd)
 		return;
 	}
 	if (strcmp(cmd, "build") == 0) {
-		fputs("usage: qstar [options] build [label] [--jobs N] [--schedule-trace] [--explain-cache]\n", out);
+		fputs("usage: qstar [options] build [label] [--jobs N] [--schedule-trace] [--explain-cache] [--verbose|--quiet] [--progress auto|plain|off]\n", out);
 		fputs("Build a target, generated action, run target, or group target in the validated graph.\n", out);
 		fputs("--jobs defaults to the host CPU count when omitted.\n", out);
+		fputs("--progress auto uses terminal-aware progress; non-TTY output is plain.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "docs") == 0) {
@@ -278,6 +283,47 @@ print_version(FILE *out)
 	fprintf(out, "qstar %s\n", QSTAR_VERSION);
 }
 
+/** CLI progress mode 문자열을 내부 enum으로 변환한다. */
+static int
+parse_progress_mode(const char *s, int *mode)
+{
+	if (strcmp(s, "auto") == 0)
+		*mode = QSTAR_PROGRESS_AUTO;
+	else if (strcmp(s, "plain") == 0)
+		*mode = QSTAR_PROGRESS_PLAIN;
+	else if (strcmp(s, "off") == 0)
+		*mode = QSTAR_PROGRESS_OFF;
+	else
+		return -1;
+	return 0;
+}
+
+/** CLI color mode 문자열을 내부 enum으로 변환한다. */
+static int
+parse_color_mode(const char *s, int *mode)
+{
+	if (strcmp(s, "auto") == 0)
+		*mode = QSTAR_COLOR_AUTO;
+	else if (strcmp(s, "always") == 0)
+		*mode = QSTAR_COLOR_ALWAYS;
+	else if (strcmp(s, "never") == 0)
+		*mode = QSTAR_COLOR_NEVER;
+	else
+		return -1;
+	return 0;
+}
+
+/** stderr가 color 출력을 받을 수 있는지 결정한다. */
+static int
+stderr_color_enabled(int color_mode)
+{
+	if (color_mode == QSTAR_COLOR_ALWAYS)
+		return 1;
+	if (color_mode == QSTAR_COLOR_NEVER)
+		return 0;
+	return isatty(fileno(stderr));
+}
+
 /** JSON diagnostic string을 stderr에 출력한다. */
 static void
 print_json_string(const char *s)
@@ -310,9 +356,11 @@ command_requires_qstar_graph_generator(const char *cmd)
 
 /** QStar diagnostic을 text 또는 machine-readable skeleton으로 출력한다. */
 static void
-print_error(const struct qstar_graph *graph, const char *label, const char *format)
+print_error(const struct qstar_graph *graph, const char *label, const char *format,
+    int color_mode)
 {
 	const char *message;
+	int use_color;
 
 	message = graph->error[0] ? graph->error :
 	    label ? "qstar: unknown target label" : "qstar: failed";
@@ -339,7 +387,9 @@ print_error(const struct qstar_graph *graph, const char *label, const char *form
 		    message);
 		return;
 	}
-	fprintf(stderr, "%s\n", message);
+	use_color = stderr_color_enabled(color_mode);
+	fprintf(stderr, "%s%s%s\n", use_color ? "\033[1;31m" : "", message,
+	    use_color ? "\033[0m" : "");
 	if (graph->error_file[0])
 		fprintf(stderr, "qstar: origin %s:%d field=%s label=%s\n",
 		    graph->error_file, graph->error_line,
@@ -405,6 +455,8 @@ main(int argc, char **argv)
 		return 0;
 	}
 	arg = 1;
+	build_options.progress_mode = QSTAR_PROGRESS_AUTO;
+	build_options.color_mode = QSTAR_COLOR_AUTO;
 	while (arg < argc &&
 	    (strncmp(argv[arg], "--", 2) == 0 || strcmp(argv[arg], "-G") == 0 ||
 	    strcmp(argv[arg], "-B") == 0 || is_help_arg(argv[arg])) &&
@@ -462,6 +514,29 @@ main(int argc, char **argv)
 			}
 			diagnostic_format = argv[arg + 1];
 			arg += 2;
+		} else if (strcmp(argv[arg], "--color") == 0) {
+			if (arg + 1 >= argc ||
+			    parse_color_mode(argv[arg + 1], &build_options.color_mode) < 0) {
+				usage(stderr);
+				qstar_graph_free(&graph);
+				return 2;
+			}
+			arg += 2;
+		} else if (strcmp(argv[arg], "--progress") == 0) {
+			if (arg + 1 >= argc ||
+			    parse_progress_mode(argv[arg + 1],
+			    &build_options.progress_mode) < 0) {
+				usage(stderr);
+				qstar_graph_free(&graph);
+				return 2;
+			}
+			arg += 2;
+		} else if (strcmp(argv[arg], "--verbose") == 0) {
+			build_options.verbose = 1;
+			arg++;
+		} else if (strcmp(argv[arg], "--quiet") == 0) {
+			build_options.quiet = 1;
+			arg++;
 		} else if (strcmp(argv[arg], "--profile") == 0 ||
 		    strcmp(argv[arg], "--target") == 0 ||
 		    strcmp(argv[arg], "--toolchain") == 0 ||
@@ -642,7 +717,7 @@ main(int argc, char **argv)
 	label = NULL;
 	if (strcmp(cmd, "explain") == 0 || strcmp(cmd, "dry-run") == 0 ||
 	    strcmp(cmd, "check") == 0 || strcmp(cmd, "query") == 0 ||
-	    strcmp(cmd, "build") == 0 || strcmp(cmd, "test") == 0 ||
+	    strcmp(cmd, "test") == 0 ||
 	    strcmp(cmd, "why-rebuild") == 0 || strcmp(cmd, "log") == 0 ||
 	    strcmp(cmd, "action-log") == 0 || strcmp(cmd, "replay") == 0) {
 		if (arg < argc)
@@ -738,7 +813,8 @@ main(int argc, char **argv)
 			}
 		}
 	} else if (strcmp(cmd, "--dump-graph") != 0 &&
-	    strcmp(cmd, "doctor") != 0 && strcmp(cmd, "last-failure") != 0) {
+	    strcmp(cmd, "doctor") != 0 && strcmp(cmd, "last-failure") != 0 &&
+	    strcmp(cmd, "build") != 0) {
 		usage(stderr);
 		qstar_graph_free(&graph);
 		return 2;
@@ -764,8 +840,36 @@ main(int argc, char **argv)
 					return 2;
 				}
 				arg += 2;
+			} else if (strcmp(argv[arg], "--progress") == 0) {
+				if (arg + 1 >= argc ||
+				    parse_progress_mode(argv[arg + 1],
+				    &build_options.progress_mode) < 0) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				arg += 2;
+			} else if (strcmp(argv[arg], "--color") == 0) {
+				if (arg + 1 >= argc ||
+				    parse_color_mode(argv[arg + 1],
+				    &build_options.color_mode) < 0) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				arg += 2;
+			} else if (strcmp(argv[arg], "--verbose") == 0) {
+				build_options.verbose = 1;
+				arg++;
+			} else if (strcmp(argv[arg], "--quiet") == 0) {
+				build_options.quiet = 1;
+				arg++;
+			} else if (!label) {
+				label = argv[arg++];
 			} else {
-				break;
+				usage(stderr);
+				qstar_graph_free(&graph);
+				return 2;
 			}
 		}
 	}
@@ -821,7 +925,8 @@ main(int argc, char **argv)
 	if (strcmp(cmd, "lint") == 0) {
 		if (rc < 0 && graph.error[0])
 			(void)qstar_graph_add_lint_from_error(&graph);
-		rc = qstar_graph_lint(&graph, label, lint_format, stdout);
+		rc = qstar_graph_lint_with_color(&graph, label, lint_format,
+		    build_options.color_mode, stdout);
 		qstar_graph_free(&graph);
 		return rc < 0 ? 1 : 0;
 	}
@@ -869,7 +974,7 @@ main(int argc, char **argv)
 			rc = qstar_graph_dump(&graph, label, stdout);
 	}
 	if (rc < 0) {
-		print_error(&graph, label, diagnostic_format);
+		print_error(&graph, label, diagnostic_format, build_options.color_mode);
 		qstar_graph_free(&graph);
 		return 1;
 	}
