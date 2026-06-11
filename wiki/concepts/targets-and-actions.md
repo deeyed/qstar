@@ -40,9 +40,18 @@ qstar.test "unit" {
     "//:core",
   },
 }
+
+qstar.group "all_core" {
+  deps = {
+    "//:core",
+    "//:unit",
+  },
+}
 ```
 
 `explain`은 target closure와 action plan을 보여주고, `build`는 action을 실제로 실행한다.
+`qstar.group`은 output이 없는 aggregate node이므로 dependency closure만 만든다.
+Group 자체는 artifact, install output, `qstar.target_file` 대상이 아니다.
 
 ## 실패 예제
 

@@ -3,6 +3,7 @@ set -eu
 
 qstar=${QSTAR_TEST_QSTAR:-build/bin/qstar}
 tmp=${TMPDIR:-/tmp}/qstar-smoke.$$
+group_tmp=${TMPDIR:-/tmp}/qstar-smoke-group.$$
 
 fail() {
 	echo "qstar-smoke: $*" >&2
@@ -21,9 +22,9 @@ send_lsp() {
 	printf 'Content-Length: %s\r\n\r\n%s' "$len" "$payload"
 }
 
-rm -rf "$tmp"
+rm -rf "$tmp" "$group_tmp"
 mkdir -p "$tmp/src"
-trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+trap 'rm -rf "$tmp" "$group_tmp"' EXIT HUP INT TERM
 
 cat > "$tmp/qstar.lua" <<'EOF'
 qstar.project {
@@ -65,6 +66,103 @@ contains "$tmp/build/qstar/state/actions.json" "\"external_tool_key\":"
 test -f "$tmp/build/qstar/compile_commands.json" || fail "missing compile_commands.json"
 contains "$tmp/build/qstar/compile_commands.json" "src/main.c"
 test ! -f "$tmp/compile_commands.json" || fail "default compile_commands leaked to root"
+
+mkdir -p "$group_tmp/group/lib/libk" "$group_tmp/group/sys/kern" "$group_tmp/group/sys/kern/mm" "$group_tmp/group/sys/kern/irq"
+cat > "$group_tmp/group/qstar.lua" <<'EOF'
+qstar.project {
+  name = "group-corpus",
+  version = "0.1.0",
+  root = ".",
+}
+
+qstar.subdir("lib/libk")
+qstar.subdir("sys/kern/mm")
+qstar.subdir("sys/kern/irq")
+qstar.subdir("sys/kern")
+
+qstar.group "parus_kernel" {
+  deps = {
+    "//sys/kern:parus_kern",
+  },
+}
+EOF
+cat > "$group_tmp/group/lib/libk/libk.qst" <<'EOF'
+qstar.staticlib "parus_libk" {
+  sources = {
+    "lib/libk/libk.c",
+  },
+}
+EOF
+cat > "$group_tmp/group/sys/kern/mm/mm.qst" <<'EOF'
+qstar.staticlib "parus_kern_mm" {
+  sources = {
+    "sys/kern/mm/mm.c",
+  },
+  deps = {
+    "//lib/libk:parus_libk",
+  },
+}
+EOF
+cat > "$group_tmp/group/sys/kern/irq/irq.qst" <<'EOF'
+qstar.staticlib "parus_kern_irq" {
+  sources = {
+    "sys/kern/irq/irq.c",
+  },
+  deps = {
+    "//lib/libk:parus_libk",
+  },
+}
+EOF
+cat > "$group_tmp/group/sys/kern/kern.qst" <<'EOF'
+qstar.group "parus_kern" {
+  deps = {
+    "//sys/kern/mm:parus_kern_mm",
+    "//sys/kern/irq:parus_kern_irq",
+  },
+}
+EOF
+cat > "$group_tmp/group/lib/libk/libk.c" <<'EOF'
+int parus_libk(void) { return 1; }
+EOF
+cat > "$group_tmp/group/sys/kern/mm/mm.c" <<'EOF'
+int parus_mm(void) { return 2; }
+EOF
+cat > "$group_tmp/group/sys/kern/irq/irq.c" <<'EOF'
+int parus_irq(void) { return 3; }
+EOF
+"$qstar" --file "$group_tmp/group/qstar.lua" check //:parus_kernel > "$tmp/group-check.out" 2> "$tmp/group-check.err"
+contains "$tmp/group-check.out" "status ok"
+"$qstar" --file "$group_tmp/group/qstar.lua" dry-run //:parus_kernel > "$tmp/group-dry.out" 2> "$tmp/group-dry.err"
+contains "$tmp/group-dry.out" "dry_run_target //sys/kern:parus_kern"
+contains "$tmp/group-dry.out" "kind=group tool=none input=<deps> output=<none>"
+"$qstar" --file "$group_tmp/group/qstar.lua" build //:parus_kernel > "$tmp/group-build.out" 2> "$tmp/group-build.err"
+contains "$tmp/group-build.out" "group_target label=//sys/kern:parus_kern"
+contains "$tmp/group-build.out" "group_target label=//:parus_kernel"
+contains "$tmp/group-build.out" "artifact=<none>"
+contains "$tmp/group-build.out" "status ok"
+"$qstar" --file "$group_tmp/group/qstar.lua" list-targets --format json > "$tmp/group-targets-json.out" 2> "$tmp/group-targets-json.err"
+contains "$tmp/group-targets-json.out" "\"kind\":\"group\""
+contains "$tmp/group-targets-json.out" "\"installable\":false"
+
+mkdir -p "$group_tmp/group-bad"
+cat > "$group_tmp/group-bad/qstar.lua" <<'EOF'
+qstar.group "bundle" {
+  deps = {},
+}
+
+qstar.run_target "bad" {
+  deps = {
+    "//:bundle",
+  },
+  command = qstar.cli {
+    qstar.target_file("//:bundle"),
+  },
+}
+EOF
+if "$qstar" --file "$group_tmp/group-bad/qstar.lua" check //:bad > "$tmp/group-bad.out" 2> "$tmp/group-bad.err"; then
+	fail "target_file(group) unexpectedly succeeded"
+fi
+contains "$tmp/group-bad.err" "qstar.target_file cannot reference group target '//:bundle' because it has no artifact"
 
 mkdir -p "$tmp/build-policy-root/src"
 cat > "$tmp/build-policy-root/qstar.lua" <<'EOF'

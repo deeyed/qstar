@@ -32,6 +32,7 @@ static const struct qstar_target_rule_info target_rules[] = {
 	{ "sharedlib", "native", "link-shared", "libs", "lib", ".so", 0, 0, 0 },
 	{ "objectlib", "native", "compile-objects", "objects", "", "", 0, 0, 0 },
 	{ "run_target", "generic", "run", "generic", "", "", 0, 0, 0 },
+	{ "group", "generic", "group", "none", "", "", 0, 0, 0 },
 	{ "target", "generic", "materialize", "generic", "", "", 0, 0, 0 },
 };
 

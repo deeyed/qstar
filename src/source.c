@@ -84,6 +84,36 @@ find_target(const struct qstar_graph *graph, const char *label)
 	return NULL;
 }
 
+/** qstar.target_file이 실제 파일 artifact를 가진 target/action만 가리키는지 검사한다. */
+static int
+validate_target_file_artifact_ref(struct qstar_graph *graph, const char *token,
+    const char *origin_file, int origin_line, const char *field, const char *owner)
+{
+	const struct qstar_target *target;
+	char label[QSTAR_PATH_MAX];
+	int rc;
+
+	rc = qstar_target_file_token_label(token, label, sizeof(label));
+	if (rc == 0)
+		return 0;
+	if (rc < 0)
+		return qstar_set_error_origin(graph, origin_file, origin_line, field, owner,
+		    "qstar: malformed target_file placeholder '%s'", token);
+	target = find_target(graph, label);
+	if (target) {
+		if (strcmp(target->kind, "group") == 0)
+			return qstar_set_error_origin(graph, origin_file, origin_line,
+			    field, owner,
+			    "qstar: qstar.target_file cannot reference group target '%s' because it has no artifact",
+			    label);
+		return 0;
+	}
+	if (qstar_graph_find_genrule(graph, label))
+		return 0;
+	return qstar_set_error_origin(graph, origin_file, origin_line, field, owner,
+	    "qstar: target_file target '%s' in '%s' is unknown", label, owner);
+}
+
 static int
 list_contains(const struct qstar_string_list *list, const char *s)
 {
@@ -446,13 +476,22 @@ validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 			    "qstar: malformed generated input target_file '%s'",
 			    path);
 		if (rc == 1) {
+			const struct qstar_target *target;
+
 			if (strcmp(label, genrule->label) == 0)
 				return qstar_set_error_origin(graph,
 				    genrule->origin_file, genrule->origin_line,
 				    "inputs", genrule->label,
 				    "qstar: generated action '%s' cannot depend on itself",
 				    genrule->label);
-			if (!find_target(graph, label) && !qstar_graph_find_genrule(graph, label))
+			target = find_target(graph, label);
+			if (target && strcmp(target->kind, "group") == 0)
+				return qstar_set_error_origin(graph,
+				    genrule->origin_file, genrule->origin_line,
+				    "inputs", genrule->label,
+				    "qstar: qstar.target_file cannot reference group target '%s' because it has no artifact",
+				    label);
+			if (!target && !qstar_graph_find_genrule(graph, label))
 				return qstar_set_error_origin(graph,
 				    genrule->origin_file, genrule->origin_line,
 				    "inputs", genrule->label,
@@ -563,6 +602,10 @@ validate_stage(struct qstar_graph *graph, const struct qstar_stage *stage)
 				    stage->origin_line, "files", stage->label,
 				    "qstar: stage source target '%s' in '%s' is unknown",
 				    label, stage->label);
+			if (validate_target_file_artifact_ref(graph, stage->srcs.items[i],
+			    stage->origin_file, stage->origin_line, "files",
+			    stage->label) < 0)
+				return -1;
 		} else if (!qstar_path_is_package_relative(stage->srcs.items[i])) {
 			return qstar_set_error_origin(graph, stage->origin_file,
 			    stage->origin_line, "files", stage->label,
@@ -605,9 +648,31 @@ qstar_graph_validate_generated_outputs(struct qstar_graph *graph)
 		if (validate_genrule(graph, &graph->genrules[i]) < 0)
 			return -1;
 	}
+	for (i = 0; i < graph->genrule_len; i++) {
+		size_t j;
+
+		for (j = 0; j < graph->genrules[i].args.len; j++) {
+			if (validate_target_file_artifact_ref(graph,
+			    graph->genrules[i].args.items[j], graph->genrules[i].origin_file,
+			    graph->genrules[i].origin_line, "command",
+			    graph->genrules[i].label) < 0)
+				return -1;
+		}
+	}
 	for (i = 0; i < graph->stage_len; i++) {
 		if (validate_stage(graph, &graph->stages[i]) < 0)
 			return -1;
+	}
+	for (i = 0; i < graph->len; i++) {
+		size_t j;
+
+		for (j = 0; j < graph->targets[i].run_command.len; j++) {
+			if (validate_target_file_artifact_ref(graph,
+			    graph->targets[i].run_command.items[j],
+			    graph->targets[i].origin_file, graph->targets[i].origin_line,
+			    "command", graph->targets[i].label) < 0)
+				return -1;
+		}
 	}
 	for (i = 0; i < graph->family_len; i++) {
 		if (validate_target_family(graph, &graph->families[i]) < 0)

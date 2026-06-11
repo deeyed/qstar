@@ -40,6 +40,7 @@ Target/rule:
 - `qstar.test`
 - `qstar.custom_target`
 - `qstar.run_target`
+- `qstar.group`
 - `qstar.configure_file`
 - `qstar.stage`
 - `qstar.target_family`
@@ -117,6 +118,18 @@ qstar.stage "boot_image" {
   files = {
     qstar.stage_file(qstar.target_file("//:image"), "kernel.bin"),
     qstar.stage_file("boot/config.txt", "config.txt"),
+  },
+}
+```
+
+Deps-only aggregate는 `qstar.group`으로 표현한다. Group은 command, output, artifact,
+install 대상이 아니며 `qstar.target_file("//:group")`도 금지된다.
+
+```lua
+qstar.group "kernel_parts" {
+  deps = {
+    "//sys/kern:mm",
+    "//sys/dev:drivers",
   },
 }
 ```

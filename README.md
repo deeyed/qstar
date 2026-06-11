@@ -28,6 +28,7 @@ qstar.sharedlib "plugin" { ... }
 qstar.test "unit" { ... }
 qstar.custom_target "generated" { ... }
 qstar.run_target "smoke" { ... }
+qstar.group "aggregate" { ... }
 qstar.configure_file "cfg" { ... }
 qstar.stage "esp" { ... }
 ```
@@ -161,7 +162,7 @@ qstar.executable "app" {
 }
 ```
 
-`build`는 제한적 local executor v10이다. package-local generated tool, profile-allowlisted external generated tool, `qstar.configure_file`, C/Cale source compile argv, static archive, exe/test link를 다루며 산출물은 `build/qstar/out`, 로그는 `build/qstar/logs` 아래에 둔다. Round 14/15부터 `build/qstar/state/actions.json` action manifest, `compile_commands.json`, cache-hit skip, `why-rebuild`, `log`, `last-failure`, `clean`, JSON diagnostic skeleton을 제공한다. Round 16/17부터 Cale source는 frontend/backend 내부 API가 아니라 `cale -c ... -o ...` process invocation으로만 다룬다. Round 18/19부터 static library dependency link order, public/private include propagation, system library flag rendering, test runner, install skeleton을 제공한다. Round 29부터 executor는 dependency-first closure를 action DAG로 실행하고, 실패는 stop-on-first-failure로 전파한다. Build action timeout은 기본 30초이며 timeout 시 process를 kill하고 replay file을 남긴다. Round 32부터 `--jobs N`과 `--schedule-trace`를 받는다. `jobs > 1`은 같은 target 안의 independent compile action을 process-level parallel batch로 실행하고, generated action과 final archive/link는 deterministic order를 유지한다. Round 35부터 긴 compile/link command는 profile capability가 허용할 때 실제 `build/qstar/rsp/*.rsp` response file로 내려가며, POSIX/Windows/MSVC style과 digest를 plan/build/replay에 기록한다. Round 36부터 parallel compile은 `process-v2` event stream을 출력한다. Queue order, slot assignment, start/finish/fail/timeout/cancel state, `retry=next-build`, active child cancel propagation을 deterministic하게 기록해 실패 로그를 사람이 읽기 쉽게 한다. Round 37부터 `build/qstar/state/graph.json` graph snapshot과 `build/qstar/state/last-summary.json` 마지막 build summary를 저장하고, `qstar action-log <action-id>`와 `qstar replay <action-id>`로 action 단위 로그/재현 명령을 조회한다. Round 56부터 `run_target`은 stdout/stderr/`marker_log` marker check를 지원하고, QEMU wrapper 실패를 `marker-missing`, `timeout`, `exit-code`로 분리해 `last-failure`와 `replay`에 남긴다. Round 59부터 실패 action은 `qstar-action-diagnostic-v1` JSON line도 출력하며, link, objcopy transform, package/stage, QEMU timeout을 각각 `link-failure`, `objcopy-failure`, `package-failure`, `qemu-timeout`으로 분리한다.
+`build`는 제한적 local executor v10이다. package-local generated tool, profile-allowlisted external generated tool, `qstar.configure_file`, C/Cale source compile argv, static archive, exe/test link, deps-only `qstar.group`을 다루며 산출물은 `build/qstar/out`, 로그는 `build/qstar/logs` 아래에 둔다. Round 14/15부터 `build/qstar/state/actions.json` action manifest, `compile_commands.json`, cache-hit skip, `why-rebuild`, `log`, `last-failure`, `clean`, JSON diagnostic skeleton을 제공한다. Round 16/17부터 Cale source는 frontend/backend 내부 API가 아니라 `cale -c ... -o ...` process invocation으로만 다룬다. Round 18/19부터 static library dependency link order, public/private include propagation, system library flag rendering, test runner, install skeleton을 제공한다. Round 29부터 executor는 dependency-first closure를 action DAG로 실행하고, 실패는 stop-on-first-failure로 전파한다. Build action timeout은 기본 30초이며 timeout 시 process를 kill하고 replay file을 남긴다. Round 32부터 `--jobs N`과 `--schedule-trace`를 받는다. `--jobs`를 생략하면 host CPU 수 기반 auto jobs가 적용되고, `jobs > 1`은 같은 target 안의 independent compile action을 process-level parallel batch로 실행한다. Generated action과 final archive/link는 deterministic order를 유지한다. Round 35부터 긴 compile/link command는 profile capability가 허용할 때 실제 `build/qstar/rsp/*.rsp` response file로 내려가며, POSIX/Windows/MSVC style과 digest를 plan/build/replay에 기록한다. Round 36부터 parallel compile은 `process-v2` event stream을 출력한다. Queue order, slot assignment, start/finish/fail/timeout/cancel state, `retry=next-build`, active child cancel propagation을 deterministic하게 기록해 실패 로그를 사람이 읽기 쉽게 한다. Round 37부터 `build/qstar/state/graph.json` graph snapshot과 `build/qstar/state/last-summary.json` 마지막 build summary를 저장하고, `qstar action-log <action-id>`와 `qstar replay <action-id>`로 action 단위 로그/재현 명령을 조회한다. Round 56부터 `run_target`은 stdout/stderr/`marker_log` marker check를 지원하고, QEMU wrapper 실패를 `marker-missing`, `timeout`, `exit-code`로 분리해 `last-failure`와 `replay`에 남긴다. Round 59부터 실패 action은 `qstar-action-diagnostic-v1` JSON line도 출력하며, link, objcopy transform, package/stage, QEMU timeout을 각각 `link-failure`, `objcopy-failure`, `package-failure`, `qemu-timeout`으로 분리한다.
 
 ## 아직 하지 않는 일
 
@@ -220,7 +221,8 @@ Round 40부터 `qstar lsp --stdio`가 개발용 Language Server Protocol 서버�
 Diagnostics는 현재 파일 경로에서 workspace root와 root `qstar.lua`를 찾고,
 기존 lint core와 같은 `QSTAR###` diagnostic을 LSP diagnostic으로 변환한다.
 v1은 현재 파일에 해당하는 diagnostic만 publish한다. Hover는 `qstar.executable`,
-`qstar.staticlib`, `qstar.test`, `qstar.custom_target`, `qstar.configure_file`, `lang.*` 주요 field,
+`qstar.staticlib`, `qstar.test`, `qstar.custom_target`, `qstar.run_target`, `qstar.group`,
+`qstar.configure_file`, `lang.*` 주요 field,
 그리고 `//pkg:target` label의 kind/origin/source summary를 제공한다.
 Completion은 top-level `qstar.*` API와 target field 이름을 제공한다.
 Round 44부터 label navigation도 제공한다. `deps = {"//lib:core"}` 같은 canonical

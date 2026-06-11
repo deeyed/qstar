@@ -30,6 +30,10 @@ Generated action using a
 argv vector.
 .It Ic qstar.run_target
 External smoke command with timeout and optional marker checks.
+.It Ic qstar.group
+Deps-only aggregate target with no command, artifact, install output, or
+.Ic qstar.target_file
+artifact.
 .It Ic qstar.stage
 Copy-only package or staging tree.
 .El

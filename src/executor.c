@@ -95,6 +95,35 @@ static int run_one_generated_action(struct qstar_graph *graph, struct qstar_buil
 static int build_target(struct qstar_graph *graph, const struct qstar_target *target,
     size_t order, void *user);
 
+/** child process polling 사이의 지연을 짧게 유지해 작은 action 지연을 줄인다. */
+static void
+wait_poll_pause(void)
+{
+	struct timespec delay;
+
+	delay.tv_sec = 0;
+	delay.tv_nsec = 10000000L;
+	while (nanosleep(&delay, &delay) < 0 && errno == EINTR)
+		;
+}
+
+/** 명시적 --jobs가 없을 때 host CPU 수를 기준으로 기본 병렬도를 정한다. */
+static int
+default_job_count(void)
+{
+#ifdef _SC_NPROCESSORS_ONLN
+	long n;
+
+	n = sysconf(_SC_NPROCESSORS_ONLN);
+	if (n > 1) {
+		if (n > 256)
+			return 256;
+		return (int)n;
+	}
+#endif
+	return 1;
+}
+
 /** 테스트 harness에서만 action timeout을 짧게 낮춘다. */
 static int
 action_timeout_sec_from_env(void)
@@ -1716,7 +1745,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 				    "qstar: action '%s' timed out after %d seconds; replay=%s",
 				    id, ctx->action_timeout_sec, replay_path);
 			}
-			sleep(1);
+			wait_poll_pause();
 		}
 	}
 	exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
@@ -2203,6 +2232,11 @@ resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
 		return qstar_set_error(graph, "qstar: target_file references unknown target '%s'",
 		    label);
 	}
+	if (strcmp(target->kind, "group") == 0)
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "target_file", target->label,
+		    "qstar: qstar.target_file cannot reference group target '%s' because it has no artifact",
+		    label);
 	if (qstar_graph_artifact_output_path(graph, target, dst, dstlen) < 0)
 		return qstar_set_error(graph, "qstar: target_file artifact path is too long");
 	return 0;
@@ -2586,6 +2620,8 @@ run_target_command(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	memset(&outputs, 0, sizeof(outputs));
 	for (i = 0; i < target->deps.len; i++) {
 		dep = find_target(graph, target->deps.items[i]);
+		if (dep && strcmp(dep->kind, "group") == 0)
+			continue;
 		if (!dep || qstar_graph_artifact_output_path(graph, dep, artifact, sizeof(artifact)) < 0)
 			continue;
 		if (qstar_string_list_push(&inputs, artifact) < 0) {
@@ -3393,7 +3429,7 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			break;
 		}
 		if (!progressed)
-			sleep(1);
+			wait_poll_pause();
 	}
 	for (i = 0; i < compile_count; i++) {
 		if (check_compile_depfile(graph, &actions[i]) < 0) {
@@ -3453,6 +3489,8 @@ append_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *de
 		return 0;
 	if (qstar_string_list_push(seen, dep->label) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
+	if (strcmp(dep->kind, "group") == 0)
+		return 0;
 	if (qstar_graph_artifact_output_path(graph, dep, artifact, sizeof(artifact)) < 0)
 		return qstar_set_error(graph, "qstar: dependency artifact path too long");
 	if (append_owned_argv(graph, argv, argc, artifact) < 0)
@@ -3817,6 +3855,12 @@ build_target(struct qstar_graph *graph, const struct qstar_target *target, size_
 		    "qstar: sharedlib targets are plan-only in local executor v1");
 	if (strcmp(target->kind, "run_target") == 0)
 		return run_target_command(graph, ctx, target);
+	if (strcmp(target->kind, "group") == 0) {
+		fprintf(ctx->out,
+		    "group_target label=%s deps=%zu private_deps=%zu action=none artifact=<none>\n",
+		    target->label, target->deps.len, target->private_deps.len);
+		return 0;
+	}
 	if (qstar_resolve_toolchain(graph, target, &toolchain) < 0)
 		return -1;
 	fprintf(ctx->out,
@@ -3879,7 +3923,7 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
 	ctx.out = out;
 	ctx.root_label = label && *label ? label : "<all>";
 	ctx.explain_cache = options ? options->explain_cache : 0;
-	ctx.jobs = options && options->jobs > 0 ? options->jobs : 1;
+	ctx.jobs = options && options->jobs > 0 ? options->jobs : default_job_count();
 	ctx.schedule_trace = options ? options->schedule_trace : 0;
 	ctx.action_timeout_sec = action_timeout_sec_from_env();
 	if (state_load(graph, &ctx) < 0) {
@@ -3928,7 +3972,6 @@ qstar_graph_build(struct qstar_graph *graph, const char *label, FILE *out)
 	struct qstar_build_options options;
 
 	memset(&options, 0, sizeof(options));
-	options.jobs = 1;
 	return qstar_graph_build_with_options(graph, label, &options, out);
 }
 
@@ -4115,7 +4158,7 @@ run_test_artifact(struct qstar_graph *graph, const struct qstar_target *target, 
 			    target->origin_line, "test", target->label,
 			    "qstar: test '%s' timed out", target->label);
 		}
-		sleep(1);
+		wait_poll_pause();
 	}
 	if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
 		fprintf(out, "test_result label=%s status=pass exit=0\n", target->label);

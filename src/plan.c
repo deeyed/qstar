@@ -925,6 +925,10 @@ plan_resolve_target_file_arg(const struct qstar_graph *graph, const char *arg,
 	if (rc <= 0)
 		return arg;
 	target = plan_find_target(graph, label);
+	if (target && strcmp(target->kind, "group") == 0) {
+		snprintf(buf, buflen, "<group-has-no-artifact>");
+		return buf;
+	}
 	if (target && qstar_graph_artifact_output_path(graph, target, buf, buflen) == 0)
 		return buf;
 	genrule = qstar_graph_find_genrule(graph, label);
@@ -1448,6 +1452,10 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	fprintf(out, "  cxx_standard %s\n", target->cxx_standard);
 	fprintf(out, "  toolchain %s\n", target->toolchain);
 	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
+	if (strcmp(target->kind, "group") == 0) {
+		fprintf(out, "  action group input=<deps> output=<none>\n");
+		return 0;
+	}
 	if (strcmp(target->kind, "run_target") == 0) {
 		fputs("  run.command ", out);
 		dump_list(out, &target->run_command);
@@ -1692,6 +1700,12 @@ qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out)
 				    "input=<deps> output=build/qstar/out/<run-stamp> execute=no\n",
 				    plan.order[i]->label, plan.order[i]->label);
 			dump_run_argv(out, plan.order[i]);
+			continue;
+		}
+		if (strcmp(plan.order[i]->kind, "group") == 0) {
+			fprintf(out,
+			    "  dry_run_step id=%s:group:0 owner=%s kind=group tool=none input=<deps> output=<none> execute=no\n",
+			    plan.order[i]->label, plan.order[i]->label);
 			continue;
 		}
 		if (dump_resolved_toolchain(out, &plan, plan.order[i], &toolchain) < 0) {

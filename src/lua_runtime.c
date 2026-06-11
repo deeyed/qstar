@@ -615,6 +615,45 @@ reject_top_level_field(lua_State *L, int table, struct qstar_graph *graph,
 	return 0;
 }
 
+/** group target이 artifact/action field를 받지 않도록 DSL boundary를 고정한다. */
+static int
+reject_group_action_fields(lua_State *L, int table, struct qstar_graph *graph,
+    const char *label)
+{
+	static const char *fields[] = {
+		"sources",
+		"lang",
+		"libs",
+		"lib_dirs",
+		"frameworks",
+		"link_options",
+		"defsyms",
+		"toolchain",
+		"stdlib",
+		"artifact_name",
+		"linker_script",
+		"command",
+		"timeout",
+		"marker",
+		"marker_log",
+	};
+	size_t i;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	for (i = 0; i < sizeof(fields) / sizeof(fields[0]); i++) {
+		lua_getfield(L, table, fields[i]);
+		if (!lua_isnil(L, -1)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph,
+			    "qstar: group target '%s' cannot set '%s'; group targets have deps only and no artifact",
+			    label, fields[i]);
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
 static int
 push_define_option(struct qstar_graph *graph, struct qstar_string_list *list, const char *def)
 {
@@ -1025,6 +1064,10 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	graph = ctx->graph;
 	luaL_checktype(L, table_index, LUA_TTABLE);
 	kind = check_string_field(L, table_index, "kind");
+	if (default_kind && strcmp(default_kind, "group") == 0 && kind && *kind &&
+	    strcmp(kind, "group") != 0)
+		return luaL_error(L, "qstar: qstar.group target '%s' cannot override kind",
+		    name);
 	if (!kind || !*kind)
 		kind = default_kind && *default_kind ? default_kind : "target";
 	if (!name[0])
@@ -1066,6 +1109,9 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	    "top-level modules is not allowed; use lang.cale.modules or lang.cxx.modules") < 0 ||
 	    reject_top_level_field(L, table_index, graph, "hcl_include_dirs",
 	    "hcl_include_dirs is removed; use lang.cale.public_include_dirs or lang.cale.private_include_dirs") < 0)
+		return luaL_error(L, "%s", graph->error);
+	if (strcmp(target->kind, "group") == 0 &&
+	    reject_group_action_fields(L, table_index, graph, target->label) < 0)
 		return luaL_error(L, "%s", graph->error);
 	if (read_list_field(L, table_index, "sources", &target->sources, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "deps", &target->deps, graph, 1, target->fragment_dir) < 0 ||
@@ -2498,6 +2544,9 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_pushstring(L, "run_target");
 	lua_pushcclosure(L, qstar_lua_target, 1);
 	lua_setfield(L, -2, "run_target");
+	lua_pushstring(L, "group");
+	lua_pushcclosure(L, qstar_lua_target, 1);
+	lua_setfield(L, -2, "group");
 	lua_pushstring(L, "staticlib");
 	lua_pushcclosure(L, qstar_lua_target, 1);
 	lua_setfield(L, -2, "staticlib");

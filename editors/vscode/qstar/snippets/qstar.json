@@ -78,6 +78,17 @@
     ],
     "description": "Create an external run target."
   },
+  "Group target": {
+    "prefix": "qgroup",
+    "body": [
+      "qstar.group \"${1:all}\" {",
+      "  deps = {",
+      "    \"${2://:core}\",",
+      "  },",
+      "}"
+    ],
+    "description": "Create a deps-only aggregate target."
+  },
   "Stage package": {
     "prefix": "qstage",
     "body": [

@@ -39,7 +39,7 @@ usage(FILE *out)
 	fputs("       --diagnostics text|json\n", out);
 	fputs("       --diagnostic-format text|line  # compatibility alias\n", out);
 	fputs("build options:\n", out);
-	fputs("       --jobs N\n", out);
+	fputs("       --jobs N  # default: host CPU count\n", out);
 	fputs("       --schedule-trace\n", out);
 }
 
@@ -60,7 +60,8 @@ command_help(FILE *out, const char *cmd)
 	}
 	if (strcmp(cmd, "build") == 0) {
 		fputs("usage: qstar [options] build [label] [--jobs N] [--schedule-trace] [--explain-cache]\n", out);
-		fputs("Build a target, generated action, or run target in the validated graph.\n", out);
+		fputs("Build a target, generated action, run target, or group target in the validated graph.\n", out);
+		fputs("--jobs defaults to the host CPU count when omitted.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "docs") == 0) {
@@ -358,7 +359,7 @@ main(int argc, char **argv)
 		qstar_graph_free(&graph);
 		return arg + 1 == argc ? 0 : 2;
 	}
-	build_options.jobs = 1;
+	build_options.jobs = 0;
 	if (strcmp(cmd, "version") == 0) {
 		if (arg != argc) {
 			usage(stderr);
