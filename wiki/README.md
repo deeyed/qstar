@@ -144,8 +144,11 @@ make -C qstar qstar-pilot-readiness-tests
 ```
 
 이 gate는 QStar binary, sample corpus, lint/LSP, VSCode package, executor, cache/replay,
-systems-style firmware corpus, formatter, subcommand help, wiki/CLI drift guard를 함께
-검증한다. 아직 remote package fetch, `run_target`/stage/install/sharedlib/Cale source의
-full Ninja parity, full sharedlib executor, Cale compiler internal API integration은 정식
-surface가 아니다. Ninja backend는 C/C++/ASM compile, generated action, staticlib,
-executable/test link, `qstar.group` phony lowering/execution까지 지원한다.
+systems-style firmware corpus, low-level skeleton qstar_graph/Ninja timing benchmark,
+formatter, subcommand help, wiki/CLI drift guard를 함께
+검증한다. 아직 remote package fetch, sharedlib/Cale source의 full Ninja parity, full
+sharedlib executor, Cale compiler internal API integration은 정식 surface가 아니다. Ninja
+backend는 C/C++/ASM compile, generated action, staticlib, executable/test link,
+`qstar.run_target` wrapper, `qstar.group` phony lowering/execution을 지원한다.
+`stage`/`install`은 copy와 manifest를 QStar가 맡고, 참조 artifact build는 effective
+generator를 따른다.

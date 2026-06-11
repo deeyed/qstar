@@ -49,12 +49,11 @@ In this release,
 resolves to
 .Ar qstar_graph .
 .Ar ninja
-emits and runs a Ninja MVP for C/C++/ASM compile, static library archive, and
-group phony targets.
-Full executable, custom action, run target, stage, and test parity remains on
-the
-.Ar qstar_graph
-backend.
+emits and runs a Ninja backend for C/C++/ASM compile, generated actions,
+static libraries, executable/test links, run target wrappers, and group phony
+targets.
+Stage and install copy/manifest work is still performed by QStar, but referenced
+target artifacts are built through the effective generator.
 .It Fl -generator Ar qstar_graph|ninja|auto
 Alias for
 .Fl G .
@@ -90,12 +89,14 @@ The Ninja backend lowers C/C++/ASM compile actions,
 .Ic qstar.configure_file ,
 .Ic qstar.custom_target ,
 static libraries, executable/test links, and
+.Ic qstar.run_target
+wrappers, plus
 .Ic qstar.group
 phony targets.
-Run targets, stage/install actions, shared libraries, and Cale source actions
-still use the
+Stage/install copy and manifest actions remain QStar-owned.
+Shared libraries and Cale source actions still require the
 .Ar qstar_graph
-backend.
+generator.
 .It Ic build
 Build using the effective generator.
 The

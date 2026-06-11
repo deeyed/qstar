@@ -50,6 +50,11 @@ return M
 `qstar.import_file`은 금지된다. Helper 함수, 상수, table literal, `qstar.import_module`
 을 통한 다른 helper module import는 사용할 수 있다.
 
+LSP definition navigation은 import 문자열도 해석한다. `qstar.import_file("foo/bar.qst")`
+위에서 definition을 요청하면 해당 `.qst`로 이동하고,
+`qstar.import_module("qstar/modules/kernel")` 위에서는
+`qstar/modules/kernel/kernel.qsm`으로 이동한다.
+
 ## 권장 배치
 
 ```txt

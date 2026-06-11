@@ -405,10 +405,35 @@ qstar.test "unit" {
     },
   },
 }
+
+qstar.run_target "smoke" {
+  deps = {"//:app"},
+  command = qstar.cli {qstar.target_file("//:app")},
+  timeout = 3,
+  marker = "APP-OK",
+}
+
+qstar.run_target "missing_marker" {
+  deps = {"//:app"},
+  command = qstar.cli {qstar.target_file("//:app")},
+  timeout = 3,
+  marker = "MISSING-MARKER",
+}
+
+qstar.stage "bundle" {
+  root = "stage/bundle",
+  files = {
+    qstar.stage_file(qstar.target_file("//:app"), "bin/app"),
+  },
+}
 EOF
 cat > "$tmp/ninja-parity/src/main.c" <<'EOF'
+#include <stdio.h>
 int generated_value(void);
-int main(void) { return generated_value() == 42 ? 0 : 1; }
+int main(void) {
+  puts("APP-OK");
+  return generated_value() == 42 ? 0 : 1;
+}
 EOF
 cat > "$tmp/ninja-parity/src/test.c" <<'EOF'
 int generated_value(void);
@@ -436,6 +461,23 @@ if command -v ninja >/dev/null 2>&1; then
 	"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity -G ninja test //:unit > "$tmp/ninja-parity-test.out" 2> "$tmp/ninja-parity-test.err"
 	contains "$tmp/ninja-parity-test.out" "backend ninja"
 	contains "$tmp/ninja-parity-test.out" "test_result label=//:unit status=pass"
+	"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity -G ninja build //:smoke > "$tmp/ninja-parity-run.out" 2> "$tmp/ninja-parity-run.err"
+	contains "$tmp/ninja-parity-run.out" "run_target label=//:smoke"
+	contains "$tmp/ninja-parity-run.out" "run_marker label=//:smoke status=matched"
+	contains "$tmp/ninja-parity-run.out" "run_target_result label=//:smoke status=pass"
+	if "$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity -G ninja build //:missing_marker > "$tmp/ninja-parity-run-missing.out" 2> "$tmp/ninja-parity-run-missing.err"; then
+		fail "ninja marker-missing run_target unexpectedly succeeded"
+	fi
+	contains "$tmp/ninja-parity-run-missing.out" "run_target_result label=//:missing_marker status=marker-missing"
+	contains "$tmp/ninja-parity/build/qstar/logs/last-failure.replay" "failure_kind=marker-missing"
+	"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity -G ninja stage //:bundle > "$tmp/ninja-parity-stage.out" 2> "$tmp/ninja-parity-stage.err"
+	contains "$tmp/ninja-parity-stage.out" "backend ninja"
+	contains "$tmp/ninja-parity-stage.out" "stage_file src=build/qstar/out/___app/app dst=stage/bundle/bin/app mode=copy"
+	test -f "$tmp/ninja-parity/stage/bundle/bin/app" || fail "ninja stage output missing"
+	"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity -G ninja install //:app --prefix "$tmp/ninja-parity-prefix" > "$tmp/ninja-parity-install.out" 2> "$tmp/ninja-parity-install.err"
+	contains "$tmp/ninja-parity-install.out" "backend ninja"
+	contains "$tmp/ninja-parity-install.out" "install_file src=build/qstar/out/___app/app"
+	test -f "$tmp/ninja-parity-prefix/bin/app" || fail "ninja install output missing"
 fi
 
 mkdir -p "$tmp/ninja-policy-root/src"
@@ -1024,7 +1066,8 @@ lsp_bad_uri="file://$tmp/lsp-missing/qstar.lua"
 contains "$tmp/lsp-missing.out" "QSTAR002"
 contains "$tmp/lsp-missing.out" "missing fragment"
 
-mkdir -p "$tmp/lsp-nav/lib" "$tmp/lsp-nav/app"
+mkdir -p "$tmp/lsp-nav/lib" "$tmp/lsp-nav/app" \
+	"$tmp/lsp-nav/qstar/policies" "$tmp/lsp-nav/qstar/modules/kernel"
 cat > "$tmp/lsp-nav/qstar.lua" <<'EOF'
 qstar.configure_file "cfg" {
   output = qstar.output("generated/cfg.h"),
@@ -1038,6 +1081,8 @@ qstar.custom_target "gen" {
 
 qstar.subdir("lib")
 qstar.subdir("app")
+qstar.import_file("qstar/policies/common.qst")
+local kernel = qstar.import_module("qstar/modules/kernel")
 EOF
 cat > "$tmp/lsp-nav/lib/lib.qst" <<'EOF'
 qstar.staticlib "core" {}
@@ -1047,12 +1092,20 @@ qstar.executable "app" {
   deps = {"//lib:core"},
 }
 EOF
+cat > "$tmp/lsp-nav/qstar/policies/common.qst" <<'EOF'
+local policy = true
+EOF
+cat > "$tmp/lsp-nav/qstar/modules/kernel/kernel.qsm" <<'EOF'
+return {}
+EOF
 lsp_nav_root_uri="file://$tmp/lsp-nav/qstar.lua"
 lsp_nav_lib_uri="file://$tmp/lsp-nav/lib/lib.qst"
 lsp_nav_app_uri="file://$tmp/lsp-nav/app/app.qst"
+lsp_nav_policy_uri="file://$tmp/lsp-nav/qstar/policies/common.qst"
+lsp_nav_module_uri="file://$tmp/lsp-nav/qstar/modules/kernel/kernel.qsm"
 {
 	send_lsp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
-	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_nav_root_uri"'","languageId":"qstar","version":1,"text":"qstar.configure_file \"cfg\" {\n  output = qstar.output(\"generated/cfg.h\"),\n  defines = {\"HAVE_CFG\"},\n}\n\nqstar.custom_target \"gen\" {\n  outputs = {qstar.output(\"generated/gen.c\")},\n  command = qstar.cli {\"tools/gen.sh\", qstar.output(0)},\n}\n\nqstar.subdir(\"lib\")\nqstar.subdir(\"app\")\n"}}}'
+	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_nav_root_uri"'","languageId":"qstar","version":1,"text":"qstar.configure_file \"cfg\" {\n  output = qstar.output(\"generated/cfg.h\"),\n  defines = {\"HAVE_CFG\"},\n}\n\nqstar.custom_target \"gen\" {\n  outputs = {qstar.output(\"generated/gen.c\")},\n  command = qstar.cli {\"tools/gen.sh\", qstar.output(0)},\n}\n\nqstar.subdir(\"lib\")\nqstar.subdir(\"app\")\nqstar.import_file(\"qstar/policies/common.qst\")\nlocal kernel = qstar.import_module(\"qstar/modules/kernel\")\n"}}}'
 	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_nav_lib_uri"'","languageId":"qstar","version":1,"text":"qstar.staticlib \"core\" {}\n"}}}'
 	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_nav_app_uri"'","languageId":"qstar","version":1,"text":"qstar.executable \"app\" {\n  deps = {\"//lib:core\"},\n}\n"}}}'
 	send_lsp '{"jsonrpc":"2.0","id":2,"method":"textDocument/definition","params":{"textDocument":{"uri":"'"$lsp_nav_app_uri"'"},"position":{"line":1,"character":14}}}'
@@ -1060,7 +1113,9 @@ lsp_nav_app_uri="file://$tmp/lsp-nav/app/app.qst"
 	send_lsp '{"jsonrpc":"2.0","id":4,"method":"textDocument/documentSymbol","params":{"textDocument":{"uri":"'"$lsp_nav_lib_uri"'"}}}'
 	send_lsp '{"jsonrpc":"2.0","id":5,"method":"textDocument/documentSymbol","params":{"textDocument":{"uri":"'"$lsp_nav_root_uri"'"}}}'
 	send_lsp '{"jsonrpc":"2.0","id":6,"method":"workspace/symbol","params":{"query":"core"}}'
-	send_lsp '{"jsonrpc":"2.0","id":7,"method":"shutdown","params":{}}'
+	send_lsp '{"jsonrpc":"2.0","id":7,"method":"textDocument/definition","params":{"textDocument":{"uri":"'"$lsp_nav_root_uri"'"},"position":{"line":12,"character":27}}}'
+	send_lsp '{"jsonrpc":"2.0","id":8,"method":"textDocument/definition","params":{"textDocument":{"uri":"'"$lsp_nav_root_uri"'"},"position":{"line":13,"character":42}}}'
+	send_lsp '{"jsonrpc":"2.0","id":9,"method":"shutdown","params":{}}'
 	send_lsp '{"jsonrpc":"2.0","method":"exit","params":{}}'
 } | "$qstar" lsp --stdio > "$tmp/lsp-nav.out" 2> "$tmp/lsp-nav.err"
 contains "$tmp/lsp-nav.out" "\"definitionProvider\":true"
@@ -1069,6 +1124,8 @@ contains "$tmp/lsp-nav.out" "\"documentSymbolProvider\":true"
 contains "$tmp/lsp-nav.out" "\"workspaceSymbolProvider\":true"
 contains "$tmp/lsp-nav.out" "\"uri\":\"$lsp_nav_lib_uri\""
 contains "$tmp/lsp-nav.out" "\"uri\":\"$lsp_nav_app_uri\""
+contains "$tmp/lsp-nav.out" "\"uri\":\"$lsp_nav_policy_uri\""
+contains "$tmp/lsp-nav.out" "\"uri\":\"$lsp_nav_module_uri\""
 contains "$tmp/lsp-nav.out" "\"name\":\"//lib:core\""
 contains "$tmp/lsp-nav.out" "\"name\":\"//:cfg\""
 contains "$tmp/lsp-nav.out" "\"name\":\"//:gen\""
@@ -1086,6 +1143,7 @@ test -f "$vscode_ext/samples/workspace/lib/lib.qst" || fail "missing QStar VSCod
 contains "$vscode_ext/package.json" "\"id\": \"qstar\""
 contains "$vscode_ext/package.json" "\"qstar.lua\""
 contains "$vscode_ext/package.json" "\".qst\""
+contains "$vscode_ext/package.json" "\".qsm\""
 contains "$vscode_ext/package.json" "\"version\": \"0.2.0\""
 if grep -F '"qstar.workspace"' "$vscode_ext/package.json" >/dev/null 2>&1; then
 	fail "qstar.workspace association must stay removed"
@@ -1123,9 +1181,11 @@ contains "$vscode_ext/extension.js" "registerTreeDataProvider"
 contains "$vscode_ext/extension.js" "qstar-targets-v1"
 contains "$vscode_ext/extension.js" "last-summary.json"
 contains "$vscode_ext/syntaxes/qstar.tmLanguage.json" "entity.name.label.qstar"
+contains "$vscode_ext/syntaxes/qstar.tmLanguage.json" "import_module"
 contains "$vscode_ext/snippets/qstar.json" "\"qexe\""
 contains "$vscode_ext/snippets/qstar.json" "\"qstaticlib\""
 contains "$vscode_ext/snippets/qstar.json" "\"qcustom\""
+contains "$vscode_ext/snippets/qstar.json" "\"qmodule\""
 if find "$vscode_ext" -type d -name node_modules | grep . >/dev/null 2>&1; then
 	fail "node_modules must not be present under QStar VSCode extension"
 fi

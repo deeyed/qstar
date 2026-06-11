@@ -1,4 +1,4 @@
-.Dd June 11, 2026
+.Dd June 12, 2026
 .Dt QSTAR-LUA 5
 .Os
 .Sh NAME
@@ -93,6 +93,15 @@ for helper modules.
 .Pa .qsm
 modules must return a table and cannot declare graph nodes such as targets,
 configs, profiles, project metadata, stages, or subdirs.
+The QStar LSP resolves definitions on
+.Ic qstar.import_file
+strings to
+.Pa .qst
+files and definitions on
+.Ic qstar.import_module
+strings to the corresponding
+.Pa <name>/<name>.qsm
+module entry.
 .Sh CONSTANTS
 .Nm
 provides constants such as

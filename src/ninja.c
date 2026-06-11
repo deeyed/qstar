@@ -14,6 +14,7 @@
 
 #define QSTAR_NINJA_MAX_ARGV 256
 #define QSTAR_NINJA_RESPONSE_ARGV_BYTES 512
+#define QSTAR_NINJA_RUN_TIMEOUT_SEC 30
 #define QSTAR_NINJA_TEST_TIMEOUT_SEC 5
 
 struct ninja_argv {
@@ -445,7 +446,7 @@ validate_ninja_compile_source(struct qstar_graph *graph, const struct qstar_targ
 	if (strcmp(source->language, "cale") == 0)
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "sources", target->label,
-		    "qstar: ninja backend supports C, C++, ASM, custom_target, executable, test, staticlib, and group in this release; Cale source '%s' needs -G qstar_graph",
+		    "qstar: ninja backend supports C, C++, ASM, custom_target, executable, test, run_target, staticlib, and group in this release; Cale source '%s' needs -G qstar_graph",
 		    target->sources.items[index]);
 	if (strcmp(source->language, "c") != 0 && strcmp(source->language, "cxx") != 0 &&
 	    !source_is_asm(source))
@@ -882,6 +883,10 @@ write_ninja_header(FILE *f)
 	fputs("  command = $command\n", f);
 	fputs("  description = [qstar] $description\n", f);
 	fputs("  restat = 1\n\n", f);
+	fputs("rule qstar_run\n", f);
+	fputs("  command = $command\n", f);
+	fputs("  description = [qstar] $description\n", f);
+	fputs("  restat = 1\n\n", f);
 }
 
 /** target header inputs를 Ninja implicit dependency로 출력한다. */
@@ -1007,6 +1012,128 @@ write_config_script(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	fputs("QSTAR_CONFIG_EOF\n", f);
 	fclose(f);
 	(void)ctx;
+	return 0;
+}
+
+/** run_target용 Ninja wrapper script를 생성한다. */
+static int
+write_run_script(struct qstar_graph *graph, const struct qstar_target *target,
+    const char *action_id, const struct ninja_argv *argv, const char *stamp,
+    char *script_rel, size_t script_rel_len)
+{
+	char name[QSTAR_PATH_MAX], sub[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX];
+	char stdout_rel[QSTAR_PATH_MAX], stderr_rel[QSTAR_PATH_MAX];
+	char logdir[QSTAR_PATH_MAX], stamp_dir[QSTAR_PATH_MAX], replay_rel[QSTAR_PATH_MAX];
+	int timeout;
+	FILE *f;
+
+	action_log_name(action_id, name, sizeof(name));
+	if (snprintf(sub, sizeof(sub), "ninja/scripts/%s.sh", name) >=
+	    (int)sizeof(sub) ||
+	    qstar_graph_build_path(graph, sub, script_rel, script_rel_len) < 0 ||
+	    full_path_under_root(graph, script_rel, full, sizeof(full)) < 0)
+		return qstar_set_error(graph, "qstar: run_target script path too long");
+	if (build_log_rel(graph, name, ".stdout", stdout_rel, sizeof(stdout_rel)) < 0 ||
+	    build_log_rel(graph, name, ".stderr", stderr_rel, sizeof(stderr_rel)) < 0 ||
+	    qstar_graph_build_path(graph, "logs", logdir, sizeof(logdir)) < 0 ||
+	    qstar_graph_build_path(graph, "logs/last-failure.replay", replay_rel,
+	    sizeof(replay_rel)) < 0 ||
+	    path_dirname(stamp, stamp_dir, sizeof(stamp_dir)) < 0)
+		return qstar_set_error(graph, "qstar: run_target log path too long");
+	if (mkdir_parent_under_root(graph, script_rel) < 0)
+		return qstar_set_error(graph, "qstar: could not create run_target script dir");
+	f = fopen(full, "w");
+	if (!f)
+		return qstar_set_error(graph, "qstar: could not write run_target script");
+	timeout = target->run_timeout_sec > 0 ? target->run_timeout_sec :
+	    QSTAR_NINJA_RUN_TIMEOUT_SEC;
+	fputs("set -u\n", f);
+	fputs("label=", f);
+	shell_arg(f, target->label);
+	fputs("\nmarker=", f);
+	shell_arg(f, target->run_marker && *target->run_marker ? target->run_marker : "");
+	fputs("\nmarker_log_path=", f);
+	shell_arg(f, target->run_marker_log && *target->run_marker_log ?
+	    target->run_marker_log : "");
+	fputs("\nmarker_log_display=", f);
+	shell_arg(f, target->run_marker_log && *target->run_marker_log ?
+	    target->run_marker_log : "<none>");
+	fputs("\nstdout=", f);
+	shell_arg(f, stdout_rel);
+	fputs("\nstderr=", f);
+	shell_arg(f, stderr_rel);
+	fputs("\nstamp=", f);
+	shell_arg(f, stamp);
+	fputs("\nreplay=", f);
+	shell_arg(f, replay_rel);
+	fprintf(f, "\ntimeout=%d\n", timeout);
+	fputs("mkdir -p ", f);
+	shell_arg(f, logdir);
+	fputc(' ', f);
+	shell_arg(f, stamp_dir);
+	fputc('\n', f);
+	fputs("write_replay() {\n", f);
+	fputs("  kind=$1\n", f);
+	fputs("  {\n", f);
+	fputs("    printf '%s\\n' '# qstar failure replay v2'\n", f);
+	fputs("    printf 'cd %s\\n' ", f);
+	shell_arg(f, graph->package_root ? graph->package_root : ".");
+	fputc('\n', f);
+	fputs("    printf 'failure_kind=%s\\n' \"$kind\"\n", f);
+	fputs("    printf 'label=%s\\n' \"$label\"\n", f);
+	fputs("    printf 'stdout=%s\\n' \"$stdout\"\n", f);
+	fputs("    printf 'stderr=%s\\n' \"$stderr\"\n", f);
+	fputs("    if [ -n \"$marker\" ]; then printf 'marker=%s\\n' \"$marker\"; else printf '%s\\n' 'marker=<none>'; fi\n", f);
+	fputs("    printf 'marker_log=%s\\n' \"$marker_log_display\"\n", f);
+	fputs("    printf '%s\\n' 'response_file path=<none> style=none digest=<none>'\n", f);
+	fputs("    cat <<'QSTAR_REPLAY_CMD'\n", f);
+	shell_argv(f, argv);
+	fputs("\nQSTAR_REPLAY_CMD\n", f);
+	fputs("  } > \"$replay\"\n", f);
+	fputs("}\n", f);
+	fputs("printf 'run_target label=%s command=argv timeout_sec=%d marker=%s marker_log=%s backend=ninja\\n' \"$label\" \"$timeout\" \"${marker:-<none>}\" \"$marker_log_display\"\n", f);
+	fputs("rm -f \"$stdout\" \"$stderr\"\n", f);
+	fputs("timeout_flag=\"$stamp.timeout\"\n", f);
+	fputs("rm -f \"$timeout_flag\"\n", f);
+	fputs("(\n  ", f);
+	shell_argv(f, argv);
+	fputs("\n) >\"$stdout\" 2>\"$stderr\" &\n", f);
+	fputs("pid=$!\n", f);
+	fputs("watchdog=\n", f);
+	fputs("if [ \"$timeout\" -gt 0 ]; then\n", f);
+	fputs("  ( sleep \"$timeout\"; if kill -0 \"$pid\" 2>/dev/null; then printf 'timeout\\n' >\"$timeout_flag\"; kill \"$pid\" 2>/dev/null || true; fi ) &\n", f);
+	fputs("  watchdog=$!\n", f);
+	fputs("fi\n", f);
+	fputs("wait \"$pid\"\n", f);
+	fputs("rc=$?\n", f);
+	fputs("if [ -n \"$watchdog\" ]; then kill \"$watchdog\" 2>/dev/null || true; wait \"$watchdog\" 2>/dev/null || true; fi\n", f);
+	fputs("if [ -f \"$timeout_flag\" ]; then\n", f);
+	fputs("  write_replay timeout\n", f);
+	fputs("  printf 'run_target_result label=%s status=timeout timeout_sec=%d replay=%s stdout=%s stderr=%s backend=ninja\\n' \"$label\" \"$timeout\" \"$replay\" \"$stdout\" \"$stderr\"\n", f);
+	fputs("  exit 124\n", f);
+	fputs("fi\n", f);
+	fputs("if [ \"$rc\" -ne 0 ]; then\n", f);
+	fputs("  write_replay exit-code\n", f);
+	fputs("  printf 'run_target_result label=%s status=exit-code exit=%d replay=%s stdout=%s stderr=%s backend=ninja\\n' \"$label\" \"$rc\" \"$replay\" \"$stdout\" \"$stderr\"\n", f);
+	fputs("  exit \"$rc\"\n", f);
+	fputs("fi\n", f);
+	fputs("if [ -n \"$marker\" ]; then\n", f);
+	fputs("  found=0\n", f);
+	fputs("  source=stdout\n", f);
+	fputs("  path=$stdout\n", f);
+	fputs("  if grep -F -- \"$marker\" \"$stdout\" >/dev/null 2>&1; then found=1; fi\n", f);
+	fputs("  if [ \"$found\" -eq 0 ] && grep -F -- \"$marker\" \"$stderr\" >/dev/null 2>&1; then found=1; source=stderr; path=$stderr; fi\n", f);
+	fputs("  if [ \"$found\" -eq 0 ] && [ -n \"$marker_log_path\" ] && [ -f \"$marker_log_path\" ] && grep -F -- \"$marker\" \"$marker_log_path\" >/dev/null 2>&1; then found=1; source=marker_log; path=$marker_log_path; fi\n", f);
+	fputs("  if [ \"$found\" -eq 0 ]; then\n", f);
+	fputs("    write_replay marker-missing\n", f);
+	fputs("    printf 'run_target_result label=%s status=marker-missing marker=%s stdout=%s stderr=%s marker_log=%s replay=%s backend=ninja\\n' \"$label\" \"$marker\" \"$stdout\" \"$stderr\" \"$marker_log_display\" \"$replay\"\n", f);
+	fputs("    exit 125\n", f);
+	fputs("  fi\n", f);
+	fputs("  printf 'run_marker label=%s status=matched marker=%s source=%s path=%s backend=ninja\\n' \"$label\" \"$marker\" \"$source\" \"$path\"\n", f);
+	fputs("fi\n", f);
+	fputs("printf 'qstar run_target stamp\\n' >\"$stamp\"\n", f);
+	fputs("printf 'run_target_result label=%s status=pass exit=0 stdout=%s stderr=%s backend=ninja\\n' \"$label\" \"$stdout\" \"$stderr\"\n", f);
+	fclose(f);
 	return 0;
 }
 
@@ -1891,7 +2018,168 @@ emit_group_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	return 0;
 }
 
-/** closure target 하나를 Ninja MVP graph로 lower한다. */
+/** run_target command item이 가리키는 producer edge를 먼저 emit한다. */
+static int
+emit_run_item_producer(struct qstar_graph *graph, struct ninja_ctx *ctx, const char *item)
+{
+	const struct qstar_genrule *genrule;
+	char label[QSTAR_PATH_MAX];
+	int rc;
+
+	rc = qstar_target_file_token_label(item, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: malformed target_file placeholder");
+	if (rc == 0)
+		return 0;
+	if (find_target(graph, label))
+		return emit_target_closure(graph, ctx, label);
+	genrule = qstar_graph_find_genrule(graph, label);
+	if (genrule)
+		return emit_genrule_edge(graph, ctx, genrule);
+	return qstar_set_error(graph, "qstar: target_file references unknown target '%s'",
+	    label);
+}
+
+/** run_target command item이 가리키는 Ninja dependency를 출력한다. */
+static int
+write_run_item_dep(struct qstar_graph *graph, FILE *f, const char *item)
+{
+	const struct qstar_genrule *genrule;
+	char label[QSTAR_PATH_MAX], alias[QSTAR_PATH_MAX];
+	int rc;
+
+	rc = qstar_target_file_token_label(item, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: malformed target_file placeholder");
+	if (rc == 0)
+		return 0;
+	if (find_target(graph, label)) {
+		if (ninja_alias_path(graph, label, alias, sizeof(alias)) < 0)
+			return qstar_set_error(graph, "qstar: ninja alias path too long");
+		fputc(' ', f);
+		ninja_path(f, alias);
+		return 0;
+	}
+	genrule = qstar_graph_find_genrule(graph, label);
+	if (genrule && genrule->outputs.len > 0) {
+		fputc(' ', f);
+		ninja_path(f, genrule->outputs.items[0]);
+		return 0;
+	}
+	return qstar_set_error(graph, "qstar: target_file references unknown target '%s'",
+	    label);
+}
+
+/** run_target command argv에 포함된 target_file dependency를 출력한다. */
+static int
+write_run_command_deps(struct qstar_graph *graph, FILE *f,
+    const struct qstar_target *target)
+{
+	size_t i;
+	int wrote;
+
+	wrote = 0;
+	for (i = 0; i < target->run_command.len; i++) {
+		char label[QSTAR_PATH_MAX];
+		int rc;
+
+		rc = qstar_target_file_token_label(target->run_command.items[i], label,
+		    sizeof(label));
+		if (rc < 0)
+			return qstar_set_error(graph, "qstar: malformed target_file placeholder");
+		if (rc == 0)
+			continue;
+		if (!wrote) {
+			fputs(" |", f);
+			wrote = 1;
+		}
+		if (write_run_item_dep(graph, f, target->run_command.items[i]) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+/** run_target을 Ninja wrapper action으로 lower한다. */
+static int
+emit_run_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
+    const struct qstar_target *target)
+{
+	struct ninja_argv argv, script_argv;
+	char alias[QSTAR_PATH_MAX], owner[QSTAR_PATH_MAX], stamp_sub[QSTAR_PATH_MAX];
+	char stamp[QSTAR_PATH_MAX], action_id[QSTAR_PATH_MAX], script_rel[QSTAR_PATH_MAX];
+	size_t i;
+
+	memset(&argv, 0, sizeof(argv));
+	memset(&script_argv, 0, sizeof(script_argv));
+	if (target->run_command.len == 0)
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "command", target->label,
+		    "qstar: run_target '%s' requires command = qstar.cli { ... }",
+		    target->label);
+	for (i = 0; i < target->run_command.len; i++) {
+		char resolved[QSTAR_PATH_MAX];
+
+		if (emit_run_item_producer(graph, ctx, target->run_command.items[i]) < 0)
+			goto fail;
+		if (resolve_target_file_token(graph, target->run_command.items[i],
+		    resolved, sizeof(resolved)) < 0)
+			goto fail;
+		if (ninja_argv_push(graph, &argv, resolved) < 0)
+			goto fail;
+	}
+	qstar_mangle_label(target->label, owner, sizeof(owner));
+	if (snprintf(stamp_sub, sizeof(stamp_sub), "out/%s/run.stamp", owner) >=
+	    (int)sizeof(stamp_sub) ||
+	    qstar_graph_build_path(graph, stamp_sub, stamp, sizeof(stamp)) < 0 ||
+	    ninja_alias_path(graph, target->label, alias, sizeof(alias)) < 0)
+		goto path_fail;
+	snprintf(action_id, sizeof(action_id), "%s:run:0", target->label);
+	if (write_run_script(graph, target, action_id, &argv, stamp, script_rel,
+	    sizeof(script_rel)) < 0)
+		goto fail;
+	if (ninja_argv_push(graph, &script_argv, "sh") < 0 ||
+	    ninja_argv_push(graph, &script_argv, script_rel) < 0)
+		goto fail;
+	fprintf(ctx->ninja, "# qstar-action-id: %s\n", action_id);
+	fputs("build ", ctx->ninja);
+	ninja_path(ctx->ninja, stamp);
+	fputs(": qstar_run ", ctx->ninja);
+	ninja_path(ctx->ninja, script_rel);
+	if (write_run_command_deps(graph, ctx->ninja, target) < 0)
+		goto fail;
+	if (target->deps.len || target->private_deps.len) {
+		fputs(" ||", ctx->ninja);
+		if (write_dep_aliases(graph, ctx->ninja, target, &target->deps) < 0 ||
+		    write_dep_aliases(graph, ctx->ninja, target, &target->private_deps) < 0)
+			goto fail;
+	}
+	fputc('\n', ctx->ninja);
+	fputs("  command = ", ctx->ninja);
+	shell_argv(ctx->ninja, &script_argv);
+	fprintf(ctx->ninja, "\n  description = run %s\n", action_id);
+	fprintf(ctx->ninja, "  qstar_action_id = %s\n\n", action_id);
+	if (write_ninja_action_log(graph, action_id, &argv, NULL) < 0)
+		goto fail;
+	fprintf(ctx->ninja, "# qstar-action-id: %s:alias\n", target->label);
+	fputs("build ", ctx->ninja);
+	ninja_path(ctx->ninja, alias);
+	fputs(": phony ", ctx->ninja);
+	ninja_path(ctx->ninja, stamp);
+	fprintf(ctx->ninja, "\n  qstar_action_id = %s:alias\n\n", target->label);
+	ctx->edge_count += 2;
+	ninja_argv_free(&script_argv);
+	ninja_argv_free(&argv);
+	return 0;
+
+path_fail:
+	qstar_set_error(graph, "qstar: ninja run_target path too long");
+fail:
+	ninja_argv_free(&script_argv);
+	ninja_argv_free(&argv);
+	return -1;
+}
+
+/** closure target 하나를 Ninja graph로 lower한다. */
 static int
 emit_target(struct qstar_graph *graph, const struct qstar_target *target, size_t order,
     void *user)
@@ -1909,6 +2197,8 @@ emit_target(struct qstar_graph *graph, const struct qstar_target *target, size_t
 		ctx->target_emitted[index] = 1;
 	if (strcmp(target->kind, "group") == 0)
 		return emit_group_edge(graph, ctx, target);
+	if (strcmp(target->kind, "run_target") == 0)
+		return emit_run_edge(graph, ctx, target);
 	if (strcmp(target->kind, "sharedlib") == 0)
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "kind", target->label,
@@ -1919,7 +2209,7 @@ emit_target(struct qstar_graph *graph, const struct qstar_target *target, size_t
 	    strcmp(target->kind, "test") != 0)
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "kind", target->label,
-		    "qstar: ninja backend supports custom_target, executable, test, staticlib, and group in this release; target '%s' is kind '%s'",
+		    "qstar: ninja backend supports custom_target, executable, test, run_target, staticlib, and group in this release; target '%s' is kind '%s'",
 		    target->label, target->kind);
 	if (qstar_resolve_toolchain(graph, target, &toolchain) < 0)
 		return -1;
@@ -2073,6 +2363,8 @@ write_ninja_failure_replay(struct qstar_graph *graph, const char *ninja_rel,
 	if (full_path_under_build(graph, "logs/last-failure.replay", path,
 	    sizeof(path)) < 0)
 		return;
+	if (path_exists(path))
+		return;
 	f = fopen(path, "w");
 	if (!f)
 		return;
@@ -2094,6 +2386,17 @@ write_ninja_failure_replay(struct qstar_graph *graph, const char *ninja_rel,
 	fclose(f);
 }
 
+/** 이전 Ninja failure replay가 이번 실패를 가리지 않도록 지운다. */
+static void
+clear_ninja_failure_replay(struct qstar_graph *graph)
+{
+	char path[QSTAR_PATH_MAX];
+
+	if (full_path_under_build(graph, "logs/last-failure.replay", path,
+	    sizeof(path)) == 0)
+		unlink(path);
+}
+
 /** Ninja executable을 실행해 emitted graph를 빌드한다. */
 static int
 run_ninja(struct qstar_graph *graph, const char *ninja_rel, const char *alias,
@@ -2103,6 +2406,7 @@ run_ninja(struct qstar_graph *graph, const char *ninja_rel, const char *alias,
 	int status, exit_code;
 	char jobs_arg[32];
 
+	clear_ninja_failure_replay(graph);
 	pid = fork();
 	if (pid < 0)
 		return qstar_set_error(graph, "qstar: fork failed for ninja");

@@ -57,7 +57,7 @@ LUA_SRCS = \
 
 QSTAR_OBJS = $(QSTAR_SRCS:%.c=$(QSTAR_BUILD)/%.o)
 LUA_OBJS = $(LUA_SRCS:%.c=$(QSTAR_BUILD)/%.o)
-.PHONY: all check qstar-tests qstar-fmt-tests qstar-lint-tests qstar-lsp-tests qstar-lsp-navigation-tests qstar-editor-query-tests vscode-extension-tests qstar-v0-release-tests qstar-v0.1-release-tests qstar-v0.1-hardening-tests qstar-v0.2-authoring-tests qstar-v0.2-rc-tests qstar-v0.3-rc-tests qstar-v0.4-pilot-tests qstar-pilot-readiness-tests qstar-wiki-cli-sync-tests qstar-release-candidate-tests qstar-full-regression-tests qstar-systems-corpus-tests qstar-project-corpus-tests qstar-standalone-integration-tests qstar-executor-v2-tests install clean
+.PHONY: all check qstar-tests qstar-fmt-tests qstar-lint-tests qstar-lsp-tests qstar-lsp-navigation-tests qstar-editor-query-tests qstar-parus-benchmark-tests vscode-extension-tests qstar-v0-release-tests qstar-v0.1-release-tests qstar-v0.1-hardening-tests qstar-v0.2-authoring-tests qstar-v0.2-rc-tests qstar-v0.3-rc-tests qstar-v0.4-pilot-tests qstar-pilot-readiness-tests qstar-wiki-cli-sync-tests qstar-release-candidate-tests qstar-full-regression-tests qstar-systems-corpus-tests qstar-project-corpus-tests qstar-standalone-integration-tests qstar-executor-v2-tests install clean
 
 all: $(BIN_DIR)/qstar
 
@@ -76,7 +76,8 @@ $(QSTAR_BUILD)/$(LUA_DIR)/%.o: $(LUA_DIR)/%.c
 check: all
 	bin="$(BIN_DIR)/qstar"; \
 	case "$$bin" in /*) ;; *) bin="$(CURDIR)/$$bin";; esac; \
-	QSTAR_TEST_QSTAR="$$bin" sh tests/smoke.sh
+	QSTAR_TEST_QSTAR="$$bin" sh tests/smoke.sh; \
+	QSTAR_TEST_QSTAR="$$bin" sh tests/parus-skeleton-benchmark.sh
 
 qstar-tests: check
 
@@ -89,6 +90,11 @@ qstar-lsp-tests: check
 qstar-lsp-navigation-tests: check
 
 qstar-editor-query-tests: check
+
+qstar-parus-benchmark-tests: all
+	bin="$(BIN_DIR)/qstar"; \
+	case "$$bin" in /*) ;; *) bin="$(CURDIR)/$$bin";; esac; \
+	QSTAR_TEST_QSTAR="$$bin" sh tests/parus-skeleton-benchmark.sh
 
 vscode-extension-tests: check
 

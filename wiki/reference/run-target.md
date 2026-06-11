@@ -31,6 +31,8 @@ qstar.run_target "qemu_smoke" {
 
 QStar는 QEMU 자체를 special target으로 알지 않는다. Run target은 command, timeout,
 marker check, log/replay를 제공하는 generic surface다.
+`-G ninja`에서도 wrapper action으로 lowering되며, marker/timeout/exit-code replay
+계약은 `qstar_graph` backend와 같은 failure kind를 사용한다.
 
 ## 실패 예제
 

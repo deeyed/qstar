@@ -735,7 +735,8 @@ is_token_char(int c)
 
 /** 현재 위치 주변 token을 안전하게 복사한다. */
 static char *
-copy_token_at(const char *text, int line, int character)
+copy_token_at_range(const char *text, int line, int character, size_t *start_out,
+    size_t *end_out)
 {
 	const char *row;
 	char *token;
@@ -751,6 +752,10 @@ copy_token_at(const char *text, int line, int character)
 	end = pos;
 	while (end < len && is_token_char((unsigned char)row[end]))
 		end++;
+	if (start_out)
+		*start_out = start;
+	if (end_out)
+		*end_out = end;
 	if (end <= start)
 		return qstar_strdup("");
 	token = malloc(end - start + 1);
@@ -759,6 +764,85 @@ copy_token_at(const char *text, int line, int character)
 	memcpy(token, row + start, end - start);
 	token[end - start] = '\0';
 	return token;
+}
+
+/** 현재 위치 주변 token을 안전하게 복사한다. */
+static char *
+copy_token_at(const char *text, int line, int character)
+{
+	return copy_token_at_range(text, line, character, NULL, NULL);
+}
+
+/** path suffix를 비교한다. */
+static int
+lsp_path_has_suffix(const char *path, const char *suffix)
+{
+	size_t npath, nsuffix;
+
+	npath = strlen(path ? path : "");
+	nsuffix = strlen(suffix ? suffix : "");
+	return npath >= nsuffix && strcmp(path + npath - nsuffix, suffix) == 0;
+}
+
+/** line prefix 안에 import call 이름이 있는지 확인한다. */
+static int
+line_prefix_contains_call(const char *row, size_t end, const char *call)
+{
+	const char *p, *limit;
+	size_t n;
+
+	n = strlen(call);
+	limit = row + end;
+	for (p = row; p + n <= limit; p++) {
+		if (strncmp(p, call, n) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+/** import_file/import_module token을 definition 대상 파일로 해석한다. */
+static int
+resolve_import_definition(struct qstar_lsp_doc *doc, int line, int character,
+    const char *token, char *dst, size_t dstlen)
+{
+	char root_file[QSTAR_PATH_MAX], root_dir[QSTAR_PATH_MAX], rel[QSTAR_PATH_MAX];
+	const char *row, *base;
+	size_t len, start;
+	char *range_token;
+	int is_file, is_module;
+
+	if (!doc || !token || !*token || !qstar_path_is_package_relative(token))
+		return 0;
+	row = line_at_position(doc->text, line, &len);
+	range_token = copy_token_at_range(doc->text, line, character, &start, NULL);
+	free(range_token);
+	if (start > len)
+		return 0;
+	is_file = line_prefix_contains_call(row, start, "qstar.import_file");
+	is_module = line_prefix_contains_call(row, start, "qstar.import_module");
+	if (!is_file && !is_module)
+		return 0;
+	if (find_root_file(doc->path, root_file, sizeof(root_file)) < 0 ||
+	    qstar_dirname(root_file, root_dir, sizeof(root_dir)) < 0)
+		return 0;
+	if (is_file) {
+		if (!lsp_path_has_suffix(token, ".qst"))
+			return 0;
+		if (snprintf(rel, sizeof(rel), "%s", token) >= (int)sizeof(rel))
+			return -1;
+	} else {
+		if (lsp_path_has_suffix(token, ".qst") ||
+		    lsp_path_has_suffix(token, ".qsm") || strcmp(token, "qstar.lua") == 0)
+			return 0;
+		base = strrchr(token, '/');
+		base = base ? base + 1 : token;
+		if (!*base || snprintf(rel, sizeof(rel), "%s/%s.qsm", token, base) >=
+		    (int)sizeof(rel))
+			return -1;
+	}
+	if (qstar_path_join(root_dir, rel, dst, dstlen) < 0)
+		return -1;
+	return file_exists(dst) ? 1 : 0;
 }
 
 /** 정적 hover table에서 token 설명을 찾는다. */
@@ -930,8 +1014,9 @@ handle_definition(struct qstar_lsp_server *server, FILE *out, const char *id,
 	const struct qstar_target *target;
 	const struct qstar_genrule *genrule;
 	char root_file[QSTAR_PATH_MAX];
+	char import_file[QSTAR_PATH_MAX];
 	char *uri, *token;
-	int line, character, rc;
+	int line, character, rc, import_rc;
 
 	uri = json_get_string(body, "uri");
 	line = json_get_int(body, "line", 0);
@@ -941,6 +1026,21 @@ handle_definition(struct qstar_lsp_server *server, FILE *out, const char *id,
 	lsp_buf_init(&payload);
 	if (lsp_buf_printf(&payload, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":",
 	    id ? id : "null") < 0)
+		goto fail;
+	import_rc = doc && token && token[0] != '\0' ?
+	    resolve_import_definition(doc, line, character, token, import_file,
+	    sizeof(import_file)) : 0;
+	if (import_rc > 0) {
+		if (append_location(&payload, import_file, 1) < 0 ||
+		    lsp_buf_append(&payload, "}") < 0)
+			goto fail;
+		rc = lsp_send(out, payload.data);
+		free(uri);
+		free(token);
+		lsp_buf_free(&payload);
+		return rc;
+	}
+	if (import_rc < 0)
 		goto fail;
 	if (!doc || !token || token[0] == '\0' ||
 	    find_root_file(doc->path, root_file, sizeof(root_file)) < 0 ||

@@ -1093,13 +1093,19 @@ static void
 write_stage_failure_replay(const struct qstar_graph *graph, const struct qstar_stage *stage)
 {
 	char id[QSTAR_PATH_MAX];
-	char *argv[4];
+	char *argv[6];
+	size_t argc;
 
 	snprintf(id, sizeof(id), "%s:stage:0", stage->label);
-	argv[0] = "qstar";
-	argv[1] = "stage";
-	argv[2] = (char *)stage->label;
-	argv[3] = NULL;
+	argc = 0;
+	argv[argc++] = "qstar";
+	if (strcmp(qstar_graph_generator(graph), "ninja") == 0) {
+		argv[argc++] = "-G";
+		argv[argc++] = "ninja";
+	}
+	argv[argc++] = "stage";
+	argv[argc++] = (char *)stage->label;
+	argv[argc] = NULL;
 	write_failure_replay_detail(graph, id, NULL, argv, "package-failure",
 	    stage->label, "<none>", "<none>", NULL, NULL);
 }
@@ -5635,6 +5641,7 @@ static int
 install_one_target(struct qstar_graph *graph, const struct qstar_target *target,
     struct qstar_install_ctx *ctx)
 {
+	struct qstar_build_options build_options;
 	char artifact[QSTAR_PATH_MAX], dst[QSTAR_PATH_MAX];
 	const char *role;
 	size_t i;
@@ -5643,6 +5650,12 @@ install_one_target(struct qstar_graph *graph, const struct qstar_target *target,
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "kind", target->label,
 		    "qstar: target '%s' is not installable", target->label);
+	if (!ctx->options->dry_run && strcmp(qstar_graph_generator(graph), "ninja") == 0) {
+		memset(&build_options, 0, sizeof(build_options));
+		if (qstar_graph_build_ninja(graph, target->label, &build_options,
+		    ctx->out) < 0)
+			return -1;
+	}
 	if (qstar_graph_artifact_output_path(graph, target, artifact, sizeof(artifact)) < 0)
 		return qstar_set_error(graph, "qstar: install artifact path too long");
 	if (strcmp(target->kind, "exe") == 0) {
@@ -5860,11 +5873,25 @@ stage_build_source_dependency(struct qstar_graph *graph, const char *src, int dr
 		return qstar_set_error(graph, "qstar: malformed stage target_file source");
 	if (dry_run)
 		return 0;
-	if (rc == 1)
+	if (rc == 1) {
+		if (strcmp(qstar_graph_generator(graph), "ninja") == 0) {
+			struct qstar_build_options options;
+
+			memset(&options, 0, sizeof(options));
+			return qstar_graph_build_ninja(graph, label, &options, out);
+		}
 		return qstar_graph_build(graph, label, out);
+	}
 	owner = qstar_graph_find_output_owner(graph, src);
-	if (owner)
+	if (owner) {
+		if (strcmp(qstar_graph_generator(graph), "ninja") == 0) {
+			struct qstar_build_options options;
+
+			memset(&options, 0, sizeof(options));
+			return qstar_graph_build_ninja(graph, owner->label, &options, out);
+		}
 		return qstar_graph_build(graph, owner->label, out);
+	}
 	return 0;
 }
 

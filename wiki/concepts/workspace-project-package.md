@@ -29,9 +29,10 @@ Generator는 CLI에서만 선택한다.
 - `-G qstar_graph`: 현재 기본 QStar graph executor를 사용한다.
 - `-G auto`: 현재는 `qstar_graph`로 resolve된다.
 - `-G ninja`: C/C++/ASM compile, `qstar.configure_file`, `qstar.custom_target`,
-  staticlib, executable/test link, `qstar.group` phony graph를 Ninja로 lower해 실행한다.
-  `run_target`, `stage`, `install`, `sharedlib`, Cale source action parity는 후속
-  surface다.
+  staticlib, executable/test link, `qstar.run_target`, `qstar.group` phony graph를
+  Ninja로 lower해 실행한다. `stage`와 `install`은 copy와 manifest를 QStar가 처리하되,
+  참조 target artifact build에는 effective generator를 사용한다. `sharedlib`와 Cale
+  source action은 아직 Ninja로 lower되지 않으므로 `-G qstar_graph`가 필요하다.
 
 `compile_commands`는 세 값을 가진다.
 
