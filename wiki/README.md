@@ -102,6 +102,7 @@ qstar --file qstar.lua build //:app
 
 - [QStar Lua](reference/qstar-lua.md)
 - [Imports And Modules](reference/modules.md)
+- [Reusable Configs](reference/configs.md)
 - [Target Rules](reference/target-rules.md)
 - [C Language Options](reference/lang-c.md)
 - [C++ Language Options](reference/lang-cxx.md)

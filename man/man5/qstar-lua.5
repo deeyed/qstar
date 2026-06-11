@@ -23,6 +23,10 @@ The command-line
 option overrides build_dir for the current invocation.
 .It Ic qstar.profile
 In-DSL toolchain and target profile declaration.
+.It Ic qstar.config
+Reusable target option bundle referenced by target
+.Ic configs
+lists.
 .It Ic qstar.executable
 Executable target.
 .It Ic qstar.staticlib
@@ -58,6 +62,12 @@ Language-specific options must live under
 or
 .Ic lang.cale .
 Top-level include/header/module/compile fields are rejected.
+.Pp
+Target
+.Ic configs
+are applied in list order. List fields append, target-local list fields append
+last, and target-local scalar fields override scalar values from configs.
+Configs must be evaluated before targets that reference them.
 .Sh LUA SUBSET
 Allowed helper features include
 .Ic local function ,
@@ -78,7 +88,7 @@ for helper modules.
 .Pp
 .Pa .qsm
 modules must return a table and cannot declare graph nodes such as targets,
-profiles, project metadata, stages, or subdirs.
+configs, profiles, project metadata, stages, or subdirs.
 .Sh CONSTANTS
 .Nm
 provides constants such as
@@ -99,4 +109,5 @@ and
 .Sh SEE ALSO
 .Xr qstar 1 ,
 .Pa share/doc/qstar/wiki/reference/qstar-lua.md ,
+.Pa share/doc/qstar/wiki/reference/configs.md ,
 .Pa share/doc/qstar/wiki/AI_INDEX.md

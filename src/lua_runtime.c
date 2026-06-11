@@ -375,6 +375,44 @@ legacy_field_present(lua_State *L, int table, const char *field)
 	return present;
 }
 
+/** Lua table field를 QStar-owned string slot으로 교체한다. */
+static int
+replace_lua_string(char **slot, const char *value, struct qstar_graph *graph)
+{
+	char *copy;
+
+	copy = qstar_strdup(value ? value : "");
+	if (!copy)
+		return qstar_set_error(graph, "qstar: out of memory");
+	free(*slot);
+	*slot = copy;
+	return 0;
+}
+
+/** lang.<namespace>.<field>가 명시되었는지 검사해 config scalar merge flag를 만든다. */
+static int
+nested_lang_field_present(lua_State *L, int table, const char *lang_name, const char *field)
+{
+	int present;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_getfield(L, table, "lang");
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	lua_getfield(L, -1, lang_name);
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 2);
+		return 0;
+	}
+	lua_getfield(L, -1, field);
+	present = !lua_isnil(L, -1);
+	lua_pop(L, 3);
+	return present;
+}
+
 /** target artifact_name field가 filename basename으로 안전한지 검사한다. */
 static int
 valid_target_artifact_name(const char *s)
@@ -673,6 +711,7 @@ reject_group_action_fields(lua_State *L, int table, struct qstar_graph *graph,
 	static const char *fields[] = {
 		"sources",
 		"lang",
+		"configs",
 		"libs",
 		"lib_dirs",
 		"frameworks",
@@ -985,6 +1024,7 @@ read_modules_field(lua_State *L, int table, const char *field,
 	}
 	target->modules.present = 1;
 	root = check_string_field(L, -1, "root");
+	free(target->modules.root);
 	target->modules.root = qstar_strdup(root ? root : "");
 	if (!target->modules.root) {
 		lua_pop(L, 1);
@@ -1096,6 +1136,179 @@ read_lang_options(lua_State *L, int table, struct qstar_target *target,
 	return rc;
 }
 
+/** qstar.config table에서 config primitive가 받을 수 있는 top-level field만 허용한다. */
+static int
+validate_config_fields(lua_State *L, int table, struct qstar_graph *graph)
+{
+	static const char *const allowed[] = {
+		"lang", "libs", "lib_dirs", "frameworks", "link_options", "defsyms",
+		"toolchain", "stdlib", "artifact_name", "linker_script", NULL
+	};
+	const char *key;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_pushnil(L);
+	while (lua_next(L, table) != 0) {
+		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (!key || !string_in_set(key, allowed)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph, "qstar: unknown config field '%s'",
+			    key ? key : "<non-string>");
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+/** Lua qstar.config 선언을 reusable Graph IR config로 낮춘다. */
+static int
+add_config(lua_State *L, const char *name, int table_index, const char *fragment_dir)
+{
+	struct qstar_lua_context *ctx;
+	struct qstar_config *config;
+	struct qstar_graph *graph;
+	const char *artifact_name, *linker_script, *toolchain, *stdlib_policy;
+	char label[QSTAR_PATH_MAX], rawlabel[QSTAR_PATH_MAX];
+	char origin_file[QSTAR_PATH_MAX];
+	int origin_line;
+
+	if (table_index < 0)
+		table_index = lua_gettop(L) + table_index + 1;
+	ctx = get_context(L);
+	graph = ctx->graph;
+	if (reject_graph_declaration_in_module(L, "qstar.config") != 0)
+		return 1;
+	luaL_checktype(L, table_index, LUA_TTABLE);
+	if (!name[0])
+		return luaL_error(L, "qstar: config name is empty");
+	if (name[0] == ':' || name[0] == '/' || name[0] == '@') {
+		if (qstar_label_canonicalize(name, ctx->current_dir, label, sizeof(label)) < 0)
+			return luaL_error(L, "qstar: invalid config name '%s'", name);
+	} else {
+		if (snprintf(rawlabel, sizeof(rawlabel), ":%s", name) >=
+		    (int)sizeof(rawlabel) ||
+		    qstar_label_canonicalize(rawlabel, ctx->current_dir, label,
+		    sizeof(label)) < 0)
+			return luaL_error(L, "qstar: invalid config name '%s'", name);
+	}
+	current_origin(L, origin_file, sizeof(origin_file), &origin_line);
+	config = qstar_graph_add_config(graph, label, name, fragment_dir, origin_file,
+	    origin_line);
+	if (!config)
+		return luaL_error(L, "%s", graph->error);
+	if (reject_top_level_field(L, table_index, graph, "include_dirs",
+	    "top-level include_dirs is not allowed; use lang.c.include_dirs or lang.cxx.include_dirs") < 0 ||
+	    reject_top_level_field(L, table_index, graph, "public_include_dirs",
+	    "top-level public_include_dirs is not allowed; use lang.c.public_include_dirs or lang.cxx.public_include_dirs") < 0 ||
+	    reject_top_level_field(L, table_index, graph, "private_include_dirs",
+	    "top-level private_include_dirs is not allowed; use lang.c.private_include_dirs or lang.cxx.private_include_dirs") < 0 ||
+	    reject_top_level_field(L, table_index, graph, "system_include_dirs",
+	    "top-level system_include_dirs is not allowed; use lang.c.system_include_dirs or lang.cxx.system_include_dirs") < 0 ||
+	    reject_top_level_field(L, table_index, graph, "interface_include_dirs",
+	    "top-level interface_include_dirs is not allowed; use lang.c.public_include_dirs or lang.cxx.public_include_dirs") < 0 ||
+	    reject_top_level_field(L, table_index, graph, "cflags",
+	    "top-level cflags is not allowed; use lang.c.compile_options") < 0 ||
+	    reject_top_level_field(L, table_index, graph, "cxxflags",
+	    "top-level cxxflags is not allowed; use lang.cxx.compile_options") < 0 ||
+	    reject_top_level_field(L, table_index, graph, "cxx_standard",
+	    "top-level cxx_standard is not allowed; use lang.cxx.standard") < 0 ||
+	    reject_top_level_field(L, table_index, graph, "public_headers",
+	    "top-level public_headers is not allowed; use lang.c.public_headers, lang.cxx.public_headers, or lang.cale.public_headers") < 0 ||
+	    reject_top_level_field(L, table_index, graph, "private_headers",
+	    "top-level private_headers is not allowed; use lang.c.private_headers, lang.cxx.private_headers, or lang.cale.private_headers") < 0 ||
+	    reject_top_level_field(L, table_index, graph, "modules",
+	    "top-level modules is not allowed; use lang.cale.modules or lang.cxx.modules") < 0 ||
+	    reject_top_level_field(L, table_index, graph, "hcl_include_dirs",
+	    "hcl_include_dirs is removed; use lang.cale.public_include_dirs or lang.cale.private_include_dirs") < 0)
+		return luaL_error(L, "%s", graph->error);
+	if (validate_config_fields(L, table_index, graph) < 0)
+		return luaL_error(L, "%s", graph->error);
+	if (read_list_field(L, table_index, "libs", &config->options.libs, graph, 0,
+	    config->options.fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "lib_dirs", &config->options.lib_dirs, graph,
+	    0, config->options.fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "frameworks", &config->options.frameworks,
+	    graph, 0, config->options.fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "link_options", &config->options.link_options,
+	    graph, 0, config->options.fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "defsyms", &config->options.defsyms, graph,
+	    0, config->options.fragment_dir) < 0 ||
+	    read_lang_options(L, table_index, &config->options, graph) < 0)
+		return luaL_error(L, "%s", graph->error);
+	config->has_cxx_standard = nested_lang_field_present(L, table_index, "cxx",
+	    "standard");
+	config->has_asm_preprocess = nested_lang_field_present(L, table_index, "asm",
+	    "preprocess");
+	config->has_cxx_modules = nested_lang_field_present(L, table_index, "cxx",
+	    "modules");
+	config->has_cale_profile = nested_lang_field_present(L, table_index, "cale",
+	    "profile");
+	artifact_name = check_string_field(L, table_index, "artifact_name");
+	linker_script = check_string_field(L, table_index, "linker_script");
+	toolchain = check_string_field(L, table_index, "toolchain");
+	stdlib_policy = check_string_field(L, table_index, "stdlib");
+	if (artifact_name) {
+		if (!valid_target_artifact_name(artifact_name))
+			return luaL_error(L,
+			    "qstar: artifact_name '%s' must be a filename, not a path",
+			    artifact_name);
+		config->has_artifact_name = 1;
+		if (replace_lua_string(&config->options.artifact_name, artifact_name,
+		    graph) < 0)
+			return luaL_error(L, "%s", graph->error);
+	}
+	if (linker_script) {
+		config->has_linker_script = 1;
+		if (replace_lua_string(&config->options.linker_script, linker_script,
+		    graph) < 0)
+			return luaL_error(L, "%s", graph->error);
+	}
+	if (toolchain) {
+		config->has_toolchain = 1;
+		if (replace_lua_string(&config->options.toolchain, toolchain, graph) < 0)
+			return luaL_error(L, "%s", graph->error);
+	}
+	if (stdlib_policy) {
+		config->has_stdlib_policy = 1;
+		if (replace_lua_string(&config->options.stdlib_policy, stdlib_policy,
+		    graph) < 0)
+			return luaL_error(L, "%s", graph->error);
+	}
+	return 0;
+}
+
+/** qstar.config "name" { ... } 형태의 후행 table call을 처리한다. */
+static int
+qstar_lua_config_finish(lua_State *L)
+{
+	const char *name, *fragment_dir;
+
+	name = lua_tostring(L, lua_upvalueindex(1));
+	fragment_dir = lua_tostring(L, lua_upvalueindex(2));
+	return add_config(L, name, 1, fragment_dir);
+}
+
+/** qstar.config API entry point다. */
+static int
+qstar_lua_config(lua_State *L)
+{
+	struct qstar_lua_context *ctx;
+	const char *name;
+
+	ctx = get_context(L);
+	if (reject_graph_declaration_in_module(L, "qstar.config") != 0)
+		return 1;
+	name = luaL_checkstring(L, 1);
+	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
+		lua_pushstring(L, name);
+		lua_pushstring(L, ctx->current_dir);
+		lua_pushcclosure(L, qstar_lua_config_finish, 2);
+		return 1;
+	}
+	return add_config(L, name, 2, ctx->current_dir);
+}
+
 static int
 add_target(lua_State *L, const char *name, int table_index, const char *default_kind,
     const char *fragment_dir)
@@ -1165,7 +1378,10 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	if (strcmp(target->kind, "group") == 0 &&
 	    reject_group_action_fields(L, table_index, graph, target->label) < 0)
 		return luaL_error(L, "%s", graph->error);
-	if (read_list_field(L, table_index, "sources", &target->sources, graph, 0, target->fragment_dir) < 0 ||
+	if (read_list_field(L, table_index, "configs", &target->configs, graph, 1,
+	    target->fragment_dir) < 0 ||
+	    qstar_graph_apply_target_configs(graph, target) < 0 ||
+	    read_list_field(L, table_index, "sources", &target->sources, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "deps", &target->deps, graph, 1, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "public_deps", &target->deps, graph, 1, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "private_deps", &target->private_deps, graph, 1, target->fragment_dir) < 0 ||
@@ -2742,6 +2958,8 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "project");
 	lua_pushcfunction(L, qstar_lua_profile);
 	lua_setfield(L, -2, "profile");
+	lua_pushcfunction(L, qstar_lua_config);
+	lua_setfield(L, -2, "config");
 	lua_pushstring(L, "target");
 	lua_pushcclosure(L, qstar_lua_target, 1);
 	lua_setfield(L, -2, "target");

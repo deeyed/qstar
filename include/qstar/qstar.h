@@ -34,6 +34,7 @@ struct qstar_target {
 	char *origin_file;
 	int origin_line;
 	struct qstar_modules modules;
+	struct qstar_string_list configs;
 	struct qstar_string_list sources;
 	struct qstar_string_list public_headers;
 	struct qstar_string_list private_headers;
@@ -68,6 +69,23 @@ struct qstar_target {
 	int cxx_modules_enabled;
 	char *toolchain;
 	char *stdlib_policy;
+};
+
+struct qstar_config {
+	char *label;
+	char *name;
+	char *fragment_dir;
+	char *origin_file;
+	int origin_line;
+	struct qstar_target options;
+	int has_artifact_name;
+	int has_cxx_standard;
+	int has_cale_profile;
+	int has_linker_script;
+	int has_asm_preprocess;
+	int has_cxx_modules;
+	int has_toolchain;
+	int has_stdlib_policy;
 };
 
 struct qstar_genrule {
@@ -197,6 +215,9 @@ struct qstar_graph {
 	struct qstar_target *targets;
 	size_t len;
 	size_t cap;
+	struct qstar_config *configs;
+	size_t config_len;
+	size_t config_cap;
 	char *package_root;
 	struct qstar_package_alias *packages;
 	size_t package_len;
@@ -279,6 +300,13 @@ const char *qstar_graph_compile_commands_policy(const struct qstar_graph *graph)
 struct qstar_target *qstar_graph_add_target(struct qstar_graph *graph, const char *label,
     const char *name, const char *kind, const char *fragment_dir, const char *origin_file,
     int origin_line);
+
+/** QStar reusable config declaration을 graph에 추가한다. */
+struct qstar_config *qstar_graph_add_config(struct qstar_graph *graph, const char *label,
+    const char *name, const char *fragment_dir, const char *origin_file, int origin_line);
+
+/** QStar target에 선언된 configs list를 target option field로 병합한다. */
+int qstar_graph_apply_target_configs(struct qstar_graph *graph, struct qstar_target *target);
 
 /** QStar graph에 generated action skeleton을 추가하고 중복 label을 막는다. */
 struct qstar_genrule *qstar_graph_add_genrule(struct qstar_graph *graph, const char *label,

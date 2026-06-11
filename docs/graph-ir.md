@@ -53,6 +53,7 @@ Graph IR는 다음을 위해 필요하다.
 | --- | --- |
 | package node | resolved package root와 package metadata reference |
 | target node | `qstar.target`, `qstar.executable`, `qstar.staticlib` 등 산출물 |
+| config node | `qstar.config` reusable target option bundle |
 | module-set node | `qstar.modules { root, include, exclude }` |
 | source-set node | explicit source, glob result, select result |
 | header-set node | public/private headers와 include dirs |

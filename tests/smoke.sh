@@ -477,6 +477,185 @@ if "$qstar" --file "$tmp/import-circular/qstar.lua" check > "$tmp/import-circula
 fi
 contains "$tmp/import-circular.err" "circular import includes 'mods/a/a.qsm'"
 
+mkdir -p "$tmp/configs/qstar/policies" \
+	"$tmp/configs/sys/kern/mm" \
+	"$tmp/configs/sys/kern/irq" \
+	"$tmp/configs/sys/include" \
+	"$tmp/configs/lib/libc/aarch64-unknown-none-elf/include"
+cat > "$tmp/configs/qstar.lua" <<'EOF'
+qstar.project {
+  name = "configs",
+  root = ".",
+}
+
+qstar.import_file("qstar/policies/kernel.qst")
+qstar.subdir("sys/kern/mm")
+qstar.subdir("sys/kern/irq")
+EOF
+cat > "$tmp/configs/qstar/policies/kernel.qst" <<'EOF'
+qstar.config "kernel_c23" {
+  lang = {
+    c = {
+      public_include_dirs = {"sys/include"},
+      system_include_dirs = {"lib/libc/aarch64-unknown-none-elf/include"},
+      compile_options = {
+        "-std=c23",
+        "-ffreestanding",
+        "-fno-builtin",
+        "-nostdinc",
+      },
+    },
+  },
+}
+
+qstar.config "strict_warnings" {
+  lang = {
+    c = {
+      compile_options = {
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+      },
+    },
+  },
+}
+EOF
+cat > "$tmp/configs/sys/kern/mm/mm.qst" <<'EOF'
+qstar.staticlib "parus_kern_mm" {
+  configs = {
+    "//qstar/policies:kernel_c23",
+    "//qstar/policies:strict_warnings",
+  },
+  sources = {
+    "sys/kern/mm/mm.c",
+  },
+  lang = {
+    c = {
+      compile_options = {
+        "-DMM_LOCAL=1",
+      },
+    },
+  },
+}
+EOF
+cat > "$tmp/configs/sys/kern/irq/irq.qst" <<'EOF'
+qstar.staticlib "parus_kern_irq" {
+  configs = {
+    "//qstar/policies:kernel_c23",
+    "//qstar/policies:strict_warnings",
+  },
+  sources = {
+    "sys/kern/irq/irq.c",
+  },
+}
+EOF
+cat > "$tmp/configs/sys/kern/mm/mm.c" <<'EOF'
+int parus_mm(void) { return 0; }
+EOF
+cat > "$tmp/configs/sys/kern/irq/irq.c" <<'EOF'
+int parus_irq(void) { return 0; }
+EOF
+"$qstar" --file "$tmp/configs/qstar.lua" --dump-graph > "$tmp/configs-graph.out" 2> "$tmp/configs-graph.err"
+contains "$tmp/configs-graph.out" "config //qstar/policies:kernel_c23"
+contains "$tmp/configs-graph.out" "config //qstar/policies:strict_warnings"
+contains "$tmp/configs-graph.out" "configs [//qstar/policies:kernel_c23, //qstar/policies:strict_warnings]"
+contains "$tmp/configs-graph.out" "public_include_dirs [sys/include]"
+contains "$tmp/configs-graph.out" "system_include_dirs [lib/libc/aarch64-unknown-none-elf/include]"
+contains "$tmp/configs-graph.out" "cflags [-std=c23, -ffreestanding, -fno-builtin, -nostdinc, -Wall, -Wextra, -Werror, -DMM_LOCAL=1]"
+"$qstar" --file "$tmp/configs/qstar.lua" dry-run //sys/kern/mm:parus_kern_mm > "$tmp/configs-dry.out" 2> "$tmp/configs-dry.err"
+contains "$tmp/configs-dry.out" "configs [//qstar/policies:kernel_c23, //qstar/policies:strict_warnings]"
+contains "$tmp/configs-dry.out" "-DMM_LOCAL=1"
+contains "$tmp/configs-dry.out" "-isystem"
+contains "$tmp/configs-dry.out" "lib/libc/aarch64-unknown-none-elf/include"
+"$qstar" --file "$tmp/configs/qstar.lua" list-targets --format json > "$tmp/configs-json.out" 2> "$tmp/configs-json.err"
+contains "$tmp/configs-json.out" "\"config_count\":2"
+contains "$tmp/configs-json.out" "\"configs\":[\"//qstar/policies:kernel_c23\",\"//qstar/policies:strict_warnings\"]"
+
+mkdir -p "$tmp/config-scalar/src"
+cat > "$tmp/config-scalar/qstar.lua" <<'EOF'
+qstar.config "base" {
+  toolchain = "clang",
+  stdlib = "freestanding",
+  lang = {
+    cxx = {
+      standard = "c++20",
+      modules = {enabled = false},
+    },
+    asm = {
+      preprocess = true,
+    },
+    cale = {
+      profile = "safe",
+    },
+  },
+}
+
+qstar.staticlib "core" {
+  configs = {"//:base"},
+  toolchain = "host",
+  stdlib = "system",
+  lang = {
+    cxx = {
+      standard = "c++23",
+    },
+  },
+}
+EOF
+"$qstar" --file "$tmp/config-scalar/qstar.lua" --dump-graph > "$tmp/config-scalar.out" 2> "$tmp/config-scalar.err"
+contains "$tmp/config-scalar.out" "configs [//:base]"
+contains "$tmp/config-scalar.out" "cxx_standard c++23"
+contains "$tmp/config-scalar.out" "lang.asm.preprocess true"
+contains "$tmp/config-scalar.out" "lang.cale.profile safe"
+contains "$tmp/config-scalar.out" "toolchain host"
+contains "$tmp/config-scalar.out" "stdlib system"
+
+mkdir -p "$tmp/config-missing"
+cat > "$tmp/config-missing/qstar.lua" <<'EOF'
+qstar.staticlib "core" {
+  configs = {"//:missing"},
+}
+EOF
+if "$qstar" --file "$tmp/config-missing/qstar.lua" check > "$tmp/config-missing.out" 2> "$tmp/config-missing.err"; then
+	fail "missing config unexpectedly succeeded"
+fi
+contains "$tmp/config-missing.err" "references unknown config '//:missing'"
+
+mkdir -p "$tmp/config-conflict"
+cat > "$tmp/config-conflict/qstar.lua" <<'EOF'
+qstar.config "same" {}
+qstar.group "same" {
+  deps = {},
+}
+EOF
+if "$qstar" --file "$tmp/config-conflict/qstar.lua" check > "$tmp/config-conflict.out" 2> "$tmp/config-conflict.err"; then
+	fail "config/target label conflict unexpectedly succeeded"
+fi
+contains "$tmp/config-conflict.err" "label '//:same' is already used by config"
+
+mkdir -p "$tmp/config-unknown"
+cat > "$tmp/config-unknown/qstar.lua" <<'EOF'
+qstar.config "bad" {
+  sources = {"src/nope.c"},
+}
+EOF
+if "$qstar" --file "$tmp/config-unknown/qstar.lua" check > "$tmp/config-unknown.out" 2> "$tmp/config-unknown.err"; then
+	fail "unknown config field unexpectedly succeeded"
+fi
+contains "$tmp/config-unknown.err" "unknown config field 'sources'"
+
+mkdir -p "$tmp/config-module/mods/a"
+cat > "$tmp/config-module/qstar.lua" <<'EOF'
+qstar.import_module("mods/a")
+EOF
+cat > "$tmp/config-module/mods/a/a.qsm" <<'EOF'
+qstar.config "bad" {}
+return {}
+EOF
+if "$qstar" --file "$tmp/config-module/qstar.lua" check > "$tmp/config-module.out" 2> "$tmp/config-module.err"; then
+	fail "qsm config declaration unexpectedly succeeded"
+fi
+contains "$tmp/config-module.err" "qstar.config is not allowed inside .qsm module"
+
 mkdir -p "$tmp/lua-global"
 cat > "$tmp/lua-global/qstar.lua" <<'EOF'
 qstar.project { name = "global-bad", root = "." }
@@ -589,6 +768,7 @@ contains "$tmp/lsp.out" "\"name\":\"qstar-lsp\""
 contains "$tmp/lsp.out" "textDocument/publishDiagnostics"
 contains "$tmp/lsp.out" "\"diagnostics\":[]"
 contains "$tmp/lsp.out" "Create an executable target."
+contains "$tmp/lsp.out" "\"label\":\"qstar.config\""
 contains "$tmp/lsp.out" "\"label\":\"qstar.configure_file\""
 contains "$tmp/lsp.out" "\"label\":\"qstar.import_module\""
 

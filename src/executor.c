@@ -1210,6 +1210,8 @@ graph_snapshot_write(struct qstar_graph *graph)
 		json_string(f, graph->targets[i].label);
 		fputs(",\"kind\":", f);
 		json_string(f, graph->targets[i].kind);
+		fputs(",\"configs\":", f);
+		json_string_list(f, &graph->targets[i].configs);
 		fputs(",\"artifact_name\":", f);
 		json_string(f, graph->targets[i].artifact_name &&
 		    *graph->targets[i].artifact_name ? graph->targets[i].artifact_name : "");
@@ -1222,6 +1224,16 @@ graph_snapshot_write(struct qstar_graph *graph)
 		fputs(",\"private_deps\":", f);
 		json_string_list(f, &graph->targets[i].private_deps);
 		fputc('}', f);
+	}
+	fputs("\n],\"configs\":[\n", f);
+	for (i = 0; i < graph->config_len; i++) {
+		if (i)
+			fputs(",\n", f);
+		fputs("  {\"label\":", f);
+		json_string(f, graph->configs[i].label);
+		fputs(",\"origin\":", f);
+		json_string(f, graph->configs[i].origin_file);
+		fprintf(f, ",\"line\":%d}", graph->configs[i].origin_line);
 	}
 	fputs("\n],\"generated_actions\":[\n", f);
 	for (i = 0; i < graph->genrule_len; i++) {

@@ -1394,6 +1394,9 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	    qstar_target_rule_lookup(target->kind) ?
 	    qstar_target_rule_lookup(target->kind)->provider : "generic",
 	    qstar_target_final_action(target), qstar_target_output_group(target));
+	fputs("  configs ", out);
+	dump_list(out, &target->configs);
+	fputc('\n', out);
 	fputs("  deps ", out);
 	dump_list(out, &target->deps);
 	fputc('\n', out);
@@ -1692,6 +1695,9 @@ qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out)
 		    qstar_target_rule_lookup(plan.order[i]->kind)->provider : "generic",
 		    qstar_target_final_action(plan.order[i]),
 		    qstar_target_output_group(plan.order[i]));
+		fputs("  configs ", out);
+		dump_list(out, &plan.order[i]->configs);
+		fputc('\n', out);
 		{
 		struct qstar_resolved_toolchain toolchain;
 		if (strcmp(plan.order[i]->kind, "run_target") == 0) {

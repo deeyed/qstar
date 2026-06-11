@@ -11,7 +11,7 @@ local policy = qstar.import_module("qstar/modules/policy")
 
 `qstar.import_file("path.qst")`는 package-root 기준 `.qst` file만 읽는다.
 
-- `.qst` file은 target, profile, group, stage 같은 graph declaration을 만들 수 있다.
+- `.qst` file은 target, config, profile, group, stage 같은 graph declaration을 만들 수 있다.
 - 같은 file을 한 번 더 import하면 duplicate import error가 난다.
 - circular import는 error다.
 - `.qsm`이나 `qstar.lua`는 받을 수 없다.
@@ -46,7 +46,7 @@ return M
 ```
 
 `.qsm` 안에서는 graph declaration을 할 수 없다. 즉 `qstar.project`, `qstar.profile`,
-target rule, `qstar.custom_target`, `qstar.stage`, `qstar.target_family`, `qstar.subdir`,
+`qstar.config`, target rule, `qstar.custom_target`, `qstar.stage`, `qstar.target_family`, `qstar.subdir`,
 `qstar.import_file`은 금지된다. Helper 함수, 상수, table literal, `qstar.import_module`
 을 통한 다른 helper module import는 사용할 수 있다.
 

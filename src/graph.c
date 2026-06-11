@@ -110,6 +110,7 @@ free_target(struct qstar_target *target)
 	free(target->modules.root);
 	qstar_string_list_free(&target->modules.include);
 	qstar_string_list_free(&target->modules.exclude);
+	qstar_string_list_free(&target->configs);
 	qstar_string_list_free(&target->sources);
 	qstar_string_list_free(&target->public_headers);
 	qstar_string_list_free(&target->private_headers);
@@ -140,6 +141,17 @@ free_target(struct qstar_target *target)
 	free(target->run_marker_log);
 	free(target->toolchain);
 	free(target->stdlib_policy);
+}
+
+/** reusable config declaration이 소유한 문자열과 option skeleton을 해제한다. */
+static void
+free_config(struct qstar_config *config)
+{
+	free(config->label);
+	free(config->name);
+	free(config->fragment_dir);
+	free(config->origin_file);
+	free_target(&config->options);
 }
 
 /** generated action skeleton이 소유한 문자열과 list를 해제한다. */
@@ -269,6 +281,8 @@ qstar_graph_free(struct qstar_graph *graph)
 	free(graph->package_root);
 	for (i = 0; i < graph->len; i++)
 		free_target(&graph->targets[i]);
+	for (i = 0; i < graph->config_len; i++)
+		free_config(&graph->configs[i]);
 	for (i = 0; i < graph->genrule_len; i++)
 		free_genrule(&graph->genrules[i]);
 	for (i = 0; i < graph->stage_len; i++)
@@ -287,6 +301,7 @@ qstar_graph_free(struct qstar_graph *graph)
 	free(graph->build_dir_override);
 	free_profile_input(&graph->profile);
 	free(graph->targets);
+	free(graph->configs);
 	free(graph->packages);
 	free(graph->genrules);
 	free(graph->stages);
@@ -506,6 +521,18 @@ has_stage(const struct qstar_graph *graph, const char *label)
 }
 
 static int
+has_config(const struct qstar_graph *graph, const char *label)
+{
+	size_t i;
+
+	for (i = 0; i < graph->config_len; i++) {
+		if (strcmp(graph->configs[i].label, label) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+static int
 valid_alias(const char *alias)
 {
 	const unsigned char *p;
@@ -713,6 +740,10 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 		qstar_set_error(graph, "qstar: label '%s' is already used by stage rule", label);
 		return NULL;
 	}
+	if (has_config(graph, label)) {
+		qstar_set_error(graph, "qstar: label '%s' is already used by config", label);
+		return NULL;
+	}
 	if (graph->len == graph->cap) {
 		cap = graph->cap ? graph->cap * 2 : 8;
 		targets = realloc(graph->targets, cap * sizeof(graph->targets[0]));
@@ -749,6 +780,186 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	return target;
 }
 
+/** QStar graph에 reusable config declaration을 추가하고 label 충돌을 막는다. */
+struct qstar_config *
+qstar_graph_add_config(struct qstar_graph *graph, const char *label, const char *name,
+    const char *fragment_dir, const char *origin_file, int origin_line)
+{
+	struct qstar_config *configs, *config;
+	size_t cap;
+
+	if (has_target(graph, label)) {
+		qstar_set_error(graph, "qstar: config label '%s' conflicts with target", label);
+		return NULL;
+	}
+	if (has_genrule(graph, label)) {
+		qstar_set_error(graph,
+		    "qstar: config label '%s' conflicts with generated action", label);
+		return NULL;
+	}
+	if (has_stage(graph, label)) {
+		qstar_set_error(graph, "qstar: config label '%s' conflicts with stage rule",
+		    label);
+		return NULL;
+	}
+	if (has_config(graph, label)) {
+		qstar_set_error(graph, "qstar: duplicate config label '%s'", label);
+		return NULL;
+	}
+	if (graph->config_len == graph->config_cap) {
+		cap = graph->config_cap ? graph->config_cap * 2 : 4;
+		configs = realloc(graph->configs, cap * sizeof(graph->configs[0]));
+		if (!configs) {
+			qstar_set_error(graph, "qstar: out of memory");
+			return NULL;
+		}
+		graph->configs = configs;
+		graph->config_cap = cap;
+	}
+	config = &graph->configs[graph->config_len++];
+	memset(config, 0, sizeof(*config));
+	config->label = qstar_strdup(label);
+	config->name = qstar_strdup(name);
+	config->fragment_dir = qstar_strdup(fragment_dir ? fragment_dir : "");
+	config->origin_file = qstar_strdup(origin_file ? origin_file : "");
+	config->origin_line = origin_line;
+	config->options.label = qstar_strdup(label);
+	config->options.name = qstar_strdup(name);
+	config->options.kind = qstar_strdup("config");
+	config->options.fragment_dir = qstar_strdup(fragment_dir ? fragment_dir : "");
+	config->options.origin_file = qstar_strdup(origin_file ? origin_file : "");
+	config->options.origin_line = origin_line;
+	if (!config->label || !config->name || !config->fragment_dir ||
+	    !config->origin_file || !config->options.label || !config->options.name ||
+	    !config->options.kind || !config->options.fragment_dir ||
+	    !config->options.origin_file) {
+		qstar_set_error(graph, "qstar: out of memory");
+		return NULL;
+	}
+	return config;
+}
+
+/** config label로 reusable config declaration을 찾는다. */
+static const struct qstar_config *
+find_config(const struct qstar_graph *graph, const char *label)
+{
+	size_t i;
+
+	for (i = 0; i < graph->config_len; i++) {
+		if (strcmp(graph->configs[i].label, label) == 0)
+			return &graph->configs[i];
+	}
+	return NULL;
+}
+
+/** config의 lang.cale.modules option을 target modules에 병합한다. */
+static int
+merge_modules(struct qstar_graph *graph, struct qstar_target *target,
+    const struct qstar_target *options)
+{
+	if (!options->modules.present)
+		return 0;
+	target->modules.present = 1;
+	if (options->modules.root) {
+		if (replace_string(&target->modules.root, options->modules.root) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+	}
+	if (copy_string_list(&target->modules.include, &options->modules.include) < 0 ||
+	    copy_string_list(&target->modules.exclude, &options->modules.exclude) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	return 0;
+}
+
+/** config의 list option을 target에 선언 순서대로 append한다. */
+static int
+merge_config_lists(struct qstar_graph *graph, struct qstar_target *target,
+    const struct qstar_target *options)
+{
+#define MERGE_LIST(field) \
+	do { \
+		if (copy_string_list(&target->field, &options->field) < 0) \
+			return qstar_set_error(graph, "qstar: out of memory"); \
+	} while (0)
+
+	MERGE_LIST(public_headers);
+	MERGE_LIST(private_headers);
+	MERGE_LIST(include_dirs);
+	MERGE_LIST(public_include_dirs);
+	MERGE_LIST(private_include_dirs);
+	MERGE_LIST(interface_include_dirs);
+	MERGE_LIST(system_include_dirs);
+	MERGE_LIST(libs);
+	MERGE_LIST(lib_dirs);
+	MERGE_LIST(frameworks);
+	MERGE_LIST(link_options);
+	MERGE_LIST(defsyms);
+	MERGE_LIST(cflags);
+	MERGE_LIST(cxxflags);
+	MERGE_LIST(asm_include_dirs);
+	MERGE_LIST(asm_compile_options);
+	MERGE_LIST(cale_compile_options);
+#undef MERGE_LIST
+	return 0;
+}
+
+/** config의 scalar option을 target에 적용한다. 이후 target local scalar가 다시 override한다. */
+static int
+merge_config_scalars(struct qstar_graph *graph, struct qstar_target *target,
+    const struct qstar_config *config)
+{
+	const struct qstar_target *options;
+
+	options = &config->options;
+	if (config->has_artifact_name &&
+	    replace_string(&target->artifact_name, options->artifact_name) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	if (config->has_cxx_standard &&
+	    replace_string(&target->cxx_standard, options->cxx_standard) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	if (config->has_cale_profile &&
+	    replace_string(&target->cale_profile, options->cale_profile) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	if (config->has_linker_script &&
+	    replace_string(&target->linker_script, options->linker_script) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	if (config->has_toolchain &&
+	    replace_string(&target->toolchain, options->toolchain) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	if (config->has_stdlib_policy &&
+	    replace_string(&target->stdlib_policy, options->stdlib_policy) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	if (config->has_asm_preprocess)
+		target->asm_preprocess = options->asm_preprocess;
+	if (config->has_cxx_modules) {
+		target->cxx_modules_present = options->cxx_modules_present;
+		target->cxx_modules_enabled = options->cxx_modules_enabled;
+	}
+	return 0;
+}
+
+/** target의 configs label list를 reusable config 선언과 병합한다. */
+int
+qstar_graph_apply_target_configs(struct qstar_graph *graph, struct qstar_target *target)
+{
+	const struct qstar_config *config;
+	size_t i;
+
+	for (i = 0; i < target->configs.len; i++) {
+		config = find_config(graph, target->configs.items[i]);
+		if (!config) {
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, "configs", target->label,
+			    "qstar: target '%s' references unknown config '%s'",
+			    target->label, target->configs.items[i]);
+		}
+		if (merge_config_lists(graph, target, &config->options) < 0 ||
+		    merge_modules(graph, target, &config->options) < 0 ||
+		    merge_config_scalars(graph, target, config) < 0)
+			return -1;
+	}
+	return 0;
+}
+
 /** QStar graph에 generated action skeleton을 추가하고 중복 label을 막는다. */
 struct qstar_genrule *
 qstar_graph_add_genrule(struct qstar_graph *graph, const char *label, const char *name,
@@ -769,6 +980,11 @@ qstar_graph_add_genrule(struct qstar_graph *graph, const char *label, const char
 	if (has_stage(graph, label)) {
 		qstar_set_error(graph,
 		    "qstar: generated action label '%s' conflicts with stage rule", label);
+		return NULL;
+	}
+	if (has_config(graph, label)) {
+		qstar_set_error(graph,
+		    "qstar: generated action label '%s' conflicts with config", label);
 		return NULL;
 	}
 	if (graph->genrule_len == graph->genrule_cap) {
@@ -816,6 +1032,10 @@ qstar_graph_add_stage(struct qstar_graph *graph, const char *label, const char *
 	}
 	if (has_stage(graph, label)) {
 		qstar_set_error(graph, "qstar: duplicate stage label '%s'", label);
+		return NULL;
+	}
+	if (has_config(graph, label)) {
+		qstar_set_error(graph, "qstar: stage label '%s' conflicts with config", label);
 		return NULL;
 	}
 	if (graph->stage_len == graph->stage_cap) {
@@ -1136,6 +1356,9 @@ dump_target(const struct qstar_target *target, FILE *out)
 	    qstar_target_rule_lookup(target->kind) ?
 	    qstar_target_rule_lookup(target->kind)->provider : "generic",
 	    qstar_target_final_action(target), qstar_target_output_group(target));
+	fputs("  configs ", out);
+	dump_list(out, &target->configs);
+	fputc('\n', out);
 	if (target->modules.present) {
 		fprintf(out, "  lang.cale.modules root=%s include=",
 		    target->modules.root ? target->modules.root : "");
@@ -1226,6 +1449,99 @@ dump_target(const struct qstar_target *target, FILE *out)
 	    "<default>");
 	fprintf(out, "  toolchain %s\n", target->toolchain);
 	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
+}
+
+/** reusable config declaration을 Graph IR dump 형식으로 출력한다. */
+static void
+dump_config(const struct qstar_config *config, FILE *out)
+{
+	const struct qstar_target *options;
+
+	options = &config->options;
+	fprintf(out, "config %s\n", config->label);
+	fprintf(out, "  origin file=%s line=%d\n",
+	    config->origin_file && *config->origin_file ? config->origin_file : "<unknown>",
+	    config->origin_line);
+	fprintf(out, "  fragment_dir %s\n", config->fragment_dir);
+	fputs("  public_headers ", out);
+	dump_list(out, &options->public_headers);
+	fputc('\n', out);
+	fputs("  private_headers ", out);
+	dump_list(out, &options->private_headers);
+	fputc('\n', out);
+	fputs("  include_dirs ", out);
+	dump_list(out, &options->include_dirs);
+	fputc('\n', out);
+	fputs("  public_include_dirs ", out);
+	dump_list(out, &options->public_include_dirs);
+	fputc('\n', out);
+	fputs("  private_include_dirs ", out);
+	dump_list(out, &options->private_include_dirs);
+	fputc('\n', out);
+	fputs("  system_include_dirs ", out);
+	dump_list(out, &options->system_include_dirs);
+	fputc('\n', out);
+	fputs("  libs ", out);
+	dump_list(out, &options->libs);
+	fputc('\n', out);
+	fputs("  lib_dirs ", out);
+	dump_list(out, &options->lib_dirs);
+	fputc('\n', out);
+	fputs("  frameworks ", out);
+	dump_list(out, &options->frameworks);
+	fputc('\n', out);
+	fputs("  link_options ", out);
+	dump_list(out, &options->link_options);
+	fputc('\n', out);
+	fprintf(out, "  linker_script %s\n",
+	    config->has_linker_script && options->linker_script &&
+	    *options->linker_script ? options->linker_script : "<unset>");
+	fputs("  defsyms ", out);
+	dump_list(out, &options->defsyms);
+	fputc('\n', out);
+	fputs("  cflags ", out);
+	dump_list(out, &options->cflags);
+	fputc('\n', out);
+	fputs("  cxxflags ", out);
+	dump_list(out, &options->cxxflags);
+	fputc('\n', out);
+	fprintf(out, "  cxx_standard %s\n",
+	    config->has_cxx_standard && options->cxx_standard ?
+	    options->cxx_standard : "<unset>");
+	fputs("  lang.asm.include_dirs ", out);
+	dump_list(out, &options->asm_include_dirs);
+	fputc('\n', out);
+	fputs("  lang.asm.compile_options ", out);
+	dump_list(out, &options->asm_compile_options);
+	fputc('\n', out);
+	fprintf(out, "  lang.asm.preprocess %s\n",
+	    config->has_asm_preprocess ? (options->asm_preprocess ? "true" : "false") :
+	    "<unset>");
+	fprintf(out, "  lang.cxx.modules enabled=%s\n",
+	    config->has_cxx_modules ? (options->cxx_modules_enabled ? "true" : "false") :
+	    "<unset>");
+	if (options->modules.present) {
+		fprintf(out, "  lang.cale.modules root=%s include=",
+		    options->modules.root ? options->modules.root : "");
+		dump_list(out, &options->modules.include);
+		fputs(" exclude=", out);
+		dump_list(out, &options->modules.exclude);
+		fputc('\n', out);
+	}
+	fputs("  lang.cale.compile_options ", out);
+	dump_list(out, &options->cale_compile_options);
+	fputc('\n', out);
+	fprintf(out, "  lang.cale.profile %s\n",
+	    config->has_cale_profile && options->cale_profile ? options->cale_profile :
+	    "<unset>");
+	fprintf(out, "  artifact_name %s\n",
+	    config->has_artifact_name && options->artifact_name && *options->artifact_name ?
+	    options->artifact_name : "<unset>");
+	fprintf(out, "  toolchain %s\n",
+	    config->has_toolchain && options->toolchain ? options->toolchain : "<unset>");
+	fprintf(out, "  stdlib %s\n",
+	    config->has_stdlib_policy && options->stdlib_policy ? options->stdlib_policy :
+	    "<unset>");
 }
 
 /** generated action skeleton을 Graph IR dump 형식으로 출력한다. */
@@ -1362,6 +1678,8 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 	dump_list(out, &graph->profile.tool_overrides);
 	fputc('\n', out);
 	dump_package_aliases(out, graph);
+	for (i = 0; i < graph->config_len; i++)
+		dump_config(&graph->configs[i], out);
 	for (i = 0; i < graph->genrule_len; i++)
 		dump_genrule(&graph->genrules[i], out);
 	for (i = 0; i < graph->stage_len; i++)
@@ -1394,6 +1712,24 @@ sort_target_ptrs(const struct qstar_target **targets, size_t n)
 			j--;
 		}
 		targets[j] = v;
+	}
+}
+
+/** config pointer list를 canonical label 순서로 정렬한다. */
+static void
+sort_config_ptrs(const struct qstar_config **configs, size_t n)
+{
+	size_t i, j;
+	const struct qstar_config *v;
+
+	for (i = 1; i < n; i++) {
+		v = configs[i];
+		j = i;
+		while (j > 0 && strcmp(configs[j - 1]->label, v->label) > 0) {
+			configs[j] = configs[j - 1];
+			j--;
+		}
+		configs[j] = v;
 	}
 }
 
@@ -1469,26 +1805,32 @@ int
 qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 {
 	const struct qstar_target **targets;
+	const struct qstar_config **configs;
 	const struct qstar_stage **stages;
 	const struct qstar_target_family **families;
 	size_t i;
 
 	targets = malloc((graph->len ? graph->len : 1) * sizeof(targets[0]));
+	configs = malloc((graph->config_len ? graph->config_len : 1) * sizeof(configs[0]));
 	stages = malloc((graph->stage_len ? graph->stage_len : 1) * sizeof(stages[0]));
 	families = malloc((graph->family_len ? graph->family_len : 1) * sizeof(families[0]));
-	if (!targets || !stages || !families) {
+	if (!targets || !configs || !stages || !families) {
 		free(targets);
+		free(configs);
 		free(stages);
 		free(families);
 		return -1;
 	}
 	for (i = 0; i < graph->len; i++)
 		targets[i] = &graph->targets[i];
+	for (i = 0; i < graph->config_len; i++)
+		configs[i] = &graph->configs[i];
 	for (i = 0; i < graph->stage_len; i++)
 		stages[i] = &graph->stages[i];
 	for (i = 0; i < graph->family_len; i++)
 		families[i] = &graph->families[i];
 	sort_target_ptrs(targets, graph->len);
+	sort_config_ptrs(configs, graph->config_len);
 	sort_stage_ptrs(stages, graph->stage_len);
 	sort_family_ptrs(families, graph->family_len);
 	fputs("qstar targets v1\n", out);
@@ -1499,6 +1841,12 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 		    targets[i]->origin_file && *targets[i]->origin_file ?
 		    targets[i]->origin_file : "<unknown>",
 		    targets[i]->origin_line);
+	fprintf(out, "config-count %zu\n", graph->config_len);
+	for (i = 0; i < graph->config_len; i++)
+		fprintf(out, "config %s origin=%s:%d\n", configs[i]->label,
+		    configs[i]->origin_file && *configs[i]->origin_file ?
+		    configs[i]->origin_file : "<unknown>",
+		    configs[i]->origin_line);
 	fprintf(out, "stage-count %zu\n", graph->stage_len);
 	for (i = 0; i < graph->stage_len; i++)
 		fprintf(out, "stage %s root=%s origin=%s:%d\n", stages[i]->label,
@@ -1514,6 +1862,7 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 		    families[i]->origin_file : "<unknown>",
 		    families[i]->origin_line);
 	free(targets);
+	free(configs);
 	free(stages);
 	free(families);
 	return 0;
@@ -1535,6 +1884,8 @@ dump_target_json(FILE *out, const struct qstar_target *target)
 	fprintf(out, ",\"origin_line\":%d", target->origin_line);
 	fputs(",\"fragment_dir\":", out);
 	dump_json_string(out, target->fragment_dir);
+	fputs(",\"configs\":", out);
+	dump_json_list(out, &target->configs);
 	fputs(",\"sources\":", out);
 	dump_json_list(out, &target->sources);
 	fputs(",\"public_headers\":", out);
@@ -1565,6 +1916,96 @@ dump_target_json(FILE *out, const struct qstar_target *target)
 	dump_json_string(out, target->run_marker_log ? target->run_marker_log : "");
 	fprintf(out, ",\"is_test\":%s", strcmp(target->kind, "test") == 0 ? "true" : "false");
 	fprintf(out, ",\"installable\":%s", qstar_target_is_installable(target) ? "true" : "false");
+	fputc('}', out);
+}
+
+/** reusable config 하나를 machine-readable JSON record로 출력한다. */
+static void
+dump_config_json(FILE *out, const struct qstar_config *config)
+{
+	const struct qstar_target *options;
+
+	options = &config->options;
+	fputs("{\"label\":", out);
+	dump_json_string(out, config->label);
+	fputs(",\"name\":", out);
+	dump_json_string(out, config->name);
+	fputs(",\"origin_file\":", out);
+	dump_json_string(out, config->origin_file && *config->origin_file ?
+	    config->origin_file : "<unknown>");
+	fprintf(out, ",\"origin_line\":%d", config->origin_line);
+	fputs(",\"fragment_dir\":", out);
+	dump_json_string(out, config->fragment_dir);
+	fputs(",\"public_headers\":", out);
+	dump_json_list(out, &options->public_headers);
+	fputs(",\"private_headers\":", out);
+	dump_json_list(out, &options->private_headers);
+	fputs(",\"include_dirs\":", out);
+	dump_json_list(out, &options->include_dirs);
+	fputs(",\"public_include_dirs\":", out);
+	dump_json_list(out, &options->public_include_dirs);
+	fputs(",\"private_include_dirs\":", out);
+	dump_json_list(out, &options->private_include_dirs);
+	fputs(",\"system_include_dirs\":", out);
+	dump_json_list(out, &options->system_include_dirs);
+	fputs(",\"cflags\":", out);
+	dump_json_list(out, &options->cflags);
+	fputs(",\"cxxflags\":", out);
+	dump_json_list(out, &options->cxxflags);
+	fputs(",\"asm_include_dirs\":", out);
+	dump_json_list(out, &options->asm_include_dirs);
+	fputs(",\"asm_compile_options\":", out);
+	dump_json_list(out, &options->asm_compile_options);
+	fputs(",\"cale_compile_options\":", out);
+	dump_json_list(out, &options->cale_compile_options);
+	fputs(",\"libs\":", out);
+	dump_json_list(out, &options->libs);
+	fputs(",\"lib_dirs\":", out);
+	dump_json_list(out, &options->lib_dirs);
+	fputs(",\"frameworks\":", out);
+	dump_json_list(out, &options->frameworks);
+	fputs(",\"link_options\":", out);
+	dump_json_list(out, &options->link_options);
+	fputs(",\"defsyms\":", out);
+	dump_json_list(out, &options->defsyms);
+	fputs(",\"has_toolchain\":", out);
+	fprintf(out, "%s", config->has_toolchain ? "true" : "false");
+	fputs(",\"toolchain\":", out);
+	dump_json_string(out, config->has_toolchain && options->toolchain ?
+	    options->toolchain : "");
+	fputs(",\"has_stdlib\":", out);
+	fprintf(out, "%s", config->has_stdlib_policy ? "true" : "false");
+	fputs(",\"stdlib\":", out);
+	dump_json_string(out, config->has_stdlib_policy && options->stdlib_policy ?
+	    options->stdlib_policy : "");
+	fputs(",\"has_artifact_name\":", out);
+	fprintf(out, "%s", config->has_artifact_name ? "true" : "false");
+	fputs(",\"artifact_name\":", out);
+	dump_json_string(out, config->has_artifact_name && options->artifact_name ?
+	    options->artifact_name : "");
+	fputs(",\"has_cxx_standard\":", out);
+	fprintf(out, "%s", config->has_cxx_standard ? "true" : "false");
+	fputs(",\"cxx_standard\":", out);
+	dump_json_string(out, config->has_cxx_standard && options->cxx_standard ?
+	    options->cxx_standard : "");
+	fputs(",\"has_cale_profile\":", out);
+	fprintf(out, "%s", config->has_cale_profile ? "true" : "false");
+	fputs(",\"cale_profile\":", out);
+	dump_json_string(out, config->has_cale_profile && options->cale_profile ?
+	    options->cale_profile : "");
+	fputs(",\"has_linker_script\":", out);
+	fprintf(out, "%s", config->has_linker_script ? "true" : "false");
+	fputs(",\"linker_script\":", out);
+	dump_json_string(out, config->has_linker_script && options->linker_script ?
+	    options->linker_script : "");
+	fputs(",\"has_asm_preprocess\":", out);
+	fprintf(out, "%s", config->has_asm_preprocess ? "true" : "false");
+	fputs(",\"asm_preprocess\":", out);
+	fprintf(out, "%s", options->asm_preprocess ? "true" : "false");
+	fputs(",\"has_cxx_modules\":", out);
+	fprintf(out, "%s", config->has_cxx_modules ? "true" : "false");
+	fputs(",\"cxx_modules_enabled\":", out);
+	fprintf(out, "%s", options->cxx_modules_enabled ? "true" : "false");
 	fputc('}', out);
 }
 
@@ -1676,17 +2117,20 @@ int
 qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 {
 	const struct qstar_target **targets;
+	const struct qstar_config **configs;
 	const struct qstar_genrule **genrules;
 	const struct qstar_stage **stages;
 	const struct qstar_target_family **families;
 	size_t i;
 
 	targets = malloc((graph->len ? graph->len : 1) * sizeof(targets[0]));
+	configs = malloc((graph->config_len ? graph->config_len : 1) * sizeof(configs[0]));
 	genrules = malloc((graph->genrule_len ? graph->genrule_len : 1) * sizeof(genrules[0]));
 	stages = malloc((graph->stage_len ? graph->stage_len : 1) * sizeof(stages[0]));
 	families = malloc((graph->family_len ? graph->family_len : 1) * sizeof(families[0]));
-	if (!targets || !genrules || !stages || !families) {
+	if (!targets || !configs || !genrules || !stages || !families) {
 		free(targets);
+		free(configs);
 		free(genrules);
 		free(stages);
 		free(families);
@@ -1694,6 +2138,8 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	}
 	for (i = 0; i < graph->len; i++)
 		targets[i] = &graph->targets[i];
+	for (i = 0; i < graph->config_len; i++)
+		configs[i] = &graph->configs[i];
 	for (i = 0; i < graph->genrule_len; i++)
 		genrules[i] = &graph->genrules[i];
 	for (i = 0; i < graph->stage_len; i++)
@@ -1701,6 +2147,7 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	for (i = 0; i < graph->family_len; i++)
 		families[i] = &graph->families[i];
 	sort_target_ptrs(targets, graph->len);
+	sort_config_ptrs(configs, graph->config_len);
 	sort_genrule_ptrs(genrules, graph->genrule_len);
 	sort_stage_ptrs(stages, graph->stage_len);
 	sort_family_ptrs(families, graph->family_len);
@@ -1725,14 +2172,21 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	dump_json_string(out, qstar_graph_requested_generator(graph));
 	fputc('}', out);
 	fprintf(out,
-	    ",\"target_count\":%zu,\"generated_action_count\":%zu,\"stage_count\":%zu,"
+	    ",\"target_count\":%zu,\"config_count\":%zu,\"generated_action_count\":%zu,\"stage_count\":%zu,"
 	    "\"target_family_count\":%zu",
-	    graph->len, graph->genrule_len, graph->stage_len, graph->family_len);
+	    graph->len, graph->config_len, graph->genrule_len, graph->stage_len,
+	    graph->family_len);
 	fputs(",\"targets\":[", out);
 	for (i = 0; i < graph->len; i++) {
 		if (i)
 			fputc(',', out);
 		dump_target_json(out, targets[i]);
+	}
+	fputs("],\"configs\":[", out);
+	for (i = 0; i < graph->config_len; i++) {
+		if (i)
+			fputc(',', out);
+		dump_config_json(out, configs[i]);
 	}
 	fputs("],\"generated_actions\":[", out);
 	for (i = 0; i < graph->genrule_len; i++) {
@@ -1754,6 +2208,7 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	}
 	fputs("]}\n", out);
 	free(targets);
+	free(configs);
 	free(genrules);
 	free(stages);
 	free(families);
@@ -1788,6 +2243,9 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	    qstar_target_rule_lookup(target->kind) ?
 	    qstar_target_rule_lookup(target->kind)->provider : "generic",
 	    qstar_target_final_action(target), qstar_target_output_group(target));
+	fputs("  configs ", out);
+	dump_list(out, &target->configs);
+	fputc('\n', out);
 	fputs("  sources ", out);
 	dump_list(out, &target->sources);
 	fputc('\n', out);

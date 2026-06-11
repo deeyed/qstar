@@ -27,6 +27,7 @@ QStar가 하지 않는 일:
 - `qstar.import_file("path.qst")`는 package-root 기준 `.qst` graph fragment를 읽는다.
 - `qstar.import_module("folder/path")`는 `folder/path/path.qsm` helper module table을 읽는다.
 - `.qsm` 안에서는 target/profile/project 같은 graph declaration이 금지된다.
+- 반복 option은 `qstar.config`와 target `configs = {...}`로 공유한다.
 - legacy qs fragment suffix와 `qstar.workspace`는 제거된 surface다.
 - 산출물 기본 위치는 `build/qstar`다.
 - CLI `-B path`는 `qstar.project.build_dir`보다 우선한다.
@@ -43,6 +44,7 @@ Target/rule:
 - `qstar.staticlib`
 - `qstar.sharedlib`
 - `qstar.test`
+- `qstar.config`
 - `qstar.custom_target`
 - `qstar.run_target`
 - `qstar.group`
@@ -97,6 +99,39 @@ qstar.staticlib "core" {
 - `lang.cxx`: C++ headers, include dirs, standard, modules skeleton, compile options
 - `lang.asm`: assembler include dirs, compile options, preprocess flag
 - `lang.cale`: Cale/HCL headers, include dirs, Cale profile, modules skeleton
+
+공통 option은 target top-level로 되돌리지 말고 `qstar.config`로 선언한다. Config label은
+target의 `configs`에서 참조한다.
+
+```lua
+qstar.config "freestanding_c" {
+  lang = {
+    c = {
+      public_include_dirs = {"include"},
+      system_include_dirs = {"sysroot/include"},
+      compile_options = {"-std=c23", "-ffreestanding"},
+    },
+  },
+}
+
+qstar.staticlib "core" {
+  configs = {"//:freestanding_c"},
+  sources = {"src/core.c"},
+  lang = {
+    c = {
+      compile_options = {"-DCORE_BUILD=1"},
+    },
+  },
+}
+```
+
+Merge rule:
+
+- list field는 `configs` 순서대로 append된다.
+- target local list field는 마지막에 append된다.
+- scalar field는 뒤의 config가 앞의 config를 override하고 target local scalar가 최종 override한다.
+- config는 source, deps, command, output을 만들지 않는다.
+- config는 사용하는 target보다 먼저 평가되어야 한다. 보통 policy `.qst`를 먼저 import하고 leaf target fragment를 나중에 읽는다.
 
 ## 5. Generated artifact와 stage
 
@@ -202,11 +237,12 @@ Reference:
 
 1. `reference/qstar-lua.md`
 2. `reference/modules.md`
-3. `reference/target-rules.md`
-4. `reference/profiles.md`
-5. `reference/custom-target.md`
-6. `reference/run-target.md`
-7. `reference/diagnostics.md`
+3. `reference/configs.md`
+4. `reference/target-rules.md`
+5. `reference/profiles.md`
+6. `reference/custom-target.md`
+7. `reference/run-target.md`
+8. `reference/diagnostics.md`
 
 Low-level/bootloader-style project:
 

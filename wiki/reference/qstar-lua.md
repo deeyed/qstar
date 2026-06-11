@@ -70,6 +70,44 @@ end
 return M
 ```
 
+## Reusable configs
+
+Lua local helper는 같은 파일 안에서 table을 만들 때 유용하고, `qstar.config`는 여러
+fragment가 공유하는 graph-level option bundle을 만들 때 쓴다.
+
+```lua
+qstar.config "common_c" {
+  lang = {
+    c = {
+      public_include_dirs = {"include"},
+      compile_options = {"-Wall", "-Wextra"},
+    },
+  },
+}
+
+qstar.staticlib "core" {
+  configs = {"//:common_c"},
+  sources = {"src/core.c"},
+  lang = {
+    c = {
+      compile_options = {"-DCORE_BUILD=1"},
+    },
+  },
+}
+```
+
+`configs`는 label list다. `qstar.import_file("qstar/policies/common.qst")`로 읽은
+fragment의 config는 `//qstar/policies:common_c`처럼 참조한다.
+
+Merge rule:
+
+- list field는 `configs` 순서대로 append된다.
+- target local list field는 마지막에 append된다.
+- scalar field는 뒤의 config가 앞의 config를 override하고 target local scalar가 최종 override한다.
+- config는 source, deps, command, output을 만들 수 없다.
+- `.qsm` module 안에서는 `qstar.config`도 다른 graph declaration처럼 금지된다.
+- config는 사용하는 target보다 먼저 평가되어야 한다.
+
 ## 실패 예제
 
 ```lua

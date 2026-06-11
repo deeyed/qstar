@@ -32,6 +32,7 @@ struct qstar_lsp_hover_entry {
 static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 	{ "qstar.project", "Declare package-root project metadata. v1 requires root = \".\"." },
 	{ "qstar.profile", "Declare an in-DSL toolchain/profile policy for qstar.lua." },
+	{ "qstar.config", "Declare a reusable target option bundle for configs = { ... }." },
 	{ "qstar.executable", "Create an executable target." },
 	{ "qstar.staticlib", "Create a static library target." },
 	{ "qstar.sharedlib", "Create a shared library target, if the profile supports it." },
@@ -69,6 +70,7 @@ static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 
 static const struct qstar_lsp_hover_entry qstar_lsp_fields[] = {
 	{ "sources", "Compile or generated source inputs for this target." },
+	{ "configs", "Reusable qstar.config labels merged before target-local fields." },
 	{ "deps", "Public dependency edges used for build, link, and include propagation." },
 	{ "public_deps", "Alias for public dependency edges." },
 	{ "private_deps", "Private dependency edges used for build/link without public include propagation." },
@@ -1102,13 +1104,21 @@ handle_document_symbols(struct qstar_lsp_server *server, FILE *out, const char *
 	first = 1;
 	if (doc && find_root_file(doc->path, root_file, sizeof(root_file)) == 0 &&
 	    !(load_lint_graph(root_file, &graph) < 0 && graph.len == 0 &&
-	    graph.genrule_len == 0)) {
+	    graph.config_len == 0 && graph.genrule_len == 0)) {
 		for (i = 0; i < graph.len; i++) {
 			if (strcmp(graph.targets[i].origin_file, doc->path) != 0)
 				continue;
 			if (append_document_symbol(&payload, graph.targets[i].label,
 			    12, graph.targets[i].kind, graph.targets[i].origin_line,
 			    first) < 0)
+				goto fail_graph;
+			first = 0;
+		}
+		for (i = 0; i < graph.config_len; i++) {
+			if (strcmp(graph.configs[i].origin_file, doc->path) != 0)
+				continue;
+			if (append_document_symbol(&payload, graph.configs[i].label,
+			    5, "config", graph.configs[i].origin_line, first) < 0)
 				goto fail_graph;
 			first = 0;
 		}
@@ -1178,13 +1188,22 @@ handle_workspace_symbols(struct qstar_lsp_server *server, FILE *out, const char 
 	first = 1;
 	if (doc && find_root_file(doc->path, root_file, sizeof(root_file)) == 0 &&
 	    !(load_lint_graph(root_file, &graph) < 0 && graph.len == 0 &&
-	    graph.genrule_len == 0)) {
+	    graph.config_len == 0 && graph.genrule_len == 0)) {
 		for (i = 0; i < graph.len; i++) {
 			if (query && *query && !strstr(graph.targets[i].label, query))
 				continue;
 			if (append_workspace_symbol(&payload, graph.targets[i].label,
 			    12, graph.targets[i].kind, graph.targets[i].origin_file,
 			    graph.targets[i].origin_line, first) < 0)
+				goto fail_graph;
+			first = 0;
+		}
+		for (i = 0; i < graph.config_len; i++) {
+			if (query && *query && !strstr(graph.configs[i].label, query))
+				continue;
+			if (append_workspace_symbol(&payload, graph.configs[i].label,
+			    5, "config", graph.configs[i].origin_file,
+			    graph.configs[i].origin_line, first) < 0)
 				goto fail_graph;
 			first = 0;
 		}

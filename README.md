@@ -26,6 +26,7 @@ qstar.executable "app" { ... }
 qstar.staticlib "core" { ... }
 qstar.sharedlib "plugin" { ... }
 qstar.test "unit" { ... }
+qstar.config "common_c" { ... }
 qstar.custom_target "generated" { ... }
 qstar.run_target "smoke" { ... }
 qstar.group "aggregate" { ... }
@@ -53,6 +54,35 @@ package-root 기준 `.qst` graph fragment를 once-only로 평가한다.
 `qstar.import_module("folder/path")`는 folder만 받고 `folder/path/path.qsm`을 읽어
 반드시 table을 반환해야 한다. `.qsm` module 안에서는 target/profile/project 같은 graph
 declaration이 금지되며 helper 함수, 상수, table export만 둔다.
+
+Round 75부터 반복되는 target option은 `qstar.config`로 선언하고 target의
+`configs = {...}`에서 label로 참조할 수 있다. `config`는 source/deps/action을 만들지
+않는 reusable option bundle이다. List field는 `configs` 순서대로 append되고 target local
+field가 마지막에 append된다. Scalar field는 뒤의 config가 앞의 config를 override하며,
+target local scalar가 최종 override한다. Config는 target 선언 시점에 병합되므로
+사용하는 target보다 먼저 평가되어야 한다.
+
+```lua
+qstar.config "common_c" {
+  lang = {
+    c = {
+      public_include_dirs = {"include"},
+      system_include_dirs = {"sysroot/include"},
+      compile_options = {"-std=c23", "-Wall"},
+    },
+  },
+}
+
+qstar.staticlib "core" {
+  configs = {"//:common_c"},
+  sources = {"src/core.c"},
+  lang = {
+    c = {
+      compile_options = {"-DCORE_BUILD=1"},
+    },
+  },
+}
+```
 
 ```lua
 qstar.staticlib "core" {
@@ -154,7 +184,7 @@ qstar --file qstar.lua --profile debug --target arm64-apple-macos explain //:app
 `list-targets --format json`은 editor/query tool이 그대로 읽는 `qstar-targets-v1`
 JSON object를 출력한다. Target, generated action, test target, installable artifact
 목록을 deterministic order로 담고, 각 record에는 label, kind, origin, source/header,
-dependency, toolchain, install/test 여부를 포함한다.
+dependency, referenced configs, toolchain, install/test 여부를 포함한다.
 
 `fmt`는 Round 45의 conservative formatter다. `qstar fmt --check qstar.lua`는
 rewrite 없이 canonical style drift를 검사하고, `qstar fmt qstar.lua`는 simple
@@ -568,8 +598,8 @@ make -C qstar qstar-systems-corpus-tests
 ## v0.3 release candidate seal
 
 Round 65 기준 v0.3 RC contract는 `docs/qstar-v0.3-seal.md`가 canonical이다.
-Stable surface는 `qstar.lua`, `.qst`, `.qsm`, `qstar.project`, `lang.*`, generic `qstar.cli`, staged
-package, systems firmware corpus, action replay, LSP/VSCode/lint/formatter UX를
+Stable surface는 `qstar.lua`, `.qst`, `.qsm`, `qstar.project`, `qstar.config`,
+`lang.*`, generic `qstar.cli`, staged package, systems firmware corpus, action replay, LSP/VSCode/lint/formatter UX를
 포함한다. Experimental surface는 `cale build` 통합, remote package resolver,
 Ninja lowering/execution, full sharedlib executor, Cale internal compiler API, C++ modules,
 HCL semantic checking으로 분리한다.

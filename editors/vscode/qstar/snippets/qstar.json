@@ -10,6 +10,20 @@
     ],
     "description": "Declare QStar project metadata."
   },
+  "Reusable config": {
+    "prefix": "qtargetconfig",
+    "body": [
+      "qstar.config \"${1:kernel_c}\" {",
+      "  lang = {",
+      "    c = {",
+      "      public_include_dirs = {\"${2:include}\"},",
+      "      compile_options = {\"${3:-Wall}\"},",
+      "    },",
+      "  },",
+      "}"
+    ],
+    "description": "Declare a reusable target option config."
+  },
   "Executable target": {
     "prefix": "qexe",
     "body": [

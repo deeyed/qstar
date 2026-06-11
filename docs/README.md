@@ -33,7 +33,7 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 
 | File or directory | 역할 |
 | --- | --- |
-| `qstar.lua` | package root의 QStar orchestration file, `qstar.project`, `qstar.profile` metadata |
+| `qstar.lua` | package root의 QStar orchestration file, `qstar.project`, `qstar.profile`, `qstar.config` metadata |
 | `<dirname>.qst` | 큰 프로젝트의 subdir QStar fragment |
 | `src/` | `.cale` implementation module root |
 | `include/` | public header/install surface root |
@@ -89,7 +89,7 @@ Round 60부터 v0.2 RC contract는 `qstar-v0.2-release-candidate-seal.md`에 둔
 QStar-local full regression gate 이름을 고정한다.
 
 Round 65부터 v0.3 RC contract는 `qstar-v0.3-seal.md`에 둔다. v0.3은 `.qst`,
-`qstar.project`, `lang.*`, generic `qstar.cli`, systems firmware corpus,
+`qstar.project`, `qstar.config`, `lang.*`, generic `qstar.cli`, systems firmware corpus,
 stage/package/run target, VSCode/LSP/lint/formatter를 standalone build-system
 surface로 봉인한다. Runtime version은 `qstar --version`과 `QSTAR_VERSION`이 같은
 `0.3.0`이어야 한다.

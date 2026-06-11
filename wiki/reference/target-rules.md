@@ -15,6 +15,7 @@ qstar.executable "app" {
 
 ```lua
 qstar.executable "app" { sources = {"src/main.c"} }
+qstar.config "common_c" { lang = { c = { compile_options = {"-Wall"} } } }
 qstar.staticlib "core" { sources = {"src/core.c"} }
 qstar.sharedlib "plugin" { sources = {"src/plugin.c"} }
 qstar.test "unit" { sources = {"tests/unit.c"} }
@@ -27,6 +28,9 @@ qstar.target_family "boot" { variants = {"x86_64", "aarch64"} }
 ```
 
 `sharedlib`는 v0.2에서 plan/check surface이고 full executor는 아직 deferred다.
+
+Artifact target은 `configs = {"//:common_c"}`로 reusable option bundle을 참조할 수
+있다. Config merge 규칙은 [Reusable Configs](configs.md)에 둔다.
 
 `qstar.group`은 output이 없는 deps-only aggregate target이다. `build //:kernel_parts`는
 group의 dependency closure만 빌드하고 archive/link/run action을 만들지 않는다.
