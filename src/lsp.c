@@ -30,7 +30,7 @@ struct qstar_lsp_hover_entry {
 };
 
 static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
-	{ "qstar.project", "Declare package-root project metadata. v1 requires root = \".\"." },
+	{ "qstar.project", "Declare package-root project metadata, build_dir, generated_dir, and compile database policy." },
 	{ "qstar.profile", "Declare an in-DSL toolchain/profile policy for qstar.lua." },
 	{ "qstar.config", "Declare a reusable target option bundle for configs = { ... }." },
 	{ "qstar.executable", "Create an executable target." },
@@ -71,6 +71,7 @@ static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 static const struct qstar_lsp_hover_entry qstar_lsp_fields[] = {
 	{ "sources", "Compile or generated source inputs for this target." },
 	{ "configs", "Reusable qstar.config labels merged before target-local fields." },
+	{ "generated_dir", "Project-level package-relative root for qstar.output generated artifacts." },
 	{ "deps", "Public dependency edges used for build, link, and include propagation." },
 	{ "public_deps", "Alias for public dependency edges." },
 	{ "private_deps", "Private dependency edges used for build/link without public include propagation." },

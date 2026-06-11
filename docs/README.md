@@ -160,8 +160,9 @@ assembler profile을 소유하지 않고 host/clang compiler driver에 `-x assem
 
 Round 7은 generated output edge skeleton을 추가했다. 현재 정본 surface에서는
 `qstar.custom_target`이 `inputs`, `outputs`, `command = qstar.cli { ... }`를 기록하고,
-`qstar.output(path)`는 path spelling helper로 받아들인다. `generated/` 아래 generated
-source path는 정확히 하나의 generated action이 만들어야 한다. `qstar explain`은
+`qstar.output(path)`는 path spelling helper로 받아들인다. Generated source/header path는
+effective `qstar.project.generated_dir` 아래 있어야 하며, 기본값은 `generated`다. 그
+아래 generated source path는 정확히 하나의 generated action이 만들어야 한다. `qstar explain`은
 `generated_edge`, `generated_action`, resolver-skeleton record를 출력하고, local
 executor는 package-local generated action을 실행할 수 있다.
 

@@ -743,6 +743,9 @@ contains "$tmp/docs.out" "wiki/AI_INDEX.md"
 contains "$tmp/docs-ai.out" "wiki/AI_INDEX.md"
 "$qstar" docs --path > "$tmp/docs-path.out" 2> "$tmp/docs-path.err"
 contains "$tmp/docs-path.out" "/wiki"
+"$qstar" docs --show reference/modules.md > "$tmp/docs-show.out" 2> "$tmp/docs-show.err"
+contains "$tmp/docs-show.out" "Imports and Modules"
+contains "$tmp/docs-show.out" "qstar.import_module"
 "$qstar" --file "$tmp/qstar.lua" build --help > "$tmp/help-build-with-file.out" 2> "$tmp/help-build-with-file.err"
 contains "$tmp/help-build-with-file.out" "usage: qstar [options] build"
 "$qstar" --file "$tmp/qstar.lua" check //... > "$tmp/check-all-label.out" 2> "$tmp/check-all-label.err"
@@ -1598,6 +1601,101 @@ EOF
 contains "$tmp/generated-second.out" "cache_miss id=//:cfg:generate:0"
 contains "$tmp/generated-second.out" "cache_miss id=//:genapp:compile:0"
 contains "$tmp/generated/config.h" "#define APP_VALUE 42"
+
+mkdir -p "$tmp/generated-root/src" "$tmp/generated-root/tools"
+cp "$tmp/tools/gen-value.sh" "$tmp/generated-root/tools/gen-value.sh"
+cat > "$tmp/generated-root/src/main.c" <<'EOF'
+#include "config.h"
+int generated_value(void);
+int main(void) { return generated_value() - APP_VALUE; }
+EOF
+cat > "$tmp/generated-root/qstar.lua" <<'EOF'
+qstar.project {
+  name = "generated-root",
+  root = ".",
+  build_dir = "build/qstar",
+  generated_dir = "build/qstar/generated",
+  compile_commands = "build",
+}
+
+qstar.configure_file "cfg" {
+  output = qstar.output("build/qstar/generated/config.h"),
+  defines = {"APP_VALUE=41"},
+}
+
+qstar.custom_target "make_value" {
+  outputs = {qstar.output("build/qstar/generated/value.c")},
+  command = qstar.cli {"tools/gen-value.sh", qstar.output(0)},
+}
+
+qstar.executable "app" {
+  sources = {"src/main.c", qstar.output("build/qstar/generated/value.c")},
+  lang = {
+    c = {
+      private_headers = {qstar.output("build/qstar/generated/config.h")},
+      include_dirs = {"build/qstar/generated"},
+    },
+  },
+}
+EOF
+"$qstar" --file "$tmp/generated-root/qstar.lua" build //:app > "$tmp/generated-root-build.out" 2> "$tmp/generated-root-build.err"
+contains "$tmp/generated-root-build.out" "status ok"
+test -f "$tmp/generated-root/build/qstar/generated/config.h" || fail "configured generated_dir missing config header"
+test -f "$tmp/generated-root/build/qstar/generated/value.c" || fail "configured generated_dir missing source"
+test ! -e "$tmp/generated-root/generated" || fail "configured generated_dir polluted package root generated/"
+"$tmp/generated-root/build/qstar/out/___app/app"
+contains "$tmp/generated-root/build/qstar/compile_commands.json" "build/qstar/generated/value.c"
+contains "$tmp/generated-root/build/qstar/state/graph.json" "\"generated_dir\":\"build/qstar/generated\""
+"$qstar" --file "$tmp/generated-root/qstar.lua" list-targets --format json > "$tmp/generated-root-list.json" 2> "$tmp/generated-root-list.err"
+contains "$tmp/generated-root-list.json" "\"generated_dir\":\"build/qstar/generated\""
+"$qstar" --file "$tmp/generated-root/qstar.lua" --dump-graph > "$tmp/generated-root-graph.out" 2> "$tmp/generated-root-graph.err"
+contains "$tmp/generated-root-graph.out" "generated_dir=build/qstar/generated"
+
+mkdir -p "$tmp/generated-root-bad-output"
+cp -R "$tmp/generated-root/tools" "$tmp/generated-root-bad-output/tools"
+cat > "$tmp/generated-root-bad-output/qstar.lua" <<'EOF'
+qstar.project {
+  root = ".",
+  generated_dir = "build/qstar/generated",
+}
+
+qstar.custom_target "bad" {
+  outputs = {qstar.output("generated/bad.c")},
+  command = qstar.cli {"tools/gen-value.sh", qstar.output(0)},
+}
+EOF
+if "$qstar" --file "$tmp/generated-root-bad-output/qstar.lua" check //:bad > "$tmp/generated-root-bad-output.out" 2> "$tmp/generated-root-bad-output.err"; then
+	fail "generated_dir bad output unexpectedly succeeded"
+fi
+contains "$tmp/generated-root-bad-output.err" "must be under generated_dir 'build/qstar/generated'"
+
+mkdir -p "$tmp/generated-root-bad-source"
+cat > "$tmp/generated-root-bad-source/qstar.lua" <<'EOF'
+qstar.project {
+  root = ".",
+  generated_dir = "build/qstar/generated",
+}
+
+qstar.executable "bad" {
+  sources = {qstar.output("build/qstar/generated/missing.c")},
+}
+EOF
+if "$qstar" --file "$tmp/generated-root-bad-source/qstar.lua" check //:bad > "$tmp/generated-root-bad-source.out" 2> "$tmp/generated-root-bad-source.err"; then
+	fail "generated_dir orphan source unexpectedly succeeded"
+fi
+contains "$tmp/generated-root-bad-source.err" "has no generating action"
+
+mkdir -p "$tmp/generated-root-bad-project"
+cat > "$tmp/generated-root-bad-project/qstar.lua" <<'EOF'
+qstar.project {
+  root = ".",
+  generated_dir = "build/qstar/generated/",
+}
+EOF
+if "$qstar" --file "$tmp/generated-root-bad-project/qstar.lua" check //... > "$tmp/generated-root-bad-project.out" 2> "$tmp/generated-root-bad-project.err"; then
+	fail "generated_dir trailing slash unexpectedly succeeded"
+fi
+contains "$tmp/generated-root-bad-project.err" "generated_dir must name a directory without a trailing slash"
 
 cat > "$tmp/qstar.lua" <<'EOF'
 qstar.custom_target "one" {

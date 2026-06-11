@@ -133,7 +133,9 @@ qstar --file qstar.lua --dump-graph
 qstar --version
 qstar version
 qstar docs
+qstar docs --path
 qstar docs --ai-index
+qstar docs --show reference/modules.md
 qstar --file qstar.lua list-targets
 qstar --file qstar.lua list-targets --format json
 qstar --file qstar.lua query //:app
@@ -174,8 +176,9 @@ qstar --file qstar.lua --profile debug --target arm64-apple-macos explain //:app
 ```
 
 `make install PREFIX=/path`는 `qstar` binary와 함께 manpage, `wiki/`, AI index를
-`share/doc/qstar` 아래에 설치한다. `qstar docs`는 설치된 wiki/AI index 위치를 찾기
-위한 얇은 entrypoint다.
+`share/doc/qstar` 아래에 설치한다. `qstar docs --path`는 wiki root를, `qstar docs
+--ai-index`는 AI index 경로를, `qstar docs --show reference/modules.md`는 설치 또는
+source-tree 문서 내용을 출력한다.
 
 ## 명령 의미
 
@@ -310,7 +313,10 @@ Round 16/17 기준 source policy:
 - Cale source는 `cale` process를 호출할 뿐 Cale frontend/backend 내부 API와 연결하지 않는다.
 - `.h`는 source kind로 인식하지만 compile source가 아니라 `public_headers`/`private_headers`에 둬야 한다.
 - `qstar.custom_target` output은 target `sources` 또는 header list에서 소비될 수 있다.
-- `qstar.configure_file`는 package root 아래 `generated/` output만 만들 수 있고, generated header 변경은 dependent compile action cache key에 반영된다.
+- `qstar.configure_file`와 `qstar.custom_target` output은 기본적으로 package root 아래
+  `generated/`에 있어야 한다. `qstar.project.generated_dir`를 지정하면 그
+  package-relative directory 아래 output만 허용된다.
+- generated header/source 변경은 dependent compile action cache key에 반영된다.
 - `deps`/`public_deps`는 public/interface include directory를 소비자에게 전파한다.
 - `private_deps`는 build/link에는 참여하지만 include directory를 소비자에게 전파하지 않는다.
 - `libs`, `lib_dirs`, `frameworks`는 target profile별 link flag로 렌더링된다.
@@ -331,6 +337,21 @@ qstar.executable "app" {
       include_dirs = {"generated"},
     },
   },
+}
+```
+
+Generated artifacts를 build tree 아래로 모으고 싶으면 project policy를 명시한다.
+
+```lua
+qstar.project {
+  root = ".",
+  build_dir = "build/qstar",
+  generated_dir = "build/qstar/generated",
+}
+
+qstar.custom_target "generated_value" {
+  outputs = {qstar.output("build/qstar/generated/value.c")},
+  command = qstar.cli {"tools/gen-value.sh", qstar.output(0)},
 }
 ```
 

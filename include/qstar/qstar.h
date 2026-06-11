@@ -133,6 +133,7 @@ struct qstar_project {
 	char *version;
 	char *root;
 	char *build_dir;
+	char *generated_dir;
 	char *compile_commands;
 };
 
@@ -278,7 +279,7 @@ int qstar_graph_set_package_root(struct qstar_graph *graph, const char *root);
 /** qstar.project metadata를 graph에 기록한다. */
 int qstar_graph_set_project(struct qstar_graph *graph, const char *name,
     const char *version, const char *root, const char *build_dir,
-    const char *compile_commands);
+    const char *generated_dir, const char *compile_commands);
 
 /** CLI generator/build directory override를 graph effective option으로 기록한다. */
 int qstar_graph_set_cli_overrides(struct qstar_graph *graph, const char *generator,
@@ -286,6 +287,12 @@ int qstar_graph_set_cli_overrides(struct qstar_graph *graph, const char *generat
 
 /** QStar project의 effective build directory를 반환한다. */
 const char *qstar_graph_build_dir(const struct qstar_graph *graph);
+
+/** QStar project의 effective generated output directory를 반환한다. */
+const char *qstar_graph_generated_dir(const struct qstar_graph *graph);
+
+/** path가 현재 project의 generated output root 아래 있는지 검사한다. */
+int qstar_graph_path_is_generated(const struct qstar_graph *graph, const char *path);
 
 /** QStar project의 effective generator를 반환한다. */
 const char *qstar_graph_generator(const struct qstar_graph *graph);

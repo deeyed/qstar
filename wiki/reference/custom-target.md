@@ -44,6 +44,23 @@ qstar.custom_target "kernel_img" {
 dependency edge가 되며, `qstar.input(N)`으로 command에 전달하면 실제 산출물 path로
 해석된다.
 
+`outputs`는 effective `qstar.project.generated_dir` 아래에 있어야 한다. 기본값은
+`generated`이므로 기존 프로젝트는 `generated/foo.c`를 계속 쓸 수 있다. Generated
+artifacts를 build tree 아래로 모으는 프로젝트는 다음처럼 project policy와 output path를
+같이 맞춘다.
+
+```lua
+qstar.project {
+  root = ".",
+  generated_dir = "build/qstar/generated",
+}
+
+qstar.custom_target "generated" {
+  outputs = {qstar.output("build/qstar/generated/value.c")},
+  command = qstar.cli {"tools/gen-value.sh", qstar.output(0)},
+}
+```
+
 ## 실패 예제
 
 ```lua

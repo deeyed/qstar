@@ -108,6 +108,30 @@ Merge rule:
 - `.qsm` module 안에서는 `qstar.config`도 다른 graph declaration처럼 금지된다.
 - config는 사용하는 target보다 먼저 평가되어야 한다.
 
+## Project output policy
+
+`qstar.project`의 `generated_dir`는 generated action output이 놓일 package-relative
+root를 정한다. 생략하면 기존 surface와 같이 `generated`를 사용한다.
+
+```lua
+qstar.project {
+  root = ".",
+  build_dir = "build/qstar",
+  generated_dir = "build/qstar/generated",
+  compile_commands = "build",
+}
+
+qstar.configure_file "cfg" {
+  output = qstar.output("build/qstar/generated/config.h"),
+  defines = {"APP_VALUE=42"},
+}
+```
+
+`qstar.custom_target.outputs`와 `qstar.configure_file.output`은 effective
+`generated_dir` 아래에 있어야 한다. Target `sources`, `public_headers`,
+`private_headers`에서 그 directory 아래 path를 참조하면 반드시 해당 path를 만드는
+generated action owner가 있어야 한다.
+
 ## 실패 예제
 
 ```lua

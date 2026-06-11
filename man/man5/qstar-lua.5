@@ -17,10 +17,14 @@ Helper modules are named
 The main entrypoints are:
 .Bl -tag -width "qstar.custom_target"
 .It Ic qstar.project
-Project metadata, including name, version, root, build_dir, and compile_commands.
+Project metadata, including name, version, root, build_dir, generated_dir, and
+compile_commands.
 The command-line
 .Fl B
 option overrides build_dir for the current invocation.
+The generated_dir field controls the package-relative root for generated
+outputs and defaults to
+.Pa generated .
 .It Ic qstar.profile
 In-DSL toolchain and target profile declaration.
 .It Ic qstar.config

@@ -339,8 +339,9 @@ qstar.executable "app" {
 }
 ```
 
-Generated output은 package-relative path여야 하며 Round 7에서는 `generated/` 아래로
-제한한다. `qstar.output(path)`은 path spelling helper일 뿐이고 파일을 만들지 않는다.
+Generated output은 package-relative path여야 하며 effective
+`qstar.project.generated_dir` 아래로 제한한다. 기본값은 `generated`다.
+`qstar.output(path)`은 path spelling helper일 뿐이고 파일을 만들지 않는다.
 Round 48부터 `qstar.custom_target`의 command는 `qstar.cli { ... }` argv-vector이며,
 `qstar.output(0)`은 같은 rule의 첫 번째 output을 가리키는 command placeholder다.
 `qstar explain`은 generated action과 consumer edge를 출력하지만 generator를 실행하지

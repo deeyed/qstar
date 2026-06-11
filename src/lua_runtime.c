@@ -2572,7 +2572,7 @@ static int
 qstar_lua_project(lua_State *L)
 {
 	struct qstar_lua_context *ctx;
-	const char *name, *version, *root, *build_dir, *compile_commands;
+	const char *name, *version, *root, *build_dir, *generated_dir, *compile_commands;
 	int idx;
 
 	ctx = get_context(L);
@@ -2584,9 +2584,10 @@ qstar_lua_project(lua_State *L)
 	version = check_string_field(L, idx, "version");
 	root = check_string_field(L, idx, "root");
 	build_dir = check_string_field(L, idx, "build_dir");
+	generated_dir = check_string_field(L, idx, "generated_dir");
 	compile_commands = check_string_field(L, idx, "compile_commands");
 	if (qstar_graph_set_project(ctx->graph, name, version, root, build_dir,
-	    compile_commands) < 0)
+	    generated_dir, compile_commands) < 0)
 		return luaL_error(L, "%s", ctx->graph->error);
 	return 0;
 }

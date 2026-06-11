@@ -6,6 +6,8 @@
       "  name = \"${1:my-project}\",",
       "  version = \"${2:0.1.0}\",",
       "  root = \".\",",
+      "  build_dir = \"${3:build/qstar}\",",
+      "  generated_dir = \"${4:generated}\",",
       "}"
     ],
     "description": "Declare QStar project metadata."

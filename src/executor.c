@@ -1188,6 +1188,8 @@ graph_snapshot_write(struct qstar_graph *graph)
 	json_string(f, graph->project.root ? graph->project.root : ".");
 	fputs(",\"build_dir\":", f);
 	json_string(f, qstar_graph_build_dir(graph));
+	fputs(",\"generated_dir\":", f);
+	json_string(f, qstar_graph_generated_dir(graph));
 	fputs(",\"compile_commands\":", f);
 	json_string(f, qstar_graph_compile_commands_policy(graph));
 	fputs(",\"generator\":", f);

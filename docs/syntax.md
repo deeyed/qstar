@@ -220,9 +220,9 @@ Round 6부터 `sources`는 explicit source discovery skeleton으로 분류된다
 header list로 옮기라는 stable diagnostic을 낸다.
 
 Round 7부터 `qstar.custom_target`과 `qstar.output(path)`를 사용할 수 있다. Generated
-output은 `generated/` 아래 package-relative path여야 하고, generated source로 쓰이면
-정확히 하나의 producer가 있어야 한다. QStar는 generated edge를 explain하지만
-generator를 실행하지 않는다.
+output은 effective `qstar.project.generated_dir` 아래 package-relative path여야 한다.
+기본값은 `generated`다. Generated source로 쓰이면 정확히 하나의 producer가 있어야
+한다. QStar는 generated edge를 explain하지만 generator를 실행하지 않는다.
 
 Round 8부터 `qstar dry-run`을 사용할 수 있다. `dry-run`은 `explain`과 같은 graph
 validation, target closure, generated edge, source classification, resolver skeleton을
@@ -389,8 +389,8 @@ qstar.executable "app" {
 
 `qstar.configure_file`의 `defines` 항목은
 `NAME=VALUE` 또는 `NAME` 형식을 받아 deterministic C header를 만든다. Generated
-output은 package-relative `generated/` 아래에 있어야 하며, 같은 output을 두
-action이 생산하면 stable diagnostic이다.
+output은 effective `qstar.project.generated_dir` 아래에 있어야 하며, 같은 output을 두
+action이 생산하면 stable diagnostic이다. `generated_dir`의 기본값은 `generated`다.
 
 Round 18부터 link surface가 조금 넓어진다.
 

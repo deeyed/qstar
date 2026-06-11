@@ -18,7 +18,9 @@ qstar/build/bin/qstar init c-app /tmp/qstar-hello
 qstar/build/bin/qstar --file /tmp/qstar-hello/qstar.lua lint //...
 qstar/build/bin/qstar --file /tmp/qstar-hello/qstar.lua build //:app
 qstar/build/bin/qstar docs
+qstar/build/bin/qstar docs --path
 qstar/build/bin/qstar docs --ai-index
+qstar/build/bin/qstar docs --show reference/qstar-lua.md
 /tmp/qstar-hello/build/qstar/out/___app/app
 ```
 

@@ -30,6 +30,8 @@ QStar가 하지 않는 일:
 - 반복 option은 `qstar.config`와 target `configs = {...}`로 공유한다.
 - legacy qs fragment suffix와 `qstar.workspace`는 제거된 surface다.
 - 산출물 기본 위치는 `build/qstar`다.
+- generated action output 기본 root는 `generated`이고, `qstar.project.generated_dir`로
+  package-relative generated root를 바꿀 수 있다.
 - CLI `-B path`는 `qstar.project.build_dir`보다 우선한다.
 - CLI `-G auto`는 현재 `qstar_graph`로 resolve되고, `-G ninja`는 selector만 열린 상태다.
 - compile database 기본 위치는 `build/qstar/compile_commands.json`이다.
@@ -256,7 +258,9 @@ Low-level/bootloader-style project:
 
 ```sh
 qstar docs
+qstar docs --path
 qstar docs --ai-index
+qstar docs --show reference/modules.md
 qstar --file qstar.lua lint //...
 qstar --file qstar.lua list-targets --format json
 qstar --file qstar.lua explain //:target

@@ -5,13 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/** generated output path가 QStar managed output root 아래 있는지 검사한다. */
-static int
-valid_generated_output_root(const char *path)
-{
-	return strncmp(path, "generated/", 10) == 0 && path[10] != '\0';
-}
-
 /** source list 안에서 같은 path가 두 번 들어왔는지 검사한다. */
 static int
 source_is_duplicate(const struct qstar_target *target, const char *path, size_t index)
@@ -377,7 +370,7 @@ validate_source_list(struct qstar_graph *graph, const struct qstar_target *targe
 			    target->origin_line, "sources", target->label,
 			    "qstar: unsupported source extension '%s' in '%s'",
 			    path, target->label);
-		if (valid_generated_output_root(path) &&
+		if (qstar_graph_path_is_generated(graph, path) &&
 		    !qstar_graph_find_output_owner(graph, path))
 			return qstar_set_error_origin(graph, target->origin_file,
 			    target->origin_line, "sources", target->label,
@@ -504,7 +497,7 @@ validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 			    genrule->origin_line, "inputs", genrule->label,
 			    "qstar: generated input '%s' in '%s' must be package-relative",
 			    path, genrule->label);
-		if (valid_generated_output_root(path) &&
+		if (qstar_graph_path_is_generated(graph, path) &&
 		    qstar_graph_find_output_owner(graph, path) == genrule)
 			return qstar_set_error_origin(graph, genrule->origin_file,
 			    genrule->origin_line, "inputs", genrule->label,
@@ -518,11 +511,11 @@ validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 			    genrule->origin_line, "outputs", genrule->label,
 			    "qstar: generated output '%s' in '%s' must be package-relative",
 			    path, genrule->label);
-		if (!valid_generated_output_root(path))
+		if (!qstar_graph_path_is_generated(graph, path))
 			return qstar_set_error_origin(graph, genrule->origin_file,
 			    genrule->origin_line, "outputs", genrule->label,
-			    "qstar: generated output '%s' in '%s' must be under generated/",
-			    path, genrule->label);
+			    "qstar: generated output '%s' in '%s' must be under generated_dir '%s'",
+			    path, genrule->label, qstar_graph_generated_dir(graph));
 		for (j = 0; j < graph->genrule_len; j++) {
 			for (k = 0; k < graph->genrules[j].outputs.len; k++) {
 				if (&graph->genrules[j] == genrule && k == i)
@@ -747,7 +740,8 @@ validate_target_file_inputs(struct qstar_graph *graph, const struct qstar_target
 
 	for (i = 0; i < target->sources.len; i++) {
 		path = target->sources.items[i];
-		if (valid_generated_output_root(path) && qstar_graph_find_output_owner(graph, path))
+		if (qstar_graph_path_is_generated(graph, path) &&
+		    qstar_graph_find_output_owner(graph, path))
 			continue;
 		if (!file_exists_under_root(graph, path))
 			return qstar_set_error_origin(graph, target->origin_file,
@@ -757,7 +751,8 @@ validate_target_file_inputs(struct qstar_graph *graph, const struct qstar_target
 	}
 	for (i = 0; i < target->public_headers.len; i++) {
 		path = target->public_headers.items[i];
-		if (valid_generated_output_root(path) && qstar_graph_find_output_owner(graph, path))
+		if (qstar_graph_path_is_generated(graph, path) &&
+		    qstar_graph_find_output_owner(graph, path))
 			continue;
 		if (!file_exists_under_root(graph, path))
 			return qstar_set_error_origin(graph, target->origin_file,
@@ -767,7 +762,8 @@ validate_target_file_inputs(struct qstar_graph *graph, const struct qstar_target
 	}
 	for (i = 0; i < target->private_headers.len; i++) {
 		path = target->private_headers.items[i];
-		if (valid_generated_output_root(path) && qstar_graph_find_output_owner(graph, path))
+		if (qstar_graph_path_is_generated(graph, path) &&
+		    qstar_graph_find_output_owner(graph, path))
 			continue;
 		if (!file_exists_under_root(graph, path))
 			return qstar_set_error_origin(graph, target->origin_file,
@@ -796,7 +792,8 @@ validate_genrule_file_inputs(struct qstar_graph *graph, const struct qstar_genru
 		if (qstar_target_file_token_label(path, (char[QSTAR_PATH_MAX]){0},
 		    QSTAR_PATH_MAX) != 0)
 			continue;
-		if (valid_generated_output_root(path) && qstar_graph_find_output_owner(graph, path))
+		if (qstar_graph_path_is_generated(graph, path) &&
+		    qstar_graph_find_output_owner(graph, path))
 			continue;
 		if (!file_exists_under_root(graph, path))
 			return qstar_set_error_origin(graph, genrule->origin_file,
@@ -821,7 +818,8 @@ validate_stage_file_inputs(struct qstar_graph *graph, const struct qstar_stage *
 		rc = qstar_target_file_token_label(path, label, sizeof(label));
 		if (rc != 0)
 			continue;
-		if (valid_generated_output_root(path) && qstar_graph_find_output_owner(graph, path))
+		if (qstar_graph_path_is_generated(graph, path) &&
+		    qstar_graph_find_output_owner(graph, path))
 			continue;
 		if (!file_exists_under_root(graph, path))
 			return qstar_set_error_origin(graph, stage->origin_file,

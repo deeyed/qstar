@@ -321,7 +321,8 @@ Round 6 source/toolchain skeleton invariant:
 Round 7 generated-output/toolchain-resolver invariant:
 
 - `qstar.custom_target` creates generated action skeletons.
-- generated outputs must be package-relative paths under `generated/`.
+- generated outputs must be package-relative paths under the effective
+  `qstar.project.generated_dir`; the default is `generated`.
 - generated source paths must have exactly one producer.
 - `qstar.output(path)` is a path spelling helper, not an execution primitive.
 - `resolved_toolchain` records expose target-local toolchain/stdlib plus CLI
@@ -332,10 +333,11 @@ Round 16/17 generated-output invariant:
 
 - `qstar.custom_target` output can be consumed by `sources`, `public_headers`, or
   `private_headers`.
-- generated outputs must still be package-relative paths under `generated/`.
+- generated outputs must still be package-relative paths under the effective
+  `qstar.project.generated_dir`.
 - generated source/header consumers trigger the producing action before compile.
 - two generated actions cannot claim the same output.
-- outputs outside the package root or outside `generated/` are stable
+- outputs outside the package root or outside the effective generated root are stable
   diagnostics.
 - generated header content is included in dependent compile action keys.
 - `qstar.configure_file` is an internal generated action that does not spawn a

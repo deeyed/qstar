@@ -10,7 +10,7 @@ usage(FILE *out)
 	fputs("usage: qstar [options] list-targets\n", out);
 	fputs("       qstar --version\n", out);
 	fputs("       qstar version\n", out);
-	fputs("       qstar docs [--path|--ai-index]\n", out);
+	fputs("       qstar docs [--path|--ai-index|--show path]\n", out);
 	fputs("       qstar [options] list-targets --format json\n", out);
 	fputs("       qstar [options] query [label]\n", out);
 	fputs("       qstar [options] doctor\n", out);
@@ -68,8 +68,9 @@ command_help(FILE *out, const char *cmd)
 		return;
 	}
 	if (strcmp(cmd, "docs") == 0) {
-		fputs("usage: qstar docs [--path|--ai-index]\n", out);
+		fputs("usage: qstar docs [--path|--ai-index|--show wiki-relative.md]\n", out);
 		fputs("Print local QStar documentation entrypoints for users and AI agents.\n", out);
+		fputs("--path prints the wiki root; --ai-index prints AI_INDEX.md; --show prints a document.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "test") == 0) {
@@ -125,22 +126,138 @@ command_help(FILE *out, const char *cmd)
 	usage(out);
 }
 
-/** QStar 문서 위치를 환경 변수와 설치 convention 기준으로 출력한다. */
-static void
-print_docs(FILE *out, int path_only, int ai_index_only)
+/** path가 읽을 수 있는 일반 파일인지 가볍게 확인한다. */
+static int
+readable_file(const char *path)
 {
-	const char *doc_dir;
+	FILE *f;
 
-	doc_dir = getenv("QSTAR_DOC_DIR");
-	if (!doc_dir || !*doc_dir)
-		doc_dir = "<prefix>/share/doc/qstar";
+	f = fopen(path, "rb");
+	if (!f)
+		return 0;
+	fclose(f);
+	return 1;
+}
+
+/** doc_dir 아래 wiki/README.md가 있는지 확인한다. */
+static int
+docs_dir_has_wiki(const char *doc_dir)
+{
+	char path[QSTAR_PATH_MAX];
+
+	if (snprintf(path, sizeof(path), "%s/wiki/README.md", doc_dir) >=
+	    (int)sizeof(path))
+		return 0;
+	return readable_file(path);
+}
+
+/** qstar executable 위치에서 설치 doc_dir 후보를 계산한다. */
+static int
+docs_dir_from_argv0(const char *argv0, char *doc_dir, size_t doc_dir_len)
+{
+	char bin_dir[QSTAR_PATH_MAX], prefix[QSTAR_PATH_MAX];
+
+	if (!argv0 || !strchr(argv0, '/'))
+		return -1;
+	if (qstar_dirname(argv0, bin_dir, sizeof(bin_dir)) < 0 ||
+	    qstar_dirname(bin_dir, prefix, sizeof(prefix)) < 0)
+		return -1;
+	if (snprintf(doc_dir, doc_dir_len, "%s/share/doc/qstar", prefix) >=
+	    (int)doc_dir_len)
+		return -1;
+	return 0;
+}
+
+/** qstar/build/bin/qstar 형태의 개발 binary에서 source-tree doc root를 계산한다. */
+static int
+source_docs_dir_from_argv0(const char *argv0, char *doc_dir, size_t doc_dir_len)
+{
+	char bin_dir[QSTAR_PATH_MAX], build_dir[QSTAR_PATH_MAX], source_dir[QSTAR_PATH_MAX];
+
+	if (!argv0 || !strchr(argv0, '/'))
+		return -1;
+	if (qstar_dirname(argv0, bin_dir, sizeof(bin_dir)) < 0 ||
+	    qstar_dirname(bin_dir, build_dir, sizeof(build_dir)) < 0 ||
+	    qstar_dirname(build_dir, source_dir, sizeof(source_dir)) < 0)
+		return -1;
+	if (snprintf(doc_dir, doc_dir_len, "%s", source_dir) >= (int)doc_dir_len)
+		return -1;
+	return 0;
+}
+
+/** QStar docs root를 환경 변수, 설치 layout, source tree 순서로 찾는다. */
+static void
+resolve_docs_dir(const char *argv0, char *doc_dir, size_t doc_dir_len)
+{
+	const char *env_doc_dir;
+	char candidate[QSTAR_PATH_MAX];
+
+	env_doc_dir = getenv("QSTAR_DOC_DIR");
+	if (env_doc_dir && *env_doc_dir) {
+		snprintf(doc_dir, doc_dir_len, "%s", env_doc_dir);
+		return;
+	}
+	if (docs_dir_from_argv0(argv0, candidate, sizeof(candidate)) == 0 &&
+	    docs_dir_has_wiki(candidate)) {
+		snprintf(doc_dir, doc_dir_len, "%s", candidate);
+		return;
+	}
+	if (source_docs_dir_from_argv0(argv0, candidate, sizeof(candidate)) == 0 &&
+	    docs_dir_has_wiki(candidate)) {
+		snprintf(doc_dir, doc_dir_len, "%s", candidate);
+		return;
+	}
+	if (readable_file("wiki/README.md")) {
+		snprintf(doc_dir, doc_dir_len, ".");
+		return;
+	}
+	snprintf(doc_dir, doc_dir_len, "<prefix>/share/doc/qstar");
+}
+
+/** QStar 문서 위치와 문서 내용을 docs CLI mode에 맞게 출력한다. */
+static int
+print_docs(FILE *out, int path_only, int ai_index_only, const char *show_path,
+    const char *argv0)
+{
+	char doc_dir[QSTAR_PATH_MAX], show_file[QSTAR_PATH_MAX];
+	char buf[4096];
+	const char *rel;
+	FILE *f;
+
+	resolve_docs_dir(argv0, doc_dir, sizeof(doc_dir));
 	if (path_only) {
 		fprintf(out, "%s/wiki\n", doc_dir);
-		return;
+		return 0;
 	}
 	if (ai_index_only) {
 		fprintf(out, "%s/wiki/AI_INDEX.md\n", doc_dir);
-		return;
+		return 0;
+	}
+	if (show_path) {
+		rel = show_path;
+		if (strncmp(rel, "wiki/", 5) == 0)
+			rel += 5;
+		if (!qstar_path_is_package_relative(rel)) {
+			fprintf(stderr,
+			    "qstar: docs --show path must be wiki-relative\n");
+			return -1;
+		}
+		if (snprintf(show_file, sizeof(show_file), "%s/wiki/%s", doc_dir, rel) >=
+		    (int)sizeof(show_file)) {
+			fprintf(stderr, "qstar: docs --show path is too long\n");
+			return -1;
+		}
+		f = fopen(show_file, "rb");
+		if (!f) {
+			fprintf(stderr,
+			    "qstar: docs file '%s' not found; set QSTAR_DOC_DIR if qstar is installed elsewhere\n",
+			    show_path);
+			return -1;
+		}
+		while (fgets(buf, sizeof(buf), f))
+			fputs(buf, out);
+		fclose(f);
+		return 0;
 	}
 	fputs("qstar docs v1\n", out);
 	fprintf(out, "installed_docs %s\n", doc_dir);
@@ -148,8 +265,10 @@ print_docs(FILE *out, int path_only, int ai_index_only)
 	fprintf(out, "ai_index %s/wiki/AI_INDEX.md\n", doc_dir);
 	fprintf(out, "man qstar\n");
 	fprintf(out, "man qstar-lua\n");
+	fprintf(out, "show qstar docs --show reference/qstar-lua.md\n");
 	fprintf(out, "source_tree wiki/README.md\n");
 	fprintf(out, "source_tree wiki/AI_INDEX.md\n");
+	return 0;
 }
 
 /** QStar runtime version을 CLI와 authoring 상수의 단일 source로 출력한다. */
@@ -403,10 +522,12 @@ main(int argc, char **argv)
 		return 0;
 	}
 	if (strcmp(cmd, "docs") == 0) {
-		int path_only, ai_index_only;
+		const char *show_path;
+		int path_only, ai_index_only, mode_count;
 
 		path_only = 0;
 		ai_index_only = 0;
+		show_path = NULL;
 		while (arg < argc) {
 			if (strcmp(argv[arg], "--path") == 0) {
 				path_only = 1;
@@ -414,18 +535,30 @@ main(int argc, char **argv)
 			} else if (strcmp(argv[arg], "--ai-index") == 0) {
 				ai_index_only = 1;
 				arg++;
+			} else if (strcmp(argv[arg], "--show") == 0) {
+				if (arg + 1 >= argc) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				show_path = argv[arg + 1];
+				arg += 2;
 			} else {
 				usage(stderr);
 				qstar_graph_free(&graph);
 				return 2;
 			}
 		}
-		if (path_only && ai_index_only) {
+		mode_count = path_only + ai_index_only + (show_path ? 1 : 0);
+		if (mode_count > 1) {
 			usage(stderr);
 			qstar_graph_free(&graph);
 			return 2;
 		}
-		print_docs(stdout, path_only, ai_index_only);
+		if (print_docs(stdout, path_only, ai_index_only, show_path, argv[0]) < 0) {
+			qstar_graph_free(&graph);
+			return 1;
+		}
 		qstar_graph_free(&graph);
 		return 0;
 	}

@@ -13,7 +13,7 @@
 .Op Ar arguments
 .Nm
 .Ar docs
-.Op Fl -path | Fl -ai-index
+.Op Fl -path | Fl -ai-index | Fl -show Ar wiki-relative.md
 .Nm
 .Fl -version
 .Sh DESCRIPTION
@@ -61,6 +61,10 @@ build_dir with a package-relative build directory.
 .Bl -tag -width "last-failure"
 .It Ic docs
 Print local documentation entrypoints, including the wiki and AI index.
+Use
+.Fl -show
+to print a specific wiki document such as
+.Pa reference/modules.md .
 .It Ic lint
 Evaluate authoring diagnostics without executing build actions.
 .It Ic explain
@@ -87,8 +91,12 @@ QStar fragment file.
 .It Pa *.qsm
 QStar helper module file.
 .It Pa build/qstar
-Default state, log, response file, generated output, stage, and compile database
+Default state, log, response file, build artifact, stage, and compile database
 directory.
+.It Pa generated
+Default
+.Ic qstar.project
+generated_dir for generated action outputs.
 .It Pa share/doc/qstar/wiki/README.md
 Installed QStar wiki entrypoint.
 .It Pa share/doc/qstar/wiki/AI_INDEX.md
