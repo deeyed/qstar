@@ -434,6 +434,9 @@ int qstar_graph_emit_ninja(struct qstar_graph *graph, const char *label, FILE *o
 int qstar_graph_build_ninja(struct qstar_graph *graph, const char *label,
     const struct qstar_build_options *options, FILE *out);
 
+/** Ninja backend로 test artifact를 build한 뒤 제한된 runner로 실행한다. */
+int qstar_graph_test_ninja(struct qstar_graph *graph, const char *label, FILE *out);
+
 /** QStar action cache 기준으로 rebuild 이유를 설명한다. */
 int qstar_graph_why_rebuild(struct qstar_graph *graph, const char *label, FILE *out);
 

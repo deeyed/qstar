@@ -97,7 +97,7 @@ command_help(FILE *out, const char *cmd)
 	if (strcmp(cmd, "emit-ninja") == 0) {
 		fputs("usage: qstar [options] emit-ninja [label]\n", out);
 		fputs("Emit build/qstar/ninja/build.ninja and policy-controlled compile_commands.json.\n", out);
-		fputs("Round 79 MVP lowers C/C++/ASM compile, staticlib archive, and group phony edges.\n", out);
+		fputs("Lowers C/C++/ASM compile, generated, staticlib, executable/test, and group edges.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "lint") == 0) {
@@ -358,7 +358,8 @@ print_json_string(const char *s)
 static int
 command_requires_qstar_graph_generator(const char *cmd)
 {
-	return strcmp(cmd, "test") == 0;
+	(void)cmd;
+	return 0;
 }
 
 /** QStar diagnostic을 text 또는 machine-readable skeleton으로 출력한다. */
@@ -958,7 +959,9 @@ main(int argc, char **argv)
 			    qstar_graph_build_ninja(&graph, label, &build_options, stdout) :
 			    qstar_graph_build_with_options(&graph, label, &build_options, stdout);
 		else if (strcmp(cmd, "test") == 0)
-			rc = qstar_graph_test(&graph, label, stdout);
+			rc = strcmp(qstar_graph_generator(&graph), "ninja") == 0 ?
+			    qstar_graph_test_ninja(&graph, label, stdout) :
+			    qstar_graph_test(&graph, label, stdout);
 		else if (strcmp(cmd, "install") == 0)
 			rc = qstar_graph_install(&graph, label, &install_options, stdout);
 		else if (strcmp(cmd, "stage") == 0)

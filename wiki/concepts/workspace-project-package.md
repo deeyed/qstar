@@ -28,9 +28,10 @@ Generator는 CLI에서만 선택한다.
 
 - `-G qstar_graph`: 현재 기본 QStar graph executor를 사용한다.
 - `-G auto`: 현재는 `qstar_graph`로 resolve된다.
-- `-G ninja`: Round 79 MVP에서 C/C++/ASM compile, staticlib archive, `qstar.group`
-  phony graph를 Ninja로 lower해 실행한다. Exe/test/custom/run/stage까지의 full parity는
-  후속 surface다.
+- `-G ninja`: C/C++/ASM compile, `qstar.configure_file`, `qstar.custom_target`,
+  staticlib, executable/test link, `qstar.group` phony graph를 Ninja로 lower해 실행한다.
+  `run_target`, `stage`, `install`, `sharedlib`, Cale source action parity는 후속
+  surface다.
 
 `compile_commands`는 세 값을 가진다.
 

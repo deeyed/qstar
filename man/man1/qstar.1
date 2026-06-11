@@ -86,9 +86,16 @@ Emit
 and the policy-controlled
 .Pa compile_commands.json
 without running Ninja.
-The Round 79 MVP lowers C/C++/ASM compile actions, static libraries, and
+The Ninja backend lowers C/C++/ASM compile actions,
+.Ic qstar.configure_file ,
+.Ic qstar.custom_target ,
+static libraries, executable/test links, and
 .Ic qstar.group
 phony targets.
+Run targets, stage/install actions, shared libraries, and Cale source actions
+still use the
+.Ar qstar_graph
+backend.
 .It Ic build
 Build using the effective generator.
 The

@@ -248,10 +248,15 @@ contains "$tmp/cli-overrides-json.out" "\"requested_generator\":\"auto\""
 "$qstar" --file "$tmp/cli-overrides/qstar.lua" --generator ninja list-targets --format json > "$tmp/cli-overrides-ninja-json.out" 2> "$tmp/cli-overrides-ninja-json.err"
 contains "$tmp/cli-overrides-ninja-json.out" "\"generator\":\"ninja\""
 contains "$tmp/cli-overrides-ninja-json.out" "\"requested_generator\":\"ninja\""
-if "$qstar" --file "$tmp/cli-overrides/qstar.lua" -G ninja build //:app > "$tmp/cli-overrides-ninja-build.out" 2> "$tmp/cli-overrides-ninja-build.err"; then
-	fail "ninja MVP unexpectedly built executable target"
+if command -v ninja >/dev/null 2>&1; then
+	"$qstar" --file "$tmp/cli-overrides/qstar.lua" -G ninja build //:app > "$tmp/cli-overrides-ninja-build.out" 2> "$tmp/cli-overrides-ninja-build.err"
+	contains "$tmp/cli-overrides-ninja-build.out" "backend ninja"
+	contains "$tmp/cli-overrides-ninja-build.out" "status ok"
+	test -f "$tmp/cli-overrides/project/qstar/out/___app/app" || fail "ninja executable artifact missing"
+else
+	"$qstar" --file "$tmp/cli-overrides/qstar.lua" emit-ninja //:app > "$tmp/cli-overrides-ninja-build.out" 2> "$tmp/cli-overrides-ninja-build.err"
+	contains "$tmp/cli-overrides/project/qstar/ninja/build.ninja" "rule qstar_link"
 fi
-contains "$tmp/cli-overrides-ninja-build.err" "ninja backend MVP supports staticlib and group targets only"
 if "$qstar" --file "$tmp/cli-overrides/qstar.lua" -G nope list-targets --format json > "$tmp/cli-overrides-bad-generator.out" 2> "$tmp/cli-overrides-bad-generator.err"; then
 	fail "invalid generator unexpectedly succeeded"
 fi
@@ -325,6 +330,112 @@ if command -v ninja >/dev/null 2>&1 && command -v c++ >/dev/null 2>&1; then
 	contains "$tmp/ninja-mvp-build.out" "backend ninja"
 	contains "$tmp/ninja-mvp-build.out" "status ok"
 	test -f "$tmp/ninja-mvp/build/qstar/out/___core/libcore.a" || fail "ninja backend staticlib artifact missing"
+fi
+
+mkdir -p "$tmp/ninja-parity/src" "$tmp/ninja-parity/tools"
+cat > "$tmp/ninja-parity/tools/gen-value.sh" <<'EOF'
+#!/bin/sh
+set -eu
+config=$1
+out=$2
+test -f "$config"
+cat > "$out" <<'GEN'
+#include "config.h"
+int generated_value(void) { return APP_VALUE; }
+GEN
+EOF
+chmod +x "$tmp/ninja-parity/tools/gen-value.sh"
+cat > "$tmp/ninja-parity/qstar.lua" <<'EOF'
+local long_flags = {}
+for i = 1, 96 do
+  table.insert(long_flags, "-DQSTAR_NINJA_RSP_" .. i .. "=" .. i)
+end
+
+qstar.project {
+  name = "ninja-parity",
+  root = ".",
+  build_dir = "build/qstar",
+  compile_commands = "build",
+}
+
+qstar.profile "ninja-parity" {
+  response_files = "on",
+  response_style = "posix",
+  tool_overrides = {"qstar-gen-value=tools/gen-value.sh"},
+  compile_options = long_flags,
+}
+
+qstar.configure_file "cfg" {
+  output = qstar.output("generated/config.h"),
+  defines = {"APP_VALUE=42", "APP_FEATURE"},
+}
+
+qstar.custom_target "make_value" {
+  inputs = {qstar.target_file("//:cfg")},
+  outputs = {qstar.output("generated/value.c")},
+  command = qstar.cli {"qstar-gen-value", qstar.target_file("//:cfg"), qstar.output(0)},
+}
+
+qstar.staticlib "core" {
+  sources = {qstar.output("generated/value.c")},
+  lang = {
+    c = {
+      private_headers = {qstar.output("generated/config.h")},
+      include_dirs = {"generated"},
+    },
+  },
+}
+
+qstar.executable "app" {
+  sources = {"src/main.c"},
+  deps = {"//:core"},
+  lang = {
+    c = {
+      include_dirs = {"generated"},
+    },
+  },
+}
+
+qstar.test "unit" {
+  sources = {"src/test.c"},
+  deps = {"//:core"},
+  lang = {
+    c = {
+      include_dirs = {"generated"},
+    },
+  },
+}
+EOF
+cat > "$tmp/ninja-parity/src/main.c" <<'EOF'
+int generated_value(void);
+int main(void) { return generated_value() == 42 ? 0 : 1; }
+EOF
+cat > "$tmp/ninja-parity/src/test.c" <<'EOF'
+int generated_value(void);
+int main(void) { return generated_value() == 42 ? 0 : 1; }
+EOF
+"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity emit-ninja //:app > "$tmp/ninja-parity-emit.out" 2> "$tmp/ninja-parity-emit.err"
+contains "$tmp/ninja-parity/build/qstar/ninja/build.ninja" "rule qstar_generate"
+contains "$tmp/ninja-parity/build/qstar/ninja/build.ninja" "rule qstar_link"
+contains "$tmp/ninja-parity/build/qstar/ninja/build.ninja" "qstar_action_id = //:cfg:generate:0"
+contains "$tmp/ninja-parity/build/qstar/ninja/build.ninja" "qstar_action_id = //:make_value:generate:0"
+contains "$tmp/ninja-parity/build/qstar/ninja/build.ninja" "qstar_action_id = //:app:link:0"
+contains "$tmp/ninja-parity/build/qstar/logs/___app_link_0.log" "backend=ninja"
+contains "$tmp/ninja-parity/build/qstar/logs/___app_compile_0.log" "response_file=build/qstar/rsp/"
+"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity action-log //:app:link:0 > "$tmp/ninja-parity-action-log.out" 2> "$tmp/ninja-parity-action-log.err"
+contains "$tmp/ninja-parity-action-log.out" "qstar action-log v1"
+contains "$tmp/ninja-parity-action-log.out" "backend=ninja"
+"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity replay //:app:link:0 > "$tmp/ninja-parity-replay.out" 2> "$tmp/ninja-parity-replay.err"
+contains "$tmp/ninja-parity-replay.out" "qstar replay v1"
+contains "$tmp/ninja-parity-replay.out" "build/qstar/out/___app/app"
+if command -v ninja >/dev/null 2>&1; then
+	"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity -G ninja build //:app > "$tmp/ninja-parity-build.out" 2> "$tmp/ninja-parity-build.err"
+	contains "$tmp/ninja-parity-build.out" "backend ninja"
+	contains "$tmp/ninja-parity-build.out" "status ok"
+	test -f "$tmp/ninja-parity/build/qstar/out/___app/app" || fail "ninja parity executable artifact missing"
+	"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity -G ninja test //:unit > "$tmp/ninja-parity-test.out" 2> "$tmp/ninja-parity-test.err"
+	contains "$tmp/ninja-parity-test.out" "backend ninja"
+	contains "$tmp/ninja-parity-test.out" "test_result label=//:unit status=pass"
 fi
 
 mkdir -p "$tmp/ninja-policy-root/src"

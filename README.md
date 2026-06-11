@@ -152,6 +152,8 @@ qstar --file qstar.lua build //:app --jobs 2 --schedule-trace
 qstar --file qstar.lua build //:app --verbose --progress plain
 qstar --file qstar.lua build //:app --progress off --color never
 qstar --file qstar.lua -B out/qstar -G qstar_graph build //:app
+qstar --file qstar.lua -G ninja build //:app
+qstar --file qstar.lua -G ninja test //:unit
 qstar --file qstar.lua --generator ninja list-targets --format json
 qstar --file qstar.lua test //:unit
 qstar --file qstar.lua test //...
@@ -208,12 +210,12 @@ qstar.executable "app" {
 }
 ```
 
-`build`는 제한적 local executor v12다. package-local generated tool, profile-allowlisted external generated tool, `qstar.configure_file`, C/Cale source compile argv, static archive, exe/test link, deps-only `qstar.group`을 다루며 산출물은 `build/qstar/out`, 로그는 `build/qstar/logs` 아래에 둔다. Round 14/15부터 `build/qstar/state/actions.json` action manifest, `compile_commands.json`, cache-hit skip, `why-rebuild`, `log`, `last-failure`, `clean`, JSON diagnostic skeleton을 제공한다. Round 16/17부터 Cale source는 frontend/backend 내부 API가 아니라 `cale -c ... -o ...` process invocation으로만 다룬다. Round 18/19부터 static library dependency link order, public/private include propagation, system library flag rendering, test runner, install skeleton을 제공한다. Round 77부터 executor는 target 단위 순회 대신 generated/compile/archive/link/run/group action DAG를 만들고 ready-queue scheduler로 실행한다. `--jobs`를 생략하면 host CPU 수 기반 auto jobs가 적용되고, 독립 target의 compile action도 같은 global queue에서 병렬 실행된다. Cache-hit compile action은 process slot을 받기 전에 prequeue skip 처리되며, compile action key는 dependency output이 최신이 된 ready 시점에 계산해 depfile-discovered header와 generated source 변경을 안정적으로 반영한다. Round 78부터 기본 build output은 5% 단위 progress tick과 action summary를 중심으로 출력하고, `--verbose` 또는 `--schedule-trace`에서 scheduler policy, action DAG, slot assignment, start/finish/cancel event를 자세히 보여준다. `--progress auto|plain|off`와 `--color auto|always|never`를 지원하며 non-TTY output은 기본적으로 plain이다. Text success는 green, warning은 bold yellow, error는 bold red로 표시할 수 있지만 JSON diagnostic line에는 color를 넣지 않는다. Round 79부터 `qstar emit-ninja [label]`와 `qstar -G ninja build [label]`이 C/C++/ASM compile, staticlib archive, `qstar.group` phony graph를 `build/qstar/ninja/build.ninja`로 lower하고 project `compile_commands` policy를 따른다. Build action timeout은 기본 30초이며 timeout 시 process를 kill하고 replay file을 남긴다. Round 35부터 긴 compile/link command는 profile capability가 허용할 때 실제 `build/qstar/rsp/*.rsp` response file로 내려가며, POSIX/Windows/MSVC style과 digest를 plan/build/replay에 기록한다. Round 37부터 `build/qstar/state/graph.json` graph snapshot과 `build/qstar/state/last-summary.json` 마지막 build summary를 저장하고, `qstar action-log <action-id>`와 `qstar replay <action-id>`로 action 단위 로그/재현 명령을 조회한다. Round 56부터 `run_target`은 stdout/stderr/`marker_log` marker check를 지원하고, QEMU wrapper 실패를 `marker-missing`, `timeout`, `exit-code`로 분리해 `last-failure`와 `replay`에 남긴다. Round 59부터 실패 action은 `qstar-action-diagnostic-v1` JSON line도 출력하며, link, objcopy transform, package/stage, QEMU timeout을 각각 `link-failure`, `objcopy-failure`, `package-failure`, `qemu-timeout`으로 분리한다.
+`build`는 제한적 local executor v12다. package-local generated tool, profile-allowlisted external generated tool, `qstar.configure_file`, C/Cale source compile argv, static archive, exe/test link, deps-only `qstar.group`을 다루며 산출물은 `build/qstar/out`, 로그는 `build/qstar/logs` 아래에 둔다. Round 14/15부터 `build/qstar/state/actions.json` action manifest, `compile_commands.json`, cache-hit skip, `why-rebuild`, `log`, `last-failure`, `clean`, JSON diagnostic skeleton을 제공한다. Round 16/17부터 Cale source는 frontend/backend 내부 API가 아니라 `cale -c ... -o ...` process invocation으로만 다룬다. Round 18/19부터 static library dependency link order, public/private include propagation, system library flag rendering, test runner, install skeleton을 제공한다. Round 77부터 executor는 target 단위 순회 대신 generated/compile/archive/link/run/group action DAG를 만들고 ready-queue scheduler로 실행한다. `--jobs`를 생략하면 host CPU 수 기반 auto jobs가 적용되고, 독립 target의 compile action도 같은 global queue에서 병렬 실행된다. Cache-hit compile action은 process slot을 받기 전에 prequeue skip 처리되며, compile action key는 dependency output이 최신이 된 ready 시점에 계산해 depfile-discovered header와 generated source 변경을 안정적으로 반영한다. Round 78부터 기본 build output은 5% 단위 progress tick과 action summary를 중심으로 출력하고, `--verbose` 또는 `--schedule-trace`에서 scheduler policy, action DAG, slot assignment, start/finish/cancel event를 자세히 보여준다. `--progress auto|plain|off`와 `--color auto|always|never`를 지원하며 non-TTY output은 기본적으로 plain이다. Text success는 green, warning은 bold yellow, error는 bold red로 표시할 수 있지만 JSON diagnostic line에는 color를 넣지 않는다. Round 79부터 `qstar emit-ninja [label]`와 `qstar -G ninja build [label]`이 C/C++/ASM compile, staticlib archive, `qstar.group` phony graph를 `build/qstar/ninja/build.ninja`로 lower하고 project `compile_commands` policy를 따른다. Round 80부터 Ninja backend는 `qstar.configure_file`, `qstar.custom_target`, executable/test link, profile tool override, response file style, dependency artifact order, action-log/replay 최소 호환까지 lower한다. Build action timeout은 기본 30초이며 timeout 시 process를 kill하고 replay file을 남긴다. Round 35부터 긴 compile/link command는 profile capability가 허용할 때 실제 `build/qstar/rsp/*.rsp` response file로 내려가며, POSIX/Windows/MSVC style과 digest를 plan/build/replay에 기록한다. Round 37부터 `build/qstar/state/graph.json` graph snapshot과 `build/qstar/state/last-summary.json` 마지막 build summary를 저장하고, `qstar action-log <action-id>`와 `qstar replay <action-id>`로 action 단위 로그/재현 명령을 조회한다. Round 56부터 `run_target`은 stdout/stderr/`marker_log` marker check를 지원하고, QEMU wrapper 실패를 `marker-missing`, `timeout`, `exit-code`로 분리해 `last-failure`와 `replay`에 남긴다. Round 59부터 실패 action은 `qstar-action-diagnostic-v1` JSON line도 출력하며, link, objcopy transform, package/stage, QEMU timeout을 각각 `link-failure`, `objcopy-failure`, `package-failure`, `qemu-timeout`으로 분리한다.
 
 ## 아직 하지 않는 일
 
 - remote package fetch
-- full Ninja parity beyond C/C++/ASM staticlib/group MVP
+- full Ninja parity for `run_target`, `stage`, `install`, `sharedlib`, and Cale source actions
 - full `.cale` semantic integration
 - arbitrary external generator execution without profile allowlist
 - full recursive package resolver
@@ -241,9 +243,10 @@ hard cut으로 고정된다.
   하며 absolute path, `..`, `.`은 거부된다.
 - CLI `-G qstar_graph|ninja|auto` 또는 `--generator`는 effective generator를 선택한다.
   현재 action 실행 backend는 `qstar_graph`이며, `auto`도 `qstar_graph`로 resolve된다.
-  `ninja`는 C/C++/ASM compile, staticlib archive, `qstar.group` phony MVP를
-  `build/qstar/ninja/build.ninja`로 lower해 실행한다. Exe/test/custom/run/stage의
-  Ninja parity는 후속 surface다.
+  `ninja`는 C/C++/ASM compile, `qstar.configure_file`, `qstar.custom_target`,
+  staticlib, executable/test link, `qstar.group` phony graph를
+  `build/qstar/ninja/build.ninja`로 lower해 실행한다. `run_target`, `stage`,
+  `install`, `sharedlib`, Cale source action parity는 후속 surface다.
 - `compile_commands`는 `"build"`(기본, `build/qstar/compile_commands.json`),
   `"root"`(project root의 `compile_commands.json`), `"off"` 중 하나다.
 - missing fragment는 `QSTAR002`, root entry 이름 drift는 `QSTAR001`이다.
