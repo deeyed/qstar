@@ -96,6 +96,21 @@ list_contains(const struct qstar_string_list *list, const char *s)
 	return 0;
 }
 
+/** stage destination 두 개가 file/dir layout 충돌 관계인지 검사한다. */
+static int
+path_parent_child_collision(const char *a, const char *b)
+{
+	size_t na, nb;
+
+	na = strlen(a);
+	nb = strlen(b);
+	if (na == 0 || nb == 0 || na == nb)
+		return 0;
+	if (na < nb)
+		return strncmp(a, b, na) == 0 && b[na] == '/';
+	return strncmp(b, a, nb) == 0 && a[nb] == '/';
+}
+
 /** generated artifact location metadata가 충돌 검사에 의미 있는지 본다. */
 static int
 artifact_has_location_metadata(const struct qstar_genrule *genrule, size_t index)
@@ -501,7 +516,7 @@ validate_stage(struct qstar_graph *graph, const struct qstar_stage *stage)
 {
 	const char *dup;
 	char label[QSTAR_PATH_MAX];
-	size_t i;
+	size_t i, j;
 	int rc;
 
 	if (!stage->root || !*stage->root)
@@ -524,6 +539,17 @@ validate_stage(struct qstar_graph *graph, const struct qstar_stage *stage)
 		    "files", stage->label,
 		    "qstar: stage destination '%s' in '%s' is duplicated", dup,
 		    stage->label);
+	for (i = 0; i < stage->dsts.len; i++) {
+		for (j = i + 1; j < stage->dsts.len; j++) {
+			if (path_parent_child_collision(stage->dsts.items[i],
+			    stage->dsts.items[j]))
+				return qstar_set_error_origin(graph, stage->origin_file,
+				    stage->origin_line, "files", stage->label,
+				    "qstar: stage destination layout conflict '%s' and '%s' in '%s'",
+				    stage->dsts.items[i], stage->dsts.items[j],
+				    stage->label);
+		}
+	}
 	for (i = 0; i < stage->srcs.len; i++) {
 		rc = qstar_target_file_token_label(stage->srcs.items[i], label, sizeof(label));
 		if (rc < 0)
@@ -552,6 +578,23 @@ validate_stage(struct qstar_graph *graph, const struct qstar_stage *stage)
 	return 0;
 }
 
+/** target_family explicit target label을 graph target 존재 여부와 대조한다. */
+static int
+validate_target_family(struct qstar_graph *graph,
+    const struct qstar_target_family *family)
+{
+	size_t i;
+
+	for (i = 0; i < family->targets.len; i++) {
+		if (!find_target(graph, family->targets.items[i]))
+			return qstar_set_error_origin(graph, family->origin_file,
+			    family->origin_line, "target_family", family->name,
+			    "qstar: target_family '%s' references unknown target '%s'",
+			    family->name, family->targets.items[i]);
+	}
+	return 0;
+}
+
 /** QStar generated output edge skeleton을 검증한다. */
 int
 qstar_graph_validate_generated_outputs(struct qstar_graph *graph)
@@ -564,6 +607,10 @@ qstar_graph_validate_generated_outputs(struct qstar_graph *graph)
 	}
 	for (i = 0; i < graph->stage_len; i++) {
 		if (validate_stage(graph, &graph->stages[i]) < 0)
+			return -1;
+	}
+	for (i = 0; i < graph->family_len; i++) {
+		if (validate_target_family(graph, &graph->families[i]) < 0)
 			return -1;
 	}
 	return 0;

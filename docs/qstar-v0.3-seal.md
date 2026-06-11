@@ -26,6 +26,8 @@ release gate: make -C qstar qstar-v0.3-rc-tests
 - Target/rule API는 `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`,
   `qstar.test`, `qstar.custom_target`, `qstar.run_target`,
   `qstar.configure_file`, `qstar.stage`다.
+- Lint grouping API는 `qstar.target_family`다. Multi-arch target family의 intentional
+  shared source warning만 scope-locally 제어한다.
 - Generated/external command는 shell string이 아니라 `qstar.cli { ... }`
   argv-vector로 표현한다.
 - `qstar.input`, `qstar.output`, `qstar.target_file` placeholder가 command plan과

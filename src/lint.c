@@ -209,6 +209,81 @@ find_target(const struct qstar_graph *graph, const char *label)
 	return NULL;
 }
 
+/** string list에 정확히 같은 항목이 있는지 검사한다. */
+static int
+string_list_contains(const struct qstar_string_list *list, const char *value)
+{
+	size_t i;
+
+	for (i = 0; i < list->len; i++) {
+		if (strcmp(list->items[i], value) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+/** target label의 colon 뒤 target name 부분을 반환한다. */
+static const char *
+target_label_name(const struct qstar_target *target)
+{
+	const char *colon;
+
+	colon = strrchr(target->label, ':');
+	return colon ? colon + 1 : target->name;
+}
+
+/** target name이 family variant naming convention에 맞는지 검사한다. */
+static int
+target_matches_family_variant(const struct qstar_target *target,
+    const struct qstar_target_family *family, const char *variant)
+{
+	char pattern[QSTAR_PATH_MAX];
+	const char *name;
+
+	name = target->name && *target->name ? target->name : target_label_name(target);
+	if (snprintf(pattern, sizeof(pattern), "%s_%s", family->name, variant) <
+	    (int)sizeof(pattern) && strcmp(name, pattern) == 0)
+		return 1;
+	if (snprintf(pattern, sizeof(pattern), "%s-%s", family->name, variant) <
+	    (int)sizeof(pattern) && strcmp(name, pattern) == 0)
+		return 1;
+	return 0;
+}
+
+/** target이 target_family에 속하는지 검사한다. */
+static int
+target_in_family(const struct qstar_target *target,
+    const struct qstar_target_family *family)
+{
+	size_t i;
+
+	if (string_list_contains(&family->targets, target->label))
+		return 1;
+	for (i = 0; i < family->variants.len; i++) {
+		if (target_matches_family_variant(target, family, family->variants.items[i]))
+			return 1;
+	}
+	return 0;
+}
+
+/** target pair가 shared source를 허용하는 같은 family에 속하는지 검사한다. */
+static int
+target_pair_allows_shared_source(const struct qstar_graph *graph,
+    const struct qstar_target *a, const struct qstar_target *b)
+{
+	size_t i;
+
+	for (i = 0; i < graph->family_len; i++) {
+		const struct qstar_target_family *family = &graph->families[i];
+
+		if (!family->allow_shared_sources)
+			continue;
+		if (target_in_family(a, family) && target_in_family(b, family))
+			return 1;
+	}
+	return 0;
+}
+
 /** 기록된 evaluated fragment에 path가 포함되는지 검사한다. */
 static int
 fragment_was_evaluated(const struct qstar_graph *graph, const char *path)
@@ -426,6 +501,9 @@ lint_duplicate_sources_across_targets(struct qstar_graph *graph, const char *lab
 				for (b = 0; b < graph->targets[j].sources.len; b++) {
 					if (strcmp(graph->targets[i].sources.items[a],
 					    graph->targets[j].sources.items[b]) != 0)
+						continue;
+					if (target_pair_allows_shared_source(graph,
+					    &graph->targets[i], &graph->targets[j]))
 						continue;
 					if (qstar_graph_add_lint(graph, "QSTAR043",
 					    "warning", graph->targets[j].origin_file,

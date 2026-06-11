@@ -78,6 +78,8 @@ Round 48부터 generic command model은 `qstar.cli { ... }` argv-vector를 사�
 Round 55부터 boot/package staging은 `qstar.stage`가 담당한다. `qstar stage`는
 install prefix와 별개로 ESP/RPi/firmware layout 같은 copy-only package tree를 만들고,
 `build/qstar/stage/<label>/manifest.json`에 staged manifest와 dry-run diff를 남긴다.
+Round 69부터 staged manifest는 v2 schema로 source kind와 producer를 기록하며,
+`qstar.target_family`가 multi-arch shared source lint noise를 family 단위로 제어한다.
 
 Round 60부터 v0.2 RC contract는 `qstar-v0.2-release-candidate-seal.md`에 둔다.
 이 문서는 release-candidate surface와 experimental/deferred surface를 분리하고,

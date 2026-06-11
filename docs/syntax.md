@@ -979,10 +979,35 @@ qstar.stage "rpi" {
 - `src`는 package-relative file 또는 `qstar.target_file("//:label")`이다.
 - `dst`는 stage root 기준 package-relative path다.
 - 같은 stage 안에서 duplicate destination은 거절한다.
+- 같은 stage 안에서 `EFI/BOOT`와 `EFI/BOOT/BOOTX64.EFI`처럼 file/dir layout이
+  충돌하는 destination도 거절한다.
 - `qstar stage //:esp --dry-run`은 copy하지 않고
-  `build/qstar/stage/<label>/manifest.json`과 diff를 기록한다.
+  `build/qstar/stage/<label>/manifest.json`과 diff를 기록한다. Manifest schema는
+  `qstar-stage-manifest-v2`이며 entry마다 `kind`와 `producer`를 기록한다.
 - 실제 `qstar stage //:esp`는 target/generated artifact source를 먼저 build하고
   package-local stage root 아래로 copy한다.
+
+## qstar.target_family
+
+Round 69부터 `qstar.target_family`는 multi-arch target variant가 source file을
+의도적으로 공유할 때 duplicate source lint를 family 내부로만 조정하는 primitive다.
+
+```lua
+qstar.target_family "boot" {
+    variants = {"x86_64", "aarch64", "riscv64"},
+    allow_shared_sources = true,
+}
+```
+
+규칙:
+
+- `variants` 또는 `targets` 중 하나는 있어야 한다.
+- `targets = {"//:boot_x64"}`는 explicit member label이며 실제 target이어야 한다.
+- `targets`를 생략하면 `<family>_<variant>` 또는 `<family>-<variant>` target name을
+  family member로 본다.
+- `allow_shared_sources = true`인 family 안에서만 `QSTAR043` duplicate source warning을
+  억제한다.
+- 이 기능은 lint/cache grouping primitive이며, board-specific target kind가 아니다.
 
 ## qstar.generated / qstar.generated_dir
 

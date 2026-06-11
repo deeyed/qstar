@@ -22,9 +22,29 @@ qstar.custom_target "generated" { outputs = {qstar.output("generated/value.c")} 
 qstar.run_target "smoke" { command = qstar.cli {"tools/smoke.sh"} }
 qstar.configure_file "cfg" { output = qstar.output("generated/config.h") }
 qstar.stage "esp" { root = "stage/esp", files = {} }
+qstar.target_family "boot" { variants = {"x86_64", "aarch64"} }
 ```
 
 `sharedlib`는 v0.2에서 plan/check surface이고 full executor는 아직 deferred다.
+
+`qstar.target_family`는 target rule이 아니라 lint grouping primitive다. Multi-arch target이
+같은 source를 의도적으로 공유할 때만 `allow_shared_sources = true`로 duplicate source
+warning을 family 안에서 억제한다.
+
+```lua
+qstar.target_family "boot" {
+  variants = {"x86_64", "aarch64"},
+  allow_shared_sources = true,
+}
+
+qstar.staticlib "boot_x86_64" {
+  sources = {"src/start.c"},
+}
+
+qstar.staticlib "boot_aarch64" {
+  sources = {"src/start.c"},
+}
+```
 
 ## 실패 예제
 

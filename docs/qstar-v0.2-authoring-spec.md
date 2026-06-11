@@ -349,10 +349,31 @@ qstar.stage "rpi" {
 
 `qstar.stage_file(src, dst)`의 `src`는 package-relative file 또는
 `qstar.target_file("//:label")`이다. `dst`는 stage root 기준 package-relative path다.
-Duplicate destination, package root 밖 source/output, unknown target label은 stable
-diagnostic으로 거절한다. `qstar stage //:esp --dry-run`은 copy하지 않고 staged
-manifest와 would-create/would-update/unchanged diff를 출력한다. 실제 `qstar stage
-//:esp`는 target/generated artifact source를 먼저 build한 뒤 copy한다.
+Duplicate destination, parent/child layout collision, package root 밖 source/output,
+unknown target label은 stable diagnostic으로 거절한다. `qstar stage //:esp --dry-run`은
+copy하지 않고 staged manifest와 would-create/would-update/unchanged diff를 출력한다.
+Round 69부터 manifest는 `qstar-stage-manifest-v2`이며 각 entry의 source kind(`file`,
+`target`, `custom_target`, `custom_output`)와 producer label을 기록한다. 실제
+`qstar stage //:esp`는 target/generated artifact source를 먼저 build한 뒤 copy한다.
+
+## Target Family Lint Policy
+
+Multi-arch firmware나 OS project는 같은 source file을 여러 target variant가 의도적으로
+공유할 수 있다. 이 경우 duplicate source lint를 전역으로 끄지 않고, family 안에서만
+허용한다.
+
+```lua
+qstar.target_family "ribon_boot" {
+  variants = {"x86_64", "aarch64", "riscv64"},
+  allow_shared_sources = true,
+}
+```
+
+`targets = {"//:boot_x64", "//:boot_aa64"}`로 explicit member를 적을 수도 있다.
+`targets` label은 실제 target이어야 하며, 오타는 `qstar check`에서 거절한다.
+`targets`를 생략하면 `<family>_<variant>` 또는 `<family>-<variant>` target name을
+자동 family member로 본다. `target_family`는 lint/cache grouping primitive일 뿐이며
+UEFI, RPi 같은 board-specific target kind를 만들지 않는다.
 
 By default, only package-relative path tools such as `tools/gen.sh` are allowed.
 Bare PATH tools must be allowlisted in the active profile.
@@ -553,6 +574,7 @@ Current authoring keywords are intentionally small and language-neutral.
 | Group | Supported surface |
 | --- | --- |
 | Target/rule API | `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`, `qstar.test`, `qstar.custom_target`, `qstar.run_target`, `qstar.configure_file`, `qstar.stage` |
+| Lint grouping API | `qstar.target_family` |
 | Command helpers | `qstar.cli`, `qstar.input`, `qstar.output`, `qstar.target_file`, `qstar.stage_file` |
 | Graph helpers | `qstar.subdir`, `qstar.files`, `qstar.modules`, `qstar.join`, `qstar.select`, `qstar.incompatible` |
 | Constants | `QSTAR_VERSION`, `QSTAR_HOST_OS`, `QSTAR_HOST_ARCH`, `QSTAR_PACKAGE_ROOT`, `QSTAR_PROJECT_ROOT`, `QSTAR_PROFILE`, `QSTAR_TARGET`, `qstar.version`, `qstar.host.os`, `qstar.host.arch`, `qstar.project.root` |

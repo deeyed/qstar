@@ -800,6 +800,48 @@ EOF
 contains "$tmp/lint-duplicate-source.out" "QSTAR043"
 contains "$tmp/lint-duplicate-source.out" "used by both '//:one' and '//:two'"
 
+mkdir -p "$tmp/lint-target-family/src"
+cat > "$tmp/lint-target-family/src/shared.c" <<'EOF'
+int shared(void) { return 0; }
+EOF
+cat > "$tmp/lint-target-family/qstar.lua" <<'EOF'
+qstar.target_family "boot" {
+  variants = {"x86_64", "aarch64"},
+  allow_shared_sources = true,
+}
+
+qstar.staticlib "boot_x86_64" {
+  sources = {"src/shared.c"},
+}
+
+qstar.staticlib "boot_aarch64" {
+  sources = {"src/shared.c"},
+}
+EOF
+"$qstar" --file "$tmp/lint-target-family/qstar.lua" lint > "$tmp/lint-target-family.out" 2> "$tmp/lint-target-family.err"
+contains "$tmp/lint-target-family.out" "status ok"
+if grep -F -q -- "QSTAR043" "$tmp/lint-target-family.out"; then
+	fail "target_family allow_shared_sources did not suppress duplicate source lint"
+fi
+"$qstar" --file "$tmp/lint-target-family/qstar.lua" list-targets --format json > "$tmp/lint-target-family-json.out" 2> "$tmp/lint-target-family-json.err"
+contains "$tmp/lint-target-family-json.out" "\"target_family_count\":1"
+contains "$tmp/lint-target-family-json.out" "\"allow_shared_sources\":true"
+cat > "$tmp/lint-target-family/qstar.lua" <<'EOF'
+qstar.target_family "manual" {
+  variants = {"one", "two"},
+  targets = {"//:one", "//:missing"},
+  allow_shared_sources = true,
+}
+
+qstar.staticlib "one" {
+  sources = {"src/shared.c"},
+}
+EOF
+if "$qstar" --file "$tmp/lint-target-family/qstar.lua" check > "$tmp/lint-target-family-missing.out" 2> "$tmp/lint-target-family-missing.err"; then
+	fail "unknown target_family target unexpectedly succeeded"
+fi
+contains "$tmp/lint-target-family-missing.err" "target_family 'manual' references unknown target '//:missing'"
+
 mkdir -p "$tmp/lint-cxx-info/src"
 cat > "$tmp/lint-cxx-info/src/main.cpp" <<'EOF'
 int main() { return 0; }
@@ -3419,12 +3461,16 @@ contains "$tmp/stagepkg-targets-json.out" "\"stage_count\":2"
 contains "$tmp/stagepkg-targets-json.out" "\"label\":\"//:esp\""
 contains "$tmp/stagepkg-targets-json.out" "\"root\":\"stage/esp\""
 "$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:esp --dry-run > "$tmp/stagepkg-esp-dry.out" 2> "$tmp/stagepkg-esp-dry.err"
-contains "$tmp/stagepkg-esp-dry.out" "qstar stage v1"
+contains "$tmp/stagepkg-esp-dry.out" "qstar stage v2"
 contains "$tmp/stagepkg-esp-dry.out" "mode dry-run"
+contains "$tmp/stagepkg-esp-dry.out" "stage_layout label=//:esp root=stage/esp files=1 status=ok"
 contains "$tmp/stagepkg-esp-dry.out" "stage_file src=build/qstar/out/___boot/BOOTX64.EFI dst=stage/esp/EFI/BOOT/BOOTX64.EFI mode=dry-run"
 contains "$tmp/stagepkg-esp-dry.out" "stage_diff dst=stage/esp/EFI/BOOT/BOOTX64.EFI action=would-create"
-contains "$tmp/stagepkg/build/qstar/stage/___esp/manifest.json" "\"schema\":\"qstar-stage-manifest-v1\""
+contains "$tmp/stagepkg/build/qstar/stage/___esp/manifest.json" "\"schema\":\"qstar-stage-manifest-v2\""
+contains "$tmp/stagepkg/build/qstar/stage/___esp/manifest.json" "\"layout\":{\"status\":\"ok\",\"file_count\":1}"
 contains "$tmp/stagepkg/build/qstar/stage/___esp/manifest.json" "\"mode\":\"dry-run\""
+contains "$tmp/stagepkg/build/qstar/stage/___esp/manifest.json" "\"kind\":\"target\""
+contains "$tmp/stagepkg/build/qstar/stage/___esp/manifest.json" "\"producer\":\"//:boot\""
 if [ -f "$tmp/stagepkg/stage/esp/EFI/BOOT/BOOTX64.EFI" ]; then
 	fail "stage dry-run unexpectedly copied ESP artifact"
 fi
@@ -3446,6 +3492,9 @@ test -f "$tmp/stagepkg/stage/rpi/payload.bin" || fail "missing staged RPi payloa
 cmp "$tmp/stagepkg/fixtures/kernel.elf" "$tmp/stagepkg/stage/rpi/kernel8.img" >/dev/null || fail "staged RPi image content drifted"
 contains "$tmp/stagepkg/build/qstar/stage/___rpi/manifest.json" "\"label\":\"//:rpi\""
 contains "$tmp/stagepkg/build/qstar/stage/___rpi/manifest.json" "\"dst\":\"stage/rpi/kernel8.img\""
+contains "$tmp/stagepkg/build/qstar/stage/___rpi/manifest.json" "\"kind\":\"custom_target\""
+contains "$tmp/stagepkg/build/qstar/stage/___rpi/manifest.json" "\"producer\":\"//:kernel_img\""
+contains "$tmp/stagepkg/build/qstar/stage/___rpi/manifest.json" "\"kind\":\"file\""
 "$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:esp --root stage/custom-esp --dry-run > "$tmp/stagepkg-esp-root.out" 2> "$tmp/stagepkg-esp-root.err"
 contains "$tmp/stagepkg-esp-root.out" "stage-root stage/custom-esp"
 contains "$tmp/stagepkg-esp-root.out" "dst=stage/custom-esp/EFI/BOOT/BOOTX64.EFI"
@@ -3503,6 +3552,19 @@ if "$qstar" --file "$tmp/stage-bad/qstar.lua" check > "$tmp/stage-bad-dup.out" 2
 	fail "duplicate stage destination unexpectedly succeeded"
 fi
 contains "$tmp/stage-bad-dup.err" "stage destination 'app.bin' in '//:bad' is duplicated"
+cat > "$tmp/stage-bad/qstar.lua" <<'EOF'
+qstar.stage "bad" {
+  root = "stage/bad",
+  files = {
+    qstar.stage_file("src/main.c", "EFI/BOOT"),
+    qstar.stage_file("src/main.c", "EFI/BOOT/BOOTX64.EFI"),
+  },
+}
+EOF
+if "$qstar" --file "$tmp/stage-bad/qstar.lua" check > "$tmp/stage-bad-layout.out" 2> "$tmp/stage-bad-layout.err"; then
+	fail "stage destination layout conflict unexpectedly succeeded"
+fi
+contains "$tmp/stage-bad-layout.err" "stage destination layout conflict 'EFI/BOOT' and 'EFI/BOOT/BOOTX64.EFI' in '//:bad'"
 cat > "$tmp/stage-bad/qstar.lua" <<'EOF'
 qstar.stage "bad" {
   root = "stage/bad",

@@ -174,6 +174,17 @@ free_stage(struct qstar_stage *stage)
 	qstar_string_list_free(&stage->dsts);
 }
 
+/** target family primitive가 소유한 문자열과 list를 해제한다. */
+static void
+free_target_family(struct qstar_target_family *family)
+{
+	free(family->name);
+	free(family->fragment_dir);
+	free(family->origin_file);
+	qstar_string_list_free(&family->variants);
+	qstar_string_list_free(&family->targets);
+}
+
 /** qstar.project metadata가 소유한 문자열을 해제한다. */
 static void
 free_project(struct qstar_project *project)
@@ -262,6 +273,8 @@ qstar_graph_free(struct qstar_graph *graph)
 		free_genrule(&graph->genrules[i]);
 	for (i = 0; i < graph->stage_len; i++)
 		free_stage(&graph->stages[i]);
+	for (i = 0; i < graph->family_len; i++)
+		free_target_family(&graph->families[i]);
 	for (i = 0; i < graph->lint_len; i++)
 		free_lint_diagnostic(&graph->lint_diagnostics[i]);
 	for (i = 0; i < graph->package_len; i++)
@@ -274,6 +287,7 @@ qstar_graph_free(struct qstar_graph *graph)
 	free(graph->packages);
 	free(graph->genrules);
 	free(graph->stages);
+	free(graph->families);
 	free(graph->lint_diagnostics);
 	free(graph->profile_decls);
 	qstar_string_list_free(&graph->evaluated_fragments);
@@ -765,6 +779,58 @@ qstar_graph_add_stage(struct qstar_graph *graph, const char *label, const char *
 	return stage;
 }
 
+/** target_family name이 이미 선언되었는지 확인한다. */
+static int
+has_target_family(const struct qstar_graph *graph, const char *name)
+{
+	size_t i;
+
+	for (i = 0; i < graph->family_len; i++) {
+		if (strcmp(graph->families[i].name, name) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+/** QStar target family lint grouping primitive를 추가한다. */
+struct qstar_target_family *
+qstar_graph_add_target_family(struct qstar_graph *graph, const char *name,
+    const char *fragment_dir, const char *origin_file, int origin_line)
+{
+	struct qstar_target_family *families, *family;
+	size_t cap;
+
+	if (!name || !*name) {
+		qstar_set_error(graph, "qstar: target_family name is empty");
+		return NULL;
+	}
+	if (has_target_family(graph, name)) {
+		qstar_set_error(graph, "qstar: duplicate target_family '%s'", name);
+		return NULL;
+	}
+	if (graph->family_len == graph->family_cap) {
+		cap = graph->family_cap ? graph->family_cap * 2 : 4;
+		families = realloc(graph->families, cap * sizeof(graph->families[0]));
+		if (!families) {
+			qstar_set_error(graph, "qstar: out of memory");
+			return NULL;
+		}
+		graph->families = families;
+		graph->family_cap = cap;
+	}
+	family = &graph->families[graph->family_len++];
+	memset(family, 0, sizeof(*family));
+	family->name = qstar_strdup(name);
+	family->fragment_dir = qstar_strdup(fragment_dir ? fragment_dir : "");
+	family->origin_file = qstar_strdup(origin_file ? origin_file : "");
+	family->origin_line = origin_line;
+	if (!family->name || !family->fragment_dir || !family->origin_file) {
+		qstar_set_error(graph, "qstar: out of memory");
+		return NULL;
+	}
+	return family;
+}
+
 /** generated action label로 action을 찾는다. */
 const struct qstar_genrule *
 qstar_graph_find_genrule(const struct qstar_graph *graph, const char *label)
@@ -1151,6 +1217,24 @@ dump_stage(const struct qstar_stage *stage, FILE *out)
 		    i < stage->dsts.len ? stage->dsts.items[i] : "<missing>");
 }
 
+/** target_family lint grouping primitive를 Graph IR dump 형식으로 출력한다. */
+static void
+dump_target_family(const struct qstar_target_family *family, FILE *out)
+{
+	fprintf(out, "target_family %s\n", family->name);
+	fprintf(out, "  origin file=%s line=%d\n",
+	    family->origin_file && *family->origin_file ? family->origin_file : "<unknown>",
+	    family->origin_line);
+	fprintf(out, "  allow_shared_sources %s\n",
+	    family->allow_shared_sources ? "true" : "false");
+	fputs("  variants ", out);
+	dump_list(out, &family->variants);
+	fputc('\n', out);
+	fputs("  targets ", out);
+	dump_list(out, &family->targets);
+	fputc('\n', out);
+}
+
 /** QStar Graph IR를 deterministic explain text로 출력한다. */
 int
 qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
@@ -1215,6 +1299,8 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 		dump_genrule(&graph->genrules[i], out);
 	for (i = 0; i < graph->stage_len; i++)
 		dump_stage(&graph->stages[i], out);
+	for (i = 0; i < graph->family_len; i++)
+		dump_target_family(&graph->families[i], out);
 	found = label == NULL || *label == '\0';
 	for (i = 0; i < n; i++) {
 		if (label && *label && strcmp(copy[i].label, label) != 0)
@@ -1280,6 +1366,24 @@ sort_stage_ptrs(const struct qstar_stage **stages, size_t n)
 	}
 }
 
+/** target_family pointer list를 canonical name 순서로 정렬한다. */
+static void
+sort_family_ptrs(const struct qstar_target_family **families, size_t n)
+{
+	size_t i, j;
+	const struct qstar_target_family *v;
+
+	for (i = 1; i < n; i++) {
+		v = families[i];
+		j = i;
+		while (j > 0 && strcmp(families[j - 1]->name, v->name) > 0) {
+			families[j] = families[j - 1];
+			j--;
+		}
+		families[j] = v;
+	}
+}
+
 /** target label에 대응하는 target을 찾는다. */
 static const struct qstar_target *
 find_target(const struct qstar_graph *graph, const char *label)
@@ -1299,21 +1403,27 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 {
 	const struct qstar_target **targets;
 	const struct qstar_stage **stages;
+	const struct qstar_target_family **families;
 	size_t i;
 
 	targets = malloc((graph->len ? graph->len : 1) * sizeof(targets[0]));
 	stages = malloc((graph->stage_len ? graph->stage_len : 1) * sizeof(stages[0]));
-	if (!targets || !stages) {
+	families = malloc((graph->family_len ? graph->family_len : 1) * sizeof(families[0]));
+	if (!targets || !stages || !families) {
 		free(targets);
 		free(stages);
+		free(families);
 		return -1;
 	}
 	for (i = 0; i < graph->len; i++)
 		targets[i] = &graph->targets[i];
 	for (i = 0; i < graph->stage_len; i++)
 		stages[i] = &graph->stages[i];
+	for (i = 0; i < graph->family_len; i++)
+		families[i] = &graph->families[i];
 	sort_target_ptrs(targets, graph->len);
 	sort_stage_ptrs(stages, graph->stage_len);
+	sort_family_ptrs(families, graph->family_len);
 	fputs("qstar targets v1\n", out);
 	fprintf(out, "target-count %zu\n", graph->len);
 	for (i = 0; i < graph->len; i++)
@@ -1329,8 +1439,16 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 		    stages[i]->origin_file && *stages[i]->origin_file ?
 		    stages[i]->origin_file : "<unknown>",
 		    stages[i]->origin_line);
+	fprintf(out, "target-family-count %zu\n", graph->family_len);
+	for (i = 0; i < graph->family_len; i++)
+		fprintf(out, "target_family %s allow_shared_sources=%s origin=%s:%d\n",
+		    families[i]->name, families[i]->allow_shared_sources ? "true" : "false",
+		    families[i]->origin_file && *families[i]->origin_file ?
+		    families[i]->origin_file : "<unknown>",
+		    families[i]->origin_line);
 	free(targets);
 	free(stages);
+	free(families);
 	return 0;
 }
 
@@ -1465,6 +1583,27 @@ dump_stage_json(FILE *out, const struct qstar_stage *stage)
 	fputs("]}", out);
 }
 
+/** target_family 하나를 machine-readable JSON record로 출력한다. */
+static void
+dump_target_family_json(FILE *out, const struct qstar_target_family *family)
+{
+	fputs("{\"name\":", out);
+	dump_json_string(out, family->name);
+	fputs(",\"origin_file\":", out);
+	dump_json_string(out, family->origin_file && *family->origin_file ?
+	    family->origin_file : "<unknown>");
+	fprintf(out, ",\"origin_line\":%d", family->origin_line);
+	fputs(",\"fragment_dir\":", out);
+	dump_json_string(out, family->fragment_dir);
+	fprintf(out, ",\"allow_shared_sources\":%s",
+	    family->allow_shared_sources ? "true" : "false");
+	fputs(",\"variants\":", out);
+	dump_json_list(out, &family->variants);
+	fputs(",\"targets\":", out);
+	dump_json_list(out, &family->targets);
+	fputc('}', out);
+}
+
 /** QStar target/generated action 목록을 machine-readable JSON으로 출력한다. */
 int
 qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
@@ -1472,15 +1611,18 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	const struct qstar_target **targets;
 	const struct qstar_genrule **genrules;
 	const struct qstar_stage **stages;
+	const struct qstar_target_family **families;
 	size_t i;
 
 	targets = malloc((graph->len ? graph->len : 1) * sizeof(targets[0]));
 	genrules = malloc((graph->genrule_len ? graph->genrule_len : 1) * sizeof(genrules[0]));
 	stages = malloc((graph->stage_len ? graph->stage_len : 1) * sizeof(stages[0]));
-	if (!targets || !genrules || !stages) {
+	families = malloc((graph->family_len ? graph->family_len : 1) * sizeof(families[0]));
+	if (!targets || !genrules || !stages || !families) {
 		free(targets);
 		free(genrules);
 		free(stages);
+		free(families);
 		return -1;
 	}
 	for (i = 0; i < graph->len; i++)
@@ -1489,9 +1631,12 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 		genrules[i] = &graph->genrules[i];
 	for (i = 0; i < graph->stage_len; i++)
 		stages[i] = &graph->stages[i];
+	for (i = 0; i < graph->family_len; i++)
+		families[i] = &graph->families[i];
 	sort_target_ptrs(targets, graph->len);
 	sort_genrule_ptrs(genrules, graph->genrule_len);
 	sort_stage_ptrs(stages, graph->stage_len);
+	sort_family_ptrs(families, graph->family_len);
 	fputs("{\"schema\":\"qstar-targets-v1\",\"package_root\":", out);
 	dump_json_string(out, graph->package_root ? graph->package_root : ".");
 	fputs(",\"project\":{\"name\":", out);
@@ -1509,8 +1654,9 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	dump_json_string(out, qstar_graph_compile_commands_policy(graph));
 	fputc('}', out);
 	fprintf(out,
-	    ",\"target_count\":%zu,\"generated_action_count\":%zu,\"stage_count\":%zu",
-	    graph->len, graph->genrule_len, graph->stage_len);
+	    ",\"target_count\":%zu,\"generated_action_count\":%zu,\"stage_count\":%zu,"
+	    "\"target_family_count\":%zu",
+	    graph->len, graph->genrule_len, graph->stage_len, graph->family_len);
 	fputs(",\"targets\":[", out);
 	for (i = 0; i < graph->len; i++) {
 		if (i)
@@ -1529,10 +1675,17 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 			fputc(',', out);
 		dump_stage_json(out, stages[i]);
 	}
+	fputs("],\"target_families\":[", out);
+	for (i = 0; i < graph->family_len; i++) {
+		if (i)
+			fputc(',', out);
+		dump_target_family_json(out, families[i]);
+	}
 	fputs("]}\n", out);
 	free(targets);
 	free(genrules);
 	free(stages);
+	free(families);
 	return 0;
 }
 

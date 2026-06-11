@@ -103,6 +103,17 @@ check_int_field(lua_State *L, int idx, const char *field, int fallback)
 	return value;
 }
 
+static int
+check_bool_field(lua_State *L, int idx, const char *field, int fallback)
+{
+	int value;
+
+	lua_getfield(L, idx, field);
+	value = lua_isboolean(L, -1) ? lua_toboolean(L, -1) : fallback;
+	lua_pop(L, 1);
+	return value;
+}
+
 static const char *
 qstar_table_kind(lua_State *L, int idx)
 {
@@ -1506,6 +1517,67 @@ qstar_lua_stage_file(lua_State *L)
 	return 1;
 }
 
+/** qstar.target_family 선언을 lint grouping primitive로 graph에 추가한다. */
+static int
+add_target_family(lua_State *L, const char *name, int table_index,
+    const char *fragment_dir)
+{
+	struct qstar_lua_context *ctx;
+	struct qstar_graph *graph;
+	struct qstar_target_family *family;
+	char origin_file[QSTAR_PATH_MAX];
+	int origin_line;
+
+	if (table_index < 0)
+		table_index = lua_gettop(L) + table_index + 1;
+	ctx = get_context(L);
+	graph = ctx->graph;
+	luaL_checktype(L, table_index, LUA_TTABLE);
+	current_origin(L, origin_file, sizeof(origin_file), &origin_line);
+	family = qstar_graph_add_target_family(graph, name, fragment_dir, origin_file,
+	    origin_line);
+	if (!family)
+		return luaL_error(L, "%s", graph->error);
+	family->allow_shared_sources = check_bool_field(L, table_index,
+	    "allow_shared_sources", 0);
+	if (read_list_field(L, table_index, "variants", &family->variants, graph, 0,
+	    fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "targets", &family->targets, graph, 1,
+	    fragment_dir) < 0)
+		return luaL_error(L, "%s", graph->error);
+	if (family->variants.len == 0 && family->targets.len == 0)
+		return luaL_error(L,
+		    "qstar: target_family '%s' requires variants or targets", name);
+	return 0;
+}
+
+static int
+qstar_lua_target_family_finish(lua_State *L)
+{
+	const char *name, *fragment_dir;
+
+	name = lua_tostring(L, lua_upvalueindex(1));
+	fragment_dir = lua_tostring(L, lua_upvalueindex(2));
+	return add_target_family(L, name, 1, fragment_dir);
+}
+
+static int
+qstar_lua_target_family(lua_State *L)
+{
+	struct qstar_lua_context *ctx;
+	const char *name;
+
+	ctx = get_context(L);
+	name = luaL_checkstring(L, 1);
+	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
+		lua_pushstring(L, name);
+		lua_pushstring(L, ctx->current_dir);
+		lua_pushcclosure(L, qstar_lua_target_family_finish, 2);
+		return 1;
+	}
+	return add_target_family(L, name, 2, ctx->current_dir);
+}
+
 static int
 qstar_lua_identity_table(lua_State *L)
 {
@@ -2441,6 +2513,8 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "configure_file");
 	lua_pushcfunction(L, qstar_lua_stage);
 	lua_setfield(L, -2, "stage");
+	lua_pushcfunction(L, qstar_lua_target_family);
+	lua_setfield(L, -2, "target_family");
 	lua_pushstring(L, "qstar.genrule removed; use qstar.custom_target");
 	lua_pushcclosure(L, qstar_lua_removed_api, 1);
 	lua_setfield(L, -2, "genrule");

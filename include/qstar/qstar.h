@@ -99,6 +99,16 @@ struct qstar_stage {
 	struct qstar_string_list dsts;
 };
 
+struct qstar_target_family {
+	char *name;
+	char *fragment_dir;
+	char *origin_file;
+	int origin_line;
+	int allow_shared_sources;
+	struct qstar_string_list variants;
+	struct qstar_string_list targets;
+};
+
 struct qstar_project {
 	int present;
 	char *name;
@@ -197,6 +207,9 @@ struct qstar_graph {
 	struct qstar_stage *stages;
 	size_t stage_len;
 	size_t stage_cap;
+	struct qstar_target_family *families;
+	size_t family_len;
+	size_t family_cap;
 	struct qstar_lint_diagnostic *lint_diagnostics;
 	size_t lint_len;
 	size_t lint_cap;
@@ -260,6 +273,10 @@ struct qstar_genrule *qstar_graph_add_genrule(struct qstar_graph *graph, const c
 
 /** QStar graph에 copy-only staging rule을 추가하고 중복 label을 막는다. */
 struct qstar_stage *qstar_graph_add_stage(struct qstar_graph *graph, const char *label,
+    const char *name, const char *fragment_dir, const char *origin_file, int origin_line);
+
+/** QStar target family lint grouping primitive를 추가한다. */
+struct qstar_target_family *qstar_graph_add_target_family(struct qstar_graph *graph,
     const char *name, const char *fragment_dir, const char *origin_file, int origin_line);
 
 /** QStar package alias를 추가하고 중복 alias를 stable error로 막는다. */

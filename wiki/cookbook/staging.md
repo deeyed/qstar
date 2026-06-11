@@ -29,6 +29,9 @@ qstar.stage "rpi" {
 ```
 
 `stage --dry-run`은 diff를 출력하고 `build/qstar/stage/<label>/manifest.json`을 남긴다.
+Manifest schema는 `qstar-stage-manifest-v2`이며 각 entry는 `kind`와 `producer`를 가진다.
+예를 들어 plain file은 `kind=file`, `qstar.target_file("//:boot")`는 `kind=target`,
+custom target output은 `kind=custom_target`으로 기록된다.
 
 ## 실패 예제
 
@@ -40,6 +43,8 @@ qstar.stage "bad" {
 ```
 
 Stage root와 destination은 package-relative여야 한다.
+같은 stage 안에서 `EFI/BOOT`와 `EFI/BOOT/BOOTX64.EFI`처럼 하나가 다른 하나의 parent
+directory처럼 보이는 destination도 layout conflict로 거절된다.
 
 ## 관련 CLI
 
@@ -53,4 +58,5 @@ qstar --file qstar.lua last-failure
 
 - `stage root must be package-relative`
 - `stage destination is duplicated`
+- `stage destination layout conflict`
 - `failure_kind=package-failure`
