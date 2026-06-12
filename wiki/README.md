@@ -103,6 +103,7 @@ qstar --file qstar.lua build //:app
 ## Reference
 
 - [QStar Lua](reference/qstar-lua.md)
+- [Backends](reference/backends.md)
 - [Imports And Modules](reference/modules.md)
 - [Reusable Configs](reference/configs.md)
 - [Target Rules](reference/target-rules.md)

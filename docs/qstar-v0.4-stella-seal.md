@@ -1,6 +1,6 @@
 # QStar v0.4 Stella Workflow Seal
 
-QStar v0.4는 standalone QStar가 Stella 기본 executor와 Ninja comparison backend를
+QStar v0.4는 standalone QStar가 Stella 기본 executor와 Ninja backend 후보를
 함께 제공하는 release/install seal이다. 이 문서는 Round 90 기준으로 runtime,
 installed docs/manpages, editor package, and backend workflow가 같은 surface를
 가리키는지 고정한다.
@@ -31,8 +31,10 @@ release gate: make -C qstar qstar-v0.4-pilot-tests
 - Compact progress output is the default; detailed action logs stay behind
   `--verbose` or `--schedule-trace`.
 - `qstar emit-ninja` and `qstar -G ninja build` lower supported C/C++/ASM,
-  generated, executable/test, run/stage/install producer workflows into the
-  Ninja comparison path.
+  generated, staticlib, executable/test, run target, and group workflows into
+  Ninja.
+- `stage` and `install` remain QStar-owned copy/manifest operations, while
+  referenced artifacts are produced by the effective generator.
 
 ## Install Seal
 

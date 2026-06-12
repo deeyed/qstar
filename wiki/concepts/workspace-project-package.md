@@ -35,6 +35,8 @@ Generator는 CLI에서만 선택한다.
   아직 Ninja로 lower되지 않으므로 `-G stella`가 필요하다. `sharedlib`는 아직
   Stella/Ninja 모두에서 plan/check-only다.
 
+Backend별 세부 지원 범위는 [Backends](../reference/backends.md)에 둔다.
+
 `compile_commands`는 세 값을 가진다.
 
 - `"build"`: 기본값. `build_dir/compile_commands.json`에 쓴다.

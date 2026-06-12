@@ -43,6 +43,9 @@ QStar가 하지 않는 일:
   QStar가 처리하지만, 참조 target artifact는 effective generator로 먼저 build한다.
   Cale source action은 아직 Ninja로 lower되지 않으므로 `-G stella`가 필요하다.
   `sharedlib`는 아직 Stella/Ninja 모두에서 plan/check-only다.
+- `make qstar-ninja-backend-parity-tests`는 staticlib, executable/test, generated,
+  configure_file, run_target, stage/install producer integration, action-log/replay,
+  sharedlib diagnostic, `.ninja_log`/`.ninja_deps` root pollution 방지를 확인한다.
 - `qstar emit-ninja [label]`은 `build/qstar/ninja/build.ninja`와 policy-controlled
   `compile_commands.json`을 생성한다.
 - compile database 기본 위치는 `build/qstar/compile_commands.json`이다.
@@ -265,14 +268,15 @@ qstar.import_file("qstar/policies/warnings.qst")
 Reference:
 
 1. `reference/qstar-lua.md`
-2. `reference/modules.md`
-3. `reference/configs.md`
-4. `reference/target-rules.md`
-5. `reference/profiles.md`
-6. `reference/custom-target.md`
-7. `reference/run-target.md`
-8. `reference/performance-gates.md`
-9. `reference/diagnostics.md`
+2. `reference/backends.md`
+3. `reference/modules.md`
+4. `reference/configs.md`
+5. `reference/target-rules.md`
+6. `reference/profiles.md`
+7. `reference/custom-target.md`
+8. `reference/run-target.md`
+9. `reference/performance-gates.md`
+10. `reference/diagnostics.md`
 
 Low-level/bootloader-style project:
 
