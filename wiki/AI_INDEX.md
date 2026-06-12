@@ -46,6 +46,10 @@ QStar가 하지 않는 일:
 - `qstar emit-ninja [label]`은 `build/qstar/ninja/build.ninja`와 policy-controlled
   `compile_commands.json`을 생성한다.
 - compile database 기본 위치는 `build/qstar/compile_commands.json`이다.
+- QStar repository 자체는 Makefile을 canonical bootstrap/release build path로 유지하면서
+  root `qstar.lua` self-host graph를 제공한다. `make qstar-self-host-tests`는
+  Makefile-built binary와 Stella/Ninja self-host binary의 `--version` 일치, `//:qstar`
+  build, `//:self_host` smoke, compile database, Ninja root pollution 방지를 확인한다.
 - external command는 `qstar.cli { ... }` argv-vector로만 표현한다.
 - low-level/bootloader-style project도 generic primitive로 표현한다.
 

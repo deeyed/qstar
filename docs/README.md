@@ -53,6 +53,7 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 - `qstar-v0.2-release-candidate-seal.md`: v0.2 RC stable/experimental surface와 release gate.
 - `qstar-v0.3-seal.md`: v0.3 standalone release-candidate surface와 editor/corpus seal.
 - `qstar-v0.4-stella-seal.md`: Stella 기본 backend, Ninja 비교 backend, install/editor packaging seal.
+- `qstar-self-host.md`: Makefile 유지와 QStar self-host graph/release gate 후보 계약.
 - `qstar-pilot-readiness-seal.md`: formatter/help/wiki/CLI sync까지 묶은 pilot-readiness gate.
 - `qstar-submodule-extraction-prep.md`: 독립 repo/submodule 전환 직전 체크리스트.
 - `../wiki/`: 사용자/AI가 QStar project를 직접 작성할 수 있는 한국어 wiki.

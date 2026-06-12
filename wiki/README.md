@@ -121,6 +121,7 @@ qstar --file qstar.lua build //:app
 - [Generated Config](tutorials/generated-config.md)
 - [C++ Mixed](tutorials/cxx-mixed.md)
 - [Freestanding Image](tutorials/freestanding-image.md)
+- [Self-Host](tutorials/self-host.md)
 
 ## Cookbook
 

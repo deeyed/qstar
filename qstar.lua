@@ -79,9 +79,23 @@ qstar.run_target "self_check_sample" {
   marker = "status ok",
 }
 
+qstar.run_target "self_check_graph" {
+  deps = {
+    "//:qstar",
+  },
+  command = qstar.cli {
+    qstar.target_file("//:qstar"),
+    "--file",
+    "qstar.lua",
+    "check",
+  },
+  marker = "status ok",
+}
+
 qstar.group "self_host" {
   deps = {
     "//:self_version",
     "//:self_check_sample",
+    "//:self_check_graph",
   },
 }
