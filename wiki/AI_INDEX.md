@@ -54,6 +54,10 @@ QStar가 하지 않는 일:
   root `qstar.lua` self-host graph를 제공한다. `make qstar-self-host-tests`는
   Makefile-built binary와 Stella/Ninja self-host binary의 `--version` 일치, `//:qstar`
   build, `//:self_host` smoke, compile database, Ninja root pollution 방지를 확인한다.
+- Linux host 지원은 Round Q97 기준 `validation underway`다. `make qstar-linux-validation-tests`는
+  portable path/process, Linux depfile 후보, generated_dir, install layout, docs/manpage
+  smoke를 묶는다. macOS에서는 제한된 path smoke이고, Linux release asset은 깨끗한
+  Linux host 또는 CI에서 이 gate가 통과한 뒤에만 추가한다.
 - `make qstar-medium-project-readiness-tests`는 Stella executor와 Ninja backend의 clean,
   no-op, incremental build 시간을 `medium_project_gate ...` line protocol로 기록한다.
   Round Q92 기준 timing threshold는 report-only가 기본이며,
@@ -318,6 +322,7 @@ qstar --file qstar.lua -G ninja build //:smoke
 qstar --file qstar.lua test //...
 qstar --file qstar.lua stage //:bundle --dry-run
 qstar --file qstar.lua install //:target --prefix /tmp/qstar-install --dry-run
+make qstar-linux-validation-tests
 qstar --file qstar.lua why-rebuild //:target
 qstar --file qstar.lua clean --target //:target
 qstar --file qstar.lua log //:target

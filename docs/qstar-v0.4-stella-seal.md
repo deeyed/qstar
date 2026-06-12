@@ -59,6 +59,21 @@ The installed wiki root is `$HOME/.local/share/doc/qstar/wiki`, and the manpages
 are installed under `$HOME/.local/share/man/man1/qstar.1` and
 `$HOME/.local/share/man/man5/qstar-lua.5`.
 
+## Linux Validation Seal
+
+Round Q97 moves Linux from planned support to validation underway. The canonical
+source-build and install smoke is documented in `docs/linux-validation.md`.
+
+```txt
+make -C qstar qstar-linux-validation-tests
+make -C qstar install PREFIX=/tmp/qstar-linux-smoke
+/tmp/qstar-linux-smoke/bin/qstar --version
+```
+
+On macOS this smoke only proves portable path/process behavior. A Linux release
+asset requires the same gate on a clean Linux host or CI image, plus clang/gcc
+depfile coverage and installed docs/manpage verification.
+
 ## Editor Seal
 
 The VSCode extension package is versioned independently from the runtime. For
