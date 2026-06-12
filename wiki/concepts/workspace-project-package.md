@@ -26,13 +26,13 @@ normalized path여야 하며 absolute path, `..`, `.`은 diagnostic으로 거부
 
 Generator는 CLI에서만 선택한다.
 
-- `-G qstar_graph`: 현재 기본 QStar graph executor를 사용한다.
-- `-G auto`: 현재는 `qstar_graph`로 resolve된다.
+- `-G stella`: 현재 기본 Stella executor를 사용한다.
+- `-G auto`: 현재는 `stella`로 resolve된다.
 - `-G ninja`: C/C++/ASM compile, `qstar.configure_file`, `qstar.custom_target`,
   staticlib, executable/test link, `qstar.run_target`, `qstar.group` phony graph를
   Ninja로 lower해 실행한다. `stage`와 `install`은 copy와 manifest를 QStar가 처리하되,
   참조 target artifact build에는 effective generator를 사용한다. `sharedlib`와 Cale
-  source action은 아직 Ninja로 lower되지 않으므로 `-G qstar_graph`가 필요하다.
+  source action은 아직 Ninja로 lower되지 않으므로 `-G stella`가 필요하다.
 
 `compile_commands`는 세 값을 가진다.
 
@@ -83,7 +83,7 @@ v1에서 `root`는 `"."`만 허용된다.
 ```sh
 qstar --file qstar.lua query //app:app
 qstar --file qstar.lua list-targets --format json
-qstar --file qstar.lua -B out/qstar -G qstar_graph build //app:app
+qstar --file qstar.lua -B out/qstar -G stella build //app:app
 qstar --file qstar.lua emit-ninja //lib:core
 qstar --file qstar.lua -G ninja build //lib:core
 qstar --file app/app.qst build //app:app

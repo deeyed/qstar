@@ -33,12 +33,12 @@ QStar가 하지 않는 일:
 - generated action output 기본 root는 `generated`이고, `qstar.project.generated_dir`로
   package-relative generated root를 바꿀 수 있다.
 - CLI `-B path`는 `qstar.project.build_dir`보다 우선한다.
-- CLI `-G auto`는 현재 `qstar_graph`로 resolve된다.
+- CLI `-G auto`는 현재 `stella`로 resolve된다.
 - CLI `-G ninja build [label]`은 C/C++/ASM compile, `qstar.configure_file`,
   `qstar.custom_target`, staticlib, executable/test link, `qstar.run_target`,
   `qstar.group` phony graph를 Ninja로 실행한다. `stage`와 `install`은 copy와 manifest를
   QStar가 처리하지만, 참조 target artifact는 effective generator로 먼저 build한다.
-  `sharedlib`와 Cale source action은 아직 Ninja로 lower되지 않으므로 `-G qstar_graph`가
+  `sharedlib`와 Cale source action은 아직 Ninja로 lower되지 않으므로 `-G stella`가
   필요하다.
 - `qstar emit-ninja [label]`은 `build/qstar/ninja/build.ninja`와 policy-controlled
   `compile_commands.json`을 생성한다.
@@ -276,7 +276,7 @@ qstar --file qstar.lua dry-run //:target
 qstar --file qstar.lua build //:target --explain-cache
 qstar --file qstar.lua build //:target --verbose --progress plain
 qstar --file qstar.lua build //:target --progress off --color never
-qstar --file qstar.lua -B out/qstar -G qstar_graph build //:target
+qstar --file qstar.lua -B out/qstar -G stella build //:target
 qstar --file qstar.lua -G ninja build //:smoke
 qstar --file qstar.lua stage //:bundle --dry-run
 qstar --file qstar.lua last-failure

@@ -373,7 +373,7 @@ qstar_graph_generator(const struct qstar_graph *graph)
 {
 	if (graph && graph->generator && *graph->generator)
 		return graph->generator;
-	return "qstar_graph";
+	return "stella";
 }
 
 /** CLI가 요청한 generator 값을 반환한다. */
@@ -382,7 +382,7 @@ qstar_graph_requested_generator(const struct qstar_graph *graph)
 {
 	if (graph && graph->requested_generator && *graph->requested_generator)
 		return graph->requested_generator;
-	return "qstar_graph";
+	return "auto";
 }
 
 /** QStar project의 effective compile_commands policy를 반환한다. */
@@ -414,7 +414,7 @@ qstar_graph_build_path(const struct qstar_graph *graph, const char *subpath, cha
 static int
 valid_generator(const char *generator)
 {
-	return !generator || !*generator || strcmp(generator, "qstar_graph") == 0 ||
+	return !generator || !*generator || strcmp(generator, "stella") == 0 ||
 	    strcmp(generator, "ninja") == 0 || strcmp(generator, "auto") == 0;
 }
 
@@ -428,13 +428,13 @@ qstar_graph_set_cli_overrides(struct qstar_graph *graph, const char *generator,
 
 	if (!valid_generator(generator))
 		return qstar_set_error(graph,
-		    "qstar: invalid generator '%s'; expected qstar_graph, ninja, or auto",
+		    "qstar: invalid generator '%s'; expected stella, ninja, or auto",
 		    generator ? generator : "");
 	if (build_dir && *build_dir && !valid_project_relative(build_dir))
 		return qstar_set_error(graph,
 		    "qstar: CLI build directory override must be package-relative");
-	requested = generator && *generator ? generator : "qstar_graph";
-	effective = strcmp(requested, "auto") == 0 ? "qstar_graph" : requested;
+	requested = generator && *generator ? generator : "auto";
+	effective = strcmp(requested, "auto") == 0 ? "stella" : requested;
 	requested_copy = qstar_strdup(requested);
 	generator_copy = qstar_strdup(effective);
 	build_copy = build_dir && *build_dir ? qstar_strdup(build_dir) : NULL;

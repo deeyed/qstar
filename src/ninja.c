@@ -446,7 +446,7 @@ validate_ninja_compile_source(struct qstar_graph *graph, const struct qstar_targ
 	if (strcmp(source->language, "cale") == 0)
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "sources", target->label,
-		    "qstar: ninja backend supports C, C++, ASM, custom_target, executable, test, run_target, staticlib, and group in this release; Cale source '%s' needs -G qstar_graph",
+		    "qstar: ninja backend supports C, C++, ASM, custom_target, executable, test, run_target, staticlib, and group in this release; Cale source '%s' needs -G stella",
 		    target->sources.items[index]);
 	if (strcmp(source->language, "c") != 0 && strcmp(source->language, "cxx") != 0 &&
 	    !source_is_asm(source))

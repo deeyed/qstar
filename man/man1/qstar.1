@@ -7,7 +7,7 @@
 .Sh SYNOPSIS
 .Nm
 .Op Fl -file Ar qstar.lua
-.Op Fl G Ar qstar_graph|ninja|auto
+.Op Fl G Ar stella|ninja|auto
 .Op Fl B Ar path
 .Op Fl -color Ar auto|always|never
 .Ar command
@@ -42,19 +42,21 @@ argv vectors, not shell strings.
 .Bl -tag -width "--generator"
 .It Fl -file Ar qstar.lua
 Select the root QStar entrypoint.
-.It Fl G Ar qstar_graph|ninja|auto
+.It Fl G Ar stella|ninja|auto
 Select the effective generator.
 In this release,
 .Ar auto
 resolves to
-.Ar qstar_graph .
+.Ar stella .
+.Ar stella
+runs the local Stella executor.
 .Ar ninja
 emits and runs a Ninja backend for C/C++/ASM compile, generated actions,
 static libraries, executable/test links, run target wrappers, and group phony
 targets.
 Stage and install copy/manifest work is still performed by QStar, but referenced
 target artifacts are built through the effective generator.
-.It Fl -generator Ar qstar_graph|ninja|auto
+.It Fl -generator Ar stella|ninja|auto
 Alias for
 .Fl G .
 .It Fl B Ar path
@@ -95,13 +97,13 @@ wrappers, plus
 phony targets.
 Stage/install copy and manifest actions remain QStar-owned.
 Shared libraries and Cale source actions still require the
-.Ar qstar_graph
+.Ar stella
 generator.
 .It Ic build
 Build using the effective generator.
 The
-.Ar qstar_graph
-generator runs the local executor.
+.Ar stella
+generator runs the local Stella executor.
 The
 .Ar ninja
 generator emits

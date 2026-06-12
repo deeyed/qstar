@@ -36,8 +36,8 @@ usage(FILE *out)
 	fputs("       qstar [options] --dump-graph\n", out);
 	fputs("options:\n", out);
 	fputs("       --file qstar.lua\n", out);
-	fputs("       -G qstar_graph|ninja|auto\n", out);
-	fputs("       --generator qstar_graph|ninja|auto\n", out);
+	fputs("       -G stella|ninja|auto\n", out);
+	fputs("       --generator stella|ninja|auto\n", out);
 	fputs("       -B path\n", out);
 	fputs("       --package-alias @name=/path\n", out);
 	fputs("       --profile name --target triple --toolchain name --stdlib policy\n", out);
@@ -354,9 +354,9 @@ print_json_string(const char *s)
 	fputc('"', stderr);
 }
 
-/** qstar_graph executor가 아직 필요한 command인지 확인한다. */
+/** Stella executor가 아직 필요한 command인지 확인한다. */
 static int
-command_requires_qstar_graph_generator(const char *cmd)
+command_requires_stella_generator(const char *cmd)
 {
 	(void)cmd;
 	return 0;
@@ -940,10 +940,10 @@ main(int argc, char **argv)
 		qstar_graph_free(&graph);
 		return rc < 0 ? 1 : 0;
 	}
-	if (rc == 0 && command_requires_qstar_graph_generator(cmd) &&
-	    strcmp(qstar_graph_generator(&graph), "qstar_graph") != 0)
+	if (rc == 0 && command_requires_stella_generator(cmd) &&
+	    strcmp(qstar_graph_generator(&graph), "stella") != 0)
 		rc = qstar_set_error(&graph,
-		    "qstar: generator '%s' is recognized but action execution is not implemented yet; use -G qstar_graph",
+		    "qstar: generator '%s' is recognized but action execution is not implemented yet; use -G stella",
 		    qstar_graph_generator(&graph));
 	if (rc == 0) {
 		if (strcmp(cmd, "explain") == 0)

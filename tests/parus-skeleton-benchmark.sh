@@ -196,15 +196,15 @@ write_staticlib "sys/dev/i2c" "parus_dev_i2c" "parus_dev_i2c" 17 '"//lib/libk:pa
 write_staticlib "sys/dev/spi" "parus_dev_spi" "parus_dev_spi" 18 '"//lib/libk:parus_libk"'
 write_staticlib "sys/dev/storage" "parus_dev_storage" "parus_dev_storage" 19 '"//lib/libk:parus_libk"'
 
-run_timed qstar_graph "$qstar" --file "$root/qstar.lua" -B build/qstar-graph -G qstar_graph build //:parus_kernel
-contains "$tmp/qstar_graph.out" "group_target label=//:parus_kernel"
-contains "$tmp/qstar_graph.out" "status ok"
-test -f "$root/build/qstar-graph/compile_commands.json" || fail "qstar_graph compile_commands missing"
-if [ "$qstar_graph_ms" -gt 120000 ]; then
-	fail "qstar_graph skeleton build took ${qstar_graph_ms}ms"
+run_timed stella "$qstar" --file "$root/qstar.lua" -B build/stella -G stella build //:parus_kernel
+contains "$tmp/stella.out" "group_target label=//:parus_kernel"
+contains "$tmp/stella.out" "status ok"
+test -f "$root/build/stella/compile_commands.json" || fail "stella compile_commands missing"
+if [ "$stella_ms" -gt 120000 ]; then
+	fail "stella skeleton build took ${stella_ms}ms"
 fi
 
-printf 'parus_skeleton_benchmark backend=qstar_graph elapsed_ms=%s\n' "$qstar_graph_ms"
+printf 'parus_skeleton_benchmark backend=stella elapsed_ms=%s\n' "$stella_ms"
 
 if command -v ninja >/dev/null 2>&1; then
 	run_timed ninja "$qstar" --file "$root/qstar.lua" -B build/qstar-ninja -G ninja build //:parus_kernel
@@ -215,7 +215,7 @@ if command -v ninja >/dev/null 2>&1; then
 		fail "ninja skeleton build took ${ninja_ms}ms"
 	fi
 	printf 'parus_skeleton_benchmark backend=ninja elapsed_ms=%s\n' "$ninja_ms"
-	printf 'parus_skeleton_benchmark compare qstar_graph_ms=%s ninja_ms=%s\n' "$qstar_graph_ms" "$ninja_ms"
+	printf 'parus_skeleton_benchmark compare stella_ms=%s ninja_ms=%s\n' "$stella_ms" "$ninja_ms"
 else
 	printf 'parus_skeleton_benchmark backend=ninja elapsed_ms=skipped reason=ninja-not-found\n'
 fi

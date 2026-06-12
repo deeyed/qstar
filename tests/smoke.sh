@@ -239,12 +239,15 @@ test -f "$tmp/cli-overrides/cli/qstar/state/actions.json" || fail "CLI -B build 
 test ! -e "$tmp/cli-overrides/project/qstar/state/actions.json" || fail "qstar.project build_dir overrode CLI -B"
 test -f "$tmp/cli-overrides/cli/qstar/compile_commands.json" || fail "CLI -B compile_commands missing"
 contains "$tmp/cli-overrides/cli/qstar/state/graph.json" "\"build_dir\":\"cli/qstar\""
-contains "$tmp/cli-overrides/cli/qstar/state/graph.json" "\"generator\":\"qstar_graph\""
+contains "$tmp/cli-overrides/cli/qstar/state/graph.json" "\"generator\":\"stella\""
 contains "$tmp/cli-overrides/cli/qstar/state/graph.json" "\"requested_generator\":\"auto\""
 "$qstar" --file "$tmp/cli-overrides/qstar.lua" -B cli/list -G auto list-targets --format json > "$tmp/cli-overrides-json.out" 2> "$tmp/cli-overrides-json.err"
 contains "$tmp/cli-overrides-json.out" "\"build_dir\":\"cli/list\""
-contains "$tmp/cli-overrides-json.out" "\"generator\":\"qstar_graph\""
+contains "$tmp/cli-overrides-json.out" "\"generator\":\"stella\""
 contains "$tmp/cli-overrides-json.out" "\"requested_generator\":\"auto\""
+"$qstar" --file "$tmp/cli-overrides/qstar.lua" -G stella list-targets --format json > "$tmp/cli-overrides-stella-json.out" 2> "$tmp/cli-overrides-stella-json.err"
+contains "$tmp/cli-overrides-stella-json.out" "\"generator\":\"stella\""
+contains "$tmp/cli-overrides-stella-json.out" "\"requested_generator\":\"stella\""
 "$qstar" --file "$tmp/cli-overrides/qstar.lua" --generator ninja list-targets --format json > "$tmp/cli-overrides-ninja-json.out" 2> "$tmp/cli-overrides-ninja-json.err"
 contains "$tmp/cli-overrides-ninja-json.out" "\"generator\":\"ninja\""
 contains "$tmp/cli-overrides-ninja-json.out" "\"requested_generator\":\"ninja\""
@@ -260,7 +263,11 @@ fi
 if "$qstar" --file "$tmp/cli-overrides/qstar.lua" -G nope list-targets --format json > "$tmp/cli-overrides-bad-generator.out" 2> "$tmp/cli-overrides-bad-generator.err"; then
 	fail "invalid generator unexpectedly succeeded"
 fi
-contains "$tmp/cli-overrides-bad-generator.err" "invalid generator 'nope'; expected qstar_graph, ninja, or auto"
+contains "$tmp/cli-overrides-bad-generator.err" "invalid generator 'nope'; expected stella, ninja, or auto"
+if "$qstar" --file "$tmp/cli-overrides/qstar.lua" -G qstar_graph list-targets --format json > "$tmp/cli-overrides-qstar-graph.out" 2> "$tmp/cli-overrides-qstar-graph.err"; then
+	fail "qstar_graph generator unexpectedly succeeded"
+fi
+contains "$tmp/cli-overrides-qstar-graph.err" "invalid generator 'qstar_graph'; expected stella, ninja, or auto"
 if "$qstar" --file "$tmp/cli-overrides/qstar.lua" -B /tmp/qstar-build list-targets --format json > "$tmp/cli-overrides-bad-builddir.out" 2> "$tmp/cli-overrides-bad-builddir.err"; then
 	fail "absolute CLI build directory unexpectedly succeeded"
 fi
