@@ -28,6 +28,9 @@ QStar가 하지 않는 일:
 - `qstar.import_module("folder/path")`는 `folder/path/path.qsm` helper module table을 읽는다.
 - `.qsm` 안에서는 target/profile/project 같은 graph declaration이 금지된다.
 - 반복 option은 `qstar.config`와 target `configs = {...}`로 공유한다.
+- 반복 path/list/table 조립은 `qstar.join`, `qstar.copy`, `qstar.append`, `qstar.merge`,
+  `qstar.extend`를 쓴다.
+- Makefile식 `$VAR` 문자열 치환은 없다. Lua `local` 변수와 helper function을 쓴다.
 - legacy qs fragment suffix와 `qstar.workspace`는 제거된 surface다.
 - 산출물 기본 위치는 `build/qstar`다.
 - generated action output 기본 root는 `generated`이고, `qstar.project.generated_dir`로
@@ -73,6 +76,11 @@ Command/path helper:
 - `qstar.subdir`
 - `qstar.import_file`
 - `qstar.import_module`
+- `qstar.join`
+- `qstar.copy`
+- `qstar.append`
+- `qstar.merge`
+- `qstar.extend`
 - `qstar.select`
 - `qstar.incompatible`
 
@@ -214,6 +222,8 @@ Failure class는 `marker-missing`, `timeout`, `exit-code`처럼 분리되고,
 - `ipairs`, `pairs`
 - `table.insert`
 - safe `string.*`
+- QStar builtin authoring helpers: `qstar.join`, `qstar.copy`, `qstar.append`, `qstar.merge`,
+  `qstar.extend`
 
 금지:
 
@@ -226,6 +236,7 @@ Failure class는 `marker-missing`, `timeout`, `exit-code`처럼 분리되고,
 - process/network/time/random API
 
 Helper module은 Lua `require`가 아니라 `qstar.import_module`로 읽는다.
+문자열 `$VAR` 치환은 없으므로 path와 option은 Lua local 값으로 조립한다.
 
 ```lua
 local common = qstar.import_module("qstar/modules/common")

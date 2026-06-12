@@ -662,7 +662,7 @@ contains "$tmp/lua-authoring.out" "-DQSTAR_TARGET=host"
 contains "$tmp/lua-authoring.out" "-DQSTAR_PAIR_COUNT=2"
 
 mkdir -p "$tmp/imports/qstar/policies" "$tmp/imports/qstar/modules/kernel" \
-	"$tmp/imports/include" "$tmp/imports/src"
+	"$tmp/imports/include" "$tmp/imports/sys/include" "$tmp/imports/src"
 cat > "$tmp/imports/src/app.c" <<'EOF'
 int app(void) { return 0; }
 EOF
@@ -679,7 +679,9 @@ qstar.import_file("qstar/policies/common.qst")
 local kernel = qstar.import_module("qstar/modules/kernel")
 
 qstar.staticlib "app" {
-  sources = {"src/app.c"},
+  sources = qstar.join {
+    {qstar.join("src", "app.c")},
+  },
   deps = {"//qstar/policies:policy_core"},
   lang = {
     c = kernel.common_c(),
@@ -694,11 +696,27 @@ EOF
 cat > "$tmp/imports/qstar/modules/kernel/kernel.qsm" <<'EOF'
 local M = {}
 
+local base_c = {
+  public_include_dirs = {qstar.join("include")},
+  compile_options = {"-Wall"},
+}
+
+local freestanding_c = {
+  public_include_dirs = {qstar.join("sys", "include")},
+  compile_options = {"-Wextra"},
+}
+
 function M.common_c()
-  return {
-    public_include_dirs = {"include"},
-    compile_options = {"-Wall", "-Wextra"},
-  }
+  local opts = qstar.merge(base_c, freestanding_c)
+  qstar.extend(opts, {
+    compile_options = qstar.append({"-Werror"}),
+    defines = {"KERNEL_HELPER=1"},
+  })
+  local copied = qstar.copy(opts)
+  qstar.extend(opts, {
+    compile_options = {"-DORIGINAL_ONLY=1"},
+  })
+  return copied
 end
 
 return M
@@ -706,7 +724,10 @@ EOF
 "$qstar" --file "$tmp/imports/qstar.lua" --dump-graph > "$tmp/imports-graph.out" 2> "$tmp/imports-graph.err"
 contains "$tmp/imports-graph.out" "target //qstar/policies:policy_core"
 contains "$tmp/imports-graph.out" "target //:app"
-contains "$tmp/imports-graph.out" "cflags [-Wall, -Wextra]"
+contains "$tmp/imports-graph.out" "sources [src/app.c]"
+contains "$tmp/imports-graph.out" "public_include_dirs [include, sys/include]"
+contains "$tmp/imports-graph.out" "cflags [-Wall, -Wextra, -Werror, -DKERNEL_HELPER=1]"
+not_contains "$tmp/imports-graph.out" "ORIGINAL_ONLY"
 "$qstar" --file "$tmp/imports/qstar.lua" lint //... > "$tmp/imports-lint.out" 2> "$tmp/imports-lint.err"
 contains "$tmp/imports-lint.out" "status ok"
 "$qstar" fmt --check "$tmp/imports/qstar/modules/kernel/kernel.qsm" > "$tmp/imports-qsm-fmt.out" 2> "$tmp/imports-qsm-fmt.err"
@@ -1102,6 +1123,7 @@ contains "$tmp/lsp.out" "Create an executable target."
 contains "$tmp/lsp.out" "\"label\":\"qstar.config\""
 contains "$tmp/lsp.out" "\"label\":\"qstar.configure_file\""
 contains "$tmp/lsp.out" "\"label\":\"qstar.import_module\""
+contains "$tmp/lsp.out" "\"label\":\"qstar.merge\""
 
 mkdir -p "$tmp/lsp-missing"
 cat > "$tmp/lsp-missing/qstar.lua" <<'EOF'
@@ -1233,6 +1255,7 @@ contains "$vscode_ext/extension.js" "qstar-targets-v1"
 contains "$vscode_ext/extension.js" "last-summary.json"
 contains "$vscode_ext/syntaxes/qstar.tmLanguage.json" "entity.name.label.qstar"
 contains "$vscode_ext/syntaxes/qstar.tmLanguage.json" "import_module"
+contains "$vscode_ext/syntaxes/qstar.tmLanguage.json" "append"
 contains "$vscode_ext/snippets/qstar.json" "\"qexe\""
 contains "$vscode_ext/snippets/qstar.json" "\"qstaticlib\""
 contains "$vscode_ext/snippets/qstar.json" "\"qcustom\""

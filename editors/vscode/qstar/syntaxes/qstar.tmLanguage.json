@@ -84,7 +84,7 @@
       "patterns": [
         {
           "name": "support.function.qstar",
-          "match": "\\bqstar\\.(project|profile|config|executable|staticlib|sharedlib|test|custom_target|run_target|group|configure_file|stage|stage_file|target_family|cli|input|output|target_file|subdir|import_file|import_module|files|modules|select|join|incompatible)\\b"
+          "match": "\\bqstar\\.(project|profile|config|executable|staticlib|sharedlib|test|custom_target|run_target|group|configure_file|stage|stage_file|target_family|cli|input|output|target_file|subdir|import_file|import_module|files|modules|select|join|copy|append|merge|extend|incompatible)\\b"
         }
       ]
     },

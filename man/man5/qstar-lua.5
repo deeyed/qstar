@@ -55,6 +55,17 @@ graph fragment exactly once.
 Evaluate a package-relative module folder as
 .Pa <name>/<name>.qsm
 and return its table.
+.It Ic qstar.join
+Join path segments as a slash-separated string. The legacy table form flattens
+one list level.
+.It Ic qstar.copy
+Deep-copy an authoring table.
+.It Ic qstar.append
+Return a new list with values or list items appended.
+.It Ic qstar.merge
+Return a deep-merged plain table. List fields append.
+.It Ic qstar.extend
+Deep-merge overlays into a base plain table and return the base table.
 .It Ic qstar.stage
 Copy-only package or staging tree.
 .El
@@ -89,6 +100,10 @@ Lua
 is forbidden; use
 .Ic qstar.import_module
 for helper modules.
+Makefile-style
+.Ic $VAR
+string expansion is not performed; use Lua local values and QStar authoring
+helpers instead.
 .Pp
 .Pa .qsm
 modules must return a table and cannot declare graph nodes such as targets,

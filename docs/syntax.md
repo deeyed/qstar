@@ -705,14 +705,31 @@ Lua `not`은 keyword이므로 API 이름은 `not_`로 둔다.
 
 ## qstar.join
 
-List를 deterministic하게 합친다.
+Path segment를 `/`로 합친다. Lua local 변수와 함께 쓰면 Makefile식 `$VAR` 치환 없이도
+반복 path를 명확하게 만들 수 있다.
+
+```lua
+local triple = "aarch64-unknown-none-elf"
+local libc_include = qstar.join("lib/libc", triple, "include")
+```
+
+기존 authoring 호환을 위해 table form은 list를 한 단계 flatten한다.
 
 ```lua
 sources = qstar.join {
-    {"src/main.cale"},
+    {"src/main.c"},
     platform_sources(),
-    qstar.generated(":version_header"),
 }
+```
+
+List/table helper는 option 조립에 쓴다.
+
+```lua
+local common_c = qstar.merge({
+    compile_options = {"-Wall"},
+}, {
+    compile_options = qstar.append({"-Wextra"}, "-Werror"),
+})
 ```
 
 ## qstar.incompatible
@@ -1016,17 +1033,9 @@ Generated target output을 다른 target에서 참조하는 future API다. Round
 명시 path를 적는다.
 
 ```lua
-sources = qstar.join {
-    {"src/app/main.cale"},
-    qstar.generated(":version_header"),
-}
-
-lang = {
-    c = {
-        include_dirs = {
-            qstar.generated_dir(":version_header"),
-        },
-    },
+qstar.configure_file "version_header" {
+    output = qstar.output("generated/version.h"),
+    defines = {"APP_VERSION=1"},
 }
 ```
 

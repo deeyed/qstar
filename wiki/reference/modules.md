@@ -50,6 +50,31 @@ return M
 `qstar.import_file`은 금지된다. Helper 함수, 상수, table literal, `qstar.import_module`
 을 통한 다른 helper module import는 사용할 수 있다.
 
+`.qsm` module은 policy나 target을 직접 만들지 않고 값을 만든다. Path는 `qstar.join`,
+list는 `qstar.append`, option table은 `qstar.copy`, `qstar.merge`, `qstar.extend`로 조립한다.
+Makefile처럼 문자열 안의 `$VAR`를 확장하는 기능은 없다.
+
+```lua
+local M = {}
+local triple = "aarch64-unknown-none-elf"
+
+function M.libc_include()
+  return qstar.join("lib/libc", triple, "include")
+end
+
+function M.common_c()
+  return qstar.merge({
+    public_include_dirs = {"sys/include"},
+    compile_options = {"-std=c23", "-ffreestanding"},
+  }, {
+    system_include_dirs = {M.libc_include()},
+    compile_options = {"-fno-builtin"},
+  })
+end
+
+return M
+```
+
 LSP definition navigation은 import 문자열도 해석한다. `qstar.import_file("foo/bar.qst")`
 위에서 definition을 요청하면 해당 `.qst`로 이동하고,
 `qstar.import_module("qstar/modules/kernel")` 위에서는
@@ -76,3 +101,5 @@ lib/
 Root `qstar.lua`는 project/profile/subdir orchestration을 담당한다.
 `qstar/policies/*.qst`는 graph policy를 선언한다.
 `qstar/modules/<name>/<name>.qsm`은 target을 만들지 않는 helper module을 제공한다.
+폴더 이름과 module entry 파일 이름을 일치시키면 LSP navigation, formatter, AI authoring이
+같은 규칙을 공유할 수 있다.

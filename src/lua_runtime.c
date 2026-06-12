@@ -754,20 +754,22 @@ push_define_option(struct qstar_graph *graph, struct qstar_string_list *list, co
 	    qstar_set_error(graph, "qstar: out of memory") : 0;
 }
 
+/** lang.<name>.defines list를 -D compiler option으로 변환해 읽는다. */
 static int
-read_lang_defines(lua_State *L, int lang, const char *name, struct qstar_string_list *list,
+read_lang_defines(lua_State *L, int lang, const char *lang_name, struct qstar_string_list *list,
     struct qstar_graph *graph)
 {
 	size_t i, n;
 
-	lua_getfield(L, lang, name);
+	lua_getfield(L, lang, "defines");
 	if (lua_isnil(L, -1)) {
 		lua_pop(L, 1);
 		return 0;
 	}
 	if (!lua_istable(L, -1)) {
 		lua_pop(L, 1);
-		return qstar_set_error(graph, "qstar: lang.%s.defines must be a list", name);
+		return qstar_set_error(graph, "qstar: lang.%s.defines must be a list",
+		    lang_name);
 	}
 	n = lua_rawlen(L, -1);
 	for (i = 1; i <= n; i++) {
@@ -775,7 +777,7 @@ read_lang_defines(lua_State *L, int lang, const char *name, struct qstar_string_
 		if (!lua_isstring(L, -1)) {
 			lua_pop(L, 2);
 			return qstar_set_error(graph, "qstar: lang.%s.defines contains non-string item",
-			    name);
+			    lang_name);
 		}
 		if (push_define_option(graph, list, lua_tostring(L, -1)) < 0) {
 			lua_pop(L, 2);
@@ -1918,10 +1920,236 @@ qstar_lua_identity_table(lua_State *L)
 	return 1;
 }
 
+/** Lua stack index를 push/pop에 흔들리지 않는 absolute index로 바꾼다. */
 static int
-qstar_lua_join(lua_State *L)
+qstar_lua_abs_index(lua_State *L, int idx)
 {
-	size_t n, i, j, m;
+	if (idx < 0 && idx > LUA_REGISTRYINDEX)
+		return lua_gettop(L) + idx + 1;
+	return idx;
+}
+
+/** QStar metadata table이 아닌 일반 Lua table인지 검사한다. */
+static int
+qstar_lua_plain_table(lua_State *L, int idx)
+{
+	idx = qstar_lua_abs_index(L, idx);
+	return lua_istable(L, idx) && !qstar_table_kind(L, idx);
+}
+
+/** table이 1..n integer key만 가진 list 형태인지 검사한다. */
+static int
+qstar_lua_array_table(lua_State *L, int idx)
+{
+	size_t n;
+	lua_Integer key;
+
+	idx = qstar_lua_abs_index(L, idx);
+	if (!qstar_lua_plain_table(L, idx))
+		return 0;
+	n = lua_rawlen(L, idx);
+	lua_pushnil(L);
+	while (lua_next(L, idx) != 0) {
+		if (!lua_isinteger(L, -2)) {
+			lua_pop(L, 2);
+			return 0;
+		}
+		key = lua_tointeger(L, -2);
+		if (key < 1 || (size_t)key > n) {
+			lua_pop(L, 2);
+			return 0;
+		}
+		lua_pop(L, 1);
+	}
+	return 1;
+}
+
+/** Lua value를 새 table에 안전하게 복사하기 위한 재귀 copy primitive다. */
+static void
+qstar_lua_push_value_copy(lua_State *L, int idx, int depth)
+{
+	int src, dst;
+
+	if (depth > 64)
+		luaL_error(L, "qstar: helper table is nested too deeply");
+	src = qstar_lua_abs_index(L, idx);
+	if (!lua_istable(L, src)) {
+		lua_pushvalue(L, src);
+		return;
+	}
+	lua_newtable(L);
+	dst = lua_gettop(L);
+	lua_pushnil(L);
+	while (lua_next(L, src) != 0) {
+		qstar_lua_push_value_copy(L, -2, depth + 1);
+		qstar_lua_push_value_copy(L, -2, depth + 1);
+		lua_rawset(L, dst);
+		lua_pop(L, 1);
+	}
+}
+
+/** list table 끝에 value copy 하나를 추가한다. */
+static void
+qstar_lua_append_value_copy(lua_State *L, int dst, int value, size_t *next,
+    int depth)
+{
+	dst = qstar_lua_abs_index(L, dst);
+	value = qstar_lua_abs_index(L, value);
+	qstar_lua_push_value_copy(L, value, depth + 1);
+	lua_rawseti(L, dst, (lua_Integer)(*next));
+	(*next)++;
+}
+
+/** src list의 array part를 dst list 뒤에 copy해서 붙인다. */
+static void
+qstar_lua_append_list_copy(lua_State *L, int dst, int src, size_t *next,
+    int depth)
+{
+	size_t i, n;
+
+	dst = qstar_lua_abs_index(L, dst);
+	src = qstar_lua_abs_index(L, src);
+	n = lua_rawlen(L, src);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, src, (lua_Integer)i);
+		qstar_lua_append_value_copy(L, dst, -1, next, depth + 1);
+		lua_pop(L, 1);
+	}
+}
+
+/** dst table에 src table을 deep merge한다. list field는 append semantics를 쓴다. */
+static void
+qstar_lua_merge_into(lua_State *L, int dst, int src, int depth)
+{
+	int key_idx, value_idx, existing_idx;
+	size_t next;
+
+	if (depth > 64)
+		luaL_error(L, "qstar: helper table is nested too deeply");
+	dst = qstar_lua_abs_index(L, dst);
+	src = qstar_lua_abs_index(L, src);
+	lua_pushnil(L);
+	while (lua_next(L, src) != 0) {
+		key_idx = lua_gettop(L) - 1;
+		value_idx = lua_gettop(L);
+		if (qstar_lua_plain_table(L, value_idx)) {
+			lua_pushvalue(L, key_idx);
+			lua_gettable(L, dst);
+			existing_idx = lua_gettop(L);
+			if (qstar_lua_plain_table(L, existing_idx)) {
+				if (qstar_lua_array_table(L, existing_idx) &&
+				    qstar_lua_array_table(L, value_idx)) {
+					next = lua_rawlen(L, existing_idx) + 1;
+					qstar_lua_append_list_copy(L, existing_idx,
+					    value_idx, &next, depth + 1);
+				} else {
+					qstar_lua_merge_into(L, existing_idx,
+					    value_idx, depth + 1);
+				}
+				lua_pop(L, 1);
+			} else {
+				lua_pop(L, 1);
+				qstar_lua_push_value_copy(L, key_idx, depth + 1);
+				qstar_lua_push_value_copy(L, value_idx, depth + 1);
+				lua_settable(L, dst);
+			}
+		} else {
+			qstar_lua_push_value_copy(L, key_idx, depth + 1);
+			qstar_lua_push_value_copy(L, value_idx, depth + 1);
+			lua_settable(L, dst);
+		}
+		lua_pop(L, 1);
+	}
+}
+
+/** qstar.copy(table): authoring helper table을 deep copy해서 반환한다. */
+static int
+qstar_lua_copy(lua_State *L)
+{
+	luaL_checktype(L, 1, LUA_TTABLE);
+	qstar_lua_push_value_copy(L, 1, 0);
+	return 1;
+}
+
+/** qstar.append(list, ...): list를 mutate하지 않고 값을 뒤에 붙인 새 list를 만든다. */
+static int
+qstar_lua_append(lua_State *L)
+{
+	int top, i;
+	size_t next;
+
+	luaL_checktype(L, 1, LUA_TTABLE);
+	if (!qstar_lua_array_table(L, 1))
+		return luaL_error(L, "qstar: qstar.append first argument must be a list");
+	lua_newtable(L);
+	next = 1;
+	qstar_lua_append_list_copy(L, -1, 1, &next, 0);
+	top = lua_gettop(L) - 1;
+	for (i = 2; i <= top; i++) {
+		if (qstar_lua_array_table(L, i))
+			qstar_lua_append_list_copy(L, -1, i, &next, 0);
+		else
+			qstar_lua_append_value_copy(L, -1, i, &next, 0);
+	}
+	return 1;
+}
+
+/** qstar.merge(...): plain table들을 새 table로 deep merge해서 반환한다. */
+static int
+qstar_lua_merge(lua_State *L)
+{
+	int top, i;
+	size_t next;
+
+	top = lua_gettop(L);
+	lua_newtable(L);
+	for (i = 1; i <= top; i++) {
+		luaL_checktype(L, i, LUA_TTABLE);
+		if (!qstar_lua_plain_table(L, i))
+			return luaL_error(L,
+			    "qstar: qstar.merge arguments must be plain tables");
+		if (qstar_lua_array_table(L, -1) && qstar_lua_array_table(L, i)) {
+			next = lua_rawlen(L, -1) + 1;
+			qstar_lua_append_list_copy(L, -1, i, &next, 0);
+		} else {
+			qstar_lua_merge_into(L, -1, i, 0);
+		}
+	}
+	return 1;
+}
+
+/** qstar.extend(base, ...): base table을 deep merge로 갱신하고 base를 반환한다. */
+static int
+qstar_lua_extend(lua_State *L)
+{
+	int top, i;
+	size_t next;
+
+	luaL_checktype(L, 1, LUA_TTABLE);
+	if (!qstar_lua_plain_table(L, 1))
+		return luaL_error(L, "qstar: qstar.extend base must be a plain table");
+	top = lua_gettop(L);
+	for (i = 2; i <= top; i++) {
+		luaL_checktype(L, i, LUA_TTABLE);
+		if (!qstar_lua_plain_table(L, i))
+			return luaL_error(L,
+			    "qstar: qstar.extend overlays must be plain tables");
+		if (qstar_lua_array_table(L, 1) && qstar_lua_array_table(L, i)) {
+			next = lua_rawlen(L, 1) + 1;
+			qstar_lua_append_list_copy(L, 1, i, &next, 0);
+		} else {
+			qstar_lua_merge_into(L, 1, i, 0);
+		}
+	}
+	lua_pushvalue(L, 1);
+	return 1;
+}
+
+/** qstar.join { ... }의 legacy list flatten 형태를 유지한다. */
+static int
+qstar_lua_join_list(lua_State *L)
+{
+	size_t n, i, m;
 
 	luaL_checktype(L, 1, LUA_TTABLE);
 	lua_newtable(L);
@@ -1929,17 +2157,56 @@ qstar_lua_join(lua_State *L)
 	m = 1;
 	for (i = 1; i <= n; i++) {
 		lua_rawgeti(L, 1, (lua_Integer)i);
-		if (lua_istable(L, -1)) {
-			for (j = 1; j <= lua_rawlen(L, -1); j++) {
-				lua_rawgeti(L, -1, (lua_Integer)j);
-				lua_rawseti(L, -3, (lua_Integer)m++);
-			}
-			lua_pop(L, 1);
-		} else {
-			lua_rawseti(L, -2, (lua_Integer)m++);
-		}
+		if (qstar_lua_array_table(L, -1))
+			qstar_lua_append_list_copy(L, -2, -1, &m, 0);
+		else
+			qstar_lua_append_value_copy(L, -2, -1, &m, 0);
+		lua_pop(L, 1);
 	}
 	return 1;
+}
+
+/** qstar.join("a", "b") 형태의 package path string을 만든다. */
+static int
+qstar_lua_join_path(lua_State *L)
+{
+	luaL_Buffer buf;
+	const char *s;
+	size_t len, start, end;
+	int i, top, wrote;
+
+	top = lua_gettop(L);
+	if (top == 0)
+		return luaL_error(L, "qstar: qstar.join requires path segments");
+	luaL_buffinit(L, &buf);
+	wrote = 0;
+	for (i = 1; i <= top; i++) {
+		s = luaL_checklstring(L, i, &len);
+		start = 0;
+		end = len;
+		if (wrote) {
+			while (start < end && s[start] == '/')
+				start++;
+		}
+		while (end > start && s[end - 1] == '/')
+			end--;
+		if (end == start)
+			continue;
+		if (wrote)
+			luaL_addchar(&buf, '/');
+		luaL_addlstring(&buf, s + start, end - start);
+		wrote = 1;
+	}
+	luaL_pushresult(&buf);
+	return 1;
+}
+
+static int
+qstar_lua_join(lua_State *L)
+{
+	if (lua_gettop(L) == 1 && lua_istable(L, 1))
+		return qstar_lua_join_list(L);
+	return qstar_lua_join_path(L);
 }
 
 /** 문자열에 glob wildcard가 들어 있는지 검사한다. */
@@ -3018,6 +3285,14 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "files");
 	lua_pushcfunction(L, qstar_lua_join);
 	lua_setfield(L, -2, "join");
+	lua_pushcfunction(L, qstar_lua_copy);
+	lua_setfield(L, -2, "copy");
+	lua_pushcfunction(L, qstar_lua_append);
+	lua_setfield(L, -2, "append");
+	lua_pushcfunction(L, qstar_lua_merge);
+	lua_setfield(L, -2, "merge");
+	lua_pushcfunction(L, qstar_lua_extend);
+	lua_setfield(L, -2, "extend");
 	lua_pushcfunction(L, qstar_lua_select);
 	lua_setfield(L, -2, "select");
 	lua_pushcfunction(L, qstar_lua_incompatible);

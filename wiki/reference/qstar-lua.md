@@ -43,6 +43,27 @@ qstar.staticlib "core" {
 `QSTAR_PACKAGE_ROOT`, `QSTAR_PROJECT_ROOT`, `QSTAR_PROFILE`, `QSTAR_TARGET`,
 `qstar.version`, `qstar.host.os`, `qstar.host.arch`, `qstar.project.root`다.
 
+## Builtin authoring helpers
+
+QStar는 Makefile식 `$VAR` 문자열 치환을 하지 않는다. 반복되는 path와 option은 Lua `local`
+변수, local function, `.qsm` helper module, 그리고 아래 builtin helper로 조립한다.
+
+```lua
+local triple = "aarch64-unknown-none-elf"
+local libc_include = qstar.join("lib/libc", triple, "include")
+local strict = qstar.append({"-Wall"}, "-Wextra", "-Werror")
+```
+
+- `qstar.join("a", "b", "c")`는 slash로 연결한 path string을 반환한다.
+- `qstar.join {list_a, list_b, item}`은 기존 authoring 호환을 위해 list를 한 단계 flatten한다.
+- `qstar.copy(table)`은 nested table을 deep copy한다.
+- `qstar.append(list, ...)`는 원본 list를 바꾸지 않고 뒤에 값이나 list를 붙인 새 list를 반환한다.
+- `qstar.merge(...)`는 plain table을 새 table로 deep merge한다. 같은 list field는 append된다.
+- `qstar.extend(base, ...)`는 `base` table을 deep merge로 갱신하고 다시 반환한다.
+
+`.qsm` module에서는 target을 선언하지 말고 이런 helper로 path, option table, config skeleton을
+반환한다.
+
 ## Explicit imports
 
 ```lua
@@ -59,12 +80,15 @@ declaration을 포함할 수 있고 once-only로 평가된다.
 
 ```lua
 local M = {}
+local base_c = {
+  public_include_dirs = {qstar.join("include")},
+  compile_options = {"-Wall"},
+}
 
 function M.common_c()
-  return {
-    public_include_dirs = {"include"},
-    compile_options = {"-Wall", "-Wextra"},
-  }
+  return qstar.merge(base_c, {
+    compile_options = {"-Wextra"},
+  })
 end
 
 return M
@@ -141,6 +165,7 @@ io.open("secret.txt")
 
 Global assignment와 filesystem/process/network/dynamic loading API는 금지된다.
 Lua `require`도 금지된다. Helper module은 `qstar.import_module`로만 불러온다.
+문자열 안의 `$SRC`, `$TRIPLE` 같은 token도 자동 확장되지 않는다.
 
 ## 관련 CLI
 
