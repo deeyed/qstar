@@ -89,6 +89,35 @@ Backslash paths and drive-letter package paths are rejected before the native
 Windows port so that Graph IR, compile database, response files, and Ninja
 lowering do not grow incompatible path dialects.
 
+## Public Beta Packaging Seal
+
+Round Q99 adds a public beta release gate around the Makefile-built runtime.
+The package script keeps the release asset reproducible enough for local smoke
+and GitHub prerelease publication.
+
+```txt
+make -C qstar qstar-public-beta-release-tests
+```
+
+This gate runs `tools/package-public-beta.sh`, installs QStar into a temporary
+release root, verifies `qstar --version`, installed wiki/manpages, Darwin
+codesign, macOS arm64 binary identity, prefix-style tarball layout, and
+`SHA256SUMS`. The expected macOS beta asset is:
+
+```txt
+dist/release/qstar-v0.4.0-beta.1-macos-arm64.tar.gz
+dist/release/SHA256SUMS
+```
+
+The runtime tarball contains `bin/qstar`, installed wiki, manpages, README files,
+Apache-2.0 license, and Lua vendor license notice. VSCode `.vsix` packages are
+not included in the runtime tarball; they remain separately versioned editor
+artifacts.
+
+Release procedure, wiki sync checklist, and GitHub publish commands live in
+`docs/public-beta-release.md`. New release notes should start from
+`docs/releases/TEMPLATE.md`.
+
 ## Editor Seal
 
 The VSCode extension package is versioned independently from the runtime. For

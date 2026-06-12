@@ -54,6 +54,10 @@ QStar가 하지 않는 일:
   root `qstar.lua` self-host graph를 제공한다. `make qstar-self-host-tests`는
   Makefile-built binary와 Stella/Ninja self-host binary의 `--version` 일치, `//:qstar`
   build, `//:self_host` smoke, compile database, Ninja root pollution 방지를 확인한다.
+- Public beta runtime package는 `make qstar-public-beta-release-tests`로 만든다. 이 gate는
+  installed binary version, installed wiki/manpages, macOS codesign, prefix-style
+  tarball layout, `SHA256SUMS`, VSCode `.vsix` 미포함 정책을 확인한다. GitHub Wiki
+  mirror는 `tools/sync-github-wiki.sh`로 수행한다.
 - Linux host 지원은 Round Q97 기준 `validation underway`다. `make qstar-linux-validation-tests`는
   portable path/process, Linux depfile 후보, generated_dir, install layout, docs/manpage
   smoke를 묶는다. macOS에서는 제한된 path smoke이고, Linux release asset은 깨끗한

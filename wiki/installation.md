@@ -21,6 +21,7 @@ git clone https://github.com/deeyed/qstar.git
 cd qstar
 make check
 make qstar-self-host-tests
+make qstar-public-beta-release-tests
 make qstar-linux-validation-tests
 make qstar-windows-prep-tests
 make install PREFIX="$HOME/.local"
@@ -30,6 +31,21 @@ qstar --file /tmp/qstar-install-smoke/qstar.lua build //:app
 
 VSCode extension은 `qstar/editors/vscode/qstar` 아래에 있고, `.vsix`는 commit하지 않는
 release artifact다.
+
+## Public beta package 검증
+
+Public beta tarball은 Makefile-built binary를 기준으로 만든다.
+
+```sh
+make qstar-public-beta-release-tests
+tar -tzf dist/release/qstar-v0.4.0-beta.1-macos-arm64.tar.gz
+cat dist/release/SHA256SUMS
+```
+
+이 gate는 installed binary version, macOS codesign, installed wiki, manpages,
+prefix-style tarball layout, `SHA256SUMS`, VSCode `.vsix` 미포함 정책을 확인한다.
+GitHub Wiki mirror는 source tree의 `wiki/`가 최신인 것을 확인한 뒤
+`tools/sync-github-wiki.sh`로 수행한다.
 
 ## 실패 예제
 
@@ -45,6 +61,7 @@ qstar --file missing/qstar.lua list-targets
 make all
 make check
 make qstar-self-host-tests
+make qstar-public-beta-release-tests
 make qstar-linux-validation-tests
 make qstar-windows-prep-tests
 qstar doctor
