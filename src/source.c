@@ -97,7 +97,7 @@ validate_target_file_artifact_ref(struct qstar_graph *graph, const char *token,
 		if (strcmp(target->kind, "group") == 0)
 			return qstar_set_error_origin(graph, origin_file, origin_line,
 			    field, owner,
-			    "qstar: qstar.target_file cannot reference group target '%s' because it has no artifact",
+			    "qstar: qstar.target_file cannot reference group target '%s' because group targets have no artifact; depend on the group directly or reference one of its artifact-producing deps",
 			    label);
 		return 0;
 	}
@@ -482,7 +482,7 @@ validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 				return qstar_set_error_origin(graph,
 				    genrule->origin_file, genrule->origin_line,
 				    "inputs", genrule->label,
-				    "qstar: qstar.target_file cannot reference group target '%s' because it has no artifact",
+				    "qstar: qstar.target_file cannot reference group target '%s' because group targets have no artifact; depend on the group directly or reference one of its artifact-producing deps",
 				    label);
 			if (!target && !qstar_graph_find_genrule(graph, label))
 				return qstar_set_error_origin(graph,
@@ -514,8 +514,9 @@ validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 		if (!qstar_graph_path_is_generated(graph, path))
 			return qstar_set_error_origin(graph, genrule->origin_file,
 			    genrule->origin_line, "outputs", genrule->label,
-			    "qstar: generated output '%s' in '%s' must be under generated_dir '%s'",
-			    path, genrule->label, qstar_graph_generated_dir(graph));
+			    "qstar: generated output '%s' in '%s' must be under generated_dir '%s'; set qstar.project.generated_dir or change the output path to '%s/<file>'",
+			    path, genrule->label, qstar_graph_generated_dir(graph),
+			    qstar_graph_generated_dir(graph));
 		for (j = 0; j < graph->genrule_len; j++) {
 			for (k = 0; k < graph->genrules[j].outputs.len; k++) {
 				if (&graph->genrules[j] == genrule && k == i)

@@ -220,7 +220,7 @@ EOF
 if "$qstar" --file "$group_tmp/group-bad/qstar.lua" check //:bad > "$tmp/group-bad.out" 2> "$tmp/group-bad.err"; then
 	fail "target_file(group) unexpectedly succeeded"
 fi
-contains "$tmp/group-bad.err" "qstar.target_file cannot reference group target '//:bundle' because it has no artifact"
+contains "$tmp/group-bad.err" "qstar.target_file cannot reference group target '//:bundle' because group targets have no artifact"
 
 mkdir -p "$tmp/build-policy-root/src"
 cat > "$tmp/build-policy-root/qstar.lua" <<'EOF'
@@ -795,7 +795,7 @@ EOF
 if "$qstar" --file "$tmp/import-missing-module/qstar.lua" check > "$tmp/import-missing-module.out" 2> "$tmp/import-missing-module.err"; then
 	fail "missing import_module unexpectedly succeeded"
 fi
-contains "$tmp/import-missing-module.err" "expected 'mods/missing/missing.qsm'"
+contains "$tmp/import-missing-module.err" "expected module entry 'mods/missing/missing.qsm'"
 
 mkdir -p "$tmp/import-module-file-arg/mods/a"
 cat > "$tmp/import-module-file-arg/qstar.lua" <<'EOF'
@@ -806,6 +806,18 @@ if "$qstar" --file "$tmp/import-module-file-arg/qstar.lua" check > "$tmp/import-
 	fail "file-path import_module unexpectedly succeeded"
 fi
 contains "$tmp/import-module-file-arg.err" "import_module expects a folder path"
+contains "$tmp/import-module-file-arg.err" "use qstar.import_module(\"mods/a\")"
+
+mkdir -p "$tmp/import-module-flat-file"
+cat > "$tmp/import-module-flat-file/qstar.lua" <<'EOF'
+qstar.project { name = "module-flat-file-arg", root = "." }
+qstar.import_module("foo.qsm")
+EOF
+if "$qstar" --file "$tmp/import-module-flat-file/qstar.lua" check > "$tmp/import-module-flat-file.out" 2> "$tmp/import-module-flat-file.err"; then
+	fail "flat file-path import_module unexpectedly succeeded"
+fi
+contains "$tmp/import-module-flat-file.err" "import_module expects a folder path"
+contains "$tmp/import-module-flat-file.err" "use qstar.import_module(\"foo\")"
 
 mkdir -p "$tmp/import-module-return/mods/a"
 cat > "$tmp/import-module-return/qstar.lua" <<'EOF'
@@ -832,7 +844,8 @@ EOF
 if "$qstar" --file "$tmp/import-module-graph/qstar.lua" check > "$tmp/import-module-graph.out" 2> "$tmp/import-module-graph.err"; then
 	fail "qsm graph declaration unexpectedly succeeded"
 fi
-contains "$tmp/import-module-graph.err" "is not allowed inside .qsm module"
+contains "$tmp/import-module-graph.err" "is forbidden inside .qsm module"
+contains "$tmp/import-module-graph.err" "modules must return a helper table"
 
 mkdir -p "$tmp/import-circular/mods/a" "$tmp/import-circular/mods/b"
 cat > "$tmp/import-circular/qstar.lua" <<'EOF'
@@ -850,7 +863,13 @@ EOF
 if "$qstar" --file "$tmp/import-circular/qstar.lua" check > "$tmp/import-circular.out" 2> "$tmp/import-circular.err"; then
 	fail "circular import unexpectedly succeeded"
 fi
-contains "$tmp/import-circular.err" "circular import includes 'mods/a/a.qsm'"
+contains "$tmp/import-circular.err" "circular import chain: qstar.lua -> mods/a/a.qsm -> mods/b/b.qsm -> mods/a/a.qsm"
+
+if "$qstar" --file tests/corpus/bad-import/qstar.lua check > "$tmp/bad-import-corpus.out" 2> "$tmp/bad-import-corpus.err"; then
+	fail "bad-import corpus unexpectedly succeeded"
+fi
+contains "$tmp/bad-import-corpus.err" "import_module expects a folder path"
+contains "$tmp/bad-import-corpus.err" "use qstar.import_module(\"modules/common\")"
 
 mkdir -p "$tmp/configs/qstar/policies" \
 	"$tmp/configs/sys/kern/mm" \
@@ -1029,7 +1048,7 @@ EOF
 if "$qstar" --file "$tmp/config-module/qstar.lua" check > "$tmp/config-module.out" 2> "$tmp/config-module.err"; then
 	fail "qsm config declaration unexpectedly succeeded"
 fi
-contains "$tmp/config-module.err" "qstar.config is not allowed inside .qsm module"
+contains "$tmp/config-module.err" "qstar.config is forbidden inside .qsm module"
 
 mkdir -p "$tmp/lua-global"
 cat > "$tmp/lua-global/qstar.lua" <<'EOF'
@@ -1507,7 +1526,7 @@ EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-include.out" 2> "$tmp/old-include.err"; then
 	fail "top-level include_dirs unexpectedly succeeded"
 fi
-contains "$tmp/old-include.err" "top-level include_dirs is not allowed; use lang.c.include_dirs or lang.cxx.include_dirs"
+contains "$tmp/old-include.err" "top-level include_dirs is not allowed; move it under lang.c.include_dirs"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.executable "app" {
   cxx_standard = "c++20",
@@ -1516,7 +1535,7 @@ EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-cxx-standard.out" 2> "$tmp/old-cxx-standard.err"; then
 	fail "top-level cxx_standard unexpectedly succeeded"
 fi
-contains "$tmp/old-cxx-standard.err" "top-level cxx_standard is not allowed; use lang.cxx.standard"
+contains "$tmp/old-cxx-standard.err" "top-level cxx_standard is not allowed; move it to lang.cxx.standard"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.staticlib "core" {
   public_headers = {"include/core.h"},
@@ -1525,7 +1544,7 @@ EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-public-headers.out" 2> "$tmp/old-public-headers.err"; then
 	fail "top-level public_headers unexpectedly succeeded"
 fi
-contains "$tmp/old-public-headers.err" "top-level public_headers is not allowed; use lang.c.public_headers, lang.cxx.public_headers, or lang.cale.public_headers"
+contains "$tmp/old-public-headers.err" "top-level public_headers is not allowed; move it under lang.c.public_headers"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.staticlib "core" {
   private_headers = {"src/core_private.h"},
@@ -1534,7 +1553,7 @@ EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-private-headers.out" 2> "$tmp/old-private-headers.err"; then
 	fail "top-level private_headers unexpectedly succeeded"
 fi
-contains "$tmp/old-private-headers.err" "top-level private_headers is not allowed; use lang.c.private_headers, lang.cxx.private_headers, or lang.cale.private_headers"
+contains "$tmp/old-private-headers.err" "top-level private_headers is not allowed; move it under lang.c.private_headers"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.staticlib "core" {
   modules = qstar.modules { root = "src" },
@@ -1543,7 +1562,7 @@ EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-modules.out" 2> "$tmp/old-modules.err"; then
 	fail "top-level modules unexpectedly succeeded"
 fi
-contains "$tmp/old-modules.err" "top-level modules is not allowed; use lang.cale.modules or lang.cxx.modules"
+contains "$tmp/old-modules.err" "top-level modules is not allowed; move it under lang.cale.modules or lang.cxx.modules"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.staticlib "core" {
   hcl_include_dirs = {"include"},
@@ -2132,6 +2151,30 @@ if "$qstar" --file "$tmp/qstar.lua" check > "$tmp/outside.out" 2> "$tmp/outside.
 	fail "outside generated output unexpectedly succeeded"
 fi
 contains "$tmp/outside.err" "must be package-relative"
+
+cat > "$tmp/qstar.lua" <<'EOF'
+qstar.project {
+  name = "generated-root",
+  root = ".",
+  generated_dir = "build/qstar/generated",
+}
+
+qstar.custom_target "bad_generated_dir" {
+  outputs = {qstar.output("generated/safe.c")},
+  command = qstar.cli {"tools/gen-value.sh", qstar.output(0)},
+}
+EOF
+
+if "$qstar" --file "$tmp/qstar.lua" check > "$tmp/generated-dir.out" 2> "$tmp/generated-dir.err"; then
+	fail "generated_dir escape output unexpectedly succeeded"
+fi
+contains "$tmp/generated-dir.err" "must be under generated_dir 'build/qstar/generated'"
+contains "$tmp/generated-dir.err" "change the output path to 'build/qstar/generated/<file>'"
+
+if "$qstar" --file tests/corpus/bad-group/qstar.lua check > "$tmp/bad-group-corpus.out" 2> "$tmp/bad-group-corpus.err"; then
+	fail "bad-group corpus unexpectedly succeeded"
+fi
+contains "$tmp/bad-group-corpus.err" "qstar.target_file cannot reference group target '//:aggregate' because group targets have no artifact"
 
 cat > "$tmp/qstar.lua" <<'EOF'
 qstar.custom_target "bad_arg" {

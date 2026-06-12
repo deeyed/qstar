@@ -61,6 +61,27 @@ depfile-behavior compiler=clang platform=darwin flags=-MMD,-MF status=supported
 `path_tools`, `tool_overrides`, `sysroot`, `resource_dir`를 확인한다. Doctor는 진단
 명령이므로 warning이 있어도 text report를 끝까지 출력한다.
 
+## Authoring diagnostics
+
+QStar authoring 오류는 가능한 한 “무엇이 잘못됐는지”와 “어디로 옮겨야 하는지”를 함께
+출력한다.
+
+대표 예:
+
+```txt
+qstar: import_module expects a folder path, not file 'modules/common/common.qsm'; use qstar.import_module("modules/common")
+qstar: import_module 'modules/missing' not found; expected module entry 'modules/missing/missing.qsm'
+qstar: circular import chain: qstar.lua -> modules/a/a.qsm -> modules/b/b.qsm -> modules/a/a.qsm
+qstar: qstar.config is forbidden inside .qsm module; modules must return a helper table
+qstar: qstar.target_file cannot reference group target '//:aggregate' because group targets have no artifact
+qstar: generated output 'generated/file.c' in '//:gen' must be under generated_dir 'build/qstar/generated'
+qstar: top-level include_dirs is not allowed; move it under lang.c.include_dirs
+```
+
+`.qsm`은 helper table 전용이다. Target, profile, config, stage, import_file 같은 graph
+declaration은 `.qst` 또는 `qstar.lua`에서 선언한다. `qstar.group`은 artifact가 없으므로
+`qstar.target_file("//:group")`의 대상이 될 수 없다.
+
 ## 관련 diagnostic
 
 - `QSTAR001 root entry must be qstar.lua`

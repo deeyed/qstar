@@ -26,6 +26,7 @@ QStar가 하지 않는 일:
 - subdir fragment는 `<folder>/<folder>.qst`다.
 - `qstar.import_file("path.qst")`는 package-root 기준 `.qst` graph fragment를 읽는다.
 - `qstar.import_module("folder/path")`는 `folder/path/path.qsm` helper module table을 읽는다.
+- `qstar.import_module`에는 `.qsm` 파일이 아니라 폴더만 넘긴다.
 - `.qsm` 안에서는 target/profile/project 같은 graph declaration이 금지된다.
 - 반복 option은 `qstar.config`와 target `configs = {...}`로 공유한다.
 - 반복 path/list/table 조립은 `qstar.join`, `qstar.copy`, `qstar.append`, `qstar.merge`,
@@ -324,4 +325,5 @@ qstar --file qstar.lua replay //:target:action:0
 - `qstar.config_header`
 - `qstar.write_config_header`
 - top-level `include_dirs`, `public_headers`, `cflags`, `cxxflags`, `modules`
+- `qstar.target_file("//:group")`
 - board-specific target/rule builtin

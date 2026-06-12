@@ -2825,7 +2825,7 @@ resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
 	if (strcmp(target->kind, "group") == 0)
 		return qstar_set_error_origin(graph, target->origin_file,
 		    target->origin_line, "target_file", target->label,
-		    "qstar: qstar.target_file cannot reference group target '%s' because it has no artifact",
+		    "qstar: qstar.target_file cannot reference group target '%s' because group targets have no artifact; depend on the group directly or reference one of its artifact-producing deps",
 		    label);
 	if (qstar_graph_artifact_output_path(graph, target, dst, dstlen) < 0)
 		return qstar_set_error(graph, "qstar: target_file artifact path is too long");

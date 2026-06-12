@@ -75,6 +75,15 @@ end
 return M
 ```
 
+대표 diagnostic:
+
+```txt
+qstar: import_module expects a folder path, not file 'qstar/modules/kernel/kernel.qsm'; use qstar.import_module("qstar/modules/kernel")
+qstar: import_module 'qstar/modules/missing' not found; expected module entry 'qstar/modules/missing/missing.qsm'
+qstar: qstar.config is forbidden inside .qsm module; modules must return a helper table
+qstar: circular import chain: qstar.lua -> qstar/modules/a/a.qsm -> qstar/modules/b/b.qsm -> qstar/modules/a/a.qsm
+```
+
 LSP definition navigation은 import 문자열도 해석한다. `qstar.import_file("foo/bar.qst")`
 위에서 definition을 요청하면 해당 `.qst`로 이동하고,
 `qstar.import_module("qstar/modules/kernel")` 위에서는
