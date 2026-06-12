@@ -112,6 +112,7 @@ qstar --file qstar.lua build //:app
 - [Custom Target](reference/custom-target.md)
 - [Run Target](reference/run-target.md)
 - [Profiles](reference/profiles.md)
+- [Performance Gates](reference/performance-gates.md)
 - [Diagnostics](reference/diagnostics.md)
 
 ## Tutorials

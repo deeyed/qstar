@@ -50,6 +50,10 @@ QStar가 하지 않는 일:
   root `qstar.lua` self-host graph를 제공한다. `make qstar-self-host-tests`는
   Makefile-built binary와 Stella/Ninja self-host binary의 `--version` 일치, `//:qstar`
   build, `//:self_host` smoke, compile database, Ninja root pollution 방지를 확인한다.
+- `make qstar-medium-project-readiness-tests`는 Stella executor와 Ninja backend의 clean,
+  no-op, incremental build 시간을 `medium_project_gate ...` line protocol로 기록한다.
+  Round Q92 기준 timing threshold는 report-only가 기본이며,
+  `QSTAR_MEDIUM_PERF_REPORT_ONLY=0`이면 hard gate로 승격된다.
 - external command는 `qstar.cli { ... }` argv-vector로만 표현한다.
 - low-level/bootloader-style project도 generic primitive로 표현한다.
 
@@ -267,7 +271,8 @@ Reference:
 5. `reference/profiles.md`
 6. `reference/custom-target.md`
 7. `reference/run-target.md`
-8. `reference/diagnostics.md`
+8. `reference/performance-gates.md`
+9. `reference/diagnostics.md`
 
 Low-level/bootloader-style project:
 

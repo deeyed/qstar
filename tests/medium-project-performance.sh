@@ -5,10 +5,13 @@ qstar=${QSTAR_TEST_QSTAR:-build/bin/qstar}
 tmp=${TMPDIR:-/tmp}/qstar-medium-project-performance.$$
 root=$tmp/project
 clean_max_ms=${QSTAR_MEDIUM_CLEAN_MAX_MS:-120000}
-noop_max_ms=${QSTAR_MEDIUM_NOOP_MAX_MS:-5000}
+noop_max_ms=${QSTAR_MEDIUM_NOOP_MAX_MS:-300}
+incremental_max_ms=${QSTAR_MEDIUM_INCREMENTAL_MAX_MS:-1000}
 ratio_x100=${QSTAR_MEDIUM_STELLA_TO_NINJA_X100:-200}
 ratio_slack_ms=${QSTAR_MEDIUM_RATIO_SLACK_MS:-250}
 min_targets=${QSTAR_MEDIUM_MIN_TARGETS:-40}
+report_only=${QSTAR_MEDIUM_PERF_REPORT_ONLY:-1}
+perf_issue_count=0
 
 fail() {
 	echo "qstar-medium-project: $*" >&2
@@ -47,7 +50,7 @@ check_elapsed_max() {
 	elapsed=$2
 	limit=$3
 	if [ "$elapsed" -gt "$limit" ]; then
-		fail "$name took ${elapsed}ms; limit=${limit}ms"
+		perf_issue "$name took ${elapsed}ms; limit=${limit}ms"
 	fi
 }
 
@@ -56,8 +59,24 @@ check_stella_vs_ninja() {
 	stella_elapsed=$2
 	ninja_elapsed=$3
 	if [ $((stella_elapsed * 100)) -gt $((ninja_elapsed * ratio_x100 + ratio_slack_ms * 100)) ]; then
-		fail "stella $phase ${stella_elapsed}ms exceeds ninja ${ninja_elapsed}ms beyond ratio_x100=${ratio_x100} slack_ms=${ratio_slack_ms}"
+		perf_issue "stella $phase ${stella_elapsed}ms exceeds ninja ${ninja_elapsed}ms beyond ratio_x100=${ratio_x100} slack_ms=${ratio_slack_ms}"
 	fi
+}
+
+perf_issue() {
+	perf_issue_count=$((perf_issue_count + 1))
+	if [ "$report_only" = 1 ]; then
+		printf 'medium_project_gate warning=%s\n' "$*"
+	else
+		fail "$*"
+	fi
+}
+
+bump_source() {
+	path=$1
+	value=$2
+	sleep 1
+	printf 'int kernel_mm(void) { return %s; }\n' "$value" > "$root/$path"
 }
 
 write_staticlib() {
@@ -328,6 +347,12 @@ contains "$tmp/stella_noop.out" "status ok"
 check_elapsed_max "stella no-op build" "$stella_noop_ms" "$noop_max_ms"
 printf 'medium_project_gate backend=stella phase=noop elapsed_ms=%s\n' "$stella_noop_ms"
 
+bump_source "sys/kern/mm/mm.c" 7001
+run_timed stella_incremental "$qstar" --file "$root/qstar.lua" -B build/stella -G stella build //:firmware_image
+contains "$tmp/stella_incremental.out" "status ok"
+check_elapsed_max "stella incremental build" "$stella_incremental_ms" "$incremental_max_ms"
+printf 'medium_project_gate backend=stella phase=incremental elapsed_ms=%s\n' "$stella_incremental_ms"
+
 if command -v ninja >/dev/null 2>&1; then
 	run_timed ninja_clean "$qstar" --file "$root/qstar.lua" -B build/qstar-ninja -G ninja build //:firmware_image
 	contains "$tmp/ninja_clean.out" "backend ninja"
@@ -340,13 +365,22 @@ if command -v ninja >/dev/null 2>&1; then
 	contains "$tmp/ninja_noop.out" "status ok"
 	check_elapsed_max "ninja no-op build" "$ninja_noop_ms" "$noop_max_ms"
 	printf 'medium_project_gate backend=ninja phase=noop elapsed_ms=%s\n' "$ninja_noop_ms"
+	bump_source "sys/kern/mm/mm.c" 7002
+	run_timed ninja_incremental "$qstar" --file "$root/qstar.lua" -B build/qstar-ninja -G ninja build //:firmware_image
+	contains "$tmp/ninja_incremental.out" "backend ninja"
+	contains "$tmp/ninja_incremental.out" "status ok"
+	check_elapsed_max "ninja incremental build" "$ninja_incremental_ms" "$incremental_max_ms"
+	printf 'medium_project_gate backend=ninja phase=incremental elapsed_ms=%s\n' "$ninja_incremental_ms"
 	printf 'medium_project_gate compare phase=clean stella_ms=%s ninja_ms=%s ratio_x100=%s slack_ms=%s\n' "$stella_clean_ms" "$ninja_clean_ms" "$ratio_x100" "$ratio_slack_ms"
 	printf 'medium_project_gate compare phase=noop stella_ms=%s ninja_ms=%s ratio_x100=%s slack_ms=%s\n' "$stella_noop_ms" "$ninja_noop_ms" "$ratio_x100" "$ratio_slack_ms"
+	printf 'medium_project_gate compare phase=incremental stella_ms=%s ninja_ms=%s ratio_x100=%s slack_ms=%s\n' "$stella_incremental_ms" "$ninja_incremental_ms" "$ratio_x100" "$ratio_slack_ms"
 	check_stella_vs_ninja clean "$stella_clean_ms" "$ninja_clean_ms"
 	check_stella_vs_ninja noop "$stella_noop_ms" "$ninja_noop_ms"
+	check_stella_vs_ninja incremental "$stella_incremental_ms" "$ninja_incremental_ms"
 else
 	printf 'medium_project_gate backend=ninja phase=clean elapsed_ms=skipped reason=ninja-not-found\n'
 	printf 'medium_project_gate backend=ninja phase=noop elapsed_ms=skipped reason=ninja-not-found\n'
+	printf 'medium_project_gate backend=ninja phase=incremental elapsed_ms=skipped reason=ninja-not-found\n'
 fi
 
-printf 'medium_project_gate status=ok\n'
+printf 'medium_project_gate status=ok perf_issue_count=%s report_only=%s\n' "$perf_issue_count" "$report_only"

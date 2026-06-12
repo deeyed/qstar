@@ -76,10 +76,12 @@ LSP client wiring, target tree/query/build/test/log/replay command palette, and
 ## Performance Seal
 
 `qstar-v0.4-pilot-tests` includes the medium project readiness corpus. The gate
-compares Stella and Ninja clean/no-op build timings on a generic low-level
-project shape without naming a downstream project. Stella does not need to be a
-byte-for-byte Ninja clone, but no-op and clean build overhead must remain close
-enough that Stella is a credible primary backend for medium projects.
+compares Stella and Ninja clean/no-op/incremental build timings on a generic
+low-level project shape without naming a downstream project. Stella does not
+need to be a byte-for-byte Ninja clone, but no-op, incremental, and clean build
+overhead must remain close enough that Stella is a credible primary backend for
+medium projects. Round Q92 keeps timing thresholds report-only by default and
+uses `QSTAR_MEDIUM_PERF_REPORT_ONLY=0` to promote them to a hard gate.
 
 ## Self-host Seal
 
