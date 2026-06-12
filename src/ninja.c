@@ -1105,7 +1105,14 @@ write_run_script(struct qstar_graph *graph, const struct qstar_target *target,
 	fputs("pid=$!\n", f);
 	fputs("watchdog=\n", f);
 	fputs("if [ \"$timeout\" -gt 0 ]; then\n", f);
-	fputs("  ( sleep \"$timeout\"; if kill -0 \"$pid\" 2>/dev/null; then printf 'timeout\\n' >\"$timeout_flag\"; kill \"$pid\" 2>/dev/null || true; fi ) &\n", f);
+	fputs("  (\n", f);
+	fputs("    sleep_pid=\n", f);
+	fputs("    trap 'if [ -n \"$sleep_pid\" ]; then kill \"$sleep_pid\" 2>/dev/null || true; fi; exit 0' TERM INT\n", f);
+	fputs("    sleep \"$timeout\" &\n", f);
+	fputs("    sleep_pid=$!\n", f);
+	fputs("    wait \"$sleep_pid\" 2>/dev/null || exit 0\n", f);
+	fputs("    if kill -0 \"$pid\" 2>/dev/null; then printf 'timeout\\n' >\"$timeout_flag\"; kill \"$pid\" 2>/dev/null || true; fi\n", f);
+	fputs("  ) &\n", f);
 	fputs("  watchdog=$!\n", f);
 	fputs("fi\n", f);
 	fputs("wait \"$pid\"\n", f);

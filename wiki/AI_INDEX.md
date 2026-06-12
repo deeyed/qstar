@@ -58,6 +58,9 @@ QStar가 하지 않는 일:
   installed binary version, installed wiki/manpages, macOS codesign, prefix-style
   tarball layout, `SHA256SUMS`, VSCode `.vsix` 미포함 정책을 확인한다. GitHub Wiki
   mirror는 `tools/sync-github-wiki.sh`로 수행한다.
+- 0.5 readiness 판단은 `docs/qstar-v0.5-readiness.md`에 둔다. 이 문서는 self-host,
+  Stella/Ninja benchmark, Ninja parity, Linux/Windows status, docs/CLI drift, medium
+  project readiness, version policy, deferred surface를 요약한다.
 - Linux host 지원은 Round Q97 기준 `validation underway`다. `make qstar-linux-validation-tests`는
   portable path/process, Linux depfile 후보, generated_dir, install layout, docs/manpage
   smoke를 묶는다. macOS에서는 제한된 path smoke이고, Linux release asset은 깨끗한

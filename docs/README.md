@@ -60,6 +60,7 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 - `windows-path-process.md`: Windows path/process/response-file pre-port contract.
 - `public-beta-release.md`: public beta packaging, install smoke, codesign, wiki sync gate.
 - `releases/TEMPLATE.md`: GitHub prerelease notes template.
+- `qstar-v0.5-readiness.md`: 0.5 beta line으로 올릴지 판단하는 readiness gate.
 - `qstar-pilot-readiness-seal.md`: formatter/help/wiki/CLI sync까지 묶은 pilot-readiness gate.
 - `qstar-submodule-extraction-prep.md`: 독립 repo/submodule 전환 직전 체크리스트.
 - `../wiki/`: 사용자/AI가 QStar project를 직접 작성할 수 있는 한국어 wiki.
@@ -108,6 +109,10 @@ v0.4는 Stella를 기본 generator로 고정하고, `-G stella|ninja|auto`, `-B`
 `qstar.project.generated_dir`, compact progress, Ninja comparison backend, medium
 project performance gate를 함께 봉인한다. Runtime version은 `qstar --version`과
 `QSTAR_VERSION`이 같은 `0.4.0-beta.1`, VSCode extension version은 `0.3.0`이어야 한다.
+
+Round 100부터 0.5 readiness 판단은 `qstar-v0.5-readiness.md`에 둔다. 이 문서는
+self-host, Stella/Ninja benchmark, Ninja parity, Linux/Windows status, docs/CLI drift,
+medium project readiness, version policy, deferred surface를 한 번에 요약한다.
 
 ## Round 15 구현 상태
 
