@@ -1701,6 +1701,9 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 	    graph->profile.linker ? graph->profile.linker : "<default>",
 	    graph->profile.sysroot ? graph->profile.sysroot : "<none>",
 	    graph->profile.resource_dir ? graph->profile.resource_dir : "<none>");
+	fprintf(out, "profile_response response_files=%s response_style=%s\n",
+	    graph->profile.response_files ? graph->profile.response_files : "auto",
+	    graph->profile.response_style ? graph->profile.response_style : "auto");
 	fprintf(out, "profile_link linker_script=%s link_options=",
 	    graph->profile.linker_script ? graph->profile.linker_script : "<none>");
 	dump_list(out, &graph->profile.link_options);

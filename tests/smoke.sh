@@ -3592,6 +3592,46 @@ if "$qstar" --file "$tmp/freestanding/qstar.lua" check //:missing_profile_script
 fi
 contains "$tmp/freestanding-missing-profile.err" "profile linker_script 'linker/missing.ld' does not exist"
 
+"$qstar" --file tests/corpus/freestanding/qstar.lua doctor > "$tmp/freestanding-corpus-doctor.out" 2> "$tmp/freestanding-corpus-doctor.err"
+contains "$tmp/freestanding-corpus-doctor.out" "profile_response response_files=on response_style=posix"
+contains "$tmp/freestanding-corpus-doctor.out" "response-policy configured_files=on configured_style=posix effective_files=on effective_style=posix"
+contains "$tmp/freestanding-corpus-doctor.out" "toolchain-tool role=cc name=tools/fake-clang.sh required=true mode=package status=found"
+contains "$tmp/freestanding-corpus-doctor.out" "toolchain-tool role=linker name=tools/fake-link.sh required=true mode=package status=found"
+contains "$tmp/freestanding-corpus-doctor.out" "profile-path name=sysroot path=sysroot mode=package status=found type=directory"
+contains "$tmp/freestanding-corpus-doctor.out" "profile-path name=resource_dir path=resource mode=package status=found type=directory"
+contains "$tmp/freestanding-corpus-doctor.out" "external-tool-override name=llvm-objcopy value=tools/fake-objcopy.sh mode=package status=found"
+contains "$tmp/freestanding-corpus-doctor.out" "depfile-behavior compiler=tools/fake-clang.sh"
+"$qstar" --file tests/corpus/freestanding/qstar.lua explain //:kernel > "$tmp/freestanding-corpus-explain.out" 2> "$tmp/freestanding-corpus-explain.err"
+contains "$tmp/freestanding-corpus-explain.out" "profile_response response_files=on response_style=posix"
+contains "$tmp/freestanding-corpus-explain.out" "effective_compile_merge owner=//:kernel"
+contains "$tmp/freestanding-corpus-explain.out" "auto_options=[-ffreestanding, -fno-builtin, -fno-stack-protector, -mgeneral-regs-only, -mcpu=cortex-a76, -mabi=lp64]"
+contains "$tmp/freestanding-corpus-explain.out" "target_c_compile_options=[-std=c23, -Wall, -Wextra, -Werror]"
+contains "$tmp/freestanding-corpus-explain.out" "target_system_include_dirs=[sysroot/include]"
+
+mkdir -p "$tmp/profile-doctor-missing/src"
+cat > "$tmp/profile-doctor-missing/src/main.c" <<'EOF'
+int main(void) { return 0; }
+EOF
+cat > "$tmp/profile-doctor-missing/qstar.lua" <<'EOF'
+qstar.profile "default" {
+  cc = "qstar-missing-cc",
+  linker = "qstar-missing-ld",
+  sysroot = "missing-sysroot",
+  resource_dir = "missing-resource",
+  path_tools = {"qstar-missing-objcopy"},
+}
+
+qstar.executable "app" {
+  sources = {"src/main.c"},
+}
+EOF
+"$qstar" --file "$tmp/profile-doctor-missing/qstar.lua" doctor > "$tmp/profile-doctor-missing.out" 2> "$tmp/profile-doctor-missing.err"
+contains "$tmp/profile-doctor-missing.out" "toolchain-tool role=cc name=qstar-missing-cc required=true mode=path status=missing severity=warning"
+contains "$tmp/profile-doctor-missing.out" "toolchain-tool role=linker name=qstar-missing-ld required=true mode=path status=missing severity=warning"
+contains "$tmp/profile-doctor-missing.out" "profile-path name=sysroot path=missing-sysroot mode=package status=missing"
+contains "$tmp/profile-doctor-missing.out" "profile-path name=resource_dir path=missing-resource mode=package status=missing"
+contains "$tmp/profile-doctor-missing.out" "external-tool name=qstar-missing-objcopy mode=path status=missing"
+
 mkdir -p "$tmp/exttool/bin" "$tmp/exttool/src" "$tmp/exttool/tools"
 cat > "$tmp/exttool/bin/qstar-extgen" <<'EOF'
 #!/bin/sh

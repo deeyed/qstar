@@ -104,6 +104,8 @@ Profile/toolchain:
 - `sysroot`, `resource_dir`
 - `compile_options`, `link_options`, `linker_script`, `defsyms`
 - `path_tools`, `tool_overrides`, `response_files`, `response_style`
+- `qstar doctor`는 resolved tool, 누락된 PATH/package tool, sysroot/resource_dir 상태,
+  response policy, depfile behavior를 보고한다.
 
 ## 4. 언어별 option 위치
 
@@ -295,6 +297,7 @@ qstar docs --ai-index
 qstar docs --show reference/modules.md
 qstar --file qstar.lua lint //...
 qstar --file qstar.lua list-targets --format json
+qstar --file qstar.lua doctor
 qstar --file qstar.lua explain //:target
 qstar --file qstar.lua dry-run //:target
 qstar --file qstar.lua build //:target --explain-cache

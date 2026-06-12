@@ -40,6 +40,27 @@ qstar --file qstar.lua doctor
 qstar --file qstar.lua last-failure
 ```
 
+## Profile/toolchain doctor
+
+`qstar doctor`는 C/C++/Cale target을 빌드하기 전 profile 문제를 먼저 보여준다.
+특히 freestanding project에서는 compiler/linker/objcopy 같은 외부 tool, sysroot,
+resource directory, response file policy가 맞는지 확인하는 데 쓴다.
+
+대표 출력:
+
+```txt
+toolchain-sanity name=clang cc=clang cxx=clang++ ar=ar linker=ld.lld ...
+response-policy configured_files=on configured_style=posix effective_files=on effective_style=posix
+toolchain-tool role=cc name=clang required=true mode=path status=found
+profile-path name=sysroot path=sysroot mode=package status=found type=directory
+external-tool-override name=llvm-objcopy value=tools/fake-objcopy.sh mode=package status=found
+depfile-behavior compiler=clang platform=darwin flags=-MMD,-MF status=supported
+```
+
+`status=missing`이나 `severity=warning`이 보이면 먼저 profile의 `cc`, `linker`,
+`path_tools`, `tool_overrides`, `sysroot`, `resource_dir`를 확인한다. Doctor는 진단
+명령이므로 warning이 있어도 text report를 끝까지 출력한다.
+
 ## 관련 diagnostic
 
 - `QSTAR001 root entry must be qstar.lua`

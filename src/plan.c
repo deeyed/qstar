@@ -29,6 +29,14 @@ struct qstar_argv_dump {
 	char response_style[32];
 };
 
+struct doctor_tool_requirements {
+	int cc;
+	int cxx;
+	int cale;
+	int ar;
+	int linker;
+};
+
 /** profile 문자열이 없을 때 explain dump에 쓸 기본값을 반환한다. */
 static const char *
 profile_or_default(const char *s, const char *fallback)
@@ -345,11 +353,27 @@ dump_plan_inputs(FILE *out, const struct qstar_graph *graph)
 	    profile_or_default(graph->profile.cpu, "<none>"),
 	    profile_or_default(graph->profile.abi, "<none>"),
 	    profile_or_default(graph->profile.freestanding, "false"));
+	fprintf(out, "profile_tools cc=%s cxx=%s cale=%s ar=%s linker=%s sysroot=%s resource_dir=%s\n",
+	    profile_or_default(graph->profile.cc, "<default>"),
+	    profile_or_default(graph->profile.cxx, "<default>"),
+	    profile_or_default(graph->profile.cale, "<default>"),
+	    profile_or_default(graph->profile.ar, "<default>"),
+	    profile_or_default(graph->profile.linker, "<default>"),
+	    profile_or_default(graph->profile.sysroot, "<none>"),
+	    profile_or_default(graph->profile.resource_dir, "<none>"));
+	fprintf(out, "profile_response response_files=%s response_style=%s\n",
+	    profile_or_default(graph->profile.response_files, "auto"),
+	    profile_or_default(graph->profile.response_style, "auto"));
 	fprintf(out, "profile_link linker_script=%s link_options=",
 	    profile_or_default(graph->profile.linker_script, "<none>"));
 	dump_list(out, &graph->profile.link_options);
 	fputs(" defsyms=", out);
 	dump_list(out, &graph->profile.defsyms);
+	fputc('\n', out);
+	fputs("profile_compile compile_options=", out);
+	dump_list(out, &graph->profile.compile_options);
+	fputs(" include_dirs=", out);
+	dump_list(out, &graph->profile.include_dirs);
 	fputc('\n', out);
 	fprintf(out, "profile_external_tools allow_absolute=%s path_tools=",
 	    profile_or_default(graph->profile.allow_absolute_tools, "false"));
@@ -697,6 +721,77 @@ dump_profile_compile_options(FILE *out, struct qstar_argv_dump *dump,
 		snprintf(arg, sizeof(arg), "-mabi=%s", graph->profile.abi);
 		argv_item(out, dump, arg);
 	}
+}
+
+/** freestanding/cpu/abi profile이 자동 추가하는 compile option list를 출력한다. */
+static void
+dump_profile_auto_compile_options(FILE *out, const struct qstar_graph *graph)
+{
+	char arg[QSTAR_PATH_MAX];
+	const char *arch;
+	int first;
+
+	first = 1;
+	fputc('[', out);
+#define AUTO_OPT(value) \
+	do { \
+		if (!first) \
+			fputs(", ", out); \
+		fputs((value), out); \
+		first = 0; \
+	} while (0)
+	if (profile_is_freestanding(graph)) {
+		AUTO_OPT("-ffreestanding");
+		AUTO_OPT("-fno-builtin");
+		AUTO_OPT("-fno-stack-protector");
+		arch = profile_arch_hint(graph);
+		if (strstr(arch, "x86_64") || strstr(arch, "amd64"))
+			AUTO_OPT("-mno-red-zone");
+		if (strstr(arch, "aarch64") || strstr(arch, "arm64"))
+			AUTO_OPT("-mgeneral-regs-only");
+	}
+	if (graph->profile.cpu && *graph->profile.cpu) {
+		snprintf(arg, sizeof(arg), "-mcpu=%s", graph->profile.cpu);
+		AUTO_OPT(arg);
+	}
+	if (graph->profile.abi && *graph->profile.abi) {
+		snprintf(arg, sizeof(arg), "-mabi=%s", graph->profile.abi);
+		AUTO_OPT(arg);
+	}
+#undef AUTO_OPT
+	fputc(']', out);
+}
+
+/** target compile option이 profile/config/local merge 뒤 어떻게 보이는지 설명한다. */
+static void
+dump_effective_compile_merge(FILE *out, const struct qstar_graph *graph,
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain)
+{
+	fprintf(out,
+	    "  effective_compile_merge owner=%s profile=%s target=%s response_files=%s response_style=%s order=auto,profile,target auto_options=",
+	    target->label, profile_or_default(graph->profile.name, "default"),
+	    profile_or_default(graph->profile.target, "host"),
+	    toolchain->response_files ? "on" : "off", toolchain->response_style);
+	dump_profile_auto_compile_options(out, graph);
+	fputs(" profile_compile_options=", out);
+	dump_list(out, &graph->profile.compile_options);
+	fputs(" profile_include_dirs=", out);
+	dump_list(out, &graph->profile.include_dirs);
+	fputs(" target_c_compile_options=", out);
+	dump_list(out, &target->cflags);
+	fputs(" target_cxx_compile_options=", out);
+	dump_list(out, &target->cxxflags);
+	fputs(" target_asm_compile_options=", out);
+	dump_list(out, &target->asm_compile_options);
+	fputs(" target_include_dirs=", out);
+	dump_list(out, &target->include_dirs);
+	fputs(" target_public_include_dirs=", out);
+	dump_list(out, &target->public_include_dirs);
+	fputs(" target_interface_include_dirs=", out);
+	dump_list(out, &target->interface_include_dirs);
+	fputs(" target_system_include_dirs=", out);
+	dump_list(out, &target->system_include_dirs);
+	fputc('\n', out);
 }
 
 /** source language가 assembler 계열인지 확인한다. */
@@ -1308,23 +1403,157 @@ split_tool_override_for_doctor(const char *entry, char *name, size_t name_len,
 	return 1;
 }
 
-/** package-relative file 존재 여부를 doctor 출력용으로 확인한다. */
+/** doctor 출력용으로 path에 separator가 있는지 확인한다. */
 static int
-doctor_package_file_exists(const struct qstar_graph *graph, const char *rel)
+doctor_path_has_separator(const char *path)
+{
+	return path && (strchr(path, '/') || strchr(path, '\\'));
+}
+
+/** doctor 출력용으로 absolute path 여부를 확인한다. */
+static int
+doctor_path_is_absolute(const char *path)
+{
+	return path && path[0] == '/';
+}
+
+/** doctor가 build directory 쓰기 가능 여부를 확인하기 위해 directory를 만든다. */
+static int
+doctor_mkdir_p(const char *path)
+{
+	char tmp[QSTAR_PATH_MAX];
+	char *p;
+	struct stat st;
+
+	if (!path || !*path)
+		return -1;
+	if (snprintf(tmp, sizeof(tmp), "%s", path) >= (int)sizeof(tmp))
+		return -1;
+	for (p = tmp + 1; *p; p++) {
+		if (*p != '/')
+			continue;
+		*p = '\0';
+		if (mkdir(tmp, 0777) < 0 &&
+		    (stat(tmp, &st) < 0 || !S_ISDIR(st.st_mode))) {
+			*p = '/';
+			return -1;
+		}
+		*p = '/';
+	}
+	if (mkdir(tmp, 0777) < 0 &&
+	    (stat(tmp, &st) < 0 || !S_ISDIR(st.st_mode)))
+		return -1;
+	return 0;
+}
+
+/** doctor path 상태를 package-relative/absolute 양쪽에서 확인한다. */
+static int
+doctor_path_state(const struct qstar_graph *graph, const char *path, char *full,
+    size_t full_len, int *exists, int *executable, int *is_dir)
+{
+	struct stat st;
+
+	if (exists)
+		*exists = 0;
+	if (executable)
+		*executable = 0;
+	if (is_dir)
+		*is_dir = 0;
+	if (!path || !*path)
+		return -1;
+	if (doctor_path_is_absolute(path)) {
+		if (snprintf(full, full_len, "%s", path) >= (int)full_len)
+			return -1;
+	} else if (qstar_path_is_package_relative(path)) {
+		if (qstar_path_join(graph->package_root ? graph->package_root : ".", path,
+		    full, full_len) < 0)
+			return -1;
+	} else {
+		return -1;
+	}
+	if (stat(full, &st) == 0) {
+		if (exists)
+			*exists = 1;
+		if (is_dir)
+			*is_dir = S_ISDIR(st.st_mode);
+	}
+	if (access(full, X_OK) == 0 && executable)
+		*executable = 1;
+	return 0;
+}
+
+/** doctor path 상태를 stable text로 출력한다. */
+static void
+dump_profile_path_doctor(FILE *out, const struct qstar_graph *graph, const char *name,
+    const char *path, int want_dir)
 {
 	char full[QSTAR_PATH_MAX];
-	FILE *f;
+	const char *mode, *status, *type;
+	int exists, executable, is_dir;
 
-	if (!rel || !*rel || !qstar_path_is_package_relative(rel))
-		return 0;
-	if (qstar_path_join(graph->package_root ? graph->package_root : ".", rel, full,
-	    sizeof(full)) < 0)
-		return 0;
-	f = fopen(full, "rb");
-	if (!f)
-		return 0;
-	fclose(f);
-	return 1;
+	if (!path || !*path) {
+		fprintf(out,
+		    "profile-path name=%s path=<none> mode=unset status=not-set type=none\n",
+		    name);
+		return;
+	}
+	mode = doctor_path_is_absolute(path) ? "absolute" : "package";
+	if (doctor_path_state(graph, path, full, sizeof(full), &exists, &executable,
+	    &is_dir) < 0) {
+		fprintf(out,
+		    "profile-path name=%s path=%s mode=invalid status=invalid type=unknown\n",
+		    name, path);
+		return;
+	}
+	type = exists ? is_dir ? "directory" : "file" : "missing";
+	status = !exists ? "missing" : want_dir && !is_dir ? "not-directory" : "found";
+	fprintf(out, "profile-path name=%s path=%s mode=%s status=%s type=%s full=%s\n",
+	    name, path, mode, status, type, full);
+}
+
+/** doctor가 toolchain role 하나의 발견 상태를 출력한다. */
+static void
+dump_toolchain_tool_doctor(FILE *out, const struct qstar_graph *graph,
+    const char *role, const char *tool, int required)
+{
+	char full[QSTAR_PATH_MAX], found[QSTAR_PATH_MAX];
+	const char *mode, *status, *severity;
+	int exists, executable, is_dir;
+
+	if (!tool || !*tool) {
+		fprintf(out,
+		    "toolchain-tool role=%s name=<none> required=%s mode=unset status=missing severity=%s path=<none> executable=no\n",
+		    role, required ? "true" : "false", required ? "warning" : "info");
+		return;
+	}
+	if (doctor_path_has_separator(tool)) {
+		mode = doctor_path_is_absolute(tool) ? "absolute" : "package";
+		if (doctor_path_state(graph, tool, full, sizeof(full), &exists,
+		    &executable, &is_dir) < 0) {
+			fprintf(out,
+			    "toolchain-tool role=%s name=%s required=%s mode=invalid status=invalid severity=%s path=<none> executable=no\n",
+			    role, tool, required ? "true" : "false",
+			    required ? "warning" : "info");
+			return;
+		}
+		status = !exists ? "missing" : !executable ? "not-executable" : "found";
+		severity = required && strcmp(status, "found") != 0 ? "warning" : "info";
+		fprintf(out,
+		    "toolchain-tool role=%s name=%s required=%s mode=%s status=%s severity=%s path=%s executable=%s\n",
+		    role, tool, required ? "true" : "false", mode, status, severity,
+		    full, executable ? "yes" : "no");
+		(void)is_dir;
+		return;
+	}
+	if (qstar_profile_find_path_tool(tool, found, sizeof(found))) {
+		fprintf(out,
+		    "toolchain-tool role=%s name=%s required=%s mode=path status=found severity=info path=%s executable=yes\n",
+		    role, tool, required ? "true" : "false", found);
+		return;
+	}
+	fprintf(out,
+	    "toolchain-tool role=%s name=%s required=%s mode=path status=missing severity=%s path=<none> executable=no\n",
+	    role, tool, required ? "true" : "false", required ? "warning" : "info");
 }
 
 /** profile external tool discovery 상태를 doctor output에 출력한다. */
@@ -1332,7 +1561,10 @@ static void
 dump_external_tool_doctor(FILE *out, const struct qstar_graph *graph)
 {
 	char found[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], value[QSTAR_PATH_MAX];
+	char full[QSTAR_PATH_MAX];
+	const char *mode, *status;
 	size_t i;
+	int exists, executable, is_dir;
 
 	fprintf(out, "external-tool-policy path_tools=%zu tool_overrides=%zu allow_absolute=%s\n",
 	    graph->profile.path_tools.len, graph->profile.tool_overrides.len,
@@ -1354,15 +1586,21 @@ dump_external_tool_doctor(FILE *out, const struct qstar_graph *graph)
 			continue;
 		}
 		if (strchr(value, '/') || strchr(value, '\\')) {
-			if (value[0] == '/')
+			mode = value[0] == '/' ? "absolute" : "package";
+			if (doctor_path_state(graph, value, full, sizeof(full), &exists,
+			    &executable, &is_dir) == 0) {
+				status = !exists ? "missing" :
+				    !executable ? "not-executable" : "found";
 				fprintf(out,
-				    "external-tool-override name=%s value=%s mode=absolute status=configured\n",
+				    "external-tool-override name=%s value=%s mode=%s status=%s path=%s executable=%s\n",
+				    name, value, mode, status, full,
+				    executable ? "yes" : "no");
+				(void)is_dir;
+			} else {
+				fprintf(out,
+				    "external-tool-override name=%s value=%s mode=invalid status=invalid path=<none> executable=no\n",
 				    name, value);
-			else
-				fprintf(out,
-				    "external-tool-override name=%s value=%s mode=package status=%s\n",
-				    name, value,
-				    doctor_package_file_exists(graph, value) ? "found" : "missing");
+			}
 		} else if (qstar_profile_find_path_tool(value, found, sizeof(found))) {
 			fprintf(out,
 			    "external-tool-override name=%s value=%s mode=path status=found path=%s\n",
@@ -1373,6 +1611,71 @@ dump_external_tool_doctor(FILE *out, const struct qstar_graph *graph)
 			    name, value);
 		}
 	}
+}
+
+/** target closure를 훑어 doctor에서 필요한 toolchain role을 계산한다. */
+static void
+collect_doctor_tool_requirements(const struct qstar_plan *plan,
+    struct doctor_tool_requirements *req)
+{
+	struct qstar_source_info source;
+	const char *action;
+	size_t i, j;
+
+	memset(req, 0, sizeof(*req));
+	for (i = 0; i < plan->len; i++) {
+		for (j = 0; j < plan->order[i]->sources.len; j++) {
+			if (qstar_source_classify(plan->order[i]->sources.items[j],
+			    &source) < 0 || !source.compile_input)
+				continue;
+			if (strcmp(source.language, "cxx") == 0)
+				req->cxx = 1;
+			else if (strcmp(source.language, "cale") == 0)
+				req->cale = 1;
+			else if (strcmp(source.language, "c") == 0 ||
+			    strcmp(source.language, "asm") == 0 ||
+			    strcmp(source.language, "asm-cpp") == 0)
+				req->cc = 1;
+		}
+		action = qstar_target_final_action(plan->order[i]);
+		if (strcmp(action, "archive") == 0)
+			req->ar = 1;
+		else if (strcmp(action, "link") == 0 ||
+		    strcmp(action, "link-shared") == 0)
+			req->linker = 1;
+	}
+}
+
+/** depfile 생성 policy를 profile/compiler 관점에서 doctor에 출력한다. */
+static void
+dump_depfile_doctor(FILE *out, const struct doctor_tool_requirements *req,
+    const struct qstar_resolved_toolchain *toolchain)
+{
+	const char *compiler, *platform, *behavior, *status;
+
+	if (!req->cc && !req->cxx) {
+		fputs("depfile-behavior compiler=<none> platform=<none> flags=-MMD,-MF status=not-required behavior=none\n",
+		    out);
+		return;
+	}
+	compiler = req->cc ? toolchain->cc : toolchain->cxx;
+#ifdef __APPLE__
+	platform = "darwin";
+	if (strstr(compiler, "clang") || strcmp(compiler, "cc") == 0) {
+		behavior = "appleclang-compatible";
+		status = "supported";
+	} else {
+		behavior = "non-appleclang-tool";
+		status = "assumed";
+	}
+#else
+	platform = "other";
+	behavior = "gcc-compatible";
+	status = "assumed";
+#endif
+	fprintf(out,
+	    "depfile-behavior compiler=%s platform=%s flags=-MMD,-MF status=%s behavior=%s\n",
+	    compiler, platform, status, behavior);
 }
 
 /** target 하나의 non-executing command-plan record를 출력한다. */
@@ -1479,6 +1782,7 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	}
 	if (dump_resolved_toolchain(out, plan, target, &toolchain) < 0)
 		return -1;
+	dump_effective_compile_merge(out, plan->graph, target, &toolchain);
 	for (i = 0; i < target->sources.len; i++) {
 		qstar_source_classify(target->sources.items[i], &source);
 		if (!source_requires_compile(&source)) {
@@ -1718,6 +2022,7 @@ qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out)
 			free_plan(&plan);
 			return -1;
 		}
+		dump_effective_compile_merge(out, graph, plan.order[i], &toolchain);
 		}
 		dump_dry_run_genrules(out, &plan, plan.order[i]);
 		if (dump_dry_run_compiles(out, &plan, plan.order[i]) < 0 ||
@@ -1790,6 +2095,7 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 {
 	struct qstar_plan plan;
 	struct qstar_resolved_toolchain toolchain;
+	struct doctor_tool_requirements tool_req;
 	char state_dir[QSTAR_PATH_MAX];
 	int rc;
 
@@ -1806,7 +2112,10 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 	fprintf(out, "closure-target-count %zu\n", plan.len);
 	fprintf(out, "generated-action-count %zu\n", graph->genrule_len);
 	fprintf(out, "stage-count %zu\n", graph->stage_len);
-	if (plan.len > 0 && qstar_resolve_toolchain(graph, plan.order[0], &toolchain) == 0)
+	memset(&toolchain, 0, sizeof(toolchain));
+	memset(&tool_req, 0, sizeof(tool_req));
+	if (plan.len > 0 && qstar_resolve_toolchain(graph, plan.order[0], &toolchain) == 0) {
+		collect_doctor_tool_requirements(&plan, &tool_req);
 		fprintf(out,
 		    "toolchain-sanity name=%s cc=%s cxx=%s cale=%s ar=%s linker=%s "
 		    "sysroot=%s resource_dir=%s response_files=%s response_style=%s "
@@ -1816,9 +2125,27 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 		    toolchain.sysroot[0] ? toolchain.sysroot : "<none>",
 		    toolchain.resource_dir[0] ? toolchain.resource_dir : "<none>",
 		    toolchain.response_files ? "on" : "off", toolchain.response_style);
+		fprintf(out,
+		    "response-policy configured_files=%s configured_style=%s effective_files=%s effective_style=%s\n",
+		    profile_or_default(graph->profile.response_files, "auto"),
+		    profile_or_default(graph->profile.response_style, "auto"),
+		    toolchain.response_files ? "on" : "off", toolchain.response_style);
+		dump_toolchain_tool_doctor(out, graph, "cc", toolchain.cc, tool_req.cc);
+		dump_toolchain_tool_doctor(out, graph, "cxx", toolchain.cxx,
+		    tool_req.cxx);
+		dump_toolchain_tool_doctor(out, graph, "cale", toolchain.cale,
+		    tool_req.cale);
+		dump_toolchain_tool_doctor(out, graph, "ar", toolchain.ar, tool_req.ar);
+		dump_toolchain_tool_doctor(out, graph, "linker", toolchain.linker,
+		    tool_req.linker);
+		dump_profile_path_doctor(out, graph, "sysroot", graph->profile.sysroot, 1);
+		dump_profile_path_doctor(out, graph, "resource_dir",
+		    graph->profile.resource_dir, 1);
+		dump_depfile_doctor(out, &tool_req, &toolchain);
+	}
 	if (qstar_path_join(graph->package_root ? graph->package_root : ".",
 	    qstar_graph_build_dir(graph), state_dir, sizeof(state_dir)) == 0) {
-		if (mkdir(state_dir, 0777) == 0 || access(state_dir, W_OK) == 0)
+		if (doctor_mkdir_p(state_dir) == 0 && access(state_dir, W_OK) == 0)
 			fprintf(out, "writable-build-dir yes path=%s\n",
 			    qstar_graph_build_dir(graph));
 		else

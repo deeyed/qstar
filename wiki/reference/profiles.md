@@ -22,6 +22,10 @@ qstar.profile "rpi5-aarch64" {
   freestanding = true,
   cc = "clang",
   linker = "ld.lld",
+  sysroot = "sysroot/aarch64-none",
+  resource_dir = "toolchains/clang-resource",
+  response_files = "on",
+  response_style = "posix",
   path_tools = {"llvm-objcopy"},
   compile_options = {"-ffreestanding", "-fno-builtin", "-mgeneral-regs-only"},
 }
@@ -29,6 +33,29 @@ qstar.profile "rpi5-aarch64" {
 
 QStar는 mandatory external profile config file을 읽지 않는다. QStar는 package fetch나 version
 resolution을 하지 않는다.
+
+## Freestanding profile 점검
+
+`qstar doctor`는 profile/toolchain 문제를 먼저 좁히기 위한 진단 surface다. Doctor는
+build를 실행하지 않고 다음을 보고한다.
+
+- resolved `cc`, `cxx`, `cale`, `ar`, `linker`
+- 실제 필요한 tool role과 PATH/package-local/absolute 발견 상태
+- `sysroot`, `resource_dir` 존재 여부와 directory 여부
+- `response_files`, `response_style`의 configured/effective 값
+- `path_tools`, `tool_overrides` 발견 상태
+- C/C++ depfile 생성 policy (`-MMD -MF`)와 macOS AppleClang 호환 안내
+
+예:
+
+```sh
+qstar --file qstar.lua doctor
+qstar --file qstar.lua explain //:kernel
+```
+
+`explain`은 target마다 `effective_compile_merge`를 출력한다. 이 줄은 자동
+freestanding option, profile compile/include list, target-local `lang.*` option이 어떤
+순서로 최종 argv에 들어가는지 보여준다.
 
 ## 실패 예제
 
@@ -52,4 +79,8 @@ qstar --file qstar.lua --target arm64 build //:app
 
 - `profile-schema in-dsl-v1`
 - `toolchain-sanity`
+- `toolchain-tool role=cc ... status=missing`
+- `profile-path name=sysroot ... status=missing`
+- `response-policy configured_files=... effective_files=...`
+- `effective_compile_merge owner=...`
 - `external tool is not allowed by profile policy`

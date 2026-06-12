@@ -1,0 +1,6 @@
+#ifndef QSTAR_FREESTANDING_CORPUS_KERNEL_H
+#define QSTAR_FREESTANDING_CORPUS_KERNEL_H
+
+int kernel_main(void);
+
+#endif
