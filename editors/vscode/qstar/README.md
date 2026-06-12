@@ -64,29 +64,29 @@ reported by `qstar lint` as a removed suffix.
 Build the standalone QStar binary first:
 
 ```txt
-make -C qstar
+make all
 ```
 
 Then open this extension directory or the sample workspace in VSCode:
 
 ```txt
-code qstar/editors/vscode/qstar
-code qstar/editors/vscode/qstar/samples/workspace
+code editors/vscode/qstar
+code editors/vscode/qstar/samples/workspace
 ```
 
-Set `qstar.server.path` to the absolute path of `qstar/build/bin/qstar`.
+Set `qstar.server.path` to the absolute path of `build/bin/qstar`.
 The sample workspace is intentionally small and can be checked without
 installing the extension:
 
 ```txt
-qstar/build/bin/qstar --file qstar/editors/vscode/qstar/samples/workspace/qstar.lua lint
-qstar/build/bin/qstar --file qstar/editors/vscode/qstar/samples/workspace/qstar.lua list-targets --format json
+build/bin/qstar --file editors/vscode/qstar/samples/workspace/qstar.lua lint
+build/bin/qstar --file editors/vscode/qstar/samples/workspace/qstar.lua list-targets --format json
 ```
 
 The checked-in package surface is validated by:
 
 ```txt
-make -C qstar vscode-extension-tests
+make vscode-extension-tests
 ```
 
 ## Settings
@@ -146,7 +146,7 @@ not committed to the repository. Install the VSCode package tool outside this
 checkout, then run:
 
 ```txt
-cd qstar/editors/vscode/qstar
+cd editors/vscode/qstar
 npm run check
 npm run package:vsix
 ```

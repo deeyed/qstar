@@ -2,6 +2,7 @@
 build/
 build/qstar/
 compile_commands.json
+dist/
 *.vsix
 qstar-vscode-*.vsix
 editors/vscode/qstar/dist/

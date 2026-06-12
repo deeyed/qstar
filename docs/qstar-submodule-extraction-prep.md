@@ -5,7 +5,7 @@
 
 ```txt
 status: standalone-repository-extracted
-current runtime: qstar 0.4.0
+current runtime: qstar 0.4.0-beta.1
 current extension: qstar-vscode 0.3.0
 actual split: completed
 ```

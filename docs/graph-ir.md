@@ -17,10 +17,10 @@ Status:
 ```
 
 Round 1 implemented a minimal in-memory Graph IR in the standalone `qstar`
-developer binary. Round 2 adds dependency closure validation, dependency-first
-order, and non-executing command-plan dump. It stores target label, kind, module
-set, source/header lists, include dirs, deps, toolchain, and stdlib policy. It
-does not execute build actions.
+binary. Round 2 adds dependency closure validation, dependency-first order, and
+non-executing command-plan dump. It stores target label, kind, module set,
+source/header lists, include dirs, deps, toolchain, and stdlib policy. It does
+not execute build actions.
 
 Round 3 adds graph context for package aliases and profile input:
 

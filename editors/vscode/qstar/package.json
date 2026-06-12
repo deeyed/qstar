@@ -4,13 +4,12 @@
   "description": "Language support for QStar qstar.lua, .qst build files, and .qsm modules.",
   "version": "0.3.0",
   "publisher": "cale",
-  "license": "UNLICENSED",
-  "private": true,
+  "license": "Apache-2.0",
   "icon": "media/qstar_logo.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/deeyed/cale.git",
-    "directory": "qstar/editors/vscode/qstar"
+    "url": "https://github.com/deeyed/qstar.git",
+    "directory": "editors/vscode/qstar"
   },
   "engines": {
     "vscode": "^1.85.0"

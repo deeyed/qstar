@@ -4,7 +4,7 @@
 > `docs/qstar-v0.2-authoring-spec.md`다. 이 문서는 Round 20 v0 contract의
 > 역사 기록으로 유지한다.
 
-QStar v0는 Cale repo 안에서 독립적으로 빌드되는 개발용 build system이다. 이 문서는
+QStar v0는 독립적으로 빌드되는 build system slice다. 이 문서는
 Round 20 기준으로 당분간 유지할 authoring surface와 아직 안정화하지 않는 범위를
 고정한다.
 

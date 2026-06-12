@@ -6,7 +6,7 @@ QStar pilot-readiness seal은 v0.4 Stella standalone surface 위에 formatter/he
 
 ```txt
 status: pilot-readiness seal
-runtime version: qstar 0.4.0
+runtime version: qstar 0.4.0-beta.1
 release gate: make -C qstar qstar-pilot-readiness-tests
 ```
 

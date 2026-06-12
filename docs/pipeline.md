@@ -18,7 +18,7 @@ not v0:
   binary cache
 ```
 
-Round 1 implemented the first executable slice as a standalone developer binary:
+Round 1 implemented the first executable slice as a standalone binary:
 
 ```txt
 qstar/build/bin/qstar

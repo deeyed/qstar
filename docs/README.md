@@ -1,10 +1,10 @@
 # QStar Specification
 
-이 폴더는 QStar의 상세 사양을 둔다. QStar는 Cale 생태계의 build graph manager이며,
-Cale 언어 문법 자체가 아니다. Cale 문법은 Cale repository의
-`docs/architecture/03-문법.md`에 두고, QStar/Calua/package/build graph 세부 정책은
-이 폴더에서 관리한다. HCL 파일은 QStar 관점에서 header file path일 뿐이며, HCL
-내용 해석은 Cale compiler/HCL checker가 맡는다.
+이 폴더는 QStar의 상세 사양을 둔다. QStar는 독립 build graph manager이며 특정
+downstream 언어나 project에 종속되지 않는다. 언어별 의미 해석은 compiler와 language
+provider가 맡고, QStar는 source/header/output path, target graph, command plan,
+build/test/install/stage 실행 정책만 관리한다. HCL 파일도 QStar 관점에서는 header-like
+file path일 뿐이며, 내용 해석은 해당 language provider가 맡는다.
 
 ## Core Rule
 
@@ -36,7 +36,7 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 | `qstar.lua` | package root의 QStar orchestration file, `qstar.project`, `qstar.profile`, `qstar.config` metadata |
 | `<dirname>.qst` | 큰 프로젝트의 subdir QStar fragment |
 | `<module>/<module>.qsm` | side-effect 없는 QStar helper module, `return table` 전용 |
-| `src/` | `.cale` implementation module root |
+| `src/` | implementation source root |
 | `include/` | public header/install surface root |
 
 작은 프로젝트는 root `qstar.lua` 하나로 충분하다. 큰 프로젝트는 root `qstar.lua`가 `qstar.subdir(...)`로 subdir fragment를 불러오고, subdir에는 `<dirname>.qst`를 권장한다.
@@ -66,8 +66,7 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 
 ## Canonical Status
 
-Cale repository의 `docs/design/qstar-calua-build-model.md`는 배경/요약 문서다. QStar의
-상세 문법과 pipeline 사양은 이 `docs/` 폴더를 canonical 위치로 본다.
+QStar의 상세 문법과 pipeline 사양은 이 `docs/` 폴더를 canonical 위치로 본다.
 
 Round 47부터 authoring syntax의 정본은 QStar v0.2다. Target top-level C/C++/Cale
 language option은 제거됐고, header/include/compile/module option은 반드시
@@ -101,7 +100,7 @@ v0.4는 Stella를 기본 generator로 고정하고, `-G stella|ninja|auto`, `-B`
 `qstar.group`, `qstar.config`, `qstar.import_file`, `.qsm` module,
 `qstar.project.generated_dir`, compact progress, Ninja comparison backend, medium
 project performance gate를 함께 봉인한다. Runtime version은 `qstar --version`과
-`QSTAR_VERSION`이 같은 `0.4.0`, VSCode extension version은 `0.3.0`이어야 한다.
+`QSTAR_VERSION`이 같은 `0.4.0-beta.1`, VSCode extension version은 `0.3.0`이어야 한다.
 
 ## Round 15 구현 상태
 

@@ -7,7 +7,7 @@ installed docs/manpages, editor package, and backend workflow가 같은 surface�
 
 ```txt
 status: v0.4 Stella workflow seal
-runtime version: qstar 0.4.0
+runtime version: qstar 0.4.0-beta.1
 extension package: qstar-vscode 0.3.0
 release gate: make -C qstar qstar-v0.4-pilot-tests
 ```

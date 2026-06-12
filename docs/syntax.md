@@ -33,9 +33,9 @@ call deterministic `qstar.*` helpers. They must not mutate globals or inspect
 the host through unrestricted Lua APIs.
 
 Round 1 executes this surface with a sandboxed Lua 5.4 evaluator in the
-standalone `qstar` developer binary. Round 2 keeps the same syntax surface and
-adds closure-aware `qstar explain` output. Only the `qstar.*` API, QStar
-constants, and a narrow base/table/string subset are available.
+standalone `qstar` binary. Round 2 keeps the same syntax surface and adds
+closure-aware `qstar explain` output. Only the `qstar.*` API, QStar constants,
+and a narrow base/table/string subset are available.
 
 Round 3 adds CLI-supplied package alias and profile inputs. This is intentionally
 outside `qstar.lua`: package resolution and profile selection remain package
