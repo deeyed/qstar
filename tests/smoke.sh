@@ -366,6 +366,7 @@ contains "$tmp/ninja-mvp-emit.out" "ninja_default build/qstar/ninja/targets/___a
 contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "rule qstar_compile"
 contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "builddir = build/qstar/ninja"
 contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "rule qstar_archive"
+contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "build build/qstar/out/___core/libcore.a: qstar_archive"
 contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "qstar_action_id = //:core:compile:0"
 contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "qstar_action_id = //:core:compile:1"
 contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "qstar_action_id = //:core:compile:2"
@@ -374,6 +375,14 @@ contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "qstar_action_id = //:al
 contains "$tmp/ninja-mvp/build/qstar/compile_commands.json" "src/core.c"
 contains "$tmp/ninja-mvp/build/qstar/compile_commands.json" "src/helper.cc"
 contains "$tmp/ninja-mvp/build/qstar/compile_commands.json" "src/start.S"
+"$qstar" --file "$tmp/ninja-mvp/qstar.lua" action-log //:core:archive:0 > "$tmp/ninja-mvp-archive-log.out" 2> "$tmp/ninja-mvp-archive-log.err"
+contains "$tmp/ninja-mvp-archive-log.out" "qstar action-log v1"
+contains "$tmp/ninja-mvp-archive-log.out" "backend=ninja"
+contains "$tmp/ninja-mvp-archive-log.out" "argv[0]=ar"
+contains "$tmp/ninja-mvp-archive-log.out" "libcore.a"
+"$qstar" --file "$tmp/ninja-mvp/qstar.lua" replay //:core:archive:0 > "$tmp/ninja-mvp-archive-replay.out" 2> "$tmp/ninja-mvp-archive-replay.err"
+contains "$tmp/ninja-mvp-archive-replay.out" "qstar replay v1"
+contains "$tmp/ninja-mvp-archive-replay.out" "libcore.a"
 if command -v ninja >/dev/null 2>&1 && command -v c++ >/dev/null 2>&1; then
 	"$qstar" --file "$tmp/ninja-mvp/qstar.lua" -G ninja build //:all > "$tmp/ninja-mvp-build.out" 2> "$tmp/ninja-mvp-build.err"
 	contains "$tmp/ninja-mvp-build.out" "backend ninja"
@@ -501,6 +510,11 @@ contains "$tmp/ninja-parity/build/qstar/logs/___app_compile_0.log" "response_fil
 "$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity action-log //:app:link:0 > "$tmp/ninja-parity-action-log.out" 2> "$tmp/ninja-parity-action-log.err"
 contains "$tmp/ninja-parity-action-log.out" "qstar action-log v1"
 contains "$tmp/ninja-parity-action-log.out" "backend=ninja"
+"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity action-log //:make_value:generate:0 > "$tmp/ninja-parity-generate-log.out" 2> "$tmp/ninja-parity-generate-log.err"
+contains "$tmp/ninja-parity-generate-log.out" "qstar action-log v1"
+contains "$tmp/ninja-parity-generate-log.out" "backend=ninja"
+contains "$tmp/ninja-parity-generate-log.out" "tools/gen-value.sh"
+contains "$tmp/ninja-parity-generate-log.out" "generated/value.c"
 "$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity replay //:app:link:0 > "$tmp/ninja-parity-replay.out" 2> "$tmp/ninja-parity-replay.err"
 contains "$tmp/ninja-parity-replay.out" "qstar replay v1"
 contains "$tmp/ninja-parity-replay.out" "build/qstar/out/___app/app"
@@ -516,19 +530,31 @@ if command -v ninja >/dev/null 2>&1; then
 	contains "$tmp/ninja-parity-run.out" "run_target label=//:smoke"
 	contains "$tmp/ninja-parity-run.out" "run_marker label=//:smoke status=matched"
 	contains "$tmp/ninja-parity-run.out" "run_target_result label=//:smoke status=pass"
+	"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity action-log //:smoke:run:0 > "$tmp/ninja-parity-run-log.out" 2> "$tmp/ninja-parity-run-log.err"
+	contains "$tmp/ninja-parity-run-log.out" "qstar action-log v1"
+	contains "$tmp/ninja-parity-run-log.out" "backend=ninja"
+	contains "$tmp/ninja-parity-run-log.out" "build/qstar/out/___app/app"
 	if "$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity -G ninja build //:missing_marker > "$tmp/ninja-parity-run-missing.out" 2> "$tmp/ninja-parity-run-missing.err"; then
 		fail "ninja marker-missing run_target unexpectedly succeeded"
 	fi
 	contains "$tmp/ninja-parity-run-missing.out" "run_target_result label=//:missing_marker status=marker-missing"
 	contains "$tmp/ninja-parity/build/qstar/logs/last-failure.replay" "failure_kind=marker-missing"
+	"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity last-failure > "$tmp/ninja-parity-last-failure.out" 2> "$tmp/ninja-parity-last-failure.err"
+	contains "$tmp/ninja-parity-last-failure.out" "qstar last-failure v1"
+	contains "$tmp/ninja-parity-last-failure.out" "label=//:missing_marker"
+	contains "$tmp/ninja-parity-last-failure.out" "failure_kind=marker-missing"
 	"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity -G ninja stage //:bundle > "$tmp/ninja-parity-stage.out" 2> "$tmp/ninja-parity-stage.err"
 	contains "$tmp/ninja-parity-stage.out" "backend ninja"
 	contains "$tmp/ninja-parity-stage.out" "stage_file src=build/qstar/out/___app/app dst=stage/bundle/bin/app mode=copy"
 	test -f "$tmp/ninja-parity/stage/bundle/bin/app" || fail "ninja stage output missing"
+	contains "$tmp/ninja-parity/build/qstar/stage/___bundle/manifest.json" "\"schema\":\"qstar-stage-manifest-v2\""
+	contains "$tmp/ninja-parity/build/qstar/stage/___bundle/manifest.json" "\"producer\":\"//:app\""
 	"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity -G ninja install //:app --prefix "$tmp/ninja-parity-prefix" > "$tmp/ninja-parity-install.out" 2> "$tmp/ninja-parity-install.err"
 	contains "$tmp/ninja-parity-install.out" "backend ninja"
 	contains "$tmp/ninja-parity-install.out" "install_file src=build/qstar/out/___app/app"
 	test -f "$tmp/ninja-parity-prefix/bin/app" || fail "ninja install output missing"
+	contains "$tmp/ninja-parity/build/qstar/install/manifest.json" "\"schema\":\"qstar-install-manifest-v2\""
+	contains "$tmp/ninja-parity/build/qstar/install/manifest.json" "\"role\":\"exe\""
 fi
 
 mkdir -p "$tmp/ninja-policy-root/src"
@@ -2202,6 +2228,12 @@ PATH="$tmp/tools:$PATH" "$qstar" --file "$tmp/qstar.lua" build //:calelib > "$tm
 contains "$tmp/cale-only.out" "status ok"
 contains "$tmp/build/qstar/compile_commands.json" "src/unit.cale"
 
+if PATH="$tmp/tools:$PATH" "$qstar" --file "$tmp/qstar.lua" -G ninja build //:calelib > "$tmp/cale-ninja.out" 2> "$tmp/cale-ninja.err"; then
+	fail "Cale source Ninja lowering unexpectedly succeeded"
+fi
+contains "$tmp/cale-ninja.err" "ninja backend does not lower Cale source 'src/unit.cale' yet"
+contains "$tmp/cale-ninja.err" "use -G stella"
+
 if PATH=/nonexistent "$qstar" --file "$tmp/qstar.lua" build //:mixed > "$tmp/no-cale.out" 2> "$tmp/no-cale.err"; then
 	fail "missing cale compiler unexpectedly succeeded"
 fi
@@ -2289,6 +2321,11 @@ if "$qstar" --file "$tmp/qstar.lua" build //:plugin > "$tmp/shared.out" 2> "$tmp
 	fail "sharedlib local executor unexpectedly succeeded"
 fi
 contains "$tmp/shared.err" "sharedlib targets are plan-only"
+if "$qstar" --file "$tmp/qstar.lua" -G ninja build //:plugin > "$tmp/shared-ninja.out" 2> "$tmp/shared-ninja.err"; then
+	fail "sharedlib Ninja lowering unexpectedly succeeded"
+fi
+contains "$tmp/shared-ninja.err" "sharedlib target '//:plugin' is not lowered by the ninja backend yet"
+contains "$tmp/shared-ninja.err" "plan/check-only"
 
 cat > "$tmp/src/test_pass.c" <<'EOF'
 int main(void) { return 0; }

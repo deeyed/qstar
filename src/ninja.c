@@ -429,7 +429,7 @@ source_is_link_object(const struct qstar_source_info *source)
 	return strcmp(source->language, "object") == 0;
 }
 
-/** Ninja backend MVP가 처리할 수 있는 compile source인지 검증한다. */
+/** Ninja backend가 처리할 수 있는 compile source인지 검증한다. */
 static int
 validate_ninja_compile_source(struct qstar_graph *graph, const struct qstar_target *target,
     const struct qstar_source_info *source, size_t index)
@@ -447,7 +447,7 @@ validate_ninja_compile_source(struct qstar_graph *graph, const struct qstar_targ
 	if (strcmp(source->language, "cale") == 0)
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "sources", target->label,
-		    "qstar: ninja backend supports C, C++, ASM, custom_target, executable, test, run_target, staticlib, and group in this release; Cale source '%s' needs -G stella",
+		    "qstar: ninja backend does not lower Cale source '%s' yet; use -G stella for Cale process compilation",
 		    target->sources.items[index]);
 	if (strcmp(source->language, "c") != 0 && strcmp(source->language, "cxx") != 0 &&
 	    !source_is_asm(source))
@@ -2240,7 +2240,7 @@ emit_target(struct qstar_graph *graph, const struct qstar_target *target, size_t
 	if (strcmp(target->kind, "sharedlib") == 0)
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "kind", target->label,
-		    "qstar: ninja backend does not support sharedlib target '%s' yet",
+		    "qstar: sharedlib target '%s' is not lowered by the ninja backend yet; sharedlib remains plan/check-only",
 		    target->label);
 	if (strcmp(target->kind, "staticlib") != 0 &&
 	    strcmp(target->kind, "exe") != 0 &&

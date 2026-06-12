@@ -151,4 +151,5 @@ sharedlib executor, Cale compiler internal API integration은 정식 surface가 
 backend는 C/C++/ASM compile, generated action, staticlib, executable/test link,
 `qstar.run_target` wrapper, `qstar.group` phony lowering/execution을 지원한다.
 `stage`/`install`은 copy와 manifest를 QStar가 맡고, 참조 artifact build는 effective
-generator를 따른다.
+generator를 따른다. `sharedlib`는 Stella/Ninja 모두에서 plan/check-only이고, Cale
+source action은 Stella generator로만 실행한다.

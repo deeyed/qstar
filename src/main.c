@@ -97,7 +97,7 @@ command_help(FILE *out, const char *cmd)
 	if (strcmp(cmd, "emit-ninja") == 0) {
 		fputs("usage: qstar [options] emit-ninja [label]\n", out);
 		fputs("Emit build/qstar/ninja/build.ninja and policy-controlled compile_commands.json.\n", out);
-		fputs("Lowers C/C++/ASM compile, generated, staticlib, executable/test, and group edges.\n", out);
+		fputs("Lowers C/C++/ASM compile, generated, staticlib, executable/test, run_target, and group edges.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "lint") == 0) {
