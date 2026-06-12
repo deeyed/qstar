@@ -43,6 +43,22 @@ qstar.staticlib "core" {
 `QSTAR_PACKAGE_ROOT`, `QSTAR_PROJECT_ROOT`, `QSTAR_PROFILE`, `QSTAR_TARGET`,
 `qstar.version`, `qstar.host.os`, `qstar.host.arch`, `qstar.project.root`다.
 
+## Graph entrypoints
+
+- `qstar.project`: project metadata, `build_dir`, `generated_dir`, compile database policy.
+- `qstar.profile`: toolchain/profile declaration.
+- `qstar.config`: reusable option bundle used through target `configs`.
+- `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`, `qstar.test`: artifact targets.
+- `qstar.custom_target`, `qstar.configure_file`: generated outputs.
+- `qstar.run_target`: external smoke/run action.
+- `qstar.group`: deps-only aggregate with no command, output, install surface, or artifact.
+- `qstar.stage`: copy-only package/stage tree.
+- `qstar.target_family`: shared-source lint grouping.
+- `qstar.subdir`, `qstar.import_file`, `qstar.import_module`: explicit graph/module loading.
+
+`qstar.target_file("//:group")`은 error다. Group은 dependency closure를 묶는 label일 뿐
+artifact-producing target이 아니다.
+
 ## Builtin authoring helpers
 
 QStar는 Makefile식 `$VAR` 문자열 치환을 하지 않는다. 반복되는 path와 option은 Lua `local`

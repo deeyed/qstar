@@ -81,8 +81,13 @@ Package root 밖 source는 `QSTAR020`으로 reject된다.
 
 ```sh
 qstar --file qstar.lua lint //...
+qstar --file qstar.lua check //...
+qstar --file qstar.lua list-targets --format json
 qstar --file qstar.lua explain //:app
 qstar --file qstar.lua build //:app
+qstar --file qstar.lua -G ninja build //:app
+qstar --file qstar.lua action-log //:app:compile:0
+qstar docs --show reference/qstar-lua.md
 ```
 
 ## 관련 diagnostic

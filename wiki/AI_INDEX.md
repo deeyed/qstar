@@ -295,20 +295,36 @@ Low-level/bootloader-style project:
 qstar docs
 qstar docs --path
 qstar docs --ai-index
-qstar docs --show reference/modules.md
+qstar docs --show reference/qstar-lua.md
+qstar --version
+qstar version
+qstar help
+qstar help build
+qstar init c-app hello
+qstar --file qstar.lua check //...
 qstar --file qstar.lua lint //...
+qstar --file qstar.lua fmt --check qstar.lua
 qstar --file qstar.lua list-targets --format json
+qstar --file qstar.lua query //:target
 qstar --file qstar.lua doctor
 qstar --file qstar.lua explain //:target
 qstar --file qstar.lua dry-run //:target
+qstar --file qstar.lua emit-ninja //:target
 qstar --file qstar.lua build //:target --explain-cache
 qstar --file qstar.lua build //:target --verbose --progress plain
 qstar --file qstar.lua build //:target --progress off --color never
 qstar --file qstar.lua -B out/qstar -G stella build //:target
 qstar --file qstar.lua -G ninja build //:smoke
+qstar --file qstar.lua test //...
 qstar --file qstar.lua stage //:bundle --dry-run
+qstar --file qstar.lua install //:target --prefix /tmp/qstar-install --dry-run
+qstar --file qstar.lua why-rebuild //:target
+qstar --file qstar.lua clean --target //:target
+qstar --file qstar.lua log //:target
 qstar --file qstar.lua last-failure
+qstar --file qstar.lua action-log //:target:compile:0
 qstar --file qstar.lua replay //:target:action:0
+qstar lsp --stdio
 ```
 
 ## 10. Removed surface

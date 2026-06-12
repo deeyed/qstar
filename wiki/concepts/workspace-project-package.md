@@ -19,8 +19,10 @@ Root discovery는 현재 file에서 위로 올라가며 가장 가까운 `qstar.
 workspace marker file은 필요 없다.
 
 `build_dir` 기본값은 `"build/qstar"`다. QStar의 state, log, response file,
-generated output, stage/install manifest, default `compile_commands.json`은 이
-directory 아래에 모인다. 프로젝트 루트에 산출물을 흩뿌리지 않는 것이 기본 UX다.
+object/artifact output, stage/install manifest, default `compile_commands.json`은 이
+directory 아래에 모인다. Generated source/header/image output은 별도 정책인
+`qstar.project.generated_dir` 아래에 있어야 한다. 기본값은 `"generated"`이고,
+루트 오염을 피하고 싶으면 `"build/qstar/generated"`처럼 명시한다.
 CLI `-B path`는 `qstar.project.build_dir`보다 우선한다. Override path도 package-relative
 normalized path여야 하며 absolute path, `..`, `.`은 diagnostic으로 거부된다.
 

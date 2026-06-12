@@ -1,4 +1,4 @@
-.Dd June 12, 2026
+.Dd June 13, 2026
 .Dt QSTAR-LUA 5
 .Os
 .Sh NAME
@@ -35,12 +35,18 @@ lists.
 Executable target.
 .It Ic qstar.staticlib
 Static library target.
+.It Ic qstar.sharedlib
+Shared library target declaration. This is currently plan/check-only until
+shared library platform policy is sealed.
 .It Ic qstar.test
 Test executable target.
 .It Ic qstar.custom_target
 Generated action using a
 .Ic qstar.cli
 argv vector.
+.It Ic qstar.configure_file
+Deterministic configured file or config header generator using
+.Ic qstar.output .
 .It Ic qstar.run_target
 External smoke command with timeout and optional marker checks.
 .It Ic qstar.group
@@ -55,6 +61,36 @@ graph fragment exactly once.
 Evaluate a package-relative module folder as
 .Pa <name>/<name>.qsm
 and return its table.
+.It Ic qstar.subdir
+Evaluate the canonical subdirectory fragment
+.Pa <dir>/<basename>.qst .
+.It Ic qstar.target_family
+Declare a lint grouping primitive for shared-source variants.
+.It Ic qstar.cli
+Declare an argv-vector command. Shell strings are not accepted.
+.It Ic qstar.input
+Reference a custom target input by index inside a
+.Ic qstar.cli
+argv vector.
+.It Ic qstar.output
+Declare or reference a generated output path. Output paths must stay under the
+effective
+.Ic generated_dir .
+.It Ic qstar.target_file
+Reference the artifact produced by a target or generated action. It cannot
+reference a
+.Ic qstar.group
+because group targets have no artifact.
+.It Ic qstar.stage_file
+Map a source artifact or source file into a
+.Ic qstar.stage
+tree.
+.It Ic qstar.files
+Declare a literal file list.
+.It Ic qstar.select
+Select values by profile, target, host, or default branch.
+.It Ic qstar.incompatible
+Mark a selected value as intentionally unsupported.
 .It Ic qstar.join
 Join path segments as a slash-separated string. The legacy table form flattens
 one list level.
@@ -83,6 +119,8 @@ Target
 are applied in list order. List fields append, target-local list fields append
 last, and target-local scalar fields override scalar values from configs.
 Configs must be evaluated before targets that reference them.
+Configs cannot create sources, deps, commands, outputs, stages, or installable
+artifacts.
 .Sh LUA SUBSET
 Allowed helper features include
 .Ic local function ,

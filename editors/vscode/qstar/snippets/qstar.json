@@ -7,7 +7,7 @@
       "  version = \"${2:0.1.0}\",",
       "  root = \".\",",
       "  build_dir = \"${3:build/qstar}\",",
-      "  generated_dir = \"${4:generated}\",",
+      "  generated_dir = \"${4:build/qstar/generated}\",",
       "}"
     ],
     "description": "Declare QStar project metadata."
@@ -65,7 +65,7 @@
     "body": [
       "qstar.custom_target \"${1:generate}\" {",
       "  inputs = {\"${3:input.txt}\"},",
-      "  outputs = {qstar.output(\"${4:generated/output.c}\")},",
+      "  outputs = {qstar.output(\"${4:build/qstar/generated/output.c}\")},",
       "  command = qstar.cli {\"${2:tools/generate.sh}\", qstar.input(0), qstar.output(0)},",
       "}"
     ],
@@ -75,7 +75,7 @@
     "prefix": "qconfig",
     "body": [
       "qstar.configure_file \"${1:config}\" {",
-      "  output = qstar.output(\"${2:generated/config.h}\"),",
+      "  output = qstar.output(\"${2:build/qstar/generated/config.h}\"),",
       "  defines = {\"${3:APP_FEATURE=1}\"},",
       "}"
     ],

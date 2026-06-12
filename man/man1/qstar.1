@@ -1,4 +1,4 @@
-.Dd June 12, 2026
+.Dd June 13, 2026
 .Dt QSTAR 1
 .Os
 .Sh NAME
@@ -68,15 +68,43 @@ Control ANSI color for text output.
 JSON diagnostics are never colorized.
 .El
 .Sh COMMANDS
-.Bl -tag -width "last-failure"
+.Bl -tag -width "list-targets"
+.It Ic version
+Print the QStar version. The
+.Fl -version
+form is equivalent.
 .It Ic docs
 Print local documentation entrypoints, including the wiki and AI index.
 Use
 .Fl -show
 to print a specific wiki document such as
 .Pa reference/modules.md .
+.It Ic list-targets
+List graph targets. Use
+.Fl -format Ar json
+for the stable machine-readable target listing, including effective generator,
+build_dir, generated_dir, compile_commands policy, configs, and installability.
+.It Ic query
+Print one target, generated action, stage, or config by label.
+.It Ic doctor
+Inspect profile and toolchain resolution, external tools, sysroot/resource_dir,
+response file policy, depfile behavior, and writable build state.
+.It Ic check
+Evaluate the graph and validate packages, labels, generated outputs, sources,
+headers, profiles, and file inputs without running build actions.
 .It Ic lint
 Evaluate authoring diagnostics without executing build actions.
+.It Ic fmt
+Format
+.Pa qstar.lua ,
+.Pa .qst ,
+or
+.Pa .qsm
+files. Use
+.Fl -check
+for verification and
+.Fl -stdout
+to print the formatted text.
 .It Ic explain
 Print target closure and command-plan information.
 .It Ic dry-run
@@ -125,12 +153,38 @@ Verbose output adds status lines and
 events, and schedule trace enables deterministic scheduler events.
 .It Ic test
 Build and run QStar test targets.
+.It Ic install
+Build a target artifact if needed, copy it into a prefix, and write install
+manifest state. Use
+.Fl -dry-run
+to preview the copy plan.
 .It Ic stage
 Create a copy-only staged package tree.
+.It Ic why-rebuild
+Explain cache state and why a target would rebuild.
+.It Ic clean
+Remove the effective build directory, or a single target output with
+.Fl -target Ar label .
+.It Ic log
+Print the latest action log paths for a target.
 .It Ic last-failure
 Print the latest failure replay file.
+.It Ic action-log
+Print the stored argv/env/input/output log for an action id.
 .It Ic replay
 Print the stored replay command for an action id.
+.It Ic lsp
+Run the QStar language server with
+.Fl -stdio .
+.It Ic init
+Create a starter project from
+.Ar c-app ,
+.Ar c-lib ,
+.Ar generated ,
+or
+.Ar mixed-cale .
+.It Ic --dump-graph
+Print the raw Graph IR for debugging and drift tests.
 .El
 .Sh FILES
 .Bl -tag -width "share/doc/qstar/wiki/AI_INDEX.md"

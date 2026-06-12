@@ -133,17 +133,25 @@ qstar docs --path
 qstar docs --ai-index
 qstar docs --show reference/qstar-lua.md
 
+qstar init c-app hello
 qstar check //...
 qstar lint //...
 qstar fmt --check qstar.lua
 qstar list-targets --format json
+qstar query //:app
+qstar doctor
 qstar explain //:app
 qstar dry-run //:app
+qstar emit-ninja //:app
 qstar build //:app
 qstar test //...
 qstar install //:app --prefix /tmp/qstar-install
 qstar stage //:image --dry-run
+qstar why-rebuild //:app
+qstar clean --target //:app
+qstar log //:app
 qstar last-failure
+qstar action-log <action-id>
 qstar replay <action-id>
 ```
 
