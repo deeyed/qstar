@@ -1919,7 +1919,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		return 0;
 	}
 	if (prev && strcmp(prev->key, key) == 0 && outputs_exist(graph, outputs)) {
-		fprintf(ctx->out,
+		build_tracef(ctx,
 		    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
 		    id, child_stdout_path, child_stderr_path);
 		write_skip_log(action_log, argv);
@@ -1928,7 +1928,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    material) < 0 ?
 		    qstar_set_error(graph, "qstar: out of memory") : 0;
 	}
-	fprintf(ctx->out,
+	build_tracef(ctx,
 	    "build_action id=%s status=run timeout_sec=%d stdout=%s stderr=%s\n",
 	    id, ctx->action_timeout_sec, child_stdout_path, child_stderr_path);
 	if (ctx->explain_cache)
@@ -1991,7 +1991,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 				    target ? target->run_marker_log : NULL);
 				ctx->fail_count++;
 				ctx->cancelled = 1;
-				fprintf(ctx->out,
+				build_tracef(ctx,
 				    "build_action id=%s status=timeout timeout_sec=%d\n",
 				    id, ctx->action_timeout_sec);
 				emit_action_diagnostic(ctx->out, id, kind,
@@ -2030,7 +2030,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 
 		failure_kind = classify_failure_kind(kind, target, argv, "exit-code");
 		diag_label = action_owner_label(target, id, label_buf, sizeof(label_buf));
-		fprintf(ctx->out, "build_action id=%s status=fail exit=%d\n", id, exit_code);
+		build_tracef(ctx, "build_action id=%s status=fail exit=%d\n", id, exit_code);
 		write_failure_replay_detail(graph, id, toolchain, argv,
 		    failure_kind, diag_label, child_stdout_path,
 		    child_stderr_path, target ? target->run_marker : NULL,
@@ -2433,7 +2433,7 @@ run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		return 0;
 	}
 	if (prev && strcmp(prev->key, key) == 0 && outputs_exist(graph, &genrule->outputs)) {
-		fprintf(ctx->out,
+		build_tracef(ctx,
 		    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
 		    id, child_stdout_path, child_stderr_path);
 		write_skip_log(action_log, argv);
@@ -2442,7 +2442,7 @@ run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    "generate", material) < 0 ?
 		    qstar_set_error(graph, "qstar: out of memory") : 0;
 	}
-	fprintf(ctx->out,
+	build_tracef(ctx,
 	    "build_action id=%s status=run timeout_sec=internal stdout=%s stderr=%s\n",
 	    id, child_stdout_path, child_stderr_path);
 	if (ctx->explain_cache)
@@ -2753,7 +2753,7 @@ run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	compute_action_key(graph, target, &toolchain, id, "generate", argv,
 	    &inputs, NULL, output_identity, key, sizeof(key), &material);
 	qstar_string_list_free(&inputs);
-	fprintf(ctx->out,
+	build_tracef(ctx,
 	    "generated_sandbox id=%s inputs=package-root outputs=generated-only cwd=package-root network=disabled tool=%s tool_mode=%s resolved_tool=%s output_identity=%s\n",
 	    genrule->label, genrule->tool, tool_mode, resolved_tool, output_identity);
 	if (genrule->config_header) {
@@ -3452,7 +3452,7 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	    action->id, action->kind, slot, ctx->jobs);
 	if (prev && strcmp(prev->key, action->key) == 0 &&
 	    outputs_exist(graph, &action->outputs)) {
-		fprintf(ctx->out,
+		build_tracef(ctx,
 		    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
 		    action->id, child_stdout_path, child_stderr_path);
 		write_skip_log(running->action_log, action->argv);
@@ -3464,7 +3464,7 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    "skip", action->kind, &action->material) < 0 ?
 		    qstar_set_error(graph, "qstar: out of memory") : 0;
 	}
-	fprintf(ctx->out,
+	build_tracef(ctx,
 	    "build_action id=%s status=run timeout_sec=%d stdout=%s stderr=%s\n",
 	    action->id, ctx->action_timeout_sec, child_stdout_path, child_stderr_path);
 	if (ctx->explain_cache)
@@ -3533,7 +3533,7 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		if (build_replay_rel(graph, replay_rel, sizeof(replay_rel)) < 0)
 			snprintf(replay_rel, sizeof(replay_rel),
 			    "build/qstar/logs/last-failure.replay");
-		fprintf(ctx->out, "build_action id=%s status=fail exit=%d\n",
+		build_tracef(ctx, "build_action id=%s status=fail exit=%d\n",
 		    action->id, exit_code);
 		build_tracef(ctx,
 		    "parallel_event target=%s event=fail id=%s slot=%zu exit=%d state=failed retry=next-build cancel=active\n",
@@ -3555,7 +3555,7 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	if (state_push(ctx, 1, action->id, action->key, action->outputs.items[0],
 	    "run", action->kind, &action->material) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
-	fprintf(ctx->out, "build_action id=%s status=done exit=0\n", action->id);
+	build_tracef(ctx, "build_action id=%s status=done exit=0\n", action->id);
 	build_tracef(ctx, "schedule_action id=%s slot=%zu state=finished\n", action->id,
 	    running->slot);
 	build_tracef(ctx,
@@ -3577,7 +3577,7 @@ cancel_running_actions(struct qstar_build_ctx *ctx, struct qstar_running_action 
 			continue;
 		kill(running[i].pid, SIGKILL);
 		waitpid(running[i].pid, &status, 0);
-		fprintf(ctx->out,
+		build_tracef(ctx,
 		    "build_action id=%s status=cancelled reason=parallel-failure retry=next-build\n",
 		    running[i].action->id);
 		build_tracef(ctx, "schedule_action id=%s slot=%zu state=cancelled\n",
@@ -3649,7 +3649,7 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	next = 0;
 	active = 0;
 	rc = 0;
-	fprintf(ctx->out,
+	build_tracef(ctx,
 	    "parallel_batch target=%s jobs=%zu total=%zu policy=fifo fairness=source-order cancel=kill-active retry=next-build\n",
 	    target->label, jobs, compile_count);
 	while (next < compile_count || active > 0) {
@@ -3659,7 +3659,7 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 				rc = qstar_set_error(graph, "qstar: no free parallel slot");
 				goto fail;
 			}
-			fprintf(ctx->out,
+			build_tracef(ctx,
 			    "parallel_slot target=%s slot=%zu state=assign action=%s queue=%zu\n",
 			    target->label, slot, actions[next].id, next);
 			rc = start_prepared_action(graph, ctx, &actions[next],
@@ -3689,10 +3689,10 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 					    running[i].action->argv);
 					ctx->fail_count++;
 					ctx->cancelled = 1;
-					fprintf(ctx->out,
+					build_tracef(ctx,
 					    "build_action id=%s status=timeout timeout_sec=%d\n",
 					    running[i].action->id, ctx->action_timeout_sec);
-					fprintf(ctx->out,
+					build_tracef(ctx,
 					    "parallel_event target=%s event=timeout id=%s slot=%zu state=timeout retry=next-build cancel=active\n",
 					    running[i].action->target->label,
 					    running[i].action->id, running[i].slot);
@@ -4840,7 +4840,7 @@ skip_prepared_action_prequeue(struct qstar_graph *graph, struct qstar_build_ctx 
 	build_tracef(ctx,
 	    "schedule_action id=%s kind=%s slot=prequeue jobs=%d state=skipped-prequeue\n",
 	    action->id, action->kind, ctx->jobs);
-	fprintf(ctx->out,
+	build_tracef(ctx,
 	    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
 	    action->id, child_stdout_path, child_stderr_path);
 	build_tracef(ctx,
@@ -5042,7 +5042,7 @@ scheduler_execute(struct qstar_scheduler *sched)
 					    running[i].action->argv);
 					sched->ctx->fail_count++;
 					sched->ctx->cancelled = 1;
-					fprintf(sched->ctx->out,
+					build_tracef(sched->ctx,
 					    "build_action id=%s status=timeout timeout_sec=%d\n",
 					    running[i].action->id,
 					    sched->ctx->action_timeout_sec);
@@ -5123,7 +5123,7 @@ build_with_action_scheduler(struct qstar_graph *graph, struct qstar_build_ctx *c
 	ctx->action_scheduler = 1;
 	genrule = label && *label ? qstar_graph_find_genrule(graph, label) : NULL;
 	if (genrule) {
-		fprintf(ctx->out, "build_generated_action %s order=0 kind=custom_target\n",
+		build_tracef(ctx, "build_generated_action %s order=0 kind=custom_target\n",
 		    genrule->label);
 		build_tracef(ctx,
 		    "action_dag target=%s order=0 parallel=%s reason=ready-queue-v1 failure=stop-on-first-failure timeout_sec=%d\n",
@@ -5175,9 +5175,9 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
 		build_ctx_free(&ctx);
 		return -1;
 	}
-	fputs("qstar build v2\n", out);
-	fprintf(out, "root %s\n", ctx.root_label);
-	fprintf(out, "package-root %s\n", graph->package_root ? graph->package_root : ".");
+	build_tracef(&ctx, "qstar build v2\n");
+	build_tracef(&ctx, "root %s\n", ctx.root_label);
+	build_tracef(&ctx, "package-root %s\n", graph->package_root ? graph->package_root : ".");
 	build_tracef(&ctx,
 	    "executor-policy version=v4 parallel=%s jobs=%d active=%s failure=stop-on-first-failure action_timeout_sec=%d cancel=kill-process-and-stop-queue\n",
 	    ctx.jobs > 1 ? "optional" : "no", ctx.jobs,

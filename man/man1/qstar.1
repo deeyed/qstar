@@ -118,9 +118,10 @@ Build accepts
 .Fl -quiet ,
 and
 .Fl -progress Ar auto|plain|off .
-Default output is compact progress plus action summary.
-Verbose output adds status lines, and schedule trace enables deterministic
-scheduler events.
+Default output is compact progress plus the final build summary.
+Verbose output adds status lines and
+.Li build_action
+events, and schedule trace enables deterministic scheduler events.
 .It Ic test
 Build and run QStar test targets.
 .It Ic stage
