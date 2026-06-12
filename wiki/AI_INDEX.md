@@ -58,6 +58,11 @@ QStar가 하지 않는 일:
   portable path/process, Linux depfile 후보, generated_dir, install layout, docs/manpage
   smoke를 묶는다. macOS에서는 제한된 path smoke이고, Linux release asset은 깨끗한
   Linux host 또는 CI에서 이 gate가 통과한 뒤에만 추가한다.
+- Windows host 지원은 아직 official support가 아니다. Round Q98 기준
+  `make qstar-windows-prep-tests`가 path/process/response-file 준비 규칙을 묶는다.
+  QStar DSL path는 Windows에서도 `/`로 정규화된 package-relative path이며,
+  backslash path와 drive-letter package path는 금지된다. `.exe`, `.lib`, `.dll`
+  artifact 정책은 native Windows 검증 전까지 보수적으로 다룬다.
 - `make qstar-medium-project-readiness-tests`는 Stella executor와 Ninja backend의 clean,
   no-op, incremental build 시간을 `medium_project_gate ...` line protocol로 기록한다.
   Round Q92 기준 timing threshold는 report-only가 기본이며,
@@ -323,6 +328,7 @@ qstar --file qstar.lua test //...
 qstar --file qstar.lua stage //:bundle --dry-run
 qstar --file qstar.lua install //:target --prefix /tmp/qstar-install --dry-run
 make qstar-linux-validation-tests
+make qstar-windows-prep-tests
 qstar --file qstar.lua why-rebuild //:target
 qstar --file qstar.lua clean --target //:target
 qstar --file qstar.lua log //:target

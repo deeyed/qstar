@@ -74,6 +74,21 @@ On macOS this smoke only proves portable path/process behavior. A Linux release
 asset requires the same gate on a clean Linux host or CI image, plus clang/gcc
 depfile coverage and installed docs/manpage verification.
 
+## Windows Prep Seal
+
+Windows remains planned validation, not official support. Round Q98 records the
+pre-port path/process/response-file contract in `docs/windows-path-process.md`.
+
+```txt
+make -C qstar qstar-windows-prep-tests
+./build/bin/qstar --file tests/corpus/response-files/qstar.lua build //:all
+```
+
+QStar DSL package paths are slash-normalized and package-relative on every host.
+Backslash paths and drive-letter package paths are rejected before the native
+Windows port so that Graph IR, compile database, response files, and Ninja
+lowering do not grow incompatible path dialects.
+
 ## Editor Seal
 
 The VSCode extension package is versioned independently from the runtime. For

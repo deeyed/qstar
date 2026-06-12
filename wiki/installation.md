@@ -2,8 +2,9 @@
 
 QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. Public
 beta에서는 macOS arm64 tarball을 먼저 배포한다. Linux host 지원은 검증 진행 중이며,
-Windows host 지원은 계획 단계다. 모든 platform에서 소스에서 직접 빌드할 수 있도록
-검증 경로를 늘려간다.
+Windows host 지원은 계획 단계다. Windows는 아직 공식 지원이 아니지만 path/process/
+response-file 준비 규칙은 QStar tree 안에서 검증한다. 모든 platform에서 소스에서 직접
+빌드할 수 있도록 검증 경로를 늘려간다.
 
 ## 최소 예제
 
@@ -21,6 +22,7 @@ cd qstar
 make check
 make qstar-self-host-tests
 make qstar-linux-validation-tests
+make qstar-windows-prep-tests
 make install PREFIX="$HOME/.local"
 qstar init c-app /tmp/qstar-install-smoke
 qstar --file /tmp/qstar-install-smoke/qstar.lua build //:app
@@ -44,6 +46,7 @@ make all
 make check
 make qstar-self-host-tests
 make qstar-linux-validation-tests
+make qstar-windows-prep-tests
 qstar doctor
 ```
 
@@ -62,6 +65,24 @@ QSTAR_DOC_DIR=/tmp/qstar-linux-smoke/share/doc/qstar \
   /tmp/qstar-linux-smoke/bin/qstar docs --path
 test -f /tmp/qstar-linux-smoke/share/man/man1/qstar.1
 test -f /tmp/qstar-linux-smoke/share/man/man5/qstar-lua.5
+```
+
+## Windows 준비 경로
+
+Windows release asset은 아직 없다. 현재 QStar는 Windows 이식 전에 다음 규칙을 먼저
+고정한다.
+
+- QStar DSL path는 Windows에서도 `/` 기반 package-relative path다.
+- `src\\main.c`, `C:\\SDK\\include` 같은 path는 source/include/output/stage field에
+  쓰지 않는다.
+- process 실행은 shell string이 아니라 `qstar.cli { ... }` argv-vector다.
+- MSVC 계열 response file은 `response_style = "msvc"`로 dry-run과 log에서 확인한다.
+
+```sh
+make qstar-windows-prep-tests
+./build/bin/qstar --file tests/corpus/response-files/qstar.lua build //:all
+./build/bin/qstar --file tests/corpus/response-files/qstar.lua \
+  --profile windows-msvc dry-run //:windows_app
 ```
 
 ## 관련 diagnostic

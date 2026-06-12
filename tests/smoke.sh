@@ -2965,10 +2965,14 @@ contains "docs/qstar-v0.4-stella-seal.md" "extension package: qstar-vscode 0.3.0
 contains "docs/qstar-v0.4-stella-seal.md" "qstar-v0.4-pilot-tests"
 contains "docs/qstar-v0.4-stella-seal.md" "make install"
 contains "docs/qstar-v0.4-stella-seal.md" "qstar-linux-validation-tests"
+contains "docs/qstar-v0.4-stella-seal.md" "qstar-windows-prep-tests"
 contains "docs/qstar-v0.4-stella-seal.md" "code --install-extension dist/qstar-vscode-0.3.0.vsix --force"
 contains "docs/linux-validation.md" "Linux Validation Path"
 contains "docs/linux-validation.md" "make install PREFIX=/tmp/qstar-linux-smoke"
 contains "docs/linux-validation.md" "CC=clang make qstar-linux-validation-tests"
+contains "docs/windows-path-process.md" "Windows Path And Process Prep"
+contains "docs/windows-path-process.md" "qstar-windows-prep-tests"
+contains "docs/windows-path-process.md" "sources = {\"src\\\\main.c\"}       -- invalid"
 contains "docs/qstar-pilot-readiness-seal.md" "status: pilot-readiness seal"
 contains "docs/qstar-pilot-readiness-seal.md" "qstar-pilot-readiness-tests"
 contains "docs/qstar-pilot-readiness-seal.md" "qstar <subcommand> --help"
@@ -2988,6 +2992,7 @@ contains "docs/README.md" "qstar-v0.2-release-candidate-seal.md"
 contains "docs/README.md" "qstar-v0.3-seal.md"
 contains "docs/README.md" "qstar-v0.4-stella-seal.md"
 contains "docs/README.md" "linux-validation.md"
+contains "docs/README.md" "windows-path-process.md"
 contains "docs/README.md" "qstar-pilot-readiness-seal.md"
 contains "docs/README.md" "qstar-submodule-extraction-prep.md"
 contains "README.md" "qstar docs --ai-index"
@@ -2998,6 +3003,7 @@ contains "wiki/AI_INDEX.md" "qstar.import_module"
 contains "wiki/AI_INDEX.md" "qstar.config"
 contains "wiki/AI_INDEX.md" "generated_dir"
 contains "wiki/AI_INDEX.md" "qstar-linux-validation-tests"
+contains "wiki/AI_INDEX.md" "qstar-windows-prep-tests"
 contains "wiki/AI_INDEX.md" "qstar --file qstar.lua action-log"
 contains "wiki/AI_INDEX.md" "low-level/bootloader-style project"
 contains "man/man1/qstar.1" "Ic action-log"
@@ -3011,6 +3017,7 @@ contains "Makefile" "qstar-v0.3-rc-tests"
 contains "Makefile" "qstar-pilot-readiness-tests"
 contains "Makefile" "qstar-wiki-cli-sync-tests"
 contains "Makefile" "qstar-linux-validation-tests"
+contains "Makefile" "qstar-windows-prep-tests"
 contains "Makefile" "qstar-release-candidate-tests"
 contains "Makefile" "qstar-full-regression-tests"
 contains "Makefile" "qstar-systems-corpus-tests"
@@ -3968,7 +3975,7 @@ qstar.executable "app" {
     c = {
       include_dirs = {
         "win include dir",
-        "sdk\\include\\tail\\",
+        "sdk/include/tail",
         "include/very/long/path/segment/000",
         "include/very/long/path/segment/001",
         "include/very/long/path/segment/002",

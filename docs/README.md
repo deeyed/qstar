@@ -57,6 +57,7 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 - `ninja-backend-parity.md`: Ninja lowering parity, deferred surface, action-log/replay 계약.
 - `performance-gates.md`: Stella/Ninja clean, no-op, incremental timing gate 계약.
 - `linux-validation.md`: Linux host validation path, install smoke, CI 후보, release asset 조건.
+- `windows-path-process.md`: Windows path/process/response-file pre-port contract.
 - `qstar-pilot-readiness-seal.md`: formatter/help/wiki/CLI sync까지 묶은 pilot-readiness gate.
 - `qstar-submodule-extraction-prep.md`: 독립 repo/submodule 전환 직전 체크리스트.
 - `../wiki/`: 사용자/AI가 QStar project를 직접 작성할 수 있는 한국어 wiki.

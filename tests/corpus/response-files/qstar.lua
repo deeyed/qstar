@@ -1,0 +1,103 @@
+qstar.project {
+  name = "response-files-corpus",
+  version = "0.1.0",
+  root = ".",
+  build_dir = "build/qstar",
+  generated_dir = "build/qstar/generated",
+  compile_commands = "build",
+}
+
+qstar.profile "default" {
+  response_files = "on",
+  response_style = "posix",
+  tool_overrides = {
+    "qstar-argv-probe=tools/argv-probe.sh",
+  },
+}
+
+qstar.profile "windows-msvc" {
+  toolchain = "clang",
+  target = "x86_64-pc-windows-msvc",
+  cc = "clang-cl",
+  cxx = "clang-cl",
+  linker = "clang-cl",
+  response_files = "on",
+  response_style = "msvc",
+  tool_overrides = {
+    "qstar-argv-probe=tools/argv-probe.sh",
+  },
+}
+
+qstar.config "long_c_command" {
+  lang = {
+    c = {
+      include_dirs = {
+        "include/very/long/path/segment/000",
+        "include/very/long/path/segment/001",
+        "include/very/long/path/segment/002",
+        "include/very/long/path/segment/003",
+        "include/very/long/path/segment/004",
+        "include/very/long/path/segment/005",
+        "include/very/long/path/segment/006",
+        "include/very/long/path/segment/007",
+        "include/very/long/path/segment/008",
+        "include/very/long/path/segment/009",
+        "include/very/long/path/segment/010",
+        "include/very/long/path/segment/011",
+        "include/very/long/path/segment/012",
+        "include/very/long/path/segment/013",
+        "include/very/long/path/segment/014",
+        "include/very/long/path/segment/015",
+        "include/very/long/path/segment/016",
+        "include/very/long/path/segment/017",
+        "include/very/long/path/segment/018",
+        "include/very/long/path/segment/019",
+      },
+      compile_options = {
+        "-Wall",
+        "-Wextra",
+      },
+    },
+  },
+}
+
+qstar.executable "app" {
+  configs = {"//:long_c_command"},
+  sources = {
+    "src/main.c",
+  },
+}
+
+qstar.custom_target "argv_probe" {
+  outputs = {
+    qstar.output("build/qstar/generated/argv.txt"),
+  },
+  command = qstar.cli {
+    "qstar-argv-probe",
+    qstar.output(0),
+    "alpha beta",
+    "quote ' value",
+    "semi;colon",
+    "dollar$value",
+  },
+}
+
+qstar.executable "windows_app" {
+  configs = {"//:long_c_command"},
+  sources = {
+    "src/main.c",
+  },
+  artifact_name = "windows_app.exe",
+  lib_dirs = {
+    "sdk/lib/um/x64",
+  },
+  libs = {
+    "kernel32",
+  },
+}
+
+qstar.group "all" {
+  deps = {
+    "//:app",
+  },
+}

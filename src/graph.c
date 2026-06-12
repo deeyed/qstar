@@ -1,5 +1,6 @@
 #include "internal.h"
 
+#include <ctype.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -2397,8 +2398,16 @@ qstar_path_join(const char *a, const char *b, char *dst, size_t dstlen)
 int
 qstar_path_is_package_relative(const char *path)
 {
+	const unsigned char *p;
+
 	if (!path || !*path || path[0] == '/')
 		return 0;
+	if (isalpha((unsigned char)path[0]) && path[1] == ':')
+		return 0;
+	for (p = (const unsigned char *)path; *p; p++) {
+		if (*p == '\\' || *p == ':')
+			return 0;
+	}
 	if (strcmp(path, ".") == 0 || strcmp(path, "..") == 0)
 		return 0;
 	if (strncmp(path, "../", 3) == 0 || strstr(path, "/../") ||
