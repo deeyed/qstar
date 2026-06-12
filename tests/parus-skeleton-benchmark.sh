@@ -216,6 +216,9 @@ if command -v ninja >/dev/null 2>&1; then
 	fi
 	printf 'parus_skeleton_benchmark backend=ninja elapsed_ms=%s\n' "$ninja_ms"
 	printf 'parus_skeleton_benchmark compare stella_ms=%s ninja_ms=%s\n' "$stella_ms" "$ninja_ms"
+	if [ "$stella_ms" -gt $((ninja_ms * 2 + 25)) ]; then
+		fail "stella skeleton build ${stella_ms}ms exceeds ninja ${ninja_ms}ms by more than 2x"
+	fi
 else
 	printf 'parus_skeleton_benchmark backend=ninja elapsed_ms=skipped reason=ninja-not-found\n'
 fi

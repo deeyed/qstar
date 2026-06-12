@@ -74,6 +74,7 @@ $(QSTAR_BUILD)/$(LUA_DIR)/%.o: $(LUA_DIR)/%.c
 	$(CC) $(LUA_CFLAGS) -c $< -o $@
 
 check: all
+	set -e; \
 	bin="$(BIN_DIR)/qstar"; \
 	case "$$bin" in /*) ;; *) bin="$(CURDIR)/$$bin";; esac; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/smoke.sh; \

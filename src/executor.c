@@ -60,6 +60,20 @@ struct qstar_build_ctx {
 		char digest[32];
 	} *hash_cache;
 	size_t hash_cache_len, hash_cache_cap;
+	struct qstar_action_log_entry {
+		char *path;
+		char *exit_text;
+		char **argv;
+		size_t argc;
+		int owns_argv;
+	} *action_logs;
+	size_t action_log_len, action_log_cap;
+	struct qstar_pending_depfile_refresh {
+		struct qstar_prepared_action *action;
+	} *depfile_refresh;
+	size_t depfile_refresh_len, depfile_refresh_cap;
+	char logdir_full[QSTAR_PATH_MAX];
+	int logdir_ready;
 	size_t run_count, skip_count, fail_count;
 	size_t scheduled_count;
 	size_t progress_total;
@@ -155,6 +169,7 @@ struct qstar_scheduler {
 	int *target_final_node;
 	int *genrule_node;
 	size_t *ready;
+	size_t ready_head;
 	size_t ready_len;
 	size_t ready_cap;
 };
@@ -356,7 +371,7 @@ wait_poll_pause(void)
 	struct timespec delay;
 
 	delay.tv_sec = 0;
-	delay.tv_nsec = 10000000L;
+	delay.tv_nsec = 1000000L;
 	while (nanosleep(&delay, &delay) < 0 && errno == EINTR)
 		;
 }
@@ -454,6 +469,23 @@ full_path_under_build(const struct qstar_graph *graph, const char *subpath, char
 	if (qstar_graph_build_path(graph, subpath, rel, sizeof(rel)) < 0)
 		return -1;
 	return full_path_under_root(graph, rel, dst, dstlen);
+}
+
+/** build/logs directory를 build context에 cache하고 한 번만 생성한다. */
+static int
+ensure_action_log_dir(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    char *dst, size_t dstlen)
+{
+	if (!ctx->logdir_ready) {
+		if (full_path_under_build(graph, "logs", ctx->logdir_full,
+		    sizeof(ctx->logdir_full)) < 0 ||
+		    mkdir_p(ctx->logdir_full) < 0)
+			return qstar_set_error(graph, "qstar: could not create action log dir");
+		ctx->logdir_ready = 1;
+	}
+	if (snprintf(dst, dstlen, "%s", ctx->logdir_full) >= (int)dstlen)
+		return qstar_set_error(graph, "qstar: action log dir path too long");
+	return 0;
 }
 
 /** build directory 아래 파일 path의 parent directory를 만든다. */
@@ -1023,7 +1055,7 @@ prepare_response_file(struct qstar_graph *graph, const char *id,
 
 /** argv 배열을 action log에 deterministic하게 기록한다. */
 static void
-write_action_log(const char *path, char *const argv[], int exit_code)
+write_action_log_text(const char *path, char *const argv[], const char *exit_text)
 {
 	FILE *f;
 	size_t i;
@@ -1031,7 +1063,7 @@ write_action_log(const char *path, char *const argv[], int exit_code)
 	f = fopen(path, "w");
 	if (!f)
 		return;
-	fprintf(f, "qstar-action-log v2\nexit=%d\n", exit_code);
+	fprintf(f, "qstar-action-log v2\nexit=%s\n", exit_text);
 	for (i = 0; argv[i]; i++)
 		;
 	fprintf(f, "argc=%zu\n", i);
@@ -1053,36 +1085,175 @@ write_action_log(const char *path, char *const argv[], int exit_code)
 	fclose(f);
 }
 
-/** skipped action도 log index에 남긴다. */
-static void
-write_skip_log(const char *path, char *const argv[])
+/** action log argv snapshot을 batch flush용으로 복사한다. */
+static char **
+action_log_copy_argv(char *const argv[], size_t *argc_out)
 {
-	FILE *f;
+	char **copy;
+	size_t argc, i;
+
+	for (argc = 0; argv[argc]; argc++)
+		;
+	copy = calloc(argc + 1, sizeof(copy[0]));
+	if (!copy)
+		return NULL;
+	for (i = 0; i < argc; i++) {
+		copy[i] = qstar_strdup(argv[i]);
+		if (!copy[i]) {
+			while (i > 0)
+				free(copy[--i]);
+			free(copy);
+			return NULL;
+		}
+	}
+	copy[argc] = NULL;
+	*argc_out = argc;
+	return copy;
+}
+
+/** action log 하나를 build 종료 시점의 batch flush 목록에 추가한다. */
+static void
+action_log_queue(struct qstar_build_ctx *ctx, const char *path, char *const argv[],
+    const char *exit_text)
+{
+	struct qstar_action_log_entry *p;
+	size_t ncap, argc = 0;
+	char **argv_copy;
+	char *path_copy, *exit_copy;
+
+	if (!ctx || !path || !argv || !exit_text)
+		return;
+	path_copy = qstar_strdup(path);
+	exit_copy = qstar_strdup(exit_text);
+	argv_copy = action_log_copy_argv(argv, &argc);
+	if (!path_copy || !exit_copy || !argv_copy) {
+		free(path_copy);
+		free(exit_copy);
+		if (argv_copy) {
+			size_t i;
+
+			for (i = 0; i < argc; i++)
+				free(argv_copy[i]);
+			free(argv_copy);
+		}
+		return;
+	}
+	if (ctx->action_log_len == ctx->action_log_cap) {
+		ncap = ctx->action_log_cap ? ctx->action_log_cap * 2 : 64;
+		p = realloc(ctx->action_logs, ncap * sizeof(ctx->action_logs[0]));
+		if (!p) {
+			size_t i;
+
+			for (i = 0; i < argc; i++)
+				free(argv_copy[i]);
+			free(argv_copy);
+			free(path_copy);
+			free(exit_copy);
+			return;
+		}
+		ctx->action_logs = p;
+		ctx->action_log_cap = ncap;
+	}
+	p = &ctx->action_logs[ctx->action_log_len++];
+	p->path = path_copy;
+	p->exit_text = exit_copy;
+	p->argv = argv_copy;
+	p->argc = argc;
+	p->owns_argv = 1;
+}
+
+/** 수명이 build flush까지 보장되는 argv를 복사 없이 action log queue에 추가한다. */
+static void
+action_log_queue_ref(struct qstar_build_ctx *ctx, const char *path, char *const argv[],
+    const char *exit_text)
+{
+	struct qstar_action_log_entry *p;
+	size_t ncap, argc;
+	char *path_copy, *exit_copy;
+
+	if (!ctx || !path || !argv || !exit_text)
+		return;
+	for (argc = 0; argv[argc]; argc++)
+		;
+	path_copy = qstar_strdup(path);
+	exit_copy = qstar_strdup(exit_text);
+	if (!path_copy || !exit_copy) {
+		free(path_copy);
+		free(exit_copy);
+		return;
+	}
+	if (ctx->action_log_len == ctx->action_log_cap) {
+		ncap = ctx->action_log_cap ? ctx->action_log_cap * 2 : 64;
+		p = realloc(ctx->action_logs, ncap * sizeof(ctx->action_logs[0]));
+		if (!p) {
+			free(path_copy);
+			free(exit_copy);
+			return;
+		}
+		ctx->action_logs = p;
+		ctx->action_log_cap = ncap;
+	}
+	p = &ctx->action_logs[ctx->action_log_len++];
+	p->path = path_copy;
+	p->exit_text = exit_copy;
+	p->argv = (char **)argv;
+	p->argc = argc;
+	p->owns_argv = 0;
+}
+
+/** integer exit code action log를 batch flush 목록에 추가한다. */
+static void
+action_log_queue_exit(struct qstar_build_ctx *ctx, const char *path, char *const argv[],
+    int exit_code)
+{
+	char exit_text[32];
+
+	snprintf(exit_text, sizeof(exit_text), "%d", exit_code);
+	action_log_queue(ctx, path, argv, exit_text);
+}
+
+/** skip action log를 batch flush 목록에 추가한다. */
+static void
+action_log_queue_skip(struct qstar_build_ctx *ctx, const char *path, char *const argv[])
+{
+	action_log_queue(ctx, path, argv, "skip");
+}
+
+/** compile action처럼 argv 수명이 보장되는 action log를 복사 없이 추가한다. */
+static void
+action_log_queue_exit_ref(struct qstar_build_ctx *ctx, const char *path,
+    char *const argv[], int exit_code)
+{
+	char exit_text[32];
+
+	snprintf(exit_text, sizeof(exit_text), "%d", exit_code);
+	action_log_queue_ref(ctx, path, argv, exit_text);
+}
+
+/** compile cache-hit skip log를 복사 없이 batch flush 목록에 추가한다. */
+static void
+action_log_queue_skip_ref(struct qstar_build_ctx *ctx, const char *path,
+    char *const argv[])
+{
+	action_log_queue_ref(ctx, path, argv, "skip");
+}
+
+static void
+action_log_queue_free(struct qstar_action_log_entry *entries, size_t len);
+
+/** batch로 모은 action log 파일을 한 번에 flush한다. */
+static void
+action_log_flush(struct qstar_build_ctx *ctx)
+{
 	size_t i;
 
-	f = fopen(path, "w");
-	if (!f)
-		return;
-	fputs("qstar-action-log v2\nexit=skip\n", f);
-	for (i = 0; argv[i]; i++)
-		;
-	fprintf(f, "argc=%zu\n", i);
-	for (i = 0; argv[i]; i++) {
-		fprintf(f, "argv[%zu]=", i);
-		write_shell_arg(f, argv[i]);
-		fputc('\n', f);
-	}
-	fputs("argv=", f);
-	for (i = 0; argv[i]; i++)
-		fprintf(f, "%s%s", i ? " " : "", argv[i]);
-	fputs("\nargv_shell=", f);
-	for (i = 0; argv[i]; i++) {
-		if (i)
-			fputc(' ', f);
-		write_shell_arg(f, argv[i]);
-	}
-	fputc('\n', f);
-	fclose(f);
+	for (i = 0; i < ctx->action_log_len; i++)
+		write_action_log_text(ctx->action_logs[i].path,
+		    ctx->action_logs[i].argv, ctx->action_logs[i].exit_text);
+	action_log_queue_free(ctx->action_logs, ctx->action_log_len);
+	ctx->action_logs = NULL;
+	ctx->action_log_len = 0;
+	ctx->action_log_cap = 0;
 }
 
 /** 실패한 action을 직접 재현할 수 있는 argv 파일을 상세 metadata와 함께 갱신한다. */
@@ -1267,6 +1438,24 @@ hash_cache_free(struct qstar_file_hash_entry *entries, size_t len)
 
 	for (i = 0; i < len; i++)
 		free(entries[i].rel);
+	free(entries);
+}
+
+/** batch action log queue를 해제한다. */
+static void
+action_log_queue_free(struct qstar_action_log_entry *entries, size_t len)
+{
+	size_t i, j;
+
+	for (i = 0; i < len; i++) {
+		free(entries[i].path);
+		free(entries[i].exit_text);
+		if (entries[i].argv && entries[i].owns_argv) {
+			for (j = 0; j < entries[i].argc; j++)
+				free(entries[i].argv[j]);
+			free(entries[i].argv);
+		}
+	}
 	free(entries);
 }
 
@@ -2019,10 +2208,8 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	if (prev && strcmp(prev->key, key) == 0 && outputs_exist(graph, outputs)) {
 		if (build_trace_enabled(ctx)) {
-			if (full_path_under_build(graph, "logs", logdir, sizeof(logdir)) < 0 ||
-			    mkdir_p(logdir) < 0)
-				return qstar_set_error(graph,
-				    "qstar: could not create action log dir");
+			if (ensure_action_log_dir(graph, ctx, logdir, sizeof(logdir)) < 0)
+				return -1;
 			action_log_name(id, name, sizeof(name));
 			snprintf(action_log, sizeof(action_log), "%s/%s.log", logdir,
 			    name);
@@ -2035,16 +2222,15 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			build_tracef(ctx,
 			    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
 			    id, child_stdout_path, child_stderr_path);
-			write_skip_log(action_log, argv);
+			action_log_queue_skip(ctx, action_log, argv);
 		}
 		ctx->skip_count++;
 		return state_push(ctx, 1, id, key, outputs->items[0], "skip", kind,
 		    material) < 0 ?
 		    qstar_set_error(graph, "qstar: out of memory") : 0;
 	}
-	if (full_path_under_build(graph, "logs", logdir, sizeof(logdir)) < 0 ||
-	    mkdir_p(logdir) < 0)
-		return qstar_set_error(graph, "qstar: could not create action log dir");
+	if (ensure_action_log_dir(graph, ctx, logdir, sizeof(logdir)) < 0)
+		return -1;
 	action_log_name(id, name, sizeof(name));
 	snprintf(action_log, sizeof(action_log), "%s/%s.log", logdir, name);
 	if (build_log_rel(graph, name, ".stdout", child_stdout_path,
@@ -2090,64 +2276,71 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		time_t start;
 		pid_t waited;
 
-		start = time(NULL);
-		for (;;) {
-			waited = waitpid(pid, &status, WNOHANG);
-			if (waited == pid)
-				break;
-			if (waited < 0)
+		if (strcmp(kind, "archive") == 0 || strcmp(kind, "link") == 0) {
+			if (waitpid(pid, &status, 0) < 0)
 				return qstar_set_error(graph, "qstar: waitpid failed");
-			if (time(NULL) - start >= ctx->action_timeout_sec) {
-				char label_buf[QSTAR_PATH_MAX];
-				const char *diag_label;
-				const char *failure_kind;
+		} else {
+			start = time(NULL);
+			for (;;) {
+				waited = waitpid(pid, &status, WNOHANG);
+				if (waited == pid)
+					break;
+				if (waited < 0)
+					return qstar_set_error(graph, "qstar: waitpid failed");
+				if (time(NULL) - start >= ctx->action_timeout_sec) {
+					char label_buf[QSTAR_PATH_MAX];
+					const char *diag_label;
+					const char *failure_kind;
 
-				failure_kind = classify_failure_kind(kind, target, argv,
-				    "timeout");
-				diag_label = action_owner_label(target, id, label_buf,
-				    sizeof(label_buf));
-				kill(pid, SIGKILL);
-				waitpid(pid, &status, 0);
-				write_action_log(action_log, argv, 124);
-				write_failure_replay_detail(graph, id, toolchain, argv,
-				    failure_kind, diag_label,
-				    child_stdout_path, child_stderr_path,
-				    target ? target->run_marker : NULL,
-				    target ? target->run_marker_log : NULL);
-				ctx->fail_count++;
-				ctx->cancelled = 1;
-				build_tracef(ctx,
-				    "build_action id=%s status=timeout timeout_sec=%d\n",
-				    id, ctx->action_timeout_sec);
-				emit_action_diagnostic(ctx->out, id, kind,
-				    diag_label, failure_kind, "timeout",
-				    124, child_stdout_path, child_stderr_path,
-				    replay_path);
-				if (strcmp(kind, "run") == 0) {
-					fprintf(ctx->out,
-					    "run_target_result label=%s status=timeout timeout_sec=%d replay=%s stdout=%s stderr=%s\n",
-					    target ? target->label : id, ctx->action_timeout_sec,
-					    replay_path, child_stdout_path, child_stderr_path);
+					failure_kind = classify_failure_kind(kind, target, argv,
+					    "timeout");
+					diag_label = action_owner_label(target, id, label_buf,
+					    sizeof(label_buf));
+					kill(pid, SIGKILL);
+					waitpid(pid, &status, 0);
+					action_log_queue_exit(ctx, action_log, argv, 124);
+					write_failure_replay_detail(graph, id, toolchain, argv,
+					    failure_kind, diag_label,
+					    child_stdout_path, child_stderr_path,
+					    target ? target->run_marker : NULL,
+					    target ? target->run_marker_log : NULL);
+					ctx->fail_count++;
+					ctx->cancelled = 1;
+					build_tracef(ctx,
+					    "build_action id=%s status=timeout timeout_sec=%d\n",
+					    id, ctx->action_timeout_sec);
+					emit_action_diagnostic(ctx->out, id, kind,
+					    diag_label, failure_kind, "timeout",
+					    124, child_stdout_path, child_stderr_path,
+					    replay_path);
+					if (strcmp(kind, "run") == 0) {
+						fprintf(ctx->out,
+						    "run_target_result label=%s status=timeout timeout_sec=%d replay=%s stdout=%s stderr=%s\n",
+						    target ? target->label : id,
+						    ctx->action_timeout_sec,
+						    replay_path, child_stdout_path,
+						    child_stderr_path);
+						return qstar_set_error_origin(graph,
+						    target ? target->origin_file : "",
+						    target ? target->origin_line : 0, failure_kind,
+						    target ? target->label : id,
+						    "qstar: run_target '%s' timed out after %d seconds; replay=%s",
+						    target ? target->label : id,
+						    ctx->action_timeout_sec, replay_path);
+					}
 					return qstar_set_error_origin(graph,
 					    target ? target->origin_file : "",
 					    target ? target->origin_line : 0, failure_kind,
 					    target ? target->label : id,
-					    "qstar: run_target '%s' timed out after %d seconds; replay=%s",
-					    target ? target->label : id, ctx->action_timeout_sec,
-					    replay_path);
+					    "qstar: action '%s' timed out after %d seconds; replay=%s",
+					    id, ctx->action_timeout_sec, replay_path);
 				}
-				return qstar_set_error_origin(graph,
-				    target ? target->origin_file : "",
-				    target ? target->origin_line : 0, failure_kind,
-				    target ? target->label : id,
-				    "qstar: action '%s' timed out after %d seconds; replay=%s",
-				    id, ctx->action_timeout_sec, replay_path);
+				wait_poll_pause();
 			}
-			wait_poll_pause();
 		}
 	}
 	exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
-	write_action_log(action_log, argv, exit_code);
+	action_log_queue_exit(ctx, action_log, argv, exit_code);
 	if (exit_code != 0) {
 		char label_buf[QSTAR_PATH_MAX];
 		const char *diag_label;
@@ -2529,9 +2722,8 @@ run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	char child_stdout_path[QSTAR_PATH_MAX], child_stderr_path[QSTAR_PATH_MAX];
 	const struct qstar_state_entry *prev;
 
-	if (full_path_under_build(graph, "logs", logdir, sizeof(logdir)) < 0 ||
-	    mkdir_p(logdir) < 0)
-		return qstar_set_error(graph, "qstar: could not create action log dir");
+	if (ensure_action_log_dir(graph, ctx, logdir, sizeof(logdir)) < 0)
+		return -1;
 	action_log_name(id, name, sizeof(name));
 	snprintf(stdout_path, sizeof(stdout_path), "%s/%s.stdout", logdir, name);
 	snprintf(stderr_path, sizeof(stderr_path), "%s/%s.stderr", logdir, name);
@@ -2561,7 +2753,7 @@ run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		build_tracef(ctx,
 		    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
 		    id, child_stdout_path, child_stderr_path);
-		write_skip_log(action_log, argv);
+		action_log_queue_skip(ctx, action_log, argv);
 		ctx->skip_count++;
 		return state_push(ctx, 1, id, key, genrule->outputs.items[0], "skip",
 		    "generate", material) < 0 ?
@@ -2583,7 +2775,7 @@ run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	write_empty_log_file(stdout_path);
 	write_empty_log_file(stderr_path);
-	write_action_log(action_log, argv, 0);
+	action_log_queue_exit(ctx, action_log, argv, 0);
 	ctx->run_count++;
 	return state_push(ctx, 1, id, key, genrule->outputs.items[0], "run",
 	    "generate", material) < 0 ?
@@ -3344,6 +3536,46 @@ refresh_compile_state_after_depfile(struct qstar_graph *graph, struct qstar_buil
 	return 0;
 }
 
+/** compile depfile refresh를 scheduler hot path 밖에서 처리하도록 queue에 넣는다. */
+static int
+depfile_refresh_queue_push(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    struct qstar_prepared_action *action)
+{
+	struct qstar_pending_depfile_refresh *p;
+	size_t ncap;
+
+	if (ctx->depfile_refresh_len == ctx->depfile_refresh_cap) {
+		ncap = ctx->depfile_refresh_cap ? ctx->depfile_refresh_cap * 2 : 64;
+		p = realloc(ctx->depfile_refresh,
+		    ncap * sizeof(ctx->depfile_refresh[0]));
+		if (!p)
+			return qstar_set_error(graph, "qstar: out of memory");
+		ctx->depfile_refresh = p;
+		ctx->depfile_refresh_cap = ncap;
+	}
+	ctx->depfile_refresh[ctx->depfile_refresh_len++].action = action;
+	return 0;
+}
+
+/** queue에 모인 compile depfile refresh를 build graph 실행 이후 일괄 처리한다. */
+static int
+depfile_refresh_queue_flush(struct qstar_graph *graph, struct qstar_build_ctx *ctx)
+{
+	struct qstar_prepared_action *action;
+	size_t i;
+
+	for (i = 0; i < ctx->depfile_refresh_len; i++) {
+		action = ctx->depfile_refresh[i].action;
+		if (!action)
+			continue;
+		if (refresh_compile_state_after_depfile(graph, ctx, action->target,
+		    action->toolchain, action) < 0)
+			return -1;
+	}
+	ctx->depfile_refresh_len = 0;
+	return 0;
+}
+
 /** C/C++/Cale/ASM source 하나를 compile action으로 준비한다. */
 static int
 prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
@@ -3581,9 +3813,8 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	build_tracef(ctx,
 	    "parallel_event target=%s event=queue id=%s order=%zu slot=%zu state=ready retry=no\n",
 	    action->target->label, action->id, queue_index, slot);
-	if (full_path_under_build(graph, "logs", logdir, sizeof(logdir)) < 0 ||
-	    mkdir_p(logdir) < 0)
-		return qstar_set_error(graph, "qstar: could not create action log dir");
+	if (ensure_action_log_dir(graph, ctx, logdir, sizeof(logdir)) < 0)
+		return -1;
 	action_log_name(action->id, running->name, sizeof(running->name));
 	snprintf(stdout_path, sizeof(stdout_path), "%s/%s.stdout", logdir, running->name);
 	snprintf(stderr_path, sizeof(stderr_path), "%s/%s.stderr", logdir, running->name);
@@ -3603,7 +3834,7 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		build_tracef(ctx,
 		    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
 		    action->id, child_stdout_path, child_stderr_path);
-		write_skip_log(running->action_log, action->argv);
+		action_log_queue_skip_ref(ctx, running->action_log, action->argv);
 		ctx->skip_count++;
 		build_tracef(ctx,
 		    "parallel_event target=%s event=skip id=%s slot=%zu state=cache-hit retry=no\n",
@@ -3668,7 +3899,7 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	int exit_code;
 
 	exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
-	write_action_log(running->action_log, action->argv, exit_code);
+	action_log_queue_exit_ref(ctx, running->action_log, action->argv, exit_code);
 	if (exit_code != 0) {
 		failure_kind = classify_failure_kind(action->kind, action->target,
 		    action->argv, "exit-code");
@@ -3830,7 +4061,7 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 					kill(running[i].pid, SIGKILL);
 					waitpid(running[i].pid, &status, 0);
 					running[i].pid = 0;
-					write_action_log(running[i].action_log,
+					action_log_queue_exit_ref(ctx, running[i].action_log,
 					    running[i].action->argv, 124);
 					write_failure_replay(graph, running[i].action->id,
 					    running[i].action->toolchain,
@@ -4681,6 +4912,13 @@ scheduler_ready_push(struct qstar_scheduler *sched, size_t node_index)
 	return 0;
 }
 
+/** ready queue에 남은 항목 수를 반환한다. */
+static size_t
+scheduler_ready_count(const struct qstar_scheduler *sched)
+{
+	return sched->ready_len - sched->ready_head;
+}
+
 /** completed node의 dependent remaining count를 낮추고 ready queue를 채운다. */
 static int
 scheduler_complete_node(struct qstar_scheduler *sched, size_t node_index)
@@ -4979,9 +5217,8 @@ skip_prepared_action_prequeue(struct qstar_graph *graph, struct qstar_build_ctx 
 	    "schedule_action id=%s kind=%s slot=prequeue jobs=%d state=skipped-prequeue\n",
 	    action->id, action->kind, ctx->jobs);
 	if (build_trace_enabled(ctx)) {
-		if (full_path_under_build(graph, "logs", logdir, sizeof(logdir)) < 0 ||
-		    mkdir_p(logdir) < 0)
-			return qstar_set_error(graph, "qstar: could not create action log dir");
+		if (ensure_action_log_dir(graph, ctx, logdir, sizeof(logdir)) < 0)
+			return -1;
 		action_log_name(action->id, name, sizeof(name));
 		snprintf(action_log, sizeof(action_log), "%s/%s.log", logdir, name);
 		if (build_log_rel(graph, name, ".stdout", child_stdout_path,
@@ -4995,7 +5232,7 @@ skip_prepared_action_prequeue(struct qstar_graph *graph, struct qstar_build_ctx 
 		build_tracef(ctx,
 		    "scheduler_event event=pre_skip id=%s target=%s state=cache-hit retry=no\n",
 		    action->id, action->target->label);
-		write_skip_log(action_log, action->argv);
+		action_log_queue_skip_ref(ctx, action_log, action->argv);
 	}
 	ctx->skip_count++;
 	return state_push(ctx, 1, action->id, action->key, action->outputs.items[0],
@@ -5007,14 +5244,13 @@ skip_prepared_action_prequeue(struct qstar_graph *graph, struct qstar_build_ctx 
 static int
 scheduler_ready_pop(struct qstar_scheduler *sched, size_t *node_index)
 {
-	size_t i;
-
-	if (sched->ready_len == 0)
+	if (scheduler_ready_count(sched) == 0)
 		return 0;
-	*node_index = sched->ready[0];
-	for (i = 1; i < sched->ready_len; i++)
-		sched->ready[i - 1] = sched->ready[i];
-	sched->ready_len--;
+	*node_index = sched->ready[sched->ready_head++];
+	if (sched->ready_head == sched->ready_len) {
+		sched->ready_head = 0;
+		sched->ready_len = 0;
+	}
 	return 1;
 }
 
@@ -5077,14 +5313,14 @@ scheduler_execute(struct qstar_scheduler *sched)
 	}
 	build_tracef(sched->ctx,
 	    "action_scheduler version=v1 nodes=%zu ready=%zu jobs=%zu policy=ready-queue failure=stop-on-first-failure\n",
-	    sched->node_len, sched->ready_len, jobs);
+	    sched->node_len, scheduler_ready_count(sched), jobs);
 	progress_begin(sched->ctx, sched->node_len);
 	completed = 0;
 	active = 0;
 	rc = 0;
 	while (completed < sched->node_len) {
 		progressed = 0;
-		while (sched->ready_len > 0) {
+		while (scheduler_ready_count(sched) > 0) {
 			popped = scheduler_ready_pop(sched, &node_index);
 			if (!popped)
 				break;
@@ -5184,7 +5420,8 @@ scheduler_execute(struct qstar_scheduler *sched)
 					kill(running[i].pid, SIGKILL);
 					waitpid(running[i].pid, &status, 0);
 					running[i].pid = 0;
-					write_action_log(running[i].action_log,
+					action_log_queue_exit_ref(sched->ctx,
+					    running[i].action_log,
 					    running[i].action->argv, 124);
 					write_failure_replay(sched->graph,
 					    running[i].action->id,
@@ -5224,9 +5461,8 @@ scheduler_execute(struct qstar_scheduler *sched)
 				rc = check_compile_depfile(sched->graph, sched->ctx,
 				    running[i].action);
 			if (rc == 0)
-				rc = refresh_compile_state_after_depfile(sched->graph,
-				    sched->ctx, running[i].action->target,
-				    running[i].action->toolchain, running[i].action);
+				rc = depfile_refresh_queue_push(sched->graph,
+				    sched->ctx, running[i].action);
 			running[i].action = NULL;
 			active--;
 			if (rc < 0)
@@ -5242,7 +5478,8 @@ scheduler_execute(struct qstar_scheduler *sched)
 			break;
 		}
 		if (!progressed) {
-			if (active == 0 && sched->ready_len == 0 && completed < sched->node_len) {
+			if (active == 0 && scheduler_ready_count(sched) == 0 &&
+			    completed < sched->node_len) {
 				rc = qstar_set_error(sched->graph,
 				    "qstar: scheduler stalled with pending actions");
 				goto fail;
@@ -5250,8 +5487,10 @@ scheduler_execute(struct qstar_scheduler *sched)
 			wait_poll_pause();
 		}
 	}
+	if (rc == 0)
+		rc = depfile_refresh_queue_flush(sched->graph, sched->ctx);
 	free(running);
-	return 0;
+	return rc;
 fail:
 	if (active > 0)
 		scheduler_cancel_active(sched->ctx, running, jobs);
@@ -5285,6 +5524,7 @@ build_with_action_scheduler(struct qstar_graph *graph, struct qstar_build_ctx *c
 		rc = scheduler_build_nodes(&sched);
 	if (rc == 0)
 		rc = scheduler_execute(&sched);
+	action_log_flush(ctx);
 	ctx->action_scheduler = 0;
 	scheduler_free(&sched);
 	return rc;
@@ -5297,6 +5537,8 @@ build_ctx_free(struct qstar_build_ctx *ctx)
 	state_free(ctx->prev, ctx->prev_len);
 	state_free(ctx->next, ctx->next_len);
 	hash_cache_free(ctx->hash_cache, ctx->hash_cache_len);
+	action_log_queue_free(ctx->action_logs, ctx->action_log_len);
+	free(ctx->depfile_refresh);
 	compile_db_free(ctx->compiles, ctx->compile_len);
 	memset(ctx, 0, sizeof(*ctx));
 }
@@ -5337,6 +5579,7 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
 	rc = graph_snapshot_write(graph);
 	if (rc == 0)
 		rc = build_with_action_scheduler(graph, &ctx, label);
+	action_log_flush(&ctx);
 	if (rc == 0)
 		rc = state_write(graph, &ctx);
 	if (rc == 0)
