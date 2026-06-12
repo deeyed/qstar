@@ -8,9 +8,9 @@
 #define QSTAR_PATH_MAX 4096
 #endif
 
-#define QSTAR_VERSION "0.3.0"
+#define QSTAR_VERSION "0.4.0"
 #define QSTAR_VERSION_MAJOR 0
-#define QSTAR_VERSION_MINOR 3
+#define QSTAR_VERSION_MINOR 4
 #define QSTAR_VERSION_PATCH 0
 
 struct qstar_string_list {

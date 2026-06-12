@@ -1,12 +1,12 @@
 # QStar Pilot Readiness Seal
 
-QStar pilot-readiness seal은 v0.3 standalone surface 위에 formatter/help/wiki/CLI
+QStar pilot-readiness seal은 v0.4 Stella standalone surface 위에 formatter/help/wiki/CLI
 동기화를 더해, 다음 real systems-project pilot에 넣어도 authoring UX가 크게 흔들리지
 않는 상태를 고정한다.
 
 ```txt
 status: pilot-readiness seal
-runtime version: qstar 0.3.0
+runtime version: qstar 0.4.0
 release gate: make -C qstar qstar-pilot-readiness-tests
 ```
 

@@ -74,7 +74,7 @@ const sourceLogoPath = path.resolve(root, "../../../assets/qstar_logo.png");
 const sourceLogoSvgPath = path.resolve(root, "../../../assets/qstar_logo.svg");
 
 if (pkg.name !== "qstar-vscode") fail("package name drifted");
-if (pkg.version !== "0.2.0") fail("extension package version must be 0.2.0 for QStar v0.3 seal");
+if (pkg.version !== "0.3.0") fail("extension package version must be 0.3.0 for QStar v0.4 seal");
 if (pkg.main !== "./extension.js") fail("main must stay ./extension.js");
 if (!pkg.private) fail("extension package must stay private in-repo");
 if (!pkg.repository || pkg.repository.directory !== "qstar/editors/vscode/qstar") {

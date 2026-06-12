@@ -154,7 +154,7 @@ npm run package:vsix
 The packaging script writes `dist/qstar-vscode-<version>.vsix`. Install it with:
 
 ```txt
-code --install-extension dist/qstar-vscode-0.2.0.vsix --force
+code --install-extension dist/qstar-vscode-0.3.0.vsix --force
 ```
 
 `node_modules/`, `dist/`, and `*.vsix` are local artifacts only. The extension

@@ -2,7 +2,7 @@
   "name": "qstar-vscode",
   "displayName": "QStar",
   "description": "Language support for QStar qstar.lua, .qst build files, and .qsm modules.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "cale",
   "license": "UNLICENSED",
   "private": true,

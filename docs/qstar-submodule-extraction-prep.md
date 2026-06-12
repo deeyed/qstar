@@ -5,8 +5,8 @@
 
 ```txt
 status: standalone-repository-extracted
-current runtime: qstar 0.3.0
-current extension: qstar-vscode 0.2.0
+current runtime: qstar 0.4.0
+current extension: qstar-vscode 0.3.0
 actual split: completed
 ```
 
@@ -42,7 +42,7 @@ Cale repository에서 QStar를 소비할 때는 다음 경계를 유지한다.
   submodule 기준 `make -C qstar install PREFIX=$HOME/.local`로 `~/.local/bin/qstar`를
   갱신한다.
 - VSCode extension: standalone repo 또는 Cale submodule의 `editors/vscode/qstar`에서
-  `npm run package:vsix` 후 `qstar-vscode-0.2.0.vsix`를 재설치한다.
+  `npm run package:vsix` 후 `qstar-vscode-0.3.0.vsix`를 재설치한다.
 
 ## Extraction Gate
 
@@ -50,7 +50,7 @@ Cale repository에서 QStar를 소비할 때는 다음 경계를 유지한다.
 
 ```sh
 make -C qstar check
-make -C qstar qstar-v0.3-rc-tests
+make -C qstar qstar-v0.4-pilot-tests
 make -C qstar vscode-extension-tests
 git diff --check -- qstar docs/qstar
 ```
@@ -59,7 +59,7 @@ QStar standalone repository로 옮긴 뒤에는 같은 의미의 command가 다�
 
 ```sh
 make check
-make qstar-v0.3-rc-tests
+make qstar-v0.4-pilot-tests
 make vscode-extension-tests
 git diff --check
 ```

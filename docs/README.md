@@ -35,6 +35,7 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 | --- | --- |
 | `qstar.lua` | package root의 QStar orchestration file, `qstar.project`, `qstar.profile`, `qstar.config` metadata |
 | `<dirname>.qst` | 큰 프로젝트의 subdir QStar fragment |
+| `<module>/<module>.qsm` | side-effect 없는 QStar helper module, `return table` 전용 |
 | `src/` | `.cale` implementation module root |
 | `include/` | public header/install surface root |
 
@@ -51,6 +52,7 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 - `qstar-v0.2-authoring-spec.md`: v0.2 hard-cut authoring surface와 `lang.*` 정책.
 - `qstar-v0.2-release-candidate-seal.md`: v0.2 RC stable/experimental surface와 release gate.
 - `qstar-v0.3-seal.md`: v0.3 standalone release-candidate surface와 editor/corpus seal.
+- `qstar-v0.4-stella-seal.md`: Stella 기본 backend, Ninja 비교 backend, install/editor packaging seal.
 - `qstar-pilot-readiness-seal.md`: formatter/help/wiki/CLI sync까지 묶은 pilot-readiness gate.
 - `qstar-submodule-extraction-prep.md`: 독립 repo/submodule 전환 직전 체크리스트.
 - `../wiki/`: 사용자/AI가 QStar project를 직접 작성할 수 있는 한국어 wiki.
@@ -93,6 +95,13 @@ Round 65부터 v0.3 RC contract는 `qstar-v0.3-seal.md`에 둔다. v0.3은 `.qst
 stage/package/run target, VSCode/LSP/lint/formatter를 standalone build-system
 surface로 봉인한다. Runtime version은 `qstar --version`과 `QSTAR_VERSION`이 같은
 `0.3.0`이어야 한다.
+
+Round 90부터 current release/install contract는 `qstar-v0.4-stella-seal.md`에 둔다.
+v0.4는 Stella를 기본 generator로 고정하고, `-G stella|ninja|auto`, `-B`,
+`qstar.group`, `qstar.config`, `qstar.import_file`, `.qsm` module,
+`qstar.project.generated_dir`, compact progress, Ninja comparison backend, medium
+project performance gate를 함께 봉인한다. Runtime version은 `qstar --version`과
+`QSTAR_VERSION`이 같은 `0.4.0`, VSCode extension version은 `0.3.0`이어야 한다.
 
 ## Round 15 구현 상태
 

@@ -656,6 +656,23 @@ make -C qstar qstar-v0.3-rc-tests
 make -C qstar vscode-extension-tests
 ```
 
+## v0.4 Stella workflow seal
+
+Round 90 기준 v0.4 release/install contract는 `docs/qstar-v0.4-stella-seal.md`가
+canonical이다. Stable surface는 Stella 기본 generator, `-G stella|ninja|auto`,
+`-B`, `qstar.group`, `qstar.config`, explicit import/module system,
+`qstar.project.generated_dir`, compact progress output, Ninja comparison backend,
+medium project readiness gate, installed wiki/manpage, VSCode `.qst`/`.qsm` UX를
+포함한다.
+
+```txt
+qstar --version
+qstar version
+make -C qstar qstar-v0.4-pilot-tests
+make -C qstar install PREFIX=$HOME/.local
+make -C qstar vscode-extension-tests
+```
+
 ## Submodule extraction prep
 
 QStar는 독립 repository로 분리하고 Cale repository의 `qstar/`를 submodule pin으로
