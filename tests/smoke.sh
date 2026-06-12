@@ -168,6 +168,40 @@ contains "$tmp/group-build.out" "status ok"
 contains "$tmp/group-targets-json.out" "\"kind\":\"group\""
 contains "$tmp/group-targets-json.out" "\"installable\":false"
 
+mkdir -p "$group_tmp/noop-run/src"
+cat > "$group_tmp/noop-run/qstar.lua" <<'EOF'
+qstar.project {
+  name = "noop-run-corpus",
+  version = "0.1.0",
+  root = ".",
+}
+
+qstar.staticlib "core" {
+  sources = {"src/core.c"},
+}
+
+qstar.run_target "all" {
+  deps = {"//:core"},
+  command = qstar.cli {"true"},
+}
+EOF
+cat > "$group_tmp/noop-run/src/core.c" <<'EOF'
+int core(void) { return 4; }
+EOF
+"$qstar" --file "$group_tmp/noop-run/qstar.lua" build //:all --progress off > "$tmp/noop-run-build.out" 2> "$tmp/noop-run-build.err"
+contains "$tmp/noop-run-build.out" "status ok"
+not_contains "$tmp/noop-run-build.out" "run_target label=//:all command=argv"
+test ! -f "$group_tmp/noop-run/build/qstar/out/___all/run.stamp" || fail "noop run_target wrote stamp"
+if command -v ninja >/dev/null 2>&1; then
+	"$qstar" --file "$group_tmp/noop-run/qstar.lua" -G ninja build //:all --progress off > "$tmp/noop-run-ninja.out" 2> "$tmp/noop-run-ninja.err"
+	contains "$tmp/noop-run-ninja.out" "backend ninja"
+	contains "$tmp/noop-run-ninja.out" "status ok"
+	contains "$group_tmp/noop-run/build/qstar/ninja/build.ninja" "qstar_action_id = //:all:run:0"
+	test ! -f "$group_tmp/noop-run/build/qstar/out/___all/run.stamp" || fail "ninja noop run_target wrote stamp"
+	test ! -f "$group_tmp/noop-run/.ninja_log" || fail "ninja wrote root .ninja_log"
+	test ! -f "$group_tmp/noop-run/.ninja_deps" || fail "ninja wrote root .ninja_deps"
+fi
+
 mkdir -p "$group_tmp/group-bad"
 cat > "$group_tmp/group-bad/qstar.lua" <<'EOF'
 qstar.group "bundle" {
@@ -330,6 +364,7 @@ contains "$tmp/ninja-mvp-emit.out" "ninja_file build/qstar/ninja/build.ninja"
 contains "$tmp/ninja-mvp-emit.out" "compile_commands build/qstar/compile_commands.json"
 contains "$tmp/ninja-mvp-emit.out" "ninja_default build/qstar/ninja/targets/___all"
 contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "rule qstar_compile"
+contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "builddir = build/qstar/ninja"
 contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "rule qstar_archive"
 contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "qstar_action_id = //:core:compile:0"
 contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "qstar_action_id = //:core:compile:1"
@@ -344,6 +379,8 @@ if command -v ninja >/dev/null 2>&1 && command -v c++ >/dev/null 2>&1; then
 	contains "$tmp/ninja-mvp-build.out" "backend ninja"
 	contains "$tmp/ninja-mvp-build.out" "status ok"
 	test -f "$tmp/ninja-mvp/build/qstar/out/___core/libcore.a" || fail "ninja backend staticlib artifact missing"
+	test ! -f "$tmp/ninja-mvp/.ninja_log" || fail "ninja wrote root .ninja_log"
+	test ! -f "$tmp/ninja-mvp/.ninja_deps" || fail "ninja wrote root .ninja_deps"
 fi
 
 mkdir -p "$tmp/ninja-parity/src" "$tmp/ninja-parity/tools"
@@ -2965,6 +3002,41 @@ if "$qstar" --file "$tmp/depfile/qstar.lua" build //:app > "$tmp/depfile-missing
 	fail "missing depfile-discovered header unexpectedly succeeded"
 fi
 contains "$tmp/depfile-missing.err" "depfile-discovered header"
+
+mkdir -p "$tmp/depfile-fallback/src" "$tmp/depfile-fallback/tools"
+cat > "$tmp/depfile-fallback/tools/no-dep-cc.sh" <<'EOF'
+#!/bin/sh
+set -eu
+out=
+while [ "$#" -gt 0 ]; do
+	if [ "$1" = "-o" ]; then
+		shift
+		out=$1
+	fi
+	shift || true
+done
+test -n "$out"
+mkdir -p "$(dirname "$out")"
+printf 'qstar fake object\n' > "$out"
+EOF
+chmod +x "$tmp/depfile-fallback/tools/no-dep-cc.sh"
+cat > "$tmp/depfile-fallback/src/core.c" <<'EOF'
+int core(void) { return 1; }
+EOF
+cat > "$tmp/depfile-fallback/qstar.lua" <<'EOF'
+qstar.profile "default" {
+  toolchain = "clang",
+  cc = "tools/no-dep-cc.sh",
+}
+
+qstar.staticlib "core" {
+  sources = {"src/core.c"},
+}
+EOF
+"$qstar" --file "$tmp/depfile-fallback/qstar.lua" build //:core --verbose --progress off > "$tmp/depfile-fallback.out" 2> "$tmp/depfile-fallback.err"
+contains "$tmp/depfile-fallback.out" "depfile_fallback id=//:core:compile:0"
+contains "$tmp/depfile-fallback.out" "status ok"
+test ! -f "$tmp/depfile-fallback/build/qstar/out/___core/obj0.d" || fail "fake compiler unexpectedly wrote depfile"
 
 if command -v c++ >/dev/null 2>&1; then
 	mkdir -p "$tmp/cxx/include" "$tmp/cxx/src"
