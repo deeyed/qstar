@@ -1,0 +1,33 @@
+qstar.config "qstar_c" {
+  lang = {
+    c = {
+      public_include_dirs = {
+        "include",
+        "vendor/lua",
+      },
+      compile_options = {
+        "-std=c99",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-g",
+        "-O0",
+        "-pipe",
+      },
+    },
+  },
+}
+
+qstar.config "lua_vendor_c" {
+  lang = {
+    c = {
+      public_include_dirs = {
+        "vendor/lua",
+      },
+      compile_options = {
+        "-std=c99",
+        "-O2",
+      },
+    },
+  },
+}

@@ -120,6 +120,27 @@ qstar.run_target "smoke" {
 
 상세한 한국어 사용 문서는 `wiki/README.md`에서 시작한다.
 
+## Self-host build
+
+QStar repository는 Makefile을 canonical bootstrap/release build path로 유지한다.
+`make all`, `make check`, `make install`은 `qstar.lua`에 의존하지 않으며 앞으로도
+clean checkout의 1차 진입점이다.
+
+Root `qstar.lua`는 QStar 자체를 QStar로 병행 빌드하는 self-host validation graph다.
+이 graph는 `qstar_core`, `lua_vendor`, `qstar` target으로 Makefile source layout을
+반영하고, Stella와 Ninja backend가 QStar binary를 만들 수 있는지 확인한다. Self-host
+검증은 optional target으로만 실행한다.
+
+```txt
+make qstar-self-host-tests
+build/bin/qstar --file qstar.lua -B build/qstar-self build //:qstar
+build/bin/qstar --file qstar.lua -B build/qstar-self-ninja -G ninja build //:qstar
+```
+
+Release binary는 당분간 Makefile-built `build/bin/qstar`를 기준으로 한다. QStar-built
+binary는 backend parity와 dogfood proof이며, Makefile source list와 `qstar/modules`
+source list는 서로 독립적으로 유지한다.
+
 ## Lua evaluator
 
 QStar evaluator는 `vendor/lua`에 있는 Lua submodule을 사용한다. tag는 `v5.4.8`에
@@ -669,6 +690,7 @@ medium project readiness gate, installed wiki/manpage, VSCode `.qst`/`.qsm` UX�
 qstar --version
 qstar version
 make -C qstar qstar-v0.4-pilot-tests
+make -C qstar qstar-self-host-tests
 make -C qstar install PREFIX=$HOME/.local
 make -C qstar vscode-extension-tests
 ```

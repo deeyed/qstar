@@ -81,6 +81,21 @@ project shape without naming a downstream project. Stella does not need to be a
 byte-for-byte Ninja clone, but no-op and clean build overhead must remain close
 enough that Stella is a credible primary backend for medium projects.
 
+## Self-host Seal
+
+The Makefile remains QStar's canonical bootstrap and release build path. The
+root `qstar.lua` is a parallel self-host validation graph that proves the
+Makefile-built QStar binary can build QStar again through Stella and through the
+Ninja backend.
+
+```txt
+make -C qstar qstar-self-host-tests
+```
+
+This gate must not replace `make all`, `make check`, or `make install`. Release
+artifacts continue to use the Makefile-built binary until the self-host path has
+additional release-cycle history.
+
 ## Deferred Surface
 
 - Remote package resolution and lockfile management.
