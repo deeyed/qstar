@@ -20,7 +20,14 @@ if [ -n "$cleanup" ]; then
 	trap 'rm -rf "$cleanup"' EXIT HUP INT TERM
 fi
 
-git clone "$repo" "$work"
+if git clone "$repo" "$work"; then
+	:
+else
+	printf 'qstar-wiki-sync: wiki remote clone failed; initializing a new wiki checkout\n' >&2
+	mkdir -p "$work"
+	git init "$work"
+	git -C "$work" remote add origin "$repo"
+fi
 
 find "$work" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
 cp -R "$src"/. "$work"/
@@ -57,7 +64,9 @@ EOF
 	if git diff --cached --quiet; then
 		printf 'qstar-wiki-sync: no changes\n'
 	else
-		git commit -m "Sync QStar wiki"
-		git push origin master
+		git -c user.name="${QSTAR_WIKI_GIT_NAME:-QStar Release Bot}" \
+			-c user.email="${QSTAR_WIKI_GIT_EMAIL:-qstar-release@users.noreply.github.com}" \
+			commit -m "Sync QStar wiki"
+		git push origin HEAD:master
 	fi
 )
