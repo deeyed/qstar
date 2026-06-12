@@ -217,6 +217,10 @@ run/test/stage/install handoff, action-log/replay, marker failure replay를 함�
 검증한다. `sharedlib`는 아직 Stella/Ninja 모두에서 plan/check-only이며, Cale source
 action은 Ninja lowering 대상이 아니므로 Stella generator를 사용한다.
 
+Round 88부터 `make check`에는 generic medium low-level/firmware-style corpus가 포함된다.
+이 corpus는 40개 이상의 target, 다단계 `qstar.group`, reusable `qstar.config`,
+Stella/Ninja clean build, no-op rebuild, compile database 생성을 함께 검증한다.
+
 ## 아직 하지 않는 일
 
 - remote package fetch

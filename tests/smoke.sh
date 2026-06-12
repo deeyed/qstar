@@ -104,64 +104,64 @@ qstar.subdir("sys/kern/mm")
 qstar.subdir("sys/kern/irq")
 qstar.subdir("sys/kern")
 
-qstar.group "parus_kernel" {
+qstar.group "firmware_image" {
   deps = {
-    "//sys/kern:parus_kern",
+    "//sys/kern:kernel_subsystems",
   },
 }
 EOF
 cat > "$group_tmp/group/lib/libk/libk.qst" <<'EOF'
-qstar.staticlib "parus_libk" {
+qstar.staticlib "libk_core" {
   sources = {
     "lib/libk/libk.c",
   },
 }
 EOF
 cat > "$group_tmp/group/sys/kern/mm/mm.qst" <<'EOF'
-qstar.staticlib "parus_kern_mm" {
+qstar.staticlib "kernel_mm" {
   sources = {
     "sys/kern/mm/mm.c",
   },
   deps = {
-    "//lib/libk:parus_libk",
+    "//lib/libk:libk_core",
   },
 }
 EOF
 cat > "$group_tmp/group/sys/kern/irq/irq.qst" <<'EOF'
-qstar.staticlib "parus_kern_irq" {
+qstar.staticlib "kernel_irq" {
   sources = {
     "sys/kern/irq/irq.c",
   },
   deps = {
-    "//lib/libk:parus_libk",
+    "//lib/libk:libk_core",
   },
 }
 EOF
 cat > "$group_tmp/group/sys/kern/kern.qst" <<'EOF'
-qstar.group "parus_kern" {
+qstar.group "kernel_subsystems" {
   deps = {
-    "//sys/kern/mm:parus_kern_mm",
-    "//sys/kern/irq:parus_kern_irq",
+    "//sys/kern/mm:kernel_mm",
+    "//sys/kern/irq:kernel_irq",
   },
 }
 EOF
 cat > "$group_tmp/group/lib/libk/libk.c" <<'EOF'
-int parus_libk(void) { return 1; }
+int libk_core(void) { return 1; }
 EOF
 cat > "$group_tmp/group/sys/kern/mm/mm.c" <<'EOF'
-int parus_mm(void) { return 2; }
+int kernel_mm_value(void) { return 2; }
 EOF
 cat > "$group_tmp/group/sys/kern/irq/irq.c" <<'EOF'
-int parus_irq(void) { return 3; }
+int kernel_irq_value(void) { return 3; }
 EOF
-"$qstar" --file "$group_tmp/group/qstar.lua" check //:parus_kernel > "$tmp/group-check.out" 2> "$tmp/group-check.err"
+"$qstar" --file "$group_tmp/group/qstar.lua" check //:firmware_image > "$tmp/group-check.out" 2> "$tmp/group-check.err"
 contains "$tmp/group-check.out" "status ok"
-"$qstar" --file "$group_tmp/group/qstar.lua" dry-run //:parus_kernel > "$tmp/group-dry.out" 2> "$tmp/group-dry.err"
-contains "$tmp/group-dry.out" "dry_run_target //sys/kern:parus_kern"
+"$qstar" --file "$group_tmp/group/qstar.lua" dry-run //:firmware_image > "$tmp/group-dry.out" 2> "$tmp/group-dry.err"
+contains "$tmp/group-dry.out" "dry_run_target //sys/kern:kernel_subsystems"
 contains "$tmp/group-dry.out" "kind=group tool=none input=<deps> output=<none>"
-"$qstar" --file "$group_tmp/group/qstar.lua" build //:parus_kernel > "$tmp/group-build.out" 2> "$tmp/group-build.err"
-contains "$tmp/group-build.out" "group_target label=//sys/kern:parus_kern"
-contains "$tmp/group-build.out" "group_target label=//:parus_kernel"
+"$qstar" --file "$group_tmp/group/qstar.lua" build //:firmware_image > "$tmp/group-build.out" 2> "$tmp/group-build.err"
+contains "$tmp/group-build.out" "group_target label=//sys/kern:kernel_subsystems"
+contains "$tmp/group-build.out" "group_target label=//:firmware_image"
 contains "$tmp/group-build.out" "artifact=<none>"
 contains "$tmp/group-build.out" "status ok"
 "$qstar" --file "$group_tmp/group/qstar.lua" list-targets --format json > "$tmp/group-targets-json.out" 2> "$tmp/group-targets-json.err"
@@ -896,7 +896,7 @@ qstar.config "strict_warnings" {
 }
 EOF
 cat > "$tmp/configs/sys/kern/mm/mm.qst" <<'EOF'
-qstar.staticlib "parus_kern_mm" {
+qstar.staticlib "kernel_mm" {
   configs = {
     "//qstar/policies:kernel_c23",
     "//qstar/policies:strict_warnings",
@@ -914,7 +914,7 @@ qstar.staticlib "parus_kern_mm" {
 }
 EOF
 cat > "$tmp/configs/sys/kern/irq/irq.qst" <<'EOF'
-qstar.staticlib "parus_kern_irq" {
+qstar.staticlib "kernel_irq" {
   configs = {
     "//qstar/policies:kernel_c23",
     "//qstar/policies:strict_warnings",
@@ -925,10 +925,10 @@ qstar.staticlib "parus_kern_irq" {
 }
 EOF
 cat > "$tmp/configs/sys/kern/mm/mm.c" <<'EOF'
-int parus_mm(void) { return 0; }
+int kernel_mm_value(void) { return 0; }
 EOF
 cat > "$tmp/configs/sys/kern/irq/irq.c" <<'EOF'
-int parus_irq(void) { return 0; }
+int kernel_irq_value(void) { return 0; }
 EOF
 "$qstar" --file "$tmp/configs/qstar.lua" --dump-graph > "$tmp/configs-graph.out" 2> "$tmp/configs-graph.err"
 contains "$tmp/configs-graph.out" "config //qstar/policies:kernel_c23"
@@ -937,7 +937,7 @@ contains "$tmp/configs-graph.out" "configs [//qstar/policies:kernel_c23, //qstar
 contains "$tmp/configs-graph.out" "public_include_dirs [sys/include]"
 contains "$tmp/configs-graph.out" "system_include_dirs [lib/libc/aarch64-unknown-none-elf/include]"
 contains "$tmp/configs-graph.out" "cflags [-std=c23, -ffreestanding, -fno-builtin, -nostdinc, -Wall, -Wextra, -Werror, -DMM_LOCAL=1]"
-"$qstar" --file "$tmp/configs/qstar.lua" dry-run //sys/kern/mm:parus_kern_mm > "$tmp/configs-dry.out" 2> "$tmp/configs-dry.err"
+"$qstar" --file "$tmp/configs/qstar.lua" dry-run //sys/kern/mm:kernel_mm > "$tmp/configs-dry.out" 2> "$tmp/configs-dry.err"
 contains "$tmp/configs-dry.out" "configs [//qstar/policies:kernel_c23, //qstar/policies:strict_warnings]"
 contains "$tmp/configs-dry.out" "-DMM_LOCAL=1"
 contains "$tmp/configs-dry.out" "-isystem"
@@ -2928,13 +2928,14 @@ contains "Makefile" "qstar-wiki-cli-sync-tests"
 contains "Makefile" "qstar-release-candidate-tests"
 contains "Makefile" "qstar-full-regression-tests"
 contains "Makefile" "qstar-systems-corpus-tests"
+contains "Makefile" "qstar-medium-project-readiness-tests"
 if grep -R -n --include='*.md' -E 'timeout_sec[[:space:]]*=' docs wiki >/dev/null; then
 	fail "QStar docs/wiki contain stale timeout_sec authoring examples"
 fi
 if grep -R -n -E 'qstar\.(uefi_app|rpi_image|embed_binary)' tests/projects/systems-firmware docs wiki >/dev/null; then
 	fail "QStar systems corpus/docs contain board-specific builtin"
 fi
-if grep -R -n -i -E 'ribon|신Ribon' wiki >/dev/null; then
+if grep -R -n -i -E 'ribon|신Ribon|parus|kairon' wiki >/dev/null; then
 	fail "QStar wiki must not mention a specific downstream project"
 fi
 
