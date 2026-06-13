@@ -77,6 +77,7 @@ struct qstar_build_ctx {
 	size_t run_count, skip_count, fail_count;
 	size_t scheduled_count;
 	size_t progress_total;
+	size_t progress_completed;
 	struct qstar_compile_record {
 		char *directory;
 		char *file;
@@ -104,6 +105,7 @@ struct qstar_prepared_action {
 	char key[32];
 	char depfile[QSTAR_PATH_MAX];
 	char source_path[QSTAR_PATH_MAX];
+	char description[QSTAR_PATH_MAX];
 	int wants_depfile;
 	struct qstar_action_material material;
 	char *argv[QSTAR_EXEC_MAX_ARGV];
@@ -244,6 +246,34 @@ build_tracef(struct qstar_build_ctx *ctx, const char *fmt, ...)
 	va_end(ap);
 }
 
+/** trace stream에 안전한 quoted string을 출력한다. */
+static void
+trace_quoted_value(FILE *out, const char *value)
+{
+	const unsigned char *p;
+
+	fputc('"', out);
+	for (p = (const unsigned char *)(value ? value : ""); *p; p++) {
+		if (*p == '"' || *p == '\\')
+			fprintf(out, "\\%c", *p);
+		else
+			fputc(*p, out);
+	}
+	fputc('"', out);
+}
+
+/** --verbose/--schedule-trace용 action description line을 출력한다. */
+static void
+build_trace_description(struct qstar_build_ctx *ctx, const char *id,
+    const char *description)
+{
+	if (!build_trace_enabled(ctx))
+		return;
+	fprintf(ctx->out, "action_description id=%s text=", id);
+	trace_quoted_value(ctx->out, description && *description ? description : "<none>");
+	fputc('\n', ctx->out);
+}
+
 /** target kind에 맞는 final action stage 이름을 고른다. */
 static const char *
 final_stage_name(const struct qstar_target *target)
@@ -287,6 +317,23 @@ progress_node_label(const struct qstar_sched_node *node)
 	return "<action>";
 }
 
+/** scheduler node가 사용자-facing progress action에 포함되는지 확인한다. */
+static int
+progress_node_counts(const struct qstar_sched_node *node)
+{
+	if (!node)
+		return 0;
+	if (node->kind == QSTAR_SCHED_GROUP)
+		return 0;
+	if (node->kind == QSTAR_SCHED_RUN && node->target &&
+	    node->target->run_command.len == 1 &&
+	    strcmp(node->target->run_command.items[0], "true") == 0 &&
+	    (!node->target->run_marker || !*node->target->run_marker) &&
+	    (!node->target->run_marker_log || !*node->target->run_marker_log))
+		return 0;
+	return 1;
+}
+
 /** progress tick 한 줄을 출력한다. */
 static void
 progress_tick(struct qstar_build_ctx *ctx, int pct, const char *stage,
@@ -315,6 +362,7 @@ static void
 progress_begin(struct qstar_build_ctx *ctx, size_t total)
 {
 	ctx->progress_total = total ? total : 1;
+	ctx->progress_completed = 0;
 	ctx->progress_next_tick = 5;
 	ctx->progress_stage = 0;
 	progress_tick(ctx, 5, "prepare", ctx->root_label);
@@ -323,17 +371,19 @@ progress_begin(struct qstar_build_ctx *ctx, size_t total)
 
 /** node 완료 수를 5% progress tick으로 변환한다. */
 static void
-progress_complete(struct qstar_build_ctx *ctx, const struct qstar_sched_node *node,
-    size_t completed)
+progress_complete(struct qstar_build_ctx *ctx, const struct qstar_sched_node *node)
 {
 	int pct;
 	const char *stage, *label;
 
 	if (!ctx->progress_enabled || ctx->quiet)
 		return;
+	if (!progress_node_counts(node))
+		return;
 	if (ctx->progress_total == 0)
 		ctx->progress_total = 1;
-	pct = (int)((completed * 100) / ctx->progress_total);
+	ctx->progress_completed++;
+	pct = (int)((ctx->progress_completed * 100) / ctx->progress_total);
 	if (pct > 100)
 		pct = 100;
 	pct = (pct / 5) * 5;
@@ -2178,7 +2228,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
     const struct qstar_target *target, const char *id, const char *kind, const char *key,
     const struct qstar_string_list *outputs, char *const argv[],
     const struct qstar_resolved_toolchain *toolchain,
-    const struct qstar_action_material *material)
+    const struct qstar_action_material *material, const char *description)
 {
 	char logdir[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], action_log[QSTAR_PATH_MAX];
 	char child_stdout_path[QSTAR_PATH_MAX], child_stderr_path[QSTAR_PATH_MAX];
@@ -2192,6 +2242,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 
 	prev = state_find(ctx, id);
 	ctx->scheduled_count++;
+	build_trace_description(ctx, id, description);
 	if (ctx->schedule_trace)
 		fprintf(ctx->out,
 		    "schedule_action id=%s kind=%s slot=0 jobs=%d state=ready\n",
@@ -2715,7 +2766,8 @@ write_config_header(struct qstar_graph *graph, const struct qstar_genrule *genru
 static int
 run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
     const struct qstar_target *target, const struct qstar_genrule *genrule, const char *id,
-    const char *key, char *const argv[], const struct qstar_action_material *material)
+    const char *key, char *const argv[], const struct qstar_action_material *material,
+    const char *description)
 {
 	char logdir[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], stdout_path[QSTAR_PATH_MAX];
 	char stderr_path[QSTAR_PATH_MAX], action_log[QSTAR_PATH_MAX];
@@ -2735,6 +2787,7 @@ run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		return qstar_set_error(graph, "qstar: action log path too long");
 	prev = state_find(ctx, id);
 	ctx->scheduled_count++;
+	build_trace_description(ctx, id, description);
 	if (ctx->schedule_trace)
 		fprintf(ctx->out,
 		    "schedule_action id=%s kind=generate slot=0 jobs=%d state=ready\n",
@@ -2993,6 +3046,7 @@ run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 {
 	char id[QSTAR_PATH_MAX], key[32], output_identity[QSTAR_PATH_MAX];
 	char resolved_tool[QSTAR_PATH_MAX], tool_mode[64], tool_error[QSTAR_PATH_MAX];
+	char description[QSTAR_PATH_MAX];
 	char *argv[QSTAR_EXEC_MAX_ARGV];
 	struct qstar_string_list inputs;
 	struct qstar_resolved_toolchain toolchain;
@@ -3073,14 +3127,16 @@ run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	build_tracef(ctx,
 	    "generated_sandbox id=%s inputs=package-root outputs=generated-only cwd=package-root network=disabled tool=%s tool_mode=%s resolved_tool=%s output_identity=%s\n",
 	    genrule->label, genrule->tool, tool_mode, resolved_tool, output_identity);
+	if (qstar_action_description_generate(genrule, description, sizeof(description)) < 0)
+		snprintf(description, sizeof(description), "<too-long>");
 	if (genrule->config_header) {
 		if (run_config_header_action(graph, ctx, target, genrule, id, key,
-		    argv, &material) < 0) {
+		    argv, &material, description) < 0) {
 			free_owned_argv(argv, argc);
 			return -1;
 		}
 	} else if (run_action(graph, ctx, target, id, "generate", key,
-	    &genrule->outputs, argv, NULL, &material) < 0) {
+	    &genrule->outputs, argv, NULL, &material, description) < 0) {
 		free_owned_argv(argv, argc);
 		return -1;
 	}
@@ -3199,7 +3255,7 @@ run_target_command(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	char key[32], artifact[QSTAR_PATH_MAX];
 	char marker_source[32], marker_path[QSTAR_PATH_MAX];
 	char action_name[QSTAR_PATH_MAX], stdout_rel[QSTAR_PATH_MAX], stderr_rel[QSTAR_PATH_MAX];
-	char owner[QSTAR_PATH_MAX];
+	char owner[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	size_t argc, i;
 	int old_timeout, rc;
 	const struct qstar_target *dep;
@@ -3263,7 +3319,10 @@ run_target_command(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	old_timeout = ctx->action_timeout_sec;
 	if (target->run_timeout_sec > 0)
 		ctx->action_timeout_sec = target->run_timeout_sec;
-	rc = run_action(graph, ctx, target, id, "run", key, &outputs, argv, NULL, &material);
+	if (qstar_action_description_run(target, description, sizeof(description)) < 0)
+		snprintf(description, sizeof(description), "<too-long>");
+	rc = run_action(graph, ctx, target, id, "run", key, &outputs, argv, NULL, &material,
+	    description);
 	ctx->action_timeout_sec = old_timeout;
 	if (rc == 0 && target->run_marker && *target->run_marker &&
 	    !run_marker_match(graph, id, target->run_marker, target->run_marker_log,
@@ -3627,6 +3686,11 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		return qstar_set_error(graph, "qstar: compile argv too long");
 	}
 	snprintf(action->id, sizeof(action->id), "%s:compile:%zu", target->label, index);
+	if (qstar_action_description_compile(target, &source, object,
+	    action->description, sizeof(action->description)) < 0) {
+		qstar_string_list_free(&includes);
+		return qstar_set_error(graph, "qstar: compile action description too long");
+	}
 	snprintf(target_arg, sizeof(target_arg), "--target=%s", toolchain->target);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
 	snprintf(sysroot_arg, sizeof(sysroot_arg), "--sysroot=%s", toolchain->sysroot);
@@ -3785,7 +3849,8 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
 	if (prepare_compile_action(graph, ctx, target, toolchain, index, &action) < 0)
 		return -1;
 	rc = run_action(graph, ctx, target, action.id, action.kind, action.key,
-	    &action.outputs, action.argv, toolchain, &action.material);
+	    &action.outputs, action.argv, toolchain, &action.material,
+	    action.description);
 	if (rc == 0)
 		rc = check_compile_depfile(graph, ctx, &action);
 	if (rc == 0)
@@ -3827,6 +3892,7 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		return qstar_set_error(graph, "qstar: action log path too long");
 	prev = state_find(ctx, action->id);
 	ctx->scheduled_count++;
+	build_trace_description(ctx, action->id, action->description);
 	build_tracef(ctx, "schedule_action id=%s kind=%s slot=%zu jobs=%d state=ready\n",
 	    action->id, action->kind, slot, ctx->jobs);
 	if (prev && strcmp(prev->key, action->key) == 0 &&
@@ -4395,7 +4461,7 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 {
 	char artifact[QSTAR_PATH_MAX], object[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX], key[32];
 	char sysroot_arg[QSTAR_PATH_MAX];
-	char out_arg[QSTAR_PATH_MAX];
+	char out_arg[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	char *argv[QSTAR_EXEC_MAX_ARGV];
 	struct qstar_string_list inputs, outputs;
 	struct qstar_action_material material;
@@ -4495,9 +4561,17 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 	compute_action_key(ctx, graph, target, toolchain, id,
 	    strcmp(target->kind, "staticlib") == 0 ? "archive" : "link", argv, &inputs,
 	    NULL, artifact, key, sizeof(key), &material);
+	if (qstar_action_description_final(target,
+	    strcmp(target->kind, "staticlib") == 0 ? "archive" : "link", artifact,
+	    description, sizeof(description)) < 0) {
+		qstar_string_list_free(&inputs);
+		qstar_string_list_free(&outputs);
+		free_dep_artifacts(argv, owned_first, argc);
+		return qstar_set_error(graph, "qstar: final action description too long");
+	}
 	rc = run_action(graph, ctx, target, id,
 	    strcmp(target->kind, "staticlib") == 0 ? "archive" : "link", key, &outputs,
-	    argv, toolchain, &material);
+	    argv, toolchain, &material, description);
 	qstar_string_list_free(&inputs);
 	qstar_string_list_free(&outputs);
 	free_dep_artifacts(argv, owned_first, argc);
@@ -5213,6 +5287,7 @@ skip_prepared_action_prequeue(struct qstar_graph *graph, struct qstar_build_ctx 
 	char child_stdout_path[QSTAR_PATH_MAX], child_stderr_path[QSTAR_PATH_MAX];
 
 	ctx->scheduled_count++;
+	build_trace_description(ctx, action->id, action->description);
 	build_tracef(ctx,
 	    "schedule_action id=%s kind=%s slot=prequeue jobs=%d state=skipped-prequeue\n",
 	    action->id, action->kind, ctx->jobs);
@@ -5283,6 +5358,20 @@ scheduler_run_sync_node(struct qstar_scheduler *sched, size_t node_index)
 	return qstar_set_error(sched->graph, "qstar: invalid sync scheduler node");
 }
 
+/** scheduler graph에서 사용자-facing progress action 수를 계산한다. */
+static size_t
+scheduler_progress_total(const struct qstar_scheduler *sched)
+{
+	size_t i, total;
+
+	total = 0;
+	for (i = 0; i < sched->node_len; i++) {
+		if (progress_node_counts(&sched->nodes[i]))
+			total++;
+	}
+	return total;
+}
+
 /** scheduler를 중지하면서 active compile process를 정리한다. */
 static void
 scheduler_cancel_active(struct qstar_build_ctx *ctx, struct qstar_running_action *running,
@@ -5314,7 +5403,7 @@ scheduler_execute(struct qstar_scheduler *sched)
 	build_tracef(sched->ctx,
 	    "action_scheduler version=v1 nodes=%zu ready=%zu jobs=%zu policy=ready-queue failure=stop-on-first-failure\n",
 	    sched->node_len, scheduler_ready_count(sched), jobs);
-	progress_begin(sched->ctx, sched->node_len);
+	progress_begin(sched->ctx, scheduler_progress_total(sched));
 	completed = 0;
 	active = 0;
 	rc = 0;
@@ -5327,9 +5416,10 @@ scheduler_execute(struct qstar_scheduler *sched)
 			if (sched->nodes[node_index].state != QSTAR_SCHED_READY)
 				continue;
 			if (sched->nodes[node_index].kind != QSTAR_SCHED_COMPILE) {
-				progress_status(sched->ctx,
-				    progress_stage_name(&sched->nodes[node_index]),
-				    progress_node_label(&sched->nodes[node_index]));
+				if (progress_node_counts(&sched->nodes[node_index]))
+					progress_status(sched->ctx,
+					    progress_stage_name(&sched->nodes[node_index]),
+					    progress_node_label(&sched->nodes[node_index]));
 				rc = scheduler_run_sync_node(sched, node_index);
 				if (rc < 0)
 					goto fail;
@@ -5338,8 +5428,7 @@ scheduler_execute(struct qstar_scheduler *sched)
 					goto fail;
 				}
 				completed++;
-				progress_complete(sched->ctx, &sched->nodes[node_index],
-				    completed);
+				progress_complete(sched->ctx, &sched->nodes[node_index]);
 				progressed = 1;
 				continue;
 			}
@@ -5352,9 +5441,10 @@ scheduler_execute(struct qstar_scheduler *sched)
 				rc = -1;
 				goto fail;
 			}
-			progress_status(sched->ctx,
-			    progress_stage_name(&sched->nodes[node_index]),
-			    progress_node_label(&sched->nodes[node_index]));
+			if (progress_node_counts(&sched->nodes[node_index]))
+				progress_status(sched->ctx,
+				    progress_stage_name(&sched->nodes[node_index]),
+				    progress_node_label(&sched->nodes[node_index]));
 			if (prepared_action_cache_hit(sched->graph, sched->ctx,
 			    &sched->nodes[node_index].action)) {
 				rc = skip_prepared_action_prequeue(sched->graph,
@@ -5366,8 +5456,7 @@ scheduler_execute(struct qstar_scheduler *sched)
 					goto fail;
 				}
 				completed++;
-				progress_complete(sched->ctx, &sched->nodes[node_index],
-				    completed);
+				progress_complete(sched->ctx, &sched->nodes[node_index]);
 				progressed = 1;
 				continue;
 			}
@@ -5405,8 +5494,7 @@ scheduler_execute(struct qstar_scheduler *sched)
 					goto fail;
 				}
 				completed++;
-				progress_complete(sched->ctx, &sched->nodes[node_index],
-				    completed);
+				progress_complete(sched->ctx, &sched->nodes[node_index]);
 			}
 			progressed = 1;
 		}
@@ -5472,8 +5560,7 @@ scheduler_execute(struct qstar_scheduler *sched)
 				goto fail;
 			}
 			completed++;
-			progress_complete(sched->ctx, &sched->nodes[node_index],
-			    completed);
+			progress_complete(sched->ctx, &sched->nodes[node_index]);
 			progressed = 1;
 			break;
 		}
@@ -6011,13 +6098,15 @@ static int
 install_file(struct qstar_graph *graph, struct qstar_install_ctx *ctx,
     const struct qstar_target *target, const char *src_rel, const char *dst, const char *role)
 {
-	char src[QSTAR_PATH_MAX];
+	char src[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	const char *diff_action;
 
 	diff_action = ctx->options->dry_run ? (path_exists(dst) ? "would-overwrite" :
 	    "would-create") : "copy";
-	fprintf(ctx->out, "install_file src=%s dst=%s mode=%s role=%s\n", src_rel, dst,
-	    ctx->options->dry_run ? "dry-run" : "copy", role);
+	if (qstar_action_description_install(src_rel, description, sizeof(description)) < 0)
+		snprintf(description, sizeof(description), "<too-long>");
+	fprintf(ctx->out, "install_file src=%s dst=%s mode=%s role=%s description=\"%s\"\n",
+	    src_rel, dst, ctx->options->dry_run ? "dry-run" : "copy", role, description);
 	fprintf(ctx->out, "install_diff dst=%s action=%s\n", dst, diff_action);
 	install_manifest_record(ctx, target->label, role, src_rel, dst);
 	if (ctx->options->dry_run)
@@ -6338,6 +6427,7 @@ stage_file(struct qstar_graph *graph, struct qstar_stage_ctx *ctx, const char *s
 {
 	char src_rel[QSTAR_PATH_MAX], src_full[QSTAR_PATH_MAX], dst_stage_rel[QSTAR_PATH_MAX];
 	char dst_full[QSTAR_PATH_MAX], producer_buf[QSTAR_PATH_MAX];
+	char description[QSTAR_PATH_MAX];
 	const char *action, *kind, *producer;
 	int exists;
 
@@ -6365,10 +6455,14 @@ stage_file(struct qstar_graph *graph, struct qstar_stage_ctx *ctx, const char *s
 		action = "would-create";
 	stage_source_kind(graph, src_token, src_rel, &kind, &producer, producer_buf,
 	    sizeof(producer_buf));
-	fprintf(ctx->out, "stage_file src=%s dst=%s mode=%s kind=%s producer=%s\n",
+	if (qstar_action_description_stage(ctx->stage, description,
+	    sizeof(description)) < 0)
+		snprintf(description, sizeof(description), "<too-long>");
+	fprintf(ctx->out,
+	    "stage_file src=%s dst=%s mode=%s kind=%s producer=%s description=\"%s\"\n",
 	    src_rel, dst_stage_rel,
 	    ctx->options && ctx->options->dry_run ? "dry-run" : "copy",
-	    kind, producer);
+	    kind, producer, description);
 	fprintf(ctx->out, "stage_diff dst=%s action=%s exists=%s\n", dst_stage_rel,
 	    action, exists ? "yes" : "no");
 	stage_manifest_record(ctx, src_rel, dst_stage_rel, action, kind, producer);

@@ -44,6 +44,11 @@ qstar.project {
 qstar.executable "app" {
   sources = {"src/main.c"},
 }
+
+qstar.run_target "smoke" {
+  deps = {"//:app"},
+  command = qstar.cli {qstar.target_file("//:app")},
+}
 EOF
 
 cat > "$tmp/src/main.c" <<'EOF'
@@ -75,6 +80,17 @@ contains "$tmp/build/qstar/state/actions.json" "\"external_tool_key\":"
 test -f "$tmp/build/qstar/compile_commands.json" || fail "missing compile_commands.json"
 contains "$tmp/build/qstar/compile_commands.json" "src/main.c"
 test ! -f "$tmp/compile_commands.json" || fail "default compile_commands leaked to root"
+
+"$qstar" --file "$tmp/qstar.lua" dry-run //:smoke > "$tmp/action-description-dry.out" 2> "$tmp/action-description-dry.err"
+contains "$tmp/action-description-dry.out" "action_description id=//:app:compile:0 text=\"Building C object build/qstar/out/___app/obj0.o\""
+contains "$tmp/action-description-dry.out" "action_description id=//:app:link:0 text=\"Linking C executable build/qstar/out/___app/app\""
+contains "$tmp/action-description-dry.out" "action_description id=//:smoke:run:0 text=\"Running //:smoke\""
+"$qstar" --file "$tmp/qstar.lua" explain //:app > "$tmp/action-description-explain.out" 2> "$tmp/action-description-explain.err"
+contains "$tmp/action-description-explain.out" "action_description id=//:app:compile:0 text=\"Building C object build/qstar/out/___app/obj0.o\""
+contains "$tmp/action-description-explain.out" "action_description id=//:app:link:0 text=\"Linking C executable build/qstar/out/___app/app\""
+"$qstar" --file "$tmp/qstar.lua" build //:app --verbose --progress off > "$tmp/action-description-build.out" 2> "$tmp/action-description-build.err"
+contains "$tmp/action-description-build.out" "action_description id=//:app:compile:0 text=\"Building C object build/qstar/out/___app/obj0.o\""
+contains "$tmp/action-description-build.out" "action_description id=//:app:link:0 text=\"Linking C executable build/qstar/out/___app/app\""
 
 "$qstar" --file "$tmp/qstar.lua" build //:app --progress plain --color never > "$tmp/ui-compact.out" 2> "$tmp/ui-compact.err"
 contains "$tmp/ui-compact.out" "[5%] Stage 1: prepare //:app"
@@ -159,6 +175,8 @@ contains "$tmp/group-check.out" "status ok"
 "$qstar" --file "$group_tmp/group/qstar.lua" dry-run //:firmware_image > "$tmp/group-dry.out" 2> "$tmp/group-dry.err"
 contains "$tmp/group-dry.out" "dry_run_target //sys/kern:kernel_subsystems"
 contains "$tmp/group-dry.out" "kind=group tool=none input=<deps> output=<none>"
+contains "$tmp/group-dry.out" "progress_action label=//sys/kern:kernel_subsystems include=no reason=group"
+contains "$tmp/group-dry.out" "progress_action label=//:firmware_image include=no reason=group"
 "$qstar" --file "$group_tmp/group/qstar.lua" build //:firmware_image > "$tmp/group-build.out" 2> "$tmp/group-build.err"
 contains "$tmp/group-build.out" "group_target label=//sys/kern:kernel_subsystems"
 contains "$tmp/group-build.out" "group_target label=//:firmware_image"
@@ -363,6 +381,12 @@ EOF
 contains "$tmp/ninja-mvp-emit.out" "ninja_file build/qstar/ninja/build.ninja"
 contains "$tmp/ninja-mvp-emit.out" "compile_commands build/qstar/compile_commands.json"
 contains "$tmp/ninja-mvp-emit.out" "ninja_default build/qstar/ninja/targets/___all"
+"$qstar" --file "$tmp/ninja-mvp/qstar.lua" dry-run //:all > "$tmp/ninja-mvp-dry.out" 2> "$tmp/ninja-mvp-dry.err"
+contains "$tmp/ninja-mvp-dry.out" "action_description id=//:core:compile:0 text=\"Building C object build/qstar/out/___core/obj0.o\""
+contains "$tmp/ninja-mvp-dry.out" "action_description id=//:core:compile:1 text=\"Building CXX object build/qstar/out/___core/obj1.o\""
+contains "$tmp/ninja-mvp-dry.out" "action_description id=//:core:compile:2 text=\"Building ASM object build/qstar/out/___core/obj2.o\""
+contains "$tmp/ninja-mvp-dry.out" "action_description id=//:core:archive:0 text=\"Linking CXX static library build/qstar/out/___core/libcore.a\""
+contains "$tmp/ninja-mvp-dry.out" "progress_action label=//:all include=no reason=group"
 contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "rule qstar_compile"
 contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "builddir = build/qstar/ninja"
 contains "$tmp/ninja-mvp/build/qstar/ninja/build.ninja" "rule qstar_archive"
@@ -614,9 +638,10 @@ contains "$tmp/lint-json.out" "\"diagnostics\":[]"
 "$qstar" --file "$tmp/qstar.lua" list-targets --format json > "$tmp/targets-json.out" 2> "$tmp/targets-json.err"
 contains "$tmp/targets-json.out" "\"schema\":\"qstar-targets-v1\""
 contains "$tmp/targets-json.out" "\"project\":{\"name\":\"smoke\""
-contains "$tmp/targets-json.out" "\"target_count\":1"
+contains "$tmp/targets-json.out" "\"target_count\":2"
 contains "$tmp/targets-json.out" "\"generated_action_count\":0"
 contains "$tmp/targets-json.out" "\"label\":\"//:app\""
+contains "$tmp/targets-json.out" "\"label\":\"//:smoke\""
 contains "$tmp/targets-json.out" "\"is_test\":false"
 contains "$tmp/targets-json.out" "\"installable\":true"
 
@@ -2035,6 +2060,9 @@ qstar.executable "genapp" {
 }
 EOF
 
+"$qstar" --file "$tmp/qstar.lua" dry-run //:genapp > "$tmp/generated-description-dry.out" 2> "$tmp/generated-description-dry.err"
+contains "$tmp/generated-description-dry.out" "action_description id=//:cfg:generate:0 text=\"Configuring generated/config.h\""
+contains "$tmp/generated-description-dry.out" "action_description id=//:make_value:generate:0 text=\"Generating generated/value.c\""
 "$qstar" --file "$tmp/qstar.lua" build //:genapp --explain-cache > "$tmp/generated-second.out" 2> "$tmp/generated-second.err"
 contains "$tmp/generated-second.out" "cache_miss id=//:cfg:generate:0"
 contains "$tmp/generated-second.out" "cache_miss id=//:genapp:compile:0"
@@ -2451,6 +2479,7 @@ contains "$tmp/install-build.out" "status ok"
 "$qstar" --file "$tmp/qstar.lua" install //:install_app --prefix "$tmp/prefix" --dry-run > "$tmp/install-dry.out" 2> "$tmp/install-dry.err"
 contains "$tmp/install-dry.out" "mode dry-run"
 contains "$tmp/install-dry.out" "install_file src=build/qstar/out/___install_app/install_app"
+contains "$tmp/install-dry.out" "description=\"Installing build/qstar/out/___install_app/install_app\""
 contains "$tmp/install-dry.out" "install_diff dst=$tmp/prefix/bin/install_app action=would-create"
 "$qstar" --file "$tmp/qstar.lua" install //:install_core --prefix "$tmp/prefix" > "$tmp/install-lib.out" 2> "$tmp/install-lib.err"
 contains "$tmp/install-lib.out" "status ok"
@@ -2813,6 +2842,7 @@ contains "$tmp/project-firmware-img-rebuild.out" "cache_miss id=//:kernel_img:ge
 "$qstar" --file "$tmp/project-firmware/qstar.lua" stage //:rpi --dry-run > "$tmp/project-firmware-rpi-dry.out" 2> "$tmp/project-firmware-rpi-dry.err"
 contains "$tmp/project-firmware-rpi-dry.out" "stage_file src=build/qstar/out/___kernel/kernel.elf dst=stage/rpi/kernel.elf mode=dry-run"
 contains "$tmp/project-firmware-rpi-dry.out" "stage_file src=generated/kernel8.img dst=stage/rpi/kernel8.img mode=dry-run"
+contains "$tmp/project-firmware-rpi-dry.out" "description=\"Staging //:rpi\""
 "$qstar" --file "$tmp/project-firmware/qstar.lua" stage //:rpi > "$tmp/project-firmware-rpi-stage.out" 2> "$tmp/project-firmware-rpi-stage.err"
 contains "$tmp/project-firmware-rpi-stage.out" "stage_file src=boot/config.txt dst=stage/rpi/config.txt mode=copy"
 contains "$tmp/project-firmware-rpi-stage.out" "stage_file src=build/qstar/out/___kernel/kernel.elf dst=stage/rpi/kernel.elf mode=copy"
@@ -2979,6 +3009,7 @@ contains "docs/qstar-v0.5-readiness.md" "Windows"
 contains "docs/progress-output.md" "status: progress output contract"
 contains "docs/progress-output.md" "[ 75%] Linking CXX executable app"
 contains "docs/progress-output.md" "Stage N"
+contains "docs/progress-output.md" "action_description"
 contains "docs/progress-output.md" "qstar.status"
 contains "docs/progress-output.md" "warning:"
 contains "docs/progress-output.md" "--progress auto"
@@ -3039,6 +3070,7 @@ contains "wiki/AI_INDEX.md" "qstar --file qstar.lua action-log"
 contains "wiki/AI_INDEX.md" "low-level/bootloader-style project"
 contains "wiki/reference/progress-output.md" "[ 75%] Linking CXX executable app"
 contains "wiki/reference/progress-output.md" "Stage 1: prepare"
+contains "wiki/reference/progress-output.md" "action_description"
 contains "wiki/reference/progress-output.md" "qstar.status"
 contains "wiki/reference/progress-output.md" "warning:"
 contains "man/man1/qstar.1" "Ic action-log"

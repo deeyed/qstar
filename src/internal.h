@@ -141,6 +141,27 @@ int qstar_target_has_executable_artifact(const struct qstar_target *target);
 /** target artifact가 qstar install 대상인지 확인한다. */
 int qstar_target_is_installable(const struct qstar_target *target);
 
+/** compile action의 사용자-facing description을 만든다. */
+int qstar_action_description_compile(const struct qstar_target *target,
+    const struct qstar_source_info *source, const char *output, char *dst, size_t dstlen);
+
+/** final archive/link action의 사용자-facing description을 만든다. */
+int qstar_action_description_final(const struct qstar_target *target, const char *action,
+    const char *artifact, char *dst, size_t dstlen);
+
+/** generated action의 사용자-facing description을 만든다. */
+int qstar_action_description_generate(const struct qstar_genrule *genrule, char *dst,
+    size_t dstlen);
+
+/** run_target action의 사용자-facing description을 만든다. */
+int qstar_action_description_run(const struct qstar_target *target, char *dst, size_t dstlen);
+
+/** stage action의 사용자-facing description을 만든다. */
+int qstar_action_description_stage(const struct qstar_stage *stage, char *dst, size_t dstlen);
+
+/** install action의 사용자-facing description을 만든다. */
+int qstar_action_description_install(const char *artifact, char *dst, size_t dstlen);
+
 /** qstar init template을 지정된 directory에 생성한다. */
 int qstar_init_project(const char *template_name, const char *directory, FILE *out,
     char *error, size_t error_len);

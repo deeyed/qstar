@@ -525,6 +525,26 @@ argv_item(FILE *out, struct qstar_argv_dump *dump, const char *value)
 	dump->seen++;
 }
 
+/** action description을 explain/dry-run에 deterministic하게 출력한다. */
+static void
+dump_action_description(FILE *out, const char *prefix, const char *id,
+    const char *description)
+{
+	fprintf(out, "%saction_description id=%s text=",
+	    prefix ? prefix : "", id);
+	write_argv_value(out, description && *description ? description : "<none>");
+	fputc('\n', out);
+}
+
+/** group target이 progress action에서 제외됨을 explain/dry-run에 출력한다. */
+static void
+dump_progress_action_exclusion(FILE *out, const char *prefix, const char *label,
+    const char *reason)
+{
+	fprintf(out, "%sprogress_action label=%s include=no reason=%s\n",
+	    prefix ? prefix : "", label, reason);
+}
+
 /** command_argv line을 닫는다. */
 static void
 end_argv(FILE *out, const struct qstar_argv_dump *dump)
@@ -1270,6 +1290,7 @@ dump_consumed_genrules(FILE *out, const struct qstar_plan *plan,
 	const struct qstar_genrule *genrule;
 	char inputs[QSTAR_PATH_MAX], outputs[QSTAR_PATH_MAX], identities[QSTAR_PATH_MAX];
 	char resolved_tool[QSTAR_PATH_MAX], tool_mode[64], tool_error[QSTAR_PATH_MAX];
+	char id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	size_t i;
 
 	for (i = 0; i < plan->graph->genrule_len; i++) {
@@ -1290,6 +1311,11 @@ dump_consumed_genrules(FILE *out, const struct qstar_plan *plan,
 			snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
 			snprintf(tool_mode, sizeof(tool_mode), "invalid");
 		}
+		snprintf(id, sizeof(id), "%s:generate:0", genrule->label);
+		if (qstar_action_description_generate(genrule, description,
+		    sizeof(description)) < 0)
+			snprintf(description, sizeof(description), "<too-long>");
+		dump_action_description(out, "  ", id, description);
 		fprintf(out,
 		    "  generated_action id=%s tool=%s tool_mode=%s resolved_tool=%s inputs=%s outputs=%s output_identities=%s args=",
 		    genrule->label, genrule->tool, tool_mode, resolved_tool, inputs, outputs,
@@ -1326,6 +1352,7 @@ dump_direct_genrule_plan(FILE *out, const struct qstar_graph *graph,
 {
 	char inputs[QSTAR_PATH_MAX], outputs[QSTAR_PATH_MAX], identities[QSTAR_PATH_MAX];
 	char resolved_tool[QSTAR_PATH_MAX], tool_mode[64], tool_error[QSTAR_PATH_MAX];
+	char id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 
 	format_list_field(inputs, sizeof(inputs), &genrule->inputs);
 	format_list_field(outputs, sizeof(outputs), &genrule->outputs);
@@ -1344,6 +1371,11 @@ dump_direct_genrule_plan(FILE *out, const struct qstar_graph *graph,
 	    "%s_generated_action %s tool=%s tool_mode=%s resolved_tool=%s inputs=%s outputs=%s output_identities=%s\n",
 	    mode, genrule->label, genrule->tool, tool_mode, resolved_tool, inputs, outputs,
 	    identities);
+	snprintf(id, sizeof(id), "%s:generate:0", genrule->label);
+	if (qstar_action_description_generate(genrule, description,
+	    sizeof(description)) < 0)
+		snprintf(description, sizeof(description), "<too-long>");
+	dump_action_description(out, "  ", id, description);
 	dump_genrule_input_edges(out, graph, genrule, "  ");
 	dump_genrule_artifacts(out, genrule, "  ");
 	fprintf(out,
@@ -1683,7 +1715,7 @@ static int
 dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_target *target,
     size_t order)
 {
-	char output[QSTAR_PATH_MAX];
+	char output[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	struct qstar_source_info source;
 	struct qstar_resolved_toolchain toolchain;
 	const char *action;
@@ -1759,6 +1791,7 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	fprintf(out, "  toolchain %s\n", target->toolchain);
 	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
 	if (strcmp(target->kind, "group") == 0) {
+		dump_progress_action_exclusion(out, "  ", target->label, "group");
 		fprintf(out, "  action group input=<deps> output=<none>\n");
 		return 0;
 	}
@@ -1772,11 +1805,16 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 		fprintf(out, "  run.marker_log %s\n",
 		    target->run_marker_log && *target->run_marker_log ?
 		    target->run_marker_log : "<none>");
-			fprintf(out, "  action run output=build/qstar/out/<run-stamp>\n");
-			dump_action_key(out, plan->graph, target, "run", "<run-command>",
-			    "build/qstar/out/<run-stamp>", "generic", 0);
-			dump_command_skeleton(out, plan->graph, target, "run", "<run-command>",
-			    "build/qstar/out/<run-stamp>", "generic", "cli", 0);
+		snprintf(id, sizeof(id), "%s:run:0", target->label);
+		if (qstar_action_description_run(target, description,
+		    sizeof(description)) < 0)
+			snprintf(description, sizeof(description), "<too-long>");
+		dump_action_description(out, "  ", id, description);
+		fprintf(out, "  action run output=build/qstar/out/<run-stamp>\n");
+		dump_action_key(out, plan->graph, target, "run", "<run-command>",
+		    "build/qstar/out/<run-stamp>", "generic", 0);
+		dump_command_skeleton(out, plan->graph, target, "run", "<run-command>",
+		    "build/qstar/out/<run-stamp>", "generic", "cli", 0);
 		dump_run_argv(out, target);
 		return 0;
 	}
@@ -1800,6 +1838,11 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 		if (qstar_graph_object_output_path(plan->graph, target, i, output,
 		    sizeof(output)) < 0)
 			return qstar_set_error(plan->graph, "qstar: object output path too long");
+		snprintf(id, sizeof(id), "%s:compile:%zu", target->label, i);
+		if (qstar_action_description_compile(target, &source, output,
+		    description, sizeof(description)) < 0)
+			snprintf(description, sizeof(description), "<too-long>");
+		dump_action_description(out, "  ", id, description);
 		fprintf(out, "  action compile source=%s output=%s\n",
 		    target->sources.items[i], output);
 		dump_action_key(out, plan->graph, target, "compile", target->sources.items[i],
@@ -1814,6 +1857,11 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	    strcmp(action, "compile-objects") == 0 ? "object-collector" : "linker";
 	if (qstar_graph_artifact_output_path(plan->graph, target, output, sizeof(output)) < 0)
 		return qstar_set_error(plan->graph, "qstar: artifact output path too long");
+	snprintf(id, sizeof(id), "%s:%s:0", target->label, action);
+	if (qstar_action_description_final(target, action, output, description,
+	    sizeof(description)) < 0)
+		snprintf(description, sizeof(description), "<too-long>");
+	dump_action_description(out, "  ", id, description);
 	fprintf(out, "  action %s output=%s\n", action, output);
 	dump_action_key(out, plan->graph, target, action, "<target-objects>", output,
 	    "artifact", 0);
@@ -1870,6 +1918,7 @@ dump_dry_run_genrules(FILE *out, const struct qstar_plan *plan,
 	const struct qstar_genrule *genrule;
 	char inputs[QSTAR_PATH_MAX], outputs[QSTAR_PATH_MAX], identities[QSTAR_PATH_MAX];
 	char resolved_tool[QSTAR_PATH_MAX], tool_mode[64], tool_error[QSTAR_PATH_MAX];
+	char id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	size_t i;
 
 	for (i = 0; i < plan->graph->genrule_len; i++) {
@@ -1890,6 +1939,11 @@ dump_dry_run_genrules(FILE *out, const struct qstar_plan *plan,
 			snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
 			snprintf(tool_mode, sizeof(tool_mode), "invalid");
 		}
+		snprintf(id, sizeof(id), "%s:generate:0", genrule->label);
+		if (qstar_action_description_generate(genrule, description,
+		    sizeof(description)) < 0)
+			snprintf(description, sizeof(description), "<too-long>");
+		dump_action_description(out, "  ", id, description);
 		fprintf(out,
 		    "dry_run_step id=%s:generate:0 owner=%s consumer=%s kind=generate "
 		    "tool=%s tool_mode=%s resolved_tool=%s inputs=%s outputs=%s output_identities=%s args=",
@@ -1909,7 +1963,7 @@ dump_dry_run_compiles(FILE *out, const struct qstar_plan *plan,
 {
 	struct qstar_source_info source;
 	struct qstar_resolved_toolchain toolchain;
-	char output[QSTAR_PATH_MAX];
+	char output[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	size_t i;
 
 	if (qstar_resolve_toolchain(plan->graph, target, &toolchain) < 0)
@@ -1928,6 +1982,11 @@ dump_dry_run_compiles(FILE *out, const struct qstar_plan *plan,
 		if (qstar_graph_object_output_path(plan->graph, target, i, output,
 		    sizeof(output)) < 0)
 			return qstar_set_error(plan->graph, "qstar: object output path too long");
+		snprintf(id, sizeof(id), "%s:compile:%zu", target->label, i);
+		if (qstar_action_description_compile(target, &source, output,
+		    description, sizeof(description)) < 0)
+			snprintf(description, sizeof(description), "<too-long>");
+		dump_action_description(out, "  ", id, description);
 		fprintf(out,
 		    "dry_run_step id=%s:compile:%zu owner=%s kind=compile language=%s "
 		    "tool=%s toolchain=%s input=%s output=%s execute=no\n",
@@ -1943,7 +2002,7 @@ dump_dry_run_compiles(FILE *out, const struct qstar_plan *plan,
 static int
 dump_dry_run_final(FILE *out, const struct qstar_plan *plan, const struct qstar_target *target)
 {
-	char output[QSTAR_PATH_MAX];
+	char output[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	struct qstar_resolved_toolchain toolchain;
 	const char *action, *tool;
 
@@ -1954,6 +2013,11 @@ dump_dry_run_final(FILE *out, const struct qstar_plan *plan, const struct qstar_
 	    strcmp(action, "compile-objects") == 0 ? "object-collector" : "linker";
 	if (qstar_graph_artifact_output_path(plan->graph, target, output, sizeof(output)) < 0)
 		return qstar_set_error(plan->graph, "qstar: artifact output path too long");
+	snprintf(id, sizeof(id), "%s:%s:0", target->label, action);
+	if (qstar_action_description_final(target, action, output, description,
+	    sizeof(description)) < 0)
+		snprintf(description, sizeof(description), "<too-long>");
+	dump_action_description(out, "  ", id, description);
 	fprintf(out,
 	    "dry_run_step id=%s:%s:0 owner=%s kind=%s tool=%s toolchain=%s "
 	    "input=<target-objects> output=%s execute=no\n",
@@ -2005,14 +2069,23 @@ qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out)
 		{
 		struct qstar_resolved_toolchain toolchain;
 		if (strcmp(plan.order[i]->kind, "run_target") == 0) {
-				fprintf(out,
-				    "  dry_run_step id=%s:run:0 owner=%s kind=run tool=cli "
-				    "input=<deps> output=build/qstar/out/<run-stamp> execute=no\n",
-				    plan.order[i]->label, plan.order[i]->label);
+			char id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
+
+			snprintf(id, sizeof(id), "%s:run:0", plan.order[i]->label);
+			if (qstar_action_description_run(plan.order[i], description,
+			    sizeof(description)) < 0)
+				snprintf(description, sizeof(description), "<too-long>");
+			dump_action_description(out, "  ", id, description);
+			fprintf(out,
+			    "  dry_run_step id=%s:run:0 owner=%s kind=run tool=cli "
+			    "input=<deps> output=build/qstar/out/<run-stamp> execute=no\n",
+			    plan.order[i]->label, plan.order[i]->label);
 			dump_run_argv(out, plan.order[i]);
 			continue;
 		}
 		if (strcmp(plan.order[i]->kind, "group") == 0) {
+			dump_progress_action_exclusion(out, "  ", plan.order[i]->label,
+			    "group");
 			fprintf(out,
 			    "  dry_run_step id=%s:group:0 owner=%s kind=group tool=none input=<deps> output=<none> execute=no\n",
 			    plan.order[i]->label, plan.order[i]->label);

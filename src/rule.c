@@ -1,5 +1,7 @@
 #include "internal.h"
 
+#include <stdarg.h>
+#include <stdio.h>
 #include <string.h>
 
 struct source_rule {
@@ -137,4 +139,132 @@ qstar_target_is_installable(const struct qstar_target *target)
 
 	rule = qstar_target_rule_lookup(target->kind);
 	return rule ? rule->installable_artifact : 0;
+}
+
+/** source language를 progress description용 짧은 이름으로 변환한다. */
+static const char *
+description_compile_language(const struct qstar_source_info *source)
+{
+	if (!source)
+		return "";
+	if (strcmp(source->language, "c") == 0)
+		return "C";
+	if (strcmp(source->language, "cxx") == 0 ||
+	    strcmp(source->language, "cxx-module") == 0)
+		return "CXX";
+	if (strcmp(source->language, "asm") == 0 ||
+	    strcmp(source->language, "asm-cpp") == 0)
+		return "ASM";
+	if (strcmp(source->language, "cale") == 0)
+		return "Cale";
+	return "";
+}
+
+/** target source list에 C++ 계열 입력이 있는지 확인한다. */
+static int
+description_target_uses_cxx(const struct qstar_target *target)
+{
+	struct qstar_source_info source;
+	size_t i;
+
+	if (!target)
+		return 0;
+	for (i = 0; i < target->sources.len; i++) {
+		if (qstar_source_classify(target->sources.items[i], &source) == 0 &&
+		    (strcmp(source.language, "cxx") == 0 ||
+		    strcmp(source.language, "cxx-module") == 0))
+			return 1;
+	}
+	return 0;
+}
+
+/** printf style 결과를 QStar style 성공/실패로 변환한다. */
+static int
+description_format(char *dst, size_t dstlen, const char *fmt, ...)
+{
+	va_list ap;
+	int n;
+
+	if (!dst || dstlen == 0)
+		return -1;
+	va_start(ap, fmt);
+	n = vsnprintf(dst, dstlen, fmt, ap);
+	va_end(ap);
+	return n >= 0 && (size_t)n < dstlen ? 0 : -1;
+}
+
+/** compile action의 사용자-facing description을 만든다. */
+int
+qstar_action_description_compile(const struct qstar_target *target,
+    const struct qstar_source_info *source, const char *output, char *dst, size_t dstlen)
+{
+	const char *language;
+
+	(void)target;
+	language = description_compile_language(source);
+	if (language && *language)
+		return description_format(dst, dstlen, "Building %s object %s",
+		    language, output ? output : "<object>");
+	return description_format(dst, dstlen, "Building object %s",
+	    output ? output : "<object>");
+}
+
+/** final archive/link action의 사용자-facing description을 만든다. */
+int
+qstar_action_description_final(const struct qstar_target *target, const char *action,
+    const char *artifact, char *dst, size_t dstlen)
+{
+	const char *language;
+	const char *noun;
+
+	language = description_target_uses_cxx(target) ? "CXX" : "C";
+	if (action && strcmp(action, "archive") == 0)
+		noun = "static library";
+	else if (action && strcmp(action, "link-shared") == 0)
+		noun = "shared library";
+	else if (action && strcmp(action, "compile-objects") == 0)
+		return description_format(dst, dstlen, "Collecting objects %s",
+		    artifact ? artifact : "<artifact>");
+	else
+		noun = "executable";
+	return description_format(dst, dstlen, "Linking %s %s %s",
+	    language, noun, artifact ? artifact : "<artifact>");
+}
+
+/** generated action의 사용자-facing description을 만든다. */
+int
+qstar_action_description_generate(const struct qstar_genrule *genrule, char *dst,
+    size_t dstlen)
+{
+	const char *output;
+
+	output = genrule && genrule->outputs.len > 0 ? genrule->outputs.items[0] :
+	    genrule && genrule->label ? genrule->label : "<generated>";
+	if (genrule && genrule->config_header)
+		return description_format(dst, dstlen, "Configuring %s", output);
+	return description_format(dst, dstlen, "Generating %s", output);
+}
+
+/** run_target action의 사용자-facing description을 만든다. */
+int
+qstar_action_description_run(const struct qstar_target *target, char *dst, size_t dstlen)
+{
+	return description_format(dst, dstlen, "Running %s",
+	    target && target->label ? target->label : "<run-target>");
+}
+
+/** stage action의 사용자-facing description을 만든다. */
+int
+qstar_action_description_stage(const struct qstar_stage *stage, char *dst, size_t dstlen)
+{
+	return description_format(dst, dstlen, "Staging %s",
+	    stage && stage->label ? stage->label : "<stage>");
+}
+
+/** install action의 사용자-facing description을 만든다. */
+int
+qstar_action_description_install(const char *artifact, char *dst, size_t dstlen)
+{
+	return description_format(dst, dstlen, "Installing %s",
+	    artifact && *artifact ? artifact : "<artifact>");
 }

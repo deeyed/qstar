@@ -87,3 +87,20 @@ qstar.custom_target "version_header" {
 
 `qstar.status(...)`는 한 줄 description만 허용한다. Empty string, newline, 너무 긴
 description은 diagnostic 대상이다.
+
+## Action Description IR
+
+Round Q102부터 Stella action plan은 사용자-facing description을 별도 field로 가진다.
+`qstar explain`, `qstar dry-run`, `--verbose`, `--schedule-trace`에서 다음 line을 확인할 수
+있다.
+
+```txt
+action_description id=//:app:compile:0 text="Building C object build/qstar/out/___app/obj0.o"
+action_description id=//:app:link:0 text="Linking C executable build/qstar/out/___app/app"
+```
+
+`qstar.group`은 progress action에서 제외된다.
+
+```txt
+progress_action label=//:all include=no reason=group
+```

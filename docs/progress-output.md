@@ -9,6 +9,7 @@ status: progress output contract
 target line: qstar 0.5
 default backend: stella
 reference style: CMake-style action progress
+implementation status: action descriptions available in explain/dry-run/trace
 ```
 
 ## Default Format
@@ -56,6 +57,24 @@ QStar가 자동 생성하는 기본 description은 다음 wording을 사용한�
 
 Stella와 Ninja backend는 가능한 한 같은 description을 사용한다. Ninja backend는
 QStar action description을 Ninja `description = ...`로 lower한다.
+
+## Action Description IR
+
+Round Q102부터 Stella action plan은 사용자-facing description을 별도 field로 가진다.
+`qstar explain`, `qstar dry-run`, `--verbose`, `--schedule-trace`에서는 다음 line으로 확인할
+수 있다.
+
+```txt
+action_description id=//:app:compile:0 text="Building C object build/qstar/out/___app/obj0.o"
+action_description id=//:app:link:0 text="Linking C executable build/qstar/out/___app/app"
+```
+
+`qstar.group`과 `true` aggregate 같은 no-op run target은 progress action으로 세지 않는다.
+Dry-run/explain은 group exclusion을 다음처럼 표시한다.
+
+```txt
+progress_action label=//:all include=no reason=group
+```
 
 ## Authoring Hook
 
