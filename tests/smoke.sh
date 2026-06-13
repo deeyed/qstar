@@ -4959,14 +4959,14 @@ cat > "$tmp/stagepkg/tools/fake-link.sh" <<'EOF'
 #!/bin/sh
 set -eu
 out=
-for arg in "$@"; do
-	case "$arg" in
+while [ "$#" -gt 0 ]; do
+	case "$1" in
 		-o)
 			shift
 			out=$1
 			;;
 		/out:*)
-			out=${arg#/out:}
+			out=${1#/out:}
 			;;
 	esac
 	shift || break
