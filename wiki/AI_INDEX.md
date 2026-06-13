@@ -108,6 +108,9 @@ QStar가 하지 않는 일:
   no-op, incremental build 시간을 `medium_project_gate ...` line protocol로 기록한다.
   Round Q92 기준 timing threshold는 report-only가 기본이며,
   `QSTAR_MEDIUM_PERF_REPORT_ONLY=0`이면 hard gate로 승격된다.
+- Stella dirty-check의 canonical fast state는 `build/qstar/state/state.db`다.
+  `build/qstar/state/actions.json`은 기본 생성물이 아니며,
+  `QSTAR_DEBUG_STATE_DUMPS=1 qstar build ...`로 요청한 debug/export dump다.
 - external command는 `qstar.cli { ... }` argv-vector로만 표현한다.
 - low-level/bootloader-style project도 generic primitive로 표현한다.
 

@@ -87,8 +87,8 @@ build UX:
 
 ```txt
 qstar/build/bin/qstar
-  -> build/qstar/state/actions.json action manifest
-  -> build/qstar/state/state.db compact dirty-check state
+  -> build/qstar/state/state.db canonical compact dirty-check state
+  -> build/qstar/state/actions.json opt-in debug/export action dump
   -> cache-hit skip for unchanged local actions
   -> compile_commands.json
   -> why-rebuild / clean / log / last-failure
@@ -455,10 +455,10 @@ Round 14 incremental-state invariant:
 
 - QStar is built and checked from `qstar/`; the root Cale `Makefile` does not
   own QStar targets.
+- `build/qstar/state/state.db` is the canonical compact internal dirty-check state
+  loaded first by Stella.
 - `build/qstar/state/actions.json` records action id, key, output, and last status
-  for debug/export.
-- `build/qstar/state/state.db` is the compact internal dirty-check state loaded
-  first by Stella.
+  for opt-in debug/export when `QSTAR_DEBUG_STATE_DUMPS=1` is set.
 - `build/qstar/state/deps.db` is the compact internal depfile-discovered header
   state loaded before Stella reparses compiler depfiles.
 - action key v1 includes argv, declared input path metadata/content hash, output

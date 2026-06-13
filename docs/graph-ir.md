@@ -242,8 +242,11 @@ action logs are a logical CLI surface and may be lazily reconstructed instead of
 materialized as physical `.log` files.
 
 Round 14/15 add local incremental build records. `qstar build` writes
-`build/qstar/state/actions.json` for debug/export and `compile_commands.json`.
-Q121 adds `build/qstar/state/state.db` as Stella's compact dirty-check state.
+`compile_commands.json` according to project policy. Q121 adds
+`build/qstar/state/state.db` as Stella's compact dirty-check state. Q132 makes
+`state.db` the canonical dirty-check fast path and keeps
+`build/qstar/state/actions.json` as an opt-in debug/export dump controlled by
+`QSTAR_DEBUG_STATE_DUMPS=1`.
 Action output uses status markers:
 
 ```txt

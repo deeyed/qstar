@@ -85,8 +85,8 @@ build/qstar/stella/
     *.tmp             # atomic write scratch files
 
 build/qstar/state/
-  actions.json        # debug/export action state
-  state.db            # compact dirty-check action state, internal binary v1
+  actions.json        # opt-in debug/export action state
+  state.db            # canonical compact dirty-check action state, internal binary v1
   deps.db             # compact discovered dependency DB, internal binary v1
 ```
 
@@ -108,7 +108,9 @@ cache hit 시 `actions.qsa`에서 compile/archive/link action의 argv, output, d
 static input list를 직접 복원한다. 파일 content/env/action key는 실행 직전에 다시 계산하므로
 stale source/header 변경은 기존 dirty-check와 같은 방식으로 rebuild된다.
 Q121 이후에는 build start에서 `build/qstar/state/state.db`를 먼저 읽고, stale/missing이면
-`state/actions.json`으로 fallback한다.
+기존 build directory 호환을 위해 `state/actions.json`으로 fallback한다. Q132 이후
+`state.db`가 Stella dirty-check의 canonical fast path이고, `state/actions.json`은
+`QSTAR_DEBUG_STATE_DUMPS=1`을 설정했을 때만 쓰는 debug/export dump다.
 Q123 이후에는 `build/qstar/state/deps.db`도 함께 읽는다. 이 DB는 compiler depfile 자체를
 매번 다시 파싱하기 전에, depfile path/size/mtime/content hash가 그대로인지 확인하고
 저장된 discovered header list를 재사용한다.
@@ -304,13 +306,14 @@ Plan cache와 action state는 다르다.
 | 파일 | 의미 |
 | --- | --- |
 | `actions.qsa` | 어떤 action을 실행할 수 있는지 |
-| `state/actions.json` | 지난 build에서 action이 어떤 key/status였는지, debug/export용 |
-| `state.db` | compact fast dirty-check lookup |
+| `state/actions.json` | 지난 build에서 action이 어떤 key/status였는지, opt-in debug/export dump |
+| `state.db` | canonical compact fast dirty-check lookup |
 | `deps.db` | depfile-discovered header list lookup |
 
 Q121 이후 Stella는 `state.db`를 먼저 읽는다. compact DB가 없거나 schema/ABI가 맞지 않으면
-조용히 `state/actions.json`으로 돌아간다. JSON state는 사람이 읽는 debugging/export
-surface로 유지한다.
+조용히 기존 `state/actions.json`으로 돌아간다. Q132 이후 JSON state는 fast path에서
+기본 생성하지 않는다. 사람이 읽는 debugging/export dump가 필요하면
+`QSTAR_DEBUG_STATE_DUMPS=1 qstar build ...`처럼 opt-in으로 생성한다.
 Q123 이후 Stella는 compile action의 depfile을 직접 파싱하기 전에 `deps.db`를 본다. depfile
 fingerprint가 맞으면 cached header list를 쓰되, 각 header는 package-relative path와 존재
 여부를 다시 검증한다. depfile fingerprint가 바뀌면 기존 depfile parser를 사용하고 성공한
@@ -374,7 +377,8 @@ lowered_action id=//:app:link:0 status=hit kind=link
 있다는 이유로 action을 stale skip하지 않는다.
 
 1. `build/qstar/state/state.db` compact lookup을 추가했다.
-2. `state/actions.json`은 계속 쓴다.
+2. `state/actions.json`은 debug/export fallback으로 유지했다. Q132 이후 이 JSON dump는
+   opt-in 생성으로 전환된다.
 3. no-op/incremental에서 action state JSON parse를 피한다.
 4. `--schedule-trace`에서 `dirty_state_db status=hit|miss`를 표시한다.
 5. `why-rebuild`와 `--explain-cache`는 JSON/detail path를 유지한다.
@@ -408,7 +412,7 @@ Status: implemented.
 
 1. Successful action metadata write path에 buffered file write를 적용했다.
 2. `state.db`를 `state/actions.json`보다 먼저 쓰며, `actions.json`은 debug/export용
-   fallback으로 유지한다.
+   fallback으로 유지한다. Q132 이후 `actions.json` write는 opt-in으로 내려간다.
 3. Non-verbose progress renderer는 같은 percent tick을 반복 출력하지 않는다.
 4. Plan cache store용 lowered action preparation은 compile database, depfile-discovered
    input scan, action key material hash 계산을 생략한다. 실제 build path에서는 기존처럼
@@ -500,7 +504,7 @@ Status: implemented.
    로그를 남긴다.
 3. `qstar action-log <action-id>`와 `qstar replay <action-id>`는 물리 `.log`가 없으면
    compact state와 현재 graph에서 argv/description을 lazy 재구성한다.
-4. `state.db/actions.json`은 현재 build closure 밖의 이전 성공 action state를 보존해,
+4. `state.db`는 현재 build closure 밖의 이전 성공 action state를 보존해,
    다른 target을 빌드한 뒤에도 기존 action-log UX가 유지된다.
 5. 물리 `build/qstar/logs/*.log` 파일 존재는 성공 action의 public contract가 아니다.
 
@@ -522,6 +526,38 @@ Q131은 metadata write 수를 줄이는 구조 패치다. 이 corpus의 clean wa
 개선으로 나타나지 않았고, no-op/incremental은 계속 Ninja급 latency를 유지한다. 다음 clean
 build 성능 개선은 compiler process count 감소, action preparation batching, remaining
 state/action metadata write 축소가 더 큰 효과를 낼 가능성이 높다.
+
+### Q132 Debug State Opt-In And Perf Gate Refresh
+
+Status: implemented.
+
+1. `build/qstar/state/state.db`를 Stella dirty-check의 canonical fast path로 명확화했다.
+2. `build/qstar/state/actions.json`은 fast path에서 기본 생성하지 않는다.
+3. 사람이 읽는 action state dump가 필요하면 `QSTAR_DEBUG_STATE_DUMPS=1 qstar build ...`
+   형식으로 opt-in한다.
+4. 기존 build directory 호환을 위해 `state.db`가 없거나 stale이면 `actions.json` fallback
+   read는 유지한다.
+5. `state/graph.json`과 `state/last-summary.json`은 각각 graph snapshot과 build summary
+   UX에 필요하므로 이번 라운드에서는 유지한다.
+
+Observed Q132 timing on the medium corpus, local macOS arm64:
+
+```txt
+medium_project_gate target_count=47 min_targets=40
+medium_project_gate backend=stella phase=clean elapsed_ms=991
+medium_project_gate backend=stella phase=noop elapsed_ms=79
+medium_project_gate backend=stella phase=incremental elapsed_ms=100
+medium_project_gate backend=ninja phase=clean elapsed_ms=276
+medium_project_gate backend=ninja phase=noop elapsed_ms=89
+medium_project_gate backend=ninja phase=incremental elapsed_ms=107
+medium_project_gate warning=stella clean 991ms exceeds ninja 276ms beyond ratio_x100=200 slack_ms=250
+medium_project_gate status=ok perf_issue_count=1 report_only=1
+```
+
+Q132는 JSON debug dump write를 clean build hot path에서 제거했지만, clean wall time은
+여전히 500-650ms 목표 범위에 닿지 못했다. No-op과 incremental은 Ninja급 latency를
+유지한다. 남은 clean gap은 process completion bookkeeping, compiler process count,
+remaining metadata write 쪽으로 본다.
 
 ## Acceptance Criteria
 

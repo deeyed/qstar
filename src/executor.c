@@ -2929,7 +2929,22 @@ state_load(struct qstar_graph *graph, struct qstar_build_ctx *ctx)
 	return 0;
 }
 
-/** 현재 action state를 deterministic JSON으로 쓴다. */
+/** debug/export action JSON dump를 요청했는지 확인한다. */
+static int
+debug_state_dumps_enabled(void)
+{
+	const char *v;
+
+	v = getenv("QSTAR_DEBUG_STATE_DUMPS");
+	if (!v || !*v)
+		return 0;
+	if (strcmp(v, "0") == 0 || strcmp(v, "false") == 0 ||
+	    strcmp(v, "off") == 0)
+		return 0;
+	return 1;
+}
+
+/** 현재 action state를 compact DB에 쓰고, 요청 시 deterministic JSON dump도 쓴다. */
 static int
 state_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 {
@@ -2938,22 +2953,25 @@ state_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 	char buf[QSTAR_FILE_WRITE_BUFFER_SIZE];
 	FILE *f;
 	size_t i;
-	int unchanged;
+	int debug_dump, unchanged;
 
 	if (full_path_under_build(graph, "state/actions.json", path, sizeof(path)) < 0)
 		return qstar_set_error(graph, "qstar: could not create state dir");
 	if (full_path_under_build(graph, "state/state.db", db_path, sizeof(db_path)) < 0)
 		return qstar_set_error(graph, "qstar: could not create state dir");
-	unchanged = state_unchanged_ignoring_status(ctx) && path_exists(path);
-	if (unchanged && path_exists(db_path))
+	debug_dump = debug_state_dumps_enabled();
+	unchanged = state_unchanged_ignoring_status(ctx);
+	if (unchanged && path_exists(db_path) && (!debug_dump || path_exists(path)))
 		return 0;
-	if (unchanged)
+	if (unchanged && !debug_dump)
 		return state_db_write(graph, ctx);
 	if (full_path_under_build(graph, "state", dir, sizeof(dir)) < 0 ||
 	    mkdir_p(dir) < 0)
 		return qstar_set_error(graph, "qstar: could not create state dir");
 	if (state_db_write(graph, ctx) < 0)
 		return -1;
+	if (!debug_dump)
+		return 0;
 	if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp))
 		return qstar_set_error(graph, "qstar: state path too long");
 	f = fopen(tmp, "w");

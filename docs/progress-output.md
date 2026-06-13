@@ -98,8 +98,9 @@ description='Running smoke test app'
 ```
 
 Stella executor는 성공/skip action의 물리 `.log` 파일을 public contract로 보지 않는다.
-성공 action log는 `build/qstar/state/state.db`, `build/qstar/state/actions.json`, lowered
-action plan, 현재 graph에서 필요할 때 재구성될 수 있다. 실패 action과 `last-failure` replay는
+성공 action log는 canonical `build/qstar/state/state.db`, lowered action plan, 현재 graph에서
+필요할 때 재구성될 수 있다. `build/qstar/state/actions.json`은
+`QSTAR_DEBUG_STATE_DUMPS=1`로 요청한 debug/export dump일 뿐이다. 실패 action과 `last-failure` replay는
 재현성을 위해 계속 즉시 물리 파일로 기록한다. 사용자는 `build/qstar/logs/*.log` 파일 존재에
 의존하지 말고 `qstar action-log <action-id>`와 `qstar replay <action-id>`를 사용해야 한다.
 

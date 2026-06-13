@@ -54,20 +54,20 @@ Ninja가 없으면 Ninja phase는 `skipped`로 표시된다. Stella phase는 항
 
 ## 최신 베타 스냅샷
 
-Round Q131 local macOS arm64 대표 측정값:
+Round Q132 local macOS arm64 대표 측정값:
 
 ```txt
 medium_project_gate target_count=47 min_targets=40
-medium_project_gate backend=stella phase=clean elapsed_ms=1157
-medium_project_gate backend=stella phase=noop elapsed_ms=83
-medium_project_gate backend=stella phase=incremental elapsed_ms=95
-medium_project_gate backend=ninja phase=clean elapsed_ms=269
-medium_project_gate backend=ninja phase=noop elapsed_ms=79
-medium_project_gate backend=ninja phase=incremental elapsed_ms=120
-medium_project_gate compare phase=clean stella_ms=1157 ninja_ms=269 ratio_x100=200 slack_ms=250
-medium_project_gate compare phase=noop stella_ms=83 ninja_ms=79 ratio_x100=200 slack_ms=250
-medium_project_gate compare phase=incremental stella_ms=95 ninja_ms=120 ratio_x100=200 slack_ms=250
-medium_project_gate warning=stella clean 1157ms exceeds ninja 269ms beyond ratio_x100=200 slack_ms=250
+medium_project_gate backend=stella phase=clean elapsed_ms=991
+medium_project_gate backend=stella phase=noop elapsed_ms=79
+medium_project_gate backend=stella phase=incremental elapsed_ms=100
+medium_project_gate backend=ninja phase=clean elapsed_ms=276
+medium_project_gate backend=ninja phase=noop elapsed_ms=89
+medium_project_gate backend=ninja phase=incremental elapsed_ms=107
+medium_project_gate compare phase=clean stella_ms=991 ninja_ms=276 ratio_x100=200 slack_ms=250
+medium_project_gate compare phase=noop stella_ms=79 ninja_ms=89 ratio_x100=200 slack_ms=250
+medium_project_gate compare phase=incremental stella_ms=100 ninja_ms=107 ratio_x100=200 slack_ms=250
+medium_project_gate warning=stella clean 991ms exceeds ninja 276ms beyond ratio_x100=200 slack_ms=250
 medium_project_gate status=ok perf_issue_count=1 report_only=1
 ```
 
@@ -79,8 +79,11 @@ runner를 추가했다. macOS와 Linux/glibc는 `posix_spawn` fast path를 사�
 platform이나 spawn setup failure는 기존 fork/exec path로 fallback한다. Q130은 compile/custom
 action wait loop에서 fixed sleep pause를 제거하고 stdout/stderr pipe readiness를 POSIX
 `poll()`로 기다린다. Q131은 successful/cache-hit action log를 lazy materialization으로
-전환해 clean build metadata file write 수를 줄인다. Clean build는 runner, output drain,
-lazy success action log 구조가 정리됐지만 500-650ms 목표 범위에는 아직 닿지 못했다. 남은 격차는 process completion
+전환해 clean build metadata file write 수를 줄인다. Q132는 `state.db`를 Stella
+dirty-check의 canonical fast path로 명확화하고, 사람이 읽는 `state/actions.json` dump를
+`QSTAR_DEBUG_STATE_DUMPS=1` opt-in으로 내려 fast path에서 JSON debug export write를 제거했다.
+Clean build는 runner, output drain, lazy success action log, debug state dump opt-in 구조가
+정리됐지만 500-650ms 목표 범위에는 아직 닿지 못했다. 남은 격차는 process completion
 bookkeeping, compiler process count, remaining metadata write 쪽에 있다. Report gate는
 통과하며, no-op/incremental은 Ninja급 latency를 유지한다.
 

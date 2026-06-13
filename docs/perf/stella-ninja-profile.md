@@ -106,10 +106,10 @@ record로 저장하고, 새 정보가 없으면 write하지 않는다.
 
 QStar에 적용할 점:
 
-- 현재 Stella `state/actions.json`은 사람이 읽기 좋지만, clean/no-op hot path에는 무겁다.
-- 1차 개선은 JSON state를 유지하되, 내부 fast state index 파일을 추가하는 것이다.
-- 2차 개선은 `build/qstar/stella/state.db` 같은 compact state DB로 action id -> digest,
-  output, mtime, depfile digest를 바로 읽게 하는 것이다.
+- Q132 이후 Stella `state/actions.json`은 사람이 읽는 debug/export dump이고,
+  `QSTAR_DEBUG_STATE_DUMPS=1`을 설정했을 때만 생성한다.
+- `build/qstar/state/state.db`가 canonical dirty-check fast path다. action id -> digest,
+  output, mtime, depfile digest는 compact DB에서 바로 읽는다.
 - action log/replay는 QStar의 장점이므로 없애지 않는다. 대신 실행 성공 path에서는 batch
   write를 유지하고, no-op path에서는 log write를 생략하는 현재 방향을 더 강화한다.
 - Q125 이후 source input은 content digest를 유지하지만, `build_dir` 내부 generated
@@ -273,7 +273,8 @@ Q118 분석에서 확인한 주요 source anchor:
 - `build/qstar/state/actions.json` 옆에 fast-path `build/qstar/state/state.db` 추가
 - Stella build start에서 compact DB를 먼저 읽고, 없거나 stale이면 JSON state로 fallback
 - action id -> output, command digest, input digest, depfile digest lookup의 JSON parse overhead 제거
-- JSON state는 debugging/export surface로 유지
+- JSON state는 debugging/export surface로 유지한다. Q132 이후 기본 write는 중단됐고,
+  `QSTAR_DEBUG_STATE_DUMPS=1`일 때만 생성한다.
 - `--schedule-trace`에서는 `dirty_state_db status=hit|miss`로 compact path 사용 여부 확인 가능
 - 대표 측정: Stella no-op 70ms, incremental 111ms로 Ninja no-op 80ms, incremental 120ms와
   같은 체감권을 유지했다. Clean은 745ms 대 Ninja 304ms로 다음 병목은 process runner와
