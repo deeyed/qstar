@@ -9,6 +9,7 @@ MAN_DIR ?= $(PREFIX)/share/man
 QSTAR_BUILD = $(BUILD_DIR)/obj
 LUA_DIR = vendor/lua
 CFLAGS ?= -g -O0 -pipe
+LDLIBS ?= -lm
 QSTAR_CFLAGS = -std=c99 -Wall -Wextra -Wpedantic $(CFLAGS) -Iinclude -I$(LUA_DIR)
 LUA_CFLAGS = -std=c99 -O2 -I$(LUA_DIR)
 
@@ -63,7 +64,7 @@ all: $(BIN_DIR)/qstar
 
 $(BIN_DIR)/qstar: $(QSTAR_OBJS) $(LUA_OBJS)
 	mkdir -p $(BIN_DIR)
-	$(CC) $(QSTAR_OBJS) $(LUA_OBJS) -o $@
+	$(CC) $(QSTAR_OBJS) $(LUA_OBJS) $(LDLIBS) -o $@
 
 $(QSTAR_BUILD)/src/%.o: src/%.c include/qstar/qstar.h src/internal.h
 	mkdir -p $(QSTAR_BUILD)/src
