@@ -28,6 +28,7 @@
 #define QSTAR_DEPS_DB_MAGIC "qstar-stella-deps-db-v1"
 #define QSTAR_DEPS_DB_ABI 1ULL
 #define QSTAR_STATE_DB_MAX_STRING (16ULL * 1024ULL * 1024ULL)
+#define QSTAR_FILE_WRITE_BUFFER_SIZE 65536
 
 struct qstar_observed_stream {
 	int fd;
@@ -57,6 +58,7 @@ struct qstar_build_ctx {
 	int color_mode;
 	int progress_enabled;
 	int color_enabled;
+	int lowering_cache_prepare;
 	int action_timeout_sec;
 	int cancelled;
 	int action_scheduler;
@@ -118,6 +120,7 @@ struct qstar_build_ctx {
 	size_t progress_total;
 	size_t progress_completed;
 	size_t progress_started;
+	int progress_last_pct;
 	struct qstar_compile_record {
 		char *directory;
 		char *file;
@@ -411,6 +414,9 @@ progress_print_line(struct qstar_build_ctx *ctx, int pct, const char *descriptio
 {
 	if (!ctx->progress_enabled || ctx->quiet)
 		return;
+	if (pct < 100 && pct <= ctx->progress_last_pct)
+		return;
+	ctx->progress_last_pct = pct;
 	fprintf(ctx->out, "%s[%3d%%]%s %s\n",
 	    progress_color_enabled(ctx) ? build_color(ctx, "stage") : "",
 	    pct,
@@ -449,6 +455,7 @@ progress_begin(struct qstar_build_ctx *ctx, size_t total)
 	ctx->progress_total = total;
 	ctx->progress_completed = 0;
 	ctx->progress_started = 0;
+	ctx->progress_last_pct = 0;
 }
 
 /** cache-hit action 하나를 progress denominator에서 소비한다. */
@@ -1072,6 +1079,28 @@ hash_cache_add(struct qstar_build_ctx *ctx, const char *rel, const char *digest)
 	ctx->hash_cache_len++;
 }
 
+/**
+ * @brief package-relative path가 현재 build directory 내부 산출물인지 확인한다.
+ *
+ * Stella dirty-check는 source input은 내용 digest로 추적하지만, 같은 invocation에서
+ * 생성되는 object/archive 같은 build output은 재읽기 비용이 크다. 이 helper는 그런
+ * generated output을 metadata 기반 key로 다룰 수 있게 build_dir prefix를 판별한다.
+ */
+static int
+path_is_build_output(const struct qstar_graph *graph, const char *rel)
+{
+	const char *build_dir;
+	size_t n;
+
+	if (!graph || !rel)
+		return 0;
+	build_dir = qstar_graph_build_dir(graph);
+	if (!build_dir || !*build_dir)
+		return 0;
+	n = strlen(build_dir);
+	return strncmp(rel, build_dir, n) == 0 && rel[n] == '/';
+}
+
 /** action key에 file metadata와 content digest를 memoized 형태로 섞는다. */
 static void
 hash_file(struct qstar_build_ctx *ctx, unsigned long long *h,
@@ -1103,6 +1132,13 @@ hash_file(struct qstar_build_ctx *ctx, unsigned long long *h,
 	snprintf(meta, sizeof(meta), "size=%lld mtime=%lld", (long long)st.st_size,
 	    (long long)st.st_mtime);
 	hash_str(&file_h, meta);
+	if (path_is_build_output(graph, rel)) {
+		hash_str(&file_h, "<build-output>");
+		format_key(file_h, digest, sizeof(digest));
+		hash_cache_add(ctx, rel, digest);
+		hash_str(h, digest);
+		return;
+	}
 	f = fopen(path, "rb");
 	if (!f) {
 		hash_str(&file_h, "<unreadable>");
@@ -1526,12 +1562,14 @@ static void
 write_action_log_text(const char *path, char *const argv[], const char *exit_text,
     const char *description)
 {
+	char buf[QSTAR_FILE_WRITE_BUFFER_SIZE];
 	FILE *f;
 	size_t i;
 
 	f = fopen(path, "w");
 	if (!f)
 		return;
+	setvbuf(f, buf, _IOFBF, sizeof(buf));
 	fprintf(f, "qstar-action-log v2\nexit=%s\n", exit_text);
 	write_log_description(f, description);
 	for (i = 0; argv[i]; i++)
@@ -2267,6 +2305,7 @@ static int
 state_db_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 {
 	char dir[QSTAR_PATH_MAX], path[QSTAR_PATH_MAX], tmp[QSTAR_PATH_MAX];
+	char buf[QSTAR_FILE_WRITE_BUFFER_SIZE];
 	FILE *f;
 	size_t i;
 
@@ -2280,6 +2319,7 @@ state_db_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 	f = fopen(tmp, "wb");
 	if (!f)
 		return qstar_set_error(graph, "qstar: could not write compact action state");
+	setvbuf(f, buf, _IOFBF, sizeof(buf));
 	if (fwrite(QSTAR_STATE_DB_MAGIC, 1, sizeof(QSTAR_STATE_DB_MAGIC), f) !=
 	    sizeof(QSTAR_STATE_DB_MAGIC) ||
 	    state_db_write_u64(f, QSTAR_STATE_DB_ABI) < 0 ||
@@ -2572,6 +2612,7 @@ static int
 deps_db_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 {
 	char dir[QSTAR_PATH_MAX], path[QSTAR_PATH_MAX], tmp[QSTAR_PATH_MAX];
+	char buf[QSTAR_FILE_WRITE_BUFFER_SIZE];
 	FILE *f;
 	size_t i, j;
 
@@ -2587,6 +2628,7 @@ deps_db_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 	f = fopen(tmp, "wb");
 	if (!f)
 		return qstar_set_error(graph, "qstar: could not write dependency state");
+	setvbuf(f, buf, _IOFBF, sizeof(buf));
 	if (fwrite(QSTAR_DEPS_DB_MAGIC, 1, sizeof(QSTAR_DEPS_DB_MAGIC), f) !=
 	    sizeof(QSTAR_DEPS_DB_MAGIC) ||
 	    state_db_write_u64(f, QSTAR_DEPS_DB_ABI) < 0 ||
@@ -2711,6 +2753,7 @@ state_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 {
 	char dir[QSTAR_PATH_MAX], path[QSTAR_PATH_MAX], db_path[QSTAR_PATH_MAX];
 	char tmp[QSTAR_PATH_MAX];
+	char buf[QSTAR_FILE_WRITE_BUFFER_SIZE];
 	FILE *f;
 	size_t i;
 	int unchanged;
@@ -2727,11 +2770,14 @@ state_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 	if (full_path_under_build(graph, "state", dir, sizeof(dir)) < 0 ||
 	    mkdir_p(dir) < 0)
 		return qstar_set_error(graph, "qstar: could not create state dir");
+	if (state_db_write(graph, ctx) < 0)
+		return -1;
 	if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp))
 		return qstar_set_error(graph, "qstar: state path too long");
 	f = fopen(tmp, "w");
 	if (!f)
 		return qstar_set_error(graph, "qstar: could not write action state");
+	setvbuf(f, buf, _IOFBF, sizeof(buf));
 	fputs("[\n", f);
 	for (i = 0; i < ctx->next_len; i++) {
 		fputs("  {\"id\":", f);
@@ -2765,7 +2811,7 @@ state_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 	fclose(f);
 	if (rename(tmp, path) < 0)
 		return qstar_set_error(graph, "qstar: could not commit action state");
-	return state_db_write(graph, ctx);
+	return 0;
 }
 
 /** JSON string list를 compact array로 출력한다. */
@@ -2819,6 +2865,7 @@ static int
 graph_snapshot_write(struct qstar_graph *graph)
 {
 	char dir[QSTAR_PATH_MAX], path[QSTAR_PATH_MAX], tmp[QSTAR_PATH_MAX];
+	char buf[QSTAR_FILE_WRITE_BUFFER_SIZE];
 	FILE *f;
 	size_t i;
 
@@ -2830,6 +2877,7 @@ graph_snapshot_write(struct qstar_graph *graph)
 	f = fopen(tmp, "w");
 	if (!f)
 		return qstar_set_error(graph, "qstar: could not write graph snapshot");
+	setvbuf(f, buf, _IOFBF, sizeof(buf));
 	fputs("{\"schema\":\"qstar-graph-snapshot-v1\",\"package_root\":", f);
 	json_string(f, graph->package_root ? graph->package_root : ".");
 	fputs(",\"project\":{\"name\":", f);
@@ -2916,6 +2964,7 @@ build_summary_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx
     const char *status)
 {
 	char dir[QSTAR_PATH_MAX], path[QSTAR_PATH_MAX], tmp[QSTAR_PATH_MAX];
+	char buf[QSTAR_FILE_WRITE_BUFFER_SIZE];
 	FILE *f;
 
 	if (full_path_under_build(graph, "state", dir, sizeof(dir)) < 0 ||
@@ -2927,6 +2976,7 @@ build_summary_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx
 	f = fopen(tmp, "w");
 	if (!f)
 		return qstar_set_error(graph, "qstar: could not write build summary");
+	setvbuf(f, buf, _IOFBF, sizeof(buf));
 	fputs("{\"schema\":\"qstar-build-summary-v1\",\"root\":", f);
 	json_string(f, ctx->root_label);
 	fputs(",\"status\":", f);
@@ -3051,6 +3101,7 @@ static int
 compile_db_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 {
 	char path[QSTAR_PATH_MAX], tmp[QSTAR_PATH_MAX];
+	char buf[QSTAR_FILE_WRITE_BUFFER_SIZE];
 	FILE *f;
 	size_t i;
 
@@ -3070,6 +3121,7 @@ compile_db_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 	f = fopen(tmp, "w");
 	if (!f)
 		return qstar_set_error(graph, "qstar: could not write compile_commands.json");
+	setvbuf(f, buf, _IOFBF, sizeof(buf));
 	fputs("[\n", f);
 	for (i = 0; i < ctx->compile_len; i++) {
 		fputs("  {\"directory\":", f);
@@ -4960,7 +5012,8 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    target->system_include_dirs.items[i]) < 0)
 			goto fail;
 	}
-	if (strcmp(qstar_graph_compile_commands_policy(graph), "off") != 0 &&
+	if (!ctx->lowering_cache_prepare &&
+	    strcmp(qstar_graph_compile_commands_policy(graph), "off") != 0 &&
 	    compile_db_push(ctx, graph->package_root ? graph->package_root : ".",
 	    target->sources.items[index], object, action->argv) < 0) {
 		goto oom;
@@ -4983,7 +5036,8 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		qstar_string_list_free(&includes);
 		return -1;
 	}
-	if (wants_depfile && push_depfile_inputs(graph, ctx, action->depfile,
+	if (!ctx->lowering_cache_prepare && wants_depfile &&
+	    push_depfile_inputs(graph, ctx, action->depfile,
 	    &dep_inputs) < 0) {
 		qstar_string_list_free(&inputs);
 		qstar_string_list_free(&dep_inputs);
@@ -5000,9 +5054,10 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			return qstar_set_error(graph, "qstar: out of memory");
 		}
 	}
-	compute_action_key(ctx, graph, target, toolchain, action->id, "compile",
-	    action->argv, &inputs, &dep_inputs, object, action->key, sizeof(action->key),
-	    &action->material);
+	if (!ctx->lowering_cache_prepare)
+		compute_action_key(ctx, graph, target, toolchain, action->id, "compile",
+		    action->argv, &inputs, &dep_inputs, object, action->key,
+		    sizeof(action->key), &action->material);
 	action->inputs = inputs;
 	action->depfile_inputs = dep_inputs;
 	action->outputs = outputs;
@@ -5825,8 +5880,11 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		qstar_string_list_free(&inputs);
 		return qstar_set_error(graph, "qstar: out of memory");
 	}
-	compute_action_key(ctx, graph, target, toolchain, id, final_action, argv, &inputs,
-	    NULL, artifact, key, sizeof(key), &material);
+	memset(&material, 0, sizeof(material));
+	key[0] = '\0';
+	if (!ctx->lowering_cache_prepare)
+		compute_action_key(ctx, graph, target, toolchain, id, final_action, argv,
+		    &inputs, NULL, artifact, key, sizeof(key), &material);
 	if (qstar_action_description_final(target, final_action, artifact,
 	    description, sizeof(description)) < 0) {
 		qstar_string_list_free(&inputs);
@@ -6112,6 +6170,7 @@ qstar_graph_prepare_lowered_action_cache(struct qstar_graph *graph, const char *
 	ctx.build.jobs = default_job_count();
 	ctx.build.progress_mode = QSTAR_PROGRESS_OFF;
 	ctx.build.color_mode = QSTAR_COLOR_NEVER;
+	ctx.build.lowering_cache_prepare = 1;
 	ctx.build.action_timeout_sec = action_timeout_sec_from_env();
 	rc = qstar_graph_visit_closure(graph, label, lowered_cache_visit, &ctx);
 	hash_cache_free(ctx.build.hash_cache, ctx.build.hash_cache_len);

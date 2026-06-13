@@ -112,6 +112,10 @@ QStar에 적용할 점:
   output, mtime, depfile digest를 바로 읽게 하는 것이다.
 - action log/replay는 QStar의 장점이므로 없애지 않는다. 대신 실행 성공 path에서는 batch
   write를 유지하고, no-op path에서는 log write를 생략하는 현재 방향을 더 강화한다.
+- Q125 이후 source input은 content digest를 유지하지만, `build_dir` 내부 generated
+  object/archive input은 content를 다시 읽지 않고 size/mtime metadata를 key material로
+  사용한다. Clean build에서 archive/link가 방금 생성한 `.o`를 다시 읽는 비용을 줄이기
+  위한 Stella-specific fast path다.
 
 ### Disk Interface
 

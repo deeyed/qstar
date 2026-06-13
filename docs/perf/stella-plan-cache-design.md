@@ -400,6 +400,37 @@ Status: implemented.
    diagnostic은 유지된다.
 5. `--schedule-trace`에서 `deps_db status=hit|miss`를 표시한다.
 
+### Q125 Clean Build Hot Path Batch Seal
+
+Status: implemented.
+
+1. Successful action metadata write path에 buffered file write를 적용했다.
+2. `state.db`를 `state/actions.json`보다 먼저 쓰며, `actions.json`은 debug/export용
+   fallback으로 유지한다.
+3. Non-verbose progress renderer는 같은 percent tick을 반복 출력하지 않는다.
+4. Plan cache store용 lowered action preparation은 compile database, depfile-discovered
+   input scan, action key material hash 계산을 생략한다. 실제 build path에서는 기존처럼
+   dirty-check key를 다시 계산한다.
+5. Source input은 content digest로 추적하지만, `build_dir` 내부 generated object/archive
+   input은 content를 다시 읽지 않고 path, size, mtime metadata만 key material에 섞는다.
+
+Observed Q125 timing on the medium corpus:
+
+```txt
+medium_project_gate target_count=47 min_targets=40
+medium_project_gate backend=stella phase=clean elapsed_ms=746
+medium_project_gate backend=stella phase=noop elapsed_ms=69
+medium_project_gate backend=stella phase=incremental elapsed_ms=91
+medium_project_gate backend=ninja phase=clean elapsed_ms=254
+medium_project_gate backend=ninja phase=noop elapsed_ms=73
+medium_project_gate backend=ninja phase=incremental elapsed_ms=105
+medium_project_gate status=ok perf_issue_count=0 report_only=1
+```
+
+Clean build는 Q124 대표값보다 개선됐지만 500-650ms 목표에는 아직 미달이다. 남은 개선은
+process wait/drain 구조와 successful action log/replay materialization을 더 크게 줄이는
+라운드로 넘긴다.
+
 ## Acceptance Criteria
 
 Q120 이후:
