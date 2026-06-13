@@ -252,6 +252,7 @@ struct qstar_graph {
 	char error_field[64];
 	char error_label[QSTAR_PATH_MAX];
 	int error_line;
+	int uses_file_globs;
 };
 
 struct qstar_build_options {

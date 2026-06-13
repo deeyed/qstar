@@ -2472,6 +2472,8 @@ qstar_lua_files(lua_State *L)
 				qstar_string_list_free(&excludes);
 				return luaL_error(L, "qstar: qstar.files exclude contains non-string item");
 			}
+			if (has_glob_magic(lua_tostring(L, -1)))
+				ctx->graph->uses_file_globs = 1;
 			if (qstar_string_list_push(&excludes, lua_tostring(L, -1)) < 0) {
 				lua_pop(L, 2);
 				qstar_string_list_free(&files);
@@ -2499,6 +2501,7 @@ qstar_lua_files(lua_State *L)
 			return luaL_error(L, "qstar: qstar.files path '%s' must be package-relative", path);
 		}
 		if (has_glob_magic(path)) {
+			ctx->graph->uses_file_globs = 1;
 			if (expand_glob(ctx, path, &files) < 0) {
 				lua_pop(L, 1);
 				qstar_string_list_free(&files);

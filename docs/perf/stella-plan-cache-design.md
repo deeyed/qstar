@@ -5,11 +5,11 @@ cache의 설계를 고정한다. 목표는 QStar의 Lua DSL authoring 장점은 
 invocation에서는 Ninja처럼 낮은 수준의 execution graph만 읽게 만드는 것이다.
 
 ```txt
-status: q119 stella lowered plan cache design
+status: q120 stella lowered plan cache mvp active
 date: 2026-06-13
 depends-on: docs/perf/stella-ninja-profile.md
-scope: design only
-implementation: deferred to Q120+
+scope: internal plan cache design and MVP behavior
+implementation: graph/action summary cache active for Stella build
 ```
 
 ## Goal
@@ -90,6 +90,18 @@ build/qstar/stella/
 초기 구현은 `manifest.json`, `inputs.json`, `graph.qsg`, `actions.qsa`만 사용해도 된다.
 `deps.db`와 `state.db`는 Q121 이후 compact dirty state 작업에서 활성화한다. 파일 확장자는
 internal이고 public API가 아니다.
+
+Q120 MVP는 다음 파일을 실제로 쓴다.
+
+- `manifest.json`: request identity, QStar version, generator, build dir, profile input,
+  authoring input fingerprint summary.
+- `inputs.json`: evaluated authoring inputs의 path/size/mtime/content hash.
+- `graph.qsg`: validated Graph IR의 internal binary snapshot.
+- `actions.qsa`: requested build root의 lowered action summary.
+
+현재 scheduler는 `actions.qsa`를 직접 실행하지 않고, cache hit으로 복원된 Graph IR에서 기존
+Stella action materialization을 사용한다. 즉 Q120은 Lua eval과 validation을 건너뛰는
+whole-graph cache MVP이고, Q121 이후에 action state compact path와 더 강하게 결합한다.
 
 ## Atomicity Policy
 
@@ -322,6 +334,11 @@ Plan cache는 build output이다. Source-of-truth가 아니다.
 5. miss이면 기존 Lua eval path를 사용하고 plan cache를 rewrite한다.
 6. `--schedule-trace`에 hit/miss reason을 출력한다.
 
+Status: implemented. Cache hit이면 `plan_cache status=hit reason=hit`가
+`--schedule-trace`에 출력된다. Cache miss는 일반 build output에서는 조용히 처리되고,
+`--schedule-trace`에서만 `manifest-missing`, `authoring-input-changed`,
+`request-mismatch` 같은 reason이 보인다.
+
 ### Q121 Fast State
 
 1. `state.db` compact lookup을 추가한다.
@@ -344,6 +361,21 @@ Q120 이후:
 - QStar version을 바꾸면 plan cache miss가 나야 한다.
 - selected profile이나 `-B`가 바뀌면 plan cache miss가 나야 한다.
 - `make check`와 `make qstar-medium-project-readiness-tests`가 통과해야 한다.
+
+Observed Q120 timing on the medium corpus:
+
+```txt
+medium_project_gate backend=stella phase=clean elapsed_ms=887
+medium_project_gate backend=stella phase=noop elapsed_ms=103
+medium_project_gate backend=stella phase=incremental elapsed_ms=136
+medium_project_gate backend=ninja phase=clean elapsed_ms=328
+medium_project_gate backend=ninja phase=noop elapsed_ms=107
+medium_project_gate backend=ninja phase=incremental elapsed_ms=156
+medium_project_gate status=ok perf_issue_count=0 report_only=1
+```
+
+No-op과 incremental은 cache hit + action state skip 경로에서 Ninja와 같은 체감권에 들어왔다.
+Clean build는 아직 compiler/process orchestration과 logging overhead 때문에 Ninja보다 느리다.
 
 Q121 이후:
 

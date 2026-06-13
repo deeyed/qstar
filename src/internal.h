@@ -199,4 +199,14 @@ typedef int (*qstar_target_visit_fn)(struct qstar_graph *graph, const struct qst
 int qstar_graph_visit_closure(struct qstar_graph *graph, const char *label,
     qstar_target_visit_fn visit, void *user);
 
+/** Stella lowered plan cache를 읽어 Lua eval 없이 Graph IR를 복원한다. */
+int qstar_stella_plan_cache_try_load(struct qstar_graph *graph, const char *file,
+    const char *cmd, const char *label, const char *cli_profile, const char *cli_target,
+    const char *cli_toolchain, const char *cli_stdlib, char *reason, size_t reason_len);
+
+/** 검증된 Graph IR와 lowered action summary를 Stella plan cache로 저장한다. */
+int qstar_stella_plan_cache_store(struct qstar_graph *graph, const char *file,
+    const char *cmd, const char *label, const char *cli_profile, const char *cli_target,
+    const char *cli_toolchain, const char *cli_stdlib, char *reason, size_t reason_len);
+
 #endif

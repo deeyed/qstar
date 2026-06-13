@@ -256,8 +256,10 @@ Q118 분석에서 확인한 주요 source anchor:
 ### Q120: Stella Plan Cache MVP
 
 - unchanged authoring input이면 Lua eval/Graph IR 재구성 skip
-- action id/output/argv digest/profile digest를 cached plan에서 로드
+- validated Graph IR와 lowered action summary를 `build/qstar/stella/`에서 로드
 - no-op/incremental timing 재측정
+- 결과: no-op 103ms, incremental 136ms로 Ninja no-op 107ms, incremental 156ms와 같은
+  체감권에 들어왔다.
 
 ### Q121: Compact Dirty State
 

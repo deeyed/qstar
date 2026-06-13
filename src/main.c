@@ -441,12 +441,15 @@ main(int argc, char **argv)
 	struct qstar_install_options install_options;
 	struct qstar_stage_options stage_options;
 	char init_error[512];
-	int arg, rc;
+	char plan_cache_reason[128], plan_cache_store_reason[128];
+	int arg, rc, cli_overrides_applied, plan_cache_loaded, plan_cache_checked;
 
 	qstar_graph_init(&graph);
 	memset(&build_options, 0, sizeof(build_options));
 	memset(&install_options, 0, sizeof(install_options));
 	memset(&stage_options, 0, sizeof(stage_options));
+	plan_cache_reason[0] = '\0';
+	plan_cache_store_reason[0] = '\0';
 	file = "qstar.lua";
 	diagnostic_format = "text";
 	lint_format = "text";
@@ -728,6 +731,9 @@ main(int argc, char **argv)
 		return rc < 0 ? 1 : rc;
 	}
 	label = NULL;
+	cli_overrides_applied = 0;
+	plan_cache_loaded = 0;
+	plan_cache_checked = 0;
 	if (strcmp(cmd, "explain") == 0 || strcmp(cmd, "dry-run") == 0 ||
 	    strcmp(cmd, "emit-ninja") == 0 ||
 	    strcmp(cmd, "check") == 0 || strcmp(cmd, "query") == 0 ||
@@ -911,32 +917,61 @@ main(int argc, char **argv)
 		return 2;
 	}
 	rc = qstar_graph_set_profile_input(&graph, cli_profile, NULL, NULL, NULL);
-	if (rc == 0)
-		rc = qstar_lua_eval_file(&graph, file);
-	if (rc == 0)
+	if (rc == 0 && strcmp(cmd, "build") == 0) {
 		rc = qstar_graph_set_cli_overrides(&graph, cli_generator, cli_build_dir);
-	if (rc == 0)
+		cli_overrides_applied = rc == 0;
+	}
+	if (rc == 0 && strcmp(cmd, "build") == 0 &&
+	    strcmp(qstar_graph_generator(&graph), "stella") == 0) {
+		plan_cache_checked = 1;
+		plan_cache_loaded = qstar_stella_plan_cache_try_load(&graph, file, cmd,
+		    label, cli_profile, cli_target, cli_toolchain, cli_stdlib,
+		    plan_cache_reason, sizeof(plan_cache_reason));
+	}
+	if (rc == 0 && !plan_cache_loaded)
+		rc = qstar_lua_eval_file(&graph, file);
+	if (rc == 0 && !cli_overrides_applied)
+		rc = qstar_graph_set_cli_overrides(&graph, cli_generator, cli_build_dir);
+	if (rc == 0 && !plan_cache_loaded)
 		rc = qstar_graph_apply_selected_profile(&graph);
-	if (rc == 0)
+	if (rc == 0 && !plan_cache_loaded)
 		rc = qstar_graph_set_profile_input(&graph, cli_profile, cli_target,
 		    cli_toolchain, cli_stdlib);
-	if (rc == 0)
+	if (rc == 0 && !plan_cache_loaded)
 		rc = qstar_graph_validate_profile(&graph);
-	if (rc == 0)
+	if (rc == 0 && !plan_cache_loaded)
 		rc = qstar_graph_validate_packages(&graph);
-	if (rc == 0)
+	if (rc == 0 && !plan_cache_loaded)
 		rc = qstar_graph_validate_generated_outputs(&graph);
-	if (rc == 0)
+	if (rc == 0 && !plan_cache_loaded)
 		rc = qstar_graph_validate_sources(&graph);
-	if (rc == 0)
+	if (rc == 0 && !plan_cache_loaded)
 		rc = qstar_graph_validate_headers(&graph);
-	if (rc == 0 && (strcmp(cmd, "check") == 0 || strcmp(cmd, "doctor") == 0 ||
+	if (rc == 0 && !plan_cache_loaded &&
+	    (strcmp(cmd, "check") == 0 || strcmp(cmd, "doctor") == 0 ||
 	    strcmp(cmd, "build") == 0 || strcmp(cmd, "test") == 0 ||
 	    strcmp(cmd, "emit-ninja") == 0 ||
 	    strcmp(cmd, "install") == 0 || strcmp(cmd, "stage") == 0 ||
 	    strcmp(cmd, "why-rebuild") == 0 ||
 	    strcmp(cmd, "lint") == 0))
 		rc = qstar_graph_validate_file_inputs(&graph);
+	if (rc == 0 && strcmp(cmd, "build") == 0 &&
+	    strcmp(qstar_graph_generator(&graph), "stella") == 0 &&
+	    !plan_cache_loaded) {
+		int stored;
+
+		stored = qstar_stella_plan_cache_store(&graph, file, cmd, label,
+		    cli_profile, cli_target, cli_toolchain, cli_stdlib,
+		    plan_cache_store_reason, sizeof(plan_cache_store_reason));
+		if (stored < 0)
+			rc = qstar_set_error(&graph, "qstar: could not write Stella plan cache: %s",
+			    plan_cache_store_reason[0] ? plan_cache_store_reason : "unknown");
+	}
+	if (rc == 0 && strcmp(cmd, "build") == 0 && build_options.schedule_trace &&
+	    plan_cache_checked)
+		fprintf(stdout, "plan_cache status=%s reason=%s\n",
+		    plan_cache_loaded ? "hit" : "miss",
+		    plan_cache_reason[0] ? plan_cache_reason : "unknown");
 	if (strcmp(cmd, "lint") == 0) {
 		if (rc < 0 && graph.error[0])
 			(void)qstar_graph_add_lint_from_error(&graph);

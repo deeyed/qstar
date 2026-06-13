@@ -28,6 +28,7 @@ QSTAR_SRCS = \
 	src/profile.c \
 	src/rule.c \
 	src/source.c \
+	src/stella_cache.c \
 	src/main.c
 
 LUA_SRCS = \
