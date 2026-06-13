@@ -31,6 +31,7 @@ QStar가 하지 않는 일:
 - 반복 option은 `qstar.config`와 target `configs = {...}`로 공유한다.
 - 반복 path/list/table 조립은 `qstar.join`, `qstar.copy`, `qstar.append`, `qstar.merge`,
   `qstar.extend`를 쓴다.
+- 사용자 정의 build step 문구는 `description = qstar.status("...")`로 지정한다.
 - Makefile식 `$VAR` 문자열 치환은 없다. Lua `local` 변수와 helper function을 쓴다.
 - legacy qs fragment suffix와 `qstar.workspace`는 제거된 surface다.
 - 산출물 기본 위치는 `build/qstar`다.
@@ -101,6 +102,7 @@ Target/rule:
 Command/path helper:
 
 - `qstar.cli`
+- `qstar.status`
 - `qstar.input`
 - `qstar.output`
 - `qstar.target_file`

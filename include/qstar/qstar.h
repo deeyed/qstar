@@ -57,6 +57,7 @@ struct qstar_target {
 	struct qstar_string_list asm_compile_options;
 	struct qstar_string_list cale_compile_options;
 	struct qstar_string_list run_command;
+	char *description;
 	char *artifact_name;
 	char *cxx_standard;
 	char *cale_profile;
@@ -95,6 +96,7 @@ struct qstar_genrule {
 	char *origin_file;
 	int origin_line;
 	char *tool;
+	char *description;
 	int config_header;
 	struct qstar_string_list inputs;
 	struct qstar_string_list outputs;
@@ -113,6 +115,7 @@ struct qstar_stage {
 	char *origin_file;
 	int origin_line;
 	char *root;
+	char *description;
 	struct qstar_string_list srcs;
 	struct qstar_string_list dsts;
 };

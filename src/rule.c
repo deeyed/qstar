@@ -238,6 +238,8 @@ qstar_action_description_generate(const struct qstar_genrule *genrule, char *dst
 {
 	const char *output;
 
+	if (genrule && genrule->description && *genrule->description)
+		return description_format(dst, dstlen, "%s", genrule->description);
 	output = genrule && genrule->outputs.len > 0 ? genrule->outputs.items[0] :
 	    genrule && genrule->label ? genrule->label : "<generated>";
 	if (genrule && genrule->config_header)
@@ -249,6 +251,8 @@ qstar_action_description_generate(const struct qstar_genrule *genrule, char *dst
 int
 qstar_action_description_run(const struct qstar_target *target, char *dst, size_t dstlen)
 {
+	if (target && target->description && *target->description)
+		return description_format(dst, dstlen, "%s", target->description);
 	return description_format(dst, dstlen, "Running %s",
 	    target && target->label ? target->label : "<run-target>");
 }
@@ -257,6 +261,8 @@ qstar_action_description_run(const struct qstar_target *target, char *dst, size_
 int
 qstar_action_description_stage(const struct qstar_stage *stage, char *dst, size_t dstlen)
 {
+	if (stage && stage->description && *stage->description)
+		return description_format(dst, dstlen, "%s", stage->description);
 	return description_format(dst, dstlen, "Staging %s",
 	    stage && stage->label ? stage->label : "<stage>");
 }

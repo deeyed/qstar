@@ -8,6 +8,7 @@ prefix에 개발 artifact를 배치하고, stage는 ESP/RPi 같은 package tree�
 ```lua
 qstar.stage "esp" {
   root = "stage/esp",
+  description = qstar.status("Staging EFI package"),
   files = {
     qstar.stage_file(qstar.target_file("//:boot"), "EFI/BOOT/BOOTX64.EFI"),
   },
@@ -19,6 +20,7 @@ qstar.stage "esp" {
 ```lua
 qstar.stage "rpi" {
   root = "stage/rpi",
+  description = qstar.status("Staging firmware image"),
   files = {
     qstar.stage_file("boot/config.txt", "config.txt"),
     qstar.stage_file(qstar.target_file("//:kernel"), "kernel.elf"),

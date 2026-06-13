@@ -78,7 +78,7 @@ progress_action label=//:all include=no reason=group
 
 ## Authoring Hook
 
-사용자 정의 action은 다음 future authoring hook으로 description을 지정한다.
+사용자 정의 action은 `qstar.status(...)`로 progress description을 지정한다.
 
 ```lua
 qstar.custom_target "version_header" {
@@ -102,7 +102,7 @@ qstar.run_target "smoke" {
 }
 ```
 
-Planned fields:
+Supported fields:
 
 - `qstar.custom_target.description`
 - `qstar.configure_file.description`
@@ -114,7 +114,8 @@ Validation rules:
 - Description은 한 줄 문자열이어야 한다.
 - Empty string은 error다.
 - Newline 포함 description은 error다.
-- 지나치게 긴 description은 diagnostic으로 막는다.
+- 240 byte를 넘는 description은 diagnostic으로 막는다.
+- Raw string은 받지 않는다. `description = qstar.status("...")` 형태만 허용한다.
 - `.qsm` helper는 `qstar.status(...)` 값을 반환할 수 있지만 graph declaration은 계속 금지된다.
 
 ## Progress Modes
@@ -184,6 +185,6 @@ warning: src/lib/core.c:17: unused variable 'tmp'
 - Round Q103: Stella executor가 action description으로 기본 progress를 렌더링한다.
 - Round Q104: Stella executor가 child stdout/stderr를 line 단위로 관찰해 warning/error
   stream colorization을 적용한다.
-- Pending: `qstar.status(...)`와 `description` field를 Lua DSL에 추가한다.
-- Pending: Ninja emitter가 QStar description을 Ninja description으로 lower한다.
+- Round Q105: `qstar.status(...)`와 `description` field를 Lua DSL에 추가했다.
+- Round Q105: Ninja emitter가 QStar description을 Ninja description으로 lower한다.
 - Pending: action log, replay, last-failure에 description을 보존한다.

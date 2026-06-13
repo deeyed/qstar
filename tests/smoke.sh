@@ -48,6 +48,7 @@ qstar.executable "app" {
 qstar.run_target "smoke" {
   deps = {"//:app"},
   command = qstar.cli {qstar.target_file("//:app")},
+  description = qstar.status("Running smoke binary"),
 }
 EOF
 
@@ -87,7 +88,7 @@ test ! -f "$tmp/compile_commands.json" || fail "default compile_commands leaked 
 "$qstar" --file "$tmp/qstar.lua" dry-run //:smoke > "$tmp/action-description-dry.out" 2> "$tmp/action-description-dry.err"
 contains "$tmp/action-description-dry.out" "action_description id=//:app:compile:0 text=\"Building C object build/qstar/out/___app/obj0.o\""
 contains "$tmp/action-description-dry.out" "action_description id=//:app:link:0 text=\"Linking C executable build/qstar/out/___app/app\""
-contains "$tmp/action-description-dry.out" "action_description id=//:smoke:run:0 text=\"Running //:smoke\""
+contains "$tmp/action-description-dry.out" "action_description id=//:smoke:run:0 text=\"Running smoke binary\""
 "$qstar" --file "$tmp/qstar.lua" explain //:app > "$tmp/action-description-explain.out" 2> "$tmp/action-description-explain.err"
 contains "$tmp/action-description-explain.out" "action_description id=//:app:compile:0 text=\"Building C object build/qstar/out/___app/obj0.o\""
 contains "$tmp/action-description-explain.out" "action_description id=//:app:link:0 text=\"Linking C executable build/qstar/out/___app/app\""
@@ -2144,15 +2145,30 @@ contains "$tmp/qemu-timeout.out" "\"failure_kind\":\"qemu-timeout\""
 contains "$tmp/qemu-timeout.err" "timed out after 1 seconds"
 contains "$tmp/qemu/build/qstar/logs/last-failure.replay" "failure_kind=qemu-timeout"
 
+mkdir -p "$tmp/qstar/status"
+cat > "$tmp/qstar/status/status.qsm" <<'EOF'
+local M = {}
+
+function M.step(verb, path)
+  return qstar.status(verb .. " " .. path)
+end
+
+return M
+EOF
+
 cat > "$tmp/qstar.lua" <<'EOF'
+local status = qstar.import_module("qstar/status")
+
 qstar.configure_file "cfg" {
   output = qstar.output("generated/config.h"),
   defines = {"APP_VALUE=42", "APP_FEATURE"},
+  description = qstar.status("Configuring generated config.h"),
 }
 
 qstar.custom_target "make_value" {
   outputs = {qstar.output("generated/value.c")},
   command = qstar.cli {"tools/gen-value.sh", qstar.output(0)},
+  description = status.step("Generating", "generated/value.c"),
 }
 
 qstar.executable "genapp" {
@@ -2167,12 +2183,58 @@ qstar.executable "genapp" {
 EOF
 
 "$qstar" --file "$tmp/qstar.lua" dry-run //:genapp > "$tmp/generated-description-dry.out" 2> "$tmp/generated-description-dry.err"
-contains "$tmp/generated-description-dry.out" "action_description id=//:cfg:generate:0 text=\"Configuring generated/config.h\""
+contains "$tmp/generated-description-dry.out" "action_description id=//:cfg:generate:0 text=\"Configuring generated config.h\""
 contains "$tmp/generated-description-dry.out" "action_description id=//:make_value:generate:0 text=\"Generating generated/value.c\""
 "$qstar" --file "$tmp/qstar.lua" build //:genapp --explain-cache > "$tmp/generated-second.out" 2> "$tmp/generated-second.err"
 contains "$tmp/generated-second.out" "cache_miss id=//:cfg:generate:0"
 contains "$tmp/generated-second.out" "cache_miss id=//:genapp:compile:0"
 contains "$tmp/generated/config.h" "#define APP_VALUE 42"
+
+mkdir -p "$tmp/bad-status-raw" "$tmp/bad-status-empty" "$tmp/bad-status-newline" "$tmp/bad-status-long"
+cat > "$tmp/bad-status-raw/qstar.lua" <<'EOF'
+qstar.custom_target "bad" {
+  description = "raw string",
+  outputs = {qstar.output("generated/bad.txt")},
+  command = qstar.cli {"printf", "bad"},
+}
+EOF
+if "$qstar" --file "$tmp/bad-status-raw/qstar.lua" check > "$tmp/bad-status-raw.out" 2> "$tmp/bad-status-raw.err"; then
+  fail "raw description unexpectedly succeeded"
+fi
+contains "$tmp/bad-status-raw.err" "field 'description' must be qstar.status"
+
+cat > "$tmp/bad-status-empty/qstar.lua" <<'EOF'
+qstar.run_target "bad" {
+  command = qstar.cli {"true"},
+  description = qstar.status(""),
+}
+EOF
+if "$qstar" --file "$tmp/bad-status-empty/qstar.lua" check > "$tmp/bad-status-empty.out" 2> "$tmp/bad-status-empty.err"; then
+  fail "empty qstar.status unexpectedly succeeded"
+fi
+contains "$tmp/bad-status-empty.err" "qstar.status description must not be empty"
+
+cat > "$tmp/bad-status-newline/qstar.lua" <<'EOF'
+qstar.run_target "bad" {
+  command = qstar.cli {"true"},
+  description = qstar.status("bad\nline"),
+}
+EOF
+if "$qstar" --file "$tmp/bad-status-newline/qstar.lua" check > "$tmp/bad-status-newline.out" 2> "$tmp/bad-status-newline.err"; then
+  fail "newline qstar.status unexpectedly succeeded"
+fi
+contains "$tmp/bad-status-newline.err" "qstar.status description must be one line"
+
+cat > "$tmp/bad-status-long/qstar.lua" <<'EOF'
+qstar.run_target "bad" {
+  command = qstar.cli {"true"},
+  description = qstar.status(string.rep("a", 241)),
+}
+EOF
+if "$qstar" --file "$tmp/bad-status-long/qstar.lua" check > "$tmp/bad-status-long.out" 2> "$tmp/bad-status-long.err"; then
+  fail "long qstar.status unexpectedly succeeded"
+fi
+contains "$tmp/bad-status-long.err" "qstar.status description must be <= 240 bytes"
 
 mkdir -p "$tmp/generated-root/src" "$tmp/generated-root/tools"
 cp "$tmp/tools/gen-value.sh" "$tmp/generated-root/tools/gen-value.sh"
@@ -3167,6 +3229,7 @@ contains "wiki/AI_INDEX.md" "QStar AI Index"
 contains "wiki/AI_INDEX.md" "qstar.custom_target"
 contains "wiki/AI_INDEX.md" "qstar.import_module"
 contains "wiki/AI_INDEX.md" "qstar.config"
+contains "wiki/AI_INDEX.md" "qstar.status"
 contains "wiki/AI_INDEX.md" "generated_dir"
 contains "wiki/AI_INDEX.md" "qstar-public-beta-release-tests"
 contains "wiki/AI_INDEX.md" "Progress output contract"
@@ -3188,6 +3251,7 @@ contains "man/man1/qstar.1" "warning:"
 contains "man/man5/qstar-lua.5" "Ic qstar.group"
 contains "man/man5/qstar-lua.5" "Ic qstar.import_module"
 contains "man/man5/qstar-lua.5" "Ic qstar.config"
+contains "man/man5/qstar-lua.5" "Ic qstar.status"
 contains "man/man5/qstar-lua.5" "Ic qstar.target_file"
 contains "Makefile" "qstar-v0.2-rc-tests"
 contains "Makefile" "qstar-v0.3-rc-tests"

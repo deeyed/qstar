@@ -76,9 +76,20 @@ local strict = qstar.append({"-Wall"}, "-Wextra", "-Werror")
 - `qstar.append(list, ...)`는 원본 list를 바꾸지 않고 뒤에 값이나 list를 붙인 새 list를 반환한다.
 - `qstar.merge(...)`는 plain table을 새 table로 deep merge한다. 같은 list field는 append된다.
 - `qstar.extend(base, ...)`는 `base` table을 deep merge로 갱신하고 다시 반환한다.
+- `qstar.status("...")`는 사용자 정의 build step description을 나타내는 validated helper를 반환한다.
 
-`.qsm` module에서는 target을 선언하지 말고 이런 helper로 path, option table, config skeleton을
-반환한다.
+`.qsm` module에서는 target을 선언하지 말고 이런 helper로 path, option table, config skeleton,
+status description을 반환한다.
+
+```lua
+local M = {}
+
+function M.generating(path)
+  return qstar.status("Generating " .. path)
+end
+
+return M
+```
 
 ## Explicit imports
 
@@ -164,6 +175,7 @@ qstar.project {
 qstar.configure_file "cfg" {
   output = qstar.output("build/qstar/generated/config.h"),
   defines = {"APP_VALUE=42"},
+  description = qstar.status("Configuring generated config.h"),
 }
 ```
 
@@ -171,6 +183,28 @@ qstar.configure_file "cfg" {
 `generated_dir` 아래에 있어야 한다. Target `sources`, `public_headers`,
 `private_headers`에서 그 directory 아래 path를 참조하면 반드시 해당 path를 만드는
 generated action owner가 있어야 한다.
+
+## Build status descriptions
+
+사용자 정의 action은 CMake-style progress line에 표시할 description을 지정할 수 있다.
+
+```lua
+qstar.custom_target "version_header" {
+  outputs = {qstar.output("build/qstar/generated/version.h")},
+  command = qstar.cli {"tools/gen-version", qstar.output(0)},
+  description = qstar.status("Generating version.h"),
+}
+
+qstar.run_target "smoke" {
+  deps = {"//:app"},
+  command = qstar.cli {qstar.target_file("//:app")},
+  description = qstar.status("Running smoke test"),
+}
+```
+
+`description`은 `qstar.custom_target`, `qstar.configure_file`, `qstar.run_target`,
+`qstar.stage`에서 지원된다. Raw string은 받지 않고, 빈 문자열, newline, 240 byte 초과
+문자열은 diagnostic으로 거절한다.
 
 ## 실패 예제
 

@@ -56,7 +56,7 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 - `qstar-self-host.md`: Makefile 유지와 QStar self-host graph/release gate 후보 계약.
 - `ninja-backend-parity.md`: Ninja lowering parity, deferred surface, action-log/replay 계약.
 - `performance-gates.md`: Stella/Ninja clean, no-op, incremental timing gate 계약.
-- `progress-output.md`: CMake-style progress output, warning/error color, `qstar.status` draft contract.
+- `progress-output.md`: CMake-style progress output, warning/error color, `qstar.status` descriptions.
 - `linux-validation.md`: Linux host validation path, install smoke, CI 후보, release asset 조건.
 - `windows-path-process.md`: Windows path/process/response-file pre-port contract.
 - `public-beta-release.md`: public beta packaging, install smoke, codesign, wiki sync gate.

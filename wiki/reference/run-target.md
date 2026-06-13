@@ -8,6 +8,7 @@ artifact 이후 외부 smoke command를 실행할 때는 `qstar.run_target`을 �
 ```lua
 qstar.run_target "smoke" {
   command = qstar.cli {"tools/smoke.sh"},
+  description = qstar.status("Running smoke check"),
 }
 ```
 
@@ -26,11 +27,14 @@ qstar.run_target "qemu_smoke" {
   timeout = 3,
   marker = "QSTAR-SMOKE-DONE",
   marker_log = "serial.log",
+  description = qstar.status("Running emulator smoke"),
 }
 ```
 
 QStar는 QEMU 자체를 special target으로 알지 않는다. Run target은 command, timeout,
 marker check, log/replay를 제공하는 generic surface다.
+`description = qstar.status("...")`를 지정하면 build progress line에서 run target label 대신
+사용자가 정한 status message가 표시된다.
 `-G ninja`에서도 wrapper action으로 lowering되며, marker/timeout/exit-code replay
 계약은 `stella` backend와 같은 failure kind를 사용한다.
 

@@ -70,9 +70,9 @@ warning: src/lib/core.c:17: unused variable 'tmp'
 [ 27%] Building C object build/qstar/out/__lib/obj3.o
 ```
 
-## qstar.status 계획
+## qstar.status
 
-사용자 정의 action은 future DSL hook으로 status description을 줄 수 있다.
+사용자 정의 action은 `qstar.status(...)`로 status description을 줄 수 있다.
 
 ```lua
 qstar.custom_target "version_header" {
@@ -87,8 +87,18 @@ qstar.custom_target "version_header" {
 }
 ```
 
-`qstar.status(...)`는 한 줄 description만 허용한다. Empty string, newline, 너무 긴
-description은 diagnostic 대상이다.
+`qstar.status(...)`는 한 줄 description만 허용한다. Empty string, newline, 240 byte를
+넘는 description은 diagnostic 대상이다. Raw string은 받지 않으며 반드시
+`description = qstar.status("...")` 형태를 써야 한다.
+
+적용 가능한 field:
+
+- `qstar.custom_target.description`
+- `qstar.configure_file.description`
+- `qstar.run_target.description`
+- `qstar.stage.description`
+
+`.qsm` helper는 `qstar.status(...)` 값을 반환할 수 있지만 graph declaration은 계속 금지된다.
 
 ## Action Description IR
 

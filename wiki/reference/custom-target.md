@@ -10,6 +10,7 @@ qstar.custom_target "generated" {
   inputs = {"tools/value.txt"},
   outputs = {qstar.output("generated/value.c")},
   command = qstar.cli {"tools/gen-value.sh", qstar.input(0), qstar.output(0)},
+  description = qstar.status("Generating generated/value.c"),
 }
 ```
 
@@ -35,6 +36,7 @@ qstar.custom_target "kernel_img" {
     qstar.input(0),
     qstar.output(0),
   },
+  description = qstar.status("Generating firmware image"),
 }
 ```
 
@@ -43,6 +45,8 @@ qstar.custom_target "kernel_img" {
 `qstar.target_file` input은 해당 target 또는 custom target output을 먼저 빌드하는 artifact
 dependency edge가 되며, `qstar.input(N)`으로 command에 전달하면 실제 산출물 path로
 해석된다.
+`description = qstar.status("...")`를 지정하면 Stella/Ninja progress output에서 action id 대신
+사용자-facing status message가 표시된다.
 
 `outputs`는 effective `qstar.project.generated_dir` 아래에 있어야 한다. 기본값은
 `generated`이므로 기존 프로젝트는 `generated/foo.c`를 계속 쓸 수 있다. Generated

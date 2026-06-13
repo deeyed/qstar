@@ -68,6 +68,8 @@ Evaluate the canonical subdirectory fragment
 Declare a lint grouping primitive for shared-source variants.
 .It Ic qstar.cli
 Declare an argv-vector command. Shell strings are not accepted.
+.It Ic qstar.status
+Declare a validated one-line build status description for user-defined actions.
 .It Ic qstar.input
 Reference a custom target input by index inside a
 .Ic qstar.cli
@@ -146,6 +148,20 @@ helpers instead.
 .Pa .qsm
 modules must return a table and cannot declare graph nodes such as targets,
 configs, profiles, project metadata, stages, or subdirs.
+They may return values built with
+.Ic qstar.status
+for use in description fields.
+.Pp
+.Ic description
+fields on
+.Ic qstar.custom_target ,
+.Ic qstar.configure_file ,
+.Ic qstar.run_target ,
+and
+.Ic qstar.stage
+must be written as
+.Ic qstar.status Ns Pq Ar text .
+Empty strings, newlines, and text longer than 240 bytes are rejected.
 The QStar LSP resolves definitions on
 .Ic qstar.import_file
 strings to

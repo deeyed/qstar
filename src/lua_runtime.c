@@ -18,6 +18,8 @@ struct qstar_lua_context {
 	int module_depth;
 };
 
+#define QSTAR_STATUS_DESCRIPTION_MAX 240
+
 static const char *
 qstar_host_os(void)
 {
@@ -211,6 +213,75 @@ qstar_table_kind(lua_State *L, int idx)
 	kind = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
 	lua_pop(L, 1);
 	return kind;
+}
+
+/** status description 문자열이 progress line에 안전한 한 줄인지 검증한다. */
+static int
+validate_status_description(struct qstar_graph *graph, const char *text, size_t len)
+{
+	size_t i;
+
+	if (!text || len == 0)
+		return qstar_set_error(graph, "qstar: qstar.status description must not be empty");
+	if (len > QSTAR_STATUS_DESCRIPTION_MAX)
+		return qstar_set_error(graph,
+		    "qstar: qstar.status description must be <= %d bytes",
+		    QSTAR_STATUS_DESCRIPTION_MAX);
+	for (i = 0; i < len; i++) {
+		if (text[i] == '\n' || text[i] == '\r')
+			return qstar_set_error(graph,
+			    "qstar: qstar.status description must be one line");
+	}
+	return 0;
+}
+
+/** qstar.status("...") 객체에서 validated description 문자열을 읽는다. */
+static int
+read_status_description_field(lua_State *L, int table_index, struct qstar_graph *graph,
+    char **dst)
+{
+	const char *kind, *text;
+	size_t len;
+	char *copy;
+
+	if (table_index < 0)
+		table_index = lua_gettop(L) + table_index + 1;
+	lua_getfield(L, table_index, "description");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph,
+		    "qstar: field 'description' must be qstar.status(\"...\")");
+	}
+	kind = qstar_table_kind(L, -1);
+	if (!kind || strcmp(kind, "status") != 0) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph,
+		    "qstar: field 'description' must be qstar.status(\"...\")");
+	}
+	lua_getfield(L, -1, "text");
+	if (!lua_isstring(L, -1)) {
+		lua_pop(L, 2);
+		return qstar_set_error(graph,
+		    "qstar: field 'description' must be qstar.status(\"...\")");
+	}
+	text = lua_tolstring(L, -1, &len);
+	if (validate_status_description(graph, text, len) < 0) {
+		lua_pop(L, 2);
+		return -1;
+	}
+	copy = qstar_strdup(text);
+	if (!copy) {
+		lua_pop(L, 2);
+		return qstar_set_error(graph, "qstar: out of memory");
+	}
+	free(*dst);
+	*dst = copy;
+	lua_pop(L, 2);
+	return 0;
 }
 
 /** qstar.output(path, metadata)가 넘긴 output path table에서 path를 읽는다. */
@@ -1457,7 +1528,9 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 		struct qstar_string_list empty;
 
 		memset(&empty, 0, sizeof(empty));
-		if (read_command_field(L, table_index, "command", &target->run_command,
+		if (read_status_description_field(L, table_index, graph,
+		    &target->description) < 0 ||
+		    read_command_field(L, table_index, "command", &target->run_command,
 		    graph) < 0 ||
 		    resolve_cli_placeholders(graph, &target->run_command, &empty, &empty,
 		    "run_target command") < 0)
@@ -1573,7 +1646,9 @@ add_genrule(lua_State *L, const char *name, int table_index, const char *fragmen
 		free(genrule->tool);
 		genrule->tool = qstar_strdup(tool);
 	}
-	if (read_genrule_inputs_field(L, table_index, genrule, graph) < 0 ||
+	if (read_status_description_field(L, table_index, graph,
+	    &genrule->description) < 0 ||
+	    read_genrule_inputs_field(L, table_index, genrule, graph) < 0 ||
 	    read_outputs_field(L, table_index, genrule, graph) < 0 ||
 	    read_command_field(L, table_index, "command", &genrule->command, graph) < 0 ||
 	    resolve_cli_placeholders(graph, &genrule->command, &genrule->inputs,
@@ -1640,7 +1715,9 @@ add_config_header(lua_State *L, const char *name, int table_index, const char *f
 		return luaL_error(L, "qstar: config header '%s' requires output", name);
 	if (qstar_string_list_push(&genrule->outputs, output) < 0)
 		return luaL_error(L, "qstar: out of memory");
-	if (read_list_field(L, table_index, "defines", &genrule->args, graph, 0,
+	if (read_status_description_field(L, table_index, graph,
+	    &genrule->description) < 0 ||
+	    read_list_field(L, table_index, "defines", &genrule->args, graph, 0,
 	    genrule->fragment_dir) < 0)
 		return luaL_error(L, "%s", graph->error);
 	return 0;
@@ -1826,7 +1903,8 @@ add_stage(lua_State *L, const char *name, int table_index, const char *fragment_
 		if (!stage->root)
 			return luaL_error(L, "qstar: out of memory");
 	}
-	if (read_stage_files_field(L, table_index, stage, graph) < 0)
+	if (read_status_description_field(L, table_index, graph, &stage->description) < 0 ||
+	    read_stage_files_field(L, table_index, stage, graph) < 0)
 		return luaL_error(L, "%s", graph->error);
 	return 0;
 }
@@ -2572,6 +2650,28 @@ qstar_lua_cli(lua_State *L)
 		lua_rawseti(L, -3, (lua_Integer)i);
 		lua_pop(L, 1);
 	}
+	return 1;
+}
+
+/** qstar.status("...")를 description field 전용 validated helper table로 만든다. */
+static int
+qstar_lua_status(lua_State *L)
+{
+	struct qstar_graph fake_graph;
+	const char *text;
+	size_t len;
+
+	if (lua_gettop(L) != 1)
+		return luaL_error(L, "qstar: qstar.status expects exactly one string");
+	text = luaL_checklstring(L, 1, &len);
+	memset(&fake_graph, 0, sizeof(fake_graph));
+	if (validate_status_description(&fake_graph, text, len) < 0)
+		return luaL_error(L, "%s", fake_graph.error);
+	lua_newtable(L);
+	lua_pushstring(L, "status");
+	lua_setfield(L, -2, "__qstar_kind");
+	lua_pushlstring(L, text, len);
+	lua_setfield(L, -2, "text");
 	return 1;
 }
 
@@ -3339,6 +3439,8 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "stage_file");
 	lua_pushcfunction(L, qstar_lua_cli);
 	lua_setfield(L, -2, "cli");
+	lua_pushcfunction(L, qstar_lua_status);
+	lua_setfield(L, -2, "status");
 	lua_pushcfunction(L, qstar_lua_identity_table);
 	lua_setfield(L, -2, "modules");
 	lua_pushcfunction(L, qstar_lua_files);

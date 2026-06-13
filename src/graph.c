@@ -134,6 +134,7 @@ free_target(struct qstar_target *target)
 	qstar_string_list_free(&target->asm_compile_options);
 	qstar_string_list_free(&target->cale_compile_options);
 	qstar_string_list_free(&target->run_command);
+	free(target->description);
 	free(target->artifact_name);
 	free(target->cxx_standard);
 	free(target->cale_profile);
@@ -164,6 +165,7 @@ free_genrule(struct qstar_genrule *genrule)
 	free(genrule->fragment_dir);
 	free(genrule->origin_file);
 	free(genrule->tool);
+	free(genrule->description);
 	qstar_string_list_free(&genrule->inputs);
 	qstar_string_list_free(&genrule->outputs);
 	qstar_string_list_free(&genrule->output_groups);
@@ -183,6 +185,7 @@ free_stage(struct qstar_stage *stage)
 	free(stage->fragment_dir);
 	free(stage->origin_file);
 	free(stage->root);
+	free(stage->description);
 	qstar_string_list_free(&stage->srcs);
 	qstar_string_list_free(&stage->dsts);
 }
@@ -811,10 +814,12 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	target->linker_script = qstar_strdup("");
 	target->run_marker = qstar_strdup("");
 	target->run_marker_log = qstar_strdup("");
+	target->description = qstar_strdup("");
 	if (!target->label || !target->name || !target->kind || !target->fragment_dir ||
 	    !target->origin_file || !target->toolchain || !target->stdlib_policy ||
 	    !target->artifact_name || !target->cxx_standard || !target->cale_profile ||
-	    !target->linker_script || !target->run_marker || !target->run_marker_log) {
+	    !target->linker_script || !target->run_marker || !target->run_marker_log ||
+	    !target->description) {
 		qstar_set_error(graph, "qstar: out of memory");
 		return NULL;
 	}
@@ -1046,8 +1051,9 @@ qstar_graph_add_genrule(struct qstar_graph *graph, const char *label, const char
 	genrule->origin_file = qstar_strdup(origin_file ? origin_file : "");
 	genrule->origin_line = origin_line;
 	genrule->tool = qstar_strdup("generator");
+	genrule->description = qstar_strdup("");
 	if (!genrule->label || !genrule->name || !genrule->fragment_dir ||
-	    !genrule->origin_file || !genrule->tool) {
+	    !genrule->origin_file || !genrule->tool || !genrule->description) {
 		qstar_set_error(graph, "qstar: out of memory");
 		return NULL;
 	}
@@ -1097,8 +1103,9 @@ qstar_graph_add_stage(struct qstar_graph *graph, const char *label, const char *
 	stage->origin_file = qstar_strdup(origin_file ? origin_file : "");
 	stage->origin_line = origin_line;
 	stage->root = qstar_strdup("");
+	stage->description = qstar_strdup("");
 	if (!stage->label || !stage->name || !stage->fragment_dir ||
-	    !stage->origin_file || !stage->root) {
+	    !stage->origin_file || !stage->root || !stage->description) {
 		qstar_set_error(graph, "qstar: out of memory");
 		return NULL;
 	}
@@ -1481,6 +1488,8 @@ dump_target(const struct qstar_target *target, FILE *out)
 	fputs("  run.command ", out);
 	dump_list(out, &target->run_command);
 	fputc('\n', out);
+	fprintf(out, "  description %s\n",
+	    target->description && *target->description ? target->description : "<default>");
 	fprintf(out, "  run.timeout_sec %d\n", target->run_timeout_sec);
 	fprintf(out, "  run.marker %s\n", target->run_marker ? target->run_marker : "");
 	fprintf(out, "  run.marker_log %s\n",
@@ -1597,6 +1606,8 @@ dump_genrule(const struct qstar_genrule *genrule, FILE *out)
 	    genrule->origin_file && *genrule->origin_file ? genrule->origin_file : "<unknown>",
 	    genrule->origin_line);
 	fprintf(out, "  tool %s\n", genrule->tool);
+	fprintf(out, "  description %s\n",
+	    genrule->description && *genrule->description ? genrule->description : "<default>");
 	fprintf(out, "  config_header %s\n", genrule->config_header ? "yes" : "no");
 	fputs("  inputs ", out);
 	dump_list(out, &genrule->inputs);
@@ -1634,6 +1645,8 @@ dump_stage(const struct qstar_stage *stage, FILE *out)
 	    stage->origin_file && *stage->origin_file ? stage->origin_file : "<unknown>",
 	    stage->origin_line);
 	fprintf(out, "  root %s\n", stage->root && *stage->root ? stage->root : "<default>");
+	fprintf(out, "  description %s\n",
+	    stage->description && *stage->description ? stage->description : "<default>");
 	for (i = 0; i < stage->srcs.len; i++)
 		fprintf(out, "  stage_file src=%s dst=%s\n", stage->srcs.items[i],
 		    i < stage->dsts.len ? stage->dsts.items[i] : "<missing>");
@@ -1952,6 +1965,9 @@ dump_target_json(FILE *out, const struct qstar_target *target)
 	fprintf(out, "%s", target->asm_preprocess ? "true" : "false");
 	fputs(",\"lang_cale_profile\":", out);
 	dump_json_string(out, target->cale_profile);
+	fputs(",\"description\":", out);
+	dump_json_string(out, target->description && *target->description ?
+	    target->description : "");
 	fputs(",\"run_command\":", out);
 	dump_json_list(out, &target->run_command);
 	fprintf(out, ",\"run_timeout_sec\":%d", target->run_timeout_sec);
@@ -2073,6 +2089,9 @@ dump_genrule_json(FILE *out, const struct qstar_genrule *genrule)
 	dump_json_string(out, genrule->fragment_dir);
 	fputs(",\"tool\":", out);
 	dump_json_string(out, genrule->tool);
+	fputs(",\"description\":", out);
+	dump_json_string(out, genrule->description && *genrule->description ?
+	    genrule->description : "");
 	fprintf(out, ",\"config_header\":%s", genrule->config_header ? "true" : "false");
 	fputs(",\"inputs\":", out);
 	dump_json_list(out, &genrule->inputs);
@@ -2123,6 +2142,9 @@ dump_stage_json(FILE *out, const struct qstar_stage *stage)
 	dump_json_string(out, stage->fragment_dir);
 	fputs(",\"root\":", out);
 	dump_json_string(out, stage->root && *stage->root ? stage->root : "");
+	fputs(",\"description\":", out);
+	dump_json_string(out, stage->description && *stage->description ?
+	    stage->description : "");
 	fputs(",\"files\":[", out);
 	for (i = 0; i < stage->srcs.len; i++) {
 		if (i)

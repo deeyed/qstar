@@ -547,6 +547,20 @@ shell_argv(FILE *f, const struct ninja_argv *argv)
 	}
 }
 
+/** Ninja variable value에서 special marker를 escape해 한 줄로 출력한다. */
+static void
+ninja_var_text(FILE *f, const char *s)
+{
+	const unsigned char *p;
+
+	for (p = (const unsigned char *)(s ? s : ""); *p; p++) {
+		if (*p == '$')
+			fputs("$$", f);
+		else
+			fputc(*p, f);
+	}
+}
+
 /** Windows/MSVC response file에 들어갈 argv item을 double-quote 규칙으로 쓴다. */
 static void
 write_windows_response_arg(FILE *f, const char *s)
@@ -1301,7 +1315,7 @@ emit_genrule_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	struct ninja_argv argv;
 	char action_id[QSTAR_PATH_MAX], resolved_tool[QSTAR_PATH_MAX];
 	char tool_mode[64], tool_error[QSTAR_PATH_MAX], alias[QSTAR_PATH_MAX];
-	char script_rel[QSTAR_PATH_MAX];
+	char script_rel[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	size_t i;
 	int index;
 
@@ -1388,7 +1402,11 @@ emit_genrule_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	}
 	if (write_edge_command(graph, ctx, action_id, NULL, &argv) < 0)
 		goto fail;
-	fprintf(ctx->ninja, "\n  description = generate %s\n", action_id);
+	if (qstar_action_description_generate(genrule, description, sizeof(description)) < 0)
+		goto fail;
+	fputs("\n  description = ", ctx->ninja);
+	ninja_var_text(ctx->ninja, description);
+	fputc('\n', ctx->ninja);
 	fprintf(ctx->ninja, "  qstar_action_id = %s\n\n", action_id);
 	if (ninja_alias_path(graph, genrule->label, alias, sizeof(alias)) < 0)
 		goto fail;
@@ -1437,7 +1455,7 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	struct ninja_argv argv;
 	char object[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], out_dir[QSTAR_PATH_MAX];
 	char action_id[QSTAR_PATH_MAX], target_arg[QSTAR_PATH_MAX], sysroot_arg[QSTAR_PATH_MAX];
-	char std_arg[128];
+	char description[QSTAR_PATH_MAX], std_arg[128];
 	const char *compiler;
 	int is_asm, is_cxx, wants_depfile, cross;
 	size_t i;
@@ -1552,7 +1570,12 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	}
 	fputs("  out_dir = ", ctx->ninja);
 	shell_arg(ctx->ninja, out_dir);
-	fprintf(ctx->ninja, "\n  description = compile %s\n", action_id);
+	if (qstar_action_description_compile(target, &source, object, description,
+	    sizeof(description)) < 0)
+		goto fail;
+	fputs("\n  description = ", ctx->ninja);
+	ninja_var_text(ctx->ninja, description);
+	fputc('\n', ctx->ninja);
 	fprintf(ctx->ninja, "  qstar_action_id = %s\n\n", action_id);
 	write_compile_command(ctx, graph->package_root ? graph->package_root : ".",
 	    target->sources.items[index], object, &argv);
@@ -1830,7 +1853,7 @@ emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 {
 	struct ninja_argv argv;
 	char artifact[QSTAR_PATH_MAX], alias[QSTAR_PATH_MAX], object[QSTAR_PATH_MAX];
-	char out_dir[QSTAR_PATH_MAX], action_id[QSTAR_PATH_MAX];
+	char out_dir[QSTAR_PATH_MAX], action_id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	size_t i;
 
 	memset(&argv, 0, sizeof(argv));
@@ -1884,7 +1907,12 @@ emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	fputc('\n', ctx->ninja);
 	fputs("  out_dir = ", ctx->ninja);
 	shell_arg(ctx->ninja, out_dir);
-	fprintf(ctx->ninja, "\n  description = archive %s\n", action_id);
+	if (qstar_action_description_final(target, "archive", artifact, description,
+	    sizeof(description)) < 0)
+		goto fail;
+	fputs("\n  description = ", ctx->ninja);
+	ninja_var_text(ctx->ninja, description);
+	fputc('\n', ctx->ninja);
 	fprintf(ctx->ninja, "  qstar_action_id = %s\n\n", action_id);
 	fprintf(ctx->ninja, "# qstar-action-id: %s:alias\n", target->label);
 	fputs("build ", ctx->ninja);
@@ -1908,7 +1936,7 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	struct ninja_argv argv;
 	struct qstar_string_list dep_artifacts;
 	char artifact[QSTAR_PATH_MAX], alias[QSTAR_PATH_MAX], object[QSTAR_PATH_MAX];
-	char out_dir[QSTAR_PATH_MAX], action_id[QSTAR_PATH_MAX];
+	char out_dir[QSTAR_PATH_MAX], action_id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	size_t i;
 
 	memset(&argv, 0, sizeof(argv));
@@ -1989,7 +2017,12 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	fputc('\n', ctx->ninja);
 	fputs("  out_dir = ", ctx->ninja);
 	shell_arg(ctx->ninja, out_dir);
-	fprintf(ctx->ninja, "\n  description = link %s\n", action_id);
+	if (qstar_action_description_final(target, qstar_target_final_action(target),
+	    artifact, description, sizeof(description)) < 0)
+		goto fail;
+	fputs("\n  description = ", ctx->ninja);
+	ninja_var_text(ctx->ninja, description);
+	fputc('\n', ctx->ninja);
 	fprintf(ctx->ninja, "  qstar_action_id = %s\n\n", action_id);
 	fprintf(ctx->ninja, "# qstar-action-id: %s:alias\n", target->label);
 	fputs("build ", ctx->ninja);
@@ -2150,6 +2183,7 @@ emit_run_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	struct ninja_argv argv, script_argv;
 	char alias[QSTAR_PATH_MAX], owner[QSTAR_PATH_MAX], stamp_sub[QSTAR_PATH_MAX];
 	char stamp[QSTAR_PATH_MAX], action_id[QSTAR_PATH_MAX], script_rel[QSTAR_PATH_MAX];
+	char description[QSTAR_PATH_MAX];
 	size_t i;
 
 	memset(&argv, 0, sizeof(argv));
@@ -2201,7 +2235,11 @@ emit_run_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	fputc('\n', ctx->ninja);
 	fputs("  command = ", ctx->ninja);
 	shell_argv(ctx->ninja, &script_argv);
-	fprintf(ctx->ninja, "\n  description = run %s\n", action_id);
+	if (qstar_action_description_run(target, description, sizeof(description)) < 0)
+		goto fail;
+	fputs("\n  description = ", ctx->ninja);
+	ninja_var_text(ctx->ninja, description);
+	fputc('\n', ctx->ninja);
 	fprintf(ctx->ninja, "  qstar_action_id = %s\n\n", action_id);
 	if (write_ninja_action_log(graph, action_id, &argv, NULL) < 0)
 		goto fail;
