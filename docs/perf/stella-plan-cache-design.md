@@ -431,6 +431,31 @@ Clean build는 Q124 대표값보다 개선됐지만 500-650ms 목표에는 아�
 process wait/drain 구조와 successful action log/replay materialization을 더 크게 줄이는
 라운드로 넘긴다.
 
+### Q129 POSIX Spawn Runner MVP
+
+Status: implemented.
+
+1. compile/archive/link/custom generated action 실행 경로가 `spawn_action_process()` helper를
+   공유한다.
+2. macOS와 Linux/glibc에서는 package-root cwd file action과 stdout/stderr pipe redirection을
+   유지한 채 `posix_spawn` fast path를 사용한다.
+3. Spawn setup이 실패하거나 unsupported platform이면 기존 fork/exec runner로 fallback한다.
+4. Timeout, cancel, warning/error stream coloring, action-log, replay는 기존 경로를 유지한다.
+5. `--schedule-trace`에는 `runner=posix_spawn` 또는 `runner=fork`가 표시된다.
+
+Observed Q129 timing on the medium corpus, local macOS arm64:
+
+```txt
+run 1: stella clean 1044ms, noop 88ms, incremental 116ms; ninja clean 389ms, noop 97ms, incremental 121ms
+run 2: stella clean 833ms, noop 81ms, incremental 111ms; ninja clean 306ms, noop 88ms, incremental 121ms
+run 3: stella clean 891ms, noop 81ms, incremental 105ms; ninja clean 446ms, noop 92ms, incremental 140ms
+```
+
+Q129은 process spawn boundary를 정리하는 구조 패치다. No-op과 incremental은 계속 Ninja급
+체감권을 유지하지만, clean build는 machine state와 compiler process 비용에 따라 편차가
+크고 아직 안정적으로 500-650ms 목표에 들어오지는 않는다. 다음 성능 라운드는 pipe wait/drain
+event loop와 successful action log/replay materialization 감소가 핵심이다.
+
 ## Acceptance Criteria
 
 Q120 이후:

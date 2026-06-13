@@ -281,12 +281,23 @@ Q118 분석에서 확인한 주요 source anchor:
 - single action path와 scheduler path가 공유하는 process runner 추가
 - `waitpid(WNOHANG)` polling을 poll/select 계열 event wait로 교체
 - warning/error coloring과 action log/replay는 유지
+- Q129에서 첫 구조 패치로 macOS/Linux(glibc) `posix_spawn` runner를 도입했다. Event wait
+  자체는 아직 남은 작업이지만, single action path와 scheduler path는 같은 spawn helper를
+  공유한다.
 
 ### Q123: Clean Build Hard Gate Trial
 
 - medium corpus에서 clean ratio gate를 report-only에서 hard-fail 후보로 전환하는 실험
 - 목표: Stella clean이 Ninja clean 대비 2배 이내, 가능하면 1.5배 근접
 - no-op/incremental은 현재 수준 유지
+
+### Q129: POSIX Spawn Runner MVP
+
+- compile/archive/link/custom generated action process start를 `posix_spawn` helper로 이동
+- stdout/stderr pipe capture, package-root cwd, timeout, cancel, action-log/replay는 유지
+- macOS와 Linux/glibc는 `posix_spawn` fast path를 사용하고, unsupported platform이나 spawn
+  setup failure는 기존 fork/exec path로 fallback
+- `--schedule-trace`에서 `runner=posix_spawn|fork`로 선택된 runner를 확인할 수 있다.
 
 ## Q118 Verdict
 

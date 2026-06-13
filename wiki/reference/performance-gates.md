@@ -54,29 +54,31 @@ Ninja가 없으면 Ninja phase는 `skipped`로 표시된다. Stella phase는 항
 
 ## 최신 베타 스냅샷
 
-Round Q125 local macOS arm64 대표 측정값:
+Round Q129 local macOS arm64 대표 측정값:
 
 ```txt
 medium_project_gate target_count=47 min_targets=40
-medium_project_gate backend=stella phase=clean elapsed_ms=746
-medium_project_gate backend=stella phase=noop elapsed_ms=69
-medium_project_gate backend=stella phase=incremental elapsed_ms=91
-medium_project_gate backend=ninja phase=clean elapsed_ms=254
-medium_project_gate backend=ninja phase=noop elapsed_ms=73
-medium_project_gate backend=ninja phase=incremental elapsed_ms=105
-medium_project_gate compare phase=clean stella_ms=746 ninja_ms=254 ratio_x100=200 slack_ms=250
-medium_project_gate compare phase=noop stella_ms=69 ninja_ms=73 ratio_x100=200 slack_ms=250
-medium_project_gate compare phase=incremental stella_ms=91 ninja_ms=105 ratio_x100=200 slack_ms=250
+medium_project_gate backend=stella phase=clean elapsed_ms=867
+medium_project_gate backend=stella phase=noop elapsed_ms=87
+medium_project_gate backend=stella phase=incremental elapsed_ms=117
+medium_project_gate backend=ninja phase=clean elapsed_ms=342
+medium_project_gate backend=ninja phase=noop elapsed_ms=86
+medium_project_gate backend=ninja phase=incremental elapsed_ms=144
+medium_project_gate compare phase=clean stella_ms=867 ninja_ms=342 ratio_x100=200 slack_ms=250
+medium_project_gate compare phase=noop stella_ms=87 ninja_ms=86 ratio_x100=200 slack_ms=250
+medium_project_gate compare phase=incremental stella_ms=117 ninja_ms=144 ratio_x100=200 slack_ms=250
 medium_project_gate status=ok perf_issue_count=0 report_only=1
 ```
 
 Stella no-op과 incremental은 이 corpus에서 Ninja급 latency를 보인다. Q125는 clean
 build 중 state/deps/action metadata write path를 buffered write로 정리하고, build
 directory 내부 generated object/archive input은 content hash 대신 size/mtime metadata
-key로 다룬다. Clean build는 Q124 대표값 808ms에서 746ms로 내려갔지만, 500-650ms 목표
-범위에는 아직 닿지 못했다. 남은 격차는 successful action log/replay write, process pipe
-wait/drain, scheduler/process boundary 쪽에 있다. Report gate는 통과하며, medium
-corpus에서는 1초 미만을 유지한다.
+key로 다룬다. Q129는 compile/archive/link/custom generated action 실행 경로에 POSIX spawn
+runner를 추가했다. macOS와 Linux/glibc는 `posix_spawn` fast path를 사용하고, unsupported
+platform이나 spawn setup failure는 기존 fork/exec path로 fallback한다. Clean build는 runner
+구조가 정리됐지만 500-650ms 목표 범위에는 아직 닿지 못했다. 남은 격차는 successful action
+log/replay write, process pipe wait/drain event loop, scheduler/process boundary 쪽에 있다.
+Report gate는 통과하며, no-op/incremental은 Ninja급 latency를 유지한다.
 
 Round Q92 기준 timing threshold는 기본적으로 report-only다. 파일 누락, graph 실패,
 compiler 실패, compile database 누락은 hard fail이고, 시간 초과는 warning으로 기록된다.

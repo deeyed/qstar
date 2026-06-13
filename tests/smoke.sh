@@ -155,6 +155,10 @@ contains "$tmp/first.out" "parallel=optional jobs=2"
 contains "$tmp/first.out" "action_dag target=//:app"
 contains "$tmp/first.out" "action_description id=//:app:compile:0 text=\"Building C object build/qstar/out/___app/obj0.o\""
 contains "$tmp/first.out" "schedule_action id=//:app:compile:0"
+case "$(uname -s)" in
+  Darwin|Linux) contains "$tmp/first.out" "runner=posix_spawn" ;;
+  *) contains "$tmp/first.out" "runner=" ;;
+esac
 contains "$tmp/first.out" "status=run"
 contains "$tmp/first.out" "[ 50%] Building C object build/qstar/out/___app/obj0.o"
 contains "$tmp/first.out" "[100%] Linking C executable build/qstar/out/___app/app"
@@ -3476,6 +3480,10 @@ contains "docs/qstar-v0.5-readiness.md" "qstar 0.5.1-beta.1"
 contains "docs/qstar-v0.5-readiness.md" "CMake-style progress output"
 contains "docs/qstar-v0.5-readiness.md" "Linux"
 contains "docs/qstar-v0.5-readiness.md" "Windows"
+contains "docs/performance-gates.md" "Round Q129 local macOS arm64"
+contains "docs/performance-gates.md" "POSIX spawn runner"
+contains "docs/perf/stella-plan-cache-design.md" "Q129 POSIX Spawn Runner MVP"
+contains "docs/perf/stella-ninja-profile.md" "runner=posix_spawn|fork"
 contains "docs/progress-output.md" "status: progress output contract"
 contains "docs/progress-output.md" "[ 75%] Linking CXX executable app"
 contains "docs/progress-output.md" "Stella progress renderer and warning/error stream coloring active"

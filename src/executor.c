@@ -1,9 +1,14 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include "internal.h"
 
 #include <errno.h>
 #include <fcntl.h>
 #include <dirent.h>
 #include <ctype.h>
+#include <spawn.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -29,6 +34,16 @@
 #define QSTAR_DEPS_DB_ABI 1ULL
 #define QSTAR_STATE_DB_MAX_STRING (16ULL * 1024ULL * 1024ULL)
 #define QSTAR_FILE_WRITE_BUFFER_SIZE 65536
+
+#if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__))
+#define QSTAR_HAVE_POSIX_SPAWN_RUNNER 1
+#else
+#define QSTAR_HAVE_POSIX_SPAWN_RUNNER 0
+#endif
+
+#if QSTAR_HAVE_POSIX_SPAWN_RUNNER
+extern char **environ;
+#endif
 
 struct qstar_observed_stream {
 	int fd;
@@ -716,6 +731,95 @@ child_capture_parent_started(struct qstar_child_capture *capture)
 		close(capture->err_write);
 		capture->err_write = -1;
 	}
+}
+
+/** fork/exec fallback으로 action process를 시작한다. */
+static int
+fork_action_process(struct qstar_graph *graph, struct qstar_child_capture *capture,
+    char *const argv[], pid_t *pid_out)
+{
+	pid_t pid;
+
+	pid = fork();
+	if (pid < 0)
+		return qstar_set_error(graph, "qstar: fork failed");
+	if (pid == 0) {
+		if (chdir(graph->package_root ? graph->package_root : ".") < 0)
+			_exit(127);
+		child_capture_redirect_or_exit(capture);
+		execvp(argv[0], argv);
+		_exit(127);
+	}
+	*pid_out = pid;
+	return 0;
+}
+
+#if QSTAR_HAVE_POSIX_SPAWN_RUNNER
+/** 현재 platform의 posix_spawn cwd file action을 추가한다. */
+static int
+spawn_actions_addchdir(posix_spawn_file_actions_t *actions, const char *path)
+{
+#if defined(__APPLE__)
+	return posix_spawn_file_actions_addchdir(actions, path);
+#elif defined(__linux__) && defined(__GLIBC__)
+	return posix_spawn_file_actions_addchdir_np(actions, path);
+#else
+	(void)actions;
+	(void)path;
+	errno = ENOSYS;
+	return -1;
+#endif
+}
+
+/** posix_spawn으로 action process를 시작한다. 실패 시 caller가 fork fallback을 쓴다. */
+static int
+posix_spawn_action_process(struct qstar_graph *graph, struct qstar_child_capture *capture,
+    char *const argv[], pid_t *pid_out)
+{
+	posix_spawn_file_actions_t actions;
+	const char *cwd;
+	int rc;
+
+	rc = posix_spawn_file_actions_init(&actions);
+	if (rc != 0)
+		return -1;
+	cwd = graph->package_root ? graph->package_root : ".";
+	if (spawn_actions_addchdir(&actions, cwd) != 0 ||
+	    (capture->out.fd >= 0 &&
+	    posix_spawn_file_actions_addclose(&actions, capture->out.fd) != 0) ||
+	    (capture->err.fd >= 0 &&
+	    posix_spawn_file_actions_addclose(&actions, capture->err.fd) != 0) ||
+	    posix_spawn_file_actions_adddup2(&actions, capture->out_write, 1) != 0 ||
+	    posix_spawn_file_actions_adddup2(&actions, capture->err_write, 2) != 0 ||
+	    posix_spawn_file_actions_addclose(&actions, capture->out_write) != 0 ||
+	    posix_spawn_file_actions_addclose(&actions, capture->err_write) != 0)
+		goto fail;
+	rc = posix_spawnp(pid_out, argv[0], &actions, NULL, argv, environ);
+	posix_spawn_file_actions_destroy(&actions);
+	return rc == 0 ? 0 : -1;
+fail:
+	posix_spawn_file_actions_destroy(&actions);
+	return -1;
+}
+#endif
+
+/** action process를 posix_spawn fast path 또는 fork fallback으로 시작한다. */
+static int
+spawn_action_process(struct qstar_graph *graph, struct qstar_child_capture *capture,
+    char *const argv[], pid_t *pid_out, const char **runner_out)
+{
+#if QSTAR_HAVE_POSIX_SPAWN_RUNNER
+	if (posix_spawn_action_process(graph, capture, argv, pid_out) == 0) {
+		if (runner_out)
+			*runner_out = "posix_spawn";
+		return 0;
+	}
+#endif
+	if (fork_action_process(graph, capture, argv, pid_out) < 0)
+		return -1;
+	if (runner_out)
+		*runner_out = "fork";
+	return 0;
 }
 
 /** child stdout/stderr pipe를 가능한 만큼 읽어 terminal과 log에 반영한다. */
@@ -3336,6 +3440,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	char *const *child_argv;
 	struct qstar_child_capture capture;
 	const struct qstar_state_entry *prev;
+	const char *runner;
 	pid_t pid;
 	int status, exit_code, use_rsp;
 
@@ -3413,19 +3518,13 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	if (child_capture_open(graph, &capture, stdout_path, stderr_path) < 0)
 		return -1;
-	pid = fork();
-	if (pid < 0) {
+	if (spawn_action_process(graph, &capture, child_argv, &pid, &runner) < 0) {
 		child_capture_finish(ctx, &capture);
-		return qstar_set_error(graph, "qstar: fork failed");
-	}
-	if (pid == 0) {
-		if (chdir(graph->package_root ? graph->package_root : ".") < 0)
-			_exit(127);
-		child_capture_redirect_or_exit(&capture);
-		execvp(child_argv[0], child_argv);
-		_exit(127);
+		return -1;
 	}
 	child_capture_parent_started(&capture);
+	build_tracef(ctx, "schedule_action id=%s slot=0 pid=%ld runner=%s state=started\n",
+	    id, (long)pid, runner);
 	{
 		time_t start;
 		pid_t waited;
@@ -5113,6 +5212,7 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	char *exec_argv[3];
 	char *const *child_argv;
 	const struct qstar_state_entry *prev;
+	const char *runner;
 	pid_t pid;
 	int use_rsp;
 
@@ -5174,25 +5274,17 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	if (child_capture_open(graph, &running->capture, stdout_path, stderr_path) < 0)
 		return -1;
-	pid = fork();
-	if (pid < 0) {
+	if (spawn_action_process(graph, &running->capture, child_argv, &pid, &runner) < 0) {
 		child_capture_finish(ctx, &running->capture);
-		return qstar_set_error(graph, "qstar: fork failed");
-	}
-	if (pid == 0) {
-		if (chdir(graph->package_root ? graph->package_root : ".") < 0)
-			_exit(127);
-		child_capture_redirect_or_exit(&running->capture);
-		execvp(child_argv[0], child_argv);
-		_exit(127);
+		return -1;
 	}
 	child_capture_parent_started(&running->capture);
 	running->action = action;
 	running->pid = pid;
 	running->start = time(NULL);
 	running->slot = slot;
-	build_tracef(ctx, "schedule_action id=%s slot=%zu pid=%ld state=started\n",
-	    action->id, slot, (long)pid);
+	build_tracef(ctx, "schedule_action id=%s slot=%zu pid=%ld runner=%s state=started\n",
+	    action->id, slot, (long)pid, runner);
 	build_tracef(ctx,
 	    "parallel_event target=%s event=start id=%s slot=%zu pid=%ld state=running retry=on-failure\n",
 	    action->target->label, action->id, slot, (long)pid);
