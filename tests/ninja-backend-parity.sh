@@ -5,6 +5,7 @@ qstar=${QSTAR_TEST_QSTAR:-build/bin/qstar}
 tmp=${TMPDIR:-/tmp}/qstar-ninja-backend-parity.$$
 c_app=tests/corpus/c-app
 generated=tests/corpus/generated
+object_bridge=tests/projects/object-artifact-bridge
 
 fail() {
 	echo "qstar-ninja-backend-parity: $*" >&2
@@ -19,8 +20,10 @@ contains() {
 
 clean_corpus_outputs() {
 	rm -rf "$c_app/build" "$c_app/stage" "$generated/build" "$generated/stage"
+	rm -rf "$object_bridge/build" "$object_bridge/stage"
 	rm -f "$c_app/.ninja_log" "$c_app/.ninja_deps"
 	rm -f "$generated/.ninja_log" "$generated/.ninja_deps"
+	rm -f "$object_bridge/.ninja_log" "$object_bridge/.ninja_deps"
 }
 
 rm -rf "$tmp"
@@ -66,6 +69,30 @@ contains "$tmp/generated-log.out" "tools/gen-value.sh"
 contains "$tmp/generated-replay.out" "qstar replay v1"
 contains "$tmp/generated-replay.out" "description='Generating generated value.c'"
 contains "$tmp/generated-replay.out" "build/qstar/generated/value.c"
+
+case "$(uname -s)" in
+	Darwin) object_shared_artifact="build/qstar/out/___objc_plugin/libobjc_plugin.dylib" ;;
+	*) object_shared_artifact="build/qstar/out/___objc_plugin/libobjc_plugin.so" ;;
+esac
+"$qstar" --file "$object_bridge/qstar.lua" dry-run //:all > "$tmp/object-bridge-dry.out" 2> "$tmp/object-bridge-dry.err"
+contains "$tmp/object-bridge-dry.out" "generated_artifact output=build/qstar/generated/objc/AppDelegate.o group=objects format=object"
+contains "$tmp/object-bridge-dry.out" "dry_run_step id=//:app:link-input:1"
+contains "$tmp/object-bridge-dry.out" "dry_run_step id=//:objc_static:link-input:0"
+contains "$tmp/object-bridge-dry.out" "dry_run_step id=//:objc_plugin:link-input:1"
+"$qstar" --file "$object_bridge/qstar.lua" emit-ninja //:all > "$tmp/object-bridge-emit.out" 2> "$tmp/object-bridge-emit.err"
+contains "$tmp/object-bridge-emit.out" "ninja_file build/qstar/ninja/build.ninja"
+contains "$object_bridge/build/qstar/ninja/build.ninja" "qstar_action_id = //:objc_object:generate:0"
+contains "$object_bridge/build/qstar/ninja/build.ninja" "description = Building Objective-C object AppDelegate.o"
+contains "$object_bridge/build/qstar/ninja/build.ninja" "build/qstar/out/___app/app: qstar_link build/qstar/out/___app/obj0.o build/qstar/generated/objc/AppDelegate.o"
+contains "$object_bridge/build/qstar/ninja/build.ninja" "build/qstar/out/___objc_static/libobjc_static.a: qstar_archive build/qstar/generated/objc/AppDelegate.o"
+contains "$object_bridge/build/qstar/ninja/build.ninja" "$object_shared_artifact"
+"$qstar" --file "$object_bridge/qstar.lua" action-log //:objc_object:generate:0 > "$tmp/object-bridge-log.out" 2> "$tmp/object-bridge-log.err"
+contains "$tmp/object-bridge-log.out" "qstar action-log v1"
+contains "$tmp/object-bridge-log.out" "backend=ninja"
+contains "$tmp/object-bridge-log.out" "description='Building Objective-C object AppDelegate.o'"
+"$qstar" --file "$object_bridge/qstar.lua" replay //:objc_object:generate:0 > "$tmp/object-bridge-replay.out" 2> "$tmp/object-bridge-replay.err"
+contains "$tmp/object-bridge-replay.out" "qstar replay v1"
+contains "$tmp/object-bridge-replay.out" "tools/fake-objc-compile.sh src/AppDelegate.m build/qstar/generated/objc/AppDelegate.o"
 
 mkdir -p "$tmp/shared/src"
 cat > "$tmp/shared/qstar.lua" <<'QSTAR'
@@ -143,6 +170,18 @@ if command -v ninja >/dev/null 2>&1; then
 	test -f "$tmp/generated-prefix/bin/app" || fail "generated ninja install app missing"
 	test ! -f "$generated/.ninja_log" || fail "generated ninja wrote package root .ninja_log"
 	test ! -f "$generated/.ninja_deps" || fail "generated ninja wrote package root .ninja_deps"
+
+	"$qstar" --file "$object_bridge/qstar.lua" -G ninja build //:all --progress off > "$tmp/object-bridge-build.out" 2> "$tmp/object-bridge-build.err"
+	contains "$tmp/object-bridge-build.out" "backend ninja"
+	contains "$tmp/object-bridge-build.out" "Building Objective-C object AppDelegate.o"
+	contains "$tmp/object-bridge-build.out" "status ok"
+	test -f "$object_bridge/build/qstar/generated/objc/AppDelegate.o" || fail "object bridge ninja generated object missing"
+	test -f "$object_bridge/build/qstar/out/___app/app" || fail "object bridge ninja executable missing"
+	test -f "$object_bridge/build/qstar/out/___objc_static/libobjc_static.a" || fail "object bridge ninja staticlib missing"
+	test -f "$object_bridge/$object_shared_artifact" || fail "object bridge ninja sharedlib missing"
+	"$object_bridge/build/qstar/out/___app/app"
+	test ! -f "$object_bridge/.ninja_log" || fail "object bridge ninja wrote package root .ninja_log"
+	test ! -f "$object_bridge/.ninja_deps" || fail "object bridge ninja wrote package root .ninja_deps"
 
 	"$qstar" --file "$tmp/shared/qstar.lua" -G ninja build //:plugin --progress off > "$tmp/shared-build.out" 2> "$tmp/shared-build.err"
 	contains "$tmp/shared-build.out" "backend ninja"

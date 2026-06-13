@@ -8,6 +8,7 @@ C/C++/ASM projects while keeping unsupported surface explicit.
 The Ninja backend lowers:
 
 - C/C++/ASM compile actions
+- generated object artifacts from `qstar.output(..., {format = "object"})`
 - `qstar.staticlib`
 - `qstar.executable`
 - `qstar.test` build plus `qstar test -G ninja`
@@ -51,6 +52,7 @@ make qstar-ninja-backend-parity-tests
 
 The gate checks staticlib, sharedlib, executable, test, generated actions,
 configure file, run target marker handling, stage/install producer integration,
+object artifact bridge parity through `tests/projects/object-artifact-bridge`,
 action-log and replay compatibility, Windows sharedlib diagnostics, and that `.ninja_log` /
 `.ninja_deps` stay under the QStar build directory rather than the package root.
 
@@ -59,4 +61,5 @@ Manual corpus commands:
 ```sh
 ./build/bin/qstar -G ninja --file tests/corpus/c-app/qstar.lua build //:app
 ./build/bin/qstar -G ninja --file tests/corpus/generated/qstar.lua build //:all
+./build/bin/qstar -G ninja --file tests/projects/object-artifact-bridge/qstar.lua build //:all
 ```
