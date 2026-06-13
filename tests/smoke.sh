@@ -10,6 +10,21 @@ fail() {
 	exit 1
 }
 
+last_step="setup"
+
+step() {
+	last_step=$1
+}
+
+cleanup() {
+	rc=$?
+	rm -rf "$tmp" "$group_tmp"
+	if [ "$rc" -ne 0 ]; then
+		echo "qstar-smoke: failed during $last_step (exit $rc)" >&2
+	fi
+	exit "$rc"
+}
+
 contains() {
 	file=$1
 	pat=$2
@@ -32,8 +47,9 @@ send_lsp() {
 
 rm -rf "$tmp" "$group_tmp"
 mkdir -p "$tmp/src" "$tmp/tools"
-trap 'rm -rf "$tmp" "$group_tmp"' EXIT HUP INT TERM
+trap cleanup EXIT HUP INT TERM
 
+step "initial build smoke"
 cat > "$tmp/qstar.lua" <<'EOF'
 qstar.project {
   name = "smoke",
@@ -3404,12 +3420,13 @@ contains "wiki/tutorials/freestanding-image.md" "linker_script"
 contains "wiki/cookbook/qemu-smoke.md" "qstar.run_target"
 contains "wiki/migration/from-cmake.md" "target_include_directories"
 
+step "init templates"
 "$qstar" init c-app "$tmp/init-c-app" > "$tmp/init-c-app.out" 2> "$tmp/init-c-app.err"
 contains "$tmp/init-c-app.out" "qstar init v1"
 contains "$tmp/init-c-app.out" "template c-app"
 "$qstar" --file "$tmp/init-c-app/qstar.lua" build //:app > "$tmp/init-c-app-build.out" 2> "$tmp/init-c-app-build.err"
 contains "$tmp/init-c-app-build.out" "status ok"
-"$tmp/init-c-app/build/qstar/out/___app/app"
+"$tmp/init-c-app/build/qstar/out/___app/app" || fail "init c-app binary failed"
 
 "$qstar" init c-lib "$tmp/init-c-lib" > "$tmp/init-c-lib.out" 2> "$tmp/init-c-lib.err"
 contains "$tmp/init-c-lib.out" "template c-lib"
@@ -3423,7 +3440,7 @@ contains "$tmp/init-generated.out" "template generated"
 "$qstar" --file "$tmp/init-generated/qstar.lua" build //:app > "$tmp/init-generated-build.out" 2> "$tmp/init-generated-build.err"
 contains "$tmp/init-generated-build.out" "status ok"
 test -f "$tmp/init-generated/generated/config.h" || fail "init generated missing config header"
-"$tmp/init-generated/build/qstar/out/___app/app"
+"$tmp/init-generated/build/qstar/out/___app/app" || fail "init generated binary failed"
 
 "$qstar" init mixed-cale "$tmp/init-mixed" > "$tmp/init-mixed.out" 2> "$tmp/init-mixed.err"
 contains "$tmp/init-mixed.out" "template mixed-cale"
@@ -3439,6 +3456,7 @@ contains "$tmp/init-overwrite.err" "refuses to overwrite existing file"
 contains "$tmp/rule-explain.out" "rule provider=native final_action=archive output_group=libs"
 contains "$tmp/rule-explain.out" "source_file path=src/core.c language=c tool=c-compiler provider=c output_group=objects role=compile"
 
+step "depfile handling"
 mkdir -p "$tmp/depfile/include" "$tmp/depfile/src"
 cat > "$tmp/depfile/include/dep.h" <<'EOF'
 #define DEP_VALUE 11
@@ -3508,6 +3526,7 @@ contains "$tmp/depfile-fallback.out" "status ok"
 test ! -f "$tmp/depfile-fallback/build/qstar/out/___core/obj0.d" || fail "fake compiler unexpectedly wrote depfile"
 
 if command -v c++ >/dev/null 2>&1; then
+	step "cxx mixed build"
 	mkdir -p "$tmp/cxx/include" "$tmp/cxx/src"
 	cat > "$tmp/cxx/include/cpp.hpp" <<'EOF'
 #ifndef QSTAR_CXX_FLAG
@@ -3549,10 +3568,11 @@ EOF
 	contains "$tmp/cxx-dry.out" "argv=[c++, -o, build/qstar/out/___mixed/mixed"
 	"$qstar" --file "$tmp/cxx/qstar.lua" build //:mixed > "$tmp/cxx-build.out" 2> "$tmp/cxx-build.err"
 	contains "$tmp/cxx-build.out" "status ok"
-	"$tmp/cxx/build/qstar/out/___mixed/mixed"
+	"$tmp/cxx/build/qstar/out/___mixed/mixed" || fail "cxx mixed binary failed"
 	contains "$tmp/cxx/build/qstar/compile_commands.json" "src/cpp.cpp"
 fi
 
+step "assembler build"
 mkdir -p "$tmp/asm/asm/include" "$tmp/asm/src"
 cat > "$tmp/asm/asm/include/asm_value.inc" <<'EOF'
 #define QSTAR_ASM_RETURN QSTAR_ASM_VALUE
@@ -3622,7 +3642,7 @@ contains "$tmp/asm-dry.out" "asm/include"
 contains "$tmp/asm-plain-build.out" "status ok"
 "$qstar" --file "$tmp/asm/qstar.lua" build //:asmapp > "$tmp/asm-build.out" 2> "$tmp/asm-build.err"
 contains "$tmp/asm-build.out" "status ok"
-"$tmp/asm/build/qstar/out/___asmapp/asmapp"
+"$tmp/asm/build/qstar/out/___asmapp/asmapp" || fail "asm smoke binary failed"
 contains "$tmp/asm/build/qstar/compile_commands.json" "asm/value.S"
 contains "$tmp/asm/build/qstar/compile_commands.json" "-x assembler-with-cpp"
 if "$qstar" --file "$tmp/asm/qstar.lua" build //:bad_asm_toolchain > "$tmp/asm-bad-toolchain.out" 2> "$tmp/asm-bad-toolchain.err"; then
