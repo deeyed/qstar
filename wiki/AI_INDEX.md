@@ -40,6 +40,11 @@ QStar가 하지 않는 일:
 - 산출물 기본 위치는 `build/qstar`다.
 - generated action output 기본 root는 `generated`이고, `qstar.project.generated_dir`로
   package-relative generated root를 바꿀 수 있다.
+- QStar가 직접 지원하지 않는 언어 source는 `sources`에 그대로 넣지 않는다. 외부 compiler를
+  `qstar.custom_target`으로 호출하고 `qstar.output(path, {format = "object"})`로 `.o` 또는
+  `.obj`를 만든 뒤, consuming target의 `sources`에 그 generated object를 넣는다. QStar는
+  Objective-C, Rust, Zig, Swift 같은 언어 의미론을 파싱하거나 소유하지 않고 object artifact
+  edge만 관리한다.
 - CLI `-B path`는 `qstar.project.build_dir`보다 우선한다.
 - CLI `-G auto`는 현재 `stella`로 resolve된다.
 - CLI `-G ninja build [label]`은 C/C++/ASM compile, `qstar.configure_file`,
@@ -229,6 +234,23 @@ qstar.custom_target "image" {
 }
 ```
 
+지원되지 않는 언어가 object file을 만들 수 있다면 object artifact bridge를 쓴다.
+
+```lua
+qstar.custom_target "foreign_object" {
+  inputs = {"src/foreign_source.ext"},
+  outputs = {qstar.output("generated/foreign.o", {format = "object"})},
+  command = qstar.cli {"tools/compile-foreign.sh", qstar.input(0), qstar.output(0)},
+}
+
+qstar.executable "app" {
+  sources = {"src/main.c", qstar.output("generated/foreign.o")},
+}
+```
+
+이 pattern은 새 language provider가 아니라 artifact bridge다. External compiler는 package-local
+wrapper나 profile `path_tools`로 명시적으로 허용한다.
+
 Staging은 install과 다르다. boot partition, test fixture bundle, package tree 같은
 copy-only layout은 `qstar.stage`를 쓴다.
 
@@ -323,9 +345,10 @@ Reference:
 5. `reference/target-rules.md`
 6. `reference/profiles.md`
 7. `reference/custom-target.md`
-8. `reference/run-target.md`
-9. `reference/performance-gates.md`
-10. `reference/diagnostics.md`
+8. `reference/object-artifacts.md`
+9. `reference/run-target.md`
+10. `reference/performance-gates.md`
+11. `reference/diagnostics.md`
 
 Low-level/bootloader-style project:
 

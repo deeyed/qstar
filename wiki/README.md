@@ -116,6 +116,7 @@ qstar docs --show reference/qstar-lua.md
 - [C++ Language Options](reference/lang-cxx.md)
 - [Cale Language Options](reference/lang-cale.md)
 - [Language Providers](reference/language-providers.md)
+- [Object Artifacts](reference/object-artifacts.md)
 - [Custom Target](reference/custom-target.md)
 - [Run Target](reference/run-target.md)
 - [Profiles](reference/profiles.md)

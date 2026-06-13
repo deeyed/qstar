@@ -85,6 +85,18 @@ argv vector.
 Declare or reference a generated output path. Output paths must stay under the
 effective
 .Ic generated_dir .
+The metadata form
+.Ic qstar.output(path, {format = "object"})
+marks a generated
+.Pa .o
+or
+.Pa .obj
+as an object artifact. Such outputs may be listed in target
+.Ic sources
+and are consumed directly by archive or link actions instead of being compiled
+again. This is the supported bridge for external languages such as Objective-C,
+Rust, Zig, or Swift when a package-local wrapper or allowlisted tool produces an
+object file; QStar does not parse or own those language semantics.
 .It Ic qstar.target_file
 Reference the artifact produced by a target or generated action. It cannot
 reference a
@@ -206,5 +218,6 @@ and
 .Sh SEE ALSO
 .Xr qstar 1 ,
 .Pa share/doc/qstar/wiki/reference/qstar-lua.md ,
+.Pa share/doc/qstar/wiki/reference/object-artifacts.md ,
 .Pa share/doc/qstar/wiki/reference/configs.md ,
 .Pa share/doc/qstar/wiki/AI_INDEX.md

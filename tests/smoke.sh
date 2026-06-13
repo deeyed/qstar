@@ -3533,6 +3533,8 @@ contains "wiki/README.md" "AI_INDEX.md"
 contains "wiki/README.md" "reference/progress-output.md"
 contains "wiki/AI_INDEX.md" "QStar AI Index"
 contains "wiki/AI_INDEX.md" "qstar.custom_target"
+contains "wiki/AI_INDEX.md" "qstar.output(path, {format = \"object\"})"
+contains "wiki/AI_INDEX.md" "object artifact bridge"
 contains "wiki/AI_INDEX.md" "qstar.import_module"
 contains "wiki/AI_INDEX.md" "qstar.config"
 contains "wiki/AI_INDEX.md" "qstar.status"
@@ -3571,6 +3573,8 @@ contains "man/man5/qstar-lua.5" "Ic qstar.config"
 contains "man/man5/qstar-lua.5" "Ic qstar.status"
 contains "man/man5/qstar-lua.5" "CMake-style"
 contains "man/man5/qstar-lua.5" "Ic qstar.target_file"
+contains "man/man5/qstar-lua.5" "object artifact"
+contains "man/man5/qstar-lua.5" "Objective-C"
 contains "editors/vscode/qstar/snippets/qstar.json" "\"prefix\": \"qdesc\""
 contains "editors/vscode/qstar/snippets/qstar.json" "CMake-style progress and replay logs"
 contains "Makefile" "qstar-v0.2-rc-tests"
@@ -3615,6 +3619,7 @@ wiki/reference/lang-c.md
 wiki/reference/lang-cxx.md
 wiki/reference/lang-cale.md
 wiki/reference/language-providers.md
+wiki/reference/object-artifacts.md
 wiki/reference/custom-target.md
 wiki/reference/run-target.md
 wiki/reference/profiles.md
@@ -3651,6 +3656,8 @@ for removed_wiki in wiki/authoring-v0.2.md wiki/language-options.md wiki/project
 done
 contains "wiki/README.md" "reference/qstar-lua.md"
 contains "wiki/reference/qstar-lua.md" "QSTAR_VERSION"
+contains "wiki/reference/object-artifacts.md" "format = \"object\""
+contains "wiki/reference/custom-target.md" "Object artifact"
 contains "wiki/reference/lang-c.md" "lang.c.public_headers"
 contains "wiki/reference/lang-cxx.md" "lang.cxx.modules"
 contains "wiki/reference/lang-cale.md" "HCL도 header surface"

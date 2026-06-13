@@ -38,10 +38,41 @@ Round 22의 source kind registry는 다음 형태다.
 | `.cl`/`.cale` | `cale` | `cale` | `cale-compiler` | `objects` | yes with `toolchain=cale`; Ninja wrapper deferred |
 | `.s` | `asm` | `asm` | `assembler` | `objects` | yes with host/clang compiler driver |
 | `.S` | `asm-cpp` | `asm` | `preprocessed-assembler` | `objects` | yes with host/clang compiler driver |
+| `.o`/`.obj` | `object` | `native` | `link-object` | `objects` | consumed by final archive/link |
 
 이 registry는 사용자가 build rule을 적고 QStar가 plan을 만들기 위한 표면이다.
 아직 local executor가 지원하지 않는 조합은 엉뚱한 compiler를 조용히 고르지
 않고, 명확한 diagnostic으로 멈춘다.
+
+## Object Artifact Bridge
+
+QStar가 직접 모르는 언어도 외부 compiler가 `.o` 또는 `.obj`를 만들 수 있으면 link graph에
+참여할 수 있다. 이때 새 language provider를 추가하지 않고 다음 contract를 쓴다.
+
+```lua
+qstar.custom_target "foreign_object" {
+  inputs = {"src/foreign_source.ext"},
+  outputs = {
+    qstar.output("generated/foreign.o", {
+      format = "object",
+    }),
+  },
+  command = qstar.cli {"tools/compile-foreign.sh", qstar.input(0), qstar.output(0)},
+}
+
+qstar.executable "app" {
+  sources = {"src/main.c", qstar.output("generated/foreign.o")},
+}
+```
+
+`format = "object"`는 generated output의 artifact identity를 object로 표시한다. 기본
+output group은 `objects`다. Consuming target의 `sources`에 들어간 `.o`/`.obj`는 compile
+input이 아니며, final `archive`, `link`, `link-shared` action의 input으로 직접 들어간다.
+
+이 bridge는 Objective-C, Rust, Zig, Swift 같은 toolchain wrapper에 사용할 수 있지만 QStar가
+그 언어의 syntax, module graph, package manager, semantic rule을 이해한다는 뜻은 아니다.
+QStar가 맡는 범위는 external argv-vector command, generated output ownership, cache/replay,
+그리고 final artifact link edge다.
 
 ## Target Rule Registry
 

@@ -66,6 +66,34 @@ qstar.custom_target "generated" {
 }
 ```
 
+Object artifact도 같은 surface로 표현한다. QStar가 직접 compile하지 않는 Objective-C,
+Rust, Zig, Swift 같은 source는 외부 compiler를 `qstar.custom_target`에서 호출하고,
+output metadata에 `format = "object"`를 붙인다. Consuming target은 그 `.o` 또는 `.obj`
+path를 `sources`에 넣는다. QStar는 해당 언어를 파싱하지 않고 generated object를 final
+archive/link input으로만 소비한다.
+
+```lua
+qstar.custom_target "foreign_object" {
+  inputs = {"src/foreign_source.ext"},
+  outputs = {
+    qstar.output("generated/foreign.o", {
+      format = "object",
+    }),
+  },
+  command = qstar.cli {"tools/compile-foreign.sh", qstar.input(0), qstar.output(0)},
+  description = qstar.status("Building foreign object generated/foreign.o"),
+}
+
+qstar.executable "app" {
+  sources = {
+    "src/main.c",
+    qstar.output("generated/foreign.o"),
+  },
+}
+```
+
+자세한 관행은 [Object Artifacts](object-artifacts.md)에 둔다.
+
 ## 실패 예제
 
 ```lua
