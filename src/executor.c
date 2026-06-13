@@ -6,6 +6,7 @@
 #include <ctype.h>
 #include <signal.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +23,9 @@
 #define QSTAR_HASH_INIT 1469598103934665603ULL
 #define QSTAR_HASH_PRIME 1099511628211ULL
 #define QSTAR_STREAM_LINE_MAX 4096
+#define QSTAR_STATE_DB_MAGIC "qstar-stella-state-db-v1"
+#define QSTAR_STATE_DB_ABI 1ULL
+#define QSTAR_STATE_DB_MAX_STRING (16ULL * 1024ULL * 1024ULL)
 
 struct qstar_observed_stream {
 	int fd;
@@ -2037,6 +2041,243 @@ state_update_material(struct qstar_build_ctx *ctx, const char *id, const char *k
 	return 0;
 }
 
+/** compact state DB에서 uint64 값을 읽는다. */
+static int
+state_db_read_u64(FILE *f, unsigned long long *value)
+{
+	uint64_t raw;
+
+	if (fread(&raw, sizeof(raw), 1, f) != 1)
+		return -1;
+	*value = (unsigned long long)raw;
+	return 0;
+}
+
+/** compact state DB에 uint64 값을 쓴다. */
+static int
+state_db_write_u64(FILE *f, unsigned long long value)
+{
+	uint64_t raw;
+
+	raw = (uint64_t)value;
+	return fwrite(&raw, sizeof(raw), 1, f) == 1 ? 0 : -1;
+}
+
+/** compact state DB에 length-prefixed string을 쓴다. */
+static int
+state_db_write_string(FILE *f, const char *value)
+{
+	size_t len;
+
+	value = value ? value : "";
+	len = strlen(value);
+	if (state_db_write_u64(f, (unsigned long long)len) < 0)
+		return -1;
+	return len == 0 || fwrite(value, 1, len, f) == len ? 0 : -1;
+}
+
+/** compact state DB에서 length-prefixed string을 읽는다. */
+static int
+state_db_read_string(FILE *f, char **out)
+{
+	unsigned long long len64;
+	size_t len;
+	char *value;
+
+	*out = NULL;
+	if (state_db_read_u64(f, &len64) < 0 || len64 > QSTAR_STATE_DB_MAX_STRING)
+		return -1;
+	len = (size_t)len64;
+	value = malloc(len + 1);
+	if (!value)
+		return -1;
+	if (len && fread(value, 1, len, f) != len) {
+		free(value);
+		return -1;
+	}
+	value[len] = '\0';
+	*out = value;
+	return 0;
+}
+
+/** compact state DB에서 fixed action material digest field를 읽는다. */
+static int
+state_db_read_digest(FILE *f, char *dst, size_t dstlen)
+{
+	char *value;
+	size_t len;
+
+	if (state_db_read_string(f, &value) < 0)
+		return -1;
+	len = strlen(value);
+	if (len >= dstlen) {
+		free(value);
+		return -1;
+	}
+	memcpy(dst, value, len + 1);
+	free(value);
+	return 0;
+}
+
+/** compact state DB parse 실패 후 partially loaded previous state를 버린다. */
+static void
+state_prev_clear(struct qstar_build_ctx *ctx)
+{
+	state_free(ctx->prev, ctx->prev_len);
+	ctx->prev = NULL;
+	ctx->prev_len = 0;
+	ctx->prev_cap = 0;
+	free(ctx->prev_index);
+	ctx->prev_index = NULL;
+	ctx->prev_index_cap = 0;
+}
+
+/** compact action state DB를 읽는다. 1=loaded, 0=fallback 가능, -1=fatal. */
+static int
+state_db_load(struct qstar_graph *graph, struct qstar_build_ctx *ctx)
+{
+	char path[QSTAR_PATH_MAX], magic[sizeof(QSTAR_STATE_DB_MAGIC)];
+	unsigned long long abi, count, i;
+	char *id, *key, *output, *status, *kind;
+	struct qstar_action_material material;
+	FILE *f;
+	int rc;
+
+	if (full_path_under_build(graph, "state/state.db", path, sizeof(path)) < 0)
+		return qstar_set_error(graph, "qstar: state path too long");
+	f = fopen(path, "rb");
+	if (!f) {
+		build_tracef(ctx, "dirty_state_db status=miss reason=missing\n");
+		return 0;
+	}
+	rc = 0;
+	id = key = output = status = kind = NULL;
+	if (fread(magic, 1, sizeof(magic), f) != sizeof(magic) ||
+	    memcmp(magic, QSTAR_STATE_DB_MAGIC, sizeof(magic)) != 0 ||
+	    state_db_read_u64(f, &abi) < 0 || abi != QSTAR_STATE_DB_ABI ||
+	    state_db_read_u64(f, &count) < 0 || count > 10000000ULL) {
+		rc = 0;
+		goto done;
+	}
+	for (i = 0; i < count; i++) {
+		memset(&material, 0, sizeof(material));
+		free(id);
+		free(key);
+		free(output);
+		free(status);
+		free(kind);
+		id = key = output = status = kind = NULL;
+		if (state_db_read_string(f, &id) < 0 ||
+		    state_db_read_string(f, &key) < 0 ||
+		    state_db_read_string(f, &output) < 0 ||
+		    state_db_read_string(f, &status) < 0 ||
+		    state_db_read_string(f, &kind) < 0 ||
+		    state_db_read_digest(f, material.argv_key,
+		    sizeof(material.argv_key)) < 0 ||
+		    state_db_read_digest(f, material.env_key,
+		    sizeof(material.env_key)) < 0 ||
+		    state_db_read_digest(f, material.input_key,
+		    sizeof(material.input_key)) < 0 ||
+		    state_db_read_digest(f, material.depfile_key,
+		    sizeof(material.depfile_key)) < 0 ||
+		    state_db_read_digest(f, material.profile_key,
+		    sizeof(material.profile_key)) < 0 ||
+		    state_db_read_digest(f, material.output_key,
+		    sizeof(material.output_key)) < 0 ||
+		    state_db_read_digest(f, material.external_tool_key,
+		    sizeof(material.external_tool_key)) < 0) {
+			rc = 0;
+			goto done;
+		}
+		if (!id[0] || !key[0] || !output[0] || !status[0]) {
+			rc = 0;
+			goto done;
+		}
+		if (state_push(ctx, 0, id, key, output, status, kind, &material) < 0) {
+			rc = -1;
+			goto done;
+		}
+	}
+	if (state_index_build(ctx) < 0)
+		rc = -1;
+	else
+		rc = 1;
+
+done:
+	free(id);
+	free(key);
+	free(output);
+	free(status);
+	free(kind);
+	fclose(f);
+	if (rc == 1) {
+		build_tracef(ctx, "dirty_state_db status=hit entries=%zu\n",
+		    ctx->prev_len);
+		return 1;
+	}
+	state_prev_clear(ctx);
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	build_tracef(ctx, "dirty_state_db status=miss reason=stale-or-invalid\n");
+	return 0;
+}
+
+/** compact action state DB를 쓴다. */
+static int
+state_db_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
+{
+	char dir[QSTAR_PATH_MAX], path[QSTAR_PATH_MAX], tmp[QSTAR_PATH_MAX];
+	FILE *f;
+	size_t i;
+
+	if (full_path_under_build(graph, "state/state.db", path, sizeof(path)) < 0)
+		return qstar_set_error(graph, "qstar: could not create state dir");
+	if (full_path_under_build(graph, "state", dir, sizeof(dir)) < 0 ||
+	    mkdir_p(dir) < 0)
+		return qstar_set_error(graph, "qstar: could not create state dir");
+	if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp))
+		return qstar_set_error(graph, "qstar: state path too long");
+	f = fopen(tmp, "wb");
+	if (!f)
+		return qstar_set_error(graph, "qstar: could not write compact action state");
+	if (fwrite(QSTAR_STATE_DB_MAGIC, 1, sizeof(QSTAR_STATE_DB_MAGIC), f) !=
+	    sizeof(QSTAR_STATE_DB_MAGIC) ||
+	    state_db_write_u64(f, QSTAR_STATE_DB_ABI) < 0 ||
+	    state_db_write_u64(f, (unsigned long long)ctx->next_len) < 0) {
+		fclose(f);
+		unlink(tmp);
+		return qstar_set_error(graph, "qstar: could not write compact action state");
+	}
+	for (i = 0; i < ctx->next_len; i++) {
+		if (state_db_write_string(f, ctx->next[i].id) < 0 ||
+		    state_db_write_string(f, ctx->next[i].key) < 0 ||
+		    state_db_write_string(f, ctx->next[i].output) < 0 ||
+		    state_db_write_string(f, ctx->next[i].status) < 0 ||
+		    state_db_write_string(f, ctx->next[i].kind) < 0 ||
+		    state_db_write_string(f, ctx->next[i].argv_key) < 0 ||
+		    state_db_write_string(f, ctx->next[i].env_key) < 0 ||
+		    state_db_write_string(f, ctx->next[i].input_key) < 0 ||
+		    state_db_write_string(f, ctx->next[i].depfile_key) < 0 ||
+		    state_db_write_string(f, ctx->next[i].profile_key) < 0 ||
+		    state_db_write_string(f, ctx->next[i].output_key) < 0 ||
+		    state_db_write_string(f, ctx->next[i].external_tool_key) < 0) {
+			fclose(f);
+			unlink(tmp);
+			return qstar_set_error(graph,
+			    "qstar: could not write compact action state");
+		}
+	}
+	if (fclose(f) < 0) {
+		unlink(tmp);
+		return qstar_set_error(graph, "qstar: could not write compact action state");
+	}
+	if (rename(tmp, path) < 0) {
+		unlink(tmp);
+		return qstar_set_error(graph, "qstar: could not commit compact action state");
+	}
+	return 0;
+}
+
 /** QStar가 쓴 flat JSON object line에서 string field 하나를 뽑는다. */
 static void
 json_field_copy(const char *line, const char *field, char *dst, size_t dstlen)
@@ -2069,7 +2310,13 @@ state_load(struct qstar_graph *graph, struct qstar_build_ctx *ctx)
 	char id[QSTAR_PATH_MAX], key[64], output[QSTAR_PATH_MAX], status[64], kind[64];
 	struct qstar_action_material material;
 	FILE *f;
+	int db_status;
 
+	db_status = state_db_load(graph, ctx);
+	if (db_status < 0)
+		return -1;
+	if (db_status > 0)
+		return 0;
 	if (full_path_under_build(graph, "state/actions.json", path, sizeof(path)) < 0)
 		return qstar_set_error(graph, "qstar: state path too long");
 	f = fopen(path, "r");
@@ -2105,6 +2352,7 @@ state_load(struct qstar_graph *graph, struct qstar_build_ctx *ctx)
 	fclose(f);
 	if (state_index_build(ctx) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
+	build_tracef(ctx, "dirty_state_json status=hit entries=%zu\n", ctx->prev_len);
 	return 0;
 }
 
@@ -2112,18 +2360,26 @@ state_load(struct qstar_graph *graph, struct qstar_build_ctx *ctx)
 static int
 state_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 {
-	char dir[QSTAR_PATH_MAX], path[QSTAR_PATH_MAX], tmp[QSTAR_PATH_MAX];
+	char dir[QSTAR_PATH_MAX], path[QSTAR_PATH_MAX], db_path[QSTAR_PATH_MAX];
+	char tmp[QSTAR_PATH_MAX];
 	FILE *f;
 	size_t i;
+	int unchanged;
 
 	if (full_path_under_build(graph, "state/actions.json", path, sizeof(path)) < 0)
 		return qstar_set_error(graph, "qstar: could not create state dir");
-	if (state_unchanged_ignoring_status(ctx) && path_exists(path))
+	if (full_path_under_build(graph, "state/state.db", db_path, sizeof(db_path)) < 0)
+		return qstar_set_error(graph, "qstar: could not create state dir");
+	unchanged = state_unchanged_ignoring_status(ctx) && path_exists(path);
+	if (unchanged && path_exists(db_path))
 		return 0;
+	if (unchanged)
+		return state_db_write(graph, ctx);
 	if (full_path_under_build(graph, "state", dir, sizeof(dir)) < 0 ||
 	    mkdir_p(dir) < 0)
 		return qstar_set_error(graph, "qstar: could not create state dir");
-	snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+	if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp))
+		return qstar_set_error(graph, "qstar: state path too long");
 	f = fopen(tmp, "w");
 	if (!f)
 		return qstar_set_error(graph, "qstar: could not write action state");
@@ -2160,7 +2416,7 @@ state_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 	fclose(f);
 	if (rename(tmp, path) < 0)
 		return qstar_set_error(graph, "qstar: could not commit action state");
-	return 0;
+	return state_db_write(graph, ctx);
 }
 
 /** JSON string list를 compact array로 출력한다. */

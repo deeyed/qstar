@@ -239,9 +239,10 @@ Round 13 adds `qstar build <label>`, which executes a restricted subset of the
 same plan. Build artifacts live under `build/qstar/out`; stdout, stderr, per-action
 logs, and the last failure replay argv live under `build/qstar/logs`.
 
-Round 14/15 add local incremental build records. `qstar build` now writes
-`build/qstar/state/actions.json` and `compile_commands.json`, and action output uses
-status markers:
+Round 14/15 add local incremental build records. `qstar build` writes
+`build/qstar/state/actions.json` for debug/export and `compile_commands.json`.
+Q121 adds `build/qstar/state/state.db` as Stella's compact dirty-check state.
+Action output uses status markers:
 
 ```txt
 qstar build v2
@@ -413,7 +414,8 @@ Full executor, Ninja generator, binary cache는 future pipeline이다.
 Round 20 marks the Graph IR and command output as a v0 developer diagnostic
 surface. The supported authoring API is documented in
 `docs/qstar-v0-seal.md`, but Graph IR text, action key hashes, and
-`build/qstar/state/actions.json` remain non-public implementation details.
+`build/qstar/state/actions.json` / `build/qstar/state/state.db` remain non-public
+implementation details.
 
 Round 22 adds rule metadata to target/source plan records. The registry boundary
 is documented in `docs/rule-model.md`.

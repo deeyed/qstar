@@ -263,9 +263,14 @@ Q118 분석에서 확인한 주요 source anchor:
 
 ### Q121: Compact Dirty State
 
-- `state/actions.json` 옆에 fast-path `state.db` 추가
-- action id -> output, command digest, input digest, depfile digest lookup 최적화
+- `build/qstar/state/actions.json` 옆에 fast-path `build/qstar/state/state.db` 추가
+- Stella build start에서 compact DB를 먼저 읽고, 없거나 stale이면 JSON state로 fallback
+- action id -> output, command digest, input digest, depfile digest lookup의 JSON parse overhead 제거
 - JSON state는 debugging/export surface로 유지
+- `--schedule-trace`에서는 `dirty_state_db status=hit|miss`로 compact path 사용 여부 확인 가능
+- 대표 측정: Stella no-op 70ms, incremental 111ms로 Ninja no-op 80ms, incremental 120ms와
+  같은 체감권을 유지했다. Clean은 745ms 대 Ninja 304ms로 다음 병목은 process runner와
+  dependency DB 쪽이다.
 
 ### Q122: Event-Driven Process Runner
 

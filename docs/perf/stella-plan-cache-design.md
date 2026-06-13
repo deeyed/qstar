@@ -79,17 +79,20 @@ build/qstar/stella/
   inputs.json         # authoring input file fingerprints
   graph.qsg           # lowered graph summary, internal text v1
   actions.qsa         # lowered action plan, internal text v1
-  deps.db             # discovered dependency DB, future compact format
-  state.db            # fast action state DB, future compact format
   logs/
     plan-cache.log    # optional verbose/cache debug log
   tmp/
     *.tmp             # atomic write scratch files
+
+build/qstar/state/
+  actions.json        # debug/export action state
+  state.db            # compact dirty-check action state, internal binary v1
+  deps.db             # future discovered dependency DB
 ```
 
 초기 구현은 `manifest.json`, `inputs.json`, `graph.qsg`, `actions.qsa`만 사용해도 된다.
-`deps.db`와 `state.db`는 Q121 이후 compact dirty state 작업에서 활성화한다. 파일 확장자는
-internal이고 public API가 아니다.
+`state.db`는 Q121에서 활성화된 compact dirty-check DB다. `deps.db`는 아직 future work다.
+파일 확장자는 internal이고 public API가 아니다.
 
 Q120 MVP는 다음 파일을 실제로 쓴다.
 
@@ -102,6 +105,8 @@ Q120 MVP는 다음 파일을 실제로 쓴다.
 현재 scheduler는 `actions.qsa`를 직접 실행하지 않고, cache hit으로 복원된 Graph IR에서 기존
 Stella action materialization을 사용한다. 즉 Q120은 Lua eval과 validation을 건너뛰는
 whole-graph cache MVP이고, Q121 이후에 action state compact path와 더 강하게 결합한다.
+Q121 이후에는 build start에서 `build/qstar/state/state.db`를 먼저 읽고, stale/missing이면
+`state/actions.json`으로 fallback한다.
 
 ## Atomicity Policy
 
@@ -297,11 +302,12 @@ Plan cache와 action state는 다르다.
 | --- | --- |
 | `actions.qsa` | 어떤 action을 실행할 수 있는지 |
 | `state/actions.json` | 지난 build에서 action이 어떤 key/status였는지, debug/export용 |
-| `state.db` | future fast dirty-check lookup |
+| `state.db` | compact fast dirty-check lookup |
 | `deps.db` | future discovered dep lookup |
 
-Q120에서는 기존 `state/actions.json`을 계속 사용한다. Q121에서 `state.db`를 추가하되,
-JSON state는 사람이 읽는 debugging/export surface로 유지한다.
+Q121 이후 Stella는 `state.db`를 먼저 읽는다. compact DB가 없거나 schema/ABI가 맞지 않으면
+조용히 `state/actions.json`으로 돌아간다. JSON state는 사람이 읽는 debugging/export
+surface로 유지한다.
 
 ## Diagnostics Policy
 
@@ -341,10 +347,13 @@ Status: implemented. Cache hit이면 `plan_cache status=hit reason=hit`가
 
 ### Q121 Fast State
 
-1. `state.db` compact lookup을 추가한다.
+Status: implemented.
+
+1. `build/qstar/state/state.db` compact lookup을 추가했다.
 2. `state/actions.json`은 계속 쓴다.
-3. no-op/incremental에서 JSON parse를 피한다.
-4. `why-rebuild`와 `--explain-cache`는 JSON/detail path를 유지한다.
+3. no-op/incremental에서 action state JSON parse를 피한다.
+4. `--schedule-trace`에서 `dirty_state_db status=hit|miss`를 표시한다.
+5. `why-rebuild`와 `--explain-cache`는 JSON/detail path를 유지한다.
 
 ### Q122 Process Runner
 
@@ -362,26 +371,22 @@ Q120 이후:
 - selected profile이나 `-B`가 바뀌면 plan cache miss가 나야 한다.
 - `make check`와 `make qstar-medium-project-readiness-tests`가 통과해야 한다.
 
-Observed Q120 timing on the medium corpus:
+Observed Q121 timing on the medium corpus:
 
 ```txt
-medium_project_gate backend=stella phase=clean elapsed_ms=887
-medium_project_gate backend=stella phase=noop elapsed_ms=103
-medium_project_gate backend=stella phase=incremental elapsed_ms=136
-medium_project_gate backend=ninja phase=clean elapsed_ms=328
-medium_project_gate backend=ninja phase=noop elapsed_ms=107
-medium_project_gate backend=ninja phase=incremental elapsed_ms=156
+medium_project_gate target_count=47 min_targets=40
+medium_project_gate backend=stella phase=clean elapsed_ms=745
+medium_project_gate backend=stella phase=noop elapsed_ms=70
+medium_project_gate backend=stella phase=incremental elapsed_ms=111
+medium_project_gate backend=ninja phase=clean elapsed_ms=304
+medium_project_gate backend=ninja phase=noop elapsed_ms=80
+medium_project_gate backend=ninja phase=incremental elapsed_ms=120
 medium_project_gate status=ok perf_issue_count=0 report_only=1
 ```
 
-No-op과 incremental은 cache hit + action state skip 경로에서 Ninja와 같은 체감권에 들어왔다.
-Clean build는 아직 compiler/process orchestration과 logging overhead 때문에 Ninja보다 느리다.
-
-Q121 이후:
-
-- no-op build는 기존 0.1초대 수준을 유지하거나 더 낮아져야 한다.
-- clean build는 Ninja 대비 2배 이내에 더 자주 들어와야 한다.
-- action log/replay/last-failure는 기존 UX를 유지해야 한다.
+Q121 이후 no-op과 incremental은 compact dirty state + plan cache hit 경로에서 Ninja와 같은
+체감권을 유지한다. Clean build는 여전히 compiler/process orchestration과 logging overhead
+때문에 Ninja보다 느리며, 다음 큰 lever는 event-driven process runner와 deps.db다.
 
 ## Open Questions
 
