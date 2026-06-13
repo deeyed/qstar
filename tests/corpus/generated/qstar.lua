@@ -10,6 +10,7 @@ qstar.project {
 qstar.configure_file "cfg" {
   output = qstar.output("build/qstar/generated/config.h"),
   defines = {"QSTAR_GENERATED_VALUE=23"},
+  description = qstar.status("Configuring generated config.h"),
 }
 
 qstar.custom_target "make_value" {
@@ -20,6 +21,7 @@ qstar.custom_target "make_value" {
     qstar.target_file("//:cfg"),
     qstar.output(0),
   },
+  description = qstar.status("Generating generated value.c"),
 }
 
 qstar.executable "app" {
@@ -55,6 +57,7 @@ qstar.run_target "smoke" {
   command = qstar.cli {qstar.target_file("//:app")},
   timeout = 3,
   marker = "GENERATED-OK",
+  description = qstar.status("Running generated smoke"),
 }
 
 qstar.stage "bundle" {
