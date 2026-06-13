@@ -43,6 +43,24 @@ Ninja가 설치되어 있지 않으면 Ninja phase는 `skipped`로 기록한다.
 - incremental build는 no-op에 가까운 overhead와 하나의 changed target rebuild만
   포함해야 한다.
 
+## Latest Beta Snapshot
+
+Round Q110 local macOS arm64 측정값:
+
+```txt
+medium_project_gate target_count=47 min_targets=40
+medium_project_gate backend=stella phase=clean elapsed_ms=767
+medium_project_gate backend=stella phase=noop elapsed_ms=73
+medium_project_gate backend=stella phase=incremental elapsed_ms=101
+medium_project_gate backend=ninja phase=clean elapsed_ms=299
+medium_project_gate backend=ninja phase=noop elapsed_ms=74
+medium_project_gate backend=ninja phase=incremental elapsed_ms=101
+medium_project_gate status=ok perf_issue_count=0 report_only=1
+```
+
+Stella no-op과 incremental은 이 corpus에서 Ninja급 latency를 보인다. Clean build는
+Ninja보다 느리지만 medium corpus에서 1초 미만이다.
+
 Timing은 host CPU, filesystem cache, compiler, terminal load에 영향을 받는다. 그래서
 Round Q92 기준 timing threshold는 기본적으로 report-only다. 구조적 실패, graph 실패,
 compile database 누락, command 실패는 계속 hard fail이다.

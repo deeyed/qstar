@@ -8,11 +8,11 @@ build graphs, explicit command vectors, reusable target configuration, and
 tooling-friendly diagnostics for C, C++, assembly, generated files, and
 language-provider driven projects.
 
-QStar is currently in beta. The first public prerelease is
-`v0.4.0-beta.1`, with macOS arm64 binaries published first. Linux validation is
-underway through an Ubuntu gcc/clang CI workflow, Windows support is planned,
-and QStar 1.0 is reserved for a release that is validated across macOS, Linux,
-and Windows.
+QStar is currently in beta. The current public prerelease line is
+`v0.5.0-beta.1`, with macOS arm64 binaries published first. Linux has a
+validation-backed source build path through Ubuntu gcc/clang CI, Windows support
+is planned, and QStar 1.0 is reserved for a release that is validated across
+macOS, Linux, and Windows.
 
 ## Highlights
 
@@ -36,7 +36,7 @@ Download the macOS arm64 tarball from the
 [GitHub Releases](https://github.com/deeyed/qstar/releases) page:
 
 ```sh
-tar -xzf qstar-v0.4.0-beta.1-macos-arm64.tar.gz -C "$HOME/.local"
+tar -xzf qstar-v0.5.0-beta.1-macos-arm64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 ```
@@ -181,7 +181,7 @@ qstar replay <action-id>
 | Host platform | Status |
 | --- | --- |
 | macOS arm64 | Beta release artifact |
-| Linux | Validation underway through Ubuntu gcc/clang CI |
+| Linux | Validation-backed source build through Ubuntu gcc/clang CI |
 | Windows | Planned validation |
 
 QStar can model cross-compilation targets today, including freestanding and

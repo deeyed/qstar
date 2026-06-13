@@ -1,11 +1,12 @@
 # QStar 0.5 Readiness Gate
 
 이 문서는 QStar를 다음 beta/0.5 라인으로 올릴 준비가 되었는지 판단하기 위한
-readiness gate다. Q100은 version bump가 아니라 판단 기준을 고정하는 라운드다.
+readiness gate다. Q100은 판단 기준을 고정했고, Q110은 이 기준을 바탕으로
+`0.5.0-beta.1` release-prep line을 연다.
 
 ```txt
 status: 0.5 readiness gate
-current runtime version: qstar 0.4.0-beta.1
+current runtime version: qstar 0.5.0-beta.1
 candidate line: qstar 0.5.0-beta.1
 gate: make -C qstar qstar-v0.5-readiness-tests
 baseline date: 2026-06-13
@@ -22,7 +23,7 @@ QStar는 0.5 beta line으로 이동할 수 있는 기반은 갖췄다. 단, 0.5�
 | Stella executor | medium corpus에서 no-op/incremental 양호 | 0.5 기본 backend 유지 가능 |
 | Ninja backend | 일반 C/C++/ASM project 후보 수준 | 비교/backend 후보로 유지 |
 | macOS release packaging | public beta gate 있음 | macOS arm64 beta asset 가능 |
-| Linux | validation underway | 0.5 release note에 보수적으로 표기 |
+| Linux | validation-backed source build path | 0.5 release note에 보수적으로 표기 |
 | Windows | planned validation | 0.5 official support로 표기 금지 |
 | Docs/CLI drift | smoke guard로 관리 | 0.5 전에 한 번 더 sync 필요 |
 
@@ -67,24 +68,26 @@ Makefile은 여전히 canonical bootstrap/release build path이고, self-host는
 
 ## Stella vs Ninja Benchmark Summary
 
-Round Q100 local macOS arm64 측정값:
+Round Q110 local macOS arm64 측정값:
 
 ```txt
 medium_project_gate target_count=47 min_targets=40
-medium_project_gate backend=stella phase=clean elapsed_ms=494
-medium_project_gate backend=stella phase=noop elapsed_ms=76
-medium_project_gate backend=stella phase=incremental elapsed_ms=111
-medium_project_gate backend=ninja phase=clean elapsed_ms=300
-medium_project_gate backend=ninja phase=noop elapsed_ms=78
-medium_project_gate backend=ninja phase=incremental elapsed_ms=100
+medium_project_gate backend=stella phase=clean elapsed_ms=767
+medium_project_gate backend=stella phase=noop elapsed_ms=73
+medium_project_gate backend=stella phase=incremental elapsed_ms=101
+medium_project_gate backend=ninja phase=clean elapsed_ms=299
+medium_project_gate backend=ninja phase=noop elapsed_ms=74
+medium_project_gate backend=ninja phase=incremental elapsed_ms=101
 medium_project_gate status=ok perf_issue_count=0 report_only=1
 ```
 
 해석:
 
-- no-op은 Stella가 76ms로 0.2초대 목표를 충분히 만족한다.
-- incremental은 Stella가 111ms로 medium corpus에서 즉시 재빌드 UX를 제공한다.
-- clean build는 Stella가 Ninja보다 느리지만 small/medium corpus에서 1초 미만이다.
+- no-op은 Stella가 73ms로 0.2초대 목표를 충분히 만족하고 Ninja와 같은 수준으로 측정됐다.
+- incremental은 Stella와 Ninja가 모두 101ms로 medium corpus에서 Ninja급 즉시 재빌드 UX를
+  제공한다.
+- clean build는 Stella가 Ninja보다 느리지만 medium corpus에서 1초 미만이다. 작은 corpus의
+  ratio noise는 현재 report-only gate와 slack으로 흡수한다.
 - 현재 ratio gate는 작은 project의 절대 noise를 흡수하기 위해 report-only가 기본이다.
 
 0.5 전에는 timing hard fail을 바로 켜기보다 report-only를 유지한다. 대신 release note에는
@@ -124,7 +127,7 @@ Stella 기본값은 유지한다.
 
 Linux:
 
-- 상태는 `validation underway`다.
+- 상태는 `validation-backed source build path`다.
 - macOS local gate는 path/process/install layout smoke만 확인한다.
 - Round Q109 기준 `.github/workflows/linux-validation.yml`이 `ubuntu-latest`에서 gcc와
   clang lane을 실행하는 CI 후보를 제공한다.
@@ -157,8 +160,9 @@ Windows:
 - VSCode snippets/syntax surface
 - `README.md`, `README.ko.md`, release notes
 
-0.5로 가기 전에는 `qstar 0.5.0-beta.1` version bump와 함께 위 문서의 old version
-string이 남아 있지 않은지 확인한다.
+0.5 release-prep line에서는 `qstar 0.5.0-beta.1` version bump와 함께 위 문서의 old
+version string이 현재-facing 문서에 남아 있지 않은지 확인한다. 과거 seal 문서의
+historical version record는 보존한다.
 
 ## Medium Project Readiness
 
@@ -173,7 +177,7 @@ string이 남아 있지 않은지 확인한다.
 - QStar는 dependency resolver나 package fetcher가 아니므로, 0.5에서도 external dependency
   resolution은 QStar 밖의 tool이 맡아야 한다.
 
-## Must Land Before 0.5
+## Q110 Beta Prep Gate
 
 - Runtime version bump: `qstar 0.5.0-beta.1`.
 - Release notes: `docs/releases/v0.5.0-beta.1.md`.
@@ -185,7 +189,8 @@ string이 남아 있지 않은지 확인한다.
 - Linux validation status refresh: `.github/workflows/linux-validation.yml`의 gcc/clang
   lane 또는 clean Linux host 결과가 있으면 반영.
 - Docs/man/wiki/AI index sync: old generator name, old version string, removed API 잔재 제거.
-- VSCode extension version policy 결정: runtime과 별도 유지할지 `0.4.0`으로 올릴지 명시.
+- VSCode extension version policy: runtime과 별도로 `0.3.0` 유지. 이번 runtime tarball에는
+  VSIX를 포함하지 않는다.
 
 ## Deferred After 0.5
 

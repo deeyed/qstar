@@ -1,15 +1,16 @@
 # Installation
 
 QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. Public
-beta에서는 macOS arm64 tarball을 먼저 배포한다. Linux host 지원은 검증 진행 중이며,
-Windows host 지원은 계획 단계다. Windows는 아직 공식 지원이 아니지만 path/process/
-response-file 준비 규칙은 QStar tree 안에서 검증한다. 모든 platform에서 소스에서 직접
-빌드할 수 있도록 검증 경로를 늘려간다.
+beta에서는 macOS arm64 tarball을 먼저 배포한다. Linux host 지원은 Ubuntu gcc/clang CI
+기반 source build 검증 경로를 갖췄지만 아직 release artifact는 없다. Windows host
+지원은 계획 단계다. Windows는 아직 공식 지원이 아니지만 path/process/response-file
+준비 규칙은 QStar tree 안에서 검증한다. 모든 platform에서 소스에서 직접 빌드할 수
+있도록 검증 경로를 늘려간다.
 
 ## 최소 예제
 
 ```sh
-tar -xzf qstar-v0.4.0-beta.1-macos-arm64.tar.gz -C "$HOME/.local"
+tar -xzf qstar-v0.5.0-beta.1-macos-arm64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 ```
@@ -44,7 +45,7 @@ Public beta tarball은 Makefile-built binary를 기준으로 만든다.
 
 ```sh
 make qstar-public-beta-release-tests
-tar -tzf dist/release/qstar-v0.4.0-beta.1-macos-arm64.tar.gz
+tar -tzf dist/release/qstar-v0.5.0-beta.1-macos-arm64.tar.gz
 cat dist/release/SHA256SUMS
 ```
 
@@ -76,7 +77,8 @@ qstar doctor
 ## Linux 검증 경로
 
 Linux release asset은 아직 배포하지 않는다. Linux host 또는 CI에서는 다음 source build
-smoke가 통과해야 `validation underway`에서 release 후보로 올라갈 수 있다.
+smoke가 통과해야 validation-backed source build 상태를 유지하고, 이후 release artifact
+후보로 올라갈 수 있다.
 
 ```sh
 make all

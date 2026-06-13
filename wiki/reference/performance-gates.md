@@ -52,6 +52,24 @@ Ninja가 없으면 Ninja phase는 `skipped`로 표시된다. Stella phase는 항
 - clean build는 Ninja 대비 1.5-2배 이내를 목표로 한다.
 - incremental build는 변경된 action만 다시 실행되도록 유지한다.
 
+## 최신 베타 스냅샷
+
+Round Q110 local macOS arm64 측정값:
+
+```txt
+medium_project_gate target_count=47 min_targets=40
+medium_project_gate backend=stella phase=clean elapsed_ms=767
+medium_project_gate backend=stella phase=noop elapsed_ms=73
+medium_project_gate backend=stella phase=incremental elapsed_ms=101
+medium_project_gate backend=ninja phase=clean elapsed_ms=299
+medium_project_gate backend=ninja phase=noop elapsed_ms=74
+medium_project_gate backend=ninja phase=incremental elapsed_ms=101
+medium_project_gate status=ok perf_issue_count=0 report_only=1
+```
+
+Stella no-op과 incremental은 이 corpus에서 Ninja급 latency를 보인다. Clean build는
+Ninja보다 느리지만 medium corpus에서 1초 미만이다.
+
 Round Q92 기준 timing threshold는 기본적으로 report-only다. 파일 누락, graph 실패,
 compiler 실패, compile database 누락은 hard fail이고, 시간 초과는 warning으로 기록된다.
 

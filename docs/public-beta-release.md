@@ -10,9 +10,9 @@ VSCode extension is not included in the public beta runtime tarball.
 현재 beta package 이름은 runtime version에서 파생한다.
 
 ```txt
-runtime version: qstar 0.4.0-beta.1
-release tag: v0.4.0-beta.1
-macOS asset: qstar-v0.4.0-beta.1-macos-arm64.tar.gz
+runtime version: qstar 0.5.0-beta.1
+release tag: v0.5.0-beta.1
+macOS asset: qstar-v0.5.0-beta.1-macos-arm64.tar.gz
 checksum file: SHA256SUMS
 ```
 
@@ -63,9 +63,10 @@ codesign -dv --verbose=2 /tmp/qstar-release-smoke/bin/qstar
 `codesign` smoke는 Darwin/macOS에서만 의미가 있다. Linux validation host에서는
 docs/manpage install과 runtime version만 확인한다.
 
-Linux runtime tarball은 아직 public beta asset이 아니다. Linux asset을 추가하려면
-`.github/workflows/linux-validation.yml`의 Ubuntu gcc/clang lane이 green이어야 하고,
-각 lane에서 `make check`, `make qstar-linux-validation-tests`, Ninja backend parity,
+Linux runtime tarball은 아직 public beta asset이 아니다. Round Q109 이후 Linux는
+`.github/workflows/linux-validation.yml`의 Ubuntu gcc/clang CI 기반 source build
+validation path를 갖췄지만, Linux asset을 추가하려면 clean Linux release host 또는
+release CI에서 `make check`, `make qstar-linux-validation-tests`, Ninja backend parity,
 install docs/man smoke가 통과해야 한다.
 
 ## Tarball Layout
@@ -87,7 +88,7 @@ LICENSE/README.md
 예상 설치 명령:
 
 ```sh
-tar -xzf qstar-v0.4.0-beta.1-macos-arm64.tar.gz -C "$HOME/.local"
+tar -xzf qstar-v0.5.0-beta.1-macos-arm64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 ```
@@ -113,7 +114,10 @@ Network push가 필요한 작업이므로 local package smoke와 문서 drift ga
 
 ## VSCode Extension Policy
 
-VSCode extension은 runtime과 별도 version을 가진다. 현재 package version은 `0.3.0`이다.
+VSCode extension은 runtime과 별도 version을 가진다. QStar 0.5 beta 준비 기준 현재
+package version은 `0.3.0`이고, runtime tarball에는 포함하지 않는다. Extension 기능이나
+Marketplace 배포 정책이 바뀌는 라운드가 아니므로 이번 runtime bump와 함께 자동으로
+올리지 않는다.
 
 ```sh
 make vscode-extension-tests
@@ -131,15 +135,15 @@ npm run package:vsix
 Local smoke가 끝난 뒤 tag와 GitHub release를 만든다.
 
 ```sh
-git tag -a v0.4.0-beta.1 -m "QStar v0.4.0 beta 1"
-git push origin v0.4.0-beta.1
+git tag -a v0.5.0-beta.1 -m "QStar v0.5.0 beta 1"
+git push origin v0.5.0-beta.1
 
-gh release create v0.4.0-beta.1 \
-  dist/release/qstar-v0.4.0-beta.1-macos-arm64.tar.gz \
+gh release create v0.5.0-beta.1 \
+  dist/release/qstar-v0.5.0-beta.1-macos-arm64.tar.gz \
   dist/release/SHA256SUMS \
   --repo deeyed/qstar \
-  --title "QStar v0.4.0 Beta 1" \
-  --notes-file docs/releases/v0.4.0-beta.1.md \
+  --title "QStar v0.5.0 Beta 1" \
+  --notes-file docs/releases/v0.5.0-beta.1.md \
   --prerelease \
   --latest=false
 ```

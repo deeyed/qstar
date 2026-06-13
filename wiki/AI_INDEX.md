@@ -69,13 +69,15 @@ QStar가 하지 않는 일:
   제한한다. Warning은 `warning:` prefix를 orange/yellow, error는 bold red로 표시한다.
   `qstar action-log`, `qstar replay`, `qstar last-failure`도 같은 action description을
   `description=` metadata로 보존한다.
-- 0.5 readiness 판단은 `docs/qstar-v0.5-readiness.md`에 둔다. 이 문서는 self-host,
+- 0.5 readiness 판단과 `0.5.0-beta.1` release-prep line은
+  `docs/qstar-v0.5-readiness.md`에 둔다. 이 문서는 self-host,
   Stella/Ninja benchmark, Ninja parity, Linux/Windows status, docs/CLI drift, medium
   project readiness, version policy, deferred surface를 요약한다.
-- Linux host 지원은 Round Q97 기준 `validation underway`다. `make qstar-linux-validation-tests`는
-  portable path/process, Linux depfile 후보, generated_dir, install layout, docs/manpage
-  smoke를 묶는다. macOS에서는 제한된 path smoke이고, Linux release asset은 깨끗한
-  Linux host 또는 CI에서 이 gate가 통과한 뒤에만 추가한다.
+- Linux host 지원은 Round Q110 기준 validation-backed source build path다.
+  `make qstar-linux-validation-tests`는 portable path/process, Linux depfile 후보,
+  generated_dir, install layout, docs/manpage smoke를 묶는다. macOS에서는 제한된 path
+  smoke이고, Linux release asset은 깨끗한 Linux host 또는 CI에서 이 gate가 통과한 뒤에만
+  추가한다.
 - Round Q109의 Linux validation workflow는 `.github/workflows/linux-validation.yml`이다.
   `ubuntu-latest`에서 gcc/clang matrix를 돌리고 `QSTAR_LINUX_VALIDATION_CC`로 실제 depfile
   compiler lane을 고정한다. 각 lane은 Ninja를 설치하고 `make all`, `make check`,

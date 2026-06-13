@@ -104,7 +104,7 @@ stage/package/run target, VSCode/LSP/lint/formatter를 standalone build-system
 surface로 봉인한다. Runtime version은 `qstar --version`과 `QSTAR_VERSION`이 같은
 `0.3.0`이어야 한다.
 
-Round 90부터 current release/install contract는 `qstar-v0.4-stella-seal.md`에 둔다.
+Round 90의 v0.4 release/install contract는 `qstar-v0.4-stella-seal.md`에 둔다.
 v0.4는 Stella를 기본 generator로 고정하고, `-G stella|ninja|auto`, `-B`,
 `qstar.group`, `qstar.config`, `qstar.import_file`, `.qsm` module,
 `qstar.project.generated_dir`, compact progress, Ninja comparison backend, medium
@@ -114,6 +114,9 @@ project performance gate를 함께 봉인한다. Runtime version은 `qstar --ver
 Round 100부터 0.5 readiness 판단은 `qstar-v0.5-readiness.md`에 둔다. 이 문서는
 self-host, Stella/Ninja benchmark, Ninja parity, Linux/Windows status, docs/CLI drift,
 medium project readiness, version policy, deferred surface를 한 번에 요약한다.
+Round 110부터 runtime은 `0.5.0-beta.1` release-prep line으로 이동한다. Release note는
+`releases/v0.5.0-beta.1.md`에 두고, VSCode extension package version은 runtime과 별도인
+`0.3.0`으로 유지한다.
 
 Round 101부터 progress output 계약은 `progress-output.md`에 둔다. QStar 0.5 UI line은
 일반 build output에서 legacy scheduler stage wording, scheduler state, action id를 숨기고
