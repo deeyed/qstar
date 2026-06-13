@@ -1,6 +1,10 @@
 #ifndef QSTAR_INTERNAL_H
 #define QSTAR_INTERNAL_H
 
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include "qstar/qstar.h"
 
 #include <stddef.h>
