@@ -3666,6 +3666,7 @@ if "$qstar" --file "$tmp/asm/qstar.lua" build //:bad_asm_toolchain > "$tmp/asm-b
 fi
 contains "$tmp/asm-bad-toolchain.err" "assembler source 'asm/value.S' requires host or clang toolchain"
 
+step "cxx module diagnostics"
 mkdir -p "$tmp/cxx-module/src"
 cat > "$tmp/cxx-module/qstar.lua" <<'EOF'
 qstar.executable "bad_module" {
@@ -3680,6 +3681,7 @@ if "$qstar" --file "$tmp/cxx-module/qstar.lua" build //:bad_module > "$tmp/cxx-m
 fi
 contains "$tmp/cxx-module.err" "C++ modules are not supported"
 
+step "language namespace surface"
 mkdir -p "$tmp/lang-surface/boot/include" "$tmp/lang-surface/src" "$tmp/lang-surface/include"
 cat > "$tmp/lang-surface/qstar.lua" <<'EOF'
 qstar.staticlib "boot" {
@@ -3734,6 +3736,7 @@ contains "$tmp/lang-surface.out" "lang.cale.compile_options [--profile=safe]"
 contains "$tmp/lang-surface.out" "lang.cale.profile safe"
 contains "$tmp/lang-surface.out" "lang.cxx.modules enabled=false"
 
+step "workspace fragments"
 mkdir -p "$tmp/workspace/app/src" "$tmp/workspace/lib/src" "$tmp/workspace/lib/include" "$tmp/workspace/lib/private"
 cat > "$tmp/workspace/lib/include/core.h" <<'EOF'
 int core_value(void);
@@ -3845,6 +3848,7 @@ if "$qstar" --file "$tmp/workspace/app/app.qst" check //app:outside > "$tmp/outs
 fi
 contains "$tmp/outside-source.err" "must be package-relative"
 
+step "profile diagnostics"
 mkdir -p "$tmp/profile/src"
 cat > "$tmp/profile/src/main.c" <<'EOF'
 int main(void) { return 0; }
@@ -3882,6 +3886,7 @@ contains "$tmp/profile-dry.out" "digest="
 contains "$tmp/profile-doctor.out" "profile-schema in-dsl-v1 include_dirs=2 lib_dirs=1"
 contains "$tmp/profile-doctor.out" "toolchain-sanity name=clang cc=clang-custom cxx=clang++-custom cale=cale-custom ar=llvm-ar-custom linker=ld-custom"
 
+step "freestanding profile"
 mkdir -p "$tmp/freestanding/src" "$tmp/freestanding/tools" "$tmp/freestanding/linker"
 cat > "$tmp/freestanding/tools/fake-cc.sh" <<'EOF'
 #!/bin/sh
@@ -4039,6 +4044,7 @@ contains "$tmp/freestanding-corpus-explain.out" "auto_options=[-ffreestanding, -
 contains "$tmp/freestanding-corpus-explain.out" "target_c_compile_options=[-std=c23, -Wall, -Wextra, -Werror]"
 contains "$tmp/freestanding-corpus-explain.out" "target_system_include_dirs=[sysroot/include]"
 
+step "doctor missing tools"
 mkdir -p "$tmp/profile-doctor-missing/src"
 cat > "$tmp/profile-doctor-missing/src/main.c" <<'EOF'
 int main(void) { return 0; }
@@ -4063,6 +4069,7 @@ contains "$tmp/profile-doctor-missing.out" "profile-path name=sysroot path=missi
 contains "$tmp/profile-doctor-missing.out" "profile-path name=resource_dir path=missing-resource mode=package status=missing"
 contains "$tmp/profile-doctor-missing.out" "external-tool name=qstar-missing-objcopy mode=path status=missing"
 
+step "external tool policy"
 mkdir -p "$tmp/exttool/bin" "$tmp/exttool/src" "$tmp/exttool/tools"
 cat > "$tmp/exttool/bin/qstar-extgen" <<'EOF'
 #!/bin/sh
@@ -4212,6 +4219,7 @@ EOF
 contains "$tmp/absolute-tool-dry.out" "tool_mode=absolute"
 contains "$tmp/absolute-tool-dry.out" "$tmp/exttool/bin/qstar-extgen"
 
+step "response files"
 mkdir -p "$tmp/longcmd/src"
 cat > "$tmp/longcmd/src/main.c" <<'EOF'
 int main(void) { return 0; }
@@ -4351,6 +4359,7 @@ contains "$tmp/windows-dry.out" "/link"
 contains "$tmp/windows-dry.out" "/LIBPATH:win lib"
 contains "$tmp/windows-dry.out" "user32.lib"
 
+step "artifact metadata"
 mkdir -p "$tmp/artifact/tools" "$tmp/artifact/fixtures"
 cat > "$tmp/artifact/tools/fake-objcopy.sh" <<'EOF'
 #!/bin/sh
@@ -4441,6 +4450,7 @@ contains "$tmp/artifact-targets-json.out" "\"output_artifacts\""
 contains "$tmp/artifact-targets-json.out" "\"group\":\"images\""
 contains "$tmp/artifact-targets-json.out" "\"format\":\"raw-binary\""
 
+step "artifact dependency edges"
 mkdir -p "$tmp/artifact-dep/tools" "$tmp/artifact-dep/src" "$tmp/artifact-dep/fixtures"
 cat > "$tmp/artifact-dep/tools/fake-objcopy.sh" <<'EOF'
 #!/bin/sh
@@ -4597,6 +4607,7 @@ if "$qstar" --file "$tmp/artifact-badmeta/qstar.lua" check > "$tmp/artifact-badm
 fi
 contains "$tmp/artifact-badmeta-type.err" "qstar.output metadata field 'format' must be a string"
 
+step "generated assembly blob"
 mkdir -p "$tmp/blob-embed/tools" "$tmp/blob-embed/fixtures" "$tmp/blob-embed/src"
 cat > "$tmp/blob-embed/fixtures/payload.elf" <<'EOF'
 ELF-FIXTURE-V1
@@ -4654,6 +4665,7 @@ printf 'payload-v2\n' >> "$tmp/blob-embed/fixtures/payload.elf"
 contains "$tmp/blob-embed-third.out" "cache_miss id=//:embed_asm:generate:0 reason=input-changed"
 contains "$tmp/blob-embed-third.out" "cache_miss id=//:app:compile:1 reason=depfile-changed"
 
+step "generated object blob"
 mkdir -p "$tmp/blob-object/tools" "$tmp/blob-object/fixtures" "$tmp/blob-object/src"
 cat > "$tmp/blob-object/fixtures/payload.elf" <<'EOF'
 ELF-FIXTURE-OBJECT-V1
@@ -4714,6 +4726,7 @@ printf 'payload-v2\n' >> "$tmp/blob-object/fixtures/payload.elf"
 contains "$tmp/blob-object-third.out" "cache_miss id=//:embed_object:generate:0 reason=input-changed"
 contains "$tmp/blob-object-third.out" "cache_miss id=//:objapp:link:0 reason=input-changed"
 
+step "uefi artifact naming"
 mkdir -p "$tmp/uefi/src" "$tmp/uefi/tools"
 cat > "$tmp/uefi/tools/fake-clang.sh" <<'EOF'
 #!/bin/sh
@@ -4909,6 +4922,7 @@ if "$qstar" --file "$tmp/uefi/qstar.lua" check //:boot > "$tmp/uefi-bad-profile-
 fi
 contains "$tmp/uefi-bad-profile-name.err" "profile artifact_names entry '//:boot=EFI/BOOT/BOOTX64.EFI' must be LABEL=FILENAME"
 
+step "stage package"
 mkdir -p "$tmp/stagepkg/src" "$tmp/stagepkg/tools" "$tmp/stagepkg/fixtures" "$tmp/stagepkg/boot"
 cat > "$tmp/stagepkg/tools/fake-clang.sh" <<'EOF'
 #!/bin/sh
@@ -5106,6 +5120,7 @@ contains "$tmp/stagepkg/build/qstar/stage/___rpi/manifest.json" "\"kind\":\"file
 contains "$tmp/stagepkg-esp-root.out" "stage-root stage/custom-esp"
 contains "$tmp/stagepkg-esp-root.out" "dst=stage/custom-esp/EFI/BOOT/BOOTX64.EFI"
 
+step "stage diagnostics"
 mkdir -p "$tmp/stage-bad/src"
 cat > "$tmp/stage-bad/src/main.c" <<'EOF'
 int main(void) { return 0; }
