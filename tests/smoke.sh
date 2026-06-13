@@ -4,37 +4,101 @@ set -eu
 qstar=${QSTAR_TEST_QSTAR:-build/bin/qstar}
 tmp=${TMPDIR:-/tmp}/qstar-smoke.$$
 group_tmp=${TMPDIR:-/tmp}/qstar-smoke-group.$$
+last_step="setup"
+last_prefix=
+dumped=0
+
+dump_file_tail() {
+	file=$1
+	lines=${QSTAR_SMOKE_TAIL_LINES:-80}
+	if [ ! -f "$file" ]; then
+		return 0
+	fi
+	echo "qstar-smoke: --- $file (tail -n $lines) ---" >&2
+	tail -n "$lines" "$file" >&2 || true
+}
+
+dump_related_file() {
+	file=$1
+	dump_file_tail "$file"
+	case "$file" in
+		*.out)
+			dump_file_tail "${file%.out}.err"
+			;;
+		*.err)
+			dump_file_tail "${file%.err}.out"
+			;;
+		*.combined)
+			;;
+	esac
+}
+
+dump_recent_outputs() {
+	max=${QSTAR_SMOKE_DUMP_FILES:-12}
+	files=$(find "$tmp" "$group_tmp" -type f \( -name '*.out' -o -name '*.err' -o -name '*.combined' \) -print 2>/dev/null | sort | tail -n "$max" || true)
+	if [ -z "$files" ]; then
+		return 0
+	fi
+	echo "qstar-smoke: recent captured outputs:" >&2
+	printf '%s\n' "$files" | while IFS= read -r file; do
+		dump_file_tail "$file"
+	done
+}
+
+dump_step_files() {
+	if [ "$dumped" -ne 0 ]; then
+		return 0
+	fi
+	dumped=1
+	if [ -n "$last_prefix" ]; then
+		dump_related_file "$tmp/$last_prefix.out"
+		dump_related_file "$group_tmp/$last_prefix.out"
+		dump_file_tail "$tmp/$last_prefix.combined"
+		dump_file_tail "$group_tmp/$last_prefix.combined"
+	else
+		dump_recent_outputs
+	fi
+}
 
 fail() {
 	echo "qstar-smoke: $*" >&2
+	dump_step_files
 	exit 1
 }
 
-last_step="setup"
-
 step() {
 	last_step=$1
+	last_prefix=${2:-}
 }
 
 cleanup() {
 	rc=$?
-	rm -rf "$tmp" "$group_tmp"
 	if [ "$rc" -ne 0 ]; then
 		echo "qstar-smoke: failed during $last_step (exit $rc)" >&2
+		dump_step_files
 	fi
+	rm -rf "$tmp" "$group_tmp"
 	exit "$rc"
 }
 
 contains() {
 	file=$1
 	pat=$2
-	grep -F -q -- "$pat" "$file" || fail "missing pattern '$pat' in $file"
+	if ! grep -F -q -- "$pat" "$file"; then
+		echo "qstar-smoke: missing pattern '$pat' in $file" >&2
+		dump_related_file "$file"
+		dumped=1
+		fail "missing pattern '$pat' in $file"
+	fi
 }
 
 not_contains() {
 	file=$1
 	pat=$2
 	if grep -F -q -- "$pat" "$file"; then
+		echo "qstar-smoke: unexpected pattern '$pat' in $file" >&2
+		dump_related_file "$file"
+		dumped=1
 		fail "unexpected pattern '$pat' in $file"
 	fi
 }
@@ -49,7 +113,7 @@ rm -rf "$tmp" "$group_tmp"
 mkdir -p "$tmp/src" "$tmp/tools"
 trap cleanup EXIT HUP INT TERM
 
-step "initial build smoke"
+step "initial build smoke setup"
 cat > "$tmp/qstar.lua" <<'EOF'
 qstar.project {
   name = "smoke",
@@ -82,6 +146,7 @@ exit 7
 EOF
 chmod +x "$tmp/tools/fail.sh"
 
+step "initial build smoke: schedule trace build" "first"
 "$qstar" --file "$tmp/qstar.lua" build //:app --jobs 2 --schedule-trace > "$tmp/first.out" 2> "$tmp/first.err"
 contains "$tmp/first.out" "qstar build v2"
 contains "$tmp/first.out" "executor-policy version=v4"
@@ -112,17 +177,21 @@ test -f "$tmp/build/qstar/compile_commands.json" || fail "missing compile_comman
 contains "$tmp/build/qstar/compile_commands.json" "src/main.c"
 test ! -f "$tmp/compile_commands.json" || fail "default compile_commands leaked to root"
 
+step "initial build smoke: action descriptions" "action-description-dry"
 "$qstar" --file "$tmp/qstar.lua" dry-run //:smoke > "$tmp/action-description-dry.out" 2> "$tmp/action-description-dry.err"
 contains "$tmp/action-description-dry.out" "action_description id=//:app:compile:0 text=\"Building C object build/qstar/out/___app/obj0.o\""
 contains "$tmp/action-description-dry.out" "action_description id=//:app:link:0 text=\"Linking C executable build/qstar/out/___app/app\""
 contains "$tmp/action-description-dry.out" "action_description id=//:smoke:run:0 text=\"Running smoke binary\""
+step "initial build smoke: explain descriptions" "action-description-explain"
 "$qstar" --file "$tmp/qstar.lua" explain //:app > "$tmp/action-description-explain.out" 2> "$tmp/action-description-explain.err"
 contains "$tmp/action-description-explain.out" "action_description id=//:app:compile:0 text=\"Building C object build/qstar/out/___app/obj0.o\""
 contains "$tmp/action-description-explain.out" "action_description id=//:app:link:0 text=\"Linking C executable build/qstar/out/___app/app\""
+step "initial build smoke: verbose descriptions" "action-description-build"
 "$qstar" --file "$tmp/qstar.lua" build //:app --verbose --progress plain --color never > "$tmp/action-description-build.out" 2> "$tmp/action-description-build.err"
 contains "$tmp/action-description-build.out" "action_description id=//:app:compile:0 text=\"Building C object build/qstar/out/___app/obj0.o\""
 contains "$tmp/action-description-build.out" "action_description id=//:app:link:0 text=\"Linking C executable build/qstar/out/___app/app\""
 
+step "initial build smoke: compact progress" "ui-compact"
 "$qstar" --file "$tmp/qstar.lua" build //:app --progress plain --color never > "$tmp/ui-compact.out" 2> "$tmp/ui-compact.err"
 contains "$tmp/ui-compact.out" "[100%] Built target app"
 contains "$tmp/ui-compact.out" "status ok"
@@ -130,36 +199,47 @@ not_contains "$tmp/ui-compact.out" "build_action "
 not_contains "$tmp/ui-compact.out" "action_description "
 not_contains "$tmp/ui-compact.out" "Status: "
 not_contains "$tmp/ui-compact.out" "Stage "
+step "initial build smoke: verbose progress" "ui-verbose"
 "$qstar" --file "$tmp/qstar.lua" build //:app --verbose --progress plain --color never > "$tmp/ui-verbose.out" 2> "$tmp/ui-verbose.err"
 contains "$tmp/ui-verbose.out" "Status: compiling //:app"
 contains "$tmp/ui-verbose.out" "build_action id=//:app:compile:0"
 contains "$tmp/ui-verbose.out" "[100%] Built target app"
 not_contains "$tmp/ui-verbose.out" "Stage "
 esc=$(printf '\033')
+step "initial build smoke: color and progress off" "ui-color"
 "$qstar" --file "$tmp/qstar.lua" build //:app --progress off --color always > "$tmp/ui-color.out" 2> "$tmp/ui-color.err"
 contains "$tmp/ui-color.out" "${esc}[32mstatus ok${esc}[0m"
 not_contains "$tmp/ui-color.out" "[100%]"
 not_contains "$tmp/ui-color.out" "Building C object"
 
+step "initial build smoke: run target log/replay" "log-run"
 "$qstar" --file "$tmp/qstar.lua" build //:smoke --progress plain --color never > "$tmp/log-run.out" 2> "$tmp/log-run.err"
 contains "$tmp/log-run.out" "Running smoke binary"
+step "initial build smoke: compile action log" "action-log-compile"
 "$qstar" --file "$tmp/qstar.lua" action-log //:app:compile:0 > "$tmp/action-log-compile.out" 2> "$tmp/action-log-compile.err"
 contains "$tmp/action-log-compile.out" "description='Building C object build/qstar/out/___app/obj0.o'"
+step "initial build smoke: compile replay" "replay-compile"
 "$qstar" --file "$tmp/qstar.lua" replay //:app:compile:0 > "$tmp/replay-compile.out" 2> "$tmp/replay-compile.err"
 contains "$tmp/replay-compile.out" "description='Building C object build/qstar/out/___app/obj0.o'"
+step "initial build smoke: run action log" "action-log-run"
 "$qstar" --file "$tmp/qstar.lua" action-log //:smoke:run:0 > "$tmp/action-log-run.out" 2> "$tmp/action-log-run.err"
 contains "$tmp/action-log-run.out" "description='Running smoke binary'"
+step "initial build smoke: run replay" "replay-run"
 "$qstar" --file "$tmp/qstar.lua" replay //:smoke:run:0 > "$tmp/replay-run.out" 2> "$tmp/replay-run.err"
 contains "$tmp/replay-run.out" "description='Running smoke binary'"
+step "initial build smoke: failing run target" "fail-run"
 if "$qstar" --file "$tmp/qstar.lua" build //:fail --progress off --color never > "$tmp/fail-run.out" 2> "$tmp/fail-run.err"; then
 	fail "failing run_target unexpectedly succeeded"
 fi
 contains "$tmp/fail-run.out" "run_target_result label=//:fail status=exit-code"
+step "initial build smoke: last failure" "last-failure"
 "$qstar" --file "$tmp/qstar.lua" last-failure > "$tmp/last-failure.out" 2> "$tmp/last-failure.err"
 contains "$tmp/last-failure.out" "description='Running failing smoke'"
+step "initial build smoke: failing run replay" "replay-fail"
 "$qstar" --file "$tmp/qstar.lua" replay //:fail:run:0 > "$tmp/replay-fail.out" 2> "$tmp/replay-fail.err"
 contains "$tmp/replay-fail.out" "description='Running failing smoke'"
 
+step "diagnostic stream warnings" "diagnostic-stream"
 mkdir -p "$tmp/diagnostic-stream/src" "$tmp/diagnostic-stream/tools"
 cat > "$tmp/diagnostic-stream/qstar.lua" <<'EOF'
 qstar.project {
@@ -225,6 +305,7 @@ not_contains "$tmp/diagnostic-stream/build/qstar/logs/___core_compile_0.stderr" 
 contains "$tmp/diagnostic-stream-color.out" "${esc}[1;33mwarning:${esc}[0m stdout diagnostic for src/core.c"
 contains "$tmp/diagnostic-stream-color.out" "${esc}[1;33mwarning:${esc}[0m stderr diagnostic for src/core.c"
 
+step "diagnostic stream errors" "error-stream"
 mkdir -p "$tmp/error-stream/src" "$tmp/error-stream/tools"
 cat > "$tmp/error-stream/qstar.lua" <<'EOF'
 qstar.project {
@@ -261,6 +342,7 @@ fi
 contains "$tmp/error-stream/build/qstar/logs/___core_compile_0.stderr" "error: forced compile failure"
 not_contains "$tmp/error-stream/build/qstar/logs/___core_compile_0.stderr" "$esc"
 
+step "group target corpus" "group-build"
 mkdir -p "$group_tmp/group/lib/libk" "$group_tmp/group/sys/kern" "$group_tmp/group/sys/kern/mm" "$group_tmp/group/sys/kern/irq"
 cat > "$group_tmp/group/qstar.lua" <<'EOF'
 qstar.project {
@@ -340,6 +422,7 @@ contains "$tmp/group-build.out" "status ok"
 contains "$tmp/group-targets-json.out" "\"kind\":\"group\""
 contains "$tmp/group-targets-json.out" "\"installable\":false"
 
+step "noop run target optimization" "noop-run-build"
 mkdir -p "$group_tmp/noop-run/src"
 cat > "$group_tmp/noop-run/qstar.lua" <<'EOF'
 qstar.project {
@@ -374,6 +457,7 @@ if command -v ninja >/dev/null 2>&1; then
 	test ! -f "$group_tmp/noop-run/.ninja_deps" || fail "ninja wrote root .ninja_deps"
 fi
 
+step "group target_file diagnostic" "group-bad"
 mkdir -p "$group_tmp/group-bad"
 cat > "$group_tmp/group-bad/qstar.lua" <<'EOF'
 qstar.group "bundle" {
@@ -394,6 +478,7 @@ if "$qstar" --file "$group_tmp/group-bad/qstar.lua" check //:bad > "$tmp/group-b
 fi
 contains "$tmp/group-bad.err" "qstar.target_file cannot reference group target '//:bundle' because group targets have no artifact"
 
+step "compile_commands root policy" "build-policy-root"
 mkdir -p "$tmp/build-policy-root/src"
 cat > "$tmp/build-policy-root/qstar.lua" <<'EOF'
 qstar.project {
@@ -414,6 +499,7 @@ test -f "$tmp/build-policy-root/out/qstar/state/actions.json" || fail "custom bu
 test -f "$tmp/build-policy-root/compile_commands.json" || fail "root compile_commands policy missing"
 test ! -f "$tmp/build-policy-root/out/qstar/compile_commands.json" || fail "root compile_commands policy wrote build db"
 
+step "compile_commands off policy" "build-policy-off"
 mkdir -p "$tmp/build-policy-off/src"
 cat > "$tmp/build-policy-off/qstar.lua" <<'EOF'
 qstar.project {
@@ -433,6 +519,7 @@ test -f "$tmp/build-policy-off/build/qstar/state/actions.json" || fail "off poli
 test ! -f "$tmp/build-policy-off/build/qstar/compile_commands.json" || fail "off policy wrote build compile_commands"
 test ! -f "$tmp/build-policy-off/compile_commands.json" || fail "off policy wrote root compile_commands"
 
+step "CLI generator and build-dir overrides" "cli-overrides-build"
 mkdir -p "$tmp/cli-overrides/src"
 cat > "$tmp/cli-overrides/qstar.lua" <<'EOF'
 qstar.project {
@@ -486,6 +573,7 @@ if "$qstar" --file "$tmp/cli-overrides/qstar.lua" -B /tmp/qstar-build list-targe
 fi
 contains "$tmp/cli-overrides-bad-builddir.err" "CLI build directory override must be package-relative"
 
+step "Ninja MVP lowering" "ninja-mvp-emit"
 mkdir -p "$tmp/ninja-mvp/src" "$tmp/ninja-mvp/include"
 cat > "$tmp/ninja-mvp/qstar.lua" <<'EOF'
 qstar.project {
@@ -570,6 +658,7 @@ if command -v ninja >/dev/null 2>&1 && command -v c++ >/dev/null 2>&1; then
 	test ! -f "$tmp/ninja-mvp/.ninja_deps" || fail "ninja wrote root .ninja_deps"
 fi
 
+step "Ninja backend parity surface" "ninja-parity-emit"
 mkdir -p "$tmp/ninja-parity/src" "$tmp/ninja-parity/tools"
 cat > "$tmp/ninja-parity/tools/gen-value.sh" <<'EOF'
 #!/bin/sh
@@ -736,6 +825,7 @@ if command -v ninja >/dev/null 2>&1; then
 	contains "$tmp/ninja-parity/build/qstar/install/manifest.json" "\"role\":\"exe\""
 fi
 
+step "Ninja compile_commands root policy" "ninja-policy-root"
 mkdir -p "$tmp/ninja-policy-root/src"
 cat > "$tmp/ninja-policy-root/qstar.lua" <<'EOF'
 qstar.project {
@@ -757,6 +847,7 @@ contains "$tmp/ninja-policy-root.out" "compile_commands compile_commands.json"
 test -f "$tmp/ninja-policy-root/compile_commands.json" || fail "ninja root compile_commands policy missing"
 test ! -f "$tmp/ninja-policy-root/out/qstar/compile_commands.json" || fail "ninja root policy wrote build db"
 
+step "Ninja compile_commands off policy" "ninja-policy-off"
 mkdir -p "$tmp/ninja-policy-off/src"
 cat > "$tmp/ninja-policy-off/qstar.lua" <<'EOF'
 qstar.project {
@@ -777,6 +868,7 @@ contains "$tmp/ninja-policy-off.out" "compile_commands <off>"
 test ! -f "$tmp/ninja-policy-off/build/qstar/compile_commands.json" || fail "ninja off policy wrote build db"
 test ! -f "$tmp/ninja-policy-off/compile_commands.json" || fail "ninja off policy wrote root db"
 
+step "version command surface" "version-flag"
 "$qstar" --version > "$tmp/version-flag.out" 2> "$tmp/version-flag.err"
 test "$(cat "$tmp/version-flag.out")" = "qstar 0.5.0-beta.1" || fail "qstar --version drifted"
 "$qstar" version > "$tmp/version-cmd.out" 2> "$tmp/version-cmd.err"
@@ -799,6 +891,7 @@ contains "$tmp/targets-json.out" "\"label\":\"//:smoke\""
 contains "$tmp/targets-json.out" "\"is_test\":false"
 contains "$tmp/targets-json.out" "\"installable\":true"
 
+step "project root validation" "project-root-reject"
 mkdir -p "$tmp/project-root-reject"
 cat > "$tmp/project-root-reject/qstar.lua" <<'EOF'
 qstar.project {
@@ -811,6 +904,7 @@ if "$qstar" --file "$tmp/project-root-reject/qstar.lua" lint > "$tmp/project-roo
 fi
 contains "$tmp/project-root-reject.out" "qstar.project root must be \".\" in v1"
 
+step "Lua authoring helpers" "lua-authoring"
 mkdir -p "$tmp/lua-authoring/include" "$tmp/lua-authoring/src"
 cat > "$tmp/lua-authoring/src/core.c" <<'EOF'
 int core(void) { return 0; }
@@ -867,6 +961,7 @@ contains "$tmp/lua-authoring.out" "-DQSTAR_PROJECT_NS_ROOT="
 contains "$tmp/lua-authoring.out" "-DQSTAR_TARGET=host"
 contains "$tmp/lua-authoring.out" "-DQSTAR_PAIR_COUNT=2"
 
+step "import_file and import_module happy path" "imports-graph"
 mkdir -p "$tmp/imports/qstar/policies" "$tmp/imports/qstar/modules/kernel" \
 	"$tmp/imports/include" "$tmp/imports/sys/include" "$tmp/imports/src"
 cat > "$tmp/imports/src/app.c" <<'EOF'
@@ -939,6 +1034,7 @@ contains "$tmp/imports-lint.out" "status ok"
 "$qstar" fmt --check "$tmp/imports/qstar/modules/kernel/kernel.qsm" > "$tmp/imports-qsm-fmt.out" 2> "$tmp/imports-qsm-fmt.err"
 contains "$tmp/imports-qsm-fmt.out" "status ok"
 
+step "import duplicate file diagnostic" "import-duplicate-file"
 mkdir -p "$tmp/import-duplicate-file/p"
 cat > "$tmp/import-duplicate-file/qstar.lua" <<'EOF'
 qstar.project { name = "dup-file", root = "." }
@@ -953,6 +1049,7 @@ if "$qstar" --file "$tmp/import-duplicate-file/qstar.lua" check > "$tmp/import-d
 fi
 contains "$tmp/import-duplicate-file.err" "duplicate import 'p/common.qst'"
 
+step "import duplicate module diagnostic" "import-duplicate-module"
 mkdir -p "$tmp/import-duplicate-module/mods/a"
 cat > "$tmp/import-duplicate-module/qstar.lua" <<'EOF'
 qstar.project { name = "dup-module", root = "." }
@@ -967,6 +1064,7 @@ if "$qstar" --file "$tmp/import-duplicate-module/qstar.lua" check > "$tmp/import
 fi
 contains "$tmp/import-duplicate-module.err" "duplicate import 'mods/a/a.qsm'"
 
+step "import missing module diagnostic" "import-missing-module"
 mkdir -p "$tmp/import-missing-module"
 cat > "$tmp/import-missing-module/qstar.lua" <<'EOF'
 qstar.project { name = "missing-module", root = "." }
@@ -977,6 +1075,7 @@ if "$qstar" --file "$tmp/import-missing-module/qstar.lua" check > "$tmp/import-m
 fi
 contains "$tmp/import-missing-module.err" "expected module entry 'mods/missing/missing.qsm'"
 
+step "import_module file argument diagnostic" "import-module-file-arg"
 mkdir -p "$tmp/import-module-file-arg/mods/a"
 cat > "$tmp/import-module-file-arg/qstar.lua" <<'EOF'
 qstar.project { name = "module-file-arg", root = "." }
@@ -988,6 +1087,7 @@ fi
 contains "$tmp/import-module-file-arg.err" "import_module expects a folder path"
 contains "$tmp/import-module-file-arg.err" "use qstar.import_module(\"mods/a\")"
 
+step "import_module flat file diagnostic" "import-module-flat-file"
 mkdir -p "$tmp/import-module-flat-file"
 cat > "$tmp/import-module-flat-file/qstar.lua" <<'EOF'
 qstar.project { name = "module-flat-file-arg", root = "." }
@@ -999,6 +1099,7 @@ fi
 contains "$tmp/import-module-flat-file.err" "import_module expects a folder path"
 contains "$tmp/import-module-flat-file.err" "use qstar.import_module(\"foo\")"
 
+step "qsm return table diagnostic" "import-module-return"
 mkdir -p "$tmp/import-module-return/mods/a"
 cat > "$tmp/import-module-return/qstar.lua" <<'EOF'
 qstar.project { name = "module-return", root = "." }
@@ -1012,6 +1113,7 @@ if "$qstar" --file "$tmp/import-module-return/qstar.lua" check > "$tmp/import-mo
 fi
 contains "$tmp/import-module-return.err" "module 'mods/a/a.qsm' must return a table"
 
+step "qsm graph declaration diagnostic" "import-module-graph"
 mkdir -p "$tmp/import-module-graph/mods/a"
 cat > "$tmp/import-module-graph/qstar.lua" <<'EOF'
 qstar.project { name = "module-graph", root = "." }
@@ -1027,6 +1129,7 @@ fi
 contains "$tmp/import-module-graph.err" "is forbidden inside .qsm module"
 contains "$tmp/import-module-graph.err" "modules must return a helper table"
 
+step "circular import diagnostic" "import-circular"
 mkdir -p "$tmp/import-circular/mods/a" "$tmp/import-circular/mods/b"
 cat > "$tmp/import-circular/qstar.lua" <<'EOF'
 qstar.project { name = "circular", root = "." }
@@ -1051,6 +1154,7 @@ fi
 contains "$tmp/bad-import-corpus.err" "import_module expects a folder path"
 contains "$tmp/bad-import-corpus.err" "use qstar.import_module(\"modules/common\")"
 
+step "config merge corpus" "configs-graph"
 mkdir -p "$tmp/configs/qstar/policies" \
 	"$tmp/configs/sys/kern/mm" \
 	"$tmp/configs/sys/kern/irq" \
@@ -1440,6 +1544,7 @@ contains "$tmp/lsp-nav.out" "\"name\":\"//lib:core\""
 contains "$tmp/lsp-nav.out" "\"name\":\"//:cfg\""
 contains "$tmp/lsp-nav.out" "\"name\":\"//:gen\""
 
+step "VSCode extension package metadata" "vscode-package"
 vscode_ext="editors/vscode/qstar"
 test -f "$vscode_ext/package.json" || fail "missing QStar VSCode package.json"
 test -f "$vscode_ext/extension.js" || fail "missing QStar VSCode extension.js"
@@ -1460,6 +1565,8 @@ if grep -F '"qstar.workspace"' "$vscode_ext/package.json" >/dev/null 2>&1; then
 fi
 contains "$vscode_ext/package.json" "\"package:vsix\""
 contains "$vscode_ext/package.json" "\"license\": \"Apache-2.0\""
+test -f "$vscode_ext/LICENSE.md" || fail "missing QStar VSCode extension LICENSE.md"
+cmp -s LICENSE.md "$vscode_ext/LICENSE.md" || fail "QStar VSCode extension LICENSE.md must match repository LICENSE.md"
 contains "$vscode_ext/package.json" "\"url\": \"https://github.com/deeyed/qstar.git\""
 contains "$vscode_ext/package.json" "\"directory\": \"editors/vscode/qstar\""
 contains "$vscode_ext/.vscodeignore" "*.vsix"

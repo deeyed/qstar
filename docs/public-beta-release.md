@@ -125,6 +125,10 @@ cd editors/vscode/qstar
 npm run package:vsix
 ```
 
+`make vscode-extension-tests`는 extension package metadata, grammar, snippets, icon,
+sample workspace, license payload만 확인하는 좁은 smoke다. Runtime과 backend까지 포함한
+전체 회귀는 계속 repository root의 `make check`가 담당한다.
+
 이번 public beta runtime tarball에는 `.vsix`를 포함하지 않는다. Extension release가
 필요하면 GitHub release asset을 별도로 추가할지 별도 release로 배포할지 release note에서
 명시한다. `.vsix`, `node_modules`, extension `dist/` 산출물은 source tree에 commit하지

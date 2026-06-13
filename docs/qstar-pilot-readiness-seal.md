@@ -41,8 +41,10 @@ make -C qstar qstar-systems-corpus-tests
 make -C qstar vscode-extension-tests
 ```
 
-현재 Makefile alias는 모두 QStar-local smoke harness를 실행한다. Alias는 release script와
-외부 pilot automation이 안정적인 이름을 쓰기 위한 surface다.
+현재 대부분의 Makefile release alias는 QStar-local smoke harness를 실행한다.
+`vscode-extension-tests`는 예외적으로 VSCode extension package metadata와 payload만
+검증하는 좁은 target이다. Alias는 release script와 외부 pilot automation이 안정적인
+이름을 쓰기 위한 surface다.
 
 ## Drift Lockdown
 

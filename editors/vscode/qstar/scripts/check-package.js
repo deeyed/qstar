@@ -72,9 +72,10 @@ function walk(dir, out) {
 const pkg = readJson("package.json");
 const sourceLogoPath = path.resolve(root, "../../../assets/qstar_logo.png");
 const sourceLogoSvgPath = path.resolve(root, "../../../assets/qstar_logo.svg");
+const sourceLicensePath = path.resolve(root, "../../../LICENSE.md");
 
 if (pkg.name !== "qstar-vscode") fail("package name drifted");
-if (pkg.version !== "0.3.0") fail("extension package version must be 0.3.0 for QStar v0.4 seal");
+if (pkg.version !== "0.3.0") fail("extension package version must be 0.3.0 for current QStar beta");
 if (pkg.main !== "./extension.js") fail("main must stay ./extension.js");
 if (pkg.license !== "Apache-2.0") fail("extension package must use Apache-2.0");
 if (!pkg.repository || pkg.repository.url !== "https://github.com/deeyed/qstar.git" ||
@@ -189,6 +190,7 @@ for (const command of [
 }
 
 for (const rel of [
+  "LICENSE.md",
   "extension.js",
   "language-configuration.json",
   "media/qstar_logo.png",
@@ -218,6 +220,9 @@ if (!fs.existsSync(sourceLogoPath)) {
 if (!fs.existsSync(sourceLogoSvgPath)) {
   fail("missing source QStar logo at qstar/assets/qstar_logo.svg");
 }
+if (!fs.existsSync(sourceLicensePath)) {
+  fail("missing source QStar license at qstar/LICENSE.md");
+}
 if (!fs.readFileSync(path.join(root, "media/qstar_logo.png")).equals(
     fs.readFileSync(sourceLogoPath))) {
   fail("packaged QStar logo must match qstar/assets/qstar_logo.png");
@@ -225,6 +230,10 @@ if (!fs.readFileSync(path.join(root, "media/qstar_logo.png")).equals(
 if (!fs.readFileSync(path.join(root, "media/qstar_logo.svg")).equals(
     fs.readFileSync(sourceLogoSvgPath))) {
   fail("packaged QStar SVG logo must match qstar/assets/qstar_logo.svg");
+}
+if (!fs.readFileSync(path.join(root, "LICENSE.md")).equals(
+    fs.readFileSync(sourceLicensePath))) {
+  fail("extension LICENSE.md must match qstar/LICENSE.md");
 }
 
 const allFiles = [];

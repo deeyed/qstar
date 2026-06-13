@@ -126,7 +126,8 @@ qstar-public-beta-package: all
 
 qstar-public-beta-release-tests: qstar-public-beta-package
 
-vscode-extension-tests: check
+vscode-extension-tests:
+	node editors/vscode/qstar/scripts/check-package.js editors/vscode/qstar
 
 qstar-v0-release-tests: check
 

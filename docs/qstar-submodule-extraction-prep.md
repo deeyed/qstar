@@ -64,6 +64,9 @@ make vscode-extension-tests
 git diff --check
 ```
 
+`vscode-extension-tests`는 standalone 전환 뒤 VSCode extension package metadata와 payload
+검증용 target으로 좁혀졌다. 전체 QStar runtime regression은 `make check`를 기준으로 둔다.
+
 ## Standalone Ownership
 
 QStar standalone repository가 다음을 소유한다.

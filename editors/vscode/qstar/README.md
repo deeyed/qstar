@@ -89,6 +89,10 @@ The checked-in package surface is validated by:
 make vscode-extension-tests
 ```
 
+This target is intentionally extension-scoped: it checks the package metadata,
+licensed VSIX payload files, icons, snippets, grammar, and sample workspace
+layout. Use repository-root `make check` for the full QStar runtime regression.
+
 ## Settings
 
 ```json
@@ -157,5 +161,7 @@ The packaging script writes `dist/qstar-vscode-<version>.vsix`. Install it with:
 code --install-extension dist/qstar-vscode-0.3.0.vsix --force
 ```
 
-`node_modules/`, `dist/`, and `*.vsix` are local artifacts only. The extension
-does not vendor npm dependencies.
+`LICENSE.md` is included in the extension root so VSIX packages carry the same
+Apache-2.0 license text as the QStar repository. `node_modules/`, `dist/`, and
+`*.vsix` are local artifacts only. The extension does not vendor npm
+dependencies.

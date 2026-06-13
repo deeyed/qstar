@@ -93,8 +93,9 @@ make -C qstar vscode-extension-tests
 ```
 
 `qstar-v0.3-rc-tests` is intentionally an alias of the QStar-local `check`
-harness today. It exists so release scripts and editor packaging can depend on
-a stable target name.
+harness. `vscode-extension-tests` is now a narrower package metadata and payload
+smoke for the VSCode extension. These names exist so release scripts and editor
+packaging can depend on stable target names.
 
 ## Removed Surface Lockdown
 
