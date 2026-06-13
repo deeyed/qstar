@@ -79,6 +79,15 @@ QStar에 적용할 점:
   전 action materialization을 더 줄이는 것이다.
 - `group`/no-op target은 이미 progress action에서 제외하지만, plan cache 단계에서는 아예
   execution node를 만들지 않는 방향으로 더 줄일 수 있다.
+- Q135부터 ordinary `deps`/`private_deps`의 final archive/link edge는 dependent target의
+  final action에만 연결한다. Dependent compile action은 dependency static archive가
+  만들어질 때까지 기다리지 않는다.
+- Compile action이 기다려야 하는 것은 generated source, generated header, configure output
+  같은 실제 compile-time file producer다. Generated object bridge는 final archive/link
+  input이므로 final action edge로만 둔다.
+- Include dir, define, warning flag 같은 usage requirement는 graph/config/profile merge
+  결과로 compile argv에 이미 반영된다. 이것들은 dependency artifact가 아니라 authoring
+  metadata이므로 build-time final artifact edge를 만들 필요가 없다.
 - action description, log path, replay path 같은 user-facing 문자열은 ready queue 구성
   시점이 아니라 실제 출력/실행 직전에 lazy materialize한다.
 

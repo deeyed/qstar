@@ -4058,6 +4058,29 @@ target_consumes_genrule(const struct qstar_target *target, const struct qstar_ge
 	    generated_output_in_list(genrule, &target->private_headers);
 }
 
+/** target compile action이 기다려야 하는 generated source/header인지 확인한다. */
+static int
+target_compile_consumes_genrule(const struct qstar_target *target,
+    const struct qstar_genrule *genrule)
+{
+	struct qstar_source_info source;
+	size_t i, j;
+
+	if (generated_output_in_list(genrule, &target->public_headers) ||
+	    generated_output_in_list(genrule, &target->private_headers))
+		return 1;
+	for (i = 0; i < genrule->outputs.len; i++) {
+		for (j = 0; j < target->sources.len; j++) {
+			if (strcmp(genrule->outputs.items[i], target->sources.items[j]) != 0)
+				continue;
+			if (qstar_source_classify(target->sources.items[j], &source) == 0 &&
+			    source_requires_compile(&source))
+				return 1;
+		}
+	}
+	return 0;
+}
+
 /** config header include guard에 안전한 identifier 조각을 만든다. */
 static void
 config_guard_name(const char *output, char *dst, size_t dstlen)
@@ -7065,6 +7088,24 @@ scheduler_connect_consumed_genrules(struct qstar_scheduler *sched,
 	return 0;
 }
 
+/** compile action에 필요한 generated source/header edge만 node에 연결한다. */
+static int
+scheduler_connect_compile_genrules(struct qstar_scheduler *sched,
+    const struct qstar_target *target, size_t user_node)
+{
+	size_t i;
+
+	for (i = 0; i < sched->graph->genrule_len; i++) {
+		if (sched->genrule_node[i] < 0 ||
+		    !target_compile_consumes_genrule(target, &sched->graph->genrules[i]))
+			continue;
+		if (scheduler_add_edge(sched, (size_t)sched->genrule_node[i],
+		    user_node) < 0)
+			return -1;
+	}
+	return 0;
+}
+
 /** target 내부 compile/final/run/group edge를 scheduler graph에 연결한다. */
 static int
 scheduler_connect_target_edges(struct qstar_scheduler *sched)
@@ -7094,9 +7135,7 @@ scheduler_connect_target_edges(struct qstar_scheduler *sched)
 			if (node->kind != QSTAR_SCHED_COMPILE || node->target != target)
 				continue;
 			if (scheduler_add_edge(sched, j, final_node) < 0 ||
-			    scheduler_connect_target_dep_list(sched, &target->deps, j) < 0 ||
-			    scheduler_connect_target_dep_list(sched, &target->private_deps, j) < 0 ||
-			    scheduler_connect_consumed_genrules(sched, target, j) < 0)
+			    scheduler_connect_compile_genrules(sched, target, j) < 0)
 				return -1;
 		}
 	}
