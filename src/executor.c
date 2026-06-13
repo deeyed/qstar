@@ -76,6 +76,7 @@ struct qstar_build_ctx {
 	struct qstar_action_log_entry {
 		char *path;
 		char *exit_text;
+		char *description;
 		char **argv;
 		size_t argc;
 		int owns_argv;
@@ -1301,6 +1302,15 @@ write_shell_arg(FILE *f, const char *s)
 	fputc('\'', f);
 }
 
+/** action/replay log의 사용자-facing description metadata를 쓴다. */
+static void
+write_log_description(FILE *f, const char *description)
+{
+	fputs("description=", f);
+	write_shell_arg(f, description && *description ? description : "<none>");
+	fputc('\n', f);
+}
+
 /** Windows/MSVC response file에 들어갈 argv item을 double-quote 규칙으로 쓴다. */
 static void
 write_windows_response_arg(FILE *f, const char *s)
@@ -1426,7 +1436,8 @@ prepare_response_file(struct qstar_graph *graph, const char *id,
 
 /** argv 배열을 action log에 deterministic하게 기록한다. */
 static void
-write_action_log_text(const char *path, char *const argv[], const char *exit_text)
+write_action_log_text(const char *path, char *const argv[], const char *exit_text,
+    const char *description)
 {
 	FILE *f;
 	size_t i;
@@ -1435,6 +1446,7 @@ write_action_log_text(const char *path, char *const argv[], const char *exit_tex
 	if (!f)
 		return;
 	fprintf(f, "qstar-action-log v2\nexit=%s\n", exit_text);
+	write_log_description(f, description);
 	for (i = 0; argv[i]; i++)
 		;
 	fprintf(f, "argc=%zu\n", i);
@@ -1485,21 +1497,23 @@ action_log_copy_argv(char *const argv[], size_t *argc_out)
 /** action log 하나를 build 종료 시점의 batch flush 목록에 추가한다. */
 static void
 action_log_queue(struct qstar_build_ctx *ctx, const char *path, char *const argv[],
-    const char *exit_text)
+    const char *exit_text, const char *description)
 {
 	struct qstar_action_log_entry *p;
 	size_t ncap, argc = 0;
 	char **argv_copy;
-	char *path_copy, *exit_copy;
+	char *path_copy, *exit_copy, *description_copy;
 
 	if (!ctx || !path || !argv || !exit_text)
 		return;
 	path_copy = qstar_strdup(path);
 	exit_copy = qstar_strdup(exit_text);
+	description_copy = qstar_strdup(description && *description ? description : "<none>");
 	argv_copy = action_log_copy_argv(argv, &argc);
-	if (!path_copy || !exit_copy || !argv_copy) {
+	if (!path_copy || !exit_copy || !description_copy || !argv_copy) {
 		free(path_copy);
 		free(exit_copy);
+		free(description_copy);
 		if (argv_copy) {
 			size_t i;
 
@@ -1520,6 +1534,7 @@ action_log_queue(struct qstar_build_ctx *ctx, const char *path, char *const argv
 			free(argv_copy);
 			free(path_copy);
 			free(exit_copy);
+			free(description_copy);
 			return;
 		}
 		ctx->action_logs = p;
@@ -1528,6 +1543,7 @@ action_log_queue(struct qstar_build_ctx *ctx, const char *path, char *const argv
 	p = &ctx->action_logs[ctx->action_log_len++];
 	p->path = path_copy;
 	p->exit_text = exit_copy;
+	p->description = description_copy;
 	p->argv = argv_copy;
 	p->argc = argc;
 	p->owns_argv = 1;
@@ -1536,11 +1552,11 @@ action_log_queue(struct qstar_build_ctx *ctx, const char *path, char *const argv
 /** 수명이 build flush까지 보장되는 argv를 복사 없이 action log queue에 추가한다. */
 static void
 action_log_queue_ref(struct qstar_build_ctx *ctx, const char *path, char *const argv[],
-    const char *exit_text)
+    const char *exit_text, const char *description)
 {
 	struct qstar_action_log_entry *p;
 	size_t ncap, argc;
-	char *path_copy, *exit_copy;
+	char *path_copy, *exit_copy, *description_copy;
 
 	if (!ctx || !path || !argv || !exit_text)
 		return;
@@ -1548,9 +1564,11 @@ action_log_queue_ref(struct qstar_build_ctx *ctx, const char *path, char *const 
 		;
 	path_copy = qstar_strdup(path);
 	exit_copy = qstar_strdup(exit_text);
-	if (!path_copy || !exit_copy) {
+	description_copy = qstar_strdup(description && *description ? description : "<none>");
+	if (!path_copy || !exit_copy || !description_copy) {
 		free(path_copy);
 		free(exit_copy);
+		free(description_copy);
 		return;
 	}
 	if (ctx->action_log_len == ctx->action_log_cap) {
@@ -1559,6 +1577,7 @@ action_log_queue_ref(struct qstar_build_ctx *ctx, const char *path, char *const 
 		if (!p) {
 			free(path_copy);
 			free(exit_copy);
+			free(description_copy);
 			return;
 		}
 		ctx->action_logs = p;
@@ -1567,6 +1586,7 @@ action_log_queue_ref(struct qstar_build_ctx *ctx, const char *path, char *const 
 	p = &ctx->action_logs[ctx->action_log_len++];
 	p->path = path_copy;
 	p->exit_text = exit_copy;
+	p->description = description_copy;
 	p->argv = (char **)argv;
 	p->argc = argc;
 	p->owns_argv = 0;
@@ -1575,38 +1595,39 @@ action_log_queue_ref(struct qstar_build_ctx *ctx, const char *path, char *const 
 /** integer exit code action log를 batch flush 목록에 추가한다. */
 static void
 action_log_queue_exit(struct qstar_build_ctx *ctx, const char *path, char *const argv[],
-    int exit_code)
+    int exit_code, const char *description)
 {
 	char exit_text[32];
 
 	snprintf(exit_text, sizeof(exit_text), "%d", exit_code);
-	action_log_queue(ctx, path, argv, exit_text);
+	action_log_queue(ctx, path, argv, exit_text, description);
 }
 
 /** skip action log를 batch flush 목록에 추가한다. */
 static void
-action_log_queue_skip(struct qstar_build_ctx *ctx, const char *path, char *const argv[])
+action_log_queue_skip(struct qstar_build_ctx *ctx, const char *path, char *const argv[],
+    const char *description)
 {
-	action_log_queue(ctx, path, argv, "skip");
+	action_log_queue(ctx, path, argv, "skip", description);
 }
 
 /** compile action처럼 argv 수명이 보장되는 action log를 복사 없이 추가한다. */
 static void
 action_log_queue_exit_ref(struct qstar_build_ctx *ctx, const char *path,
-    char *const argv[], int exit_code)
+    char *const argv[], int exit_code, const char *description)
 {
 	char exit_text[32];
 
 	snprintf(exit_text, sizeof(exit_text), "%d", exit_code);
-	action_log_queue_ref(ctx, path, argv, exit_text);
+	action_log_queue_ref(ctx, path, argv, exit_text, description);
 }
 
 /** compile cache-hit skip log를 복사 없이 batch flush 목록에 추가한다. */
 static void
 action_log_queue_skip_ref(struct qstar_build_ctx *ctx, const char *path,
-    char *const argv[])
+    char *const argv[], const char *description)
 {
-	action_log_queue_ref(ctx, path, argv, "skip");
+	action_log_queue_ref(ctx, path, argv, "skip", description);
 }
 
 static void
@@ -1620,7 +1641,8 @@ action_log_flush(struct qstar_build_ctx *ctx)
 
 	for (i = 0; i < ctx->action_log_len; i++)
 		write_action_log_text(ctx->action_logs[i].path,
-		    ctx->action_logs[i].argv, ctx->action_logs[i].exit_text);
+		    ctx->action_logs[i].argv, ctx->action_logs[i].exit_text,
+		    ctx->action_logs[i].description);
 	action_log_queue_free(ctx->action_logs, ctx->action_log_len);
 	ctx->action_logs = NULL;
 	ctx->action_log_len = 0;
@@ -1631,8 +1653,9 @@ action_log_flush(struct qstar_build_ctx *ctx)
 static void
 write_failure_replay_detail(const struct qstar_graph *graph, const char *id,
     const struct qstar_resolved_toolchain *toolchain, char *const argv[],
-    const char *failure_kind, const char *label, const char *stdout_rel,
-    const char *stderr_rel, const char *marker, const char *marker_log_rel)
+    const char *description, const char *failure_kind, const char *label,
+    const char *stdout_rel, const char *stderr_rel, const char *marker,
+    const char *marker_log_rel)
 {
 	char path[QSTAR_PATH_MAX];
 	FILE *f;
@@ -1649,6 +1672,7 @@ write_failure_replay_detail(const struct qstar_graph *graph, const char *id,
 	    graph->package_root ? graph->package_root : ".");
 	fprintf(f, "failure_kind=%s\n", failure_kind && *failure_kind ? failure_kind :
 	    "action-failure");
+	write_log_description(f, description);
 	fprintf(f, "label=%s\n", label && *label ? label : id);
 	fprintf(f, "stdout=%s\n", stdout_rel && *stdout_rel ? stdout_rel : "<none>");
 	fprintf(f, "stderr=%s\n", stderr_rel && *stderr_rel ? stderr_rel : "<none>");
@@ -1687,21 +1711,24 @@ write_failure_replay_detail(const struct qstar_graph *graph, const char *id,
 /** 기존 action failure 경로가 쓰는 replay writer wrapper다. */
 static void
 write_failure_replay(const struct qstar_graph *graph, const char *id,
-    const struct qstar_resolved_toolchain *toolchain, char *const argv[])
+    const struct qstar_resolved_toolchain *toolchain, char *const argv[],
+    const char *description)
 {
-	write_failure_replay_detail(graph, id, toolchain, argv, "action-failure", id,
-	    NULL, NULL, NULL, NULL);
+	write_failure_replay_detail(graph, id, toolchain, argv, description,
+	    "action-failure", id, NULL, NULL, NULL, NULL);
 }
 
 /** stage/package failure를 last-failure replay 파일에 기록한다. */
 static void
 write_stage_failure_replay(const struct qstar_graph *graph, const struct qstar_stage *stage)
 {
-	char id[QSTAR_PATH_MAX];
+	char id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	char *argv[6];
 	size_t argc;
 
 	snprintf(id, sizeof(id), "%s:stage:0", stage->label);
+	if (qstar_action_description_stage(stage, description, sizeof(description)) < 0)
+		snprintf(description, sizeof(description), "Staging %s", stage->label);
 	argc = 0;
 	argv[argc++] = "qstar";
 	if (strcmp(qstar_graph_generator(graph), "ninja") == 0) {
@@ -1711,8 +1738,8 @@ write_stage_failure_replay(const struct qstar_graph *graph, const struct qstar_s
 	argv[argc++] = "stage";
 	argv[argc++] = (char *)stage->label;
 	argv[argc] = NULL;
-	write_failure_replay_detail(graph, id, NULL, argv, "package-failure",
-	    stage->label, "<none>", "<none>", NULL, NULL);
+	write_failure_replay_detail(graph, id, NULL, argv, description,
+	    "package-failure", stage->label, "<none>", "<none>", NULL, NULL);
 }
 
 /** JSON string에 들어갈 최소 escape를 출력한다. */
@@ -1821,6 +1848,7 @@ action_log_queue_free(struct qstar_action_log_entry *entries, size_t len)
 	for (i = 0; i < len; i++) {
 		free(entries[i].path);
 		free(entries[i].exit_text);
+		free(entries[i].description);
 		if (entries[i].argv && entries[i].owns_argv) {
 			for (j = 0; j < entries[i].argc; j++)
 				free(entries[i].argv[j]);
@@ -2596,7 +2624,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			build_tracef(ctx,
 			    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
 			    id, child_stdout_path, child_stderr_path);
-			action_log_queue_skip(ctx, action_log, argv);
+			action_log_queue_skip(ctx, action_log, argv, description);
 		}
 		progress_skip_action(ctx);
 		ctx->skip_count++;
@@ -2679,9 +2707,10 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 				kill(pid, SIGKILL);
 				waitpid(pid, &status, 0);
 				child_capture_finish(ctx, &capture);
-				action_log_queue_exit(ctx, action_log, argv, 124);
+				action_log_queue_exit(ctx, action_log, argv, 124,
+				    description);
 				write_failure_replay_detail(graph, id, toolchain, argv,
-				    failure_kind, diag_label,
+				    description, failure_kind, diag_label,
 				    child_stdout_path, child_stderr_path,
 				    target ? target->run_marker : NULL,
 				    target ? target->run_marker_log : NULL);
@@ -2721,7 +2750,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	child_capture_finish(ctx, &capture);
 	exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
-	action_log_queue_exit(ctx, action_log, argv, exit_code);
+	action_log_queue_exit(ctx, action_log, argv, exit_code, description);
 	if (exit_code != 0) {
 		char label_buf[QSTAR_PATH_MAX];
 		const char *diag_label;
@@ -2729,9 +2758,10 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 
 		failure_kind = classify_failure_kind(kind, target, argv, "exit-code");
 		diag_label = action_owner_label(target, id, label_buf, sizeof(label_buf));
-		build_tracef(ctx, "build_action id=%s status=fail exit=%d\n", id, exit_code);
+		build_tracef(ctx, "build_action id=%s status=fail exit=%d\n", id,
+		    exit_code);
 		write_failure_replay_detail(graph, id, toolchain, argv,
-		    failure_kind, diag_label, child_stdout_path,
+		    description, failure_kind, diag_label, child_stdout_path,
 		    child_stderr_path, target ? target->run_marker : NULL,
 		    target ? target->run_marker_log : NULL);
 		emit_action_diagnostic(ctx->out, id, kind, diag_label,
@@ -3136,7 +3166,7 @@ run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		build_tracef(ctx,
 		    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
 		    id, child_stdout_path, child_stderr_path);
-		action_log_queue_skip(ctx, action_log, argv);
+		action_log_queue_skip(ctx, action_log, argv, description);
 		progress_skip_action(ctx);
 		ctx->skip_count++;
 		return state_push(ctx, 1, id, key, genrule->outputs.items[0], "skip",
@@ -3152,7 +3182,7 @@ run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    id, cache_reason(graph, prev, key, &genrule->outputs, material), key,
 		    prev ? prev->key : "<none>");
 	if (write_config_header(graph, genrule) < 0) {
-		write_failure_replay(graph, id, NULL, argv);
+		write_failure_replay(graph, id, NULL, argv, description);
 		ctx->fail_count++;
 		ctx->cancelled = 1;
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
@@ -3160,7 +3190,7 @@ run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	write_empty_log_file(stdout_path);
 	write_empty_log_file(stderr_path);
-	action_log_queue_exit(ctx, action_log, argv, 0);
+	action_log_queue_exit(ctx, action_log, argv, 0, description);
 	ctx->run_count++;
 	return state_push(ctx, 1, id, key, genrule->outputs.items[0], "run",
 	    "generate", material) < 0 ?
@@ -3669,8 +3699,8 @@ run_target_command(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			free_owned_argv(argv, argc);
 			return qstar_set_error(graph, "qstar: action log path too long");
 		}
-		write_failure_replay_detail(graph, id, NULL, argv, "marker-missing",
-		    target->label, stdout_rel, stderr_rel, target->run_marker,
+		write_failure_replay_detail(graph, id, NULL, argv, description,
+		    "marker-missing", target->label, stdout_rel, stderr_rel, target->run_marker,
 		    target->run_marker_log);
 		ctx->fail_count++;
 		ctx->cancelled = 1;
@@ -4233,7 +4263,8 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		build_tracef(ctx,
 		    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
 		    action->id, child_stdout_path, child_stderr_path);
-		action_log_queue_skip_ref(ctx, running->action_log, action->argv);
+		action_log_queue_skip_ref(ctx, running->action_log, action->argv,
+		    action->description);
 		progress_skip_action(ctx);
 		ctx->skip_count++;
 		build_tracef(ctx,
@@ -4301,7 +4332,8 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 
 	child_capture_finish(ctx, &running->capture);
 	exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
-	action_log_queue_exit_ref(ctx, running->action_log, action->argv, exit_code);
+	action_log_queue_exit_ref(ctx, running->action_log, action->argv, exit_code,
+	    action->description);
 	if (exit_code != 0) {
 		failure_kind = classify_failure_kind(action->kind, action->target,
 		    action->argv, "exit-code");
@@ -4320,8 +4352,8 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    "parallel_event target=%s event=fail id=%s slot=%zu exit=%d state=failed retry=next-build cancel=active\n",
 		    action->target->label, action->id, running->slot, exit_code);
 		write_failure_replay_detail(graph, action->id, action->toolchain,
-		    action->argv, failure_kind, action->target->label, stdout_rel,
-		    stderr_rel, NULL, NULL);
+		    action->argv, action->description, failure_kind, action->target->label,
+		    stdout_rel, stderr_rel, NULL, NULL);
 		emit_action_diagnostic(ctx->out, action->id, action->kind,
 		    action->target->label, failure_kind, "fail", exit_code,
 		    stdout_rel, stderr_rel, replay_rel);
@@ -4471,10 +4503,12 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 					running[i].pid = 0;
 					child_capture_finish(ctx, &running[i].capture);
 					action_log_queue_exit_ref(ctx, running[i].action_log,
-					    running[i].action->argv, 124);
+					    running[i].action->argv, 124,
+					    running[i].action->description);
 					write_failure_replay(graph, running[i].action->id,
 					    running[i].action->toolchain,
-					    running[i].action->argv);
+					    running[i].action->argv,
+					    running[i].action->description);
 					ctx->fail_count++;
 					ctx->cancelled = 1;
 					build_tracef(ctx,
@@ -5650,7 +5684,8 @@ skip_prepared_action_prequeue(struct qstar_graph *graph, struct qstar_build_ctx 
 		build_tracef(ctx,
 		    "scheduler_event event=pre_skip id=%s target=%s state=cache-hit retry=no\n",
 		    action->id, action->target->label);
-		action_log_queue_skip_ref(ctx, action_log, action->argv);
+		action_log_queue_skip_ref(ctx, action_log, action->argv,
+		    action->description);
 	}
 	progress_skip_action(ctx);
 	ctx->skip_count++;
@@ -5856,13 +5891,15 @@ scheduler_execute(struct qstar_scheduler *sched)
 					running[i].pid = 0;
 					child_capture_finish(sched->ctx,
 					    &running[i].capture);
-						action_log_queue_exit_ref(sched->ctx,
-						    running[i].action_log,
-						    running[i].action->argv, 124);
-						write_failure_replay(sched->graph,
-						    running[i].action->id,
-						    running[i].action->toolchain,
-						    running[i].action->argv);
+					action_log_queue_exit_ref(sched->ctx,
+					    running[i].action_log,
+					    running[i].action->argv, 124,
+					    running[i].action->description);
+					write_failure_replay(sched->graph,
+					    running[i].action->id,
+					    running[i].action->toolchain,
+					    running[i].action->argv,
+					    running[i].action->description);
 					sched->ctx->fail_count++;
 					sched->ctx->cancelled = 1;
 					build_tracef(sched->ctx,
@@ -7021,6 +7058,7 @@ int
 qstar_graph_replay_action(struct qstar_graph *graph, const char *action_id, FILE *out)
 {
 	char rel[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX], line[8192], command[8192];
+	char description[8192];
 	FILE *f;
 
 	if (action_log_path_for_id(graph, action_id, rel, sizeof(rel), full,
@@ -7030,8 +7068,11 @@ qstar_graph_replay_action(struct qstar_graph *graph, const char *action_id, FILE
 	if (!f)
 		return qstar_set_error(graph, "qstar: action log '%s' does not exist", rel);
 	command[0] = '\0';
+	description[0] = '\0';
 	while (fgets(line, sizeof(line), f)) {
-		if (strncmp(line, "argv_shell=", 11) == 0) {
+		if (strncmp(line, "description=", 12) == 0) {
+			snprintf(description, sizeof(description), "%s", line + 12);
+		} else if (strncmp(line, "argv_shell=", 11) == 0) {
 			snprintf(command, sizeof(command), "%s", line + 11);
 			break;
 		}
@@ -7044,6 +7085,12 @@ qstar_graph_replay_action(struct qstar_graph *graph, const char *action_id, FILE
 	fprintf(out, "action %s\n", action_id);
 	fprintf(out, "log %s\n", rel);
 	fprintf(out, "cd %s\n", graph->package_root ? graph->package_root : ".");
+	if (description[0]) {
+		fputs("description=", out);
+		fputs(description, out);
+		if (description[strlen(description) - 1] != '\n')
+			fputc('\n', out);
+	}
 	fputs(command, out);
 	if (command[strlen(command) - 1] != '\n')
 		fputc('\n', out);

@@ -187,4 +187,4 @@ warning: src/lib/core.c:17: unused variable 'tmp'
   stream colorization을 적용한다.
 - Round Q105: `qstar.status(...)`와 `description` field를 Lua DSL에 추가했다.
 - Round Q105: Ninja emitter가 QStar description을 Ninja description으로 lower한다.
-- Pending: action log, replay, last-failure에 description을 보존한다.
+- Round Q107: action log, replay, last-failure가 action description을 보존한다.

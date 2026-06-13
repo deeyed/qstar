@@ -534,6 +534,15 @@ shell_arg(FILE *f, const char *s)
 	fputc('\'', f);
 }
 
+/** action/replay log의 사용자-facing description metadata를 쓴다. */
+static void
+write_log_description(FILE *f, const char *description)
+{
+	fputs("description=", f);
+	shell_arg(f, description && *description ? description : "<none>");
+	fputc('\n', f);
+}
+
 /** argv 전체를 shell command string으로 출력한다. */
 static void
 shell_argv(FILE *f, const struct ninja_argv *argv)
@@ -670,7 +679,7 @@ prepare_ninja_response_file(struct qstar_graph *graph, const char *id,
 /** Ninja action도 qstar action-log/replay가 읽을 수 있는 v2 log를 남긴다. */
 static int
 write_ninja_action_log(struct qstar_graph *graph, const char *id,
-    const struct ninja_argv *argv, const char *rsp_rel)
+    const struct ninja_argv *argv, const char *rsp_rel, const char *description)
 {
 	char logdir[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], log_path[QSTAR_PATH_MAX];
 	FILE *f;
@@ -685,6 +694,7 @@ write_ninja_action_log(struct qstar_graph *graph, const char *id,
 	if (!f)
 		return qstar_set_error(graph, "qstar: could not write ninja action log");
 	fprintf(f, "qstar-action-log v2\nexit=ninja\nbackend=ninja\n");
+	write_log_description(f, description);
 	fprintf(f, "response_file=%s\n", rsp_rel && *rsp_rel ? rsp_rel : "<none>");
 	fprintf(f, "argc=%zu\n", argv->len);
 	for (i = 0; i < argv->len; i++) {
@@ -705,7 +715,8 @@ write_ninja_action_log(struct qstar_graph *graph, const char *id,
 /** edge command를 필요하면 response file로 축약해 Ninja variable로 쓴다. */
 static int
 write_edge_command(struct qstar_graph *graph, struct ninja_ctx *ctx, const char *id,
-    const struct qstar_resolved_toolchain *toolchain, const struct ninja_argv *argv)
+    const struct qstar_resolved_toolchain *toolchain, const struct ninja_argv *argv,
+    const char *description)
 {
 	struct ninja_argv run;
 	char rsp_rel[QSTAR_PATH_MAX];
@@ -716,7 +727,7 @@ write_edge_command(struct qstar_graph *graph, struct ninja_ctx *ctx, const char 
 		return -1;
 	shell_argv(ctx->ninja, &run);
 	ninja_argv_free(&run);
-	return write_ninja_action_log(graph, id, argv, rsp_rel);
+	return write_ninja_action_log(graph, id, argv, rsp_rel, description);
 }
 
 /** shell command string을 JSON value로 출력한다. */
@@ -1037,7 +1048,7 @@ write_config_script(struct qstar_graph *graph, struct ninja_ctx *ctx,
 static int
 write_run_script(struct qstar_graph *graph, const struct qstar_target *target,
     const char *action_id, const struct ninja_argv *argv, const char *stamp,
-    char *script_rel, size_t script_rel_len)
+    const char *description, char *script_rel, size_t script_rel_len)
 {
 	char name[QSTAR_PATH_MAX], sub[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX];
 	char stdout_rel[QSTAR_PATH_MAX], stderr_rel[QSTAR_PATH_MAX];
@@ -1098,6 +1109,9 @@ write_run_script(struct qstar_graph *graph, const struct qstar_target *target,
 	shell_arg(f, graph->package_root ? graph->package_root : ".");
 	fputc('\n', f);
 	fputs("    printf 'failure_kind=%s\\n' \"$kind\"\n", f);
+	fputs("    cat <<'QSTAR_REPLAY_DESCRIPTION'\n", f);
+	write_log_description(f, description);
+	fputs("QSTAR_REPLAY_DESCRIPTION\n", f);
 	fputs("    printf 'label=%s\\n' \"$label\"\n", f);
 	fputs("    printf 'stdout=%s\\n' \"$stdout\"\n", f);
 	fputs("    printf 'stderr=%s\\n' \"$stderr\"\n", f);
@@ -1373,6 +1387,8 @@ emit_genrule_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 				goto fail;
 		}
 	}
+	if (qstar_action_description_generate(genrule, description, sizeof(description)) < 0)
+		goto fail;
 	fprintf(ctx->ninja, "# qstar-action-id: %s\n", action_id);
 	fputs("build", ctx->ninja);
 	for (i = 0; i < genrule->outputs.len; i++) {
@@ -1400,9 +1416,7 @@ emit_genrule_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		}
 		fputs(" && ", ctx->ninja);
 	}
-	if (write_edge_command(graph, ctx, action_id, NULL, &argv) < 0)
-		goto fail;
-	if (qstar_action_description_generate(genrule, description, sizeof(description)) < 0)
+	if (write_edge_command(graph, ctx, action_id, NULL, &argv, description) < 0)
 		goto fail;
 	fputs("\n  description = ", ctx->ninja);
 	ninja_var_text(ctx->ninja, description);
@@ -1551,6 +1565,9 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		    ninja_argv_push(graph, &argv, target->system_include_dirs.items[i]) < 0)
 			goto fail;
 	}
+	if (qstar_action_description_compile(target, &source, object, description,
+	    sizeof(description)) < 0)
+		goto fail;
 	fprintf(ctx->ninja, "# qstar-action-id: %s\n", action_id);
 	fputs("build ", ctx->ninja);
 	ninja_path(ctx->ninja, object);
@@ -1560,7 +1577,7 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	write_header_inputs(ctx->ninja, target);
 	fputc('\n', ctx->ninja);
 	fputs("  command = ", ctx->ninja);
-	if (write_edge_command(graph, ctx, action_id, toolchain, &argv) < 0)
+	if (write_edge_command(graph, ctx, action_id, toolchain, &argv, description) < 0)
 		goto fail;
 	fputc('\n', ctx->ninja);
 	if (wants_depfile) {
@@ -1570,9 +1587,6 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	}
 	fputs("  out_dir = ", ctx->ninja);
 	shell_arg(ctx->ninja, out_dir);
-	if (qstar_action_description_compile(target, &source, object, description,
-	    sizeof(description)) < 0)
-		goto fail;
 	fputs("\n  description = ", ctx->ninja);
 	ninja_var_text(ctx->ninja, description);
 	fputc('\n', ctx->ninja);
@@ -1878,6 +1892,9 @@ emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		if (ninja_argv_push(graph, &argv, object) < 0)
 			goto fail;
 	}
+	if (qstar_action_description_final(target, "archive", artifact, description,
+	    sizeof(description)) < 0)
+		goto fail;
 	fprintf(ctx->ninja, "# qstar-action-id: %s\n", action_id);
 	fputs("build ", ctx->ninja);
 	ninja_path(ctx->ninja, artifact);
@@ -1902,14 +1919,11 @@ emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	}
 	fputc('\n', ctx->ninja);
 	fputs("  command = ", ctx->ninja);
-	if (write_edge_command(graph, ctx, action_id, toolchain, &argv) < 0)
+	if (write_edge_command(graph, ctx, action_id, toolchain, &argv, description) < 0)
 		goto fail;
 	fputc('\n', ctx->ninja);
 	fputs("  out_dir = ", ctx->ninja);
 	shell_arg(ctx->ninja, out_dir);
-	if (qstar_action_description_final(target, "archive", artifact, description,
-	    sizeof(description)) < 0)
-		goto fail;
 	fputs("\n  description = ", ctx->ninja);
 	ninja_var_text(ctx->ninja, description);
 	fputc('\n', ctx->ninja);
@@ -1984,6 +1998,9 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		goto fail;
 	if (append_system_link_flags(graph, target, toolchain, &argv) < 0)
 		goto fail;
+	if (qstar_action_description_final(target, qstar_target_final_action(target),
+	    artifact, description, sizeof(description)) < 0)
+		goto fail;
 	fprintf(ctx->ninja, "# qstar-action-id: %s\n", action_id);
 	fputs("build ", ctx->ninja);
 	ninja_path(ctx->ninja, artifact);
@@ -2012,14 +2029,11 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	}
 	fputc('\n', ctx->ninja);
 	fputs("  command = ", ctx->ninja);
-	if (write_edge_command(graph, ctx, action_id, toolchain, &argv) < 0)
+	if (write_edge_command(graph, ctx, action_id, toolchain, &argv, description) < 0)
 		goto fail;
 	fputc('\n', ctx->ninja);
 	fputs("  out_dir = ", ctx->ninja);
 	shell_arg(ctx->ninja, out_dir);
-	if (qstar_action_description_final(target, qstar_target_final_action(target),
-	    artifact, description, sizeof(description)) < 0)
-		goto fail;
 	fputs("\n  description = ", ctx->ninja);
 	ninja_var_text(ctx->ninja, description);
 	fputc('\n', ctx->ninja);
@@ -2213,8 +2227,10 @@ emit_run_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	    ninja_alias_path(graph, target->label, alias, sizeof(alias)) < 0)
 		goto path_fail;
 	snprintf(action_id, sizeof(action_id), "%s:run:0", target->label);
-	if (write_run_script(graph, target, action_id, &argv, stamp, script_rel,
-	    sizeof(script_rel)) < 0)
+	if (qstar_action_description_run(target, description, sizeof(description)) < 0)
+		goto fail;
+	if (write_run_script(graph, target, action_id, &argv, stamp, description,
+	    script_rel, sizeof(script_rel)) < 0)
 		goto fail;
 	if (ninja_argv_push(graph, &script_argv, "sh") < 0 ||
 	    ninja_argv_push(graph, &script_argv, script_rel) < 0)
@@ -2235,13 +2251,11 @@ emit_run_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	fputc('\n', ctx->ninja);
 	fputs("  command = ", ctx->ninja);
 	shell_argv(ctx->ninja, &script_argv);
-	if (qstar_action_description_run(target, description, sizeof(description)) < 0)
-		goto fail;
 	fputs("\n  description = ", ctx->ninja);
 	ninja_var_text(ctx->ninja, description);
 	fputc('\n', ctx->ninja);
 	fprintf(ctx->ninja, "  qstar_action_id = %s\n\n", action_id);
-	if (write_ninja_action_log(graph, action_id, &argv, NULL) < 0)
+	if (write_ninja_action_log(graph, action_id, &argv, NULL, description) < 0)
 		goto fail;
 	fprintf(ctx->ninja, "# qstar-action-id: %s:alias\n", target->label);
 	fputs("build ", ctx->ninja);
@@ -2442,7 +2456,7 @@ static void
 write_ninja_failure_replay(struct qstar_graph *graph, const char *ninja_rel,
     const char *alias, int exit_code)
 {
-	char path[QSTAR_PATH_MAX];
+	char path[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	FILE *f;
 
 	if (full_path_under_build(graph, "logs/last-failure.replay", path,
@@ -2456,6 +2470,9 @@ write_ninja_failure_replay(struct qstar_graph *graph, const char *ninja_rel,
 	fprintf(f, "# qstar failure replay v2\ncd %s\n",
 	    graph->package_root ? graph->package_root : ".");
 	fputs("failure_kind=ninja-failure\n", f);
+	snprintf(description, sizeof(description), "Running Ninja build %s",
+	    alias && *alias ? alias : "//...");
+	write_log_description(f, description);
 	fprintf(f, "label=%s\n", alias && *alias ? alias : "//...");
 	fputs("stdout=<inherit>\nstderr=<inherit>\n", f);
 	fputs("marker=<none>\nmarker_log=<none>\n", f);

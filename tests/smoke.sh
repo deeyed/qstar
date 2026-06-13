@@ -31,7 +31,7 @@ send_lsp() {
 }
 
 rm -rf "$tmp" "$group_tmp"
-mkdir -p "$tmp/src"
+mkdir -p "$tmp/src" "$tmp/tools"
 trap 'rm -rf "$tmp" "$group_tmp"' EXIT HUP INT TERM
 
 cat > "$tmp/qstar.lua" <<'EOF'
@@ -50,17 +50,28 @@ qstar.run_target "smoke" {
   command = qstar.cli {qstar.target_file("//:app")},
   description = qstar.status("Running smoke binary"),
 }
+
+qstar.run_target "fail" {
+  command = qstar.cli {"tools/fail.sh"},
+  description = qstar.status("Running failing smoke"),
+}
 EOF
 
 cat > "$tmp/src/main.c" <<'EOF'
 int main(void) { return 0; }
 EOF
+cat > "$tmp/tools/fail.sh" <<'EOF'
+#!/bin/sh
+exit 7
+EOF
+chmod +x "$tmp/tools/fail.sh"
 
 "$qstar" --file "$tmp/qstar.lua" build //:app --jobs 2 --schedule-trace > "$tmp/first.out" 2> "$tmp/first.err"
 contains "$tmp/first.out" "qstar build v2"
 contains "$tmp/first.out" "executor-policy version=v4"
 contains "$tmp/first.out" "parallel=optional jobs=2"
 contains "$tmp/first.out" "action_dag target=//:app"
+contains "$tmp/first.out" "action_description id=//:app:compile:0 text=\"Building C object build/qstar/out/___app/obj0.o\""
 contains "$tmp/first.out" "schedule_action id=//:app:compile:0"
 contains "$tmp/first.out" "status=run"
 contains "$tmp/first.out" "[ 50%] Building C object build/qstar/out/___app/obj0.o"
@@ -100,6 +111,7 @@ contains "$tmp/action-description-build.out" "action_description id=//:app:link:
 contains "$tmp/ui-compact.out" "[100%] Built target app"
 contains "$tmp/ui-compact.out" "status ok"
 not_contains "$tmp/ui-compact.out" "build_action "
+not_contains "$tmp/ui-compact.out" "action_description "
 not_contains "$tmp/ui-compact.out" "Status: "
 not_contains "$tmp/ui-compact.out" "Stage "
 "$qstar" --file "$tmp/qstar.lua" build //:app --verbose --progress plain --color never > "$tmp/ui-verbose.out" 2> "$tmp/ui-verbose.err"
@@ -112,6 +124,25 @@ esc=$(printf '\033')
 contains "$tmp/ui-color.out" "${esc}[32mstatus ok${esc}[0m"
 not_contains "$tmp/ui-color.out" "[100%]"
 not_contains "$tmp/ui-color.out" "Building C object"
+
+"$qstar" --file "$tmp/qstar.lua" build //:smoke --progress plain --color never > "$tmp/log-run.out" 2> "$tmp/log-run.err"
+contains "$tmp/log-run.out" "Running smoke binary"
+"$qstar" --file "$tmp/qstar.lua" action-log //:app:compile:0 > "$tmp/action-log-compile.out" 2> "$tmp/action-log-compile.err"
+contains "$tmp/action-log-compile.out" "description='Building C object build/qstar/out/___app/obj0.o'"
+"$qstar" --file "$tmp/qstar.lua" replay //:app:compile:0 > "$tmp/replay-compile.out" 2> "$tmp/replay-compile.err"
+contains "$tmp/replay-compile.out" "description='Building C object build/qstar/out/___app/obj0.o'"
+"$qstar" --file "$tmp/qstar.lua" action-log //:smoke:run:0 > "$tmp/action-log-run.out" 2> "$tmp/action-log-run.err"
+contains "$tmp/action-log-run.out" "description='Running smoke binary'"
+"$qstar" --file "$tmp/qstar.lua" replay //:smoke:run:0 > "$tmp/replay-run.out" 2> "$tmp/replay-run.err"
+contains "$tmp/replay-run.out" "description='Running smoke binary'"
+if "$qstar" --file "$tmp/qstar.lua" build //:fail --progress off --color never > "$tmp/fail-run.out" 2> "$tmp/fail-run.err"; then
+	fail "failing run_target unexpectedly succeeded"
+fi
+contains "$tmp/fail-run.out" "run_target_result label=//:fail status=exit-code"
+"$qstar" --file "$tmp/qstar.lua" last-failure > "$tmp/last-failure.out" 2> "$tmp/last-failure.err"
+contains "$tmp/last-failure.out" "description='Running failing smoke'"
+"$qstar" --file "$tmp/qstar.lua" replay //:fail:run:0 > "$tmp/replay-fail.out" 2> "$tmp/replay-fail.err"
+contains "$tmp/replay-fail.out" "description='Running failing smoke'"
 
 mkdir -p "$tmp/diagnostic-stream/src" "$tmp/diagnostic-stream/tools"
 cat > "$tmp/diagnostic-stream/qstar.lua" <<'EOF'
@@ -745,7 +776,7 @@ contains "$tmp/lint-json.out" "\"diagnostics\":[]"
 "$qstar" --file "$tmp/qstar.lua" list-targets --format json > "$tmp/targets-json.out" 2> "$tmp/targets-json.err"
 contains "$tmp/targets-json.out" "\"schema\":\"qstar-targets-v1\""
 contains "$tmp/targets-json.out" "\"project\":{\"name\":\"smoke\""
-contains "$tmp/targets-json.out" "\"target_count\":2"
+contains "$tmp/targets-json.out" "\"target_count\":3"
 contains "$tmp/targets-json.out" "\"generated_action_count\":0"
 contains "$tmp/targets-json.out" "\"label\":\"//:app\""
 contains "$tmp/targets-json.out" "\"label\":\"//:smoke\""
