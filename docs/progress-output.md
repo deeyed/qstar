@@ -10,7 +10,8 @@ target line: qstar 0.5
 default backend: stella
 reference style: CMake-style action progress
 implementation status: Stella progress renderer and warning/error stream coloring active
-log status: action-log, replay, last-failure preserve descriptions
+log status: action-log, replay, last-failure preserve descriptions; successful Stella
+actions are lazily materialized
 ```
 
 ## Default Format
@@ -81,8 +82,9 @@ progress_action label=//:all include=no reason=group
 
 ## Logs And Replay
 
-Action description은 progress line에서만 쓰고 버리지 않는다. QStar는 같은 문자열을 action
-log, `qstar replay`, `qstar last-failure`에 `description=` metadata로 저장한다.
+Action description은 progress line에서만 쓰고 버리지 않는다. QStar는 같은 문자열을
+`qstar action-log`, `qstar replay`, `qstar last-failure`에 `description=` metadata로
+보존한다.
 
 ```txt
 qstar action-log //:app:compile:0
@@ -94,6 +96,12 @@ description='Building C object build/qstar/out/___app/obj0.o'
 qstar last-failure
 description='Running smoke test app'
 ```
+
+Stella executor는 성공/skip action의 물리 `.log` 파일을 public contract로 보지 않는다.
+성공 action log는 `build/qstar/state/state.db`, `build/qstar/state/actions.json`, lowered
+action plan, 현재 graph에서 필요할 때 재구성될 수 있다. 실패 action과 `last-failure` replay는
+재현성을 위해 계속 즉시 물리 파일로 기록한다. 사용자는 `build/qstar/logs/*.log` 파일 존재에
+의존하지 말고 `qstar action-log <action-id>`와 `qstar replay <action-id>`를 사용해야 한다.
 
 이 계약 때문에 예쁜 progress output과 디버깅 재현성이 충돌하지 않는다. 일반 output은
 CMake-style line만 보여주고, 디버깅 명령은 같은 description을 단서로 action을 다시 찾을 수
@@ -211,3 +219,4 @@ warning: src/lib/core.c:17: unused variable 'tmp'
 - Round Q105: `qstar.status(...)`와 `description` field를 Lua DSL에 추가했다.
 - Round Q106: Ninja emitter가 QStar description을 Ninja description으로 lower한다.
 - Round Q107: action log, replay, last-failure가 action description을 보존한다.
+- Round Q131: Stella executor가 성공/skip action log를 lazy materialization으로 전환했다.

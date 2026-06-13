@@ -1776,19 +1776,13 @@ prepare_response_file(struct qstar_graph *graph, const char *id,
 	return 1;
 }
 
-/** argv 배열을 action log에 deterministic하게 기록한다. */
+/** argv 배열을 action log stream에 deterministic하게 기록한다. */
 static void
-write_action_log_text(const char *path, char *const argv[], const char *exit_text,
+write_action_log_stream(FILE *f, char *const argv[], const char *exit_text,
     const char *description)
 {
-	char buf[QSTAR_FILE_WRITE_BUFFER_SIZE];
-	FILE *f;
 	size_t i;
 
-	f = fopen(path, "w");
-	if (!f)
-		return;
-	setvbuf(f, buf, _IOFBF, sizeof(buf));
 	fprintf(f, "qstar-action-log v2\nexit=%s\n", exit_text);
 	write_log_description(f, description);
 	for (i = 0; argv[i]; i++)
@@ -1809,131 +1803,54 @@ write_action_log_text(const char *path, char *const argv[], const char *exit_tex
 		write_shell_arg(f, argv[i]);
 	}
 	fputc('\n', f);
+}
+
+/** argv 배열을 action log 파일에 deterministic하게 기록한다. */
+static void
+write_action_log_text(const char *path, char *const argv[], const char *exit_text,
+    const char *description)
+{
+	char buf[QSTAR_FILE_WRITE_BUFFER_SIZE];
+	FILE *f;
+
+	f = fopen(path, "w");
+	if (!f)
+		return;
+	setvbuf(f, buf, _IOFBF, sizeof(buf));
+	write_action_log_stream(f, argv, exit_text, description);
 	fclose(f);
 }
 
-/** action log argv snapshot을 batch flush용으로 복사한다. */
-static char **
-action_log_copy_argv(char *const argv[], size_t *argc_out)
+/** 성공/skip action log는 lazy materialization으로 충분한지 판정한다. */
+static int
+action_log_is_lazy_success(const char *exit_text)
 {
-	char **copy;
-	size_t argc, i;
-
-	for (argc = 0; argv[argc]; argc++)
-		;
-	copy = calloc(argc + 1, sizeof(copy[0]));
-	if (!copy)
-		return NULL;
-	for (i = 0; i < argc; i++) {
-		copy[i] = qstar_strdup(argv[i]);
-		if (!copy[i]) {
-			while (i > 0)
-				free(copy[--i]);
-			free(copy);
-			return NULL;
-		}
-	}
-	copy[argc] = NULL;
-	*argc_out = argc;
-	return copy;
+	return exit_text && (strcmp(exit_text, "0") == 0 ||
+	    strcmp(exit_text, "skip") == 0);
 }
 
-/** action log 하나를 build 종료 시점의 batch flush 목록에 추가한다. */
+/** 실패 action log는 즉시 기록하고 성공/skip action log는 lazy materialization에 맡긴다. */
 static void
 action_log_queue(struct qstar_build_ctx *ctx, const char *path, char *const argv[],
     const char *exit_text, const char *description)
 {
-	struct qstar_action_log_entry *p;
-	size_t ncap, argc = 0;
-	char **argv_copy;
-	char *path_copy, *exit_copy, *description_copy;
-
 	if (!ctx || !path || !argv || !exit_text)
 		return;
-	path_copy = qstar_strdup(path);
-	exit_copy = qstar_strdup(exit_text);
-	description_copy = qstar_strdup(description && *description ? description : "<none>");
-	argv_copy = action_log_copy_argv(argv, &argc);
-	if (!path_copy || !exit_copy || !description_copy || !argv_copy) {
-		free(path_copy);
-		free(exit_copy);
-		free(description_copy);
-		if (argv_copy) {
-			size_t i;
-
-			for (i = 0; i < argc; i++)
-				free(argv_copy[i]);
-			free(argv_copy);
-		}
+	if (action_log_is_lazy_success(exit_text))
 		return;
-	}
-	if (ctx->action_log_len == ctx->action_log_cap) {
-		ncap = ctx->action_log_cap ? ctx->action_log_cap * 2 : 64;
-		p = realloc(ctx->action_logs, ncap * sizeof(ctx->action_logs[0]));
-		if (!p) {
-			size_t i;
-
-			for (i = 0; i < argc; i++)
-				free(argv_copy[i]);
-			free(argv_copy);
-			free(path_copy);
-			free(exit_copy);
-			free(description_copy);
-			return;
-		}
-		ctx->action_logs = p;
-		ctx->action_log_cap = ncap;
-	}
-	p = &ctx->action_logs[ctx->action_log_len++];
-	p->path = path_copy;
-	p->exit_text = exit_copy;
-	p->description = description_copy;
-	p->argv = argv_copy;
-	p->argc = argc;
-	p->owns_argv = 1;
+	write_action_log_text(path, argv, exit_text, description);
 }
 
-/** 수명이 build flush까지 보장되는 argv를 복사 없이 action log queue에 추가한다. */
+/** prepared action처럼 argv 수명이 짧은 경로에서도 실패 action만 즉시 기록한다. */
 static void
 action_log_queue_ref(struct qstar_build_ctx *ctx, const char *path, char *const argv[],
     const char *exit_text, const char *description)
 {
-	struct qstar_action_log_entry *p;
-	size_t ncap, argc;
-	char *path_copy, *exit_copy, *description_copy;
-
 	if (!ctx || !path || !argv || !exit_text)
 		return;
-	for (argc = 0; argv[argc]; argc++)
-		;
-	path_copy = qstar_strdup(path);
-	exit_copy = qstar_strdup(exit_text);
-	description_copy = qstar_strdup(description && *description ? description : "<none>");
-	if (!path_copy || !exit_copy || !description_copy) {
-		free(path_copy);
-		free(exit_copy);
-		free(description_copy);
+	if (action_log_is_lazy_success(exit_text))
 		return;
-	}
-	if (ctx->action_log_len == ctx->action_log_cap) {
-		ncap = ctx->action_log_cap ? ctx->action_log_cap * 2 : 64;
-		p = realloc(ctx->action_logs, ncap * sizeof(ctx->action_logs[0]));
-		if (!p) {
-			free(path_copy);
-			free(exit_copy);
-			free(description_copy);
-			return;
-		}
-		ctx->action_logs = p;
-		ctx->action_log_cap = ncap;
-	}
-	p = &ctx->action_logs[ctx->action_log_len++];
-	p->path = path_copy;
-	p->exit_text = exit_copy;
-	p->description = description_copy;
-	p->argv = (char **)argv;
-	p->argc = argc;
-	p->owns_argv = 0;
+	write_action_log_text(path, argv, exit_text, description);
 }
 
 /** integer exit code action log를 batch flush 목록에 추가한다. */
@@ -2259,6 +2176,52 @@ state_find(const struct qstar_build_ctx *ctx, const char *id)
 			return &ctx->prev[i];
 	}
 	return NULL;
+}
+
+/** 다음 state set에 action id가 이미 들어 있는지 확인한다. */
+static int
+state_next_has(const struct qstar_build_ctx *ctx, const char *id)
+{
+	size_t i;
+
+	for (i = 0; ctx && i < ctx->next_len; i++) {
+		if (strcmp(ctx->next[i].id, id) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+/** 이번 build closure가 방문하지 않은 이전 action state를 lazy log용으로 보존한다. */
+static int
+state_preserve_previous_unvisited(struct qstar_build_ctx *ctx)
+{
+	struct qstar_action_material material;
+	size_t i;
+
+	for (i = 0; ctx && i < ctx->prev_len; i++) {
+		if (state_next_has(ctx, ctx->prev[i].id))
+			continue;
+		memset(&material, 0, sizeof(material));
+		snprintf(material.argv_key, sizeof(material.argv_key), "%s",
+		    ctx->prev[i].argv_key ? ctx->prev[i].argv_key : "");
+		snprintf(material.env_key, sizeof(material.env_key), "%s",
+		    ctx->prev[i].env_key ? ctx->prev[i].env_key : "");
+		snprintf(material.input_key, sizeof(material.input_key), "%s",
+		    ctx->prev[i].input_key ? ctx->prev[i].input_key : "");
+		snprintf(material.depfile_key, sizeof(material.depfile_key), "%s",
+		    ctx->prev[i].depfile_key ? ctx->prev[i].depfile_key : "");
+		snprintf(material.profile_key, sizeof(material.profile_key), "%s",
+		    ctx->prev[i].profile_key ? ctx->prev[i].profile_key : "");
+		snprintf(material.output_key, sizeof(material.output_key), "%s",
+		    ctx->prev[i].output_key ? ctx->prev[i].output_key : "");
+		snprintf(material.external_tool_key, sizeof(material.external_tool_key), "%s",
+		    ctx->prev[i].external_tool_key ? ctx->prev[i].external_tool_key : "");
+		if (state_push(ctx, 1, ctx->prev[i].id, ctx->prev[i].key,
+		    ctx->prev[i].output, ctx->prev[i].status, ctx->prev[i].kind,
+		    &material) < 0)
+			return -1;
+	}
+	return 0;
 }
 
 /** action state 문자열 필드를 NULL-safe 방식으로 비교한다. */
@@ -4585,6 +4548,7 @@ run_target_command(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	char key[32], artifact[QSTAR_PATH_MAX];
 	char marker_source[32], marker_path[QSTAR_PATH_MAX];
 	char action_name[QSTAR_PATH_MAX], stdout_rel[QSTAR_PATH_MAX], stderr_rel[QSTAR_PATH_MAX];
+	char logdir[QSTAR_PATH_MAX], action_log[QSTAR_PATH_MAX];
 	char owner[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	size_t argc, i;
 	int old_timeout, rc;
@@ -4670,6 +4634,12 @@ run_target_command(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		write_failure_replay_detail(graph, id, NULL, argv, description,
 		    "marker-missing", target->label, stdout_rel, stderr_rel, target->run_marker,
 		    target->run_marker_log);
+		if (ensure_action_log_dir(graph, ctx, logdir, sizeof(logdir)) == 0) {
+			snprintf(action_log, sizeof(action_log), "%s/%s.log", logdir,
+			    action_name);
+			write_action_log_text(action_log, argv, "marker-missing",
+			    description);
+		}
 		ctx->fail_count++;
 		ctx->cancelled = 1;
 		fprintf(ctx->out,
@@ -7537,6 +7507,8 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
 	if (rc == 0)
 		rc = build_with_action_scheduler(graph, &ctx, label);
 	action_log_flush(&ctx);
+	if (rc == 0 && state_preserve_previous_unvisited(&ctx) < 0)
+		rc = qstar_set_error(graph, "qstar: out of memory");
 	if (rc == 0)
 		rc = state_write(graph, &ctx);
 	if (rc == 0)
@@ -8444,6 +8416,133 @@ push_name(char ***items, size_t *len, size_t *cap, const char *name)
 	return (*items)[(*len)++] ? 0 : -1;
 }
 
+/** 임시 이름 목록에 중복 없이 log 파일명을 추가한다. */
+static int
+push_name_unique(char ***items, size_t *len, size_t *cap, const char *name)
+{
+	size_t i;
+
+	for (i = 0; i < *len; i++) {
+		if (strcmp((*items)[i], name) == 0)
+			return 0;
+	}
+	return push_name(items, len, cap, name);
+}
+
+/** action id를 owner label, kind, index로 분리한다. */
+static int
+parse_action_id_parts(const char *action_id, char *owner, size_t owner_len,
+    char *kind, size_t kind_len, size_t *index)
+{
+	const char *last, *prev, *p;
+	char *end;
+	unsigned long v;
+	size_t n;
+
+	if (!action_id || !*action_id)
+		return 0;
+	last = strrchr(action_id, ':');
+	if (!last || last == action_id || !last[1])
+		return 0;
+	prev = last;
+	while (prev > action_id) {
+		prev--;
+		if (*prev == ':')
+			break;
+	}
+	if (!prev || *prev != ':' || prev == action_id)
+		return 0;
+	errno = 0;
+	v = strtoul(last + 1, &end, 10);
+	if (errno || !end || *end)
+		return 0;
+	n = (size_t)(prev - action_id);
+	if (n == 0 || n >= owner_len)
+		return 0;
+	memcpy(owner, action_id, n);
+	owner[n] = '\0';
+	p = prev + 1;
+	n = (size_t)(last - p);
+	if (n == 0 || n >= kind_len)
+		return 0;
+	memcpy(kind, p, n);
+	kind[n] = '\0';
+	*index = (size_t)v;
+	return 1;
+}
+
+/** action id에서 계산한 package-local log 파일명을 목록에 추가한다. */
+static int
+push_log_name_for_action_id(struct qstar_graph *graph, char ***names, size_t *len,
+    size_t *cap, const char *action_id)
+{
+	char name[QSTAR_PATH_MAX];
+
+	(void)graph;
+	action_log_name(action_id, name, sizeof(name));
+	if (snprintf(name + strlen(name), sizeof(name) - strlen(name), ".log") >=
+	    (int)(sizeof(name) - strlen(name)))
+		return -1;
+	return push_name_unique(names, len, cap, name);
+}
+
+/** state에 남아 있는 action id만 logical log 목록에 노출한다. */
+static int
+push_state_log_if_present(struct qstar_graph *graph, const struct qstar_build_ctx *ctx,
+    char ***names, size_t *len, size_t *cap, const char *action_id)
+{
+	if (!state_find(ctx, action_id))
+		return 0;
+	return push_log_name_for_action_id(graph, names, len, cap, action_id);
+}
+
+/** target 하나의 성공/skip lazy action log 후보를 state 기준으로 추가한다. */
+static int
+push_target_lazy_logs(struct qstar_graph *graph, const struct qstar_build_ctx *ctx,
+    char ***names, size_t *len, size_t *cap, const struct qstar_target *target)
+{
+	struct qstar_source_info source;
+	char id[QSTAR_PATH_MAX];
+	const char *final_action;
+	size_t i;
+
+	if (!target)
+		return 0;
+	for (i = 0; i < target->sources.len; i++) {
+		qstar_source_classify(target->sources.items[i], &source);
+		if (!source_requires_compile(&source))
+			continue;
+		snprintf(id, sizeof(id), "%s:compile:%zu", target->label, i);
+		if (push_state_log_if_present(graph, ctx, names, len, cap, id) < 0)
+			return -1;
+	}
+	final_action = qstar_target_final_action(target);
+	if (strcmp(final_action, "group") != 0 && strcmp(final_action, "run") != 0) {
+		snprintf(id, sizeof(id), "%s:%s:0", target->label, final_action);
+		if (push_state_log_if_present(graph, ctx, names, len, cap, id) < 0)
+			return -1;
+	}
+	if (strcmp(target->kind, "run_target") == 0 && !run_target_is_noop_true(target)) {
+		snprintf(id, sizeof(id), "%s:run:0", target->label);
+		if (push_state_log_if_present(graph, ctx, names, len, cap, id) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+/** generated action의 성공/skip lazy action log 후보를 state 기준으로 추가한다. */
+static int
+push_genrule_lazy_log(struct qstar_graph *graph, const struct qstar_build_ctx *ctx,
+    char ***names, size_t *len, size_t *cap, const struct qstar_genrule *genrule)
+{
+	char id[QSTAR_PATH_MAX];
+
+	if (!genrule)
+		return 0;
+	snprintf(id, sizeof(id), "%s:generate:0", genrule->label);
+	return push_state_log_if_present(graph, ctx, names, len, cap, id);
+}
+
 /** QStar action log path 목록을 target 기준으로 출력한다. */
 int
 qstar_graph_log(struct qstar_graph *graph, const char *label, FILE *out)
@@ -8454,6 +8553,9 @@ qstar_graph_log(struct qstar_graph *graph, const char *label, FILE *out)
 	DIR *dir;
 	struct dirent *ent;
 	const char *needle;
+	struct qstar_build_ctx state_ctx;
+	const struct qstar_target *target;
+	const struct qstar_genrule *genrule;
 
 	if (!label || !*label)
 		return qstar_set_error(graph, "qstar: log requires a target label");
@@ -8462,21 +8564,44 @@ qstar_graph_log(struct qstar_graph *graph, const char *label, FILE *out)
 	needle = prefix;
 	if (full_path_under_build(graph, "logs", dirpath, sizeof(dirpath)) < 0)
 		return qstar_set_error(graph, "qstar: log path too long");
-	dir = opendir(dirpath);
 	fputs("qstar log v1\n", out);
 	fprintf(out, "root %s\n", label);
-	if (!dir) {
-		fputs("status ok\n", out);
-		return 0;
+	dir = opendir(dirpath);
+	if (dir) {
+		while ((ent = readdir(dir)) != NULL) {
+			if (strncmp(ent->d_name, needle, strlen(needle)) == 0 &&
+			    push_name_unique(&names, &len, &cap, ent->d_name) < 0) {
+				closedir(dir);
+				free(names);
+				return qstar_set_error(graph, "qstar: out of memory");
+			}
+		}
+		closedir(dir);
 	}
-	while ((ent = readdir(dir)) != NULL) {
-		if (strncmp(ent->d_name, needle, strlen(needle)) == 0 &&
-		    push_name(&names, &len, &cap, ent->d_name) < 0) {
-			closedir(dir);
+	memset(&state_ctx, 0, sizeof(state_ctx));
+	state_ctx.out = out;
+	if (state_load(graph, &state_ctx) < 0) {
+		for (i = 0; i < len; i++)
+			free(names[i]);
+		free(names);
+		return -1;
+	}
+	target = find_target(graph, label);
+	genrule = target ? NULL : qstar_graph_find_genrule(graph, label);
+	if (target) {
+		if (push_target_lazy_logs(graph, &state_ctx, &names, &len, &cap,
+		    target) < 0) {
+			build_ctx_free(&state_ctx);
+			return qstar_set_error(graph, "qstar: out of memory");
+		}
+	} else if (genrule) {
+		if (push_genrule_lazy_log(graph, &state_ctx, &names, &len, &cap,
+		    genrule) < 0) {
+			build_ctx_free(&state_ctx);
 			return qstar_set_error(graph, "qstar: out of memory");
 		}
 	}
-	closedir(dir);
+	build_ctx_free(&state_ctx);
 	qsort(names, len, sizeof(names[0]), cmp_string_ptr);
 	for (i = 0; i < len; i++) {
 		fprintf(out, "log_file %s/logs/%s\n", qstar_graph_build_dir(graph),
@@ -8527,25 +8652,218 @@ action_log_path_for_id(struct qstar_graph *graph, const char *action_id, char *r
 	return 0;
 }
 
+/** command item 하나를 prepared action argv에 target_file token 해석 후 추가한다. */
+static int
+prepared_action_push_resolved_command_argv(struct qstar_graph *graph,
+    struct qstar_prepared_action *action, const char *arg)
+{
+	char resolved[QSTAR_PATH_MAX];
+
+	if (resolve_target_file_token(graph, arg, resolved, sizeof(resolved)) < 0)
+		return -1;
+	return prepared_action_push_argv(graph, action, resolved);
+}
+
+/** custom/configure generated action을 lazy action-log 출력용으로 재구성한다. */
+static int
+prepare_lazy_generated_action(struct qstar_graph *graph, const struct qstar_genrule *genrule,
+    struct qstar_prepared_action *action)
+{
+	char resolved_tool[QSTAR_PATH_MAX], tool_mode[64], tool_error[QSTAR_PATH_MAX];
+	size_t i;
+
+	memset(action, 0, sizeof(*action));
+	snprintf(action->id, sizeof(action->id), "%s:generate:0", genrule->label);
+	snprintf(action->kind, sizeof(action->kind), "generate");
+	if (!genrule->config_header &&
+	    qstar_profile_resolve_command_tool(graph, genrule->tool, resolved_tool,
+	    sizeof(resolved_tool), tool_mode, sizeof(tool_mode), tool_error,
+	    sizeof(tool_error)) < 0)
+		return qstar_set_error_origin(graph, genrule->origin_file,
+		    genrule->origin_line, "command", genrule->label, "%s", tool_error);
+	if (genrule->config_header)
+		snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
+	if (qstar_action_description_generate(genrule, action->description,
+	    sizeof(action->description)) < 0)
+		snprintf(action->description, sizeof(action->description), "<too-long>");
+	if (prepared_action_push_resolved_command_argv(graph, action, resolved_tool) < 0)
+		return -1;
+	for (i = 0; i < genrule->args.len; i++) {
+		if (prepared_action_push_resolved_command_argv(graph, action,
+		    genrule->args.items[i]) < 0) {
+			prepared_action_free(action);
+			return -1;
+		}
+	}
+	return 0;
+}
+
+/** run_target action을 lazy action-log 출력용으로 재구성한다. */
+static int
+prepare_lazy_run_action(struct qstar_graph *graph, const struct qstar_target *target,
+    struct qstar_prepared_action *action)
+{
+	size_t i;
+
+	if (run_target_is_noop_true(target))
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "action", target->label,
+		    "qstar: run_target '%s' is a no-op aggregate and has no action log",
+		    target->label);
+	memset(action, 0, sizeof(*action));
+	snprintf(action->id, sizeof(action->id), "%s:run:0", target->label);
+	snprintf(action->kind, sizeof(action->kind), "run");
+	if (qstar_action_description_run(target, action->description,
+	    sizeof(action->description)) < 0)
+		snprintf(action->description, sizeof(action->description), "<too-long>");
+	for (i = 0; i < target->run_command.len; i++) {
+		if (prepared_action_push_resolved_command_argv(graph, action,
+		    target->run_command.items[i]) < 0) {
+			prepared_action_free(action);
+			return -1;
+		}
+	}
+	return 0;
+}
+
+/** action id에 대응하는 action argv/description을 현재 graph에서 재구성한다. */
+static int
+prepare_lazy_action_from_graph(struct qstar_graph *graph, const char *action_id,
+    struct qstar_prepared_action *action)
+{
+	struct qstar_resolved_toolchain toolchain;
+	const struct qstar_target *target;
+	const struct qstar_genrule *genrule;
+	char owner[QSTAR_PATH_MAX], kind[64];
+	const char *final_action;
+	size_t index;
+	struct qstar_build_ctx prep_ctx;
+
+	if (!parse_action_id_parts(action_id, owner, sizeof(owner), kind, sizeof(kind),
+	    &index))
+		return qstar_set_error(graph, "qstar: invalid action id '%s'", action_id);
+	genrule = qstar_graph_find_genrule(graph, owner);
+	if (genrule) {
+		if (strcmp(kind, "generate") != 0 || index != 0)
+			return qstar_set_error(graph, "qstar: invalid generated action id '%s'",
+			    action_id);
+		return prepare_lazy_generated_action(graph, genrule, action);
+	}
+	target = find_target(graph, owner);
+	if (!target)
+		return qstar_set_error(graph, "qstar: action owner '%s' was not found",
+		    owner);
+	if (strcmp(kind, "run") == 0) {
+		if (index != 0 || strcmp(target->kind, "run_target") != 0)
+			return qstar_set_error(graph, "qstar: invalid run action id '%s'",
+			    action_id);
+		return prepare_lazy_run_action(graph, target, action);
+	}
+	if (qstar_resolve_toolchain(graph, target, &toolchain) < 0)
+		return -1;
+	memset(&prep_ctx, 0, sizeof(prep_ctx));
+	prep_ctx.out = stdout;
+	prep_ctx.lowering_cache_prepare = 1;
+	prep_ctx.action_timeout_sec = action_timeout_sec_from_env();
+	if (strcmp(kind, "compile") == 0) {
+		if (index >= target->sources.len)
+			return qstar_set_error(graph, "qstar: compile action index out of range");
+		return prepare_compile_action(graph, &prep_ctx, target, &toolchain, index,
+		    action);
+	}
+	final_action = qstar_target_final_action(target);
+	if (index == 0 && strcmp(kind, final_action) == 0 &&
+	    strcmp(final_action, "group") != 0 && strcmp(final_action, "run") != 0)
+		return prepare_final_action(graph, &prep_ctx, target, &toolchain, action);
+	return qstar_set_error(graph, "qstar: action id '%s' does not name an executable action",
+	    action_id);
+}
+
+/** state.db/actions.json에 남은 action만 lazy action-log 대상으로 허용한다. */
+static int
+prepare_lazy_action_from_state(struct qstar_graph *graph, const char *action_id,
+    struct qstar_prepared_action *action, char *exit_text, size_t exit_text_len)
+{
+	struct qstar_build_ctx state_ctx;
+	const struct qstar_state_entry *entry;
+	int rc;
+
+	memset(&state_ctx, 0, sizeof(state_ctx));
+	state_ctx.out = stdout;
+	if (state_load(graph, &state_ctx) < 0)
+		return -1;
+	entry = state_find(&state_ctx, action_id);
+	if (!entry) {
+		build_ctx_free(&state_ctx);
+		return 0;
+	}
+	if (strcmp(entry->status, "run") == 0)
+		snprintf(exit_text, exit_text_len, "0");
+	else
+		snprintf(exit_text, exit_text_len, "%s", entry->status);
+	build_ctx_free(&state_ctx);
+	rc = prepare_lazy_action_from_graph(graph, action_id, action);
+	return rc < 0 ? -1 : 1;
+}
+
+/** argv vector에서 replay command를 직접 출력한다. */
+static void
+write_replay_from_argv(struct qstar_graph *graph, const char *action_id, const char *rel,
+    char *const argv[], const char *description, FILE *out)
+{
+	size_t i;
+
+	fputs("qstar replay v1\n", out);
+	fprintf(out, "action %s\n", action_id);
+	fprintf(out, "log %s\n", rel);
+	fprintf(out, "cd %s\n", graph->package_root ? graph->package_root : ".");
+	if (description && *description) {
+		fputs("description=", out);
+		write_shell_arg(out, description);
+		fputc('\n', out);
+	}
+	for (i = 0; argv[i]; i++) {
+		if (i)
+			fputc(' ', out);
+		write_shell_arg(out, argv[i]);
+	}
+	fputc('\n', out);
+	fputs("status ok\n", out);
+}
+
 /** action id에 대응하는 deterministic action log를 출력한다. */
 int
 qstar_graph_action_log(struct qstar_graph *graph, const char *action_id, FILE *out)
 {
 	char rel[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX], line[4096];
+	char exit_text[64];
+	struct qstar_prepared_action action;
 	FILE *f;
+	int rc;
 
 	if (action_log_path_for_id(graph, action_id, rel, sizeof(rel), full,
 	    sizeof(full)) < 0)
 		return -1;
 	f = fopen(full, "r");
-	if (!f)
-		return qstar_set_error(graph, "qstar: action log '%s' does not exist", rel);
 	fputs("qstar action-log v1\n", out);
 	fprintf(out, "action %s\n", action_id);
 	fprintf(out, "log %s\n", rel);
-	while (fgets(line, sizeof(line), f))
-		fputs(line, out);
-	fclose(f);
+	if (f) {
+		while (fgets(line, sizeof(line), f))
+			fputs(line, out);
+		fclose(f);
+	} else {
+		memset(&action, 0, sizeof(action));
+		rc = prepare_lazy_action_from_state(graph, action_id, &action, exit_text,
+		    sizeof(exit_text));
+		if (rc < 0)
+			return -1;
+		if (rc == 0)
+			return qstar_set_error(graph, "qstar: action log '%s' does not exist",
+			    rel);
+		write_action_log_stream(out, action.argv, exit_text, action.description);
+		prepared_action_free(&action);
+	}
 	fputs("status ok\n", out);
 	return 0;
 }
@@ -8555,15 +8873,30 @@ int
 qstar_graph_replay_action(struct qstar_graph *graph, const char *action_id, FILE *out)
 {
 	char rel[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX], line[8192], command[8192];
-	char description[8192];
+	char description[8192], exit_text[64];
+	struct qstar_prepared_action action;
 	FILE *f;
+	int rc;
 
 	if (action_log_path_for_id(graph, action_id, rel, sizeof(rel), full,
 	    sizeof(full)) < 0)
 		return -1;
 	f = fopen(full, "r");
-	if (!f)
-		return qstar_set_error(graph, "qstar: action log '%s' does not exist", rel);
+	if (!f) {
+		memset(&action, 0, sizeof(action));
+		rc = prepare_lazy_action_from_state(graph, action_id, &action, exit_text,
+		    sizeof(exit_text));
+		(void)exit_text;
+		if (rc < 0)
+			return -1;
+		if (rc == 0)
+			return qstar_set_error(graph, "qstar: action log '%s' does not exist",
+			    rel);
+		write_replay_from_argv(graph, action_id, rel, action.argv,
+		    action.description, out);
+		prepared_action_free(&action);
+		return 0;
+	}
 	command[0] = '\0';
 	description[0] = '\0';
 	while (fgets(line, sizeof(line), f)) {

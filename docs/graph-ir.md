@@ -236,8 +236,10 @@ The dry-run dump is a developer diagnostic surface. It is not a stable executor
 API, and none of the records are shell commands.
 
 Round 13 adds `qstar build <label>`, which executes a restricted subset of the
-same plan. Build artifacts live under `build/qstar/out`; stdout, stderr, per-action
-logs, and the last failure replay argv live under `build/qstar/logs`.
+same plan. Build artifacts live under `build/qstar/out`; stdout/stderr streams and
+the last failure replay argv live under `build/qstar/logs`. Successful Stella
+action logs are a logical CLI surface and may be lazily reconstructed instead of
+materialized as physical `.log` files.
 
 Round 14/15 add local incremental build records. `qstar build` writes
 `build/qstar/state/actions.json` for debug/export and `compile_commands.json`.

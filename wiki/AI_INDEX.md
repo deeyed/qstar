@@ -77,7 +77,8 @@ QStar가 하지 않는 일:
   `schedule_action`, `build_action` 같은 내부 trace는 `--verbose`나 `--schedule-trace`로
   제한한다. Warning은 `warning:` prefix를 orange/yellow, error는 bold red로 표시한다.
   `qstar action-log`, `qstar replay`, `qstar last-failure`도 같은 action description을
-  `description=` metadata로 보존한다.
+  `description=` metadata로 보존한다. Stella 성공/skip action의 물리 `.log` 파일 존재는
+  public contract가 아니며, 필요 시 compact state와 현재 graph에서 lazy 재구성될 수 있다.
 - 0.5 readiness 판단과 `0.5.1-beta.1` beta patch release-prep line은
   `docs/qstar-v0.5-readiness.md`에 둔다. 이 문서는 self-host,
   Stella/Ninja benchmark, Ninja parity, Linux/Windows status, docs/CLI drift, medium

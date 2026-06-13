@@ -179,7 +179,7 @@ prefix in bold red.
 .Fl -color Ar never
 and non-TTY output disable ANSI color, and JSON diagnostics remain uncolored.
 .Pp
-Action descriptions are also preserved in logs and replay metadata.
+Action descriptions are also preserved in action-log and replay metadata.
 .Ic qstar action-log ,
 .Ic qstar replay ,
 and
@@ -190,6 +190,15 @@ metadata used by progress output:
 .Bd -literal -offset indent
 description='Building C object build/qstar/out/___app/obj0.o'
 .Ed
+For the Stella executor, successful and cache-hit action
+.Pa .log
+files are not a public contract. They may be lazily reconstructed from
+compact state and the current graph when
+.Ic action-log
+or
+.Ic replay
+is requested. Failed actions and the last-failure replay are still written
+immediately.
 .It Ic test
 Build and run QStar test targets.
 .It Ic install
@@ -205,14 +214,13 @@ Explain cache state and why a target would rebuild.
 Remove the effective build directory, or a single target output with
 .Fl -target Ar label .
 .It Ic log
-Print the latest action log paths for a target.
+Print the latest logical action log paths for a target.
 .It Ic last-failure
 Print the latest failure replay file and action description metadata.
 .It Ic action-log
-Print the stored argv/env/input/output log and description metadata for an
-action id.
+Print argv/env/input/output log and description metadata for an action id.
 .It Ic replay
-Print the stored replay command and description metadata for an action id.
+Print the replay command and description metadata for an action id.
 .It Ic lsp
 Run the QStar language server with
 .Fl -stdio .

@@ -430,8 +430,8 @@ medium_project_gate status=ok perf_issue_count=0 report_only=1
 ```
 
 Clean build는 Q124 대표값보다 개선됐지만 500-650ms 목표에는 아직 미달이다. 남은 개선은
-process wait/drain 구조와 successful action log/replay materialization을 더 크게 줄이는
-라운드로 넘긴다.
+process wait/drain 구조와 successful action log materialization을 더 크게 줄이는 라운드로
+넘긴다.
 
 ### Q129 POSIX Spawn Runner MVP
 
@@ -456,7 +456,7 @@ run 3: stella clean 891ms, noop 81ms, incremental 105ms; ninja clean 446ms, noop
 Q129은 process spawn boundary를 정리하는 구조 패치다. No-op과 incremental은 계속 Ninja급
 체감권을 유지하지만, clean build는 machine state와 compiler process 비용에 따라 편차가
 크고 아직 안정적으로 500-650ms 목표에 들어오지는 않는다. 다음 성능 라운드는 pipe wait/drain
-event loop와 successful action log/replay materialization 감소가 핵심이다.
+event loop와 successful action log materialization 감소가 핵심이다.
 
 ### Q130 Event-Driven Output Drain
 
@@ -485,9 +485,43 @@ medium_project_gate status=ok perf_issue_count=1 report_only=1
 ```
 
 Q130은 fixed sleep wait/drain 구조를 제거했지만, clean build wall time은 아직 개선으로
-이어지지 않았다. No-op과 incremental은 Ninja급 latency를 유지한다. 남은 clean gap은 process
-completion bookkeeping, successful action log/replay write, compiler process count 쪽에 더
-크게 남아 있다.
+이어지지 않았다. No-op과 incremental은 Ninja급 latency를 유지한다. Q131은 successful action
+log materialization을 lazy path로 옮겨 clean build metadata write 수를 줄인다. 남은 clean
+gap은 process completion bookkeeping, compiler process count, remaining metadata write 쪽에
+더 크게 남아 있다.
+
+### Q131 Lazy Success Action Logs
+
+Status: implemented.
+
+1. Stella executor는 성공/skip action의 per-action `.log` 파일을 clean build hot path에서
+   즉시 쓰지 않는다.
+2. 실패 action, timeout, marker-missing, `last-failure` replay는 재현성을 위해 즉시 물리
+   로그를 남긴다.
+3. `qstar action-log <action-id>`와 `qstar replay <action-id>`는 물리 `.log`가 없으면
+   compact state와 현재 graph에서 argv/description을 lazy 재구성한다.
+4. `state.db/actions.json`은 현재 build closure 밖의 이전 성공 action state를 보존해,
+   다른 target을 빌드한 뒤에도 기존 action-log UX가 유지된다.
+5. 물리 `build/qstar/logs/*.log` 파일 존재는 성공 action의 public contract가 아니다.
+
+Observed Q131 timing on the medium corpus, local macOS arm64:
+
+```txt
+medium_project_gate target_count=47 min_targets=40
+medium_project_gate backend=stella phase=clean elapsed_ms=1157
+medium_project_gate backend=stella phase=noop elapsed_ms=83
+medium_project_gate backend=stella phase=incremental elapsed_ms=95
+medium_project_gate backend=ninja phase=clean elapsed_ms=269
+medium_project_gate backend=ninja phase=noop elapsed_ms=79
+medium_project_gate backend=ninja phase=incremental elapsed_ms=120
+medium_project_gate warning=stella clean 1157ms exceeds ninja 269ms beyond ratio_x100=200 slack_ms=250
+medium_project_gate status=ok perf_issue_count=1 report_only=1
+```
+
+Q131은 metadata write 수를 줄이는 구조 패치다. 이 corpus의 clean wall time에서는 아직 큰
+개선으로 나타나지 않았고, no-op/incremental은 계속 Ninja급 latency를 유지한다. 다음 clean
+build 성능 개선은 compiler process count 감소, action preparation batching, remaining
+state/action metadata write 축소가 더 큰 효과를 낼 가능성이 높다.
 
 ## Acceptance Criteria
 

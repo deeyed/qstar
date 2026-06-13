@@ -54,20 +54,20 @@ Ninja가 없으면 Ninja phase는 `skipped`로 표시된다. Stella phase는 항
 
 ## 최신 베타 스냅샷
 
-Round Q130 local macOS arm64 대표 측정값:
+Round Q131 local macOS arm64 대표 측정값:
 
 ```txt
 medium_project_gate target_count=47 min_targets=40
-medium_project_gate backend=stella phase=clean elapsed_ms=821
-medium_project_gate backend=stella phase=noop elapsed_ms=72
-medium_project_gate backend=stella phase=incremental elapsed_ms=94
-medium_project_gate backend=ninja phase=clean elapsed_ms=264
-medium_project_gate backend=ninja phase=noop elapsed_ms=77
-medium_project_gate backend=ninja phase=incremental elapsed_ms=104
-medium_project_gate compare phase=clean stella_ms=821 ninja_ms=264 ratio_x100=200 slack_ms=250
-medium_project_gate compare phase=noop stella_ms=72 ninja_ms=77 ratio_x100=200 slack_ms=250
-medium_project_gate compare phase=incremental stella_ms=94 ninja_ms=104 ratio_x100=200 slack_ms=250
-medium_project_gate warning=stella clean 821ms exceeds ninja 264ms beyond ratio_x100=200 slack_ms=250
+medium_project_gate backend=stella phase=clean elapsed_ms=1157
+medium_project_gate backend=stella phase=noop elapsed_ms=83
+medium_project_gate backend=stella phase=incremental elapsed_ms=95
+medium_project_gate backend=ninja phase=clean elapsed_ms=269
+medium_project_gate backend=ninja phase=noop elapsed_ms=79
+medium_project_gate backend=ninja phase=incremental elapsed_ms=120
+medium_project_gate compare phase=clean stella_ms=1157 ninja_ms=269 ratio_x100=200 slack_ms=250
+medium_project_gate compare phase=noop stella_ms=83 ninja_ms=79 ratio_x100=200 slack_ms=250
+medium_project_gate compare phase=incremental stella_ms=95 ninja_ms=120 ratio_x100=200 slack_ms=250
+medium_project_gate warning=stella clean 1157ms exceeds ninja 269ms beyond ratio_x100=200 slack_ms=250
 medium_project_gate status=ok perf_issue_count=1 report_only=1
 ```
 
@@ -78,10 +78,11 @@ key로 다룬다. Q129는 compile/archive/link/custom generated action 실행 �
 runner를 추가했다. macOS와 Linux/glibc는 `posix_spawn` fast path를 사용하고, unsupported
 platform이나 spawn setup failure는 기존 fork/exec path로 fallback한다. Q130은 compile/custom
 action wait loop에서 fixed sleep pause를 제거하고 stdout/stderr pipe readiness를 POSIX
-`poll()`로 기다린다. Clean build는 runner와 output drain 구조가 정리됐지만 500-650ms 목표
-범위에는 아직 닿지 못했다. 남은 격차는 successful action log/replay write, process completion
-bookkeeping, compiler process count 쪽에 있다. Report gate는 통과하며, no-op/incremental은
-Ninja급 latency를 유지한다.
+`poll()`로 기다린다. Q131은 successful/cache-hit action log를 lazy materialization으로
+전환해 clean build metadata file write 수를 줄인다. Clean build는 runner, output drain,
+lazy success action log 구조가 정리됐지만 500-650ms 목표 범위에는 아직 닿지 못했다. 남은 격차는 process completion
+bookkeeping, compiler process count, remaining metadata write 쪽에 있다. Report gate는
+통과하며, no-op/incremental은 Ninja급 latency를 유지한다.
 
 Round Q92 기준 timing threshold는 기본적으로 report-only다. 파일 누락, graph 실패,
 compiler 실패, compile database 누락은 hard fail이고, 시간 초과는 warning으로 기록된다.

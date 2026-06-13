@@ -1,7 +1,7 @@
 # Progress Output
 
 이 문서는 QStar 0.5 UI line의 progress 출력 계약이다. Stella와 Ninja는 같은
-user-facing action description을 사용하고, action log/replay/last-failure도 같은
+user-facing action description을 사용하고, action-log/replay/last-failure CLI도 같은
 description metadata를 보존한다.
 
 ## 기본 형식
@@ -133,6 +133,10 @@ description='Building C object build/qstar/out/___app/obj0.o'
 qstar last-failure
 description='Running smoke test app'
 ```
+
+Stella executor에서 성공/skip action의 물리 `.log` 파일 존재는 public contract가 아니다.
+성공 action은 compact state와 lowered action plan, 현재 graph에서 필요 시 재구성된다. 실패
+action과 `last-failure` replay는 재현성을 위해 즉시 물리 파일로 기록한다.
 
 일반 progress는 CMake-style line만 보여주고, 디버깅 명령은 같은 description을 사용해 action
 context를 다시 보여준다.

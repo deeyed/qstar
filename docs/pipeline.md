@@ -473,9 +473,11 @@ Round 14 incremental-state invariant:
 Round 15 diagnostics/log invariant:
 
 - build output reports per-action `status=run`, `status=skip`, or `status=fail`.
-- stdout/stderr/action logs stay under `build/qstar/logs`.
+- stdout/stderr logs and failure action logs stay under `build/qstar/logs`.
+- successful Stella action logs are logical and may be reconstructed by
+  `qstar action-log`/`qstar replay` instead of existing as physical `.log` files.
 - `build/qstar/logs/last-failure.replay` includes the package-root cwd and argv.
-- `qstar log <label>` lists matching action log files.
+- `qstar log <label>` lists matching logical action logs.
 - `qstar last-failure` prints the replay file when present.
 - `--diagnostics json` emits one JSON object per top-level error.
 - `qstar doctor` reports package root, profile input, writable state dir, and

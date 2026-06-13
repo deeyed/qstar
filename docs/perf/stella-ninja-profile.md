@@ -160,9 +160,10 @@ QStar source 기준 관찰:
   동적 할당한다.
 - `src/executor.c`는 compile 성공 후 depfile-discovered input을 읽고 action material을
   갱신한다. 이 구조는 정확성에는 좋지만, clean path에서는 per-action overhead가 생긴다.
-- `src/executor.c`의 process output drain은 poll 기반 readiness로 바뀌었지만, clean build
-  격차는 process completion bookkeeping, successful action log/replay write, compiler
-  process count 쪽에 아직 남아 있다.
+- `src/executor.c`의 process output drain은 poll 기반 readiness로 바뀌었고, Q131은
+  successful action log materialization을 lazy path로 옮겼다. Clean build 격차는 여전히
+  process completion bookkeeping, compiler process count, remaining metadata write 쪽에
+  남아 있다.
 
 이것들은 모두 기능적으로는 옳다. 하지만 Ninja급 clean build를 목표로 할 때는 hot path에서
 줄여야 할 비용이다.
