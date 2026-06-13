@@ -1554,7 +1554,7 @@ contains "$tmp/log.out" "qstar log v1"
 contains "$tmp/log.out" "log_file build/qstar/logs/___app_compile_0.log"
 
 cat > "$tmp/src/main.c" <<'EOF'
-int main(void) { return ; }
+int main(void) { return (1 + ); }
 EOF
 
 if "$qstar" --file "$tmp/qstar.lua" --diagnostics json build //:app > "$tmp/fail.out" 2> "$tmp/fail.err"; then
