@@ -386,7 +386,9 @@ lowered_action id=//:app:link:0 status=hit kind=link
 3. warning/error stream coloring과 action log/replay를 유지한다.
 
 Status: deferred. Q122 실험은 현 구조에서 유의미한 clean build 개선을 만들지 못해
-revert했다. 실제 process runner 개편은 더 큰 scheduler/process boundary 정리가 필요하다.
+revert했다. 이후 Q129는 `posix_spawn` start path를, Q130은 poll 기반 output drain path를
+각각 별도 라운드로 적용했다. Clean build의 남은 격차는 더 큰 scheduler/process completion
+boundary 정리가 필요하다.
 
 ### Q123 Compact Deps DB
 
@@ -455,6 +457,37 @@ Q129은 process spawn boundary를 정리하는 구조 패치다. No-op과 increm
 체감권을 유지하지만, clean build는 machine state와 compiler process 비용에 따라 편차가
 크고 아직 안정적으로 500-650ms 목표에 들어오지는 않는다. 다음 성능 라운드는 pipe wait/drain
 event loop와 successful action log/replay materialization 감소가 핵심이다.
+
+### Q130 Event-Driven Output Drain
+
+Status: implemented.
+
+1. compile/custom action wait loop에서 fixed sleep pause를 제거했다.
+2. Single action path, per-target parallel path, global ready-queue scheduler는 child
+   stdout/stderr pipe fd를 `poll()`로 기다린 뒤 drain한다.
+3. Warning/error stream coloring과 raw stdout/stderr action log는 그대로 유지한다.
+4. Timeout/cancel propagation은 기존 UX를 유지한다.
+5. macOS와 Linux는 같은 POSIX `poll()` path를 쓴다. Pipe capture가 없는 test artifact
+   runner는 bounded `poll(NULL, 0, timeout)` fallback을 쓴다.
+
+Observed Q130 timing on the medium corpus, local macOS arm64:
+
+```txt
+medium_project_gate target_count=47 min_targets=40
+medium_project_gate backend=stella phase=clean elapsed_ms=821
+medium_project_gate backend=stella phase=noop elapsed_ms=72
+medium_project_gate backend=stella phase=incremental elapsed_ms=94
+medium_project_gate backend=ninja phase=clean elapsed_ms=264
+medium_project_gate backend=ninja phase=noop elapsed_ms=77
+medium_project_gate backend=ninja phase=incremental elapsed_ms=104
+medium_project_gate warning=stella clean 821ms exceeds ninja 264ms beyond ratio_x100=200 slack_ms=250
+medium_project_gate status=ok perf_issue_count=1 report_only=1
+```
+
+Q130은 fixed sleep wait/drain 구조를 제거했지만, clean build wall time은 아직 개선으로
+이어지지 않았다. No-op과 incremental은 Ninja급 latency를 유지한다. 남은 clean gap은 process
+completion bookkeeping, successful action log/replay write, compiler process count 쪽에 더
+크게 남아 있다.
 
 ## Acceptance Criteria
 

@@ -136,14 +136,15 @@ QStar에 적용할 점:
 ### Subprocess Wait
 
 `src/subprocess-posix.cc`는 `ppoll` 또는 `pselect` 기반으로 running subprocess의 pipe와
-jobserver token을 기다린다. Stella는 아직 일부 경로에서 `waitpid(..., WNOHANG)` polling과
-짧은 pause를 사용한다.
+jobserver token을 기다린다. Stella는 Q130부터 compile/custom action의 stdout/stderr pipe를
+`poll()` readiness로 기다린다. Test artifact처럼 pipe capture가 없는 path만 bounded
+`poll(NULL, 0, timeout)` fallback을 사용한다.
 
 QStar에 적용할 점:
 
-- Stella의 process wait loop를 poll/select 기반으로 바꿔 short action latency와 CPU wakeup을
-  줄인다.
-- stdout/stderr line coloring은 유지하되, pipe drain과 wait를 하나의 event loop로 묶는다.
+- Stella의 process wait loop는 poll 기반으로 이동했으므로, 다음 단계는 process boundary와
+  action completion bookkeeping을 더 줄이는 것이다.
+- stdout/stderr line coloring은 유지하면서 pipe drain과 wait를 하나의 event loop로 묶었다.
 - single action path와 scheduler path가 같은 process runner를 공유하게 한다.
 
 ## Stella Current Hot Spots
@@ -159,8 +160,9 @@ QStar source 기준 관찰:
   동적 할당한다.
 - `src/executor.c`는 compile 성공 후 depfile-discovered input을 읽고 action material을
   갱신한다. 이 구조는 정확성에는 좋지만, clean path에서는 per-action overhead가 생긴다.
-- `src/executor.c`의 process wait loop는 아직 Ninja식 event loop보다 단순 polling 성격이
-  강하다.
+- `src/executor.c`의 process output drain은 poll 기반 readiness로 바뀌었지만, clean build
+  격차는 process completion bookkeeping, successful action log/replay write, compiler
+  process count 쪽에 아직 남아 있다.
 
 이것들은 모두 기능적으로는 옳다. 하지만 Ninja급 clean build를 목표로 할 때는 hot path에서
 줄여야 할 비용이다.
@@ -281,9 +283,9 @@ Q118 분석에서 확인한 주요 source anchor:
 - single action path와 scheduler path가 공유하는 process runner 추가
 - `waitpid(WNOHANG)` polling을 poll/select 계열 event wait로 교체
 - warning/error coloring과 action log/replay는 유지
-- Q129에서 첫 구조 패치로 macOS/Linux(glibc) `posix_spawn` runner를 도입했다. Event wait
-  자체는 아직 남은 작업이지만, single action path와 scheduler path는 같은 spawn helper를
-  공유한다.
+- Q129에서 첫 구조 패치로 macOS/Linux(glibc) `posix_spawn` runner를 도입했다.
+- Q130에서 stdout/stderr pipe readiness 기반 output drain을 추가해, single action path와
+  scheduler path가 spawn helper와 event wait helper를 모두 공유한다.
 
 ### Q123: Clean Build Hard Gate Trial
 
@@ -298,6 +300,17 @@ Q118 분석에서 확인한 주요 source anchor:
 - macOS와 Linux/glibc는 `posix_spawn` fast path를 사용하고, unsupported platform이나 spawn
   setup failure는 기존 fork/exec path로 fallback
 - `--schedule-trace`에서 `runner=posix_spawn|fork`로 선택된 runner를 확인할 수 있다.
+
+### Q130: Event-Driven Output Drain
+
+- compile/custom action wait loop에서 fixed sleep pause를 제거하고 stdout/stderr pipe
+  readiness를 `poll()`로 기다린다.
+- single action path, per-target parallel path, global ready-queue scheduler가 같은 event wait
+  helper를 쓴다.
+- warning/error stream coloring, raw stdout/stderr action log, timeout/cancel propagation은
+  유지한다.
+- macOS와 Linux는 같은 POSIX `poll()` path를 쓴다. Pipe capture가 없는 test artifact runner는
+  bounded `poll(NULL, 0, timeout)` fallback을 쓴다.
 
 ## Q118 Verdict
 

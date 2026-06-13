@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <dirent.h>
 #include <ctype.h>
+#include <poll.h>
 #include <spawn.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -34,6 +35,7 @@
 #define QSTAR_DEPS_DB_ABI 1ULL
 #define QSTAR_STATE_DB_MAX_STRING (16ULL * 1024ULL * 1024ULL)
 #define QSTAR_FILE_WRITE_BUFFER_SIZE 65536
+#define QSTAR_PROCESS_EVENT_WAIT_MS 25
 
 #if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__))
 #define QSTAR_HAVE_POSIX_SPAWN_RUNNER 1
@@ -835,6 +837,80 @@ child_capture_drain(struct qstar_build_ctx *ctx, struct qstar_child_capture *cap
 	return rc;
 }
 
+/** action timeout을 넘기지 않는 범위에서 process event wait 시간을 정한다. */
+static int
+process_event_wait_timeout_ms(time_t start, int timeout_sec)
+{
+	time_t now, elapsed, remaining;
+
+	if (timeout_sec <= 0)
+		return QSTAR_PROCESS_EVENT_WAIT_MS;
+	now = time(NULL);
+	elapsed = now >= start ? now - start : 0;
+	if (elapsed >= timeout_sec)
+		return 0;
+	remaining = timeout_sec - elapsed;
+	if (remaining <= 1)
+		return 10;
+	return QSTAR_PROCESS_EVENT_WAIT_MS;
+}
+
+/** 하나의 child capture에서 poll 가능한 stdout/stderr fd를 수집한다. */
+static nfds_t
+child_capture_pollfds(const struct qstar_child_capture *capture, struct pollfd *fds,
+    nfds_t cap)
+{
+	nfds_t nfds = 0;
+
+	if (capture->out.fd >= 0 && nfds < cap) {
+		fds[nfds].fd = capture->out.fd;
+		fds[nfds].events = POLLIN;
+		fds[nfds].revents = 0;
+		nfds++;
+	}
+	if (capture->err.fd >= 0 && nfds < cap) {
+		fds[nfds].fd = capture->err.fd;
+		fds[nfds].events = POLLIN;
+		fds[nfds].revents = 0;
+		nfds++;
+	}
+	return nfds;
+}
+
+/** poll을 EINTR-safe하게 실행한다. */
+static int
+process_event_poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
+{
+	int rc;
+
+	if (timeout_ms < 0)
+		timeout_ms = 0;
+	for (;;) {
+		rc = poll(fds, nfds, timeout_ms);
+		if (rc < 0 && errno == EINTR)
+			continue;
+		return rc;
+	}
+}
+
+/** 단일 action의 stdout/stderr pipe readiness를 기다린 뒤 가능한 output을 drain한다. */
+static int
+child_capture_wait_ready(struct qstar_build_ctx *ctx,
+    struct qstar_child_capture *capture, int timeout_ms)
+{
+	struct pollfd fds[2];
+	nfds_t nfds;
+	int rc;
+
+	nfds = child_capture_pollfds(capture, fds, 2);
+	rc = process_event_poll(nfds > 0 ? fds : NULL, nfds, timeout_ms);
+	if (rc < 0)
+		return -1;
+	if (rc == 0)
+		return 0;
+	return child_capture_drain(ctx, capture);
+}
+
 /** child capture를 마무리하고 남은 partial diagnostic line과 log buffer를 flush한다. */
 static void
 child_capture_finish(struct qstar_build_ctx *ctx, struct qstar_child_capture *capture)
@@ -868,22 +944,61 @@ child_capture_finish(struct qstar_build_ctx *ctx, struct qstar_child_capture *ca
 	}
 }
 
+/** active action들 중 가장 가까운 timeout에 맞춰 event wait 상한을 정한다. */
+static int
+running_actions_event_wait_timeout_ms(const struct qstar_running_action *running,
+    size_t jobs, int timeout_sec)
+{
+	size_t i;
+	int best = QSTAR_PROCESS_EVENT_WAIT_MS;
+	int candidate;
+
+	for (i = 0; i < jobs; i++) {
+		if (running[i].pid <= 0)
+			continue;
+		candidate = process_event_wait_timeout_ms(running[i].start, timeout_sec);
+		if (candidate < best)
+			best = candidate;
+	}
+	return best;
+}
+
+/** active action들의 stdout/stderr pipe readiness를 한 번에 기다리고 drain한다. */
+static int
+running_actions_wait_ready(struct qstar_build_ctx *ctx,
+    struct qstar_running_action *running, size_t jobs, int timeout_ms)
+{
+	struct pollfd fds[QSTAR_EXEC_MAX_ARGV * 2];
+	size_t i;
+	nfds_t nfds = 0;
+	nfds_t cap = (nfds_t)(sizeof(fds) / sizeof(fds[0]));
+	int rc;
+
+	for (i = 0; i < jobs; i++) {
+		if (running[i].pid <= 0)
+			continue;
+		if (nfds < cap)
+			nfds += child_capture_pollfds(&running[i].capture, fds + nfds,
+			    cap - nfds);
+	}
+	rc = process_event_poll(nfds > 0 ? fds : NULL, nfds, timeout_ms);
+	if (rc < 0)
+		return -1;
+	if (rc == 0)
+		return 0;
+	for (i = 0; i < jobs; i++) {
+		if (running[i].pid <= 0)
+			continue;
+		if (child_capture_drain(ctx, &running[i].capture) < 0)
+			return -1;
+	}
+	return 0;
+}
+
 static int run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
     const struct qstar_target *target, const struct qstar_genrule *genrule);
 static int build_target(struct qstar_graph *graph, const struct qstar_target *target,
     size_t order, void *user);
-
-/** child process polling 사이의 지연을 짧게 유지해 작은 action 지연을 줄인다. */
-static void
-wait_poll_pause(void)
-{
-	struct timespec delay;
-
-	delay.tv_sec = 0;
-	delay.tv_nsec = 250000L;
-	while (nanosleep(&delay, &delay) < 0 && errno == EINTR)
-		;
-}
 
 /** 명시적 --jobs가 없을 때 host CPU 수를 기준으로 기본 병렬도를 정한다. */
 static int
@@ -3531,14 +3646,12 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 
 		start = time(NULL);
 		for (;;) {
-			if (child_capture_drain(ctx, &capture) < 0) {
-				child_capture_finish(ctx, &capture);
-				return qstar_set_error(graph, "qstar: could not read child output");
-			}
 			waited = waitpid(pid, &status, WNOHANG);
 			if (waited == pid)
 				break;
 			if (waited < 0) {
+				if (errno == EINTR)
+					continue;
 				child_capture_finish(ctx, &capture);
 				return qstar_set_error(graph, "qstar: waitpid failed");
 			}
@@ -3592,7 +3705,13 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 				    "qstar: action '%s' timed out after %d seconds; replay=%s",
 				    id, ctx->action_timeout_sec, replay_path);
 			}
-			wait_poll_pause();
+			if (child_capture_wait_ready(ctx, &capture,
+			    process_event_wait_timeout_ms(start,
+			    ctx->action_timeout_sec)) < 0) {
+				child_capture_finish(ctx, &capture);
+				return qstar_set_error(graph,
+				    "qstar: could not wait for child output");
+			}
 		}
 	}
 	child_capture_finish(ctx, &capture);
@@ -5501,6 +5620,8 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 				continue;
 			}
 			if (waited < 0) {
+				if (errno == EINTR)
+					continue;
 				rc = qstar_set_error(graph, "qstar: waitpid failed");
 				goto fail;
 			}
@@ -5513,8 +5634,15 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			progressed = 1;
 			break;
 		}
-		if (!progressed)
-			wait_poll_pause();
+		if (!progressed) {
+			if (running_actions_wait_ready(ctx, running, jobs,
+			    running_actions_event_wait_timeout_ms(running, jobs,
+			    ctx->action_timeout_sec)) < 0) {
+				rc = qstar_set_error(graph,
+				    "qstar: could not wait for child output");
+				goto fail;
+			}
+		}
 	}
 	for (i = 0; i < compile_count; i++) {
 		if (check_compile_depfile(graph, ctx, &actions[i]) < 0) {
@@ -7265,6 +7393,8 @@ scheduler_execute(struct qstar_scheduler *sched)
 				continue;
 			}
 			if (waited < 0) {
+				if (errno == EINTR)
+					continue;
 				rc = qstar_set_error(sched->graph, "qstar: waitpid failed");
 				goto fail;
 			}
@@ -7297,7 +7427,13 @@ scheduler_execute(struct qstar_scheduler *sched)
 				    "qstar: scheduler stalled with pending actions");
 				goto fail;
 			}
-			wait_poll_pause();
+			if (running_actions_wait_ready(sched->ctx, running, jobs,
+			    running_actions_event_wait_timeout_ms(running, jobs,
+			    sched->ctx->action_timeout_sec)) < 0) {
+				rc = qstar_set_error(sched->graph,
+				    "qstar: could not wait for child output");
+				goto fail;
+			}
 		}
 	}
 	if (rc == 0)
@@ -7610,8 +7746,11 @@ run_test_artifact(struct qstar_graph *graph, const struct qstar_target *target, 
 		waited = waitpid(pid, &status, WNOHANG);
 		if (waited == pid)
 			break;
-		if (waited < 0)
+		if (waited < 0) {
+			if (errno == EINTR)
+				continue;
 			return qstar_set_error(graph, "qstar: waitpid failed");
+		}
 		if (time(NULL) - start >= QSTAR_TEST_TIMEOUT_SEC) {
 			kill(pid, SIGKILL);
 			waitpid(pid, &status, 0);
@@ -7621,7 +7760,9 @@ run_test_artifact(struct qstar_graph *graph, const struct qstar_target *target, 
 			    target->origin_line, "test", target->label,
 			    "qstar: test '%s' timed out", target->label);
 		}
-		wait_poll_pause();
+		if (process_event_poll(NULL, 0,
+		    process_event_wait_timeout_ms(start, QSTAR_TEST_TIMEOUT_SEC)) < 0)
+			return qstar_set_error(graph, "qstar: waitpid failed");
 	}
 	if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
 		fprintf(out, "test_result label=%s status=pass exit=0\n", target->label);
