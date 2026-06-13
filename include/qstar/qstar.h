@@ -183,6 +183,21 @@ struct qstar_profile_decl {
 	struct qstar_profile_input input;
 };
 
+struct qstar_cached_action {
+	char *id;
+	char *kind;
+	char *target_label;
+	char *description;
+	char *depfile;
+	char *source_path;
+	size_t source_index;
+	int wants_depfile;
+	struct qstar_string_list argv;
+	struct qstar_string_list outputs;
+	struct qstar_string_list inputs;
+	struct qstar_string_list depfile_inputs;
+};
+
 struct qstar_lint_diagnostic {
 	char *code;
 	char *severity;
@@ -247,6 +262,10 @@ struct qstar_graph {
 	struct qstar_profile_decl *profile_decls;
 	size_t profile_decl_len;
 	size_t profile_decl_cap;
+	struct qstar_cached_action *cached_actions;
+	size_t cached_action_len;
+	size_t cached_action_cap;
+	int cached_action_plan_loaded;
 	char error[512];
 	char error_file[QSTAR_PATH_MAX];
 	char error_field[64];

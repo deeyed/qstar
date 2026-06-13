@@ -153,6 +153,8 @@ struct qstar_prepared_action {
 	char *argv[QSTAR_EXEC_MAX_ARGV];
 	size_t argc;
 	struct qstar_string_list outputs;
+	struct qstar_string_list inputs;
+	struct qstar_string_list depfile_inputs;
 };
 
 struct qstar_running_action {
@@ -920,6 +922,8 @@ prepared_action_free(struct qstar_prepared_action *action)
 	for (i = 0; i < action->argc; i++)
 		free(action->argv[i]);
 	qstar_string_list_free(&action->outputs);
+	qstar_string_list_free(&action->inputs);
+	qstar_string_list_free(&action->depfile_inputs);
 	memset(action, 0, sizeof(*action));
 }
 
@@ -935,6 +939,20 @@ prepared_action_push_argv(struct qstar_graph *graph, struct qstar_prepared_actio
 		return qstar_set_error(graph, "qstar: out of memory");
 	action->argc++;
 	action->argv[action->argc] = NULL;
+	return 0;
+}
+
+/** prepared action에 argv vector를 소유 복사한다. */
+static int
+prepared_action_copy_argv(struct qstar_graph *graph, struct qstar_prepared_action *action,
+    char *const argv[])
+{
+	size_t i;
+
+	for (i = 0; argv && argv[i]; i++) {
+		if (prepared_action_push_argv(graph, action, argv[i]) < 0)
+			return -1;
+	}
 	return 0;
 }
 
@@ -4985,8 +5003,8 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	compute_action_key(ctx, graph, target, toolchain, action->id, "compile",
 	    action->argv, &inputs, &dep_inputs, object, action->key, sizeof(action->key),
 	    &action->material);
-	qstar_string_list_free(&inputs);
-	qstar_string_list_free(&dep_inputs);
+	action->inputs = inputs;
+	action->depfile_inputs = dep_inputs;
 	action->outputs = outputs;
 	qstar_string_list_free(&includes);
 	return 0;
@@ -5694,10 +5712,11 @@ append_system_link_flags(struct qstar_graph *graph, const struct qstar_target *t
 	return 0;
 }
 
-/** target final archive/link action을 실행한다. */
+/** target final archive/link action을 prepared action으로 만든다. */
 static int
-run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct qstar_target *target,
-    const struct qstar_resolved_toolchain *toolchain)
+prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
+    struct qstar_prepared_action *action)
 {
 	char artifact[QSTAR_PATH_MAX], object[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX], key[32];
 	char sysroot_arg[QSTAR_PATH_MAX];
@@ -5707,8 +5726,10 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 	struct qstar_action_material material;
 	const char *final_action;
 	size_t argc, dep_first, owned_first, i;
-	int rc;
 
+	memset(action, 0, sizeof(*action));
+	action->target = target;
+	action->toolchain = toolchain;
 	if (!qstar_target_rule_lookup(target->kind) ||
 	    !qstar_target_rule_lookup(target->kind)->local_executor_supported)
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
@@ -5719,6 +5740,7 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 	    mkdir_parent_under_root(graph, artifact) < 0)
 		return qstar_set_error(graph, "qstar: could not create artifact output directory");
 	final_action = qstar_target_final_action(target);
+	snprintf(action->kind, sizeof(action->kind), "%s", final_action);
 	argc = 0;
 	if (strcmp(target->kind, "staticlib") == 0) {
 		snprintf(id, sizeof(id), "%s:%s:0", target->label, final_action);
@@ -5812,11 +5834,291 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 		free_dep_artifacts(argv, owned_first, argc);
 		return qstar_set_error(graph, "qstar: final action description too long");
 	}
-	rc = run_action(graph, ctx, target, id, final_action, key, &outputs, argv,
-	    toolchain, &material, description);
-	qstar_string_list_free(&inputs);
-	qstar_string_list_free(&outputs);
+	snprintf(action->id, sizeof(action->id), "%s", id);
+	snprintf(action->key, sizeof(action->key), "%s", key);
+	snprintf(action->description, sizeof(action->description), "%s", description);
+	action->material = material;
+	action->inputs = inputs;
+	action->outputs = outputs;
+	if (prepared_action_copy_argv(graph, action, argv) < 0) {
+		action->inputs.items = NULL;
+		action->inputs.len = action->inputs.cap = 0;
+		action->outputs.items = NULL;
+		action->outputs.len = action->outputs.cap = 0;
+		qstar_string_list_free(&inputs);
+		qstar_string_list_free(&outputs);
+		free_dep_artifacts(argv, owned_first, argc);
+		prepared_action_free(action);
+		return -1;
+	}
 	free_dep_artifacts(argv, owned_first, argc);
+	return 0;
+}
+
+/** target final archive/link action을 실행한다. */
+static int
+run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain)
+{
+	struct qstar_prepared_action action;
+	int rc;
+
+	if (prepare_final_action(graph, ctx, target, toolchain, &action) < 0)
+		return -1;
+	rc = run_action(graph, ctx, target, action.id, action.kind, action.key,
+	    &action.outputs, action.argv, toolchain, &action.material,
+	    action.description);
+	prepared_action_free(&action);
+	return rc;
+}
+
+struct qstar_lowered_cache_ctx {
+	struct qstar_build_ctx build;
+};
+
+/** cached lowered action list에서 action id를 찾는다. */
+static const struct qstar_cached_action *
+find_cached_action(const struct qstar_graph *graph, const char *id)
+{
+	size_t i;
+
+	if (!graph->cached_action_plan_loaded || !id || !*id)
+		return NULL;
+	for (i = 0; i < graph->cached_action_len; i++) {
+		if (graph->cached_actions[i].id &&
+		    strcmp(graph->cached_actions[i].id, id) == 0)
+			return &graph->cached_actions[i];
+	}
+	return NULL;
+}
+
+/** string list를 다른 list로 소유 복사한다. */
+static int
+copy_string_list(struct qstar_string_list *dst, const struct qstar_string_list *src)
+{
+	size_t i;
+
+	for (i = 0; src && i < src->len; i++) {
+		if (qstar_string_list_push(dst, src->items[i]) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+/** string list가 특정 값을 포함하는지 검사한다. */
+static int
+string_list_has(const struct qstar_string_list *list, const char *value)
+{
+	size_t i;
+
+	for (i = 0; list && i < list->len; i++) {
+		if (strcmp(list->items[i], value) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+/** compile action input 중 depfile-discovered input을 제외한 정적 input만 복사한다. */
+static int
+copy_static_inputs(struct qstar_string_list *dst, const struct qstar_string_list *inputs,
+    const struct qstar_string_list *depfile_inputs)
+{
+	size_t i;
+
+	for (i = 0; inputs && i < inputs->len; i++) {
+		if (string_list_has(depfile_inputs, inputs->items[i]))
+			continue;
+		if (qstar_string_list_push(dst, inputs->items[i]) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+/** prepared action 하나를 Graph의 cached lowered action plan에 저장한다. */
+static int
+cache_prepared_action(struct qstar_graph *graph, const struct qstar_prepared_action *action,
+    size_t source_index)
+{
+	struct qstar_cached_action *cached;
+
+	cached = qstar_graph_add_cached_action(graph);
+	if (!cached)
+		return -1;
+	cached->id = qstar_strdup(action->id);
+	cached->kind = qstar_strdup(action->kind);
+	cached->target_label = qstar_strdup(action->target ? action->target->label : "");
+	cached->description = qstar_strdup(action->description);
+	cached->depfile = qstar_strdup(action->depfile);
+	cached->source_path = qstar_strdup(action->source_path);
+	if (!cached->id || !cached->kind || !cached->target_label ||
+	    !cached->description || !cached->depfile || !cached->source_path)
+		return qstar_set_error(graph, "qstar: out of memory");
+	cached->source_index = source_index;
+	cached->wants_depfile = action->wants_depfile;
+	if (copy_string_list(&cached->argv, &(struct qstar_string_list){
+	    .items = (char **)action->argv, .len = action->argc, .cap = action->argc}) < 0 ||
+	    copy_string_list(&cached->outputs, &action->outputs) < 0 ||
+	    copy_static_inputs(&cached->inputs, &action->inputs,
+	    &action->depfile_inputs) < 0 ||
+	    copy_string_list(&cached->depfile_inputs, &action->depfile_inputs) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	return 0;
+}
+
+/** cached lowered action plan에서 prepared action을 복원하고 현재 파일 상태로 key를 계산한다. */
+static int
+prepare_cached_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
+    const char *id, const char *kind, struct qstar_prepared_action *action)
+{
+	const struct qstar_cached_action *cached;
+	const char *output;
+
+	cached = find_cached_action(graph, id);
+	if (!cached)
+		return 0;
+	if (!cached->target_label || strcmp(cached->target_label, target->label) != 0 ||
+	    !cached->kind || strcmp(cached->kind, kind) != 0 ||
+	    cached->argv.len == 0 || cached->outputs.len == 0) {
+		build_tracef(ctx, "lowered_action id=%s status=miss reason=shape-mismatch\n",
+		    id);
+		return 0;
+	}
+	memset(action, 0, sizeof(*action));
+	action->target = target;
+	action->toolchain = toolchain;
+	snprintf(action->id, sizeof(action->id), "%s", cached->id);
+	snprintf(action->kind, sizeof(action->kind), "%s", cached->kind);
+	snprintf(action->description, sizeof(action->description), "%s",
+	    cached->description ? cached->description : "");
+	snprintf(action->depfile, sizeof(action->depfile), "%s",
+	    cached->depfile ? cached->depfile : "");
+	snprintf(action->source_path, sizeof(action->source_path), "%s",
+	    cached->source_path ? cached->source_path : "");
+	action->wants_depfile = cached->wants_depfile;
+	if (copy_string_list(&action->outputs, &cached->outputs) < 0 ||
+	    copy_string_list(&action->inputs, &cached->inputs) < 0) {
+		prepared_action_free(action);
+		return qstar_set_error(graph, "qstar: out of memory");
+	}
+	if (action->wants_depfile) {
+		size_t i;
+
+		if (push_depfile_inputs(graph, ctx, action->depfile,
+		    &action->depfile_inputs) < 0) {
+			prepared_action_free(action);
+			return -1;
+		}
+		for (i = 0; i < action->depfile_inputs.len; i++) {
+			if (qstar_string_list_push(&action->inputs,
+			    action->depfile_inputs.items[i]) < 0) {
+				prepared_action_free(action);
+				return qstar_set_error(graph, "qstar: out of memory");
+			}
+		}
+	} else if (copy_string_list(&action->depfile_inputs,
+	    &cached->depfile_inputs) < 0) {
+		prepared_action_free(action);
+		return qstar_set_error(graph, "qstar: out of memory");
+	}
+	for (action->argc = 0; action->argc < cached->argv.len; action->argc++) {
+		if (action->argc + 1 >= QSTAR_EXEC_MAX_ARGV) {
+			prepared_action_free(action);
+			build_tracef(ctx, "lowered_action id=%s status=miss reason=argv-too-long\n",
+			    id);
+			return 0;
+		}
+		action->argv[action->argc] = qstar_strdup(cached->argv.items[action->argc]);
+		if (!action->argv[action->argc]) {
+			prepared_action_free(action);
+			return qstar_set_error(graph, "qstar: out of memory");
+		}
+	}
+	action->argv[action->argc] = NULL;
+	output = action->outputs.items[0];
+	compute_action_key(ctx, graph, target, toolchain, action->id, action->kind,
+	    action->argv, &action->inputs, &action->depfile_inputs, output,
+	    action->key, sizeof(action->key), &action->material);
+	if (strcmp(kind, "compile") == 0 &&
+	    strcmp(qstar_graph_compile_commands_policy(graph), "off") != 0 &&
+	    compile_db_push(ctx, graph->package_root ? graph->package_root : ".",
+	    action->source_path, output, action->argv) < 0) {
+		prepared_action_free(action);
+		return qstar_set_error(graph, "qstar: out of memory");
+	}
+	build_tracef(ctx, "lowered_action id=%s status=hit kind=%s\n", id, kind);
+	return 1;
+}
+
+/** target 하나의 compile/final action을 lowered cache plan에 기록한다. */
+static int
+lowered_cache_visit(struct qstar_graph *graph, const struct qstar_target *target,
+    size_t order, void *user)
+{
+	struct qstar_lowered_cache_ctx *ctx = user;
+	struct qstar_resolved_toolchain toolchain;
+	struct qstar_prepared_action action;
+	struct qstar_source_info source;
+	const char *final_action;
+	size_t i;
+
+	(void)order;
+	if (strcmp(target->kind, "group") == 0 || strcmp(target->kind, "run_target") == 0)
+		return 0;
+	if (qstar_resolve_toolchain(graph, target, &toolchain) < 0 ||
+	    validate_noncompile_sources(graph, target, &toolchain) < 0)
+		return -1;
+	for (i = 0; i < target->sources.len; i++) {
+		qstar_source_classify(target->sources.items[i], &source);
+		if (!source_requires_compile(&source))
+			continue;
+		if (prepare_compile_action(graph, &ctx->build, target, &toolchain, i,
+		    &action) < 0)
+			return -1;
+		if (cache_prepared_action(graph, &action, i) < 0) {
+			prepared_action_free(&action);
+			return -1;
+		}
+		prepared_action_free(&action);
+	}
+	final_action = qstar_target_final_action(target);
+	if (strcmp(final_action, "group") == 0 || strcmp(final_action, "run") == 0)
+		return 0;
+	if (prepare_final_action(graph, &ctx->build, target, &toolchain, &action) < 0)
+		return -1;
+	if (cache_prepared_action(graph, &action, 0) < 0) {
+		prepared_action_free(&action);
+		return -1;
+	}
+	prepared_action_free(&action);
+	return 0;
+}
+
+/** 현재 Graph에서 실행 가능한 lowered action plan을 준비한다. */
+int
+qstar_graph_prepare_lowered_action_cache(struct qstar_graph *graph, const char *label)
+{
+	struct qstar_lowered_cache_ctx ctx;
+	const struct qstar_genrule *genrule;
+	int rc;
+
+	qstar_graph_clear_cached_actions(graph);
+	genrule = label && *label ? qstar_graph_find_genrule(graph, label) : NULL;
+	if (genrule)
+		return 0;
+	memset(&ctx, 0, sizeof(ctx));
+	ctx.build.out = stdout;
+	ctx.build.root_label = label && *label ? label : "<all>";
+	ctx.build.jobs = default_job_count();
+	ctx.build.progress_mode = QSTAR_PROGRESS_OFF;
+	ctx.build.color_mode = QSTAR_COLOR_NEVER;
+	ctx.build.action_timeout_sec = action_timeout_sec_from_env();
+	rc = qstar_graph_visit_closure(graph, label, lowered_cache_visit, &ctx);
+	hash_cache_free(ctx.build.hash_cache, ctx.build.hash_cache_len);
+	compile_db_free(ctx.build.compiles, ctx.build.compile_len);
+	deps_entries_free(ctx.build.deps_prev, ctx.build.deps_prev_len);
+	deps_entries_free(ctx.build.deps_next, ctx.build.deps_next_len);
+	free(ctx.build.deps_prev_index);
 	return rc;
 }
 
@@ -6572,6 +6874,9 @@ static int
 scheduler_run_sync_node(struct qstar_scheduler *sched, size_t node_index)
 {
 	struct qstar_sched_node *node = &sched->nodes[node_index];
+	struct qstar_prepared_action action;
+	const char *final_action;
+	char id[QSTAR_PATH_MAX];
 	int rc;
 
 	build_tracef(sched->ctx,
@@ -6590,6 +6895,20 @@ scheduler_run_sync_node(struct qstar_scheduler *sched, size_t node_index)
 	if (node->kind == QSTAR_SCHED_RUN)
 		return run_target_command(sched->graph, sched->ctx, node->target);
 	if (node->kind == QSTAR_SCHED_FINAL) {
+		final_action = qstar_target_final_action(node->target);
+		snprintf(id, sizeof(id), "%s:%s:0", node->target->label, final_action);
+		rc = prepare_cached_action(sched->graph, sched->ctx, node->target,
+		    node->toolchain, id, final_action, &action);
+		if (rc < 0)
+			return -1;
+		if (rc > 0) {
+			rc = run_action(sched->graph, sched->ctx, node->target,
+			    action.id, action.kind, action.key, &action.outputs,
+			    action.argv, node->toolchain, &action.material,
+			    action.description);
+			prepared_action_free(&action);
+			return rc;
+		}
 		rc = run_final(sched->graph, sched->ctx, node->target, node->toolchain);
 		return rc;
 	}
@@ -6669,14 +6988,27 @@ scheduler_execute(struct qstar_scheduler *sched)
 				progressed = 1;
 				continue;
 			}
-			if (sched->nodes[node_index].action.id[0] == '\0' &&
-			    prepare_compile_action(sched->graph, sched->ctx,
-			    sched->nodes[node_index].target,
-			    sched->nodes[node_index].toolchain,
-			    sched->nodes[node_index].source_index,
-			    &sched->nodes[node_index].action) < 0) {
-				rc = -1;
-				goto fail;
+			if (sched->nodes[node_index].action.id[0] == '\0') {
+				char id[QSTAR_PATH_MAX];
+
+				snprintf(id, sizeof(id), "%s:compile:%zu",
+				    sched->nodes[node_index].target->label,
+				    sched->nodes[node_index].source_index);
+				rc = prepare_cached_action(sched->graph, sched->ctx,
+				    sched->nodes[node_index].target,
+				    sched->nodes[node_index].toolchain, id, "compile",
+				    &sched->nodes[node_index].action);
+				if (rc < 0)
+					goto fail;
+				if (rc == 0 &&
+				    prepare_compile_action(sched->graph, sched->ctx,
+				    sched->nodes[node_index].target,
+				    sched->nodes[node_index].toolchain,
+				    sched->nodes[node_index].source_index,
+				    &sched->nodes[node_index].action) < 0) {
+					rc = -1;
+					goto fail;
+				}
 			}
 			if (progress_node_counts(&sched->nodes[node_index]))
 				progress_status(sched->ctx,

@@ -189,6 +189,8 @@ test ! -f "$tmp/compile_commands.json" || fail "default compile_commands leaked 
 step "initial build smoke: Stella plan cache hit" "plan-cache-hit"
 "$qstar" --file "$tmp/qstar.lua" build //:app --progress off --schedule-trace > "$tmp/plan-cache-hit.out" 2> "$tmp/plan-cache-hit.err"
 contains "$tmp/plan-cache-hit.out" "plan_cache status=hit reason=hit"
+contains "$tmp/plan-cache-hit.out" "lowered_action id=//:app:compile:0 status=hit kind=compile"
+contains "$tmp/plan-cache-hit.out" "lowered_action id=//:app:link:0 status=hit kind=link"
 contains "$tmp/plan-cache-hit.out" "dirty_state_db status=hit"
 contains "$tmp/plan-cache-hit.out" "deps_db status=hit"
 contains "$tmp/plan-cache-hit.out" "build_action id=//:app:compile:0 status=skip reason=cache-hit"

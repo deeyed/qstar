@@ -11,7 +11,7 @@
 #define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v1"
 #define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v1"
 #define QSTAR_STELLA_ACTION_MAGIC "qstar-stella-actions-cache-v1"
-#define QSTAR_STELLA_PLAN_ABI 1
+#define QSTAR_STELLA_PLAN_ABI 2
 #define QSTAR_STELLA_HASH_INIT 1469598103934665603ULL
 #define QSTAR_STELLA_HASH_PRIME 1099511628211ULL
 #define QSTAR_STELLA_MAX_STRING (16U * 1024U * 1024U)
@@ -21,11 +21,6 @@ struct cache_file_fp {
 	unsigned long long size;
 	unsigned long long mtime_ns;
 	unsigned long long hash;
-};
-
-struct action_summary_ctx {
-	FILE *out;
-	size_t action_count;
 };
 
 static void
@@ -1140,177 +1135,139 @@ package_alias_hash(const struct qstar_graph *graph)
 	return h;
 }
 
+/** lowered action 하나를 actions.qsa에 기록한다. */
 static int
-write_action_line(FILE *out, const char *id, const char *kind, const char *description,
-    size_t *action_count)
+write_cached_action(FILE *f, const struct qstar_cached_action *action)
 {
-	fprintf(out, "action id=");
-	json_string(out, id);
-	fprintf(out, " kind=");
-	json_string(out, kind);
-	fprintf(out, " description=");
-	json_string(out, description);
-	fputc('\n', out);
-	(*action_count)++;
-	return 0;
+	return write_str(f, action->id) < 0 ||
+	    write_str(f, action->kind) < 0 ||
+	    write_str(f, action->target_label) < 0 ||
+	    write_str(f, action->description) < 0 ||
+	    write_str(f, action->depfile) < 0 ||
+	    write_str(f, action->source_path) < 0 ||
+	    write_u64(f, (unsigned long long)action->source_index) < 0 ||
+	    write_i32(f, action->wants_depfile) < 0 ||
+	    write_list(f, &action->argv) < 0 ||
+	    write_list(f, &action->outputs) < 0 ||
+	    write_list(f, &action->inputs) < 0 ||
+	    write_list(f, &action->depfile_inputs) < 0 ? -1 : 0;
 }
 
+/** actions.qsa에서 lowered action 하나를 읽는다. */
 static int
-write_generated_action_summaries(struct qstar_graph *graph, FILE *out, size_t *action_count)
+read_cached_action(FILE *f, struct qstar_cached_action *action)
 {
-	char id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
-	size_t i;
+	unsigned long long source_index;
 
-	for (i = 0; i < graph->genrule_len; i++) {
-		if (snprintf(id, sizeof(id), "%s:generate:0",
-		    graph->genrules[i].label) >= (int)sizeof(id))
-			return -1;
-		if (qstar_action_description_generate(&graph->genrules[i], description,
-		    sizeof(description)) < 0)
-			snprintf(description, sizeof(description), "<too-long>");
-		if (write_action_line(out, id, "generate", description, action_count) < 0)
-			return -1;
-	}
-	return 0;
-}
-
-static int
-action_summary_visit(struct qstar_graph *graph, const struct qstar_target *target,
-    size_t order, void *user)
-{
-	struct action_summary_ctx *ctx;
-	struct qstar_source_info source;
-	char id[QSTAR_PATH_MAX], output[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
-	const char *final_action;
-	size_t i;
-
-	(void)order;
-	ctx = user;
-	fprintf(ctx->out, "target label=");
-	json_string(ctx->out, target->label);
-	fprintf(ctx->out, " kind=");
-	json_string(ctx->out, target->kind);
-	fputc('\n', ctx->out);
-	if (strcmp(target->kind, "group") == 0) {
-		fprintf(ctx->out, "progress_exclude label=");
-		json_string(ctx->out, target->label);
-		fputs(" reason=\"group\"\n", ctx->out);
-		return 0;
-	}
-	if (strcmp(target->kind, "run_target") == 0) {
-		if (snprintf(id, sizeof(id), "%s:run:0", target->label) >=
-		    (int)sizeof(id))
-			return -1;
-		if (qstar_action_description_run(target, description,
-		    sizeof(description)) < 0)
-			snprintf(description, sizeof(description), "<too-long>");
-		return write_action_line(ctx->out, id, "run", description,
-		    &ctx->action_count);
-	}
-	for (i = 0; i < target->sources.len; i++) {
-		if (qstar_source_classify(target->sources.items[i], &source) < 0 ||
-		    !source.compile_input)
-			continue;
-		if (qstar_graph_object_output_path(graph, target, i, output,
-		    sizeof(output)) < 0 ||
-		    snprintf(id, sizeof(id), "%s:compile:%zu", target->label,
-		    i) >= (int)sizeof(id))
-			return -1;
-		if (qstar_action_description_compile(target, &source, output,
-		    description, sizeof(description)) < 0)
-			snprintf(description, sizeof(description), "<too-long>");
-		if (write_action_line(ctx->out, id, "compile", description,
-		    &ctx->action_count) < 0)
-			return -1;
-	}
-	final_action = qstar_target_final_action(target);
-	if (strcmp(final_action, "group") == 0 || strcmp(final_action, "run") == 0)
-		return 0;
-	if (qstar_graph_artifact_output_path(graph, target, output, sizeof(output)) < 0)
-		return 0;
-	if (snprintf(id, sizeof(id), "%s:%s:0", target->label, final_action) >=
-	    (int)sizeof(id))
+	if (read_str(f, &action->id) < 0 ||
+	    read_str(f, &action->kind) < 0 ||
+	    read_str(f, &action->target_label) < 0 ||
+	    read_str(f, &action->description) < 0 ||
+	    read_str(f, &action->depfile) < 0 ||
+	    read_str(f, &action->source_path) < 0 ||
+	    read_u64(f, &source_index) < 0 ||
+	    read_i32(f, &action->wants_depfile) < 0 ||
+	    read_list(f, &action->argv) < 0 ||
+	    read_list(f, &action->outputs) < 0 ||
+	    read_list(f, &action->inputs) < 0 ||
+	    read_list(f, &action->depfile_inputs) < 0)
 		return -1;
-	if (qstar_action_description_final(target, final_action, output, description,
-	    sizeof(description)) < 0)
-		snprintf(description, sizeof(description), "<too-long>");
-	return write_action_line(ctx->out, id, final_action, description,
-	    &ctx->action_count);
+	action->source_index = (size_t)source_index;
+	action->wants_depfile = action->wants_depfile ? 1 : 0;
+	return 0;
+}
+
+/** lowered action cache entry가 scheduler에서 복원 가능한 최소 모양인지 확인한다. */
+static int
+cached_action_shape_ok(const struct qstar_cached_action *action)
+{
+	return action->id && *action->id &&
+	    action->kind && *action->kind &&
+	    action->target_label && *action->target_label &&
+	    action->argv.len > 0 &&
+	    action->outputs.len > 0;
 }
 
 static int
 write_actions_file(struct qstar_graph *graph, const char *label, const char *path,
     size_t *action_count)
 {
-	const struct qstar_genrule *genrule;
-	struct action_summary_ctx ctx;
-	char id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
+	FILE *f;
+	size_t i;
 
-	memset(&ctx, 0, sizeof(ctx));
-	ctx.out = fopen(path, "wb");
-	if (!ctx.out)
+	f = fopen(path, "wb");
+	if (!f)
 		return -1;
-	fprintf(ctx.out, "%s\n", QSTAR_STELLA_ACTION_MAGIC);
-	fprintf(ctx.out, "{\"root\":");
-	json_string(ctx.out, label_key(label));
-	fputs("}\n", ctx.out);
-	genrule = label && *label ? qstar_graph_find_genrule(graph, label) : NULL;
-	if (genrule) {
-		if (snprintf(id, sizeof(id), "%s:generate:0", genrule->label) >=
-		    (int)sizeof(id)) {
-			fclose(ctx.out);
-			return -1;
-		}
-		if (qstar_action_description_generate(genrule, description,
-		    sizeof(description)) < 0)
-			snprintf(description, sizeof(description), "<too-long>");
-		if (write_action_line(ctx.out, id, "generate", description,
-		    &ctx.action_count) < 0) {
-			fclose(ctx.out);
-			return -1;
-		}
-	} else if (write_generated_action_summaries(graph, ctx.out,
-	    &ctx.action_count) < 0 ||
-	    qstar_graph_visit_closure(graph, label, action_summary_visit, &ctx) < 0) {
-		fclose(ctx.out);
+	fprintf(f, "%s\n", QSTAR_STELLA_ACTION_MAGIC);
+	fprintf(f, "{\"root\":");
+	json_string(f, label_key(label));
+	fputs("}\n", f);
+	if (write_u64(f, (unsigned long long)graph->cached_action_len) < 0) {
+		fclose(f);
 		return -1;
 	}
-	fprintf(ctx.out, "action_count %zu\n", ctx.action_count);
-	if (fclose(ctx.out) != 0)
+	for (i = 0; i < graph->cached_action_len; i++) {
+		if (write_cached_action(f, &graph->cached_actions[i]) < 0) {
+			fclose(f);
+			return -1;
+		}
+	}
+	if (fclose(f) != 0)
 		return -1;
-	*action_count = ctx.action_count;
+	*action_count = graph->cached_action_len;
 	return 0;
 }
 
+/** actions.qsa lowered action plan을 Graph에 복원한다. */
 static int
-actions_file_valid(const char *path, const char *label)
+read_actions_file(const char *path, struct qstar_graph *graph, const char *label)
 {
 	FILE *f;
-	char line[512];
+	struct qstar_cached_action *action;
+	char line[QSTAR_PATH_MAX + 128];
 	char *root;
+	unsigned long long count, i;
 	int ok;
 
 	f = fopen(path, "rb");
 	if (!f)
-		return 0;
+		return -1;
 	if (!fgets(line, sizeof(line), f)) {
 		fclose(f);
-		return 0;
+		return -1;
 	}
 	if (strncmp(line, QSTAR_STELLA_ACTION_MAGIC,
 	    strlen(QSTAR_STELLA_ACTION_MAGIC)) != 0) {
 		fclose(f);
-		return 0;
+		return -1;
 	}
 	if (!fgets(line, sizeof(line), f)) {
 		fclose(f);
-		return 0;
+		return -1;
 	}
-	fclose(f);
 	root = json_get_string(line, "root");
 	ok = root && strcmp(root, label_key(label)) == 0;
 	free(root);
-	return ok;
+	if (!ok || read_u64(f, &count) < 0 || count > 1000000ULL) {
+		fclose(f);
+		return -1;
+	}
+	qstar_graph_clear_cached_actions(graph);
+	for (i = 0; i < count; i++) {
+		action = qstar_graph_add_cached_action(graph);
+		if (!action || read_cached_action(f, action) < 0 ||
+		    !cached_action_shape_ok(action)) {
+			fclose(f);
+			qstar_graph_clear_cached_actions(graph);
+			return -1;
+		}
+	}
+	if (fclose(f) != 0) {
+		qstar_graph_clear_cached_actions(graph);
+		return -1;
+	}
+	graph->cached_action_plan_loaded = 1;
+	return 0;
 }
 
 static int
@@ -1481,7 +1438,7 @@ qstar_stella_plan_cache_try_load(struct qstar_graph *graph, const char *file,
 	free(manifest);
 	if (!ok)
 		return 0;
-	if (!actions_file_valid(actions_path, label)) {
+	if (access(actions_path, R_OK) < 0) {
 		set_reason(reason, reason_len, "action-plan-missing");
 		return 0;
 	}
@@ -1490,6 +1447,11 @@ qstar_stella_plan_cache_try_load(struct qstar_graph *graph, const char *file,
 	(void)input_hash;
 	if (read_graph_cache_file(graph_path, &loaded) < 0) {
 		set_reason(reason, reason_len, "graph-cache-parse-error");
+		return 0;
+	}
+	if (read_actions_file(actions_path, &loaded, label) < 0) {
+		qstar_graph_free(&loaded);
+		set_reason(reason, reason_len, "action-plan-parse-error");
 		return 0;
 	}
 	qstar_graph_free(graph);
@@ -1534,6 +1496,10 @@ qstar_stella_plan_cache_store(struct qstar_graph *graph, const char *file,
 	}
 	if (mkdir_p(cache_dir) < 0 || mkdir_p(tmp_dir) < 0) {
 		set_reason(reason, reason_len, "cache-dir-create-failed");
+		return -1;
+	}
+	if (qstar_graph_prepare_lowered_action_cache(graph, label) < 0) {
+		set_reason(reason, reason_len, "action-plan-prepare-failed");
 		return -1;
 	}
 	(void)mkdir_parent(graph_tmp);

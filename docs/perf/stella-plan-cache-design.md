@@ -5,11 +5,11 @@ cache의 설계를 고정한다. 목표는 QStar의 Lua DSL authoring 장점은 
 invocation에서는 Ninja처럼 낮은 수준의 execution graph만 읽게 만드는 것이다.
 
 ```txt
-status: q120 stella lowered plan cache mvp active
-date: 2026-06-13
+status: q124 direct lowered action execution active
+date: 2026-06-14
 depends-on: docs/perf/stella-ninja-profile.md
-scope: internal plan cache design and MVP behavior
-implementation: graph/action summary cache active for Stella build
+scope: internal plan cache design and current behavior
+implementation: graph cache plus executable compile/archive/link action plan active for Stella build
 ```
 
 ## Goal
@@ -78,7 +78,7 @@ build/qstar/stella/
   manifest.json       # cache schema, qstar version, fingerprint summary
   inputs.json         # authoring input file fingerprints
   graph.qsg           # lowered graph summary, internal text v1
-  actions.qsa         # lowered action plan, internal text v1
+  actions.qsa         # executable lowered action plan, internal binary v2
   logs/
     plan-cache.log    # optional verbose/cache debug log
   tmp/
@@ -101,11 +101,12 @@ Q120 MVP는 다음 파일을 실제로 쓴다.
   authoring input fingerprint summary.
 - `inputs.json`: evaluated authoring inputs의 path/size/mtime/content hash.
 - `graph.qsg`: validated Graph IR의 internal binary snapshot.
-- `actions.qsa`: requested build root의 lowered action summary.
+- `actions.qsa`: requested build root의 executable lowered action plan.
 
-현재 scheduler는 `actions.qsa`를 직접 실행하지 않고, cache hit으로 복원된 Graph IR에서 기존
-Stella action materialization을 사용한다. 즉 Q120은 Lua eval과 validation을 건너뛰는
-whole-graph cache MVP이고, Q121 이후에 action state compact path와 더 강하게 결합한다.
+Q120은 Lua eval과 validation을 건너뛰는 whole-graph cache MVP였다. Q124부터 scheduler는
+cache hit 시 `actions.qsa`에서 compile/archive/link action의 argv, output, description,
+static input list를 직접 복원한다. 파일 content/env/action key는 실행 직전에 다시 계산하므로
+stale source/header 변경은 기존 dirty-check와 같은 방식으로 rebuild된다.
 Q121 이후에는 build start에서 `build/qstar/state/state.db`를 먼저 읽고, stale/missing이면
 `state/actions.json`으로 fallback한다.
 Q123 이후에는 `build/qstar/state/deps.db`도 함께 읽는다. 이 DB는 compiler depfile 자체를
@@ -247,23 +248,21 @@ Q120 MVP는 whole-plan hit/miss만 지원한다.
 
 ## Cached Plan Content
 
-`actions.qsa`는 scheduler가 실행에 필요한 최소 정보를 담는다.
+`actions.qsa`는 scheduler가 compile/archive/link action을 다시 materialize하지 않고 실행할 수
+있는 최소 정보를 담는다. Generated/custom action은 이번 단계에서 기존 경로를 유지한다.
 
 필수 field:
 
 - action id
-- kind: compile, archive, link, link-shared, generate, run
+- kind: compile, archive, link, link-shared
 - owner label
 - source path if any
 - output paths
 - depfile path if any
 - argv vector or argv digest plus argv table
-- response-file policy
-- profile/toolchain digest
-- input digest seed
-- output identity metadata
 - user-facing description
-- dependency edge list by action index
+- static input list
+- depfile-discovered input list snapshot
 
 제외 field:
 
@@ -343,7 +342,7 @@ Plan cache는 build output이다. Source-of-truth가 아니다.
 ### Q120 MVP
 
 1. authoring input tracking을 manifest로 serialize한다.
-2. `actions.qsa` text v1 writer를 추가한다.
+2. `actions.qsa` writer를 추가한다.
 3. build start에서 manifest/input fingerprint를 확인한다.
 4. hit이면 cached action plan을 load한다.
 5. miss이면 기존 Lua eval path를 사용하고 plan cache를 rewrite한다.
@@ -357,6 +356,22 @@ Status: implemented. Cache hit이면 `plan_cache status=hit reason=hit`가
 ### Q121 Fast State
 
 Status: implemented.
+
+### Q124 Direct Lowered Action Execution
+
+Status: implemented.
+
+`actions.qsa`는 ABI 2부터 executable lowered action plan이다. Cache hit path에서는
+`--schedule-trace`에 다음과 같은 record가 나온다.
+
+```txt
+lowered_action id=//:app:compile:0 status=hit kind=compile
+lowered_action id=//:app:link:0 status=hit kind=link
+```
+
+이 hit는 action argv/output/description 복원을 뜻한다. 실제 skip/run 여부는 이후
+`state.db`, `deps.db`, file hash, output 존재 여부를 다시 확인한 뒤 결정된다. 즉 cache file만
+있다는 이유로 action을 stale skip하지 않는다.
 
 1. `build/qstar/state/state.db` compact lookup을 추가했다.
 2. `state/actions.json`은 계속 쓴다.
@@ -417,13 +432,14 @@ process runner와 scheduler hot path다.
 Observed Q123 representative timing on the medium corpus:
 
 ```txt
-medium_project_gate backend=stella phase=clean elapsed_ms=754
-medium_project_gate backend=stella phase=noop elapsed_ms=70
-medium_project_gate backend=stella phase=incremental elapsed_ms=102
-medium_project_gate backend=ninja phase=clean elapsed_ms=269
-medium_project_gate backend=ninja phase=noop elapsed_ms=77
-medium_project_gate backend=ninja phase=incremental elapsed_ms=112
-medium_project_gate status=ok perf_issue_count=0 report_only=1
+medium_project_gate backend=stella phase=clean elapsed_ms=808
+medium_project_gate backend=stella phase=noop elapsed_ms=82
+medium_project_gate backend=stella phase=incremental elapsed_ms=103
+medium_project_gate backend=ninja phase=clean elapsed_ms=263
+medium_project_gate backend=ninja phase=noop elapsed_ms=74
+medium_project_gate backend=ninja phase=incremental elapsed_ms=105
+medium_project_gate warning=stella clean 808ms exceeds ninja 263ms beyond ratio_x100=200 slack_ms=250
+medium_project_gate status=ok perf_issue_count=1 report_only=1
 ```
 
 ## Open Questions
@@ -431,7 +447,8 @@ medium_project_gate status=ok perf_issue_count=0 report_only=1
 - Q120에서 `qstar list-targets`까지 cache fast path를 열 것인가?
   - 결정: build path만 먼저 적용한다.
 - `actions.qsa`를 JSON으로 시작할 것인가 line protocol로 시작할 것인가?
-  - 결정: line protocol을 우선한다. JSON string escaping 비용과 parse overhead를 줄이기 위해서다.
+  - 결정: magic line + root JSON line + binary payload로 둔다. 파일 정체와 root는 사람이 바로
+    확인할 수 있고, action payload는 parse overhead를 줄인다.
 - content hash를 항상 계산하면 no-op이 느려지지 않는가?
   - 결정: MVP는 correctness 우선으로 항상 hash한다. 이후 mtime/size fast path를 추가한다.
 - cache miss reason을 일반 output에 보여줄 것인가?

@@ -265,6 +265,22 @@ free_profile_decl(struct qstar_profile_decl *decl)
 	free_profile_input(&decl->input);
 }
 
+/** cached lowered action entry가 소유한 문자열과 list를 해제한다. */
+static void
+free_cached_action(struct qstar_cached_action *action)
+{
+	free(action->id);
+	free(action->kind);
+	free(action->target_label);
+	free(action->description);
+	free(action->depfile);
+	free(action->source_path);
+	qstar_string_list_free(&action->argv);
+	qstar_string_list_free(&action->outputs);
+	qstar_string_list_free(&action->inputs);
+	qstar_string_list_free(&action->depfile_inputs);
+}
+
 /** lint diagnostic entry가 소유한 문자열을 해제한다. */
 static void
 free_lint_diagnostic(struct qstar_lint_diagnostic *diag)
@@ -300,6 +316,8 @@ qstar_graph_free(struct qstar_graph *graph)
 		free_package_alias(&graph->packages[i]);
 	for (i = 0; i < graph->profile_decl_len; i++)
 		free_profile_decl(&graph->profile_decls[i]);
+	for (i = 0; i < graph->cached_action_len; i++)
+		free_cached_action(&graph->cached_actions[i]);
 	free_project(&graph->project);
 	free(graph->generator);
 	free(graph->requested_generator);
@@ -313,8 +331,46 @@ qstar_graph_free(struct qstar_graph *graph)
 	free(graph->families);
 	free(graph->lint_diagnostics);
 	free(graph->profile_decls);
+	free(graph->cached_actions);
 	qstar_string_list_free(&graph->evaluated_fragments);
 	memset(graph, 0, sizeof(*graph));
+}
+
+/** Graph에 저장된 cached lowered action plan을 비운다. */
+void
+qstar_graph_clear_cached_actions(struct qstar_graph *graph)
+{
+	size_t i;
+
+	for (i = 0; i < graph->cached_action_len; i++)
+		free_cached_action(&graph->cached_actions[i]);
+	free(graph->cached_actions);
+	graph->cached_actions = NULL;
+	graph->cached_action_len = 0;
+	graph->cached_action_cap = 0;
+	graph->cached_action_plan_loaded = 0;
+}
+
+/** Graph의 cached lowered action plan에 새 action slot을 추가한다. */
+struct qstar_cached_action *
+qstar_graph_add_cached_action(struct qstar_graph *graph)
+{
+	struct qstar_cached_action *items;
+	size_t ncap;
+
+	if (graph->cached_action_len == graph->cached_action_cap) {
+		ncap = graph->cached_action_cap ? graph->cached_action_cap * 2 : 64;
+		items = realloc(graph->cached_actions, ncap * sizeof(items[0]));
+		if (!items) {
+			qstar_set_error(graph, "qstar: out of memory");
+			return NULL;
+		}
+		memset(items + graph->cached_action_cap, 0,
+		    (ncap - graph->cached_action_cap) * sizeof(items[0]));
+		graph->cached_actions = items;
+		graph->cached_action_cap = ncap;
+	}
+	return &graph->cached_actions[graph->cached_action_len++];
 }
 
 /** QStar package root를 graph에 기록한다. */

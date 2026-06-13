@@ -35,6 +35,12 @@ int qstar_string_list_push(struct qstar_string_list *list, const char *s);
 /** 문자열 list가 소유한 모든 동적 메모리를 해제한다. */
 void qstar_string_list_free(struct qstar_string_list *list);
 
+/** Graph에 저장된 cached lowered action plan을 비운다. */
+void qstar_graph_clear_cached_actions(struct qstar_graph *graph);
+
+/** Graph의 cached lowered action plan에 새 action slot을 추가한다. */
+struct qstar_cached_action *qstar_graph_add_cached_action(struct qstar_graph *graph);
+
 /** Graph error buffer에 첫 오류만 기록한다. */
 int qstar_set_error(struct qstar_graph *graph, const char *fmt, ...);
 
@@ -208,5 +214,8 @@ int qstar_stella_plan_cache_try_load(struct qstar_graph *graph, const char *file
 int qstar_stella_plan_cache_store(struct qstar_graph *graph, const char *file,
     const char *cmd, const char *label, const char *cli_profile, const char *cli_target,
     const char *cli_toolchain, const char *cli_stdlib, char *reason, size_t reason_len);
+
+/** 현재 Graph에서 실행 가능한 lowered action plan을 준비한다. */
+int qstar_graph_prepare_lowered_action_cache(struct qstar_graph *graph, const char *label);
 
 #endif
