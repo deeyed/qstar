@@ -9,7 +9,7 @@ tooling-friendly diagnostics for C, C++, assembly, generated files, and
 language-provider driven projects.
 
 QStar is currently in beta. The current public prerelease line is
-`v0.5.0-beta.1`, with macOS arm64 binaries published first. Linux has a
+`v0.5.1-beta.1`, with macOS arm64 binaries published first. Linux has a
 validation-backed source build path and a `linux-x86_64` release-candidate
 tarball dry-run through Ubuntu gcc/clang CI. Windows has a manual native
 validation candidate, but no public asset or official host support yet. QStar
@@ -38,7 +38,7 @@ Download the macOS arm64 tarball from the
 [GitHub Releases](https://github.com/deeyed/qstar/releases) page:
 
 ```sh
-tar -xzf qstar-v0.5.0-beta.1-macos-arm64.tar.gz -C "$HOME/.local"
+tar -xzf qstar-v0.5.1-beta.1-macos-arm64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 ```

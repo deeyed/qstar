@@ -2,12 +2,14 @@
 
 이 문서는 QStar를 다음 beta/0.5 라인으로 올릴 준비가 되었는지 판단하기 위한
 readiness gate다. Q100은 판단 기준을 고정했고, Q110은 이 기준을 바탕으로
-`0.5.0-beta.1` release-prep line을 연다.
+`0.5.0-beta.1` release-prep line을 열었다. Q117은 Q111-Q116의 performance,
+platform, backend, language-provider 결과를 묶어 `0.5.1-beta.1` beta patch release
+후보를 판단한다.
 
 ```txt
-status: 0.5 readiness gate
-current runtime version: qstar 0.5.0-beta.1
-candidate line: qstar 0.5.0-beta.1
+status: 0.5 beta patch readiness gate
+current runtime version: qstar 0.5.1-beta.1
+candidate line: qstar 0.5.1-beta.1
 gate: make -C qstar qstar-v0.5-readiness-tests
 baseline date: 2026-06-13
 ```
@@ -19,17 +21,22 @@ QStar는 0.5 beta line으로 이동할 수 있는 기반은 갖췄다. 단, 0.5�
 
 | 영역 | 상태 | 0.5 판단 |
 | --- | --- | --- |
-| Self-host | 통과 경로 있음 | 0.5 beta gate에 포함 가능 |
-| Stella executor | medium corpus에서 no-op/incremental 양호 | 0.5 기본 backend 유지 가능 |
-| Ninja backend | 일반 C/C++/ASM project 후보 수준 | 비교/backend 후보로 유지 |
+| Self-host | 통과 경로 있음 | 0.5 beta gate에 포함 |
+| Stella executor | medium corpus에서 no-op/incremental 양호 | 0.5 기본 backend 유지 |
+| Ninja backend | 일반 C/C++/ASM/sharedlib project 후보 수준 | 비교/backend 후보로 유지 |
 | macOS release packaging | public beta gate 있음 | macOS arm64 beta asset 가능 |
 | Linux | validation + binary release candidate dry-run | 0.5 release note에 보수적으로 표기 |
 | Windows | native validation candidate prep | 0.5 official support로 표기 금지 |
 | Docs/CLI drift | smoke guard로 관리 | 0.5 전에 한 번 더 sync 필요 |
+| Cale backend | Stella-only language-provider contract | Ninja wrapper lowering deferred |
 
 0.5의 목표는 "QStar를 medium-size C/C++/systems-style project에 실험적으로 적용할 수
 있는 beta"다. v1.0 조건인 macOS/Linux/Windows official support, CI/release matrix,
 장기 안정 API는 아직 충족하지 않는다.
+
+Q117 판단은 `0.5.0-beta.2`가 아니라 `0.5.1-beta.1`을 추천한다. Q115의 shared library
+policy와 Q116의 Cale backend contract는 기존 beta line의 단순 재포장이 아니라
+user-facing surface를 보강한 patch-level 변화이기 때문이다.
 
 ## Required Gate
 
@@ -68,28 +75,32 @@ Makefile은 여전히 canonical bootstrap/release build path이고, self-host는
 
 ## Stella vs Ninja Benchmark Summary
 
-Round Q111 local macOS arm64 대표 측정값:
+Round Q117 local macOS arm64 대표 측정값:
 
 ```txt
 medium_project_gate target_count=47 min_targets=40
-medium_project_gate backend=stella phase=clean elapsed_ms=773
-medium_project_gate backend=stella phase=noop elapsed_ms=76
-medium_project_gate backend=stella phase=incremental elapsed_ms=104
-medium_project_gate backend=ninja phase=clean elapsed_ms=294
-medium_project_gate backend=ninja phase=noop elapsed_ms=80
-medium_project_gate backend=ninja phase=incremental elapsed_ms=97
+medium_project_gate backend=stella phase=clean elapsed_ms=741
+medium_project_gate backend=stella phase=noop elapsed_ms=73
+medium_project_gate backend=stella phase=incremental elapsed_ms=92
+medium_project_gate backend=ninja phase=clean elapsed_ms=250
+medium_project_gate backend=ninja phase=noop elapsed_ms=76
+medium_project_gate backend=ninja phase=incremental elapsed_ms=107
+medium_project_gate compare phase=clean stella_ms=741 ninja_ms=250 ratio_x100=200 slack_ms=250
+medium_project_gate compare phase=noop stella_ms=73 ninja_ms=76 ratio_x100=200 slack_ms=250
+medium_project_gate compare phase=incremental stella_ms=92 ninja_ms=107 ratio_x100=200 slack_ms=250
 medium_project_gate status=ok perf_issue_count=0 report_only=1
 ```
 
 해석:
 
-- no-op은 Stella가 76ms로 0.2초대 목표를 충분히 만족하고 Ninja와 같은 수준으로 측정됐다.
-- incremental은 Stella가 104ms, Ninja가 97ms로 medium corpus에서 Ninja급 즉시 재빌드 UX를
+- no-op은 Stella가 73ms로 0.2초대 목표를 충분히 만족하고 Ninja와 같은 수준으로 측정됐다.
+- incremental은 Stella가 92ms, Ninja가 107ms로 medium corpus에서 Ninja급 즉시 재빌드 UX를
   제공한다.
 - clean build는 Stella가 Ninja보다 여전히 느리다. Round Q111의 state lookup index, action
   key material reuse, lazy stdout/stderr log open 이후에도 raw ratio 2배 이내를 안정적으로
-  달성했다고 선언하기는 이르다. 다만 slack을 포함한 report gate는 통과하고, medium corpus
-  전체 clean build는 1초 미만이다.
+  달성했다고 선언하기는 이르다. Q117에서는 741ms 대 250ms였고, 작은 corpus의 절대 noise를
+  흡수하는 250ms slack을 포함한 report gate는 통과했다. Medium corpus 전체 clean build는
+  1초 미만이다.
 - 현재 ratio gate는 작은 project의 절대 noise를 흡수하기 위해 report-only가 기본이다.
 
 0.5 전에는 timing hard fail을 바로 켜기보다 report-only를 유지한다. 대신 release note에는
@@ -171,7 +182,7 @@ Windows:
 - VSCode snippets/syntax surface
 - `README.md`, `README.ko.md`, release notes
 
-0.5 release-prep line에서는 `qstar 0.5.0-beta.1` version bump와 함께 위 문서의 old
+0.5 beta patch line에서는 `qstar 0.5.1-beta.1` version bump와 함께 위 문서의 old
 version string이 현재-facing 문서에 남아 있지 않은지 확인한다. 과거 seal 문서의
 historical version record는 보존한다.
 
@@ -188,10 +199,10 @@ historical version record는 보존한다.
 - QStar는 dependency resolver나 package fetcher가 아니므로, 0.5에서도 external dependency
   resolution은 QStar 밖의 tool이 맡아야 한다.
 
-## Q110 Beta Prep Gate
+## Q117 Beta Patch Gate
 
-- Runtime version bump: `qstar 0.5.0-beta.1`.
-- Release notes: `docs/releases/v0.5.0-beta.1.md`.
+- Runtime version bump: `qstar 0.5.1-beta.1`.
+- Release notes: `docs/releases/v0.5.1-beta.1.md`.
 - Public beta package smoke: `make qstar-public-beta-release-tests`.
 - Self-host gate: `make qstar-self-host-tests`.
 - Medium performance report: Stella vs Ninja clean/no-op/incremental 수치.
@@ -202,6 +213,8 @@ historical version record는 보존한다.
 - Docs/man/wiki/AI index sync: old generator name, old version string, removed API 잔재 제거.
 - VSCode extension version policy: runtime과 별도로 `0.3.0` 유지. 이번 runtime tarball에는
   VSIX를 포함하지 않는다.
+- Release line decision: Q115/Q116의 sharedlib/Cale backend 계약을 포함하므로
+  `0.5.0-beta.2`가 아니라 `0.5.1-beta.1`로 낸다.
 
 ## Deferred After 0.5
 
@@ -220,6 +233,7 @@ historical version record는 보존한다.
 
 - `0.4.x-beta.*`: public beta packaging, Stella/Ninja/self-host hardening line.
 - `0.5.0-beta.1`: medium project readiness, self-host regular gate, refreshed docs/release line.
+- `0.5.1-beta.1`: sharedlib policy, Cale backend contract, platform readiness, beta patch gate.
 - `0.5.x-beta.*`: platform validation and backend parity patch line.
 - `1.0.0`: macOS, Linux, Windows official release artifacts and CI matrix are required.
 

@@ -11,10 +11,10 @@ VSCode extension is not included in the public beta runtime tarball.
 하나만 배포하지만, Linux x86_64는 CI에서 release-candidate packaging dry-run을 수행한다.
 
 ```txt
-runtime version: qstar 0.5.0-beta.1
-release tag: v0.5.0-beta.1
-macOS asset: qstar-v0.5.0-beta.1-macos-arm64.tar.gz
-Linux RC dry-run asset: qstar-v0.5.0-beta.1-linux-x86_64.tar.gz
+runtime version: qstar 0.5.1-beta.1
+release tag: v0.5.1-beta.1
+macOS asset: qstar-v0.5.1-beta.1-macos-arm64.tar.gz
+Linux RC dry-run asset: qstar-v0.5.1-beta.1-linux-x86_64.tar.gz
 checksum file: SHA256SUMS
 ```
 
@@ -75,7 +75,7 @@ Linux runtime tarball은 아직 public beta asset이 아니다. Round Q113 이�
 
 ```sh
 QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh
-test -f dist/release/qstar-v0.5.0-beta.1-linux-x86_64.tar.gz
+test -f dist/release/qstar-v0.5.1-beta.1-linux-x86_64.tar.gz
 test -s dist/release/file-linux-x86_64.txt
 test -s dist/release/ldd-linux-x86_64.txt
 ```
@@ -105,7 +105,7 @@ LICENSE/README.md
 예상 설치 명령:
 
 ```sh
-tar -xzf qstar-v0.5.0-beta.1-macos-arm64.tar.gz -C "$HOME/.local"
+tar -xzf qstar-v0.5.1-beta.1-macos-arm64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 ```
@@ -156,15 +156,15 @@ sample workspace, license payload만 확인하는 좁은 smoke다. Runtime과 ba
 Local smoke가 끝난 뒤 tag와 GitHub release를 만든다.
 
 ```sh
-git tag -a v0.5.0-beta.1 -m "QStar v0.5.0 beta 1"
-git push origin v0.5.0-beta.1
+git tag -a v0.5.1-beta.1 -m "QStar v0.5.1 beta 1"
+git push origin v0.5.1-beta.1
 
-gh release create v0.5.0-beta.1 \
-  dist/release/qstar-v0.5.0-beta.1-macos-arm64.tar.gz \
+gh release create v0.5.1-beta.1 \
+  dist/release/qstar-v0.5.1-beta.1-macos-arm64.tar.gz \
   dist/release/SHA256SUMS \
   --repo deeyed/qstar \
-  --title "QStar v0.5.0 Beta 1" \
-  --notes-file docs/releases/v0.5.0-beta.1.md \
+  --title "QStar v0.5.1 Beta 1" \
+  --notes-file docs/releases/v0.5.1-beta.1.md \
   --prerelease \
   --latest=false
 ```

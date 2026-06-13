@@ -119,6 +119,11 @@ Round 110부터 runtime은 `0.5.0-beta.1` release-prep line으로 이동한다. 
 `releases/v0.5.0-beta.1.md`에 두고, VSCode extension package version은 runtime과 별도인
 `0.3.0`으로 유지한다.
 
+Round 117부터 runtime patch line은 `0.5.1-beta.1`로 이동한다. Release note는
+`releases/v0.5.1-beta.1.md`에 두며, 이 patch line은 Stella/Ninja timing, Linux/Windows
+readiness, sharedlib policy, Cale backend contract, install/package smoke를 묶어 다음
+public beta 판단을 고정한다.
+
 Round 116부터 Cale source는 Stella-only language-provider action으로 봉인한다. Ninja wrapper
 lowering은 Cale provider의 argv/depfile/response-file/replay 계약이 별도 라운드로 정리될
 때까지 deferred이며, HCL은 QStar가 해석하지 않는 header-like path다.

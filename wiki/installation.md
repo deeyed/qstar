@@ -11,7 +11,7 @@ manual Windows workflow 후보를 QStar tree 안에서 검증한다. 모든 plat
 ## 최소 예제
 
 ```sh
-tar -xzf qstar-v0.5.0-beta.1-macos-arm64.tar.gz -C "$HOME/.local"
+tar -xzf qstar-v0.5.1-beta.1-macos-arm64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 ```
@@ -46,7 +46,7 @@ Public beta tarball은 Makefile-built binary를 기준으로 만든다.
 
 ```sh
 make qstar-public-beta-release-tests
-tar -tzf dist/release/qstar-v0.5.0-beta.1-macos-arm64.tar.gz
+tar -tzf dist/release/qstar-v0.5.1-beta.1-macos-arm64.tar.gz
 cat dist/release/SHA256SUMS
 ```
 
@@ -101,7 +101,7 @@ gcc lane은 추가로 다음 release-candidate package dry-run을 수행한다.
 
 ```sh
 QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh
-test -f dist/release/qstar-v0.5.0-beta.1-linux-x86_64.tar.gz
+test -f dist/release/qstar-v0.5.1-beta.1-linux-x86_64.tar.gz
 test -s dist/release/file-linux-x86_64.txt
 test -s dist/release/ldd-linux-x86_64.txt
 ```

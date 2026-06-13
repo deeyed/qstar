@@ -54,23 +54,27 @@ Ninja가 없으면 Ninja phase는 `skipped`로 표시된다. Stella phase는 항
 
 ## 최신 베타 스냅샷
 
-Round Q111 local macOS arm64 대표 측정값:
+Round Q117 local macOS arm64 대표 측정값:
 
 ```txt
 medium_project_gate target_count=47 min_targets=40
-medium_project_gate backend=stella phase=clean elapsed_ms=773
-medium_project_gate backend=stella phase=noop elapsed_ms=76
-medium_project_gate backend=stella phase=incremental elapsed_ms=104
-medium_project_gate backend=ninja phase=clean elapsed_ms=294
-medium_project_gate backend=ninja phase=noop elapsed_ms=80
-medium_project_gate backend=ninja phase=incremental elapsed_ms=97
+medium_project_gate backend=stella phase=clean elapsed_ms=741
+medium_project_gate backend=stella phase=noop elapsed_ms=73
+medium_project_gate backend=stella phase=incremental elapsed_ms=92
+medium_project_gate backend=ninja phase=clean elapsed_ms=250
+medium_project_gate backend=ninja phase=noop elapsed_ms=76
+medium_project_gate backend=ninja phase=incremental elapsed_ms=107
+medium_project_gate compare phase=clean stella_ms=741 ninja_ms=250 ratio_x100=200 slack_ms=250
+medium_project_gate compare phase=noop stella_ms=73 ninja_ms=76 ratio_x100=200 slack_ms=250
+medium_project_gate compare phase=incremental stella_ms=92 ninja_ms=107 ratio_x100=200 slack_ms=250
 medium_project_gate status=ok perf_issue_count=0 report_only=1
 ```
 
 Stella no-op과 incremental은 이 corpus에서 Ninja급 latency를 보인다. Clean build는
 Round Q111의 state lookup index, action key material reuse, lazy stdout/stderr log open
-이후에도 raw ratio로는 Ninja의 2배 안쪽을 안정적으로 달성하지 못했다. 다만 slack을
-포함한 report gate는 통과하며, medium corpus에서 1초 미만을 유지한다.
+이후에도 raw ratio로는 Ninja의 2배 안쪽을 안정적으로 달성하지 못했다. Q117에서는
+741ms 대 250ms였고, slack을 포함한 report gate는 통과하며, medium corpus에서 1초
+미만을 유지한다.
 
 Round Q92 기준 timing threshold는 기본적으로 report-only다. 파일 누락, graph 실패,
 compiler 실패, compile database 누락은 hard fail이고, 시간 초과는 warning으로 기록된다.
