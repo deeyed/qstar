@@ -4224,7 +4224,7 @@ test -d "$tmp/longcmd/build/qstar/rsp" || fail "missing real response file dir"
 contains "$tmp/longcmd-build.out" "status ok"
 
 cat > "$tmp/longcmd/src/main.c" <<'EOF'
-int main(void) { return ; }
+int main(void) { return (1 + ); }
 EOF
 if "$qstar" --file "$tmp/longcmd/qstar.lua" build //:app --explain-cache > "$tmp/longcmd-fail.out" 2> "$tmp/longcmd-fail.err"; then
 	fail "long response-file failure unexpectedly succeeded"
