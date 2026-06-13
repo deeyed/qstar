@@ -19,6 +19,7 @@ QStar has two user-facing generators:
 - `qstar.custom_target`
 - `qstar.run_target`
 - `qstar.group`
+- `qstar.sharedlib` on Darwin-like and Linux-like profiles
 
 `compile_commands.json`는 `qstar.project.compile_commands` policy를 따른다.
 `build.ninja`는 `build_dir/ninja/build.ninja`에 생성된다.
@@ -41,13 +42,13 @@ qstar --file qstar.lua action-log //:app:link:0
 qstar --file qstar.lua replay //:app:link:0
 ```
 
-## Deferred
+## Platform Policy
 
-`qstar.sharedlib`는 현재 Stella/Ninja 모두에서 plan/check-only다. Platform별 shared
-library naming, soname/install-name, import library, rpath 정책이 정리되기 전까지는
-partial lowering을 제공하지 않는다.
+`qstar.sharedlib`는 Darwin-like profile에서 `.dylib`와 `install_name`, Linux-like profile에서
+`.so`와 `soname`을 생성한다. Windows-like profile의 `.dll`/import-library/PDB/install
+layout은 아직 deferred이며 Stella/Ninja 모두 같은 diagnostic으로 거부한다.
 
-Cale source action도 아직 Ninja로 lower되지 않는다. Cale source를 포함하는 target은
+Cale source action은 아직 Ninja로 lower되지 않는다. Cale source를 포함하는 target은
 `-G stella`를 사용한다.
 
 ## 최소 예제
@@ -82,16 +83,21 @@ qstar.group "all" {
 ## 실패 예제
 
 ```lua
+qstar.profile "windows" {
+  target = "x86_64-pc-windows-msvc",
+  toolchain = "clang",
+}
+
 qstar.sharedlib "plugin" {
   sources = {"src/plugin.c"},
 }
 ```
 
 ```sh
-qstar --file qstar.lua -G ninja build //:plugin
+qstar --file qstar.lua --profile windows -G ninja build //:plugin
 ```
 
-`sharedlib`는 아직 Ninja lowering 대상이 아니므로 stable diagnostic을 낸다.
+Windows shared library policy는 아직 deferred이므로 stable diagnostic을 낸다.
 
 ## 관련 CLI
 
@@ -105,5 +111,5 @@ qstar --file qstar.lua -G ninja install //:app --prefix /tmp/qstar-install
 
 ## 관련 diagnostic
 
-- `qstar: sharedlib target '//:plugin' is not lowered by the ninja backend yet`
+- `qstar: sharedlib target '//:plugin' supports only Darwin and Linux-like profiles in this release; Windows .dll/import-library policy is deferred`
 - `qstar: ninja backend does not lower Cale source 'src/unit.cale' yet; use -G stella`

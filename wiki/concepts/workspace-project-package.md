@@ -31,11 +31,11 @@ Generator는 CLI에서만 선택한다.
 - `-G stella`: 현재 기본 Stella executor를 사용한다.
 - `-G auto`: 현재는 `stella`로 resolve된다.
 - `-G ninja`: C/C++/ASM compile, `qstar.configure_file`, `qstar.custom_target`,
-  staticlib, executable/test link, `qstar.run_target`, `qstar.group` phony graph를
-  Ninja로 lower해 실행한다. `stage`와 `install`은 copy와 manifest를 QStar가 처리하되,
-  참조 target artifact build에는 effective generator를 사용한다. Cale source action은
-  아직 Ninja로 lower되지 않으므로 `-G stella`가 필요하다. `sharedlib`는 아직
-  Stella/Ninja 모두에서 plan/check-only다.
+  staticlib, sharedlib, executable/test link, `qstar.run_target`, `qstar.group` phony
+  graph를 Ninja로 lower해 실행한다. `stage`와 `install`은 copy와 manifest를 QStar가
+  처리하되, 참조 target artifact build에는 effective generator를 사용한다. Cale source
+  action은 아직 Ninja로 lower되지 않으므로 `-G stella`가 필요하다. Windows shared
+  library policy는 아직 deferred다.
 
 Backend별 세부 지원 범위는 [Backends](../reference/backends.md)에 둔다.
 

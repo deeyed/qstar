@@ -52,7 +52,7 @@ Round 22의 target rule registry는 다음 형태다.
 | `exe` | `link` | `exe` | yes | yes |
 | `test` | `link` | `exe` | no | yes |
 | `staticlib` | `archive` | `libs` | yes | yes |
-| `sharedlib` | `link-shared` | `libs` | no | no, plan-only |
+| `sharedlib` | `link-shared` | `libs` | yes | yes on Darwin/Linux, Windows deferred |
 | `objectlib` | `compile-objects` | `objects` | no | no, prepared |
 | `target` | `materialize` | `generic` | no | no |
 

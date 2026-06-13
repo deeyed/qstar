@@ -13,6 +13,7 @@ QStar build progress는 CMake-style action line을 사용한다.
 [ 23%] Building CXX object build/qstar/out/__ui/obj4.o
 warning: src/ui/view.cpp:42: unused variable 'tmp'
 [ 51%] Linking C static library libcore.a
+[ 63%] Linking C shared library libplugin.dylib
 [ 75%] Linking CXX executable app
 [100%] Built target app
 ```

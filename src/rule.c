@@ -31,7 +31,7 @@ static const struct qstar_target_rule_info target_rules[] = {
 	{ "exe", "native", "link", "exe", "", "", 1, 1, 1 },
 	{ "test", "native", "link", "exe", "", "", 1, 0, 1 },
 	{ "staticlib", "native", "archive", "libs", "lib", ".a", 0, 1, 1 },
-	{ "sharedlib", "native", "link-shared", "libs", "lib", ".so", 0, 0, 0 },
+	{ "sharedlib", "native", "link-shared", "libs", "lib", ".so", 0, 1, 1 },
 	{ "objectlib", "native", "compile-objects", "objects", "", "", 0, 0, 0 },
 	{ "run_target", "generic", "run", "generic", "", "", 0, 0, 0 },
 	{ "group", "generic", "group", "none", "", "", 0, 0, 0 },

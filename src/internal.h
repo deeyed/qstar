@@ -72,6 +72,18 @@ int qstar_label_package_path(const char *label, char *dst, size_t dstlen);
 int qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *target,
     struct qstar_resolved_toolchain *resolved);
 
+/** target triple이 Windows 계열인지 보수적으로 판정한다. */
+int qstar_toolchain_target_is_windows(const char *target);
+
+/** target triple이 Darwin/macOS 계열인지 보수적으로 판정한다. */
+int qstar_toolchain_target_is_darwin(const char *target);
+
+/** target triple이 Linux 계열인지 보수적으로 판정한다. */
+int qstar_toolchain_target_is_linux(const char *target);
+
+/** target triple이 이번 sharedlib 구현에서 지원되는지 확인한다. */
+int qstar_toolchain_target_supports_sharedlib(const char *target);
+
 /** profile external tool policy로 custom_target 첫 argv를 실행 path로 해석한다. */
 int qstar_profile_resolve_command_tool(const struct qstar_graph *graph, const char *tool,
     char *resolved, size_t resolved_len, char *mode, size_t mode_len, char *error,

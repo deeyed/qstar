@@ -838,6 +838,16 @@ source_requires_compile(const struct qstar_source_info *source)
 	return source->compile_input;
 }
 
+/** artifact path에서 basename component를 반환한다. */
+static const char *
+artifact_basename(const char *path)
+{
+	const char *slash;
+
+	slash = strrchr(path ? path : "", '/');
+	return slash ? slash + 1 : path;
+}
+
 /** compile action의 실제 argv plan을 출력한다. */
 static void
 dump_compile_argv(FILE *out, const struct qstar_target *target,
@@ -876,6 +886,10 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	    (cross ? 1 : 0) + (wants_depfile ? 3 : 0) +
 	    (toolchain->sysroot[0] ? 1 : 0) + (toolchain->resource_dir[0] ? 2 : 0) +
 	    (is_asm ? 2 : 0) +
+	    (strcmp(target->kind, "sharedlib") == 0 &&
+	    qstar_toolchain_target_supports_sharedlib(toolchain->target) &&
+	    !qstar_toolchain_target_is_windows(toolchain->target) && !is_asm &&
+	    !is_cale ? 1 : 0) +
 	    (is_cxx && target->cxx_standard[0] ? 1 : 0) +
 	    profile_compile_option_count(graph) +
 	    (is_asm ? target->asm_compile_options.len :
@@ -893,6 +907,11 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 		argv_item(out, &dump, "-resource-dir");
 		argv_item(out, &dump, toolchain->resource_dir);
 	}
+	if (strcmp(target->kind, "sharedlib") == 0 &&
+	    qstar_toolchain_target_supports_sharedlib(toolchain->target) &&
+	    !qstar_toolchain_target_is_windows(toolchain->target) && !is_asm &&
+	    !is_cale)
+		argv_item(out, &dump, "-fPIC");
 	if (is_asm) {
 		argv_item(out, &dump, "-x");
 		argv_item(out, &dump, source_uses_asm_preprocessor(target, source) ?
@@ -1108,18 +1127,19 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 {
 	char id[QSTAR_PATH_MAX];
 	char buf[QSTAR_PATH_MAX];
+	char install_name[QSTAR_PATH_MAX], soname[QSTAR_PATH_MAX];
 	size_t argc, i;
 	struct qstar_argv_dump dump;
 	int windows;
 	int msvc_out;
 
 	snprintf(id, sizeof(id), "%s:%s:0", target->label, action);
-	windows = strstr(toolchain->target, "windows") || strstr(toolchain->target, "msvc") ||
-	    strstr(toolchain->target, "mingw");
+	windows = qstar_toolchain_target_is_windows(toolchain->target);
 	msvc_out = strcmp(action, "archive") != 0 &&
 	    toolchain_uses_msvc_out_arg(toolchain, target);
 	argc = strcmp(action, "archive") == 0 ? 4 :
-	    strcmp(action, "link-shared") == 0 ? 5 : 4;
+	    strcmp(action, "link-shared") == 0 ?
+	    (qstar_toolchain_target_is_darwin(toolchain->target) ? 7 : 6) : 4;
 	if (strcmp(action, "archive") != 0)
 		argc += target->lib_dirs.len + (toolchain->sysroot[0] ? 1 : 0) +
 		    graph->profile.lib_dirs.len + target->libs.len +
@@ -1141,14 +1161,26 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 			snprintf(buf, sizeof(buf), "--sysroot=%s", toolchain->sysroot);
 			argv_item(out, &dump, buf);
 		}
-		if (strcmp(action, "link-shared") == 0)
-			argv_item(out, &dump, "-shared");
 		if (msvc_out) {
 			snprintf(buf, sizeof(buf), "/out:%s", output);
 			argv_item(out, &dump, buf);
 		} else {
 			argv_item(out, &dump, "-o");
 			argv_item(out, &dump, output);
+		}
+		if (strcmp(action, "link-shared") == 0) {
+			if (qstar_toolchain_target_is_darwin(toolchain->target)) {
+				snprintf(install_name, sizeof(install_name), "@rpath/%s",
+				    artifact_basename(output));
+				argv_item(out, &dump, "-dynamiclib");
+				argv_item(out, &dump, "-install_name");
+				argv_item(out, &dump, install_name);
+			} else {
+				snprintf(soname, sizeof(soname), "-Wl,-soname,%s",
+				    artifact_basename(output));
+				argv_item(out, &dump, "-shared");
+				argv_item(out, &dump, soname);
+			}
 		}
 		dump_link_policy_argv(out, &dump, graph, target);
 		argv_item(out, &dump, "<target-objects>");

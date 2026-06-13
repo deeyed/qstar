@@ -15,6 +15,7 @@ The Ninja backend lowers:
 - `qstar.custom_target`
 - `qstar.run_target` wrapper actions
 - `qstar.group` phony aliases
+- `qstar.sharedlib` for Darwin-like and Linux-like profiles
 - `compile_commands.json` according to project policy
 
 Ninja action ids are written into `build.ninja` as `qstar_action_id` variables
@@ -32,9 +33,9 @@ letting Ninja produce the artifacts.
 
 ## Deferred Surface
 
-`qstar.sharedlib` remains plan/check-only in both Stella and Ninja. QStar emits a
-stable diagnostic instead of partially supporting platform-specific shared
-library policy.
+Windows shared library policy remains deferred. QStar emits a stable diagnostic
+for Windows-like `qstar.sharedlib` profiles until `.dll`, import library, PDB,
+runtime search path, and install layout behavior are validated on Windows.
 
 Cale source lowering through Ninja is also deferred. Use `-G stella` for Cale
 process compilation.
@@ -47,9 +48,9 @@ Run the dedicated gate with:
 make qstar-ninja-backend-parity-tests
 ```
 
-The gate checks staticlib, executable, test, generated actions, configure file,
-run target marker handling, stage/install producer integration, action-log and
-replay compatibility, sharedlib diagnostics, and that `.ninja_log` /
+The gate checks staticlib, sharedlib, executable, test, generated actions,
+configure file, run target marker handling, stage/install producer integration,
+action-log and replay compatibility, Windows sharedlib diagnostics, and that `.ninja_log` /
 `.ninja_deps` stay under the QStar build directory rather than the package root.
 
 Manual corpus commands:

@@ -56,6 +56,9 @@ qstar.staticlib "core" {
 - `qstar.target_family`: shared-source lint grouping.
 - `qstar.subdir`, `qstar.import_file`, `qstar.import_module`: explicit graph/module loading.
 
+`qstar.sharedlib`는 Darwin-like profile에서는 `.dylib`, Linux-like profile에서는 `.so`를
+생성한다. Windows `.dll`/import-library/PDB 정책은 deferred diagnostic이다.
+
 `qstar.target_file("//:group")`은 error다. Group은 dependency closure를 묶는 label일 뿐
 artifact-producing target이 아니다.
 

@@ -644,12 +644,77 @@ qstar_graph_validate_profile(struct qstar_graph *graph)
 	return 0;
 }
 
-/** target triple에서 Windows 계열 여부를 보수적으로 판정한다. */
+/** host target이 현재 build host에서 Windows 계열인지 반환한다. */
 static int
-profile_target_is_windows(const char *target)
+host_target_is_windows(void)
 {
+#ifdef _WIN32
+	return 1;
+#else
+	return 0;
+#endif
+}
+
+/** host target이 현재 build host에서 Darwin/macOS 계열인지 반환한다. */
+static int
+host_target_is_darwin(void)
+{
+#ifdef __APPLE__
+	return 1;
+#else
+	return 0;
+#endif
+}
+
+/** host target이 현재 build host에서 Linux 계열인지 반환한다. */
+static int
+host_target_is_linux(void)
+{
+#if defined(__linux__)
+	return 1;
+#else
+	return 0;
+#endif
+}
+
+/** target triple에서 Windows 계열 여부를 보수적으로 판정한다. */
+int
+qstar_toolchain_target_is_windows(const char *target)
+{
+	if (!target || !*target || strcmp(target, "host") == 0 ||
+	    strcmp(target, "default") == 0)
+		return host_target_is_windows();
 	return target && (strstr(target, "windows") || strstr(target, "mingw") ||
 	    strstr(target, "msvc"));
+}
+
+/** target triple에서 Darwin/macOS 계열 여부를 보수적으로 판정한다. */
+int
+qstar_toolchain_target_is_darwin(const char *target)
+{
+	if (!target || !*target || strcmp(target, "host") == 0 ||
+	    strcmp(target, "default") == 0)
+		return host_target_is_darwin();
+	return strstr(target, "apple") || strstr(target, "darwin") ||
+	    strstr(target, "macos");
+}
+
+/** target triple에서 Linux 계열 여부를 보수적으로 판정한다. */
+int
+qstar_toolchain_target_is_linux(const char *target)
+{
+	if (!target || !*target || strcmp(target, "host") == 0 ||
+	    strcmp(target, "default") == 0)
+		return host_target_is_linux();
+	return strstr(target, "linux") || strstr(target, "musl");
+}
+
+/** 이번 sharedlib backend가 지원하는 target triple인지 확인한다. */
+int
+qstar_toolchain_target_supports_sharedlib(const char *target)
+{
+	return qstar_toolchain_target_is_darwin(target) ||
+	    qstar_toolchain_target_is_linux(target);
 }
 
 /** target triple에서 MSVC command-line 계열 여부를 판정한다. */
@@ -736,7 +801,7 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 		    graph->profile.response_style);
 	else if (profile_target_is_msvc(resolved->target))
 		snprintf(resolved->response_style, sizeof(resolved->response_style), "msvc");
-	else if (profile_target_is_windows(resolved->target))
+	else if (qstar_toolchain_target_is_windows(resolved->target))
 		snprintf(resolved->response_style, sizeof(resolved->response_style),
 		    "windows");
 	else
@@ -837,6 +902,18 @@ qstar_graph_artifact_output_path(const struct qstar_graph *graph,
 	rule = qstar_target_rule_lookup(target->kind);
 	prefix = rule ? rule->artifact_prefix : "";
 	suffix = rule ? rule->artifact_suffix : "";
+	if (strcmp(target->kind, "sharedlib") == 0) {
+		if (qstar_toolchain_target_is_darwin(graph && graph->profile.target ?
+		    graph->profile.target : "host"))
+			suffix = ".dylib";
+		else if (qstar_toolchain_target_is_windows(graph && graph->profile.target ?
+		    graph->profile.target : "host")) {
+			prefix = "";
+			suffix = ".dll";
+		} else {
+			suffix = ".so";
+		}
+	}
 	n = snprintf(sub, sizeof(sub), "out/%s/%s%s%s", owner, prefix, target->name, suffix);
 	return n >= 0 && (size_t)n < sizeof(sub) ?
 	    qstar_graph_build_path(graph, sub, dst, dstlen) : -1;

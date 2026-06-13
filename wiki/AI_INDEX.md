@@ -43,14 +43,16 @@ QStar가 하지 않는 일:
 - CLI `-B path`는 `qstar.project.build_dir`보다 우선한다.
 - CLI `-G auto`는 현재 `stella`로 resolve된다.
 - CLI `-G ninja build [label]`은 C/C++/ASM compile, `qstar.configure_file`,
-  `qstar.custom_target`, staticlib, executable/test link, `qstar.run_target`,
+  `qstar.custom_target`, staticlib, sharedlib, executable/test link, `qstar.run_target`,
   `qstar.group` phony graph를 Ninja로 실행한다. `stage`와 `install`은 copy와 manifest를
   QStar가 처리하지만, 참조 target artifact는 effective generator로 먼저 build한다.
   Cale source action은 아직 Ninja로 lower되지 않으므로 `-G stella`가 필요하다.
-  `sharedlib`는 아직 Stella/Ninja 모두에서 plan/check-only다.
-- `make qstar-ninja-backend-parity-tests`는 staticlib, executable/test, generated,
-  configure_file, run_target, stage/install producer integration, action-log/replay,
-  sharedlib diagnostic, `.ninja_log`/`.ninja_deps` root pollution 방지를 확인한다.
+  `sharedlib`는 Darwin-like profile에서 `.dylib`, Linux-like profile에서 `.so`를 만들며,
+  Windows `.dll`/import-library/PDB 정책은 deferred diagnostic으로 거부한다.
+- `make qstar-ninja-backend-parity-tests`는 staticlib, sharedlib, executable/test,
+  generated, configure_file, run_target, stage/install producer integration,
+  action-log/replay, Windows sharedlib diagnostic, `.ninja_log`/`.ninja_deps` root
+  pollution 방지를 확인한다.
 - `qstar emit-ninja [label]`은 `build/qstar/ninja/build.ninja`와 policy-controlled
   `compile_commands.json`을 생성한다.
 - compile database 기본 위치는 `build/qstar/compile_commands.json`이다.

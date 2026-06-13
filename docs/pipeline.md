@@ -116,7 +116,7 @@ qstar/build/bin/qstar
   -> public/private/interface include propagation
   -> staticlib transitive link order
   -> profile-shaped system link flags
-  -> sharedlib stable unsupported local executor policy
+  -> initial sharedlib stable unsupported local executor policy
   -> qstar.test target and qstar test runner
   -> qstar install --prefix skeleton
 ```
@@ -368,8 +368,8 @@ Round 18 link policy invariant:
 - duplicate dependency/library/framework declarations are stable diagnostics.
 - `libs`, `lib_dirs`, and `frameworks` are rendered as target-profile-shaped
   argv flags; frameworks are Darwin-only.
-- `sharedlib` remains explain/dry-run visible but local executor build/install
-  rejects it with a stable diagnostic.
+- `sharedlib` builds and installs on Darwin/Linux-like profiles; Windows
+  `.dll`/import-library/PDB policy rejects with a stable diagnostic.
 
 Round 19 developer-loop invariant:
 

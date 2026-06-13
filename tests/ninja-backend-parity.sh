@@ -72,15 +72,41 @@ cat > "$tmp/shared/qstar.lua" <<'QSTAR'
 qstar.sharedlib "plugin" {
   sources = {"src/plugin.c"},
 }
+
+qstar.profile "windows-shared" {
+  target = "x86_64-pc-windows-msvc",
+  toolchain = "clang",
+}
 QSTAR
 cat > "$tmp/shared/src/plugin.c" <<'SRC'
 int plugin_value(void) { return 9; }
 SRC
-if "$qstar" --file "$tmp/shared/qstar.lua" -G ninja build //:plugin > "$tmp/shared.out" 2> "$tmp/shared.err"; then
-	fail "sharedlib Ninja lowering unexpectedly succeeded"
+case "$(uname -s)" in
+	Darwin)
+		shared_artifact="build/qstar/out/___plugin/libplugin.dylib"
+		shared_flag="-dynamiclib"
+		shared_name_flag="@rpath/libplugin.dylib"
+		;;
+	Linux)
+		shared_artifact="build/qstar/out/___plugin/libplugin.so"
+		shared_flag="-shared"
+		shared_name_flag="-Wl,-soname,libplugin.so"
+		;;
+	*)
+		shared_artifact="build/qstar/out/___plugin/libplugin.so"
+		shared_flag="-shared"
+		shared_name_flag="-Wl,-soname,libplugin.so"
+		;;
+esac
+"$qstar" --file "$tmp/shared/qstar.lua" emit-ninja //:plugin > "$tmp/shared-emit.out" 2> "$tmp/shared-emit.err"
+contains "$tmp/shared/build/qstar/ninja/build.ninja" "qstar_action_id = //:plugin:link-shared:0"
+contains "$tmp/shared/build/qstar/ninja/build.ninja" "description = Linking C shared library $shared_artifact"
+contains "$tmp/shared/build/qstar/ninja/build.ninja" "$shared_flag"
+contains "$tmp/shared/build/qstar/ninja/build.ninja" "$shared_name_flag"
+if "$qstar" --file "$tmp/shared/qstar.lua" --profile windows-shared emit-ninja //:plugin > "$tmp/shared-windows.out" 2> "$tmp/shared-windows.err"; then
+	fail "windows sharedlib Ninja lowering unexpectedly succeeded"
 fi
-contains "$tmp/shared.err" "sharedlib target '//:plugin' is not lowered by the ninja backend yet"
-contains "$tmp/shared.err" "plan/check-only"
+contains "$tmp/shared-windows.err" "Windows .dll/import-library policy is deferred"
 
 if command -v ninja >/dev/null 2>&1; then
 	"$qstar" --file "$c_app/qstar.lua" -G ninja build //:app --progress off > "$tmp/c-app-build.out" 2> "$tmp/c-app-build.err"
@@ -117,6 +143,13 @@ if command -v ninja >/dev/null 2>&1; then
 	test -f "$tmp/generated-prefix/bin/app" || fail "generated ninja install app missing"
 	test ! -f "$generated/.ninja_log" || fail "generated ninja wrote package root .ninja_log"
 	test ! -f "$generated/.ninja_deps" || fail "generated ninja wrote package root .ninja_deps"
+
+	"$qstar" --file "$tmp/shared/qstar.lua" -G ninja build //:plugin --progress off > "$tmp/shared-build.out" 2> "$tmp/shared-build.err"
+	contains "$tmp/shared-build.out" "backend ninja"
+	contains "$tmp/shared-build.out" "status ok"
+	test -f "$tmp/shared/$shared_artifact" || fail "sharedlib ninja artifact missing"
+	test ! -f "$tmp/shared/.ninja_log" || fail "sharedlib ninja wrote package root .ninja_log"
+	test ! -f "$tmp/shared/.ninja_deps" || fail "sharedlib ninja wrote package root .ninja_deps"
 else
 	printf 'qstar-ninja-backend-parity: ninja runtime checks skipped reason=ninja-not-found\n'
 fi

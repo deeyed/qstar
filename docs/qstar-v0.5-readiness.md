@@ -101,6 +101,7 @@ Ninja backend가 lowering하는 surface:
 
 - C/C++/ASM compile
 - `qstar.staticlib`
+- `qstar.sharedlib` on Darwin-like and Linux-like profiles
 - `qstar.executable`
 - `qstar.test`
 - `qstar.configure_file`
@@ -117,10 +118,10 @@ QStar-owned으로 남기는 surface:
 
 0.5에서도 deferred로 남길 것:
 
-- `qstar.sharedlib` full lowering
+- Windows `.dll`/import-library/PDB sharedlib policy
 - Cale source Ninja lowering
 - C++ modules execution policy
-- platform-specific dynamic library install/rpath policy
+- advanced platform-specific dynamic library rpath/install layout policy
 
 Ninja는 0.5에서 "comparison backend and practical C/C++ backend candidate"로 표기한다.
 Stella 기본값은 유지한다.
@@ -207,7 +208,7 @@ historical version record는 보존한다.
 - Windows official support and Windows release artifact.
 - Linux public release artifact decision. Q113 adds the dry-run path, but attaching
   the asset to a GitHub release remains a separate release decision.
-- Full `qstar.sharedlib` backend support.
+- Windows `.dll`/import-library/PDB sharedlib support.
 - Cale source Ninja lowering.
 - C++ modules execution policy.
 - Remote package resolution, lockfile, registry, fetch policy.
@@ -232,7 +233,8 @@ release notes.
 - Linux has a binary release-candidate dry-run, but it is not yet a published
   artifact. Windows has a manual native validation candidate workflow, but it is
   not yet official host support.
-- `qstar.sharedlib` remains plan/check-only.
+- `qstar.sharedlib` supports Darwin-like `.dylib` and Linux-like `.so` builds, but
+  Windows `.dll`/import-library/PDB policy is deferred.
 - Cale source Ninja lowering is deferred.
 - Package/dependency resolution is intentionally outside QStar.
 - Editor extension packaging is separate from runtime release packaging.

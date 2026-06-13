@@ -43,6 +43,8 @@ static int emit_target(struct qstar_graph *graph, const struct qstar_target *tar
     size_t order, void *user);
 static int emit_genrule_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
     const struct qstar_genrule *genrule);
+static int target_compile_needs_pic(const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain, int is_asm);
 
 /** graph에서 canonical label target을 찾는다. */
 static const struct qstar_target *
@@ -1514,6 +1516,9 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	    (ninja_argv_push(graph, &argv, "-resource-dir") < 0 ||
 	    ninja_argv_push(graph, &argv, toolchain->resource_dir) < 0))
 		goto fail;
+	if (target_compile_needs_pic(target, toolchain, is_asm) &&
+	    ninja_argv_push(graph, &argv, "-fPIC") < 0)
+		goto fail;
 	if (is_asm &&
 	    (ninja_argv_push(graph, &argv, "-x") < 0 ||
 	    ninja_argv_push(graph, &argv,
@@ -1632,15 +1637,13 @@ write_dep_aliases(struct qstar_graph *graph, FILE *f, const struct qstar_target 
 static int
 target_is_darwin(const char *target)
 {
-	return !target || strcmp(target, "host") == 0 || strstr(target, "apple") ||
-	    strstr(target, "darwin") || strstr(target, "macos");
+	return qstar_toolchain_target_is_darwin(target);
 }
 
 static int
 target_is_windows(const char *target)
 {
-	return target && (strstr(target, "windows") || strstr(target, "mingw") ||
-	    strstr(target, "msvc"));
+	return qstar_toolchain_target_is_windows(target);
 }
 
 /** target source list에 C++ compile input이 있는지 확인한다. */
@@ -1656,6 +1659,65 @@ target_has_cxx_source(const struct qstar_target *target)
 			return 1;
 	}
 	return 0;
+}
+
+/** artifact path에서 basename component를 반환한다. */
+static const char *
+artifact_basename(const char *path)
+{
+	const char *slash;
+
+	slash = strrchr(path ? path : "", '/');
+	return slash ? slash + 1 : path;
+}
+
+/** sharedlib target이 현재 toolchain target에서 Ninja lowering 가능한지 검증한다. */
+static int
+validate_sharedlib_platform(struct qstar_graph *graph, const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain)
+{
+	if (strcmp(target->kind, "sharedlib") != 0)
+		return 0;
+	if (qstar_toolchain_target_supports_sharedlib(toolchain->target))
+		return 0;
+	return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+	    "kind", target->label,
+	    "qstar: sharedlib target '%s' supports only Darwin and Linux-like profiles in this release; Windows .dll/import-library policy is deferred",
+	    target->label);
+}
+
+/** sharedlib link action에 platform별 dynamic-library flag를 추가한다. */
+static int
+append_sharedlib_link_flags(struct qstar_graph *graph, const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain, const char *artifact,
+    struct ninja_argv *argv)
+{
+	char install_name[QSTAR_PATH_MAX], soname[QSTAR_PATH_MAX];
+
+	if (strcmp(target->kind, "sharedlib") != 0)
+		return 0;
+	if (validate_sharedlib_platform(graph, target, toolchain) < 0)
+		return -1;
+	if (qstar_toolchain_target_is_darwin(toolchain->target)) {
+		snprintf(install_name, sizeof(install_name), "@rpath/%s",
+		    artifact_basename(artifact));
+		return ninja_argv_push(graph, argv, "-dynamiclib") < 0 ||
+		    ninja_argv_push(graph, argv, "-install_name") < 0 ||
+		    ninja_argv_push(graph, argv, install_name) < 0 ? -1 : 0;
+	}
+	snprintf(soname, sizeof(soname), "-Wl,-soname,%s", artifact_basename(artifact));
+	return ninja_argv_push(graph, argv, "-shared") < 0 ||
+	    ninja_argv_push(graph, argv, soname) < 0 ? -1 : 0;
+}
+
+/** shared library source compile에는 PIC flag가 필요한지 확인한다. */
+static int
+target_compile_needs_pic(const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain, int is_asm)
+{
+	return strcmp(target->kind, "sharedlib") == 0 &&
+	    qstar_toolchain_target_supports_sharedlib(toolchain->target) &&
+	    !qstar_toolchain_target_is_windows(toolchain->target) && !is_asm;
 }
 
 /** MSVC target에서 clang-cl style driver가 link flag boundary를 필요로 하는지 본다. */
@@ -1957,6 +2019,7 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	struct qstar_string_list dep_artifacts;
 	char artifact[QSTAR_PATH_MAX], alias[QSTAR_PATH_MAX], object[QSTAR_PATH_MAX];
 	char out_dir[QSTAR_PATH_MAX], action_id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
+	const char *final_action;
 	size_t i;
 
 	memset(&argv, 0, sizeof(argv));
@@ -1965,7 +2028,10 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	    ninja_alias_path(graph, target->label, alias, sizeof(alias)) < 0 ||
 	    path_dirname(artifact, out_dir, sizeof(out_dir)) < 0)
 		return qstar_set_error(graph, "qstar: ninja artifact path too long");
-	snprintf(action_id, sizeof(action_id), "%s:link:0", target->label);
+	if (validate_sharedlib_platform(graph, target, toolchain) < 0)
+		return -1;
+	final_action = qstar_target_final_action(target);
+	snprintf(action_id, sizeof(action_id), "%s:%s:0", target->label, final_action);
 	if (ninja_argv_push(graph, &argv,
 	    target_has_cxx_source(target) ? toolchain->cxx : toolchain->linker) < 0)
 		goto fail;
@@ -1979,6 +2045,8 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	    ninja_argv_push(graph, &argv, artifact) < 0) {
 		goto fail;
 	}
+	if (append_sharedlib_link_flags(graph, target, toolchain, artifact, &argv) < 0)
+		goto fail;
 	if (append_link_policy_flags(graph, target, &argv) < 0)
 		goto fail;
 	for (i = 0; i < target->sources.len; i++) {
@@ -2004,8 +2072,8 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		goto fail;
 	if (append_system_link_flags(graph, target, toolchain, &argv) < 0)
 		goto fail;
-	if (qstar_action_description_final(target, qstar_target_final_action(target),
-	    artifact, description, sizeof(description)) < 0)
+	if (qstar_action_description_final(target, final_action, artifact, description,
+	    sizeof(description)) < 0)
 		goto fail;
 	fprintf(ctx->ninja, "# qstar-action-id: %s\n", action_id);
 	fputs("build ", ctx->ninja);
@@ -2302,17 +2370,13 @@ emit_target(struct qstar_graph *graph, const struct qstar_target *target, size_t
 		return emit_group_edge(graph, ctx, target);
 	if (strcmp(target->kind, "run_target") == 0)
 		return emit_run_edge(graph, ctx, target);
-	if (strcmp(target->kind, "sharedlib") == 0)
-		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-		    "kind", target->label,
-		    "qstar: sharedlib target '%s' is not lowered by the ninja backend yet; sharedlib remains plan/check-only",
-		    target->label);
 	if (strcmp(target->kind, "staticlib") != 0 &&
+	    strcmp(target->kind, "sharedlib") != 0 &&
 	    strcmp(target->kind, "exe") != 0 &&
 	    strcmp(target->kind, "test") != 0)
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "kind", target->label,
-		    "qstar: ninja backend supports custom_target, executable, test, run_target, staticlib, and group in this release; target '%s' is kind '%s'",
+		    "qstar: ninja backend supports custom_target, executable, test, run_target, staticlib, sharedlib, and group in this release; target '%s' is kind '%s'",
 		    target->label, target->kind);
 	if (qstar_resolve_toolchain(graph, target, &toolchain) < 0)
 		return -1;

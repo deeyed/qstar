@@ -54,7 +54,7 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 - `qstar-v0.3-seal.md`: v0.3 standalone release-candidate surface와 editor/corpus seal.
 - `qstar-v0.4-stella-seal.md`: Stella 기본 backend, Ninja backend 후보, install/editor packaging seal.
 - `qstar-self-host.md`: Makefile 유지와 QStar self-host graph/release gate 후보 계약.
-- `ninja-backend-parity.md`: Ninja lowering parity, deferred surface, action-log/replay 계약.
+- `ninja-backend-parity.md`: Ninja lowering parity, sharedlib policy, action-log/replay 계약.
 - `performance-gates.md`: Stella/Ninja clean, no-op, incremental timing gate 계약.
 - `progress-output.md`: CMake-style progress output, warning/error color, `qstar.status` descriptions.
 - `linux-validation.md`: Linux host validation path, Ubuntu gcc/clang CI workflow, install smoke, linux-x86_64 candidate tarball dry-run 조건.

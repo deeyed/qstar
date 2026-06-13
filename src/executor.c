@@ -306,7 +306,8 @@ final_stage_name(const struct qstar_target *target)
 		return "finalizing";
 	if (strcmp(target->kind, "staticlib") == 0)
 		return "archiving";
-	if (strcmp(target->kind, "executable") == 0 || strcmp(target->kind, "test") == 0)
+	if (strcmp(target->kind, "executable") == 0 || strcmp(target->kind, "test") == 0 ||
+	    strcmp(target->kind, "sharedlib") == 0)
 		return "linking";
 	return "finalizing";
 }
@@ -3060,6 +3061,8 @@ source_uses_asm_preprocessor(const struct qstar_target *target,
 static int validate_compile_source(struct qstar_graph *graph,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
     const struct qstar_source_info *source, size_t index);
+static int target_compile_needs_pic(const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain, int is_asm, int is_cale);
 
 /** source registry 기준으로 compile action이 필요한 입력인지 확인한다. */
 static int
@@ -4164,6 +4167,9 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    prepared_action_push_argv(graph, action, toolchain->resource_dir) < 0)
 			goto fail;
 	}
+	if (target_compile_needs_pic(target, toolchain, is_asm, is_cale) &&
+	    prepared_action_push_argv(graph, action, "-fPIC") < 0)
+		goto fail;
 	if (is_asm) {
 		if (prepared_action_push_argv(graph, action, "-x") < 0 ||
 		    prepared_action_push_argv(graph, action,
@@ -4767,15 +4773,13 @@ free_dep_artifacts(char **argv, size_t first, size_t argc)
 static int
 target_is_darwin(const char *target)
 {
-	return !target || strcmp(target, "host") == 0 || strstr(target, "apple") ||
-	    strstr(target, "darwin") || strstr(target, "macos");
+	return qstar_toolchain_target_is_darwin(target);
 }
 
 static int
 target_is_windows(const char *target)
 {
-	return target && (strstr(target, "windows") || strstr(target, "mingw") ||
-	    strstr(target, "msvc"));
+	return qstar_toolchain_target_is_windows(target);
 }
 
 /** target source list에 C++ compile input이 있는지 확인한다. */
@@ -4791,6 +4795,65 @@ target_has_cxx_source(const struct qstar_target *target)
 			return 1;
 	}
 	return 0;
+}
+
+/** artifact path에서 basename component를 반환한다. */
+static const char *
+artifact_basename(const char *path)
+{
+	const char *slash;
+
+	slash = strrchr(path ? path : "", '/');
+	return slash ? slash + 1 : path;
+}
+
+/** sharedlib target이 현재 toolchain target에서 실행 가능한지 검증한다. */
+static int
+validate_sharedlib_platform(struct qstar_graph *graph, const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain)
+{
+	if (strcmp(target->kind, "sharedlib") != 0)
+		return 0;
+	if (qstar_toolchain_target_supports_sharedlib(toolchain->target))
+		return 0;
+	return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+	    "kind", target->label,
+	    "qstar: sharedlib target '%s' supports only Darwin and Linux-like profiles in this release; Windows .dll/import-library policy is deferred",
+	    target->label);
+}
+
+/** sharedlib link action에 platform별 dynamic-library flag를 추가한다. */
+static int
+append_sharedlib_link_flags(struct qstar_graph *graph, const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain, const char *artifact, char **argv,
+    size_t *argc)
+{
+	char install_name[QSTAR_PATH_MAX], soname[QSTAR_PATH_MAX];
+
+	if (strcmp(target->kind, "sharedlib") != 0)
+		return 0;
+	if (validate_sharedlib_platform(graph, target, toolchain) < 0)
+		return -1;
+	if (qstar_toolchain_target_is_darwin(toolchain->target)) {
+		snprintf(install_name, sizeof(install_name), "@rpath/%s",
+		    artifact_basename(artifact));
+		return append_owned_argv(graph, argv, argc, "-dynamiclib") < 0 ||
+		    append_owned_argv(graph, argv, argc, "-install_name") < 0 ||
+		    append_owned_argv(graph, argv, argc, install_name) < 0 ? -1 : 0;
+	}
+	snprintf(soname, sizeof(soname), "-Wl,-soname,%s", artifact_basename(artifact));
+	return append_owned_argv(graph, argv, argc, "-shared") < 0 ||
+	    append_owned_argv(graph, argv, argc, soname) < 0 ? -1 : 0;
+}
+
+/** shared library source compile에 PIC flag가 필요한지 확인한다. */
+static int
+target_compile_needs_pic(const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain, int is_asm, int is_cale)
+{
+	return strcmp(target->kind, "sharedlib") == 0 &&
+	    qstar_toolchain_target_supports_sharedlib(toolchain->target) &&
+	    !qstar_toolchain_target_is_windows(toolchain->target) && !is_asm && !is_cale;
 }
 
 /** MSVC target에서 clang-cl style driver가 link flag boundary를 필요로 하는지 본다. */
@@ -4933,13 +4996,10 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 	char *argv[QSTAR_EXEC_MAX_ARGV];
 	struct qstar_string_list inputs, outputs;
 	struct qstar_action_material material;
+	const char *final_action;
 	size_t argc, dep_first, owned_first, i;
 	int rc;
 
-	if (strcmp(target->kind, "sharedlib") == 0)
-		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-		    "kind", target->label,
-		    "qstar: sharedlib targets are plan-only in local executor v1");
 	if (!qstar_target_rule_lookup(target->kind) ||
 	    !qstar_target_rule_lookup(target->kind)->local_executor_supported)
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
@@ -4949,14 +5009,17 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 	if (qstar_graph_artifact_output_path(graph, target, artifact, sizeof(artifact)) < 0 ||
 	    mkdir_parent_under_root(graph, artifact) < 0)
 		return qstar_set_error(graph, "qstar: could not create artifact output directory");
+	final_action = qstar_target_final_action(target);
 	argc = 0;
 	if (strcmp(target->kind, "staticlib") == 0) {
-		snprintf(id, sizeof(id), "%s:archive:0", target->label);
+		snprintf(id, sizeof(id), "%s:%s:0", target->label, final_action);
 		argv[argc++] = (char *)toolchain->ar;
 		argv[argc++] = "rcs";
 		argv[argc++] = artifact;
 	} else {
-		snprintf(id, sizeof(id), "%s:link:0", target->label);
+		if (validate_sharedlib_platform(graph, target, toolchain) < 0)
+			return -1;
+		snprintf(id, sizeof(id), "%s:%s:0", target->label, final_action);
 		argv[argc++] = (char *)(target_has_cxx_source(target) ?
 		    toolchain->cxx : toolchain->linker);
 		if (toolchain->sysroot[0]) {
@@ -4973,6 +5036,11 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 		}
 	}
 	owned_first = argc;
+	if (append_sharedlib_link_flags(graph, target, toolchain, artifact, argv,
+	    &argc) < 0) {
+		free_dep_artifacts(argv, owned_first, argc);
+		return -1;
+	}
 	if (strcmp(target->kind, "staticlib") != 0 &&
 	    append_link_policy_flags(graph, target, argv, &argc) < 0) {
 		free_dep_artifacts(argv, owned_first, argc);
@@ -5026,20 +5094,17 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 		qstar_string_list_free(&inputs);
 		return qstar_set_error(graph, "qstar: out of memory");
 	}
-	compute_action_key(ctx, graph, target, toolchain, id,
-	    strcmp(target->kind, "staticlib") == 0 ? "archive" : "link", argv, &inputs,
+	compute_action_key(ctx, graph, target, toolchain, id, final_action, argv, &inputs,
 	    NULL, artifact, key, sizeof(key), &material);
-	if (qstar_action_description_final(target,
-	    strcmp(target->kind, "staticlib") == 0 ? "archive" : "link", artifact,
+	if (qstar_action_description_final(target, final_action, artifact,
 	    description, sizeof(description)) < 0) {
 		qstar_string_list_free(&inputs);
 		qstar_string_list_free(&outputs);
 		free_dep_artifacts(argv, owned_first, argc);
 		return qstar_set_error(graph, "qstar: final action description too long");
 	}
-	rc = run_action(graph, ctx, target, id,
-	    strcmp(target->kind, "staticlib") == 0 ? "archive" : "link", key, &outputs,
-	    argv, toolchain, &material, description);
+	rc = run_action(graph, ctx, target, id, final_action, key, &outputs, argv,
+	    toolchain, &material, description);
 	qstar_string_list_free(&inputs);
 	qstar_string_list_free(&outputs);
 	free_dep_artifacts(argv, owned_first, argc);
@@ -5062,10 +5127,6 @@ build_target(struct qstar_graph *graph, const struct qstar_target *target, size_
 	    target->label, order,
 	    ctx->jobs > 1 && target->sources.len > 1 ? "compile-process-v3" : "no",
 	    ctx->action_timeout_sec);
-	if (strcmp(target->kind, "sharedlib") == 0)
-		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-		    "kind", target->label,
-		    "qstar: sharedlib targets are plan-only in local executor v1");
 	if (strcmp(target->kind, "run_target") == 0)
 		return run_target_command(graph, ctx, target);
 	if (strcmp(target->kind, "group") == 0) {
@@ -5504,10 +5565,6 @@ scheduler_create_target_nodes(struct qstar_scheduler *sched, const struct qstar_
 	    target->label, order,
 	    ctx->jobs > 1 && target_compile_input_count(target) > 0 ?
 	    "action-dag-ready-queue" : "no", ctx->action_timeout_sec);
-	if (strcmp(target->kind, "sharedlib") == 0)
-		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-		    "kind", target->label,
-		    "qstar: sharedlib targets are plan-only in local executor v1");
 	if (strcmp(target->kind, "group") == 0) {
 		if (scheduler_add_node(sched, QSTAR_SCHED_GROUP, target, NULL, 0, 0,
 		    &node_index) < 0)
@@ -5524,6 +5581,8 @@ scheduler_create_target_nodes(struct qstar_scheduler *sched, const struct qstar_
 	}
 	toolchain = &sched->toolchains[target_index];
 	if (qstar_resolve_toolchain(graph, target, toolchain) < 0)
+		return -1;
+	if (validate_sharedlib_platform(graph, target, toolchain) < 0)
 		return -1;
 	build_tracef(ctx,
 	    "resolved_toolchain owner=%s toolchain=%s target=%s cc=%s cxx=%s ar=%s linker=%s\n",
@@ -6620,6 +6679,10 @@ install_one_target(struct qstar_graph *graph, const struct qstar_target *target,
 	if (strcmp(target->kind, "exe") == 0) {
 		role = "exe";
 		snprintf(dst, sizeof(dst), "%s/bin/%s", ctx->options->prefix, target->name);
+	} else if (strcmp(target->kind, "sharedlib") == 0) {
+		role = "sharedlib";
+		snprintf(dst, sizeof(dst), "%s/lib/%s", ctx->options->prefix,
+		    artifact_basename(artifact));
 	} else {
 		role = "staticlib";
 		snprintf(dst, sizeof(dst), "%s/lib/lib%s.a", ctx->options->prefix,

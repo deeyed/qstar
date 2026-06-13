@@ -2710,6 +2710,18 @@ qstar.executable "sysflags" {
 
 qstar.sharedlib "plugin" {
   sources = {"src/core.c"},
+  lang = {
+    c = {
+      public_headers = {"include/core.h"},
+      public_include_dirs = {"include"},
+      private_include_dirs = {"src/core_private"},
+    },
+  },
+}
+
+qstar.profile "windows-shared" {
+  target = "x86_64-pc-windows-msvc",
+  toolchain = "clang",
 }
 EOF
 
@@ -2729,15 +2741,63 @@ contains "$tmp/bad-private.err" "action '//:bad_private:compile:0' failed"
 contains "$tmp/sysflags.out" "-Llib"
 contains "$tmp/sysflags.out" "-lm"
 
-if "$qstar" --file "$tmp/qstar.lua" build //:plugin > "$tmp/shared.out" 2> "$tmp/shared.err"; then
-	fail "sharedlib local executor unexpectedly succeeded"
+case "$(uname -s)" in
+	Darwin)
+		shared_artifact="build/qstar/out/___plugin/libplugin.dylib"
+		shared_flag="-dynamiclib"
+		shared_name_flag="@rpath/libplugin.dylib"
+		;;
+	Linux)
+		shared_artifact="build/qstar/out/___plugin/libplugin.so"
+		shared_flag="-shared"
+		shared_name_flag="-Wl,-soname,libplugin.so"
+		;;
+	*)
+		shared_artifact="build/qstar/out/___plugin/libplugin.so"
+		shared_flag="-shared"
+		shared_name_flag="-Wl,-soname,libplugin.so"
+		;;
+esac
+
+"$qstar" --file "$tmp/qstar.lua" dry-run //:plugin > "$tmp/shared-dry.out" 2> "$tmp/shared-dry.err"
+contains "$tmp/shared-dry.out" "final_action=link-shared"
+contains "$tmp/shared-dry.out" "$shared_artifact"
+contains "$tmp/shared-dry.out" "-fPIC"
+contains "$tmp/shared-dry.out" "$shared_flag"
+contains "$tmp/shared-dry.out" "$shared_name_flag"
+"$qstar" --file "$tmp/qstar.lua" build //:plugin --progress off > "$tmp/shared.out" 2> "$tmp/shared.err"
+contains "$tmp/shared.out" "status ok"
+test -f "$tmp/$shared_artifact" || fail "sharedlib artifact missing"
+"$qstar" --file "$tmp/qstar.lua" action-log //:plugin:link-shared:0 > "$tmp/shared-log.out" 2> "$tmp/shared-log.err"
+contains "$tmp/shared-log.out" "description='Linking C shared library $shared_artifact'"
+contains "$tmp/shared-log.out" "$shared_flag"
+contains "$tmp/shared-log.out" "status ok"
+"$qstar" --file "$tmp/qstar.lua" install //:plugin --prefix "$tmp/shared-prefix" > "$tmp/shared-install.out" 2> "$tmp/shared-install.err"
+contains "$tmp/shared-install.out" "status ok"
+test -f "$tmp/shared-prefix/lib/$(basename "$shared_artifact")" || fail "sharedlib install artifact missing"
+test -f "$tmp/shared-prefix/include/core.h" || fail "sharedlib install header missing"
+contains "$tmp/build/qstar/install/manifest.json" "\"role\":\"sharedlib\""
+"$qstar" --file "$tmp/qstar.lua" emit-ninja //:plugin > "$tmp/shared-ninja-emit.out" 2> "$tmp/shared-ninja-emit.err"
+contains "$tmp/build/qstar/ninja/build.ninja" "qstar_action_id = //:plugin:link-shared:0"
+contains "$tmp/build/qstar/ninja/build.ninja" "description = Linking C shared library $shared_artifact"
+contains "$tmp/build/qstar/ninja/build.ninja" "$shared_flag"
+contains "$tmp/build/qstar/ninja/build.ninja" "$shared_name_flag"
+if command -v ninja >/dev/null 2>&1; then
+	"$qstar" --file "$tmp/qstar.lua" -G ninja build //:plugin --progress off > "$tmp/shared-ninja.out" 2> "$tmp/shared-ninja.err"
+	contains "$tmp/shared-ninja.out" "backend ninja"
+	contains "$tmp/shared-ninja.out" "status ok"
+	test -f "$tmp/$shared_artifact" || fail "sharedlib ninja artifact missing"
+	test ! -f "$tmp/.ninja_log" || fail "sharedlib ninja wrote package root .ninja_log"
+	test ! -f "$tmp/.ninja_deps" || fail "sharedlib ninja wrote package root .ninja_deps"
 fi
-contains "$tmp/shared.err" "sharedlib targets are plan-only"
-if "$qstar" --file "$tmp/qstar.lua" -G ninja build //:plugin > "$tmp/shared-ninja.out" 2> "$tmp/shared-ninja.err"; then
-	fail "sharedlib Ninja lowering unexpectedly succeeded"
+if "$qstar" --file "$tmp/qstar.lua" --profile windows-shared build //:plugin > "$tmp/shared-windows.out" 2> "$tmp/shared-windows.err"; then
+	fail "windows sharedlib unexpectedly succeeded"
 fi
-contains "$tmp/shared-ninja.err" "sharedlib target '//:plugin' is not lowered by the ninja backend yet"
-contains "$tmp/shared-ninja.err" "plan/check-only"
+contains "$tmp/shared-windows.err" "Windows .dll/import-library policy is deferred"
+if "$qstar" --file "$tmp/qstar.lua" --profile windows-shared -G ninja build //:plugin > "$tmp/shared-windows-ninja.out" 2> "$tmp/shared-windows-ninja.err"; then
+	fail "windows sharedlib ninja unexpectedly succeeded"
+fi
+contains "$tmp/shared-windows-ninja.err" "Windows .dll/import-library policy is deferred"
 
 cat > "$tmp/src/test_pass.c" <<'EOF'
 int main(void) { return 0; }

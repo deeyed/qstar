@@ -118,7 +118,8 @@ without running Ninja.
 The Ninja backend lowers C/C++/ASM compile actions,
 .Ic qstar.configure_file ,
 .Ic qstar.custom_target ,
-static libraries, executable/test links, and
+static libraries, shared libraries on Darwin-like and Linux-like profiles,
+executable/test links, and
 .Ic qstar.run_target
 wrappers, plus
 .Ic qstar.group
@@ -127,7 +128,7 @@ Stage/install copy and manifest actions remain QStar-owned.
 Cale source actions still require the
 .Ar stella
 generator.
-Shared libraries are currently plan/check-only across Stella and Ninja.
+Windows DLL/import-library/PDB shared library policy is deferred.
 .It Ic build
 Build using the effective generator.
 The

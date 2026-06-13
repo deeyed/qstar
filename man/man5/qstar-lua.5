@@ -36,8 +36,14 @@ Executable target.
 .It Ic qstar.staticlib
 Static library target.
 .It Ic qstar.sharedlib
-Shared library target declaration. This is currently plan/check-only until
-shared library platform policy is sealed.
+Shared library target. Darwin-like profiles produce
+.Pa lib<name>.dylib
+with an
+.Ar @rpath
+install name, and Linux-like profiles produce
+.Pa lib<name>.so
+with a soname. Windows DLL/import-library/PDB policy is deferred and produces a
+diagnostic.
 .It Ic qstar.test
 Test executable target.
 .It Ic qstar.custom_target

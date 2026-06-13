@@ -148,8 +148,9 @@ Current pre-port policy:
   support lands, use `artifact_name = "name.lib"` or profile
   `artifact_names = {"//:name=name.lib"}` explicitly. Automatic `.lib` output is
   deferred until native `lib.exe`/`llvm-lib` validation.
-- `qstar.sharedlib` remains plan/check-only. `.dll`, import library, PDB,
-  runtime search path, and install layout are deferred.
+- `qstar.sharedlib` is supported for Darwin-like `.dylib` and Linux-like `.so`
+  profiles, but Windows `.dll`, import library, PDB, runtime search path, and
+  install layout are deferred.
 
 Do not claim Windows packaging support until `.exe`, static `.lib`, `.dll`,
 import library, debug artifact, and install layout behavior are validated on

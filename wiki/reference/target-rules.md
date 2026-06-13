@@ -27,7 +27,10 @@ qstar.stage "esp" { root = "stage/esp", files = {} }
 qstar.target_family "boot" { variants = {"x86_64", "aarch64"} }
 ```
 
-`sharedlib`는 v0.2에서 plan/check surface이고 full executor는 아직 deferred다.
+`sharedlib`는 macOS/Darwin-like profile에서 `lib<name>.dylib`, Linux-like profile에서
+`lib<name>.so`를 생성한다. Stella와 Ninja backend 모두 C/C++/ASM source를 compile하고
+`link-shared` final action을 실행한다. Windows `.dll`/import-library/PDB 정책은 아직
+deferred이며 Windows-like profile에서는 명확한 diagnostic을 낸다.
 
 Artifact target은 `configs = {"//:common_c"}`로 reusable option bundle을 참조할 수
 있다. Config merge 규칙은 [Reusable Configs](configs.md)에 둔다.

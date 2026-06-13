@@ -47,6 +47,8 @@ QStar가 자동 생성하는 기본 description은 다음 wording을 사용한�
 | ASM compile | `Building ASM object <object>` |
 | C static library | `Linking C static library <artifact>` |
 | C++ static library | `Linking CXX static library <artifact>` |
+| C shared library | `Linking C shared library <artifact>` |
+| C++ shared library | `Linking CXX shared library <artifact>` |
 | C executable | `Linking C executable <artifact>` |
 | C++ executable | `Linking CXX executable <artifact>` |
 | configure file | `Configuring <output>` |
