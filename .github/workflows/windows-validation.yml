@@ -1,0 +1,46 @@
+name: Windows Validation Candidate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-msys2:
+    name: windows / msys2-ucrt64
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install MSYS2 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            make
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-ninja
+
+      - name: Build QStar
+        shell: msys2 {0}
+        run: make all
+
+      - name: Run Windows process prep gate
+        shell: msys2 {0}
+        run: make qstar-windows-prep-tests
+
+      - name: Install prefix docs and manpage smoke
+        shell: msys2 {0}
+        run: |
+          prefix=/tmp/qstar-windows-smoke
+          make install PREFIX="$prefix"
+          "$prefix/bin/qstar" --version
+          QSTAR_DOC_DIR="$prefix/share/doc/qstar" "$prefix/bin/qstar" docs --path
+          test -f "$prefix/share/doc/qstar/wiki/AI_INDEX.md"
+          test -f "$prefix/share/man/man1/qstar.1"
+          test -f "$prefix/share/man/man5/qstar-lua.5"

@@ -52,7 +52,7 @@ qstar --file /tmp/qstar-hello/qstar.lua build //:app --progress plain
 | --- | --- |
 | macOS arm64 | Beta release artifact |
 | Linux x86_64 | Candidate dry-run through Ubuntu gcc/clang CI; publish only after release decision |
-| Windows | Planned validation |
+| Windows | Planned or candidate validation; publish only after native release gate |
 
 ## Notes
 

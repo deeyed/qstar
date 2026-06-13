@@ -58,7 +58,7 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 - `performance-gates.md`: Stella/Ninja clean, no-op, incremental timing gate 계약.
 - `progress-output.md`: CMake-style progress output, warning/error color, `qstar.status` descriptions.
 - `linux-validation.md`: Linux host validation path, Ubuntu gcc/clang CI workflow, install smoke, linux-x86_64 candidate tarball dry-run 조건.
-- `windows-path-process.md`: Windows path/process/response-file pre-port contract.
+- `windows-path-process.md`: Windows path/process/response-file pre-port contract와 manual native validation candidate workflow.
 - `public-beta-release.md`: public beta packaging, install smoke, codesign, wiki sync gate.
 - `releases/TEMPLATE.md`: GitHub prerelease notes template.
 - `qstar-v0.5-readiness.md`: 0.5 beta line으로 올릴지 판단하는 readiness gate.

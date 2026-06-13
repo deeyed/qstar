@@ -2437,3 +2437,27 @@ qstar_path_is_package_relative(const char *path)
 		return 0;
 	return 1;
 }
+
+/** package-relative path 검증 실패 이유를 사용자-facing 문구로 반환한다. */
+const char *
+qstar_path_package_relative_reason(const char *path)
+{
+	if (!path || !*path)
+		return "path is empty";
+	if (path[0] == '/')
+		return "absolute paths are not allowed";
+	if (isalpha((unsigned char)path[0]) && path[1] == ':')
+		return "drive-letter paths are not allowed; use package-relative slash-normalized paths";
+	if (strchr(path, '\\'))
+		return "backslashes are not allowed; use '/' separators";
+	if (strchr(path, ':'))
+		return "colon characters are reserved in package paths";
+	if (strcmp(path, ".") == 0 || strcmp(path, "..") == 0 ||
+	    strncmp(path, "../", 3) == 0 || strstr(path, "/../"))
+		return "parent-directory paths are not allowed";
+	if (strstr(path, "/./"))
+		return "current-directory segments are not allowed";
+	if (strstr(path, "//"))
+		return "duplicate path separators are not allowed";
+	return "use package-relative slash-normalized paths";
+}

@@ -24,7 +24,7 @@ QStar는 0.5 beta line으로 이동할 수 있는 기반은 갖췄다. 단, 0.5�
 | Ninja backend | 일반 C/C++/ASM project 후보 수준 | 비교/backend 후보로 유지 |
 | macOS release packaging | public beta gate 있음 | macOS arm64 beta asset 가능 |
 | Linux | validation + binary release candidate dry-run | 0.5 release note에 보수적으로 표기 |
-| Windows | planned validation | 0.5 official support로 표기 금지 |
+| Windows | native validation candidate prep | 0.5 official support로 표기 금지 |
 | Docs/CLI drift | smoke guard로 관리 | 0.5 전에 한 번 더 sync 필요 |
 
 0.5의 목표는 "QStar를 medium-size C/C++/systems-style project에 실험적으로 적용할 수
@@ -145,12 +145,14 @@ Linux:
 
 Windows:
 
-- 상태는 `planned validation`이다.
-- 현재는 path normalization, argv-vector process model, response file policy, `.exe`
-  artifact planning을 문서와 corpus로 준비한 단계다.
+- 상태는 `planned validation`에서 `native validation candidate prep`으로 올라갔다.
+- 현재는 path normalization, argv-vector process model, MSVC response file escaping,
+  `.exe`/external `.lib` artifact spelling, manual Windows workflow 후보를 문서와
+  corpus로 준비한 단계다.
 - 0.5에서 Windows official support나 release artifact를 선언하지 않는다.
-- Native Windows source build, install layout, process spawn, `.lib`/`.dll` policy,
-  CI lane은 별도 라운드로 남긴다.
+- Native Windows source build, install layout, real Windows process spawn,
+  automatic static `.lib`, `.dll`/import library/PDB policy, regular CI lane은 별도
+  라운드로 남긴다.
 
 ## Docs And CLI Drift Summary
 
@@ -228,7 +230,8 @@ release notes.
 
 - Performance gates are still report-only for timing thresholds.
 - Linux has a binary release-candidate dry-run, but it is not yet a published
-  artifact. Windows validation is not yet equal to macOS local validation.
+  artifact. Windows has a manual native validation candidate workflow, but it is
+  not yet official host support.
 - `qstar.sharedlib` remains plan/check-only.
 - Cale source Ninja lowering is deferred.
 - Package/dependency resolution is intentionally outside QStar.

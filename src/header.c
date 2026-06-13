@@ -34,8 +34,8 @@ validate_header_list(struct qstar_graph *graph, const struct qstar_target *targe
 			    target->origin_line,
 			    public_headers ? "public_headers" : "private_headers",
 			    target->label,
-			    "qstar: header path '%s' in '%s' must be package-relative",
-			    path, target->label);
+			    "qstar: header path '%s' in '%s' must be package-relative (%s)",
+			    path, target->label, qstar_path_package_relative_reason(path));
 		if (public_headers && !is_public_header_root(target, path) &&
 		    !qstar_graph_find_output_owner(graph, path))
 			return qstar_set_error_origin(graph, target->origin_file,

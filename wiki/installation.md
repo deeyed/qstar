@@ -3,9 +3,10 @@
 QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. Public
 beta에서는 macOS arm64 tarball을 먼저 배포한다. Linux host 지원은 Ubuntu gcc/clang CI
 기반 source build 검증과 `linux-x86_64` release-candidate tarball dry-run을 갖췄지만
-아직 public release artifact는 없다. Windows host 지원은 계획 단계다. Windows는 아직
-공식 지원이 아니지만 path/process/response-file 준비 규칙은 QStar tree 안에서 검증한다.
-모든 platform에서 소스에서 직접 빌드할 수 있도록 검증 경로를 늘려간다.
+아직 public release artifact는 없다. Windows host 지원은 native validation candidate
+준비 단계다. Windows는 아직 공식 지원이 아니지만 path/process/response-file 준비 규칙과
+manual Windows workflow 후보를 QStar tree 안에서 검증한다. 모든 platform에서 소스에서
+직접 빌드할 수 있도록 검증 경로를 늘려간다.
 
 ## 최소 예제
 
@@ -119,13 +120,25 @@ Windows release asset은 아직 없다. 현재 QStar는 Windows 이식 전에 �
   쓰지 않는다.
 - process 실행은 shell string이 아니라 `qstar.cli { ... }` argv-vector다.
 - MSVC 계열 response file은 `response_style = "msvc"`로 dry-run과 log에서 확인한다.
+- `.exe`는 `artifact_name = "tool.exe"` 또는 profile `artifact_names`로 명시한다.
+- 외부 system library `libs = {"kernel32"}`는 MSVC-like target에서 `kernel32.lib`로
+  렌더링한다.
+- QStar가 직접 만드는 static `.lib`, `.dll`, import library, PDB, Windows install
+  layout은 아직 official contract가 아니다.
 
 ```sh
 make qstar-windows-prep-tests
 ./build/bin/qstar --file tests/corpus/response-files/qstar.lua build //:all
 ./build/bin/qstar --file tests/corpus/response-files/qstar.lua \
   --profile windows-msvc dry-run //:windows_app
+./build/bin/qstar --file tests/corpus/response-files/qstar.lua \
+  --profile windows-msvc-fake build //:windows_rsp
 ```
+
+`.github/workflows/windows-validation.yml`은 `workflow_dispatch` 전용 후보 workflow다.
+MSYS2 UCRT64 환경에서 `make all`, `make qstar-windows-prep-tests`, install docs/man smoke를
+실행하도록 설계했지만, regular CI나 release gate가 되기 전까지 Windows official support로
+표기하지 않는다.
 
 ## 관련 diagnostic
 

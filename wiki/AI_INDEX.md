@@ -86,11 +86,14 @@ QStar가 하지 않는 일:
   `QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh`로 ELF x86-64,
   `ldd`, installed docs/wiki/manpages, `SHA256SUMS`를 확인하는 publish 없는 dry-run을
   수행한다.
-- Windows host 지원은 아직 official support가 아니다. Round Q98 기준
-  `make qstar-windows-prep-tests`가 path/process/response-file 준비 규칙을 묶는다.
-  QStar DSL path는 Windows에서도 `/`로 정규화된 package-relative path이며,
-  backslash path와 drive-letter package path는 금지된다. `.exe`, `.lib`, `.dll`
-  artifact 정책은 native Windows 검증 전까지 보수적으로 다룬다.
+- Windows host 지원은 아직 official support가 아니다. Round Q114 기준
+  `make qstar-windows-prep-tests`가 path/process/MSVC response-file 준비 규칙을 묶고,
+  `.github/workflows/windows-validation.yml`은 `workflow_dispatch` 전용 native validation
+  candidate다. QStar DSL path는 Windows에서도 `/`로 정규화된 package-relative path이며,
+  backslash path와 drive-letter package path는 금지된다. `.exe`는 `artifact_name`으로
+  명시할 수 있고, 외부 system library는 MSVC-like target에서 `.lib`로 렌더링한다.
+  QStar가 직접 만드는 static `.lib`, `.dll`, import library, PDB, Windows install layout은
+  native Windows 검증 전까지 official contract가 아니다.
 - `make qstar-medium-project-readiness-tests`는 Stella executor와 Ninja backend의 clean,
   no-op, incremental build 시간을 `medium_project_gate ...` line protocol로 기록한다.
   Round Q92 기준 timing threshold는 report-only가 기본이며,

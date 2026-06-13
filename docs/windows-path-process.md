@@ -6,6 +6,13 @@ planning, but source build, install layout, shell-free process execution, and
 release packaging still need native Windows validation before a Windows release
 artifact exists.
 
+Round Q114 moves this from a docs-only pre-port note to a native validation
+candidate path. The local gate now creates real MSVC-style response files with a
+fake `clang-cl` fixture, asserts drive-letter/backslash diagnostics, and keeps a
+manual Windows GitHub Actions candidate workflow. The response-file regression
+is exercised through both Stella and Ninja when `ninja` is available. This still
+is not official Windows support.
+
 ## Status
 
 ```txt
@@ -13,11 +20,13 @@ host support: planned validation
 official release artifact: none
 purpose of this document: pre-port contract
 gate: make -C qstar qstar-windows-prep-tests
+candidate workflow: .github/workflows/windows-validation.yml
 ```
 
-Linux is validation underway. Windows remains planned until QStar has a native
-Windows CI lane, source build, install smoke, response-file execution, and
-artifact packaging story.
+Linux has validation and release-candidate packaging dry-run coverage. Windows
+remains planned until QStar has a green native Windows CI lane, source build,
+install smoke, response-file execution with real Windows tools, and artifact
+packaging story.
 
 ## Path Normalization Rule
 
@@ -55,8 +64,15 @@ wrong. QStar avoids that by keeping project files canonical:
   `tool_overrides` plus `allow_absolute_tools`, but not as source paths
 - user shell paths on the CLI: handled by the host shell before QStar sees them
 
-Round Q98 adds a regression check that rejects drive-letter and backslash paths
-in package path fields.
+Round Q114 diagnostics distinguish common mistakes:
+
+- `C:\project\src\main.c` and `C:/project/src/main.c` report that drive-letter
+  paths are not allowed. The emitted reason text is
+  `drive-letter paths are not allowed`.
+- `sdk\include` reports that backslashes are not allowed and `/` separators are
+  required. The emitted reason text is `backslashes are not allowed`.
+- `../escape`, `./local`, duplicate separators, and colon-containing package
+  paths remain invalid package paths.
 
 ## Process Model
 
@@ -78,6 +94,11 @@ QStar must pass each list item as one argv element. It must not expand `$VAR`,
 split on spaces, interpret semicolons, or run commands through a shell. The
 Windows port should use the platform process API with the same argv-vector
 semantics, not a shell command string.
+
+Local non-Windows tests use `tests/corpus/response-files/tools/fake-clang-cl` to
+prove that QStar itself preserves argv structure and response-file escaping. That
+fixture is not a compiler and must not be used as evidence of native Windows
+toolchain support.
 
 ## Response Files
 
@@ -102,24 +123,37 @@ Current styles:
 For `x86_64-pc-windows-msvc`, `response_style` should be `msvc`. For MinGW-like
 targets, `windows` may be appropriate, but native validation is still pending.
 
+The prep gate verifies MSVC response-file escaping for:
+
+- arguments with spaces: `"/DNAME=alpha beta"`
+- embedded double quotes: `"/DQUOTE=\"value\""`
+- trailing backslashes: `"/DTRAIL=tail\\"`
+- semicolons preserved without shell splitting: `/DSEMICOLON=a;b`
+- linker paths with spaces: `"/PDB:build/qstar/pdb/windows rsp.pdb"`
+- `/LIBPATH:...` paths with spaces
+
 ## Artifact Naming
 
-Windows artifact naming is not official yet.
-
-Current policy:
+Current pre-port policy:
 
 - Executable targets may use `artifact_name = "tool.exe"` or profile
-  `artifact_names = {"//:tool=tool.exe"}`.
-- External Windows libraries in `libs = {"kernel32"}` render as
-  `kernel32.lib` for MSVC-like targets.
+  `artifact_names = {"//:tool=tool.exe"}`. This `.exe` spelling is the current
+  Windows executable naming contract.
+- External Windows libraries in `libs = {"kernel32"}` render as `kernel32.lib`
+  for Windows/MSVC-like targets. This external library spelling is sealed for
+  the pre-port contract.
 - `lib_dirs` render as `/LIBPATH:<path>` for MSVC-like targets.
-- `qstar.staticlib` still uses the current static archive policy; `.lib`
-  archive output is not yet a sealed Windows artifact contract.
+- `qstar.staticlib` still uses the current cross-host static archive default
+  `lib<name>.a`. If a Windows archive name is required before native archive
+  support lands, use `artifact_name = "name.lib"` or profile
+  `artifact_names = {"//:name=name.lib"}` explicitly. Automatic `.lib` output is
+  deferred until native `lib.exe`/`llvm-lib` validation.
 - `qstar.sharedlib` remains plan/check-only. `.dll`, import library, PDB,
   runtime search path, and install layout are deferred.
 
-Do not claim Windows packaging support until `.exe`, `.lib`, `.dll`, import
-library, debug artifact, and install layout behavior are validated on Windows.
+Do not claim Windows packaging support until `.exe`, static `.lib`, `.dll`,
+import library, debug artifact, and install layout behavior are validated on
+Windows.
 
 ## Regression Gate
 
@@ -135,9 +169,12 @@ The gate checks:
 - argv-vector custom target with spaces, quotes, semicolons, and `$`
 - compile database paths remain slash-normalized
 - Windows/MSVC dry-run uses `response_style=msvc`
+- fake Windows/MSVC build creates real compile and link `.rsp` files
+- MSVC response escaping for spaces, quotes, semicolons, and trailing
+  backslashes
 - Windows/MSVC dry-run renders `/link`, `/LIBPATH:...`, and `kernel32.lib`
 - `artifact_name = "windows_app.exe"` is reflected in the planned output path
-- drive-letter and backslash package paths are rejected
+- drive-letter and backslash package paths are rejected with specific reason text
 
 Manual corpus commands:
 
@@ -145,6 +182,19 @@ Manual corpus commands:
 ./build/bin/qstar --file tests/corpus/response-files/qstar.lua build //:all
 ./build/bin/qstar --file tests/corpus/response-files/qstar.lua \
   --profile windows-msvc dry-run //:windows_app
+./build/bin/qstar --file tests/corpus/response-files/qstar.lua \
+  --profile windows-msvc-fake build //:windows_rsp
 ```
 
 These commands prepare the port; they do not replace native Windows CI.
+
+## Windows GitHub Actions Candidate
+
+`.github/workflows/windows-validation.yml` is intentionally manual-only through
+`workflow_dispatch`. It checks out submodules, uses an MSYS2 UCRT64 environment,
+runs `make all`, runs `make qstar-windows-prep-tests`, and performs an install
+docs/manpage smoke under `/tmp/qstar-windows-smoke`.
+
+This workflow is a porting candidate, not a release gate. It must become green
+and be promoted to regular CI before README or release notes can claim Windows
+host support.

@@ -28,6 +28,19 @@ qstar.profile "windows-msvc" {
   },
 }
 
+qstar.profile "windows-msvc-fake" {
+  toolchain = "clang",
+  target = "x86_64-pc-windows-msvc",
+  cc = "tools/fake-clang-cl",
+  cxx = "tools/fake-clang-cl",
+  linker = "tools/fake-clang-cl",
+  response_files = "on",
+  response_style = "msvc",
+  tool_overrides = {
+    "qstar-argv-probe=tools/argv-probe.sh",
+  },
+}
+
 qstar.config "long_c_command" {
   lang = {
     c = {
@@ -56,6 +69,19 @@ qstar.config "long_c_command" {
       compile_options = {
         "-Wall",
         "-Wextra",
+      },
+    },
+  },
+}
+
+qstar.config "msvc_response_escape_args" {
+  lang = {
+    c = {
+      compile_options = {
+        "/DNAME=alpha beta",
+        "/DQUOTE=\"value\"",
+        "/DTRAIL=tail\\",
+        "/DSEMICOLON=a;b",
       },
     },
   },
@@ -93,6 +119,50 @@ qstar.executable "windows_app" {
   },
   libs = {
     "kernel32",
+  },
+}
+
+qstar.executable "windows_rsp" {
+  configs = {
+    "//:long_c_command",
+    "//:msvc_response_escape_args",
+  },
+  sources = {
+    "src/main.c",
+  },
+  artifact_name = "windows_rsp.exe",
+  lib_dirs = {
+    "sdk/lib with space/um/x64",
+  },
+  libs = {
+    "kernel32",
+    "user32",
+    "advapi32",
+    "shell32",
+    "ole32",
+    "uuid",
+  },
+  link_options = {
+    "/DEBUG:FULL",
+    "/PDB:build/qstar/pdb/windows rsp.pdb",
+    "/MANIFESTDEPENDENCY:type='win32' name='QStar Probe'",
+    "/DEFAULTLIB:msvcrt",
+    "/DEFAULTLIB:vcruntime",
+    "/DEFAULTLIB:ucrt",
+    "/INCREMENTAL:NO",
+    "/OPT:REF",
+    "/OPT:ICF",
+    "/SUBSYSTEM:CONSOLE",
+    "/ENTRY:mainCRTStartup",
+    "/NODEFAULTLIB:oldnames",
+    "/SAFESEH:NO",
+    "/DYNAMICBASE",
+    "/NXCOMPAT",
+    "/LARGEADDRESSAWARE",
+    "/BREPRO",
+    "/GUARD:CF",
+    "/MACHINE:X64",
+    "/VERSION:0.5",
   },
 }
 

@@ -59,6 +59,9 @@ int qstar_path_join(const char *a, const char *b, char *dst, size_t dstlen);
 /** QStar path가 package-relative normalized path인지 검사한다. */
 int qstar_path_is_package_relative(const char *path);
 
+/** package-relative path 검증 실패 이유를 사용자-facing 문구로 반환한다. */
+const char *qstar_path_package_relative_reason(const char *path);
+
 /** external canonical label에서 package alias 부분을 추출한다. */
 int qstar_label_package_alias(const char *label, char *dst, size_t dstlen);
 

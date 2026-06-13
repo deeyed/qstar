@@ -71,6 +71,47 @@ contains "$tmp/windows-dry.out" "/LIBPATH:sdk/lib/um/x64"
 contains "$tmp/windows-dry.out" "kernel32.lib"
 contains "$tmp/windows-dry.out" "output=build/qstar/out/___windows_app/windows_app.exe"
 
+"$qstar" --file "$corpus/qstar.lua" --profile windows-msvc-fake \
+	--progress off build //:windows_rsp > "$tmp/windows-rsp.out" \
+	2> "$tmp/windows-rsp.err"
+contains "$tmp/windows-rsp.out" "response_file id=//:windows_rsp:compile:0"
+contains "$tmp/windows-rsp.out" "response_file id=//:windows_rsp:link:0"
+contains "$tmp/windows-rsp.out" "style=msvc"
+contains "$tmp/windows-rsp.out" "status ok"
+test -x "$corpus/$build_dir/out/___windows_rsp/windows_rsp.exe" ||
+	fail "fake Windows executable artifact missing"
+compile_rsp="$corpus/$build_dir/rsp/___windows_rsp_compile_0.rsp"
+link_rsp="$corpus/$build_dir/rsp/___windows_rsp_link_0.rsp"
+test -f "$compile_rsp" || fail "fake Windows compile response file missing"
+test -f "$link_rsp" || fail "fake Windows link response file missing"
+contains "$compile_rsp" '"/DNAME=alpha beta"'
+contains "$compile_rsp" '"/DQUOTE=\"value\""'
+contains "$compile_rsp" '"/DTRAIL=tail\\"'
+contains "$compile_rsp" "/DSEMICOLON=a;b"
+contains "$link_rsp" '"/PDB:build/qstar/pdb/windows rsp.pdb"'
+contains "$link_rsp" '"/MANIFESTDEPENDENCY:type='"'"'win32'"'"' name='"'"'QStar Probe'"'"'"'
+contains "$link_rsp" '"/LIBPATH:sdk/lib with space/um/x64"'
+contains "$link_rsp" "kernel32.lib"
+contains "$link_rsp" "uuid.lib"
+
+if command -v ninja >/dev/null 2>&1; then
+	rm -rf "$corpus/$build_dir" "$corpus/.ninja_log" "$corpus/.ninja_deps"
+	"$qstar" --file "$corpus/qstar.lua" --profile windows-msvc-fake -G ninja \
+		--progress off build //:windows_rsp > "$tmp/windows-rsp-ninja.out" \
+		2> "$tmp/windows-rsp-ninja.err"
+	contains "$tmp/windows-rsp-ninja.out" "backend ninja"
+	contains "$tmp/windows-rsp-ninja.out" "status ok"
+	test ! -f "$corpus/.ninja_log" || fail "ninja root .ninja_log pollution"
+	test ! -f "$corpus/.ninja_deps" || fail "ninja root .ninja_deps pollution"
+	compile_rsp="$corpus/$build_dir/rsp/___windows_rsp_compile_0.rsp"
+	link_rsp="$corpus/$build_dir/rsp/___windows_rsp_link_0.rsp"
+	test -f "$compile_rsp" || fail "ninja fake Windows compile response file missing"
+	test -f "$link_rsp" || fail "ninja fake Windows link response file missing"
+	contains "$compile_rsp" '"/DQUOTE=\"value\""'
+	contains "$compile_rsp" '"/DTRAIL=tail\\"'
+	contains "$link_rsp" '"/LIBPATH:sdk/lib with space/um/x64"'
+fi
+
 mkdir -p "$tmp/bad-drive" "$tmp/bad-drive-slash" "$tmp/bad-backslash/src"
 cat > "$tmp/bad-drive/qstar.lua" <<'EOF'
 qstar.executable "bad" {
@@ -82,6 +123,7 @@ if "$qstar" --file "$tmp/bad-drive/qstar.lua" check //:bad \
 	fail "drive-letter source path unexpectedly succeeded"
 fi
 contains "$tmp/bad-drive.err" "must be package-relative"
+contains "$tmp/bad-drive.err" "drive-letter paths are not allowed"
 
 cat > "$tmp/bad-drive-slash/qstar.lua" <<'EOF'
 qstar.executable "bad" {
@@ -93,6 +135,7 @@ if "$qstar" --file "$tmp/bad-drive-slash/qstar.lua" check //:bad \
 	fail "slash drive-letter source path unexpectedly succeeded"
 fi
 contains "$tmp/bad-drive-slash.err" "must be package-relative"
+contains "$tmp/bad-drive-slash.err" "drive-letter paths are not allowed"
 
 cat > "$tmp/bad-backslash/src/main.c" <<'EOF'
 int main(void) { return 0; }
@@ -112,5 +155,6 @@ if "$qstar" --file "$tmp/bad-backslash/qstar.lua" check //:bad \
 	fail "backslash include path unexpectedly succeeded"
 fi
 contains "$tmp/bad-backslash.err" "must be package-relative"
+contains "$tmp/bad-backslash.err" "backslashes are not allowed"
 
 printf 'qstar-windows-prep: passed\n'

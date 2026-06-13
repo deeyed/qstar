@@ -170,8 +170,9 @@ validate_include_dir_list(struct qstar_graph *graph, const struct qstar_target *
 		if (!qstar_path_is_package_relative(list->items[i]))
 			return qstar_set_error_origin(graph, target->origin_file,
 			    target->origin_line, field, target->label,
-			    "qstar: include directory '%s' in '%s' must be package-relative",
-			    list->items[i], target->label);
+			    "qstar: include directory '%s' in '%s' must be package-relative (%s)",
+			    list->items[i], target->label,
+			    qstar_path_package_relative_reason(list->items[i]));
 	}
 	return 0;
 }
@@ -359,8 +360,8 @@ validate_source_list(struct qstar_graph *graph, const struct qstar_target *targe
 		if (!qstar_path_is_package_relative(path))
 			return qstar_set_error_origin(graph, target->origin_file,
 			    target->origin_line, "sources", target->label,
-			    "qstar: source path '%s' in '%s' must be package-relative",
-			    path, target->label);
+			    "qstar: source path '%s' in '%s' must be package-relative (%s)",
+			    path, target->label, qstar_path_package_relative_reason(path));
 		if (source_is_duplicate(target, path, i))
 			return qstar_set_error_origin(graph, target->origin_file,
 			    target->origin_line, "sources", target->label,
@@ -408,14 +409,16 @@ validate_link_lists(struct qstar_graph *graph, const struct qstar_target *target
 	    !qstar_path_is_package_relative(target->linker_script))
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "linker_script", target->label,
-		    "qstar: linker_script '%s' in '%s' must be package-relative",
-		    target->linker_script, target->label);
+		    "qstar: linker_script '%s' in '%s' must be package-relative (%s)",
+		    target->linker_script, target->label,
+		    qstar_path_package_relative_reason(target->linker_script));
 	if (target->run_marker_log && *target->run_marker_log &&
 	    !qstar_path_is_package_relative(target->run_marker_log))
 		return qstar_set_error_origin(graph, target->origin_file,
 		    target->origin_line, "marker_log", target->label,
-		    "qstar: run_target marker_log '%s' in '%s' must be package-relative",
-		    target->run_marker_log, target->label);
+		    "qstar: run_target marker_log '%s' in '%s' must be package-relative (%s)",
+		    target->run_marker_log, target->label,
+		    qstar_path_package_relative_reason(target->run_marker_log));
 	for (i = 0; i < target->defsyms.len; i++) {
 		if (!valid_defsym(target->defsyms.items[i]))
 			return qstar_set_error_origin(graph, target->origin_file,
@@ -495,8 +498,8 @@ validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 		if (!qstar_path_is_package_relative(path))
 			return qstar_set_error_origin(graph, genrule->origin_file,
 			    genrule->origin_line, "inputs", genrule->label,
-			    "qstar: generated input '%s' in '%s' must be package-relative",
-			    path, genrule->label);
+			    "qstar: generated input '%s' in '%s' must be package-relative (%s)",
+			    path, genrule->label, qstar_path_package_relative_reason(path));
 		if (qstar_graph_path_is_generated(graph, path) &&
 		    qstar_graph_find_output_owner(graph, path) == genrule)
 			return qstar_set_error_origin(graph, genrule->origin_file,
@@ -509,8 +512,8 @@ validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 		if (!qstar_path_is_package_relative(path))
 			return qstar_set_error_origin(graph, genrule->origin_file,
 			    genrule->origin_line, "outputs", genrule->label,
-			    "qstar: generated output '%s' in '%s' must be package-relative",
-			    path, genrule->label);
+			    "qstar: generated output '%s' in '%s' must be package-relative (%s)",
+			    path, genrule->label, qstar_path_package_relative_reason(path));
 		if (!qstar_graph_path_is_generated(graph, path))
 			return qstar_set_error_origin(graph, genrule->origin_file,
 			    genrule->origin_line, "outputs", genrule->label,
@@ -558,8 +561,9 @@ validate_stage(struct qstar_graph *graph, const struct qstar_stage *stage)
 	if (!qstar_path_is_package_relative(stage->root))
 		return qstar_set_error_origin(graph, stage->origin_file, stage->origin_line,
 		    "root", stage->label,
-		    "qstar: stage root '%s' in '%s' must be package-relative",
-		    stage->root, stage->label);
+		    "qstar: stage root '%s' in '%s' must be package-relative (%s)",
+		    stage->root, stage->label,
+		    qstar_path_package_relative_reason(stage->root));
 	if (stage->srcs.len == 0)
 		return qstar_set_error_origin(graph, stage->origin_file, stage->origin_line,
 		    "files", stage->label, "qstar: stage '%s' has no files", stage->label);
@@ -603,14 +607,16 @@ validate_stage(struct qstar_graph *graph, const struct qstar_stage *stage)
 		} else if (!qstar_path_is_package_relative(stage->srcs.items[i])) {
 			return qstar_set_error_origin(graph, stage->origin_file,
 			    stage->origin_line, "files", stage->label,
-			    "qstar: stage source '%s' in '%s' must be package-relative",
-			    stage->srcs.items[i], stage->label);
+			    "qstar: stage source '%s' in '%s' must be package-relative (%s)",
+			    stage->srcs.items[i], stage->label,
+			    qstar_path_package_relative_reason(stage->srcs.items[i]));
 		}
 		if (!qstar_path_is_package_relative(stage->dsts.items[i]))
 			return qstar_set_error_origin(graph, stage->origin_file,
 			    stage->origin_line, "files", stage->label,
-			    "qstar: stage destination '%s' in '%s' must be package-relative",
-			    stage->dsts.items[i], stage->label);
+			    "qstar: stage destination '%s' in '%s' must be package-relative (%s)",
+			    stage->dsts.items[i], stage->label,
+			    qstar_path_package_relative_reason(stage->dsts.items[i]));
 	}
 	return 0;
 }

@@ -1373,17 +1373,23 @@ write_windows_response_arg(FILE *f, const char *s)
 			continue;
 		}
 		if (*p == '"') {
-			while (backslashes--)
+			while (backslashes > 0) {
 				fputs("\\\\", f);
+				backslashes--;
+			}
 			fputs("\\\"", f);
 			continue;
 		}
-		while (backslashes--)
+		while (backslashes > 0) {
 			fputc('\\', f);
+			backslashes--;
+		}
 		fputc(*p, f);
 	}
-	while (backslashes--)
+	while (backslashes > 0) {
 		fputs("\\\\", f);
+		backslashes--;
+	}
 	fputc('"', f);
 }
 
