@@ -2811,11 +2811,23 @@ EOF
 
 "$qstar" --file "$tmp/qstar.lua" build //:linkapp > "$tmp/linkapp.out" 2> "$tmp/linkapp.err"
 contains "$tmp/linkapp.out" "status ok"
+not_contains "$tmp/linkapp.out" "ranlib: warning"
+not_contains "$tmp/linkapp.out" "archive member"
+not_contains "$tmp/linkapp.err" "ranlib: warning"
+not_contains "$tmp/linkapp.err" "archive member"
 "$qstar" --file "$tmp/qstar.lua" action-log //:linkapp:link:0 > "$tmp/linkapp-log.out" 2> "$tmp/linkapp-log.err"
 case "$(cat "$tmp/linkapp-log.out")" in
   *libutil.a*libcore.a*) ;;
   *) fail "link order did not include util before core" ;;
 esac
+"$qstar" --file "$tmp/qstar.lua" action-log //:util:archive:0 > "$tmp/util-archive-log.out" 2> "$tmp/util-archive-log.err"
+contains "$tmp/util-archive-log.out" "argv[0]=ar"
+contains "$tmp/util-archive-log.out" "libutil.a"
+contains "$tmp/util-archive-log.out" "obj0.o"
+not_contains "$tmp/util-archive-log.out" "libcore.a"
+"$qstar" --file "$tmp/qstar.lua" emit-ninja //:util > "$tmp/util-emit-ninja.out" 2> "$tmp/util-emit-ninja.err"
+contains "$tmp/build/qstar/ninja/build.ninja" "build build/qstar/out/___util/libutil.a: qstar_archive build/qstar/out/___util/obj0.o ||"
+not_contains "$tmp/build/qstar/ninja/build.ninja" "libutil.a: qstar_archive build/qstar/out/___util/obj0.o build/qstar/out/___core/libcore.a"
 
 if "$qstar" --file "$tmp/qstar.lua" build //:bad_private > "$tmp/bad-private.out" 2> "$tmp/bad-private.err"; then
 	fail "private include propagation unexpectedly succeeded"

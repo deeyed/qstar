@@ -6097,7 +6097,8 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			return qstar_set_error(graph, "qstar: out of memory");
 	}
 	dep_first = argc;
-	if (append_dep_artifacts(graph, target, argv, &argc) < 0) {
+	if (strcmp(target->kind, "staticlib") != 0 &&
+	    append_dep_artifacts(graph, target, argv, &argc) < 0) {
 		free_dep_artifacts(argv, owned_first, dep_first);
 		return -1;
 	}
