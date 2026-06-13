@@ -24,12 +24,45 @@ contains() {
 	grep -F -q -- "$pat" "$file" || fail "missing pattern '$pat' in $file"
 }
 
+not_contains() {
+	file=$1
+	pat=$2
+	if grep -F -q -- "$pat" "$file"; then
+		fail "unexpected pattern '$pat' in $file"
+	fi
+}
+
 now_ms() {
 	if command -v python3 >/dev/null 2>&1; then
 		python3 -c 'import time; print(int(time.time() * 1000))'
 	else
 		printf '%s000\n' "$(date +%s)"
 	fi
+}
+
+detect_host_jobs() {
+	jobs=
+	if command -v getconf >/dev/null 2>&1; then
+		jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)
+	fi
+	if [ -z "$jobs" ] && command -v sysctl >/dev/null 2>&1; then
+		jobs=$(sysctl -n hw.ncpu 2>/dev/null || true)
+	fi
+	case "$jobs" in
+	''|*[!0-9]*)
+		jobs=1
+		;;
+	esac
+	if [ "$jobs" -lt 1 ]; then
+		jobs=1
+	fi
+	printf '%s\n' "$jobs"
+}
+
+field_value() {
+	line=$1
+	name=$2
+	printf '%s\n' "$line" | sed -n "s/.*${name}=\\([^ ]*\\).*/\\1/p"
 }
 
 run_timed() {
@@ -335,6 +368,34 @@ fi
 contains "$tmp/lint.out" "status ok"
 printf 'medium_project_gate target_count=%s min_targets=%s\n' "$target_count" "$min_targets"
 
+host_jobs=$(detect_host_jobs)
+printf 'medium_project_gate scheduler host_jobs=%s\n' "$host_jobs"
+
+run_timed stella_trace "$qstar" --file "$root/qstar.lua" -B build/stella-trace -G stella build //:firmware_image --schedule-trace --progress off --color never
+contains "$tmp/stella_trace.out" "executor-policy version=v4"
+contains "$tmp/stella_trace.out" "action_scheduler version=v1"
+contains "$tmp/stella_trace.out" "status ok"
+not_contains "$tmp/stella_trace.out" "parallel=no jobs=1 active=serial-ready-queue"
+not_contains "$tmp/stella_trace.out" "kind=final state=ready"
+policy_line=$(grep -m 1 '^executor-policy ' "$tmp/stella_trace.out")
+scheduler_line=$(grep -m 1 '^action_scheduler ' "$tmp/stella_trace.out")
+default_jobs=$(field_value "$policy_line" jobs)
+initial_ready=$(field_value "$scheduler_line" ready)
+async_final_count=$(grep -E 'schedule_action id=.*:(archive|link):0 kind=(archive|link) slot=' "$tmp/stella_trace.out" | wc -l | tr -d ' ')
+if [ -z "$default_jobs" ] || [ "$default_jobs" -lt 1 ]; then
+	fail "could not parse default scheduler jobs"
+fi
+if [ -z "$initial_ready" ] || [ "$initial_ready" -lt 2 ]; then
+	fail "ready queue width too narrow: ${initial_ready:-missing}"
+fi
+if [ "$host_jobs" -gt 1 ] && [ "$default_jobs" -le 1 ]; then
+	fail "default jobs fell back to serial on multi-core host"
+fi
+if [ "$async_final_count" -lt 2 ]; then
+	fail "expected async archive/link final actions in schedule trace"
+fi
+printf 'medium_project_gate scheduler default_jobs=%s ready_width=%s async_final_actions=%s trace_elapsed_ms=%s\n' "$default_jobs" "$initial_ready" "$async_final_count" "$stella_trace_ms"
+
 run_timed stella_clean "$qstar" --file "$root/qstar.lua" -B build/stella -G stella build //:firmware_image
 contains "$tmp/stella_clean.out" "group_target label=//:firmware_image"
 contains "$tmp/stella_clean.out" "status ok"
@@ -353,6 +414,30 @@ contains "$tmp/stella_incremental.out" "status ok"
 check_elapsed_max "stella incremental build" "$stella_incremental_ms" "$incremental_max_ms"
 printf 'medium_project_gate backend=stella phase=incremental elapsed_ms=%s\n' "$stella_incremental_ms"
 
+run_timed stella_jobs_clean "$qstar" --file "$root/qstar.lua" -B build/stella-jobs -G stella build //:firmware_image --jobs "$host_jobs"
+contains "$tmp/stella_jobs_clean.out" "group_target label=//:firmware_image"
+contains "$tmp/stella_jobs_clean.out" "status ok"
+test -f "$root/build/stella-jobs/compile_commands.json" || fail "stella --jobs compile_commands missing"
+check_elapsed_max "stella --jobs clean build" "$stella_jobs_clean_ms" "$clean_max_ms"
+printf 'medium_project_gate backend=stella-jobs jobs=%s phase=clean elapsed_ms=%s\n' "$host_jobs" "$stella_jobs_clean_ms"
+
+run_timed stella_jobs_noop "$qstar" --file "$root/qstar.lua" -B build/stella-jobs -G stella build //:firmware_image --jobs "$host_jobs"
+contains "$tmp/stella_jobs_noop.out" "status ok"
+check_elapsed_max "stella --jobs no-op build" "$stella_jobs_noop_ms" "$noop_max_ms"
+printf 'medium_project_gate backend=stella-jobs jobs=%s phase=noop elapsed_ms=%s\n' "$host_jobs" "$stella_jobs_noop_ms"
+
+bump_source "sys/kern/mm/mm.c" 7002
+run_timed stella_jobs_incremental "$qstar" --file "$root/qstar.lua" -B build/stella-jobs -G stella build //:firmware_image --jobs "$host_jobs"
+contains "$tmp/stella_jobs_incremental.out" "status ok"
+check_elapsed_max "stella --jobs incremental build" "$stella_jobs_incremental_ms" "$incremental_max_ms"
+printf 'medium_project_gate backend=stella-jobs jobs=%s phase=incremental elapsed_ms=%s\n' "$host_jobs" "$stella_jobs_incremental_ms"
+
+"$qstar" --file "$root/qstar.lua" -B build/stella action-log //sys/kern/mm:kernel_mm:archive:0 > "$tmp/kernel-mm-archive-log.out" 2> "$tmp/kernel-mm-archive-log.err"
+contains "$tmp/kernel-mm-archive-log.out" "argv[0]=ar"
+contains "$tmp/kernel-mm-archive-log.out" "libkernel_mm.a"
+not_contains "$tmp/kernel-mm-archive-log.out" "liblibk_core.a"
+printf 'medium_project_gate staticlib_argv_parity=ok target=//sys/kern/mm:kernel_mm\n'
+
 if command -v ninja >/dev/null 2>&1; then
 	run_timed ninja_clean "$qstar" --file "$root/qstar.lua" -B build/qstar-ninja -G ninja build //:firmware_image
 	contains "$tmp/ninja_clean.out" "backend ninja"
@@ -365,7 +450,7 @@ if command -v ninja >/dev/null 2>&1; then
 	contains "$tmp/ninja_noop.out" "status ok"
 	check_elapsed_max "ninja no-op build" "$ninja_noop_ms" "$noop_max_ms"
 	printf 'medium_project_gate backend=ninja phase=noop elapsed_ms=%s\n' "$ninja_noop_ms"
-	bump_source "sys/kern/mm/mm.c" 7002
+	bump_source "sys/kern/mm/mm.c" 7003
 	run_timed ninja_incremental "$qstar" --file "$root/qstar.lua" -B build/qstar-ninja -G ninja build //:firmware_image
 	contains "$tmp/ninja_incremental.out" "backend ninja"
 	contains "$tmp/ninja_incremental.out" "status ok"
@@ -374,9 +459,15 @@ if command -v ninja >/dev/null 2>&1; then
 	printf 'medium_project_gate compare phase=clean stella_ms=%s ninja_ms=%s ratio_x100=%s slack_ms=%s\n' "$stella_clean_ms" "$ninja_clean_ms" "$ratio_x100" "$ratio_slack_ms"
 	printf 'medium_project_gate compare phase=noop stella_ms=%s ninja_ms=%s ratio_x100=%s slack_ms=%s\n' "$stella_noop_ms" "$ninja_noop_ms" "$ratio_x100" "$ratio_slack_ms"
 	printf 'medium_project_gate compare phase=incremental stella_ms=%s ninja_ms=%s ratio_x100=%s slack_ms=%s\n' "$stella_incremental_ms" "$ninja_incremental_ms" "$ratio_x100" "$ratio_slack_ms"
+	printf 'medium_project_gate compare backend=stella-jobs phase=clean stella_ms=%s ninja_ms=%s ratio_x100=%s slack_ms=%s\n' "$stella_jobs_clean_ms" "$ninja_clean_ms" "$ratio_x100" "$ratio_slack_ms"
+	printf 'medium_project_gate compare backend=stella-jobs phase=noop stella_ms=%s ninja_ms=%s ratio_x100=%s slack_ms=%s\n' "$stella_jobs_noop_ms" "$ninja_noop_ms" "$ratio_x100" "$ratio_slack_ms"
+	printf 'medium_project_gate compare backend=stella-jobs phase=incremental stella_ms=%s ninja_ms=%s ratio_x100=%s slack_ms=%s\n' "$stella_jobs_incremental_ms" "$ninja_incremental_ms" "$ratio_x100" "$ratio_slack_ms"
 	check_stella_vs_ninja clean "$stella_clean_ms" "$ninja_clean_ms"
 	check_stella_vs_ninja noop "$stella_noop_ms" "$ninja_noop_ms"
 	check_stella_vs_ninja incremental "$stella_incremental_ms" "$ninja_incremental_ms"
+	check_stella_vs_ninja clean "$stella_jobs_clean_ms" "$ninja_clean_ms"
+	check_stella_vs_ninja noop "$stella_jobs_noop_ms" "$ninja_noop_ms"
+	check_stella_vs_ninja incremental "$stella_jobs_incremental_ms" "$ninja_incremental_ms"
 else
 	printf 'medium_project_gate backend=ninja phase=clean elapsed_ms=skipped reason=ninja-not-found\n'
 	printf 'medium_project_gate backend=ninja phase=noop elapsed_ms=skipped reason=ninja-not-found\n'

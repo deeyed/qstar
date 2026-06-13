@@ -23,9 +23,13 @@ make qstar-medium-project-readiness-tests
 출력 포맷은 사람이 읽을 수 있는 line protocol이다.
 
 ```txt
+medium_project_gate scheduler host_jobs=10
+medium_project_gate scheduler default_jobs=10 ready_width=40 async_final_actions=40 trace_elapsed_ms=257
 medium_project_gate backend=stella phase=clean elapsed_ms=123
 medium_project_gate backend=stella phase=noop elapsed_ms=42
 medium_project_gate backend=stella phase=incremental elapsed_ms=51
+medium_project_gate backend=stella-jobs jobs=10 phase=clean elapsed_ms=118
+medium_project_gate staticlib_argv_parity=ok target=//sys/kern/mm:kernel_mm
 medium_project_gate backend=ninja phase=clean elapsed_ms=100
 medium_project_gate backend=ninja phase=noop elapsed_ms=30
 medium_project_gate backend=ninja phase=incremental elapsed_ms=36
@@ -45,22 +49,38 @@ Ninja가 설치되어 있지 않으면 Ninja phase는 `skipped`로 기록한다.
 
 ## Latest Snapshot
 
-Round Q132 local macOS arm64 대표 측정값:
+Round Q137 local macOS arm64 대표 측정값:
 
 ```txt
 medium_project_gate target_count=47 min_targets=40
-medium_project_gate backend=stella phase=clean elapsed_ms=991
-medium_project_gate backend=stella phase=noop elapsed_ms=79
-medium_project_gate backend=stella phase=incremental elapsed_ms=100
-medium_project_gate backend=ninja phase=clean elapsed_ms=276
-medium_project_gate backend=ninja phase=noop elapsed_ms=89
-medium_project_gate backend=ninja phase=incremental elapsed_ms=107
-medium_project_gate compare phase=clean stella_ms=991 ninja_ms=276 ratio_x100=200 slack_ms=250
-medium_project_gate compare phase=noop stella_ms=79 ninja_ms=89 ratio_x100=200 slack_ms=250
-medium_project_gate compare phase=incremental stella_ms=100 ninja_ms=107 ratio_x100=200 slack_ms=250
-medium_project_gate warning=stella clean 991ms exceeds ninja 276ms beyond ratio_x100=200 slack_ms=250
-medium_project_gate status=ok perf_issue_count=1 report_only=1
+medium_project_gate scheduler host_jobs=10
+medium_project_gate scheduler default_jobs=10 ready_width=40 async_final_actions=40 trace_elapsed_ms=257
+medium_project_gate backend=stella phase=clean elapsed_ms=247
+medium_project_gate backend=stella phase=noop elapsed_ms=67
+medium_project_gate backend=stella phase=incremental elapsed_ms=89
+medium_project_gate backend=stella-jobs jobs=10 phase=clean elapsed_ms=237
+medium_project_gate backend=stella-jobs jobs=10 phase=noop elapsed_ms=68
+medium_project_gate backend=stella-jobs jobs=10 phase=incremental elapsed_ms=88
+medium_project_gate staticlib_argv_parity=ok target=//sys/kern/mm:kernel_mm
+medium_project_gate backend=ninja phase=clean elapsed_ms=251
+medium_project_gate backend=ninja phase=noop elapsed_ms=73
+medium_project_gate backend=ninja phase=incremental elapsed_ms=97
+medium_project_gate compare phase=clean stella_ms=247 ninja_ms=251 ratio_x100=200 slack_ms=250
+medium_project_gate compare phase=noop stella_ms=67 ninja_ms=73 ratio_x100=200 slack_ms=250
+medium_project_gate compare phase=incremental stella_ms=89 ninja_ms=97 ratio_x100=200 slack_ms=250
+medium_project_gate compare backend=stella-jobs phase=clean stella_ms=237 ninja_ms=251 ratio_x100=200 slack_ms=250
+medium_project_gate compare backend=stella-jobs phase=noop stella_ms=68 ninja_ms=73 ratio_x100=200 slack_ms=250
+medium_project_gate compare backend=stella-jobs phase=incremental stella_ms=88 ninja_ms=97 ratio_x100=200 slack_ms=250
+medium_project_gate status=ok perf_issue_count=0 report_only=1
 ```
+
+Old/new comparison:
+
+| Snapshot | Stella clean | Stella no-op | Stella incremental | Ninja clean | Ninja no-op | Ninja incremental |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Q132 representative | 991ms | 79ms | 100ms | 276ms | 89ms | 107ms |
+| Q137 default Stella | 247ms | 67ms | 89ms | 251ms | 73ms | 97ms |
+| Q137 explicit jobs | 237ms | 68ms | 88ms | 251ms | 73ms | 97ms |
 
 Stella no-op과 incremental은 이 corpus에서 Ninja급 latency를 보인다. Q121은 compact
 `state.db` dirty-check path를 추가해 JSON state parse를 no-op/incremental hot path에서
@@ -76,13 +96,21 @@ compile/custom action wait loop에서 fixed sleep pause를 제거하고 stdout/s
 POSIX `poll()`로 기다린다. Q131은 successful/cache-hit action log를 lazy materialization으로
 전환해 clean build metadata file write 수를 줄인다. Q132는 `state.db`를 Stella
 dirty-check의 canonical fast path로 명확화하고, 사람이 읽는 `state/actions.json` dump를
-`QSTAR_DEBUG_STATE_DUMPS=1` opt-in으로 내려 fast path에서 JSON debug export write를 제거했다.
+`QSTAR_DEBUG_STATE_DUMPS=1` opt-in으로 내려 fast path에서 JSON debug export write를
+제거했다. Q133-Q136은 macOS default jobs 감지, staticlib dependency archive nesting 제거,
+compile dependency edge 완화, archive/link final action async scheduling을 더했다.
 
-Clean build는 runner와 output drain, lazy success action log, debug state dump opt-in 구조가
-정리됐지만, 이번 local macOS 측정에서는 991ms로 여전히 목표 범위였던 500-650ms에 닿지
-못했다. 현재 remaining gap은 process completion
-bookkeeping, compiler process count, remaining metadata write 쪽에 남아 있다.
-다만 no-op과 incremental은 계속 Ninja급 latency를 유지한다.
+Q137 대표 측정에서는 Stella clean이 Ninja 대비 2배 이내 목표를 넘어 1.5배 이내에 들어왔다.
+다만 timing은 host CPU, filesystem cache, compiler warm state에 흔들리므로, 이 수치를 stable
+성능 보장으로 선언하지 않는다. 현재 gate는 default jobs가 host CPU count로 잡히는지,
+초기 ready queue 폭이 충분한지, archive/link final action이 async schedule에 올라가는지,
+staticlib archive argv가 dependency `.a`를 다시 넣지 않는지를 hard check한다. Timing ratio는
+release 판단용 report-only로 유지한다.
+
+남은 병목은 더 큰 corpus에서의 compiler process count, generated/run action의 동기 경로,
+remaining graph/metadata summary write, host별 process runner 편차다. 다음 목표는 medium
+gate에서 Stella clean을 Ninja 대비 1.5배 이내에 더 안정적으로 유지하고, 더 큰 synthetic
+corpus에서도 같은 경향이 나오는지 확인하는 것이다.
 
 Timing은 host CPU, filesystem cache, compiler, terminal load에 영향을 받는다. 그래서
 Round Q92 기준 timing threshold는 기본적으로 report-only다. 구조적 실패, graph 실패,

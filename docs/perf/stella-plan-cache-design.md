@@ -559,6 +559,79 @@ Q132는 JSON debug dump write를 clean build hot path에서 제거했지만, cle
 유지한다. 남은 clean gap은 process completion bookkeeping, compiler process count,
 remaining metadata write 쪽으로 본다.
 
+### Q133-Q136 Scheduler Semantics Fixes
+
+Status: implemented.
+
+Q133-Q136은 clean build에서 Stella가 Ninja보다 크게 벌어지던 원인을 scheduler semantics와
+link/archive path 쪽에서 정리했다.
+
+1. Q133은 macOS default jobs detection을 고쳐 기본 `--jobs`가 host CPU count로 잡히게 했다.
+   Multi-core host에서 `jobs=1` serial-ready-queue로 떨어지는 문제는 hard failure로 다룬다.
+2. Q134는 `qstar.staticlib` final archive action이 dependency `.a`를 자기 archive argv에 다시
+   넣지 않도록 고쳤다. Dependency static library는 order/build dependency일 뿐 archive member가
+   아니다.
+3. Q135는 dependent target compile action이 dependency target final archive를 기다리던
+   과보수 edge를 완화했다. Usage requirement는 graph merge 결과로 반영하고, archive/link
+   artifact dependency는 final action 단계에만 둔다.
+4. Q136은 archive/link final action을 Stella async prepared action queue에 태웠다.
+   `QSTAR_SCHED_FINAL`이 동기 `run_action()` 경로를 타며 후반부에서 serial처럼 멈칫하는 구조를
+   제거했다.
+
+### Q137 Stella/Ninja Performance Seal
+
+Status: implemented.
+
+Q137은 위 수정들이 실제 medium corpus에서 어떤 효과를 내는지 line protocol로 봉인한다.
+Gate는 timing만 보지 않고, scheduler 구조가 기대대로 작동하는지도 확인한다.
+
+Hard checks:
+
+1. `default_jobs`가 multi-core host에서 1로 떨어지지 않는다.
+2. 초기 ready queue width가 1보다 넓다.
+3. archive/link final action이 `kind=archive|link` schedule action으로 잡히고,
+   `kind=final state=ready` 동기 trace가 남지 않는다.
+4. staticlib archive argv가 dependency `.a`를 포함하지 않는다.
+
+Observed Q137 timing on the medium corpus, local macOS arm64:
+
+```txt
+medium_project_gate target_count=47 min_targets=40
+medium_project_gate scheduler host_jobs=10
+medium_project_gate scheduler default_jobs=10 ready_width=40 async_final_actions=40 trace_elapsed_ms=257
+medium_project_gate backend=stella phase=clean elapsed_ms=247
+medium_project_gate backend=stella phase=noop elapsed_ms=67
+medium_project_gate backend=stella phase=incremental elapsed_ms=89
+medium_project_gate backend=stella-jobs jobs=10 phase=clean elapsed_ms=237
+medium_project_gate backend=stella-jobs jobs=10 phase=noop elapsed_ms=68
+medium_project_gate backend=stella-jobs jobs=10 phase=incremental elapsed_ms=88
+medium_project_gate staticlib_argv_parity=ok target=//sys/kern/mm:kernel_mm
+medium_project_gate backend=ninja phase=clean elapsed_ms=251
+medium_project_gate backend=ninja phase=noop elapsed_ms=73
+medium_project_gate backend=ninja phase=incremental elapsed_ms=97
+medium_project_gate compare phase=clean stella_ms=247 ninja_ms=251 ratio_x100=200 slack_ms=250
+medium_project_gate compare phase=noop stella_ms=67 ninja_ms=73 ratio_x100=200 slack_ms=250
+medium_project_gate compare phase=incremental stella_ms=89 ninja_ms=97 ratio_x100=200 slack_ms=250
+medium_project_gate compare backend=stella-jobs phase=clean stella_ms=237 ninja_ms=251 ratio_x100=200 slack_ms=250
+medium_project_gate compare backend=stella-jobs phase=noop stella_ms=68 ninja_ms=73 ratio_x100=200 slack_ms=250
+medium_project_gate compare backend=stella-jobs phase=incremental stella_ms=88 ninja_ms=97 ratio_x100=200 slack_ms=250
+medium_project_gate status=ok perf_issue_count=0 report_only=1
+```
+
+이 측정에서는 Stella clean이 Ninja 대비 2배 이내 목표를 넘어서 1.5배 이내에도 들어왔다.
+다만 작은 medium corpus는 host filesystem cache, compiler warm state, terminal load에 민감하다.
+따라서 timing ratio는 계속 report-only로 둔다. Q137의 핵심은 "성능이 좋아졌다"는 인상보다,
+default jobs, ready queue width, async final action, staticlib argv parity를 gate에서 함께
+봉인했다는 점이다.
+
+남은 성능 작업은 다음 순서가 적절하다.
+
+1. 더 큰 synthetic corpus를 추가해 compiler process count가 늘어날 때도 1.5-2배 범위를
+   유지하는지 본다.
+2. generated/run action을 prepared-action model에 통합할지 별도 라운드에서 결정한다.
+3. graph snapshot과 build summary write를 release/debug 필요도에 따라 더 줄인다.
+4. Linux CI에서 같은 line protocol을 수집해 macOS-local 수치만으로 판단하지 않게 한다.
+
 ## Acceptance Criteria
 
 Q120 이후:

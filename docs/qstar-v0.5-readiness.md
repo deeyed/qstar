@@ -75,32 +75,43 @@ Makefile은 여전히 canonical bootstrap/release build path이고, self-host는
 
 ## Stella vs Ninja Benchmark Summary
 
-Round Q117 local macOS arm64 대표 측정값:
+Round Q137 local macOS arm64 대표 측정값:
 
 ```txt
 medium_project_gate target_count=47 min_targets=40
-medium_project_gate backend=stella phase=clean elapsed_ms=741
-medium_project_gate backend=stella phase=noop elapsed_ms=73
-medium_project_gate backend=stella phase=incremental elapsed_ms=92
-medium_project_gate backend=ninja phase=clean elapsed_ms=250
-medium_project_gate backend=ninja phase=noop elapsed_ms=76
-medium_project_gate backend=ninja phase=incremental elapsed_ms=107
-medium_project_gate compare phase=clean stella_ms=741 ninja_ms=250 ratio_x100=200 slack_ms=250
-medium_project_gate compare phase=noop stella_ms=73 ninja_ms=76 ratio_x100=200 slack_ms=250
-medium_project_gate compare phase=incremental stella_ms=92 ninja_ms=107 ratio_x100=200 slack_ms=250
+medium_project_gate scheduler host_jobs=10
+medium_project_gate scheduler default_jobs=10 ready_width=40 async_final_actions=40 trace_elapsed_ms=257
+medium_project_gate backend=stella phase=clean elapsed_ms=247
+medium_project_gate backend=stella phase=noop elapsed_ms=67
+medium_project_gate backend=stella phase=incremental elapsed_ms=89
+medium_project_gate backend=stella-jobs jobs=10 phase=clean elapsed_ms=237
+medium_project_gate backend=stella-jobs jobs=10 phase=noop elapsed_ms=68
+medium_project_gate backend=stella-jobs jobs=10 phase=incremental elapsed_ms=88
+medium_project_gate staticlib_argv_parity=ok target=//sys/kern/mm:kernel_mm
+medium_project_gate backend=ninja phase=clean elapsed_ms=251
+medium_project_gate backend=ninja phase=noop elapsed_ms=73
+medium_project_gate backend=ninja phase=incremental elapsed_ms=97
+medium_project_gate compare phase=clean stella_ms=247 ninja_ms=251 ratio_x100=200 slack_ms=250
+medium_project_gate compare phase=noop stella_ms=67 ninja_ms=73 ratio_x100=200 slack_ms=250
+medium_project_gate compare phase=incremental stella_ms=89 ninja_ms=97 ratio_x100=200 slack_ms=250
+medium_project_gate compare backend=stella-jobs phase=clean stella_ms=237 ninja_ms=251 ratio_x100=200 slack_ms=250
+medium_project_gate compare backend=stella-jobs phase=noop stella_ms=68 ninja_ms=73 ratio_x100=200 slack_ms=250
+medium_project_gate compare backend=stella-jobs phase=incremental stella_ms=88 ninja_ms=97 ratio_x100=200 slack_ms=250
 medium_project_gate status=ok perf_issue_count=0 report_only=1
 ```
 
 해석:
 
-- no-op은 Stella가 73ms로 0.2초대 목표를 충분히 만족하고 Ninja와 같은 수준으로 측정됐다.
-- incremental은 Stella가 92ms, Ninja가 107ms로 medium corpus에서 Ninja급 즉시 재빌드 UX를
+- no-op은 Stella가 67ms로 0.2초대 목표를 충분히 만족하고 Ninja와 같은 수준으로 측정됐다.
+- incremental은 Stella가 89ms, Ninja가 97ms로 medium corpus에서 Ninja급 즉시 재빌드 UX를
   제공한다.
-- clean build는 Stella가 Ninja보다 여전히 느리다. Round Q111의 state lookup index, action
-  key material reuse, lazy stdout/stderr log open 이후에도 raw ratio 2배 이내를 안정적으로
-  달성했다고 선언하기는 이르다. Q117에서는 741ms 대 250ms였고, 작은 corpus의 절대 noise를
-  흡수하는 250ms slack을 포함한 report gate는 통과했다. Medium corpus 전체 clean build는
-  1초 미만이다.
+- clean build는 Q137 대표 측정에서 Stella default 247ms, explicit jobs 237ms, Ninja 251ms로
+  2배 이내 목표를 넘어 1.5배 이내에도 들어왔다. 이 개선은 macOS default jobs fix,
+  staticlib archive semantics fix, compile dependency edge relaxation, async final action
+  scheduling이 합쳐진 결과다.
+- schedule trace는 default jobs=10, ready_width=40, async_final_actions=40을 기록했고,
+  staticlib argv parity check는 dependency `.a`가 archive argv에 다시 들어가지 않음을
+  확인했다.
 - 현재 ratio gate는 작은 project의 절대 noise를 흡수하기 위해 report-only가 기본이다.
 
 0.5 전에는 timing hard fail을 바로 켜기보다 report-only를 유지한다. 대신 release note에는

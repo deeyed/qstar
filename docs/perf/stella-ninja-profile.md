@@ -323,6 +323,38 @@ Q118 분석에서 확인한 주요 source anchor:
 - macOS와 Linux는 같은 POSIX `poll()` path를 쓴다. Pipe capture가 없는 test artifact runner는
   bounded `poll(NULL, 0, timeout)` fallback을 쓴다.
 
+### Q133-Q137: Scheduler Semantics And Performance Seal
+
+- Q133은 macOS default jobs detection을 고쳐 host CPU count 기반 ready queue가 기본으로
+  켜지게 했다.
+- Q134는 staticlib archive action이 dependency `.a`를 다시 archive member로 넣지 않도록
+  고쳤다.
+- Q135는 dependent target compile action이 dependency target final archive를 기다리던
+  과보수 edge를 완화했다.
+- Q136은 archive/link final action을 compile과 같은 async prepared action queue에서 실행하게
+  했다.
+- Q137 medium gate는 default jobs, ready queue width, async final action count, staticlib
+  argv parity를 hard check하고, Stella default/Stella explicit jobs/Ninja timing을 함께
+  기록한다.
+
+Q137 representative local macOS arm64 result:
+
+```txt
+medium_project_gate scheduler default_jobs=10 ready_width=40 async_final_actions=40 trace_elapsed_ms=257
+medium_project_gate backend=stella phase=clean elapsed_ms=247
+medium_project_gate backend=stella phase=noop elapsed_ms=67
+medium_project_gate backend=stella phase=incremental elapsed_ms=89
+medium_project_gate backend=stella-jobs jobs=10 phase=clean elapsed_ms=237
+medium_project_gate backend=ninja phase=clean elapsed_ms=251
+medium_project_gate backend=ninja phase=noop elapsed_ms=73
+medium_project_gate backend=ninja phase=incremental elapsed_ms=97
+medium_project_gate status=ok perf_issue_count=0 report_only=1
+```
+
+이 결과는 Q118 당시의 clean gap이 scheduler 구조 문제에도 크게 묶여 있었음을 보여준다.
+다음 성능 판단은 단일 medium corpus가 아니라 더 큰 synthetic corpus와 Linux CI 수치를
+함께 봐야 한다.
+
 ## Q118 Verdict
 
 Stella를 Ninja급으로 만들 수 있는 가장 큰 lever는 더 많은 micro-optimization이 아니라
