@@ -251,6 +251,7 @@ Q118 분석에서 확인한 주요 source anchor:
 - invalidation 조건 정의
 - internal file layout 문서화
 - `qstar explain`/`doctor`에서 cache status를 보여줄지 결정
+- 결과 문서: `docs/perf/stella-plan-cache-design.md`
 
 ### Q120: Stella Plan Cache MVP
 
