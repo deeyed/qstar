@@ -26,6 +26,7 @@
 struct qstar_observed_stream {
 	int fd;
 	FILE *log;
+	char log_path[QSTAR_PATH_MAX];
 	char line[QSTAR_STREAM_LINE_MAX];
 	size_t line_len;
 };
@@ -68,6 +69,11 @@ struct qstar_build_ctx {
 		char *external_tool_key;
 	} *prev, *next;
 	size_t prev_len, prev_cap, next_len, next_cap;
+	struct qstar_state_index_entry {
+		const char *id;
+		size_t index;
+	} *prev_index;
+	size_t prev_index_cap;
 	struct qstar_file_hash_entry {
 		char *rel;
 		char digest[32];
@@ -100,6 +106,8 @@ struct qstar_build_ctx {
 		char *command;
 	} *compiles;
 	size_t compile_len, compile_cap;
+	char env_key_cache[32];
+	int env_key_ready;
 };
 
 struct qstar_action_material {
@@ -548,6 +556,8 @@ observed_stream_consume(struct qstar_build_ctx *ctx,
 	size_t i;
 	char c;
 
+	if (len > 0 && !stream->log && stream->log_path[0])
+		stream->log = fopen(stream->log_path, "w");
 	if (stream->log && len > 0)
 		fwrite(buf, 1, len, stream->log);
 	for (i = 0; i < len; i++) {
@@ -612,7 +622,7 @@ observed_stream_drain(struct qstar_build_ctx *ctx, struct qstar_observed_stream 
 	}
 }
 
-/** child stdout/stderr capture용 pipe와 원문 log 파일을 준비한다. */
+/** child stdout/stderr capture용 pipe를 준비한다. 원문 log 파일은 출력이 생길 때 연다. */
 static int
 child_capture_open(struct qstar_graph *graph, struct qstar_child_capture *capture,
     const char *stdout_path, const char *stderr_path)
@@ -621,10 +631,8 @@ child_capture_open(struct qstar_graph *graph, struct qstar_child_capture *captur
 	int err_pipe[2] = { -1, -1 };
 
 	child_capture_init(capture);
-	capture->out.log = fopen(stdout_path, "w");
-	capture->err.log = fopen(stderr_path, "w");
-	if (!capture->out.log || !capture->err.log)
-		goto fail;
+	snprintf(capture->out.log_path, sizeof(capture->out.log_path), "%s", stdout_path);
+	snprintf(capture->err.log_path, sizeof(capture->err.log_path), "%s", stderr_path);
 	if (pipe(out_pipe) < 0 || pipe(err_pipe) < 0)
 		goto fail;
 	if (set_nonblocking_fd(out_pipe[0]) < 0 || set_nonblocking_fd(err_pipe[0]) < 0)
@@ -659,10 +667,6 @@ child_capture_redirect_or_exit(struct qstar_child_capture *capture)
 		close(capture->out.fd);
 	if (capture->err.fd >= 0)
 		close(capture->err.fd);
-	if (capture->out.log)
-		close(fileno(capture->out.log));
-	if (capture->err.log)
-		close(fileno(capture->err.log));
 	if (capture->out_write < 0 || capture->err_write < 0 ||
 	    dup2(capture->out_write, 1) < 0 ||
 	    dup2(capture->err_write, 2) < 0)
@@ -743,7 +747,7 @@ wait_poll_pause(void)
 	struct timespec delay;
 
 	delay.tv_sec = 0;
-	delay.tv_nsec = 1000000L;
+	delay.tv_nsec = 250000L;
 	while (nanosleep(&delay, &delay) < 0 && errno == EINTR)
 		;
 }
@@ -970,6 +974,16 @@ hash_str(unsigned long long *h, const char *s)
 	*h *= QSTAR_HASH_PRIME;
 }
 
+/** 문자열 하나의 deterministic hash 값을 만든다. */
+static unsigned long long
+hash_string_value(const char *s)
+{
+	unsigned long long h = QSTAR_HASH_INIT;
+
+	hash_str(&h, s);
+	return h;
+}
+
 static void
 format_key(unsigned long long h, char *dst, size_t dstlen);
 
@@ -1090,12 +1104,20 @@ hash_env_whitelist(unsigned long long *h)
 
 /** whitelisted environment만 별도 digest로 만든다. */
 static void
-compute_env_key(char *dst, size_t dstlen)
+compute_env_key(struct qstar_build_ctx *ctx, char *dst, size_t dstlen)
 {
 	unsigned long long h = QSTAR_HASH_INIT;
 
+	if (ctx && ctx->env_key_ready) {
+		snprintf(dst, dstlen, "%s", ctx->env_key_cache);
+		return;
+	}
 	hash_env_whitelist(&h);
 	format_key(h, dst, dstlen);
+	if (ctx) {
+		snprintf(ctx->env_key_cache, sizeof(ctx->env_key_cache), "%s", dst);
+		ctx->env_key_ready = 1;
+	}
 }
 
 /** action key를 hex 문자열로 만든다. */
@@ -1207,15 +1229,16 @@ static void
 compute_action_key(struct qstar_build_ctx *ctx, struct qstar_graph *graph,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
     const char *id, const char *kind, char *const argv[], const struct qstar_string_list *inputs,
-    const struct qstar_string_list *depfile_inputs, const char *output, char *dst,
-    size_t dstlen, struct qstar_action_material *material)
+	const struct qstar_string_list *depfile_inputs, const char *output, char *dst,
+	size_t dstlen, struct qstar_action_material *material)
 {
 	unsigned long long h = QSTAR_HASH_INIT;
+	char env_key[32];
 	size_t i;
 
 	if (material) {
 		compute_argv_key(argv, material->argv_key, sizeof(material->argv_key));
-		compute_env_key(material->env_key, sizeof(material->env_key));
+		compute_env_key(ctx, material->env_key, sizeof(material->env_key));
 		compute_input_key(ctx, graph, inputs, material->input_key,
 		    sizeof(material->input_key));
 		compute_input_key(ctx, graph, depfile_inputs, material->depfile_key,
@@ -1227,6 +1250,18 @@ compute_action_key(struct qstar_build_ctx *ctx, struct qstar_graph *graph,
 		compute_external_tool_key(graph, toolchain, argv,
 		    material->external_tool_key,
 		    sizeof(material->external_tool_key));
+		hash_str(&h, id);
+		hash_str(&h, kind);
+		hash_str(&h, target ? target->label : "<generated>");
+		hash_str(&h, material->argv_key);
+		hash_str(&h, material->env_key);
+		hash_str(&h, material->input_key);
+		hash_str(&h, material->depfile_key);
+		hash_str(&h, material->profile_key);
+		hash_str(&h, material->output_key);
+		hash_str(&h, material->external_tool_key);
+		format_key(h, dst, dstlen);
+		return;
 	}
 	hash_str(&h, id);
 	hash_str(&h, kind);
@@ -1264,7 +1299,8 @@ compute_action_key(struct qstar_build_ctx *ctx, struct qstar_graph *graph,
 		for (i = 0; i < inputs->len; i++)
 			hash_file(ctx, &h, graph, inputs->items[i]);
 	}
-	hash_env_whitelist(&h);
+	compute_env_key(ctx, env_key, sizeof(env_key));
+	hash_str(&h, env_key);
 	format_key(h, dst, dstlen);
 }
 
@@ -1828,6 +1864,40 @@ state_free(struct qstar_state_entry *entries, size_t len)
 	free(entries);
 }
 
+/** 이전 action state를 O(1)에 가깝게 찾기 위한 build-local index를 만든다. */
+static int
+state_index_build(struct qstar_build_ctx *ctx)
+{
+	size_t cap, i, pos, mask;
+
+	free(ctx->prev_index);
+	ctx->prev_index = NULL;
+	ctx->prev_index_cap = 0;
+	if (ctx->prev_len == 0)
+		return 0;
+	cap = 32;
+	while (cap < ctx->prev_len * 2)
+		cap *= 2;
+	ctx->prev_index = calloc(cap, sizeof(ctx->prev_index[0]));
+	if (!ctx->prev_index)
+		return -1;
+	ctx->prev_index_cap = cap;
+	mask = cap - 1;
+	for (i = 0; i < ctx->prev_len; i++) {
+		pos = (size_t)hash_string_value(ctx->prev[i].id) & mask;
+		while (ctx->prev_index[pos].id) {
+			if (strcmp(ctx->prev_index[pos].id, ctx->prev[i].id) == 0)
+				break;
+			pos = (pos + 1) & mask;
+		}
+		if (!ctx->prev_index[pos].id) {
+			ctx->prev_index[pos].id = ctx->prev[i].id;
+			ctx->prev_index[pos].index = i;
+		}
+	}
+	return 0;
+}
+
 /** build-local file digest cache를 해제한다. */
 static void
 hash_cache_free(struct qstar_file_hash_entry *entries, size_t len)
@@ -1862,8 +1932,20 @@ action_log_queue_free(struct qstar_action_log_entry *entries, size_t len)
 static const struct qstar_state_entry *
 state_find(const struct qstar_build_ctx *ctx, const char *id)
 {
-	size_t i;
+	size_t i, pos, mask;
 
+	if (!ctx || !id)
+		return NULL;
+	if (ctx->prev_index && ctx->prev_index_cap) {
+		mask = ctx->prev_index_cap - 1;
+		pos = (size_t)hash_string_value(id) & mask;
+		while (ctx->prev_index[pos].id) {
+			if (strcmp(ctx->prev_index[pos].id, id) == 0)
+				return &ctx->prev[ctx->prev_index[pos].index];
+			pos = (pos + 1) & mask;
+		}
+		return NULL;
+	}
 	for (i = 0; i < ctx->prev_len; i++) {
 		if (strcmp(ctx->prev[i].id, id) == 0)
 			return &ctx->prev[i];
@@ -2014,6 +2096,8 @@ state_load(struct qstar_graph *graph, struct qstar_build_ctx *ctx)
 		}
 	}
 	fclose(f);
+	if (state_index_build(ctx) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
 	return 0;
 }
 
@@ -4138,7 +4222,8 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    target->system_include_dirs.items[i]) < 0)
 			goto fail;
 	}
-	if (compile_db_push(ctx, graph->package_root ? graph->package_root : ".",
+	if (strcmp(qstar_graph_compile_commands_policy(graph), "off") != 0 &&
+	    compile_db_push(ctx, graph->package_root ? graph->package_root : ".",
 	    target->sources.items[index], object, action->argv) < 0) {
 		goto oom;
 	}
@@ -6007,6 +6092,7 @@ build_ctx_free(struct qstar_build_ctx *ctx)
 {
 	state_free(ctx->prev, ctx->prev_len);
 	state_free(ctx->next, ctx->next_len);
+	free(ctx->prev_index);
 	hash_cache_free(ctx->hash_cache, ctx->hash_cache_len);
 	action_log_queue_free(ctx->action_logs, ctx->action_log_len);
 	free(ctx->depfile_refresh);

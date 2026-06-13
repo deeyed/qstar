@@ -68,26 +68,28 @@ Makefile은 여전히 canonical bootstrap/release build path이고, self-host는
 
 ## Stella vs Ninja Benchmark Summary
 
-Round Q110 local macOS arm64 측정값:
+Round Q111 local macOS arm64 대표 측정값:
 
 ```txt
 medium_project_gate target_count=47 min_targets=40
-medium_project_gate backend=stella phase=clean elapsed_ms=767
-medium_project_gate backend=stella phase=noop elapsed_ms=73
-medium_project_gate backend=stella phase=incremental elapsed_ms=101
-medium_project_gate backend=ninja phase=clean elapsed_ms=299
-medium_project_gate backend=ninja phase=noop elapsed_ms=74
-medium_project_gate backend=ninja phase=incremental elapsed_ms=101
+medium_project_gate backend=stella phase=clean elapsed_ms=773
+medium_project_gate backend=stella phase=noop elapsed_ms=76
+medium_project_gate backend=stella phase=incremental elapsed_ms=104
+medium_project_gate backend=ninja phase=clean elapsed_ms=294
+medium_project_gate backend=ninja phase=noop elapsed_ms=80
+medium_project_gate backend=ninja phase=incremental elapsed_ms=97
 medium_project_gate status=ok perf_issue_count=0 report_only=1
 ```
 
 해석:
 
-- no-op은 Stella가 73ms로 0.2초대 목표를 충분히 만족하고 Ninja와 같은 수준으로 측정됐다.
-- incremental은 Stella와 Ninja가 모두 101ms로 medium corpus에서 Ninja급 즉시 재빌드 UX를
+- no-op은 Stella가 76ms로 0.2초대 목표를 충분히 만족하고 Ninja와 같은 수준으로 측정됐다.
+- incremental은 Stella가 104ms, Ninja가 97ms로 medium corpus에서 Ninja급 즉시 재빌드 UX를
   제공한다.
-- clean build는 Stella가 Ninja보다 느리지만 medium corpus에서 1초 미만이다. 작은 corpus의
-  ratio noise는 현재 report-only gate와 slack으로 흡수한다.
+- clean build는 Stella가 Ninja보다 여전히 느리다. Round Q111의 state lookup index, action
+  key material reuse, lazy stdout/stderr log open 이후에도 raw ratio 2배 이내를 안정적으로
+  달성했다고 선언하기는 이르다. 다만 slack을 포함한 report gate는 통과하고, medium corpus
+  전체 clean build는 1초 미만이다.
 - 현재 ratio gate는 작은 project의 절대 noise를 흡수하기 위해 report-only가 기본이다.
 
 0.5 전에는 timing hard fail을 바로 켜기보다 report-only를 유지한다. 대신 release note에는
