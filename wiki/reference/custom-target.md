@@ -46,7 +46,8 @@ qstar.custom_target "kernel_img" {
 dependency edge가 되며, `qstar.input(N)`으로 command에 전달하면 실제 산출물 path로
 해석된다.
 `description = qstar.status("...")`를 지정하면 Stella/Ninja progress output에서 action id 대신
-사용자-facing status message가 표시된다.
+사용자-facing status message가 표시된다. 같은 description은 `qstar action-log`,
+`qstar replay`, `qstar last-failure`에도 `description=` metadata로 보존된다.
 
 `outputs`는 effective `qstar.project.generated_dir` 아래에 있어야 한다. 기본값은
 `generated`이므로 기존 프로젝트는 `generated/foo.c`를 계속 쓸 수 있다. Generated

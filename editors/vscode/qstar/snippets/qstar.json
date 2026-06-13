@@ -126,7 +126,14 @@
     "body": [
       "qstar.status(\"${1:Generating output}\")"
     ],
-    "description": "Create a validated one-line QStar build status description."
+    "description": "Create a validated one-line QStar status for CMake-style progress and replay logs."
+  },
+  "Description field": {
+    "prefix": "qdesc",
+    "body": [
+      "description = qstar.status(\"${1:Generating output}\"),"
+    ],
+    "description": "Add a QStar description field used by progress, Ninja lowering, action-log, replay, and last-failure."
   },
   "Subdir fragment": {
     "prefix": "qsubdir",

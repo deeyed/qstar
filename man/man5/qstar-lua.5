@@ -69,7 +69,8 @@ Declare a lint grouping primitive for shared-source variants.
 .It Ic qstar.cli
 Declare an argv-vector command. Shell strings are not accepted.
 .It Ic qstar.status
-Declare a validated one-line build status description for user-defined actions.
+Declare a validated one-line CMake-style build status description for
+user-defined actions.
 .It Ic qstar.input
 Reference a custom target input by index inside a
 .Ic qstar.cli
@@ -162,6 +163,9 @@ and
 must be written as
 .Ic qstar.status Ns Pq Ar text .
 Empty strings, newlines, and text longer than 240 bytes are rejected.
+The same description is used by Stella progress output, Ninja
+.Li description =
+lowering, action logs, replay output, and last-failure metadata.
 The QStar LSP resolves definitions on
 .Ic qstar.import_file
 strings to

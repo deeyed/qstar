@@ -34,7 +34,8 @@ qstar.run_target "qemu_smoke" {
 QStar는 QEMU 자체를 special target으로 알지 않는다. Run target은 command, timeout,
 marker check, log/replay를 제공하는 generic surface다.
 `description = qstar.status("...")`를 지정하면 build progress line에서 run target label 대신
-사용자가 정한 status message가 표시된다.
+사용자가 정한 status message가 표시된다. 실패하면 `qstar last-failure`와 `qstar replay`에도
+같은 `description=` metadata가 포함된다.
 `-G ninja`에서도 wrapper action으로 lowering되며, marker/timeout/exit-code replay
 계약은 `stella` backend와 같은 failure kind를 사용한다.
 

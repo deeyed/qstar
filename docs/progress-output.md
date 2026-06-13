@@ -1,8 +1,8 @@
 # CMake-Style Progress Output Contract
 
-이 문서는 Round Q101에서 고정하는 QStar build progress 출력 계약이다. 구현은 다음
-라운드에서 순차 적용한다. 현재 문서의 목적은 Stella executor와 Ninja backend가 같은
-사용자 경험을 향하도록 user-facing format을 먼저 확정하는 것이다.
+이 문서는 QStar build progress 출력 계약이다. Round Q108 기준 Stella executor와 Ninja
+backend는 같은 user-facing action description을 사용하고, action log/replay/last-failure도
+같은 description metadata를 보존한다.
 
 ```txt
 status: progress output contract
@@ -10,6 +10,7 @@ target line: qstar 0.5
 default backend: stella
 reference style: CMake-style action progress
 implementation status: Stella progress renderer and warning/error stream coloring active
+log status: action-log, replay, last-failure preserve descriptions
 ```
 
 ## Default Format
@@ -60,7 +61,7 @@ QStar action description을 Ninja `description = ...`로 lower한다.
 
 ## Action Description IR
 
-Round Q102부터 Stella action plan은 사용자-facing description을 별도 field로 가진다.
+Stella action plan은 사용자-facing description을 별도 field로 가진다.
 `qstar explain`, `qstar dry-run`, `--verbose`, `--schedule-trace`에서는 다음 line으로 확인할
 수 있다.
 
@@ -75,6 +76,26 @@ Dry-run/explain은 group exclusion을 다음처럼 표시한다.
 ```txt
 progress_action label=//:all include=no reason=group
 ```
+
+## Logs And Replay
+
+Action description은 progress line에서만 쓰고 버리지 않는다. QStar는 같은 문자열을 action
+log, `qstar replay`, `qstar last-failure`에 `description=` metadata로 저장한다.
+
+```txt
+qstar action-log //:app:compile:0
+description='Building C object build/qstar/out/___app/obj0.o'
+
+qstar replay //:app:compile:0
+description='Building C object build/qstar/out/___app/obj0.o'
+
+qstar last-failure
+description='Running smoke test app'
+```
+
+이 계약 때문에 예쁜 progress output과 디버깅 재현성이 충돌하지 않는다. 일반 output은
+CMake-style line만 보여주고, 디버깅 명령은 같은 description을 단서로 action을 다시 찾을 수
+있다.
 
 ## Authoring Hook
 
@@ -186,5 +207,5 @@ warning: src/lib/core.c:17: unused variable 'tmp'
 - Round Q104: Stella executor가 child stdout/stderr를 line 단위로 관찰해 warning/error
   stream colorization을 적용한다.
 - Round Q105: `qstar.status(...)`와 `description` field를 Lua DSL에 추가했다.
-- Round Q105: Ninja emitter가 QStar description을 Ninja description으로 lower한다.
+- Round Q106: Ninja emitter가 QStar description을 Ninja description으로 lower한다.
 - Round Q107: action log, replay, last-failure가 action description을 보존한다.

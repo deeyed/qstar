@@ -176,6 +176,18 @@ prefix in orange/yellow. It highlights the
 prefix in bold red.
 .Fl -color Ar never
 and non-TTY output disable ANSI color, and JSON diagnostics remain uncolored.
+.Pp
+Action descriptions are also preserved in logs and replay metadata.
+.Ic qstar action-log ,
+.Ic qstar replay ,
+and
+.Ic qstar last-failure
+print the same
+.Li description=
+metadata used by progress output:
+.Bd -literal -offset indent
+description='Building C object build/qstar/out/___app/obj0.o'
+.Ed
 .It Ic test
 Build and run QStar test targets.
 .It Ic install
@@ -193,11 +205,12 @@ Remove the effective build directory, or a single target output with
 .It Ic log
 Print the latest action log paths for a target.
 .It Ic last-failure
-Print the latest failure replay file.
+Print the latest failure replay file and action description metadata.
 .It Ic action-log
-Print the stored argv/env/input/output log for an action id.
+Print the stored argv/env/input/output log and description metadata for an
+action id.
 .It Ic replay
-Print the stored replay command for an action id.
+Print the stored replay command and description metadata for an action id.
 .It Ic lsp
 Run the QStar language server with
 .Fl -stdio .

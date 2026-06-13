@@ -32,6 +32,9 @@ QStar가 하지 않는 일:
 - 반복 path/list/table 조립은 `qstar.join`, `qstar.copy`, `qstar.append`, `qstar.merge`,
   `qstar.extend`를 쓴다.
 - 사용자 정의 build step 문구는 `description = qstar.status("...")`로 지정한다.
+  이 field는 `qstar.custom_target`, `qstar.configure_file`, `qstar.run_target`,
+  `qstar.stage`에서 지원된다. Raw string, empty string, newline, 240 byte 초과 문자열은
+  diagnostic 대상이다.
 - Makefile식 `$VAR` 문자열 치환은 없다. Lua `local` 변수와 helper function을 쓴다.
 - legacy qs fragment suffix와 `qstar.workspace`는 제거된 surface다.
 - 산출물 기본 위치는 `build/qstar`다.
@@ -64,6 +67,8 @@ QStar가 하지 않는 일:
   action description을 일반 출력으로 사용하고, legacy scheduler stage wording, `Status: ...`,
   `schedule_action`, `build_action` 같은 내부 trace는 `--verbose`나 `--schedule-trace`로
   제한한다. Warning은 `warning:` prefix를 orange/yellow, error는 bold red로 표시한다.
+  `qstar action-log`, `qstar replay`, `qstar last-failure`도 같은 action description을
+  `description=` metadata로 보존한다.
 - 0.5 readiness 판단은 `docs/qstar-v0.5-readiness.md`에 둔다. 이 문서는 self-host,
   Stella/Ninja benchmark, Ninja parity, Linux/Windows status, docs/CLI drift, medium
   project readiness, version policy, deferred surface를 요약한다.
@@ -334,8 +339,11 @@ qstar --file qstar.lua explain //:target
 qstar --file qstar.lua dry-run //:target
 qstar --file qstar.lua emit-ninja //:target
 qstar --file qstar.lua build //:target --explain-cache
+qstar --file qstar.lua build //:target --progress plain
 qstar --file qstar.lua build //:target --verbose --progress plain
+qstar --file qstar.lua build //:target --schedule-trace --progress plain
 qstar --file qstar.lua build //:target --progress off --color never
+qstar docs --show reference/progress-output.md
 qstar --file qstar.lua -B out/qstar -G stella build //:target
 qstar --file qstar.lua -G ninja build //:smoke
 qstar --file qstar.lua test //...

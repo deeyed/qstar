@@ -205,6 +205,9 @@ qstar.run_target "smoke" {
 `description`은 `qstar.custom_target`, `qstar.configure_file`, `qstar.run_target`,
 `qstar.stage`에서 지원된다. Raw string은 받지 않고, 빈 문자열, newline, 240 byte 초과
 문자열은 diagnostic으로 거절한다.
+같은 문자열은 Stella progress line, Ninja `description = ...`,
+`qstar action-log`, `qstar replay`, `qstar last-failure`의 `description=`
+metadata에도 사용된다.
 
 ## 실패 예제
 

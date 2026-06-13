@@ -1,7 +1,8 @@
 # Progress Output
 
-이 문서는 QStar 0.5 UI line의 progress 출력 계약이다. Round Q101에서는 구현보다 먼저
-Stella와 Ninja가 따라야 할 user-facing wording을 고정한다.
+이 문서는 QStar 0.5 UI line의 progress 출력 계약이다. Stella와 Ninja는 같은
+user-facing action description을 사용하고, action log/replay/last-failure도 같은
+description metadata를 보존한다.
 
 ## 기본 형식
 
@@ -102,7 +103,7 @@ qstar.custom_target "version_header" {
 
 ## Action Description IR
 
-Round Q102부터 Stella action plan은 사용자-facing description을 별도 field로 가진다.
+Stella action plan은 사용자-facing description을 별도 field로 가진다.
 `qstar explain`, `qstar dry-run`, `--verbose`, `--schedule-trace`에서 다음 line을 확인할 수
 있다.
 
@@ -116,3 +117,21 @@ action_description id=//:app:link:0 text="Linking C executable build/qstar/out/_
 ```txt
 progress_action label=//:all include=no reason=group
 ```
+
+## Log와 replay
+
+Action description은 action log, replay, last-failure에도 `description=` metadata로 남는다.
+
+```txt
+qstar action-log //:app:compile:0
+description='Building C object build/qstar/out/___app/obj0.o'
+
+qstar replay //:app:compile:0
+description='Building C object build/qstar/out/___app/obj0.o'
+
+qstar last-failure
+description='Running smoke test app'
+```
+
+일반 progress는 CMake-style line만 보여주고, 디버깅 명령은 같은 description을 사용해 action
+context를 다시 보여준다.

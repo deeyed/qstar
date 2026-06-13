@@ -43,12 +43,13 @@ usage(FILE *out)
 	fputs("       --profile name --target triple --toolchain name --stdlib policy\n", out);
 	fputs("       --diagnostics text|json\n", out);
 	fputs("       --diagnostic-format text|line  # compatibility alias\n", out);
-	fputs("       --color auto|always|never\n", out);
+	fputs("       --color auto|always|never  # warning/error color for text output\n", out);
 	fputs("build options:\n", out);
 	fputs("       --jobs N  # default: host CPU count\n", out);
-	fputs("       --schedule-trace\n", out);
-	fputs("       --verbose | --quiet\n", out);
-	fputs("       --progress auto|plain|off\n", out);
+	fputs("       --progress auto|plain|off  # default: CMake-style action progress\n", out);
+	fputs("       --verbose  # keep progress and add argv/cache/action details\n", out);
+	fputs("       --schedule-trace  # add scheduler internals such as schedule_action\n", out);
+	fputs("       --quiet\n", out);
 }
 
 /** argv item이 help 요청인지 확인한다. */
@@ -70,7 +71,11 @@ command_help(FILE *out, const char *cmd)
 		fputs("usage: qstar [options] build [label] [--jobs N] [--schedule-trace] [--explain-cache] [--verbose|--quiet] [--progress auto|plain|off]\n", out);
 		fputs("Build a target, generated action, run target, or group target in the validated graph.\n", out);
 		fputs("--jobs defaults to the host CPU count when omitted.\n", out);
-		fputs("--progress auto uses terminal-aware progress; non-TTY output is plain.\n", out);
+		fputs("Default progress uses CMake-style action lines such as '[ 75%] Linking CXX executable app'.\n", out);
+		fputs("--progress auto is terminal-aware; --progress plain is deterministic; --progress off hides progress lines.\n", out);
+		fputs("--verbose keeps progress and adds argv/cache/action details.\n", out);
+		fputs("--schedule-trace adds scheduler internals; default output hides Stage/Status/schedule_action/build_action details.\n", out);
+		fputs("--color controls warning:/error: ANSI color in text output; JSON diagnostics stay uncolored.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "docs") == 0) {
