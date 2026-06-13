@@ -35,8 +35,6 @@ struct qstar_build_ctx {
 	int color_mode;
 	int progress_enabled;
 	int color_enabled;
-	int progress_next_tick;
-	int progress_stage;
 	int action_timeout_sec;
 	int cancelled;
 	int action_scheduler;
@@ -78,6 +76,7 @@ struct qstar_build_ctx {
 	size_t scheduled_count;
 	size_t progress_total;
 	size_t progress_completed;
+	size_t progress_started;
 	struct qstar_compile_record {
 		char *directory;
 		char *file;
@@ -267,7 +266,7 @@ static void
 build_trace_description(struct qstar_build_ctx *ctx, const char *id,
     const char *description)
 {
-	if (!build_trace_enabled(ctx))
+	if (!ctx->progress_enabled || !build_trace_enabled(ctx))
 		return;
 	fprintf(ctx->out, "action_description id=%s text=", id);
 	trace_quoted_value(ctx->out, description && *description ? description : "<none>");
@@ -334,17 +333,56 @@ progress_node_counts(const struct qstar_sched_node *node)
 	return 1;
 }
 
-/** progress tick 한 줄을 출력한다. */
+/** progress line에 color를 쓸 수 있는지 확인한다. */
+static int
+progress_color_enabled(const struct qstar_build_ctx *ctx)
+{
+	return ctx->color_enabled && ctx->progress_mode != QSTAR_PROGRESS_PLAIN;
+}
+
+/** action index를 CMake-style 5% 단위 percent로 변환한다. */
+static int
+progress_percent_for_index(size_t index, size_t total)
+{
+	int pct;
+
+	if (total == 0)
+		return 100;
+	pct = (int)((index * 100 + total - 1) / total);
+	if (pct < 5)
+		pct = 5;
+	if (pct < 100)
+		pct = ((pct + 4) / 5) * 5;
+	if (pct > 100)
+		pct = 100;
+	return pct;
+}
+
+/** progress line 한 줄을 CMake-style로 출력한다. */
 static void
-progress_tick(struct qstar_build_ctx *ctx, int pct, const char *stage,
-    const char *label)
+progress_print_line(struct qstar_build_ctx *ctx, int pct, const char *description)
 {
 	if (!ctx->progress_enabled || ctx->quiet)
 		return;
-	ctx->progress_stage++;
-	fprintf(ctx->out, "%s[%d%%]%s Stage %d: %s %s\n",
-	    build_color(ctx, "stage"), pct, build_color_reset(ctx),
-	    ctx->progress_stage, stage, label && *label ? label : ctx->root_label);
+	fprintf(ctx->out, "%s[%3d%%]%s %s\n",
+	    progress_color_enabled(ctx) ? build_color(ctx, "stage") : "",
+	    pct,
+	    progress_color_enabled(ctx) ? build_color_reset(ctx) : "",
+	    description && *description ? description : "Working");
+}
+
+/** progress action 하나를 소비하고 필요하면 description line을 출력한다. */
+static void
+progress_advance(struct qstar_build_ctx *ctx, int emit, const char *description)
+{
+	int pct;
+
+	if (ctx->progress_total == 0)
+		return;
+	ctx->progress_started++;
+	pct = progress_percent_for_index(ctx->progress_started, ctx->progress_total);
+	if (emit)
+		progress_print_line(ctx, pct, description);
 }
 
 /** verbose build status 한 줄을 출력한다. */
@@ -361,49 +399,58 @@ progress_status(struct qstar_build_ctx *ctx, const char *stage, const char *labe
 static void
 progress_begin(struct qstar_build_ctx *ctx, size_t total)
 {
-	ctx->progress_total = total ? total : 1;
+	ctx->progress_total = total;
 	ctx->progress_completed = 0;
-	ctx->progress_next_tick = 5;
-	ctx->progress_stage = 0;
-	progress_tick(ctx, 5, "prepare", ctx->root_label);
-	ctx->progress_next_tick = 10;
+	ctx->progress_started = 0;
 }
 
-/** node 완료 수를 5% progress tick으로 변환한다. */
+/** cache-hit action 하나를 progress denominator에서 소비한다. */
 static void
-progress_complete(struct qstar_build_ctx *ctx, const struct qstar_sched_node *node)
+progress_skip_action(struct qstar_build_ctx *ctx)
 {
-	int pct;
-	const char *stage, *label;
-
-	if (!ctx->progress_enabled || ctx->quiet)
-		return;
-	if (!progress_node_counts(node))
-		return;
-	if (ctx->progress_total == 0)
-		ctx->progress_total = 1;
 	ctx->progress_completed++;
-	pct = (int)((ctx->progress_completed * 100) / ctx->progress_total);
-	if (pct > 100)
-		pct = 100;
-	pct = (pct / 5) * 5;
-	stage = progress_stage_name(node);
-	label = progress_node_label(node);
-	if (pct >= ctx->progress_next_tick && pct <= 100) {
-		progress_tick(ctx, pct, stage, label);
-		ctx->progress_next_tick = pct + 5;
-	}
+	progress_advance(ctx, 0, NULL);
+}
+
+/** 실행되는 action 하나의 CMake-style progress line을 출력한다. */
+static void
+progress_run_action(struct qstar_build_ctx *ctx, const char *description)
+{
+	ctx->progress_completed++;
+	progress_advance(ctx, 1, description);
+}
+
+/** root label에서 CMake-style target 이름을 뽑는다. */
+static const char *
+progress_target_name(const struct qstar_build_ctx *ctx, char *buf, size_t buflen)
+{
+	const char *label, *colon;
+
+	label = ctx->root_label && *ctx->root_label ? ctx->root_label : "<all>";
+	if (strcmp(label, "<all>") == 0)
+		return "all";
+	colon = strrchr(label, ':');
+	if (colon && colon[1])
+		label = colon + 1;
+	if (snprintf(buf, buflen, "%s", label) >= (int)buflen)
+		snprintf(buf, buflen, "<target>");
+	return buf;
 }
 
 /** build 종료 시 100% tick을 보장한다. */
 static void
 progress_finish(struct qstar_build_ctx *ctx, int success)
 {
+	char name[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
+
 	if (!ctx->progress_enabled || ctx->quiet)
 		return;
 	if (success) {
-		if (ctx->progress_next_tick <= 100)
-			progress_tick(ctx, 100, "complete", ctx->root_label);
+		if (ctx->progress_completed > 0) {
+			snprintf(description, sizeof(description), "Built target %s",
+			    progress_target_name(ctx, name, sizeof(name)));
+			progress_print_line(ctx, 100, description);
+		}
 	} else {
 		progress_status(ctx, "failed", ctx->root_label);
 	}
@@ -2275,6 +2322,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			    id, child_stdout_path, child_stderr_path);
 			action_log_queue_skip(ctx, action_log, argv);
 		}
+		progress_skip_action(ctx);
 		ctx->skip_count++;
 		return state_push(ctx, 1, id, key, outputs->items[0], "skip", kind,
 		    material) < 0 ?
@@ -2290,6 +2338,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	    sizeof(child_stderr_path)) < 0 ||
 	    build_replay_rel(graph, replay_path, sizeof(replay_path)) < 0)
 		return qstar_set_error(graph, "qstar: action log path too long");
+	progress_run_action(ctx, description);
 	build_tracef(ctx,
 	    "build_action id=%s status=run timeout_sec=%d stdout=%s stderr=%s\n",
 	    id, ctx->action_timeout_sec, child_stdout_path, child_stderr_path);
@@ -2807,11 +2856,13 @@ run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
 		    id, child_stdout_path, child_stderr_path);
 		action_log_queue_skip(ctx, action_log, argv);
+		progress_skip_action(ctx);
 		ctx->skip_count++;
 		return state_push(ctx, 1, id, key, genrule->outputs.items[0], "skip",
 		    "generate", material) < 0 ?
 		    qstar_set_error(graph, "qstar: out of memory") : 0;
 	}
+	progress_run_action(ctx, description);
 	build_tracef(ctx,
 	    "build_action id=%s status=run timeout_sec=internal stdout=%s stderr=%s\n",
 	    id, child_stdout_path, child_stderr_path);
@@ -3901,6 +3952,7 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
 		    action->id, child_stdout_path, child_stderr_path);
 		action_log_queue_skip_ref(ctx, running->action_log, action->argv);
+		progress_skip_action(ctx);
 		ctx->skip_count++;
 		build_tracef(ctx,
 		    "parallel_event target=%s event=skip id=%s slot=%zu state=cache-hit retry=no\n",
@@ -3909,6 +3961,7 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    "skip", action->kind, &action->material) < 0 ?
 		    qstar_set_error(graph, "qstar: out of memory") : 0;
 	}
+	progress_run_action(ctx, action->description);
 	build_tracef(ctx,
 	    "build_action id=%s status=run timeout_sec=%d stdout=%s stderr=%s\n",
 	    action->id, ctx->action_timeout_sec, child_stdout_path, child_stderr_path);
@@ -5309,6 +5362,7 @@ skip_prepared_action_prequeue(struct qstar_graph *graph, struct qstar_build_ctx 
 		    action->id, action->target->label);
 		action_log_queue_skip_ref(ctx, action_log, action->argv);
 	}
+	progress_skip_action(ctx);
 	ctx->skip_count++;
 	return state_push(ctx, 1, action->id, action->key, action->outputs.items[0],
 	    "skip", action->kind, &action->material) < 0 ?
@@ -5428,7 +5482,6 @@ scheduler_execute(struct qstar_scheduler *sched)
 					goto fail;
 				}
 				completed++;
-				progress_complete(sched->ctx, &sched->nodes[node_index]);
 				progressed = 1;
 				continue;
 			}
@@ -5456,7 +5509,6 @@ scheduler_execute(struct qstar_scheduler *sched)
 					goto fail;
 				}
 				completed++;
-				progress_complete(sched->ctx, &sched->nodes[node_index]);
 				progressed = 1;
 				continue;
 			}
@@ -5494,7 +5546,6 @@ scheduler_execute(struct qstar_scheduler *sched)
 					goto fail;
 				}
 				completed++;
-				progress_complete(sched->ctx, &sched->nodes[node_index]);
 			}
 			progressed = 1;
 		}
@@ -5560,7 +5611,6 @@ scheduler_execute(struct qstar_scheduler *sched)
 				goto fail;
 			}
 			completed++;
-			progress_complete(sched->ctx, &sched->nodes[node_index]);
 			progressed = 1;
 			break;
 		}

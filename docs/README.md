@@ -116,7 +116,7 @@ self-host, Stella/Ninja benchmark, Ninja parity, Linux/Windows status, docs/CLI 
 medium project readiness, version policy, deferred surface를 한 번에 요약한다.
 
 Round 101부터 progress output 계약은 `progress-output.md`에 둔다. QStar 0.5 UI line은
-일반 build output에서 `Stage N`, scheduler state, action id를 숨기고
+일반 build output에서 legacy scheduler stage wording, scheduler state, action id를 숨기고
 `[ 75%] Linking CXX executable app` 같은 CMake-style action description을 출력한다.
 
 ## Round 15 구현 상태

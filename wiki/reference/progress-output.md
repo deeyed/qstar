@@ -16,14 +16,14 @@ warning: src/ui/view.cpp:42: unused variable 'tmp'
 [100%] Built target app
 ```
 
-Percent는 `[ 75%]`처럼 3칸 폭으로 맞춘다. Percent 뒤에는 `Stage N`이나 scheduler
+Percent는 `[ 75%]`처럼 3칸 폭으로 맞춘다. Percent 뒤에는 legacy scheduler stage wording이나
 상태가 아니라 build action description이 온다.
 
 ## 일반 출력에서 숨기는 것
 
 일반 build output에는 다음을 표시하지 않는다.
 
-- `Stage 1: prepare`
+- prepare/stage progress line
 - `Status: compiling ...`
 - `schedule_action id=...`
 - `build_action id=...`

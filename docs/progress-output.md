@@ -9,7 +9,7 @@ status: progress output contract
 target line: qstar 0.5
 default backend: stella
 reference style: CMake-style action progress
-implementation status: action descriptions available in explain/dry-run/trace
+implementation status: Stella progress renderer active
 ```
 
 ## Default Format
@@ -29,8 +29,8 @@ Rules:
 
 - Percent는 대괄호 안에서 3칸 폭으로 오른쪽 정렬한다.
 - 예: `[  5%]`, `[ 75%]`, `[100%]`.
-- Percent 뒤에는 `Stage N`, `state`, scheduler word가 아니라 build action description이 온다.
-- 일반 output에서 `Stage 1: prepare`, `Status: compiling ...`, `schedule_action`,
+- Percent 뒤에는 legacy scheduler stage wording이나 state name이 아니라 build action description이 온다.
+- 일반 output에서 prepare/stage progress line, `Status: compiling ...`, `schedule_action`,
   `build_action id=...` 같은 내부 trace는 출력하지 않는다.
 - `qstar.group` 같은 dependency-only target은 progress action으로 세지 않는다.
 - No-op/cache-hit action은 compact하게 처리하며, 필요할 때만 `--verbose`에서 설명한다.
@@ -168,8 +168,7 @@ warning: src/lib/core.c:17: unused variable 'tmp'
 
 다음 표현은 일반 build progress에서 제거한다.
 
-- `[5%] Stage 1: prepare //:app`
-- `[100%] Stage ...`
+- legacy prepare/stage progress line
 - `Status: compiling //:app`
 - `schedule_action id=...`
 - `build_action id=...`
@@ -177,12 +176,11 @@ warning: src/lib/core.c:17: unused variable 'tmp'
 
 이 정보는 필요하면 `--verbose` 또는 `--schedule-trace`에서만 본다.
 
-## Implementation Plan
+## Implementation Status
 
-1. Action model에 `description` field를 추가한다.
-2. Stella executor가 action description으로 progress를 렌더링한다.
-3. Warning/error stream colorization을 process capture에 연결한다.
-4. `qstar.status(...)`와 `description` field를 Lua DSL에 추가한다.
-5. Ninja emitter가 QStar description을 Ninja description으로 lower한다.
-6. action log, replay, last-failure에 description을 보존한다.
-7. docs/wiki/manpage/snippets에서 old progress wording을 제거한다.
+- Round Q102: action model에 `description` field를 추가했다.
+- Round Q103: Stella executor가 action description으로 기본 progress를 렌더링한다.
+- Pending: warning/error stream colorization을 process capture에 연결한다.
+- Pending: `qstar.status(...)`와 `description` field를 Lua DSL에 추가한다.
+- Pending: Ninja emitter가 QStar description을 Ninja description으로 lower한다.
+- Pending: action log, replay, last-failure에 description을 보존한다.
