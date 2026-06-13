@@ -4,6 +4,8 @@ QStar v0.4 beta는 macOS arm64 binary를 먼저 배포했지만, Round Q97부터
 지원은 `planned`가 아니라 `validation underway` 상태로 관리한다. 이 문서는 Linux를
 release artifact 후보로 올리기 전에 필요한 source build, path/process, depfile,
 install layout smoke를 고정한다.
+Round Q109부터 `.github/workflows/linux-validation.yml`이 이 gate를 Ubuntu CI에서
+gcc/clang matrix로 실행한다.
 
 ## Scope
 
@@ -23,6 +25,9 @@ Linux validation은 다음을 확인한다.
 macOS local run에서는 Linux kernel, glibc, distro package layout, Linux `cc` 구현을
 직접 검증할 수 없다. 따라서 macOS에서는 portable path/process smoke만 수행하고,
 Linux host 또는 CI에서 같은 script를 full validation으로 실행한다.
+Script는 `QSTAR_LINUX_VALIDATION_CC`를 QStar profile의 C compiler로 넣어 depfile
+생성을 확인한다. Makefile target은 기본값으로 `$(CC)`를 전달하므로 `CC=clang make ...`
+또는 explicit `QSTAR_LINUX_VALIDATION_CC=clang make ...` 둘 다 사용할 수 있다.
 
 ## Local Smoke
 
@@ -78,6 +83,8 @@ Compiler-specific depfile checks should run with both common Linux compilers
 when they are available:
 
 ```sh
+QSTAR_LINUX_VALIDATION_CC=clang make qstar-linux-validation-tests
+QSTAR_LINUX_VALIDATION_CC=gcc make qstar-linux-validation-tests
 CC=clang make qstar-linux-validation-tests
 CC=gcc make qstar-linux-validation-tests
 ```
@@ -86,10 +93,11 @@ If one compiler is not installed, CI may report that lane as skipped, but a
 Linux release artifact needs at least one green distro image with clang and one
 green distro image with gcc before promotion.
 
-## CI Candidate
+## GitHub Actions CI
 
-The first Linux CI lane should use `ubuntu-latest` and install only the small
-tooling QStar actually needs:
+The Linux validation workflow lives at `.github/workflows/linux-validation.yml`.
+It uses `ubuntu-latest` and installs only the small tooling QStar actually
+needs:
 
 - C compiler: distro `cc`, plus explicit clang/gcc lanes when available
 - `make`
@@ -97,10 +105,17 @@ tooling QStar actually needs:
 - `ninja` for backend parity tests
 - `mandoc` or `man-db` only if the CI verifies rendered manpages
 
-Suggested job shape:
+Current job shape:
 
 ```txt
-ubuntu-latest:
+ubuntu-latest / gcc:
+  make all
+  make check
+  make qstar-linux-validation-tests
+  make install PREFIX=/tmp/qstar-linux-smoke
+  /tmp/qstar-linux-smoke/bin/qstar --version
+
+ubuntu-latest / clang:
   make all
   make check
   make qstar-linux-validation-tests
@@ -108,9 +123,21 @@ ubuntu-latest:
   /tmp/qstar-linux-smoke/bin/qstar --version
 ```
 
-The CI lane should also keep the Ninja root pollution gate from
-`tests/ninja-backend-parity.sh`: `.ninja_deps` and `.ninja_log` must stay under
-the QStar build directory, not the repository root.
+Each lane sets `QSTAR_LINUX_VALIDATION_CC` to the matrix compiler, verifies
+`ninja --version`, runs the Ninja backend parity tests through `make check`, and
+performs an explicit root pollution smoke: `.ninja_deps` and `.ninja_log` must
+stay under the QStar build directory, not the repository root.
+
+The install prefix smoke checks:
+
+```sh
+make install PREFIX="$RUNNER_TEMP/qstar-linux-smoke-<compiler>"
+"$prefix/bin/qstar" --version
+QSTAR_DOC_DIR="$prefix/share/doc/qstar" "$prefix/bin/qstar" docs --path
+test -f "$prefix/share/doc/qstar/wiki/AI_INDEX.md"
+test -f "$prefix/share/man/man1/qstar.1"
+test -f "$prefix/share/man/man5/qstar-lua.5"
+```
 
 ## Release Asset Conditions
 
@@ -120,6 +147,7 @@ Before a `linux-*` release asset is added, all of the following must be true:
 - source build passes on a clean Linux host or CI image
 - `make check` passes on Linux
 - `make qstar-linux-validation-tests` passes on Linux
+- `.github/workflows/linux-validation.yml` is green for both gcc and clang lanes
 - `make install PREFIX=/tmp/qstar-linux-smoke` installs binary, docs, and
   manpages under that prefix
 - installed binary reports the tagged version

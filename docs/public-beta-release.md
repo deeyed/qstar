@@ -63,6 +63,11 @@ codesign -dv --verbose=2 /tmp/qstar-release-smoke/bin/qstar
 `codesign` smoke는 Darwin/macOS에서만 의미가 있다. Linux validation host에서는
 docs/manpage install과 runtime version만 확인한다.
 
+Linux runtime tarball은 아직 public beta asset이 아니다. Linux asset을 추가하려면
+`.github/workflows/linux-validation.yml`의 Ubuntu gcc/clang lane이 green이어야 하고,
+각 lane에서 `make check`, `make qstar-linux-validation-tests`, Ninja backend parity,
+install docs/man smoke가 통과해야 한다.
+
 ## Tarball Layout
 
 Runtime tarball은 prefix에 바로 풀 수 있어야 한다.

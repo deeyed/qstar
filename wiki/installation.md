@@ -84,6 +84,11 @@ test -f /tmp/qstar-linux-smoke/share/man/man1/qstar.1
 test -f /tmp/qstar-linux-smoke/share/man/man5/qstar-lua.5
 ```
 
+GitHub Actions 후보는 `.github/workflows/linux-validation.yml`에 있다. 이 workflow는
+`ubuntu-latest`에서 gcc/clang matrix를 돌리고, 각 lane에서 Ninja를 설치한 뒤
+`make all`, `make check`, `make qstar-linux-validation-tests`, install docs/man smoke를
+수행한다. Depfile compiler lane은 `QSTAR_LINUX_VALIDATION_CC=gcc|clang`으로 고정한다.
+
 ## Windows 준비 경로
 
 Windows release asset은 아직 없다. 현재 QStar는 Windows 이식 전에 다음 규칙을 먼저

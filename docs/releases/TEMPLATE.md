@@ -49,13 +49,15 @@ qstar --file /tmp/qstar-hello/qstar.lua build //:app --progress plain
 | Host platform | Status |
 | --- | --- |
 | macOS arm64 | Beta release artifact |
-| Linux | Validation underway |
+| Linux | Validation underway through Ubuntu gcc/clang CI |
 | Windows | Planned validation |
 
 ## Notes
 
 - The Makefile remains QStar's canonical bootstrap and release build path.
 - QStar self-host remains a release gate candidate and backend parity check.
-- Linux and Windows artifacts require platform validation before publication.
+- Linux artifacts require `.github/workflows/linux-validation.yml` to be green for
+  gcc and clang, plus an install docs/man smoke, before publication.
+- Windows artifacts require native platform validation before publication.
 - QStar is licensed under Apache-2.0. Lua vendor license text is preserved in
   `LICENSE/lua.txt`.

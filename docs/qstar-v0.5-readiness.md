@@ -126,9 +126,11 @@ Linux:
 
 - 상태는 `validation underway`다.
 - macOS local gate는 path/process/install layout smoke만 확인한다.
+- Round Q109 기준 `.github/workflows/linux-validation.yml`이 `ubuntu-latest`에서 gcc와
+  clang lane을 실행하는 CI 후보를 제공한다.
 - Linux release asset은 clean Linux host 또는 CI에서 `make all`, `make check`,
-  `make qstar-linux-validation-tests`, install smoke가 통과한 뒤에만 추가한다.
-- clang/gcc depfile behavior는 0.5 Linux release asset 전 필수 확인이다.
+  `make qstar-linux-validation-tests`, install docs/man smoke가 통과한 뒤에만 추가한다.
+- clang/gcc depfile behavior는 `QSTAR_LINUX_VALIDATION_CC` matrix로 확인한다.
 
 Windows:
 
@@ -180,7 +182,8 @@ string이 남아 있지 않은지 확인한다.
 - Medium performance report: Stella vs Ninja clean/no-op/incremental 수치.
 - CMake-style progress output: `[ 75%] Linking CXX executable app` 형식과
   warning/error stream coloring 상태 재검증.
-- Linux validation status refresh: Linux CI 또는 clean Linux host 결과가 있으면 반영.
+- Linux validation status refresh: `.github/workflows/linux-validation.yml`의 gcc/clang
+  lane 또는 clean Linux host 결과가 있으면 반영.
 - Docs/man/wiki/AI index sync: old generator name, old version string, removed API 잔재 제거.
 - VSCode extension version policy 결정: runtime과 별도 유지할지 `0.4.0`으로 올릴지 명시.
 

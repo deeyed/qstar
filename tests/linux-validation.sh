@@ -6,6 +6,7 @@ tmp=${TMPDIR:-/tmp}/qstar-linux-validation.$$
 install_root="$tmp/install-root"
 project="$tmp/project"
 host=$(uname -s 2>/dev/null || printf unknown)
+validation_cc=${QSTAR_LINUX_VALIDATION_CC:-cc}
 
 fail() {
 	printf 'qstar-linux-validation: %s\n' "$1" >&2
@@ -31,6 +32,18 @@ rm -rf "$tmp"
 mkdir -p "$project/src" "$project/include" "$project/tools" \
 	"$project/qstar/modules/paths"
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+
+if [ -z "$validation_cc" ]; then
+	fail "QSTAR_LINUX_VALIDATION_CC must not be empty"
+fi
+case "$validation_cc" in
+*[!A-Za-z0-9_./+-]*)
+	fail "QSTAR_LINUX_VALIDATION_CC must be a single compiler command"
+	;;
+esac
+if ! command -v "$validation_cc" >/dev/null 2>&1; then
+	fail "compiler '$validation_cc' not found"
+fi
 
 cat > "$project/tools/write-generated-header.sh" <<'EOF'
 #!/bin/sh
@@ -71,7 +84,7 @@ int main(void) {
 }
 EOF
 
-cat > "$project/qstar.lua" <<'EOF'
+cat > "$project/qstar.lua" <<EOF
 local paths = qstar.import_module("qstar/modules/paths")
 local generated_dir = paths.generated_dir()
 
@@ -85,6 +98,7 @@ qstar.project {
 }
 
 qstar.profile "default" {
+  cc = "$validation_cc",
   tool_overrides = {
     "qstar-port-gen=tools/write-generated-header.sh",
   },
@@ -132,6 +146,7 @@ Linux)
 	printf 'qstar-linux-validation: host=%s mode=limited-linux-path\n' "$host"
 	;;
 esac
+printf 'qstar-linux-validation: depfile_compiler=%s\n' "$validation_cc"
 
 "$qstar" --file "$project/qstar.lua" check //... > "$tmp/check.out" 2> "$tmp/check.err"
 contains "$tmp/check.out" "status ok"

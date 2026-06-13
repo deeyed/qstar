@@ -1,0 +1,66 @@
+name: Linux Validation
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ubuntu:
+    name: ubuntu / ${{ matrix.compiler }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: gcc
+            cc: gcc
+            cxx: g++
+          - compiler: clang
+            cc: clang
+            cxx: clang++
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+      QSTAR_LINUX_VALIDATION_CC: ${{ matrix.cc }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build tools and Ninja
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang gcc g++ ninja-build
+          ninja --version
+          "$CC" --version
+
+      - name: Build QStar
+        run: make all
+
+      - name: Run Linux regression
+        run: make check
+
+      - name: Run explicit Linux validation gate
+        run: make qstar-linux-validation-tests
+
+      - name: Install prefix docs and manpage smoke
+        run: |
+          prefix="${RUNNER_TEMP}/qstar-linux-smoke-${{ matrix.compiler }}"
+          make install PREFIX="$prefix"
+          "$prefix/bin/qstar" --version
+          QSTAR_DOC_DIR="$prefix/share/doc/qstar" "$prefix/bin/qstar" docs --path
+          test -f "$prefix/share/doc/qstar/wiki/AI_INDEX.md"
+          test -f "$prefix/share/man/man1/qstar.1"
+          test -f "$prefix/share/man/man5/qstar-lua.5"
+
+      - name: Ninja backend root pollution smoke
+        run: |
+          rm -f .ninja_log .ninja_deps
+          build/bin/qstar --file tests/corpus/c-app/qstar.lua -G ninja build //:app --progress plain --color never
+          test ! -f .ninja_log
+          test ! -f .ninja_deps

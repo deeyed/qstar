@@ -7,8 +7,9 @@ QStar는 Lua 기반 프로젝트 DSL, Stella 네이티브 executor, 선택형 Ni
 대형 프로젝트용 reusable config, 도구가 읽기 쉬운 diagnostic을 제공하는 것이다.
 
 현재 공개 버전은 베타다. 첫 public prerelease는 `v0.4.0-beta.1`이며 macOS arm64
-바이너리만 먼저 배포한다. Linux는 검증 진행 중이고 Windows는 검증 예정이다.
-QStar 1.0은 macOS, Linux, Windows 공식 지원이 모두 갖춰진 뒤에 올린다.
+바이너리만 먼저 배포한다. Linux는 Ubuntu gcc/clang CI workflow로 검증 진행 중이고
+Windows는 검증 예정이다. QStar 1.0은 macOS, Linux, Windows 공식 지원이 모두 갖춰진
+뒤에 올린다.
 
 ## 특징
 
@@ -160,7 +161,7 @@ qstar replay <action-id>
 | Host platform | 상태 |
 | --- | --- |
 | macOS arm64 | 베타 release artifact 제공 |
-| Linux | 검증 진행 중 |
+| Linux | Ubuntu gcc/clang CI로 검증 진행 중 |
 | Windows | 검증 예정 |
 
 QStar는 freestanding, firmware-style cross build graph를 표현할 수 있지만, host
