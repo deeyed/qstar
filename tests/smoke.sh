@@ -5076,13 +5076,25 @@ qstar.stage "rpi" {
   },
 }
 EOF
-"$qstar" --file "$tmp/stagepkg/qstar.lua" check //:boot > "$tmp/stagepkg-check.out" 2> "$tmp/stagepkg-check.err"
+if ! "$qstar" --file "$tmp/stagepkg/qstar.lua" check //:boot > "$tmp/stagepkg-check.out" 2> "$tmp/stagepkg-check.err"; then
+	cat "$tmp/stagepkg-check.out" >&2
+	cat "$tmp/stagepkg-check.err" >&2
+	fail "stage package check failed"
+fi
 contains "$tmp/stagepkg-check.out" "stage-count 2"
-"$qstar" --file "$tmp/stagepkg/qstar.lua" list-targets --format json > "$tmp/stagepkg-targets-json.out" 2> "$tmp/stagepkg-targets-json.err"
+if ! "$qstar" --file "$tmp/stagepkg/qstar.lua" list-targets --format json > "$tmp/stagepkg-targets-json.out" 2> "$tmp/stagepkg-targets-json.err"; then
+	cat "$tmp/stagepkg-targets-json.out" >&2
+	cat "$tmp/stagepkg-targets-json.err" >&2
+	fail "stage package list-targets failed"
+fi
 contains "$tmp/stagepkg-targets-json.out" "\"stage_count\":2"
 contains "$tmp/stagepkg-targets-json.out" "\"label\":\"//:esp\""
 contains "$tmp/stagepkg-targets-json.out" "\"root\":\"stage/esp\""
-"$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:esp --dry-run > "$tmp/stagepkg-esp-dry.out" 2> "$tmp/stagepkg-esp-dry.err"
+if ! "$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:esp --dry-run > "$tmp/stagepkg-esp-dry.out" 2> "$tmp/stagepkg-esp-dry.err"; then
+	cat "$tmp/stagepkg-esp-dry.out" >&2
+	cat "$tmp/stagepkg-esp-dry.err" >&2
+	fail "stage package esp dry-run failed"
+fi
 contains "$tmp/stagepkg-esp-dry.out" "qstar stage v2"
 contains "$tmp/stagepkg-esp-dry.out" "mode dry-run"
 contains "$tmp/stagepkg-esp-dry.out" "stage_layout label=//:esp root=stage/esp files=1 status=ok"
@@ -5096,14 +5108,26 @@ contains "$tmp/stagepkg/build/qstar/stage/___esp/manifest.json" "\"producer\":\"
 if [ -f "$tmp/stagepkg/stage/esp/EFI/BOOT/BOOTX64.EFI" ]; then
 	fail "stage dry-run unexpectedly copied ESP artifact"
 fi
-"$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:esp > "$tmp/stagepkg-esp-stage.out" 2> "$tmp/stagepkg-esp-stage.err"
+if ! "$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:esp > "$tmp/stagepkg-esp-stage.out" 2> "$tmp/stagepkg-esp-stage.err"; then
+	cat "$tmp/stagepkg-esp-stage.out" >&2
+	cat "$tmp/stagepkg-esp-stage.err" >&2
+	fail "stage package esp copy failed"
+fi
 contains "$tmp/stagepkg-esp-stage.out" "stage_diff dst=stage/esp/EFI/BOOT/BOOTX64.EFI action=would-create"
 contains "$tmp/stagepkg-esp-stage.out" "status ok"
 test -f "$tmp/stagepkg/stage/esp/EFI/BOOT/BOOTX64.EFI" || fail "missing staged ESP BOOTX64.EFI"
 contains "$tmp/stagepkg/build/qstar/stage/___esp/manifest.json" "\"mode\":\"copy\""
-"$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:esp --dry-run > "$tmp/stagepkg-esp-dry2.out" 2> "$tmp/stagepkg-esp-dry2.err"
+if ! "$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:esp --dry-run > "$tmp/stagepkg-esp-dry2.out" 2> "$tmp/stagepkg-esp-dry2.err"; then
+	cat "$tmp/stagepkg-esp-dry2.out" >&2
+	cat "$tmp/stagepkg-esp-dry2.err" >&2
+	fail "stage package esp second dry-run failed"
+fi
 contains "$tmp/stagepkg-esp-dry2.out" "stage_diff dst=stage/esp/EFI/BOOT/BOOTX64.EFI action=unchanged"
-"$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:rpi > "$tmp/stagepkg-rpi-stage.out" 2> "$tmp/stagepkg-rpi-stage.err"
+if ! "$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:rpi > "$tmp/stagepkg-rpi-stage.out" 2> "$tmp/stagepkg-rpi-stage.err"; then
+	cat "$tmp/stagepkg-rpi-stage.out" >&2
+	cat "$tmp/stagepkg-rpi-stage.err" >&2
+	fail "stage package rpi copy failed"
+fi
 contains "$tmp/stagepkg-rpi-stage.out" "stage_file src=boot/config.txt dst=stage/rpi/config.txt mode=copy"
 contains "$tmp/stagepkg-rpi-stage.out" "stage_file src=generated/kernel8.img dst=stage/rpi/kernel8.img mode=copy"
 contains "$tmp/stagepkg-rpi-stage.out" "stage_file src=boot/payload.bin dst=stage/rpi/payload.bin mode=copy"
@@ -5116,7 +5140,11 @@ contains "$tmp/stagepkg/build/qstar/stage/___rpi/manifest.json" "\"dst\":\"stage
 contains "$tmp/stagepkg/build/qstar/stage/___rpi/manifest.json" "\"kind\":\"custom_target\""
 contains "$tmp/stagepkg/build/qstar/stage/___rpi/manifest.json" "\"producer\":\"//:kernel_img\""
 contains "$tmp/stagepkg/build/qstar/stage/___rpi/manifest.json" "\"kind\":\"file\""
-"$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:esp --root stage/custom-esp --dry-run > "$tmp/stagepkg-esp-root.out" 2> "$tmp/stagepkg-esp-root.err"
+if ! "$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:esp --root stage/custom-esp --dry-run > "$tmp/stagepkg-esp-root.out" 2> "$tmp/stagepkg-esp-root.err"; then
+	cat "$tmp/stagepkg-esp-root.out" >&2
+	cat "$tmp/stagepkg-esp-root.err" >&2
+	fail "stage package esp custom root failed"
+fi
 contains "$tmp/stagepkg-esp-root.out" "stage-root stage/custom-esp"
 contains "$tmp/stagepkg-esp-root.out" "dst=stage/custom-esp/EFI/BOOT/BOOTX64.EFI"
 
