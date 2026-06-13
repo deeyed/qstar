@@ -119,6 +119,7 @@ qstar docs --show reference/qstar-lua.md
 - [Run Target](reference/run-target.md)
 - [Profiles](reference/profiles.md)
 - [Performance Gates](reference/performance-gates.md)
+- [Progress Output](reference/progress-output.md)
 - [Diagnostics](reference/diagnostics.md)
 
 ## Tutorials

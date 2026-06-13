@@ -56,6 +56,7 @@ cat > "$work/_Sidebar.md" <<'EOF'
 - [Target Rules](reference/target-rules)
 - [Profiles](reference/profiles)
 - [Diagnostics](reference/diagnostics)
+- [Progress Output](reference/progress-output)
 EOF
 
 (

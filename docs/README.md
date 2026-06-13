@@ -56,6 +56,7 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 - `qstar-self-host.md`: Makefile 유지와 QStar self-host graph/release gate 후보 계약.
 - `ninja-backend-parity.md`: Ninja lowering parity, deferred surface, action-log/replay 계약.
 - `performance-gates.md`: Stella/Ninja clean, no-op, incremental timing gate 계약.
+- `progress-output.md`: CMake-style progress output, warning/error color, `qstar.status` draft contract.
 - `linux-validation.md`: Linux host validation path, install smoke, CI 후보, release asset 조건.
 - `windows-path-process.md`: Windows path/process/response-file pre-port contract.
 - `public-beta-release.md`: public beta packaging, install smoke, codesign, wiki sync gate.
@@ -113,6 +114,10 @@ project performance gate를 함께 봉인한다. Runtime version은 `qstar --ver
 Round 100부터 0.5 readiness 판단은 `qstar-v0.5-readiness.md`에 둔다. 이 문서는
 self-host, Stella/Ninja benchmark, Ninja parity, Linux/Windows status, docs/CLI drift,
 medium project readiness, version policy, deferred surface를 한 번에 요약한다.
+
+Round 101부터 progress output 계약은 `progress-output.md`에 둔다. QStar 0.5 UI line은
+일반 build output에서 `Stage N`, scheduler state, action id를 숨기고
+`[ 75%] Linking CXX executable app` 같은 CMake-style action description을 출력한다.
 
 ## Round 15 구현 상태
 

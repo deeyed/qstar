@@ -178,6 +178,8 @@ string이 남아 있지 않은지 확인한다.
 - Public beta package smoke: `make qstar-public-beta-release-tests`.
 - Self-host gate: `make qstar-self-host-tests`.
 - Medium performance report: Stella vs Ninja clean/no-op/incremental 수치.
+- CMake-style progress output: `[ 75%] Linking CXX executable app` 형식과
+  warning/error color policy 구현.
 - Linux validation status refresh: Linux CI 또는 clean Linux host 결과가 있으면 반영.
 - Docs/man/wiki/AI index sync: old generator name, old version string, removed API 잔재 제거.
 - VSCode extension version policy 결정: runtime과 별도 유지할지 `0.4.0`으로 올릴지 명시.

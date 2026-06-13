@@ -58,6 +58,11 @@ QStar가 하지 않는 일:
   installed binary version, installed wiki/manpages, macOS codesign, prefix-style
   tarball layout, `SHA256SUMS`, VSCode `.vsix` 미포함 정책을 확인한다. GitHub Wiki
   mirror는 `tools/sync-github-wiki.sh`로 수행한다.
+- Progress output contract는 `docs/progress-output.md`와 `wiki/reference/progress-output.md`에
+  둔다. QStar 0.5 UI line은 `[ 75%] Linking CXX executable app` 같은 CMake-style
+  action description을 일반 출력으로 사용하고, `Stage N`, `Status: ...`,
+  `schedule_action`, `build_action` 같은 내부 trace는 `--verbose`나 `--schedule-trace`로
+  제한한다. Warning은 `warning:` prefix를 orange/yellow, error는 bold red로 표시한다.
 - 0.5 readiness 판단은 `docs/qstar-v0.5-readiness.md`에 둔다. 이 문서는 self-host,
   Stella/Ninja benchmark, Ninja parity, Linux/Windows status, docs/CLI drift, medium
   project readiness, version policy, deferred surface를 요약한다.
