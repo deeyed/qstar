@@ -35,6 +35,40 @@ list_has_duplicate(const struct qstar_string_list *list, const char **dup)
 	return 0;
 }
 
+/** path가 특정 suffix로 끝나는지 확인한다. */
+static int
+source_path_has_suffix(const char *path, const char *suffix)
+{
+	size_t npath, nsuffix;
+
+	npath = strlen(path);
+	nsuffix = strlen(suffix);
+	return npath >= nsuffix && strcmp(path + npath - nsuffix, suffix) == 0;
+}
+
+/** 지원하지 않는 source suffix에 대해 object artifact bridge 안내 문구를 반환한다. */
+static const char *
+unsupported_source_bridge_hint(const char *path)
+{
+	if (source_path_has_suffix(path, ".m"))
+		return "Objective-C provider is not available; build this source with "
+		    "qstar.custom_target, declare qstar.output(..., {format = \"object\"}), "
+		    "and list the generated .o/.obj in sources";
+	if (source_path_has_suffix(path, ".mm"))
+		return "Objective-C++ provider is not available; build this source with "
+		    "qstar.custom_target, declare qstar.output(..., {format = \"object\"}), "
+		    "and list the generated .o/.obj in sources";
+	if (source_path_has_suffix(path, ".rs") ||
+	    source_path_has_suffix(path, ".zig") ||
+	    source_path_has_suffix(path, ".swift"))
+		return "this language is not a QStar compile provider; use an external "
+		    "compiler through qstar.custom_target, declare qstar.output(..., "
+		    "{format = \"object\"}), and list the generated .o/.obj in sources";
+	return "use qstar.custom_target to produce a supported generated file, or produce "
+	    "an object artifact with qstar.output(..., {format = \"object\"}) and list "
+	    "that .o/.obj in sources";
+}
+
 static int
 list_pair_has_duplicate(const struct qstar_string_list *a,
     const struct qstar_string_list *b, const char **dup)
@@ -369,8 +403,8 @@ validate_source_list(struct qstar_graph *graph, const struct qstar_target *targe
 		if (qstar_source_classify(path, NULL) < 0)
 			return qstar_set_error_origin(graph, target->origin_file,
 			    target->origin_line, "sources", target->label,
-			    "qstar: unsupported source extension '%s' in '%s'",
-			    path, target->label);
+			    "qstar: unsupported source extension '%s' in '%s'; %s",
+			    path, target->label, unsupported_source_bridge_hint(path));
 		if (qstar_graph_path_is_generated(graph, path) &&
 		    !qstar_graph_find_output_owner(graph, path))
 			return qstar_set_error_origin(graph, target->origin_file,

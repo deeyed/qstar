@@ -76,11 +76,17 @@ qstar: qstar.config is forbidden inside .qsm module; modules must return a helpe
 qstar: qstar.target_file cannot reference group target '//:aggregate' because group targets have no artifact
 qstar: generated output 'generated/file.c' in '//:gen' must be under generated_dir 'build/qstar/generated'
 qstar: top-level include_dirs is not allowed; move it under lang.c.include_dirs
+qstar: unsupported source extension 'src/AppDelegate.m' in '//:app'; Objective-C provider is not available; build this source with qstar.custom_target, declare qstar.output(..., {format = "object"}), and list the generated .o/.obj in sources
 ```
 
 `.qsm`은 helper table 전용이다. Target, profile, config, stage, import_file 같은 graph
 declaration은 `.qst` 또는 `qstar.lua`에서 선언한다. `qstar.group`은 artifact가 없으므로
 `qstar.target_file("//:group")`의 대상이 될 수 없다.
+
+`.m`, `.mm`, `.rs`, `.zig`, `.swift` 같은 suffix는 QStar compile provider로 등록되어
+있지 않다. 이 파일들을 `sources`에 직접 넣으면 QStar는 해당 언어를 해석하려고 하지 않고,
+`qstar.custom_target`으로 외부 compiler를 호출해 `qstar.output(..., {format = "object"})`
+object artifact를 만든 뒤 consuming target의 `sources`에 넣으라고 안내한다.
 
 ## 관련 diagnostic
 

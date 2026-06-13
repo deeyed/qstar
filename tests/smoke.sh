@@ -2604,6 +2604,30 @@ if "$qstar" --file "$tmp/qstar.lua" check //:bad_suffix > "$tmp/suffix.out" 2> "
 	fail "unsupported suffix unexpectedly succeeded"
 fi
 contains "$tmp/suffix.err" "unsupported source extension"
+contains "$tmp/suffix.err" "qstar.custom_target"
+contains "$tmp/suffix.err" "qstar.output(..., {format = \"object\"})"
+
+if "$qstar" --file tests/corpus/bad-unsupported-source/qstar.lua check > "$tmp/bad-unsupported-source.out" 2> "$tmp/bad-unsupported-source.err"; then
+	fail "bad unsupported source corpus unexpectedly succeeded"
+fi
+contains "$tmp/bad-unsupported-source.err" "Objective-C provider is not available"
+contains "$tmp/bad-unsupported-source.err" "qstar.output(..., {format = \"object\"})"
+
+for unsupported_suffix in mm rs zig swift; do
+	cat > "$tmp/qstar.lua" <<EOF
+qstar.executable "bad_${unsupported_suffix}" {
+  sources = {"src/foreign.${unsupported_suffix}"},
+}
+EOF
+	if "$qstar" --file "$tmp/qstar.lua" check "//:bad_${unsupported_suffix}" > "$tmp/unsupported-${unsupported_suffix}.out" 2> "$tmp/unsupported-${unsupported_suffix}.err"; then
+		fail "unsupported ${unsupported_suffix} suffix unexpectedly succeeded"
+	fi
+	contains "$tmp/unsupported-${unsupported_suffix}.err" "unsupported source extension"
+	contains "$tmp/unsupported-${unsupported_suffix}.err" "qstar.custom_target"
+	contains "$tmp/unsupported-${unsupported_suffix}.err" "qstar.output(..., {format = \"object\"})"
+done
+contains "$tmp/unsupported-mm.err" "Objective-C++ provider is not available"
+contains "$tmp/unsupported-rs.err" "this language is not a QStar compile provider"
 
 cat > "$tmp/tools/cale" <<'EOF'
 #!/bin/sh
@@ -3658,6 +3682,8 @@ contains "wiki/README.md" "reference/qstar-lua.md"
 contains "wiki/reference/qstar-lua.md" "QSTAR_VERSION"
 contains "wiki/reference/object-artifacts.md" "format = \"object\""
 contains "wiki/reference/custom-target.md" "Object artifact"
+contains "wiki/reference/diagnostics.md" "Objective-C provider is not available"
+contains "wiki/reference/diagnostics.md" "qstar.output(..., {format = \"object\"})"
 contains "wiki/reference/lang-c.md" "lang.c.public_headers"
 contains "wiki/reference/lang-cxx.md" "lang.cxx.modules"
 contains "wiki/reference/lang-cale.md" "HCL도 header surface"
