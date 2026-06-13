@@ -88,3 +88,4 @@ declaration은 `.qst` 또는 `qstar.lua`에서 선언한다. `qstar.group`은 ar
 - `QSTAR002 subdir fragment must be <folder>.qst`
 - `QSTAR020 source path escapes package root`
 - `QSTAR030 private include leaked across target boundary`
+- `qstar: Cale source 'src/core.cale' is a Stella-only language-provider action in this release; Ninja wrapper lowering is deferred; use -G stella`

@@ -20,7 +20,8 @@ support가 아니다. QStar 1.0은 macOS, Linux, Windows 공식 지원이 모두
 - executable, staticlib, sharedlib, test, custom target, configure file, group,
   stage/install 지원
 - 반복 옵션을 줄이는 `qstar.config`
-- Stella native executor와 `-G ninja` backend
+- Stella native executor와 C/C++/ASM/generated graph용 `-G ninja` backend
+- Cale source는 Stella language-provider process action으로 지원
 - `compile_commands.json`, LSP, VSCode extension, replay/action log, manpage,
   AI index 제공
 

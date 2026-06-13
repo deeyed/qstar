@@ -2643,7 +2643,8 @@ contains "$tmp/build/qstar/compile_commands.json" "src/unit.cale"
 if PATH="$tmp/tools:$PATH" "$qstar" --file "$tmp/qstar.lua" -G ninja build //:calelib > "$tmp/cale-ninja.out" 2> "$tmp/cale-ninja.err"; then
 	fail "Cale source Ninja lowering unexpectedly succeeded"
 fi
-contains "$tmp/cale-ninja.err" "ninja backend does not lower Cale source 'src/unit.cale' yet"
+contains "$tmp/cale-ninja.err" "Cale source 'src/unit.cale' is a Stella-only language-provider action"
+contains "$tmp/cale-ninja.err" "Ninja wrapper lowering is deferred"
 contains "$tmp/cale-ninja.err" "use -G stella"
 
 if PATH=/nonexistent "$qstar" --file "$tmp/qstar.lua" build //:mixed > "$tmp/no-cale.out" 2> "$tmp/no-cale.err"; then
@@ -3577,6 +3578,7 @@ wiki/reference/target-rules.md
 wiki/reference/lang-c.md
 wiki/reference/lang-cxx.md
 wiki/reference/lang-cale.md
+wiki/reference/language-providers.md
 wiki/reference/custom-target.md
 wiki/reference/run-target.md
 wiki/reference/profiles.md
@@ -3616,6 +3618,7 @@ contains "wiki/reference/qstar-lua.md" "QSTAR_VERSION"
 contains "wiki/reference/lang-c.md" "lang.c.public_headers"
 contains "wiki/reference/lang-cxx.md" "lang.cxx.modules"
 contains "wiki/reference/lang-cale.md" "HCL도 header surface"
+contains "wiki/reference/language-providers.md" "Cale source는 Stella-only"
 contains "wiki/reference/custom-target.md" "qstar.cli"
 contains "wiki/tutorials/freestanding-image.md" "linker_script"
 contains "wiki/cookbook/qemu-smoke.md" "qstar.run_target"

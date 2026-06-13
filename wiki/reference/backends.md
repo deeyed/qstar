@@ -48,8 +48,9 @@ qstar --file qstar.lua replay //:app:link:0
 `.so`와 `soname`을 생성한다. Windows-like profile의 `.dll`/import-library/PDB/install
 layout은 아직 deferred이며 Stella/Ninja 모두 같은 diagnostic으로 거부한다.
 
-Cale source action은 아직 Ninja로 lower되지 않는다. Cale source를 포함하는 target은
-`-G stella`를 사용한다.
+Cale source action은 Stella-only language-provider action이다. Ninja wrapper lowering은
+이번 release에서 deferred이며, Cale source를 포함하는 target은 `-G stella`를 사용한다.
+QStar는 Cale/HCL 의미론을 해석하지 않는다.
 
 ## 최소 예제
 
@@ -112,4 +113,4 @@ qstar --file qstar.lua -G ninja install //:app --prefix /tmp/qstar-install
 ## 관련 diagnostic
 
 - `qstar: sharedlib target '//:plugin' supports only Darwin and Linux-like profiles in this release; Windows .dll/import-library policy is deferred`
-- `qstar: ninja backend does not lower Cale source 'src/unit.cale' yet; use -G stella`
+- `qstar: Cale source 'src/unit.cale' is a Stella-only language-provider action in this release; Ninja wrapper lowering is deferred; use -G stella`

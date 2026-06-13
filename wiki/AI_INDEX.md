@@ -46,7 +46,9 @@ QStar가 하지 않는 일:
   `qstar.custom_target`, staticlib, sharedlib, executable/test link, `qstar.run_target`,
   `qstar.group` phony graph를 Ninja로 실행한다. `stage`와 `install`은 copy와 manifest를
   QStar가 처리하지만, 참조 target artifact는 effective generator로 먼저 build한다.
-  Cale source action은 아직 Ninja로 lower되지 않으므로 `-G stella`가 필요하다.
+  Cale source action은 Q116 기준 Stella-only language-provider action이므로 `-G stella`가
+  필요하다. Ninja wrapper lowering은 deferred이며, HCL은 QStar가 해석하지 않는
+  header-like path다.
   `sharedlib`는 Darwin-like profile에서 `.dylib`, Linux-like profile에서 `.so`를 만들며,
   Windows `.dll`/import-library/PDB 정책은 deferred diagnostic으로 거부한다.
 - `make qstar-ninja-backend-parity-tests`는 staticlib, sharedlib, executable/test,
@@ -174,6 +176,7 @@ qstar.staticlib "core" {
 - `lang.cxx`: C++ headers, include dirs, standard, modules skeleton, compile options
 - `lang.asm`: assembler include dirs, compile options, preprocess flag
 - `lang.cale`: Cale/HCL headers, include dirs, Cale profile, modules skeleton
+- `wiki/reference/language-providers.md`: Cale/Stella/Ninja/HCL backend boundary
 
 공통 option은 target top-level로 되돌리지 말고 `qstar.config`로 선언한다. Config label은
 target의 `configs`에서 참조한다.

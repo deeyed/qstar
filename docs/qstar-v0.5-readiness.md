@@ -119,7 +119,7 @@ QStar-owned으로 남기는 surface:
 0.5에서도 deferred로 남길 것:
 
 - Windows `.dll`/import-library/PDB sharedlib policy
-- Cale source Ninja lowering
+- Cale source Ninja wrapper lowering; Q116 fixes Cale source as Stella-only for now
 - C++ modules execution policy
 - advanced platform-specific dynamic library rpath/install layout policy
 
@@ -209,7 +209,7 @@ historical version record는 보존한다.
 - Linux public release artifact decision. Q113 adds the dry-run path, but attaching
   the asset to a GitHub release remains a separate release decision.
 - Windows `.dll`/import-library/PDB sharedlib support.
-- Cale source Ninja lowering.
+- Cale source Ninja wrapper lowering.
 - C++ modules execution policy.
 - Remote package resolution, lockfile, registry, fetch policy.
 - Stable public Graph IR/cache protocol.
@@ -235,6 +235,7 @@ release notes.
   not yet official host support.
 - `qstar.sharedlib` supports Darwin-like `.dylib` and Linux-like `.so` builds, but
   Windows `.dll`/import-library/PDB policy is deferred.
-- Cale source Ninja lowering is deferred.
+- Cale source is a Stella-only language-provider action in this release; Ninja
+  wrapper lowering is deferred by contract.
 - Package/dependency resolution is intentionally outside QStar.
 - Editor extension packaging is separate from runtime release packaging.

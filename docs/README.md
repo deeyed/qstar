@@ -55,6 +55,7 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 - `qstar-v0.4-stella-seal.md`: Stella 기본 backend, Ninja backend 후보, install/editor packaging seal.
 - `qstar-self-host.md`: Makefile 유지와 QStar self-host graph/release gate 후보 계약.
 - `ninja-backend-parity.md`: Ninja lowering parity, sharedlib policy, action-log/replay 계약.
+- `language-provider-backend-contract.md`: Cale/Stella/Ninja/HCL language provider 경계 계약.
 - `performance-gates.md`: Stella/Ninja clean, no-op, incremental timing gate 계약.
 - `progress-output.md`: CMake-style progress output, warning/error color, `qstar.status` descriptions.
 - `linux-validation.md`: Linux host validation path, Ubuntu gcc/clang CI workflow, install smoke, linux-x86_64 candidate tarball dry-run 조건.
@@ -117,6 +118,10 @@ medium project readiness, version policy, deferred surface를 한 번에 요약�
 Round 110부터 runtime은 `0.5.0-beta.1` release-prep line으로 이동한다. Release note는
 `releases/v0.5.0-beta.1.md`에 두고, VSCode extension package version은 runtime과 별도인
 `0.3.0`으로 유지한다.
+
+Round 116부터 Cale source는 Stella-only language-provider action으로 봉인한다. Ninja wrapper
+lowering은 Cale provider의 argv/depfile/response-file/replay 계약이 별도 라운드로 정리될
+때까지 deferred이며, HCL은 QStar가 해석하지 않는 header-like path다.
 
 Round 101부터 progress output 계약은 `progress-output.md`에 둔다. QStar 0.5 UI line은
 일반 build output에서 legacy scheduler stage wording, scheduler state, action id를 숨기고

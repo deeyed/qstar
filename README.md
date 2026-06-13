@@ -26,7 +26,8 @@ validation candidate, but no public asset or official host support yet. QStar
 - Reusable `qstar.config` bundles for large projects with repeated compiler
   options
 - Stella native executor with compact progress output
-- Ninja backend with `-G ninja`
+- Ninja backend with `-G ninja` for C/C++/ASM and generated/custom graph actions
+- Cale source support through Stella language-provider process actions
 - `compile_commands.json` generation for editor tooling
 - LSP and VSCode extension support for `qstar.lua`, `.qst`, and `.qsm`
 - Docs, manpages, action logs, replay, and AI-oriented documentation index
