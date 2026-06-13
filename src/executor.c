@@ -7230,10 +7230,6 @@ static int
 scheduler_run_sync_node(struct qstar_scheduler *sched, size_t node_index)
 {
 	struct qstar_sched_node *node = &sched->nodes[node_index];
-	struct qstar_prepared_action action;
-	const char *final_action;
-	char id[QSTAR_PATH_MAX];
-	int rc;
 
 	build_tracef(sched->ctx,
 	    "scheduler_event event=run_sync id=%zu kind=%s state=ready\n",
@@ -7250,25 +7246,46 @@ scheduler_run_sync_node(struct qstar_scheduler *sched, size_t node_index)
 		    node->genrule);
 	if (node->kind == QSTAR_SCHED_RUN)
 		return run_target_command(sched->graph, sched->ctx, node->target);
-	if (node->kind == QSTAR_SCHED_FINAL) {
-		final_action = qstar_target_final_action(node->target);
-		snprintf(id, sizeof(id), "%s:%s:0", node->target->label, final_action);
+	return qstar_set_error(sched->graph, "qstar: invalid sync scheduler node");
+}
+
+/** async process runner로 실행할 scheduler node의 prepared action을 만든다. */
+static int
+scheduler_prepare_process_node(struct qstar_scheduler *sched, size_t node_index)
+{
+	struct qstar_sched_node *node = &sched->nodes[node_index];
+	const char *action_kind;
+	char id[QSTAR_PATH_MAX];
+	int rc;
+
+	if (node->action.id[0])
+		return 0;
+	if (node->kind == QSTAR_SCHED_COMPILE) {
+		snprintf(id, sizeof(id), "%s:compile:%zu", node->target->label,
+		    node->source_index);
+		action_kind = "compile";
 		rc = prepare_cached_action(sched->graph, sched->ctx, node->target,
-		    node->toolchain, id, final_action, &action);
+		    node->toolchain, id, action_kind, &node->action);
 		if (rc < 0)
 			return -1;
-		if (rc > 0) {
-			rc = run_action(sched->graph, sched->ctx, node->target,
-			    action.id, action.kind, action.key, &action.outputs,
-			    action.argv, node->toolchain, &action.material,
-			    action.description);
-			prepared_action_free(&action);
-			return rc;
-		}
-		rc = run_final(sched->graph, sched->ctx, node->target, node->toolchain);
-		return rc;
+		if (rc > 0)
+			return 0;
+		return prepare_compile_action(sched->graph, sched->ctx, node->target,
+		    node->toolchain, node->source_index, &node->action);
 	}
-	return qstar_set_error(sched->graph, "qstar: invalid sync scheduler node");
+	if (node->kind == QSTAR_SCHED_FINAL) {
+		action_kind = qstar_target_final_action(node->target);
+		snprintf(id, sizeof(id), "%s:%s:0", node->target->label, action_kind);
+		rc = prepare_cached_action(sched->graph, sched->ctx, node->target,
+		    node->toolchain, id, action_kind, &node->action);
+		if (rc < 0)
+			return -1;
+		if (rc > 0)
+			return 0;
+		return prepare_final_action(sched->graph, sched->ctx, node->target,
+		    node->toolchain, &node->action);
+	}
+	return qstar_set_error(sched->graph, "qstar: scheduler node is not a process action");
 }
 
 /** scheduler graph에서 사용자-facing progress action 수를 계산한다. */
@@ -7328,7 +7345,8 @@ scheduler_execute(struct qstar_scheduler *sched)
 				break;
 			if (sched->nodes[node_index].state != QSTAR_SCHED_READY)
 				continue;
-			if (sched->nodes[node_index].kind != QSTAR_SCHED_COMPILE) {
+			if (sched->nodes[node_index].kind != QSTAR_SCHED_COMPILE &&
+			    sched->nodes[node_index].kind != QSTAR_SCHED_FINAL) {
 				if (progress_node_counts(&sched->nodes[node_index]))
 					progress_status(sched->ctx,
 					    progress_stage_name(&sched->nodes[node_index]),
@@ -7344,27 +7362,10 @@ scheduler_execute(struct qstar_scheduler *sched)
 				progressed = 1;
 				continue;
 			}
-			if (sched->nodes[node_index].action.id[0] == '\0') {
-				char id[QSTAR_PATH_MAX];
-
-				snprintf(id, sizeof(id), "%s:compile:%zu",
-				    sched->nodes[node_index].target->label,
-				    sched->nodes[node_index].source_index);
-				rc = prepare_cached_action(sched->graph, sched->ctx,
-				    sched->nodes[node_index].target,
-				    sched->nodes[node_index].toolchain, id, "compile",
-				    &sched->nodes[node_index].action);
-				if (rc < 0)
-					goto fail;
-				if (rc == 0 &&
-				    prepare_compile_action(sched->graph, sched->ctx,
-				    sched->nodes[node_index].target,
-				    sched->nodes[node_index].toolchain,
-				    sched->nodes[node_index].source_index,
-				    &sched->nodes[node_index].action) < 0) {
-					rc = -1;
-					goto fail;
-				}
+			rc = scheduler_prepare_process_node(sched, node_index);
+			if (rc < 0) {
+				rc = -1;
+				goto fail;
 			}
 			if (progress_node_counts(&sched->nodes[node_index]))
 				progress_status(sched->ctx,
@@ -7479,10 +7480,10 @@ scheduler_execute(struct qstar_scheduler *sched)
 			node_index = running[i].node_index;
 			rc = finish_running_action(sched->graph, sched->ctx, &running[i],
 			    status);
-			if (rc == 0)
+			if (rc == 0 && strcmp(running[i].action->kind, "compile") == 0)
 				rc = check_compile_depfile(sched->graph, sched->ctx,
 				    running[i].action);
-			if (rc == 0)
+			if (rc == 0 && strcmp(running[i].action->kind, "compile") == 0)
 				rc = depfile_refresh_queue_push(sched->graph,
 				    sched->ctx, running[i].action);
 			running[i].action = NULL;
