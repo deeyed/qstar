@@ -21,6 +21,21 @@
 #define QSTAR_RESPONSE_ARGV_BYTES 512
 #define QSTAR_HASH_INIT 1469598103934665603ULL
 #define QSTAR_HASH_PRIME 1099511628211ULL
+#define QSTAR_STREAM_LINE_MAX 4096
+
+struct qstar_observed_stream {
+	int fd;
+	FILE *log;
+	char line[QSTAR_STREAM_LINE_MAX];
+	size_t line_len;
+};
+
+struct qstar_child_capture {
+	struct qstar_observed_stream out;
+	struct qstar_observed_stream err;
+	int out_write;
+	int err_write;
+};
 
 struct qstar_build_ctx {
 	FILE *out;
@@ -120,6 +135,7 @@ struct qstar_running_action {
 	size_t node_index;
 	char name[QSTAR_PATH_MAX];
 	char action_log[QSTAR_PATH_MAX];
+	struct qstar_child_capture capture;
 };
 
 enum qstar_sched_node_kind {
@@ -453,6 +469,264 @@ progress_finish(struct qstar_build_ctx *ctx, int success)
 		}
 	} else {
 		progress_status(ctx, "failed", ctx->root_label);
+	}
+}
+
+/** child stream capture 구조체를 닫힌 상태로 초기화한다. */
+static void
+child_capture_init(struct qstar_child_capture *capture)
+{
+	memset(capture, 0, sizeof(*capture));
+	capture->out.fd = -1;
+	capture->err.fd = -1;
+	capture->out_write = -1;
+	capture->err_write = -1;
+}
+
+/** fd를 nonblocking mode로 전환한다. */
+static int
+set_nonblocking_fd(int fd)
+{
+	int flags;
+
+	flags = fcntl(fd, F_GETFL, 0);
+	if (flags < 0)
+		return -1;
+	return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+}
+
+/** child 출력 line에서 warning/error token 위치와 color role을 찾는다. */
+static const char *
+diagnostic_token_in_line(const char *line, const char **role_out)
+{
+	const char *warning, *error;
+
+	warning = strstr(line, "warning:");
+	error = strstr(line, "error:");
+	if (!warning && !error)
+		return NULL;
+	if (warning && (!error || warning < error)) {
+		*role_out = "warning";
+		return warning;
+	}
+	*role_out = "error";
+	return error;
+}
+
+/** compiler/tool diagnostic line을 terminal color policy에 맞게 출력한다. */
+static void
+print_observed_diagnostic_line(struct qstar_build_ctx *ctx, const char *line)
+{
+	const char *role, *token, *reset;
+	size_t prefix_len, token_len;
+
+	token = diagnostic_token_in_line(line, &role);
+	if (!token)
+		return;
+	prefix_len = (size_t)(token - line);
+	token_len = strlen(role) + 1;
+	if (prefix_len)
+		fwrite(line, 1, prefix_len, ctx->out);
+	if (ctx->color_enabled) {
+		reset = build_color_reset(ctx);
+		fprintf(ctx->out, "%s%.*s%s", build_color(ctx, role),
+		    (int)token_len, token, reset);
+	} else {
+		fwrite(token, 1, token_len, ctx->out);
+	}
+	fputs(token + token_len, ctx->out);
+	fputc('\n', ctx->out);
+	fflush(ctx->out);
+}
+
+/** child stream bytes를 원문 log에 보존하고 완성된 diagnostic line을 표시한다. */
+static void
+observed_stream_consume(struct qstar_build_ctx *ctx,
+    struct qstar_observed_stream *stream, const char *buf, size_t len)
+{
+	size_t i;
+	char c;
+
+	if (stream->log && len > 0)
+		fwrite(buf, 1, len, stream->log);
+	for (i = 0; i < len; i++) {
+		c = buf[i];
+		if (c == '\n') {
+			stream->line[stream->line_len] = '\0';
+			print_observed_diagnostic_line(ctx, stream->line);
+			stream->line_len = 0;
+			continue;
+		}
+		if (c == '\r')
+			continue;
+		if (stream->line_len + 1 < sizeof(stream->line)) {
+			stream->line[stream->line_len++] = c;
+		} else {
+			stream->line[stream->line_len] = '\0';
+			print_observed_diagnostic_line(ctx, stream->line);
+			stream->line_len = 0;
+		}
+	}
+}
+
+/** newline 없이 끝난 child diagnostic line을 마저 출력한다. */
+static void
+observed_stream_flush_line(struct qstar_build_ctx *ctx,
+    struct qstar_observed_stream *stream)
+{
+	if (stream->line_len == 0)
+		return;
+	stream->line[stream->line_len] = '\0';
+	print_observed_diagnostic_line(ctx, stream->line);
+	stream->line_len = 0;
+}
+
+/** 관찰 중인 child stream에서 현재 읽을 수 있는 bytes를 모두 drain한다. */
+static int
+observed_stream_drain(struct qstar_build_ctx *ctx, struct qstar_observed_stream *stream)
+{
+	char buf[4096];
+	ssize_t n;
+
+	if (stream->fd < 0)
+		return 0;
+	for (;;) {
+		n = read(stream->fd, buf, sizeof(buf));
+		if (n > 0) {
+			observed_stream_consume(ctx, stream, buf, (size_t)n);
+			continue;
+		}
+		if (n == 0) {
+			close(stream->fd);
+			stream->fd = -1;
+			return 0;
+		}
+		if (errno == EINTR)
+			continue;
+		if (errno == EAGAIN || errno == EWOULDBLOCK)
+			return 0;
+		close(stream->fd);
+		stream->fd = -1;
+		return -1;
+	}
+}
+
+/** child stdout/stderr capture용 pipe와 원문 log 파일을 준비한다. */
+static int
+child_capture_open(struct qstar_graph *graph, struct qstar_child_capture *capture,
+    const char *stdout_path, const char *stderr_path)
+{
+	int out_pipe[2] = { -1, -1 };
+	int err_pipe[2] = { -1, -1 };
+
+	child_capture_init(capture);
+	capture->out.log = fopen(stdout_path, "w");
+	capture->err.log = fopen(stderr_path, "w");
+	if (!capture->out.log || !capture->err.log)
+		goto fail;
+	if (pipe(out_pipe) < 0 || pipe(err_pipe) < 0)
+		goto fail;
+	if (set_nonblocking_fd(out_pipe[0]) < 0 || set_nonblocking_fd(err_pipe[0]) < 0)
+		goto fail;
+	capture->out.fd = out_pipe[0];
+	capture->out_write = out_pipe[1];
+	capture->err.fd = err_pipe[0];
+	capture->err_write = err_pipe[1];
+	return 0;
+fail:
+	if (out_pipe[0] >= 0)
+		close(out_pipe[0]);
+	if (out_pipe[1] >= 0)
+		close(out_pipe[1]);
+	if (err_pipe[0] >= 0)
+		close(err_pipe[0]);
+	if (err_pipe[1] >= 0)
+		close(err_pipe[1]);
+	if (capture->out.log)
+		fclose(capture->out.log);
+	if (capture->err.log)
+		fclose(capture->err.log);
+	child_capture_init(capture);
+	return qstar_set_error(graph, "qstar: could not capture child output");
+}
+
+/** fork된 child에서 pipe write end를 stdout/stderr로 연결한다. */
+static void
+child_capture_redirect_or_exit(struct qstar_child_capture *capture)
+{
+	if (capture->out.fd >= 0)
+		close(capture->out.fd);
+	if (capture->err.fd >= 0)
+		close(capture->err.fd);
+	if (capture->out.log)
+		close(fileno(capture->out.log));
+	if (capture->err.log)
+		close(fileno(capture->err.log));
+	if (capture->out_write < 0 || capture->err_write < 0 ||
+	    dup2(capture->out_write, 1) < 0 ||
+	    dup2(capture->err_write, 2) < 0)
+		_exit(127);
+	close(capture->out_write);
+	close(capture->err_write);
+}
+
+/** fork 후 parent에서 child 쪽 pipe write end를 닫는다. */
+static void
+child_capture_parent_started(struct qstar_child_capture *capture)
+{
+	if (capture->out_write >= 0) {
+		close(capture->out_write);
+		capture->out_write = -1;
+	}
+	if (capture->err_write >= 0) {
+		close(capture->err_write);
+		capture->err_write = -1;
+	}
+}
+
+/** child stdout/stderr pipe를 가능한 만큼 읽어 terminal과 log에 반영한다. */
+static int
+child_capture_drain(struct qstar_build_ctx *ctx, struct qstar_child_capture *capture)
+{
+	int rc = 0;
+
+	if (observed_stream_drain(ctx, &capture->out) < 0)
+		rc = -1;
+	if (observed_stream_drain(ctx, &capture->err) < 0)
+		rc = -1;
+	return rc;
+}
+
+/** child capture를 마무리하고 남은 partial diagnostic line과 log buffer를 flush한다. */
+static void
+child_capture_finish(struct qstar_build_ctx *ctx, struct qstar_child_capture *capture)
+{
+	child_capture_drain(ctx, capture);
+	observed_stream_flush_line(ctx, &capture->out);
+	observed_stream_flush_line(ctx, &capture->err);
+	if (capture->out.fd >= 0) {
+		close(capture->out.fd);
+		capture->out.fd = -1;
+	}
+	if (capture->err.fd >= 0) {
+		close(capture->err.fd);
+		capture->err.fd = -1;
+	}
+	if (capture->out_write >= 0) {
+		close(capture->out_write);
+		capture->out_write = -1;
+	}
+	if (capture->err_write >= 0) {
+		close(capture->err_write);
+		capture->err_write = -1;
+	}
+	if (capture->out.log) {
+		fclose(capture->out.log);
+		capture->out.log = NULL;
+	}
+	if (capture->err.log) {
+		fclose(capture->err.log);
+		capture->err.log = NULL;
 	}
 }
 
@@ -2278,14 +2552,16 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
     const struct qstar_action_material *material, const char *description)
 {
 	char logdir[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], action_log[QSTAR_PATH_MAX];
+	char stdout_path[QSTAR_PATH_MAX], stderr_path[QSTAR_PATH_MAX];
 	char child_stdout_path[QSTAR_PATH_MAX], child_stderr_path[QSTAR_PATH_MAX];
 	char replay_path[QSTAR_PATH_MAX];
 	char rsp_arg[QSTAR_PATH_MAX];
 	char *exec_argv[3];
 	char *const *child_argv;
+	struct qstar_child_capture capture;
 	const struct qstar_state_entry *prev;
 	pid_t pid;
-	int status, fdout, fderr, exit_code, use_rsp;
+	int status, exit_code, use_rsp;
 
 	prev = state_find(ctx, id);
 	ctx->scheduled_count++;
@@ -2332,6 +2608,8 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		return -1;
 	action_log_name(id, name, sizeof(name));
 	snprintf(action_log, sizeof(action_log), "%s/%s.log", logdir, name);
+	snprintf(stdout_path, sizeof(stdout_path), "%s/%s.stdout", logdir, name);
+	snprintf(stderr_path, sizeof(stderr_path), "%s/%s.stderr", logdir, name);
 	if (build_log_rel(graph, name, ".stdout", child_stdout_path,
 	    sizeof(child_stdout_path)) < 0 ||
 	    build_log_rel(graph, name, ".stderr", child_stderr_path,
@@ -2357,88 +2635,91 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		exec_argv[2] = NULL;
 		child_argv = exec_argv;
 	}
+	if (child_capture_open(graph, &capture, stdout_path, stderr_path) < 0)
+		return -1;
 	pid = fork();
-	if (pid < 0)
+	if (pid < 0) {
+		child_capture_finish(ctx, &capture);
 		return qstar_set_error(graph, "qstar: fork failed");
+	}
 	if (pid == 0) {
 		if (chdir(graph->package_root ? graph->package_root : ".") < 0)
 			_exit(127);
-		fdout = open(child_stdout_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-		fderr = open(child_stderr_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-		if (fdout < 0 || fderr < 0 || dup2(fdout, 1) < 0 || dup2(fderr, 2) < 0)
-			_exit(127);
-		close(fdout);
-		close(fderr);
+		child_capture_redirect_or_exit(&capture);
 		execvp(child_argv[0], child_argv);
 		_exit(127);
 	}
+	child_capture_parent_started(&capture);
 	{
 		time_t start;
 		pid_t waited;
 
-		if (strcmp(kind, "archive") == 0 || strcmp(kind, "link") == 0) {
-			if (waitpid(pid, &status, 0) < 0)
+		start = time(NULL);
+		for (;;) {
+			if (child_capture_drain(ctx, &capture) < 0) {
+				child_capture_finish(ctx, &capture);
+				return qstar_set_error(graph, "qstar: could not read child output");
+			}
+			waited = waitpid(pid, &status, WNOHANG);
+			if (waited == pid)
+				break;
+			if (waited < 0) {
+				child_capture_finish(ctx, &capture);
 				return qstar_set_error(graph, "qstar: waitpid failed");
-		} else {
-			start = time(NULL);
-			for (;;) {
-				waited = waitpid(pid, &status, WNOHANG);
-				if (waited == pid)
-					break;
-				if (waited < 0)
-					return qstar_set_error(graph, "qstar: waitpid failed");
-				if (time(NULL) - start >= ctx->action_timeout_sec) {
-					char label_buf[QSTAR_PATH_MAX];
-					const char *diag_label;
-					const char *failure_kind;
+			}
+			if (time(NULL) - start >= ctx->action_timeout_sec) {
+				char label_buf[QSTAR_PATH_MAX];
+				const char *diag_label;
+				const char *failure_kind;
 
-					failure_kind = classify_failure_kind(kind, target, argv,
-					    "timeout");
-					diag_label = action_owner_label(target, id, label_buf,
-					    sizeof(label_buf));
-					kill(pid, SIGKILL);
-					waitpid(pid, &status, 0);
-					action_log_queue_exit(ctx, action_log, argv, 124);
-					write_failure_replay_detail(graph, id, toolchain, argv,
-					    failure_kind, diag_label,
-					    child_stdout_path, child_stderr_path,
-					    target ? target->run_marker : NULL,
-					    target ? target->run_marker_log : NULL);
-					ctx->fail_count++;
-					ctx->cancelled = 1;
-					build_tracef(ctx,
-					    "build_action id=%s status=timeout timeout_sec=%d\n",
-					    id, ctx->action_timeout_sec);
-					emit_action_diagnostic(ctx->out, id, kind,
-					    diag_label, failure_kind, "timeout",
-					    124, child_stdout_path, child_stderr_path,
-					    replay_path);
-					if (strcmp(kind, "run") == 0) {
-						fprintf(ctx->out,
-						    "run_target_result label=%s status=timeout timeout_sec=%d replay=%s stdout=%s stderr=%s\n",
-						    target ? target->label : id,
-						    ctx->action_timeout_sec,
-						    replay_path, child_stdout_path,
-						    child_stderr_path);
-						return qstar_set_error_origin(graph,
-						    target ? target->origin_file : "",
-						    target ? target->origin_line : 0, failure_kind,
-						    target ? target->label : id,
-						    "qstar: run_target '%s' timed out after %d seconds; replay=%s",
-						    target ? target->label : id,
-						    ctx->action_timeout_sec, replay_path);
-					}
+				failure_kind = classify_failure_kind(kind, target, argv,
+				    "timeout");
+				diag_label = action_owner_label(target, id, label_buf,
+				    sizeof(label_buf));
+				kill(pid, SIGKILL);
+				waitpid(pid, &status, 0);
+				child_capture_finish(ctx, &capture);
+				action_log_queue_exit(ctx, action_log, argv, 124);
+				write_failure_replay_detail(graph, id, toolchain, argv,
+				    failure_kind, diag_label,
+				    child_stdout_path, child_stderr_path,
+				    target ? target->run_marker : NULL,
+				    target ? target->run_marker_log : NULL);
+				ctx->fail_count++;
+				ctx->cancelled = 1;
+				build_tracef(ctx,
+				    "build_action id=%s status=timeout timeout_sec=%d\n",
+				    id, ctx->action_timeout_sec);
+				emit_action_diagnostic(ctx->out, id, kind,
+				    diag_label, failure_kind, "timeout",
+				    124, child_stdout_path, child_stderr_path,
+				    replay_path);
+				if (strcmp(kind, "run") == 0) {
+					fprintf(ctx->out,
+					    "run_target_result label=%s status=timeout timeout_sec=%d replay=%s stdout=%s stderr=%s\n",
+					    target ? target->label : id,
+					    ctx->action_timeout_sec,
+					    replay_path, child_stdout_path,
+					    child_stderr_path);
 					return qstar_set_error_origin(graph,
 					    target ? target->origin_file : "",
 					    target ? target->origin_line : 0, failure_kind,
 					    target ? target->label : id,
-					    "qstar: action '%s' timed out after %d seconds; replay=%s",
-					    id, ctx->action_timeout_sec, replay_path);
+					    "qstar: run_target '%s' timed out after %d seconds; replay=%s",
+					    target ? target->label : id,
+					    ctx->action_timeout_sec, replay_path);
 				}
-				wait_poll_pause();
+				return qstar_set_error_origin(graph,
+				    target ? target->origin_file : "",
+				    target ? target->origin_line : 0, failure_kind,
+				    target ? target->label : id,
+				    "qstar: action '%s' timed out after %d seconds; replay=%s",
+				    id, ctx->action_timeout_sec, replay_path);
 			}
+			wait_poll_pause();
 		}
 	}
+	child_capture_finish(ctx, &capture);
 	exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
 	action_log_queue_exit(ctx, action_log, argv, exit_code);
 	if (exit_code != 0) {
@@ -3924,8 +4205,9 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	char *const *child_argv;
 	const struct qstar_state_entry *prev;
 	pid_t pid;
-	int fdout, fderr, use_rsp;
+	int use_rsp;
 
+	child_capture_init(&running->capture);
 	build_tracef(ctx,
 	    "parallel_event target=%s event=queue id=%s order=%zu slot=%zu state=ready retry=no\n",
 	    action->target->label, action->id, queue_index, slot);
@@ -3980,21 +4262,21 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		exec_argv[2] = NULL;
 		child_argv = exec_argv;
 	}
+	if (child_capture_open(graph, &running->capture, stdout_path, stderr_path) < 0)
+		return -1;
 	pid = fork();
-	if (pid < 0)
+	if (pid < 0) {
+		child_capture_finish(ctx, &running->capture);
 		return qstar_set_error(graph, "qstar: fork failed");
+	}
 	if (pid == 0) {
 		if (chdir(graph->package_root ? graph->package_root : ".") < 0)
 			_exit(127);
-		fdout = open(child_stdout_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-		fderr = open(child_stderr_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-		if (fdout < 0 || fderr < 0 || dup2(fdout, 1) < 0 || dup2(fderr, 2) < 0)
-			_exit(127);
-		close(fdout);
-		close(fderr);
+		child_capture_redirect_or_exit(&running->capture);
 		execvp(child_argv[0], child_argv);
 		_exit(127);
 	}
+	child_capture_parent_started(&running->capture);
 	running->action = action;
 	running->pid = pid;
 	running->start = time(NULL);
@@ -4017,6 +4299,7 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	const char *failure_kind;
 	int exit_code;
 
+	child_capture_finish(ctx, &running->capture);
 	exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
 	action_log_queue_exit_ref(ctx, running->action_log, action->argv, exit_code);
 	if (exit_code != 0) {
@@ -4075,6 +4358,7 @@ cancel_running_actions(struct qstar_build_ctx *ctx, struct qstar_running_action 
 			continue;
 		kill(running[i].pid, SIGKILL);
 		waitpid(running[i].pid, &status, 0);
+		child_capture_finish(ctx, &running[i].capture);
 		build_tracef(ctx,
 		    "build_action id=%s status=cancelled reason=parallel-failure retry=next-build\n",
 		    running[i].action->id);
@@ -4174,12 +4458,18 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		for (i = 0; i < jobs; i++) {
 			if (running[i].pid <= 0)
 				continue;
+			if (child_capture_drain(ctx, &running[i].capture) < 0) {
+				rc = qstar_set_error(graph,
+				    "qstar: could not read child output");
+				goto fail;
+			}
 			waited = waitpid(running[i].pid, &status, WNOHANG);
 			if (waited == 0) {
 				if (time(NULL) - running[i].start >= ctx->action_timeout_sec) {
 					kill(running[i].pid, SIGKILL);
 					waitpid(running[i].pid, &status, 0);
 					running[i].pid = 0;
+					child_capture_finish(ctx, &running[i].capture);
 					action_log_queue_exit_ref(ctx, running[i].action_log,
 					    running[i].action->argv, 124);
 					write_failure_replay(graph, running[i].action->id,
@@ -4194,8 +4484,8 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 					    "parallel_event target=%s event=timeout id=%s slot=%zu state=timeout retry=next-build cancel=active\n",
 					    running[i].action->target->label,
 					    running[i].action->id, running[i].slot);
-					rc = qstar_set_error_origin(graph,
-					    running[i].action->target->origin_file,
+						rc = qstar_set_error_origin(graph,
+						    running[i].action->target->origin_file,
 						    running[i].action->target->origin_line, "action",
 						    running[i].action->target->label,
 						    "qstar: action '%s' timed out after %d seconds; replay=%s/logs/last-failure.replay",
@@ -5552,6 +5842,11 @@ scheduler_execute(struct qstar_scheduler *sched)
 		for (i = 0; i < jobs; i++) {
 			if (running[i].pid <= 0)
 				continue;
+			if (child_capture_drain(sched->ctx, &running[i].capture) < 0) {
+				rc = qstar_set_error(sched->graph,
+				    "qstar: could not read child output");
+				goto fail;
+			}
 			waited = waitpid(running[i].pid, &status, WNOHANG);
 			if (waited == 0) {
 				if (time(NULL) - running[i].start >=
@@ -5559,13 +5854,15 @@ scheduler_execute(struct qstar_scheduler *sched)
 					kill(running[i].pid, SIGKILL);
 					waitpid(running[i].pid, &status, 0);
 					running[i].pid = 0;
-					action_log_queue_exit_ref(sched->ctx,
-					    running[i].action_log,
-					    running[i].action->argv, 124);
-					write_failure_replay(sched->graph,
-					    running[i].action->id,
-					    running[i].action->toolchain,
-					    running[i].action->argv);
+					child_capture_finish(sched->ctx,
+					    &running[i].capture);
+						action_log_queue_exit_ref(sched->ctx,
+						    running[i].action_log,
+						    running[i].action->argv, 124);
+						write_failure_replay(sched->graph,
+						    running[i].action->id,
+						    running[i].action->toolchain,
+						    running[i].action->argv);
 					sched->ctx->fail_count++;
 					sched->ctx->cancelled = 1;
 					build_tracef(sched->ctx,

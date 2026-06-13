@@ -112,6 +112,107 @@ contains "$tmp/ui-color.out" "${esc}[32mstatus ok${esc}[0m"
 not_contains "$tmp/ui-color.out" "[100%]"
 not_contains "$tmp/ui-color.out" "Building C object"
 
+mkdir -p "$tmp/diagnostic-stream/src" "$tmp/diagnostic-stream/tools"
+cat > "$tmp/diagnostic-stream/qstar.lua" <<'EOF'
+qstar.project {
+  name = "diagnostic-stream",
+  version = "0.1.0",
+  root = ".",
+}
+
+qstar.profile "default" {
+  cc = "tools/warn-cc.sh",
+}
+
+qstar.staticlib "core" {
+  sources = {"src/core.c"},
+}
+EOF
+cat > "$tmp/diagnostic-stream/src/core.c" <<'EOF'
+int core(void) { return 0; }
+EOF
+cat > "$tmp/diagnostic-stream/tools/warn-cc.sh" <<'EOF'
+#!/bin/sh
+set -eu
+out=
+dep=
+src=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o)
+      shift
+      out=$1
+      ;;
+    -MF)
+      shift
+      dep=$1
+      ;;
+    -c)
+      shift
+      src=$1
+      ;;
+  esac
+  shift || break
+done
+printf 'warning: stdout diagnostic for %s\n' "$src"
+printf 'warning: stderr diagnostic for %s\n' "$src" >&2
+mkdir -p "$(dirname "$out")"
+printf 'fake object\n' > "$out"
+if [ -n "$dep" ]; then
+  mkdir -p "$(dirname "$dep")"
+  printf "%s: %s\n" "$out" "$src" > "$dep"
+fi
+EOF
+chmod +x "$tmp/diagnostic-stream/tools/warn-cc.sh"
+"$qstar" --file "$tmp/diagnostic-stream/qstar.lua" build //:core --progress plain --color never > "$tmp/diagnostic-stream.out" 2> "$tmp/diagnostic-stream.err"
+contains "$tmp/diagnostic-stream.out" "[ 50%] Building C object build/qstar/out/___core/obj0.o"
+contains "$tmp/diagnostic-stream.out" "warning: stdout diagnostic for src/core.c"
+contains "$tmp/diagnostic-stream.out" "warning: stderr diagnostic for src/core.c"
+contains "$tmp/diagnostic-stream.out" "status ok"
+not_contains "$tmp/diagnostic-stream.out" "$esc"
+contains "$tmp/diagnostic-stream/build/qstar/logs/___core_compile_0.stdout" "warning: stdout diagnostic for src/core.c"
+contains "$tmp/diagnostic-stream/build/qstar/logs/___core_compile_0.stderr" "warning: stderr diagnostic for src/core.c"
+not_contains "$tmp/diagnostic-stream/build/qstar/logs/___core_compile_0.stderr" "$esc"
+"$qstar" --file "$tmp/diagnostic-stream/qstar.lua" -B build-color build //:core --progress plain --color always > "$tmp/diagnostic-stream-color.out" 2> "$tmp/diagnostic-stream-color.err"
+contains "$tmp/diagnostic-stream-color.out" "${esc}[1;33mwarning:${esc}[0m stdout diagnostic for src/core.c"
+contains "$tmp/diagnostic-stream-color.out" "${esc}[1;33mwarning:${esc}[0m stderr diagnostic for src/core.c"
+
+mkdir -p "$tmp/error-stream/src" "$tmp/error-stream/tools"
+cat > "$tmp/error-stream/qstar.lua" <<'EOF'
+qstar.project {
+  name = "error-stream",
+  version = "0.1.0",
+  root = ".",
+}
+
+qstar.profile "default" {
+  cc = "tools/error-cc.sh",
+}
+
+qstar.staticlib "core" {
+  sources = {"src/core.c"},
+}
+EOF
+cat > "$tmp/error-stream/src/core.c" <<'EOF'
+int core(void) { return 0; }
+EOF
+cat > "$tmp/error-stream/tools/error-cc.sh" <<'EOF'
+#!/bin/sh
+printf 'error: forced compile failure\n' >&2
+exit 7
+EOF
+chmod +x "$tmp/error-stream/tools/error-cc.sh"
+if "$qstar" --file "$tmp/error-stream/qstar.lua" build //:core --progress plain --color always > "$tmp/error-stream.out" 2> "$tmp/error-stream.err"; then
+	fail "error stream compiler unexpectedly succeeded"
+fi
+contains "$tmp/error-stream.out" "${esc}[1;31merror:${esc}[0m forced compile failure"
+contains "$tmp/error-stream.out" "action_diagnostic_json"
+if grep '^action_diagnostic_json ' "$tmp/error-stream.out" | grep -q "$esc"; then
+	fail "action diagnostic json contains ANSI color"
+fi
+contains "$tmp/error-stream/build/qstar/logs/___core_compile_0.stderr" "error: forced compile failure"
+not_contains "$tmp/error-stream/build/qstar/logs/___core_compile_0.stderr" "$esc"
+
 mkdir -p "$group_tmp/group/lib/libk" "$group_tmp/group/sys/kern" "$group_tmp/group/sys/kern/mm" "$group_tmp/group/sys/kern/irq"
 cat > "$group_tmp/group/qstar.lua" <<'EOF'
 qstar.project {
@@ -3013,7 +3114,7 @@ contains "docs/qstar-v0.5-readiness.md" "Linux"
 contains "docs/qstar-v0.5-readiness.md" "Windows"
 contains "docs/progress-output.md" "status: progress output contract"
 contains "docs/progress-output.md" "[ 75%] Linking CXX executable app"
-contains "docs/progress-output.md" "Stella progress renderer active"
+contains "docs/progress-output.md" "Stella progress renderer and warning/error stream coloring active"
 contains "docs/progress-output.md" "legacy scheduler stage wording"
 contains "docs/progress-output.md" "action_description"
 contains "docs/progress-output.md" "qstar.status"

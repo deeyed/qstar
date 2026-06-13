@@ -9,7 +9,7 @@ status: progress output contract
 target line: qstar 0.5
 default backend: stella
 reference style: CMake-style action progress
-implementation status: Stella progress renderer active
+implementation status: Stella progress renderer and warning/error stream coloring active
 ```
 
 ## Default Format
@@ -153,8 +153,10 @@ Color rules:
 - 주요 target/action heading은 필요할 때 bold를 사용할 수 있다.
 - Non-TTY와 `--color never`에서는 color를 제거한다.
 
-Compiler나 external tool이 stderr/stdout에 warning을 쓰면 QStar는 가능한 한 progress
-중간에 그 line을 표시한다. Action log에는 color 없는 원문을 보존한다.
+Compiler나 external tool이 stderr/stdout에 warning/error를 쓰면 QStar는 line 단위로
+관찰하고 progress 중간에 즉시 표시한다. Terminal 출력에는 color policy에 맞춰
+`warning:`/`error:` token만 색을 입히고, stdout/stderr log에는 color 없는 원문을
+보존한다.
 
 Example:
 
@@ -180,7 +182,8 @@ warning: src/lib/core.c:17: unused variable 'tmp'
 
 - Round Q102: action model에 `description` field를 추가했다.
 - Round Q103: Stella executor가 action description으로 기본 progress를 렌더링한다.
-- Pending: warning/error stream colorization을 process capture에 연결한다.
+- Round Q104: Stella executor가 child stdout/stderr를 line 단위로 관찰해 warning/error
+  stream colorization을 적용한다.
 - Pending: `qstar.status(...)`와 `description` field를 Lua DSL에 추가한다.
 - Pending: Ninja emitter가 QStar description을 Ninja description으로 lower한다.
 - Pending: action log, replay, last-failure에 description을 보존한다.

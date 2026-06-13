@@ -60,7 +60,9 @@ Percent는 `[ 75%]`처럼 3칸 폭으로 맞춘다. Percent 뒤에는 legacy sch
 - 성공 final status는 green 가능.
 - non-TTY와 `--color never`에서는 ANSI escape를 제거.
 
-Compiler warning은 가능하면 progress 중간에 표시한다.
+Compiler나 external tool의 stdout/stderr warning/error line은 progress 중간에 즉시
+표시한다. Terminal 출력에는 color policy에 맞춰 `warning:`/`error:` token만 색을
+입히고, stdout/stderr log에는 color 없는 원문을 보존한다.
 
 ```txt
 [ 23%] Building C object build/qstar/out/__lib/obj2.o
