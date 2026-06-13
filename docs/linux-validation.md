@@ -124,9 +124,10 @@ ubuntu-latest / clang:
 ```
 
 Each lane sets `QSTAR_LINUX_VALIDATION_CC` to the matrix compiler, verifies
-`ninja --version`, runs the Ninja backend parity tests through `make check`, and
-performs an explicit root pollution smoke: `.ninja_deps` and `.ninja_log` must
-stay under the QStar build directory, not the repository root.
+`ninja --version`, checks out `vendor/lua` with `submodules: recursive`, runs the
+Ninja backend parity tests through `make check`, and performs an explicit root
+pollution smoke: `.ninja_deps` and `.ninja_log` must stay under the QStar build
+directory, not the repository root.
 
 The install prefix smoke checks:
 

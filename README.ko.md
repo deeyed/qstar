@@ -36,10 +36,16 @@ qstar --version
 소스에서 직접 빌드하려면 다음을 사용한다.
 
 ```sh
-git clone https://github.com/deeyed/qstar.git
+git clone --recurse-submodules https://github.com/deeyed/qstar.git
 cd qstar
 make all
 build/bin/qstar --version
+```
+
+이미 submodule 없이 clone했다면 vendored Lua runtime을 먼저 초기화한다.
+
+```sh
+git submodule update --init --recursive
 ```
 
 Makefile은 계속 canonical bootstrap/release build path다. QStar self-host graph는

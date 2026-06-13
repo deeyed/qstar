@@ -17,7 +17,7 @@ qstar --version
 ## 전체 예제
 
 ```sh
-git clone https://github.com/deeyed/qstar.git
+git clone --recurse-submodules https://github.com/deeyed/qstar.git
 cd qstar
 make check
 make qstar-self-host-tests
@@ -27,6 +27,12 @@ make qstar-windows-prep-tests
 make install PREFIX="$HOME/.local"
 qstar init c-app /tmp/qstar-install-smoke
 qstar --file /tmp/qstar-install-smoke/qstar.lua build //:app
+```
+
+이미 repository를 clone한 뒤 `vendor/lua/lua.h`가 없다면 다음을 먼저 실행한다.
+
+```sh
+git submodule update --init --recursive
 ```
 
 VSCode extension은 `qstar/editors/vscode/qstar` 아래에 있고, `.vsix`는 commit하지 않는

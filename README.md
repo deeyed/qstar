@@ -44,10 +44,17 @@ qstar --version
 To build from source:
 
 ```sh
-git clone https://github.com/deeyed/qstar.git
+git clone --recurse-submodules https://github.com/deeyed/qstar.git
 cd qstar
 make all
 build/bin/qstar --version
+```
+
+If the repository was cloned without submodules, initialize the vendored Lua
+runtime before building:
+
+```sh
+git submodule update --init --recursive
 ```
 
 The Makefile remains the canonical bootstrap and release build path. QStar also
