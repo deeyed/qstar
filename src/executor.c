@@ -25,6 +25,8 @@
 #define QSTAR_STREAM_LINE_MAX 4096
 #define QSTAR_STATE_DB_MAGIC "qstar-stella-state-db-v1"
 #define QSTAR_STATE_DB_ABI 1ULL
+#define QSTAR_DEPS_DB_MAGIC "qstar-stella-deps-db-v1"
+#define QSTAR_DEPS_DB_ABI 1ULL
 #define QSTAR_STATE_DB_MAX_STRING (16ULL * 1024ULL * 1024ULL)
 
 struct qstar_observed_stream {
@@ -78,6 +80,19 @@ struct qstar_build_ctx {
 		size_t index;
 	} *prev_index;
 	size_t prev_index_cap;
+	struct qstar_dep_entry {
+		char *depfile;
+		unsigned long long size;
+		unsigned long long mtime;
+		char digest[32];
+		struct qstar_string_list inputs;
+	} *deps_prev, *deps_next;
+	size_t deps_prev_len, deps_prev_cap, deps_next_len, deps_next_cap;
+	struct qstar_dep_index_entry {
+		const char *depfile;
+		size_t index;
+	} *deps_prev_index;
+	size_t deps_prev_index_cap;
 	struct qstar_file_hash_entry {
 		char *rel;
 		char digest[32];
@@ -887,6 +902,13 @@ path_exists(const char *path)
 	struct stat st;
 
 	return stat(path, &st) == 0;
+}
+
+/** stat mtime을 deps DB fingerprint용 internal tick으로 바꾼다. */
+static unsigned long long
+stat_mtime_tick(const struct stat *st)
+{
+	return (unsigned long long)st->st_mtime * 1000000000ULL;
 }
 
 /** 준비된 action argv storage를 해제한다. */
@@ -2274,6 +2296,315 @@ state_db_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 	if (rename(tmp, path) < 0) {
 		unlink(tmp);
 		return qstar_set_error(graph, "qstar: could not commit compact action state");
+	}
+	return 0;
+}
+
+/** compact deps DB entry array를 해제한다. */
+static void
+deps_entries_free(struct qstar_dep_entry *entries, size_t len)
+{
+	size_t i;
+
+	if (!entries)
+		return;
+	for (i = 0; i < len; i++) {
+		free(entries[i].depfile);
+		qstar_string_list_free(&entries[i].inputs);
+	}
+	free(entries);
+}
+
+/** partially loaded depfile state와 index를 버린다. */
+static void
+deps_prev_clear(struct qstar_build_ctx *ctx)
+{
+	deps_entries_free(ctx->deps_prev, ctx->deps_prev_len);
+	ctx->deps_prev = NULL;
+	ctx->deps_prev_len = 0;
+	ctx->deps_prev_cap = 0;
+	free(ctx->deps_prev_index);
+	ctx->deps_prev_index = NULL;
+	ctx->deps_prev_index_cap = 0;
+}
+
+/** depfile cache lookup index를 만든다. */
+static int
+deps_index_build(struct qstar_build_ctx *ctx)
+{
+	struct qstar_dep_index_entry *index;
+	size_t i;
+
+	free(ctx->deps_prev_index);
+	ctx->deps_prev_index = NULL;
+	ctx->deps_prev_index_cap = 0;
+	if (!ctx->deps_prev_len)
+		return 0;
+	index = calloc(ctx->deps_prev_len, sizeof(index[0]));
+	if (!index)
+		return -1;
+	for (i = 0; i < ctx->deps_prev_len; i++) {
+		index[i].depfile = ctx->deps_prev[i].depfile;
+		index[i].index = i;
+	}
+	ctx->deps_prev_index = index;
+	ctx->deps_prev_index_cap = ctx->deps_prev_len;
+	return 0;
+}
+
+/** 이전 build에서 저장한 depfile entry를 찾는다. */
+static const struct qstar_dep_entry *
+deps_find_prev(const struct qstar_build_ctx *ctx, const char *depfile)
+{
+	size_t i;
+
+	if (!ctx || !depfile)
+		return NULL;
+	for (i = 0; i < ctx->deps_prev_index_cap; i++) {
+		if (strcmp(ctx->deps_prev_index[i].depfile, depfile) == 0)
+			return &ctx->deps_prev[ctx->deps_prev_index[i].index];
+	}
+	return NULL;
+}
+
+/** 이번 build에서 쓸 depfile entry를 찾는다. */
+static struct qstar_dep_entry *
+deps_find_next(struct qstar_build_ctx *ctx, const char *depfile)
+{
+	size_t i;
+
+	if (!ctx || !depfile)
+		return NULL;
+	for (i = 0; i < ctx->deps_next_len; i++) {
+		if (strcmp(ctx->deps_next[i].depfile, depfile) == 0)
+			return &ctx->deps_next[i];
+	}
+	return NULL;
+}
+
+/** depfile input list를 compact deps DB entry로 복사한다. */
+static int
+deps_entry_copy(struct qstar_dep_entry *dst, const char *depfile,
+    unsigned long long size, unsigned long long mtime, const char *digest,
+    const struct qstar_string_list *inputs)
+{
+	struct qstar_string_list copy;
+	char *depfile_copy;
+	size_t i;
+
+	memset(&copy, 0, sizeof(copy));
+	depfile_copy = qstar_strdup(depfile);
+	if (!depfile_copy)
+		return -1;
+	for (i = 0; inputs && i < inputs->len; i++) {
+		if (qstar_string_list_push(&copy, inputs->items[i]) < 0) {
+			free(depfile_copy);
+			qstar_string_list_free(&copy);
+			return -1;
+		}
+	}
+	free(dst->depfile);
+	qstar_string_list_free(&dst->inputs);
+	dst->depfile = depfile_copy;
+	dst->size = size;
+	dst->mtime = mtime;
+	snprintf(dst->digest, sizeof(dst->digest), "%s", digest ? digest : "");
+	dst->inputs = copy;
+	return 0;
+}
+
+/** 이번 invocation에서 재사용할 compact depfile entry를 기록한다. */
+static int
+deps_record(struct qstar_build_ctx *ctx, const char *depfile,
+    unsigned long long size, unsigned long long mtime, const char *digest,
+    const struct qstar_string_list *inputs)
+{
+	struct qstar_dep_entry *entry, *p;
+	size_t ncap;
+
+	if (!ctx || !depfile)
+		return 0;
+	entry = deps_find_next(ctx, depfile);
+	if (!entry) {
+		if (ctx->deps_next_len == ctx->deps_next_cap) {
+			ncap = ctx->deps_next_cap ? ctx->deps_next_cap * 2 : 64;
+			p = realloc(ctx->deps_next, ncap * sizeof(ctx->deps_next[0]));
+			if (!p)
+				return -1;
+			memset(p + ctx->deps_next_cap, 0,
+			    (ncap - ctx->deps_next_cap) * sizeof(p[0]));
+			ctx->deps_next = p;
+			ctx->deps_next_cap = ncap;
+		}
+		entry = &ctx->deps_next[ctx->deps_next_len++];
+		memset(entry, 0, sizeof(*entry));
+	}
+	return deps_entry_copy(entry, depfile, size, mtime, digest, inputs);
+}
+
+/** compact discovered dependency DB를 읽는다. 1=loaded, 0=miss, -1=fatal. */
+static int
+deps_db_load(struct qstar_graph *graph, struct qstar_build_ctx *ctx)
+{
+	char path[QSTAR_PATH_MAX], magic[sizeof(QSTAR_DEPS_DB_MAGIC)];
+	unsigned long long abi, count, input_count, i, j;
+	char *depfile, *digest, *input;
+	FILE *f;
+	int rc;
+
+	if (full_path_under_build(graph, "state/deps.db", path, sizeof(path)) < 0)
+		return qstar_set_error(graph, "qstar: dependency state path too long");
+	f = fopen(path, "rb");
+	if (!f) {
+		build_tracef(ctx, "deps_db status=miss reason=missing\n");
+		return 0;
+	}
+	rc = 0;
+	depfile = digest = input = NULL;
+	if (fread(magic, 1, sizeof(magic), f) != sizeof(magic) ||
+	    memcmp(magic, QSTAR_DEPS_DB_MAGIC, sizeof(magic)) != 0 ||
+	    state_db_read_u64(f, &abi) < 0 || abi != QSTAR_DEPS_DB_ABI ||
+	    state_db_read_u64(f, &count) < 0 || count > 10000000ULL) {
+		goto done;
+	}
+	for (i = 0; i < count; i++) {
+		struct qstar_dep_entry entry;
+
+		memset(&entry, 0, sizeof(entry));
+		free(depfile);
+		free(digest);
+		depfile = digest = NULL;
+		if (state_db_read_string(f, &depfile) < 0 ||
+		    state_db_read_u64(f, &entry.size) < 0 ||
+		    state_db_read_u64(f, &entry.mtime) < 0 ||
+		    state_db_read_string(f, &digest) < 0 ||
+		    state_db_read_u64(f, &input_count) < 0 ||
+		    input_count > 1000000ULL) {
+			qstar_string_list_free(&entry.inputs);
+			goto done;
+		}
+		if (!depfile[0] || strlen(digest) >= sizeof(entry.digest)) {
+			qstar_string_list_free(&entry.inputs);
+			goto done;
+		}
+		entry.depfile = qstar_strdup(depfile);
+		if (!entry.depfile) {
+			qstar_string_list_free(&entry.inputs);
+			rc = -1;
+			goto done;
+		}
+		snprintf(entry.digest, sizeof(entry.digest), "%s", digest);
+		for (j = 0; j < input_count; j++) {
+			free(input);
+			input = NULL;
+			if (state_db_read_string(f, &input) < 0 ||
+			    !qstar_path_is_package_relative(input)) {
+				free(entry.depfile);
+				qstar_string_list_free(&entry.inputs);
+				rc = 0;
+				goto done;
+			}
+			if (qstar_string_list_push(&entry.inputs, input) < 0) {
+				free(entry.depfile);
+				qstar_string_list_free(&entry.inputs);
+				rc = -1;
+				goto done;
+			}
+		}
+		if (ctx->deps_prev_len == ctx->deps_prev_cap) {
+			size_t ncap = ctx->deps_prev_cap ? ctx->deps_prev_cap * 2 : 64;
+			struct qstar_dep_entry *p = realloc(ctx->deps_prev,
+			    ncap * sizeof(ctx->deps_prev[0]));
+			if (!p) {
+				free(entry.depfile);
+				qstar_string_list_free(&entry.inputs);
+				rc = -1;
+				goto done;
+			}
+			memset(p + ctx->deps_prev_cap, 0,
+			    (ncap - ctx->deps_prev_cap) * sizeof(p[0]));
+			ctx->deps_prev = p;
+			ctx->deps_prev_cap = ncap;
+		}
+		ctx->deps_prev[ctx->deps_prev_len++] = entry;
+	}
+	if (deps_index_build(ctx) < 0)
+		rc = -1;
+	else
+		rc = 1;
+
+done:
+	free(depfile);
+	free(digest);
+	free(input);
+	fclose(f);
+	if (rc == 1) {
+		build_tracef(ctx, "deps_db status=hit entries=%zu\n", ctx->deps_prev_len);
+		return 1;
+	}
+	deps_prev_clear(ctx);
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	build_tracef(ctx, "deps_db status=miss reason=stale-or-invalid\n");
+	return 0;
+}
+
+/** compact discovered dependency DB를 쓴다. */
+static int
+deps_db_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
+{
+	char dir[QSTAR_PATH_MAX], path[QSTAR_PATH_MAX], tmp[QSTAR_PATH_MAX];
+	FILE *f;
+	size_t i, j;
+
+	if (!ctx->deps_next_len)
+		return 0;
+	if (full_path_under_build(graph, "state/deps.db", path, sizeof(path)) < 0)
+		return qstar_set_error(graph, "qstar: could not create dependency state");
+	if (full_path_under_build(graph, "state", dir, sizeof(dir)) < 0 ||
+	    mkdir_p(dir) < 0)
+		return qstar_set_error(graph, "qstar: could not create dependency state dir");
+	if (snprintf(tmp, sizeof(tmp), "%s.tmp", path) >= (int)sizeof(tmp))
+		return qstar_set_error(graph, "qstar: dependency state path too long");
+	f = fopen(tmp, "wb");
+	if (!f)
+		return qstar_set_error(graph, "qstar: could not write dependency state");
+	if (fwrite(QSTAR_DEPS_DB_MAGIC, 1, sizeof(QSTAR_DEPS_DB_MAGIC), f) !=
+	    sizeof(QSTAR_DEPS_DB_MAGIC) ||
+	    state_db_write_u64(f, QSTAR_DEPS_DB_ABI) < 0 ||
+	    state_db_write_u64(f, (unsigned long long)ctx->deps_next_len) < 0) {
+		fclose(f);
+		unlink(tmp);
+		return qstar_set_error(graph, "qstar: could not write dependency state");
+	}
+	for (i = 0; i < ctx->deps_next_len; i++) {
+		if (state_db_write_string(f, ctx->deps_next[i].depfile) < 0 ||
+		    state_db_write_u64(f, ctx->deps_next[i].size) < 0 ||
+		    state_db_write_u64(f, ctx->deps_next[i].mtime) < 0 ||
+		    state_db_write_string(f, ctx->deps_next[i].digest) < 0 ||
+		    state_db_write_u64(f,
+		    (unsigned long long)ctx->deps_next[i].inputs.len) < 0) {
+			fclose(f);
+			unlink(tmp);
+			return qstar_set_error(graph, "qstar: could not write dependency state");
+		}
+		for (j = 0; j < ctx->deps_next[i].inputs.len; j++) {
+			if (state_db_write_string(f,
+			    ctx->deps_next[i].inputs.items[j]) < 0) {
+				fclose(f);
+				unlink(tmp);
+				return qstar_set_error(graph,
+				    "qstar: could not write dependency state");
+			}
+		}
+	}
+	if (fclose(f) < 0) {
+		unlink(tmp);
+		return qstar_set_error(graph, "qstar: could not write dependency state");
+	}
+	if (rename(tmp, path) < 0) {
+		unlink(tmp);
+		return qstar_set_error(graph, "qstar: could not commit dependency state");
 	}
 	return 0;
 }
@@ -4104,6 +4435,62 @@ string_list_contains(const struct qstar_string_list *list, const char *s)
 	return 0;
 }
 
+struct qstar_depfile_fingerprint {
+	unsigned long long size;
+	unsigned long long mtime;
+	char digest[32];
+	int exists;
+};
+
+/** depfile의 metadata와 content hash fingerprint를 계산한다. */
+static int
+depfile_fingerprint(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const char *depfile, struct qstar_depfile_fingerprint *fp)
+{
+	char full[QSTAR_PATH_MAX], meta[128];
+	unsigned char buf[4096];
+	struct stat st;
+	unsigned long long h;
+	const struct qstar_dep_entry *prev;
+	FILE *f;
+	size_t n;
+
+	memset(fp, 0, sizeof(*fp));
+	if (full_path_under_root(graph, depfile, full, sizeof(full)) < 0)
+		return qstar_set_error(graph, "qstar: depfile path too long");
+	if (stat(full, &st) < 0)
+		return 0;
+	fp->exists = 1;
+	fp->size = (unsigned long long)st.st_size;
+	fp->mtime = stat_mtime_tick(&st);
+	prev = deps_find_prev(ctx, depfile);
+	if (prev && prev->size == fp->size && prev->mtime == fp->mtime &&
+	    prev->digest[0]) {
+		snprintf(fp->digest, sizeof(fp->digest), "%s", prev->digest);
+		return 0;
+	}
+	h = QSTAR_HASH_INIT;
+	hash_str(&h, depfile);
+	snprintf(meta, sizeof(meta), "size=%llu mtime=%llu", fp->size, fp->mtime);
+	hash_str(&h, meta);
+	f = fopen(full, "rb");
+	if (!f) {
+		hash_str(&h, "<unreadable>");
+		format_key(h, fp->digest, sizeof(fp->digest));
+		return 0;
+	}
+	while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+		size_t i;
+		for (i = 0; i < n; i++) {
+			h ^= (unsigned long long)buf[i];
+			h *= QSTAR_HASH_PRIME;
+		}
+	}
+	fclose(f);
+	format_key(h, fp->digest, sizeof(fp->digest));
+	return 0;
+}
+
 /** depfile token을 compile action input list에 추가한다. */
 static int
 push_depfile_token(struct qstar_graph *graph, struct qstar_string_list *inputs,
@@ -4125,10 +4512,26 @@ push_depfile_token(struct qstar_graph *graph, struct qstar_string_list *inputs,
 	return 0;
 }
 
-/** compiler depfile을 읽어 discovered header input을 action key에 추가한다. */
+/** depfile token을 caller input과 optional parsed list에 함께 추가한다. */
 static int
-push_depfile_inputs(struct qstar_graph *graph, const char *depfile,
-    struct qstar_string_list *inputs)
+push_depfile_token_with_record(struct qstar_graph *graph,
+    struct qstar_string_list *inputs, struct qstar_string_list *parsed,
+    const char *token)
+{
+	if (!token[0] || !qstar_path_is_package_relative(token))
+		return 0;
+	if (push_depfile_token(graph, inputs, token) < 0)
+		return -1;
+	if (parsed && !string_list_contains(parsed, token) &&
+	    qstar_string_list_push(parsed, token) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	return 0;
+}
+
+/** compiler depfile을 직접 읽어 discovered header input을 파싱한다. */
+static int
+parse_depfile_inputs(struct qstar_graph *graph, const char *depfile,
+    struct qstar_string_list *inputs, struct qstar_string_list *parsed)
 {
 	char full[QSTAR_PATH_MAX], token[QSTAR_PATH_MAX];
 	FILE *f;
@@ -4159,7 +4562,8 @@ push_depfile_inputs(struct qstar_graph *graph, const char *depfile,
 		if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
 			if (len) {
 				token[len] = '\0';
-				if (push_depfile_token(graph, inputs, token) < 0) {
+				if (push_depfile_token_with_record(graph, inputs,
+				    parsed, token) < 0) {
 					fclose(f);
 					return -1;
 				}
@@ -4172,12 +4576,60 @@ push_depfile_inputs(struct qstar_graph *graph, const char *depfile,
 	}
 	if (len) {
 		token[len] = '\0';
-		if (push_depfile_token(graph, inputs, token) < 0) {
+		if (push_depfile_token_with_record(graph, inputs, parsed, token) < 0) {
 			fclose(f);
 			return -1;
 		}
 	}
 	fclose(f);
+	return 0;
+}
+
+/** compiler depfile input을 compact deps DB 우선으로 action key에 추가한다. */
+static int
+push_depfile_inputs(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const char *depfile, struct qstar_string_list *inputs)
+{
+	struct qstar_depfile_fingerprint fp;
+	const struct qstar_dep_entry *entry;
+	struct qstar_string_list parsed;
+	const char *reason;
+	size_t i;
+
+	if (depfile_fingerprint(graph, ctx, depfile, &fp) < 0)
+		return -1;
+	if (!fp.exists) {
+		build_tracef(ctx, "deps_db status=miss depfile=%s reason=missing-depfile\n",
+		    depfile);
+		return 0;
+	}
+	entry = deps_find_prev(ctx, depfile);
+	if (entry && entry->size == fp.size && entry->mtime == fp.mtime &&
+	    strcmp(entry->digest, fp.digest) == 0) {
+		for (i = 0; i < entry->inputs.len; i++) {
+			if (push_depfile_token(graph, inputs, entry->inputs.items[i]) < 0)
+				return -1;
+		}
+		if (deps_record(ctx, depfile, fp.size, fp.mtime, fp.digest,
+		    &entry->inputs) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+		build_tracef(ctx, "deps_db status=hit depfile=%s inputs=%zu\n",
+		    depfile, entry->inputs.len);
+		return 0;
+	}
+	memset(&parsed, 0, sizeof(parsed));
+	if (parse_depfile_inputs(graph, depfile, inputs, &parsed) < 0) {
+		qstar_string_list_free(&parsed);
+		return -1;
+	}
+	if (deps_record(ctx, depfile, fp.size, fp.mtime, fp.digest, &parsed) < 0) {
+		qstar_string_list_free(&parsed);
+		return qstar_set_error(graph, "qstar: out of memory");
+	}
+	reason = entry ? "changed" : "new";
+	build_tracef(ctx, "deps_db status=miss depfile=%s reason=%s inputs=%zu\n",
+	    depfile, reason, parsed.len);
+	qstar_string_list_free(&parsed);
 	return 0;
 }
 
@@ -4284,7 +4736,7 @@ refresh_compile_state_after_depfile(struct qstar_graph *graph, struct qstar_buil
 		return -1;
 	}
 	if (action->wants_depfile &&
-	    push_depfile_inputs(graph, action->depfile, &dep_inputs) < 0) {
+	    push_depfile_inputs(graph, ctx, action->depfile, &dep_inputs) < 0) {
 		qstar_string_list_free(&inputs);
 		qstar_string_list_free(&dep_inputs);
 		return -1;
@@ -4513,7 +4965,8 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		qstar_string_list_free(&includes);
 		return -1;
 	}
-	if (wants_depfile && push_depfile_inputs(graph, action->depfile, &dep_inputs) < 0) {
+	if (wants_depfile && push_depfile_inputs(graph, ctx, action->depfile,
+	    &dep_inputs) < 0) {
 		qstar_string_list_free(&inputs);
 		qstar_string_list_free(&dep_inputs);
 		qstar_string_list_free(&outputs);
@@ -6414,6 +6867,9 @@ build_ctx_free(struct qstar_build_ctx *ctx)
 	state_free(ctx->prev, ctx->prev_len);
 	state_free(ctx->next, ctx->next_len);
 	free(ctx->prev_index);
+	deps_entries_free(ctx->deps_prev, ctx->deps_prev_len);
+	deps_entries_free(ctx->deps_next, ctx->deps_next_len);
+	free(ctx->deps_prev_index);
 	hash_cache_free(ctx->hash_cache, ctx->hash_cache_len);
 	action_log_queue_free(ctx->action_logs, ctx->action_log_len);
 	free(ctx->depfile_refresh);
@@ -6446,6 +6902,10 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
 		build_ctx_free(&ctx);
 		return -1;
 	}
+	if (deps_db_load(graph, &ctx) < 0) {
+		build_ctx_free(&ctx);
+		return -1;
+	}
 	build_tracef(&ctx, "qstar build v2\n");
 	build_tracef(&ctx, "root %s\n", ctx.root_label);
 	build_tracef(&ctx, "package-root %s\n", graph->package_root ? graph->package_root : ".");
@@ -6460,6 +6920,8 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
 	action_log_flush(&ctx);
 	if (rc == 0)
 		rc = state_write(graph, &ctx);
+	if (rc == 0)
+		rc = deps_db_write(graph, &ctx);
 	if (rc == 0)
 		rc = compile_db_write(graph, &ctx);
 	if (build_summary_write(graph, &ctx, rc == 0 ? "success" : "failure") < 0 &&

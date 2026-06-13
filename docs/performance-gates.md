@@ -45,26 +45,28 @@ Ninja가 설치되어 있지 않으면 Ninja phase는 `skipped`로 기록한다.
 
 ## Latest Snapshot
 
-Round Q121 local macOS arm64 대표 측정값:
+Round Q123 local macOS arm64 대표 측정값:
 
 ```txt
 medium_project_gate target_count=47 min_targets=40
-medium_project_gate backend=stella phase=clean elapsed_ms=745
+medium_project_gate backend=stella phase=clean elapsed_ms=754
 medium_project_gate backend=stella phase=noop elapsed_ms=70
-medium_project_gate backend=stella phase=incremental elapsed_ms=111
-medium_project_gate backend=ninja phase=clean elapsed_ms=304
-medium_project_gate backend=ninja phase=noop elapsed_ms=80
-medium_project_gate backend=ninja phase=incremental elapsed_ms=120
-medium_project_gate compare phase=clean stella_ms=745 ninja_ms=304 ratio_x100=200 slack_ms=250
-medium_project_gate compare phase=noop stella_ms=70 ninja_ms=80 ratio_x100=200 slack_ms=250
-medium_project_gate compare phase=incremental stella_ms=111 ninja_ms=120 ratio_x100=200 slack_ms=250
+medium_project_gate backend=stella phase=incremental elapsed_ms=102
+medium_project_gate backend=ninja phase=clean elapsed_ms=269
+medium_project_gate backend=ninja phase=noop elapsed_ms=77
+medium_project_gate backend=ninja phase=incremental elapsed_ms=112
+medium_project_gate compare phase=clean stella_ms=754 ninja_ms=269 ratio_x100=200 slack_ms=250
+medium_project_gate compare phase=noop stella_ms=70 ninja_ms=77 ratio_x100=200 slack_ms=250
+medium_project_gate compare phase=incremental stella_ms=102 ninja_ms=112 ratio_x100=200 slack_ms=250
 medium_project_gate status=ok perf_issue_count=0 report_only=1
 ```
 
 Stella no-op과 incremental은 이 corpus에서 Ninja급 latency를 보인다. Q121은 compact
 `state.db` dirty-check path를 추가해 JSON state parse를 no-op/incremental hot path에서
-피한다. Clean build는 여전히 raw ratio로는 Ninja의 2배 안쪽을 안정적으로 달성하지
-못했지만, slack을 포함한 report gate는 통과하며 medium corpus에서 1초 미만을 유지한다.
+피했고, Q123은 `deps.db` compact dependency state를 추가해 depfile-discovered header
+list 재파싱을 줄인다. Clean build는 여전히 raw ratio로는 Ninja의 2배 안쪽을 안정적으로
+달성하지 못했지만, slack을 포함한 report gate는 통과하며 medium corpus에서 1초 미만을
+유지한다.
 
 Timing은 host CPU, filesystem cache, compiler, terminal load에 영향을 받는다. 그래서
 Round Q92 기준 timing threshold는 기본적으로 report-only다. 구조적 실패, graph 실패,

@@ -344,7 +344,8 @@ qstar --file qstar.lua clean
 
 `build`는 `build/qstar/state/actions.json`에 사람이 읽는 action key를 기록하고,
 Stella는 `build/qstar/state/state.db` compact state를 먼저 읽는다. key와 output이
-그대로면 `status=skip`을 출력한다. `why-rebuild`는 같은 key 계산을 실행 없이
+그대로면 `status=skip`을 출력한다. Q123 이후에는 `build/qstar/state/deps.db`도 읽어
+depfile-discovered header list를 재사용한다. `why-rebuild`는 같은 key 계산을 실행 없이
 보여준다. `clean`은 전체 `build/qstar` 상태 또는 선택 target output을 지운다.
 `--diagnostics json`은 editor/LSP 준비용 JSON diagnostic skeleton이다.
 

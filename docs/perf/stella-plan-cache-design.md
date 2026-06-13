@@ -87,11 +87,12 @@ build/qstar/stella/
 build/qstar/state/
   actions.json        # debug/export action state
   state.db            # compact dirty-check action state, internal binary v1
-  deps.db             # future discovered dependency DB
+  deps.db             # compact discovered dependency DB, internal binary v1
 ```
 
 초기 구현은 `manifest.json`, `inputs.json`, `graph.qsg`, `actions.qsa`만 사용해도 된다.
-`state.db`는 Q121에서 활성화된 compact dirty-check DB다. `deps.db`는 아직 future work다.
+`state.db`는 Q121에서 활성화된 compact dirty-check DB다. `deps.db`는 Q123에서 활성화된
+depfile-discovered header DB다.
 파일 확장자는 internal이고 public API가 아니다.
 
 Q120 MVP는 다음 파일을 실제로 쓴다.
@@ -107,6 +108,9 @@ Stella action materialization을 사용한다. 즉 Q120은 Lua eval과 validatio
 whole-graph cache MVP이고, Q121 이후에 action state compact path와 더 강하게 결합한다.
 Q121 이후에는 build start에서 `build/qstar/state/state.db`를 먼저 읽고, stale/missing이면
 `state/actions.json`으로 fallback한다.
+Q123 이후에는 `build/qstar/state/deps.db`도 함께 읽는다. 이 DB는 compiler depfile 자체를
+매번 다시 파싱하기 전에, depfile path/size/mtime/content hash가 그대로인지 확인하고
+저장된 discovered header list를 재사용한다.
 
 ## Atomicity Policy
 
@@ -303,11 +307,15 @@ Plan cache와 action state는 다르다.
 | `actions.qsa` | 어떤 action을 실행할 수 있는지 |
 | `state/actions.json` | 지난 build에서 action이 어떤 key/status였는지, debug/export용 |
 | `state.db` | compact fast dirty-check lookup |
-| `deps.db` | future discovered dep lookup |
+| `deps.db` | depfile-discovered header list lookup |
 
 Q121 이후 Stella는 `state.db`를 먼저 읽는다. compact DB가 없거나 schema/ABI가 맞지 않으면
 조용히 `state/actions.json`으로 돌아간다. JSON state는 사람이 읽는 debugging/export
 surface로 유지한다.
+Q123 이후 Stella는 compile action의 depfile을 직접 파싱하기 전에 `deps.db`를 본다. depfile
+fingerprint가 맞으면 cached header list를 쓰되, 각 header는 package-relative path와 존재
+여부를 다시 검증한다. depfile fingerprint가 바뀌면 기존 depfile parser를 사용하고 성공한
+compile 뒤 새 entry를 기록한다.
 
 ## Diagnostics Policy
 
@@ -317,6 +325,7 @@ Cache hit에서도 diagnostic 품질을 포기하지 않는다.
 - stale cache가 의심되면 cache를 폐기하고 source-of-truth Lua eval로 돌아간다.
 - cache parse error는 일반 build에서 warning으로 소란스럽게 만들지 않는다.
 - `--schedule-trace`에서는 `plan_cache status=hit|miss reason=...`를 출력한다.
+- `--schedule-trace`에서는 `deps_db status=hit|miss`도 출력한다.
 - `qstar doctor`에는 future section으로 cache schema/version/input count를 보여줄 수 있다.
 
 ## Security And Trust
@@ -361,6 +370,21 @@ Status: implemented.
 2. poll/select 기반 event wait를 추가한다.
 3. warning/error stream coloring과 action log/replay를 유지한다.
 
+Status: deferred. Q122 실험은 현 구조에서 유의미한 clean build 개선을 만들지 못해
+revert했다. 실제 process runner 개편은 더 큰 scheduler/process boundary 정리가 필요하다.
+
+### Q123 Compact Deps DB
+
+Status: implemented.
+
+1. `build/qstar/state/deps.db` compact lookup을 추가했다.
+2. compile 성공 후 depfile에서 discovered header list를 읽어 `deps.db`에 저장한다.
+3. 다음 build부터 depfile path/size/mtime/content hash가 그대로이면 depfile을 다시
+   tokenize하지 않고 cached header list를 사용한다.
+4. cached header도 package-relative path와 존재 여부를 다시 검사하므로 missing header
+   diagnostic은 유지된다.
+5. `--schedule-trace`에서 `deps_db status=hit|miss`를 표시한다.
+
 ## Acceptance Criteria
 
 Q120 이후:
@@ -385,8 +409,22 @@ medium_project_gate status=ok perf_issue_count=0 report_only=1
 ```
 
 Q121 이후 no-op과 incremental은 compact dirty state + plan cache hit 경로에서 Ninja와 같은
-체감권을 유지한다. Clean build는 여전히 compiler/process orchestration과 logging overhead
-때문에 Ninja보다 느리며, 다음 큰 lever는 event-driven process runner와 deps.db다.
+체감권을 유지한다. Q123의 `deps.db`는 header가 많은 C/C++/freestanding project에서
+depfile tokenization 비용을 줄이는 incremental hot-path 개선이다. Clean build는 여전히
+compiler/process orchestration과 logging overhead 때문에 Ninja보다 느리며, 다음 큰 lever는
+process runner와 scheduler hot path다.
+
+Observed Q123 representative timing on the medium corpus:
+
+```txt
+medium_project_gate backend=stella phase=clean elapsed_ms=754
+medium_project_gate backend=stella phase=noop elapsed_ms=70
+medium_project_gate backend=stella phase=incremental elapsed_ms=102
+medium_project_gate backend=ninja phase=clean elapsed_ms=269
+medium_project_gate backend=ninja phase=noop elapsed_ms=77
+medium_project_gate backend=ninja phase=incremental elapsed_ms=112
+medium_project_gate status=ok perf_issue_count=0 report_only=1
+```
 
 ## Open Questions
 

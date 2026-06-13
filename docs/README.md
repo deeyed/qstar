@@ -241,7 +241,8 @@ execution은 아직 범위 밖이다.
 Round 14/15는 incremental state와 diagnostic UX를 추가했다. QStar는
 `build/qstar/state/actions.json`을 debug/export용으로 쓰고, Q121 이후 Stella는
 `build/qstar/state/state.db` compact state를 먼저 읽는다. action key와 output이 그대로이면
-action을 건너뛴다.
+action을 건너뛴다. Q123 이후 Stella는 `build/qstar/state/deps.db` compact dependency
+state를 함께 사용해 compiler depfile-discovered header list를 재사용한다.
 또한 `compile_commands.json`, `why-rebuild`, `clean`, `log`, `last-failure`,
 `--diagnostics json`을 제공한다. Action key v1에는 argv, input path metadata/content
 hash, output path, selected profile/toolchain, 작은 environment whitelist가 들어간다.

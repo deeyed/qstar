@@ -459,6 +459,8 @@ Round 14 incremental-state invariant:
   for debug/export.
 - `build/qstar/state/state.db` is the compact internal dirty-check state loaded
   first by Stella.
+- `build/qstar/state/deps.db` is the compact internal depfile-discovered header
+  state loaded before Stella reparses compiler depfiles.
 - action key v1 includes argv, declared input path metadata/content hash, output
   path, selected profile/toolchain, and a small environment whitelist.
 - unchanged actions are skipped only when the key matches and every declared
