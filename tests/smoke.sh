@@ -165,6 +165,25 @@ contains "$tmp/first.out" "[100%] Linking C executable build/qstar/out/___app/ap
 contains "$tmp/first.out" "[100%] Built target app"
 not_contains "$tmp/first.out" "Stage 1: prepare"
 contains "$tmp/first.out" "status ok"
+
+host_jobs=1
+case "$(uname -s)" in
+  Darwin|Linux)
+    host_jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '1')
+    ;;
+esac
+case "$host_jobs" in
+  ''|*[!0-9]*) host_jobs=1 ;;
+esac
+if [ "$host_jobs" -gt 1 ]; then
+  step "initial build smoke: default jobs use host cpu count" "default-jobs"
+  "$qstar" --file "$tmp/qstar.lua" -B build/default-jobs build //:app --schedule-trace > "$tmp/default-jobs.out" 2> "$tmp/default-jobs.err"
+  contains "$tmp/default-jobs.out" "executor-policy version=v4"
+  contains "$tmp/default-jobs.out" "parallel=optional jobs="
+  contains "$tmp/default-jobs.out" "active=action-dag-ready-queue"
+  not_contains "$tmp/default-jobs.out" "parallel=no jobs=1 active=serial-ready-queue"
+fi
+
 test -f "$tmp/build/qstar/state/state.db" || fail "missing compact action state"
 test -f "$tmp/build/qstar/state/deps.db" || fail "missing compact dependency state"
 test -f "$tmp/build/qstar/state/graph.json" || fail "missing graph snapshot"
@@ -3489,9 +3508,9 @@ contains "docs/qstar-v0.5-readiness.md" "qstar 0.5.1-beta.1"
 contains "docs/qstar-v0.5-readiness.md" "CMake-style progress output"
 contains "docs/qstar-v0.5-readiness.md" "Linux"
 contains "docs/qstar-v0.5-readiness.md" "Windows"
-contains "docs/performance-gates.md" "Round Q131 local macOS arm64"
+contains "docs/performance-gates.md" "Round Q132 local macOS arm64"
 contains "docs/performance-gates.md" 'POSIX `poll()`'
-contains "wiki/reference/performance-gates.md" "Round Q131 local macOS arm64"
+contains "wiki/reference/performance-gates.md" "Round Q132 local macOS arm64"
 contains "wiki/reference/performance-gates.md" "POSIX"
 contains "docs/perf/stella-plan-cache-design.md" "Q129 POSIX Spawn Runner MVP"
 contains "docs/perf/stella-plan-cache-design.md" "Q130 Event-Driven Output Drain"

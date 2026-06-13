@@ -1,6 +1,9 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
+#if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
+#define _DARWIN_C_SOURCE
+#endif
 
 #include "internal.h"
 
@@ -19,6 +22,9 @@
 #include <time.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+#endif
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -1000,19 +1006,62 @@ static int run_one_generated_action(struct qstar_graph *graph, struct qstar_buil
 static int build_target(struct qstar_graph *graph, const struct qstar_target *target,
     size_t order, void *user);
 
-/** 명시적 --jobs가 없을 때 host CPU 수를 기준으로 기본 병렬도를 정한다. */
+/** host CPU 수 후보를 QStar가 허용하는 기본 jobs 범위로 제한한다. */
 static int
-default_job_count(void)
+clamp_default_job_count(long n)
 {
-#ifdef _SC_NPROCESSORS_ONLN
-	long n;
-
-	n = sysconf(_SC_NPROCESSORS_ONLN);
 	if (n > 1) {
 		if (n > 256)
 			return 256;
 		return (int)n;
 	}
+	return 1;
+}
+
+/** sysconf가 제공하는 online processor 수를 기본 병렬도 후보로 읽는다. */
+static int
+default_job_count_from_sysconf(void)
+{
+#if !defined(__APPLE__) && (defined(__linux__) || defined(_SC_NPROCESSORS_ONLN))
+	long n;
+
+	errno = 0;
+	n = sysconf(_SC_NPROCESSORS_ONLN);
+	if (errno == 0)
+		return clamp_default_job_count(n);
+#endif
+	return 1;
+}
+
+#if defined(__APPLE__)
+/** macOS sysctl hw.ncpu를 기본 병렬도 fallback으로 읽는다. */
+static int
+default_job_count_from_sysctl(void)
+{
+	int n;
+	size_t len;
+
+	n = 0;
+	len = sizeof(n);
+	if (sysctlbyname("hw.ncpu", &n, &len, NULL, 0) == 0)
+		return clamp_default_job_count((long)n);
+	return 1;
+}
+#endif
+
+/** 명시적 --jobs가 없을 때 host CPU 수를 기준으로 기본 병렬도를 정한다. */
+static int
+default_job_count(void)
+{
+	int jobs;
+
+	jobs = default_job_count_from_sysconf();
+	if (jobs > 1)
+		return jobs;
+#if defined(__APPLE__)
+	jobs = default_job_count_from_sysctl();
+	if (jobs > 1)
+		return jobs;
 #endif
 	return 1;
 }
