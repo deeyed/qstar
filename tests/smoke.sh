@@ -3579,6 +3579,7 @@ cat > "$tmp/asm/asm/include/asm_value.inc" <<'EOF'
 EOF
 cat > "$tmp/asm/asm/value.S" <<'EOF'
 #include "asm_value.inc"
+.text
 #if defined(__aarch64__) || defined(__arm64__)
 #if defined(__APPLE__)
 .globl _asm_value
@@ -3603,6 +3604,9 @@ asm_value:
 	ret
 #else
 #error unsupported qstar asm smoke architecture
+#endif
+#if defined(__ELF__)
+.section .note.GNU-stack,"",@progbits
 #endif
 EOF
 cat > "$tmp/asm/asm/empty.s" <<'EOF'
@@ -3633,14 +3637,26 @@ qstar.executable "bad_asm_toolchain" {
   sources = {"asm/value.S"},
 }
 EOF
-"$qstar" --file "$tmp/asm/qstar.lua" dry-run //:asmapp > "$tmp/asm-dry.out" 2> "$tmp/asm-dry.err"
+if ! "$qstar" --file "$tmp/asm/qstar.lua" dry-run //:asmapp > "$tmp/asm-dry.out" 2> "$tmp/asm-dry.err"; then
+	cat "$tmp/asm-dry.out" >&2
+	cat "$tmp/asm-dry.err" >&2
+	fail "asm dry-run failed"
+fi
 contains "$tmp/asm-dry.out" "language=asm-cpp"
 contains "$tmp/asm-dry.out" "argv=[cc, -x, assembler-with-cpp, -c, asm/value.S"
 contains "$tmp/asm-dry.out" "-DQSTAR_ASM_VALUE=42"
 contains "$tmp/asm-dry.out" "asm/include"
-"$qstar" --file "$tmp/asm/qstar.lua" build //:plainasm > "$tmp/asm-plain-build.out" 2> "$tmp/asm-plain-build.err"
+if ! "$qstar" --file "$tmp/asm/qstar.lua" build //:plainasm > "$tmp/asm-plain-build.out" 2> "$tmp/asm-plain-build.err"; then
+	cat "$tmp/asm-plain-build.out" >&2
+	cat "$tmp/asm-plain-build.err" >&2
+	fail "plain assembler build failed"
+fi
 contains "$tmp/asm-plain-build.out" "status ok"
-"$qstar" --file "$tmp/asm/qstar.lua" build //:asmapp > "$tmp/asm-build.out" 2> "$tmp/asm-build.err"
+if ! "$qstar" --file "$tmp/asm/qstar.lua" build //:asmapp > "$tmp/asm-build.out" 2> "$tmp/asm-build.err"; then
+	cat "$tmp/asm-build.out" >&2
+	cat "$tmp/asm-build.err" >&2
+	fail "asm app build failed"
+fi
 contains "$tmp/asm-build.out" "status ok"
 "$tmp/asm/build/qstar/out/___asmapp/asmapp" || fail "asm smoke binary failed"
 contains "$tmp/asm/build/qstar/compile_commands.json" "asm/value.S"
