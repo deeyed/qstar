@@ -2,10 +2,10 @@
 
 QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. Public
 beta에서는 macOS arm64 tarball을 먼저 배포한다. Linux host 지원은 Ubuntu gcc/clang CI
-기반 source build 검증 경로를 갖췄지만 아직 release artifact는 없다. Windows host
-지원은 계획 단계다. Windows는 아직 공식 지원이 아니지만 path/process/response-file
-준비 규칙은 QStar tree 안에서 검증한다. 모든 platform에서 소스에서 직접 빌드할 수
-있도록 검증 경로를 늘려간다.
+기반 source build 검증과 `linux-x86_64` release-candidate tarball dry-run을 갖췄지만
+아직 public release artifact는 없다. Windows host 지원은 계획 단계다. Windows는 아직
+공식 지원이 아니지만 path/process/response-file 준비 규칙은 QStar tree 안에서 검증한다.
+모든 platform에서 소스에서 직접 빌드할 수 있도록 검증 경로를 늘려간다.
 
 ## 최소 예제
 
@@ -50,7 +50,8 @@ cat dist/release/SHA256SUMS
 ```
 
 이 gate는 installed binary version, macOS codesign, installed wiki, manpages,
-prefix-style tarball layout, `SHA256SUMS`, VSCode `.vsix` 미포함 정책을 확인한다.
+`qstar docs --path`, `qstar docs --ai-index`, `qstar docs --show`, prefix-style
+tarball layout, `SHA256SUMS`, VSCode `.vsix` 미포함 정책을 확인한다.
 GitHub Wiki mirror는 source tree의 `wiki/`가 최신인 것을 확인한 뒤
 `tools/sync-github-wiki.sh`로 수행한다.
 
@@ -77,8 +78,7 @@ qstar doctor
 ## Linux 검증 경로
 
 Linux release asset은 아직 배포하지 않는다. Linux host 또는 CI에서는 다음 source build
-smoke가 통과해야 validation-backed source build 상태를 유지하고, 이후 release artifact
-후보로 올라갈 수 있다.
+smoke가 통과해야 validation-backed source build 상태를 유지한다.
 
 ```sh
 make all
@@ -96,6 +96,18 @@ GitHub Actions 후보는 `.github/workflows/linux-validation.yml`에 있다. 이
 `ubuntu-latest`에서 gcc/clang matrix를 돌리고, 각 lane에서 Ninja를 설치한 뒤
 `make all`, `make check`, `make qstar-linux-validation-tests`, install docs/man smoke를
 수행한다. Depfile compiler lane은 `QSTAR_LINUX_VALIDATION_CC=gcc|clang`으로 고정한다.
+gcc lane은 추가로 다음 release-candidate package dry-run을 수행한다.
+
+```sh
+QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh
+test -f dist/release/qstar-v0.5.0-beta.1-linux-x86_64.tar.gz
+test -s dist/release/file-linux-x86_64.txt
+test -s dist/release/ldd-linux-x86_64.txt
+```
+
+이 dry-run은 Linux binary가 ELF x86-64인지, `ldd` sanity가 가능한지, installed wiki와
+manpage가 tarball에 들어가는지, `SHA256SUMS`가 생성되는지를 확인한다. GitHub release에
+Linux asset을 실제로 붙이는 결정은 별도 release 라운드에서 한다.
 
 ## Windows 준비 경로
 

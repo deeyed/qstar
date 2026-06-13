@@ -37,7 +37,7 @@ jobs:
       - name: Install build tools and Ninja
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang gcc g++ ninja-build
+          sudo apt-get install -y build-essential clang gcc g++ ninja-build file
           ninja --version
           "$CC" --version
 
@@ -66,3 +66,24 @@ jobs:
           build/bin/qstar --file tests/corpus/c-app/qstar.lua -G ninja build //:app --progress plain --color never
           test ! -f .ninja_log
           test ! -f .ninja_deps
+
+      - name: Linux release tarball packaging dry-run
+        if: matrix.compiler == 'gcc'
+        run: |
+          version=$(sed -n 's/^#define QSTAR_VERSION "\(.*\)"/\1/p' include/qstar/qstar.h)
+          archive_base="qstar-v${version}-linux-x86_64.tar.gz"
+          asset="dist/release/${archive_base}"
+          QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh
+          test -f "$asset"
+          test -f dist/release/SHA256SUMS
+          test -s dist/release/file-linux-x86_64.txt
+          test -s dist/release/ldd-linux-x86_64.txt
+          grep -F "$archive_base" dist/release/SHA256SUMS
+          grep -F "ELF" dist/release/file-linux-x86_64.txt
+          grep -E "x86[-_]64|x86-64|AMD x86-64" dist/release/file-linux-x86_64.txt
+          tar -tzf "$asset" > dist/release/linux-x86_64.contents.txt
+          grep -Fx "bin/qstar" dist/release/linux-x86_64.contents.txt
+          grep -Fx "share/doc/qstar/wiki/AI_INDEX.md" dist/release/linux-x86_64.contents.txt
+          grep -Fx "share/doc/qstar/wiki/reference/qstar-lua.md" dist/release/linux-x86_64.contents.txt
+          grep -Fx "share/man/man1/qstar.1" dist/release/linux-x86_64.contents.txt
+          grep -Fx "share/man/man5/qstar-lua.5" dist/release/linux-x86_64.contents.txt

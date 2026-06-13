@@ -7,12 +7,14 @@ VSCode extension is not included in the public beta runtime tarball.
 
 ## Release Target
 
-현재 beta package 이름은 runtime version에서 파생한다.
+현재 beta package 이름은 runtime version에서 파생한다. Public artifact는 아직 macOS arm64
+하나만 배포하지만, Linux x86_64는 CI에서 release-candidate packaging dry-run을 수행한다.
 
 ```txt
 runtime version: qstar 0.5.0-beta.1
 release tag: v0.5.0-beta.1
 macOS asset: qstar-v0.5.0-beta.1-macos-arm64.tar.gz
+Linux RC dry-run asset: qstar-v0.5.0-beta.1-linux-x86_64.tar.gz
 checksum file: SHA256SUMS
 ```
 
@@ -41,7 +43,11 @@ make qstar-public-beta-release-tests
 - installed wiki, `qstar(1)`, `qstar-lua(5)` manpage가 존재한다.
 - `QSTAR_DOC_DIR=<release-root>/share/doc/qstar qstar docs --path`가 installed wiki root를
   가리킨다.
+- `qstar docs --ai-index`와 `qstar docs --show reference/qstar-lua.md`가 installed docs를
+  기준으로 동작한다.
 - macOS arm64 package에서는 `file bin/qstar`가 arm64 binary로 보고한다.
+- Linux x86_64 package dry-run에서는 `file bin/qstar`가 ELF x86-64 binary로 보고하고
+  `ldd` output을 기록한다.
 - tarball layout이 prefix install 구조다.
 - `SHA256SUMS`가 release tarball을 포함한다.
 - VSCode `.vsix`는 runtime tarball에 포함되지 않는다.
@@ -63,11 +69,20 @@ codesign -dv --verbose=2 /tmp/qstar-release-smoke/bin/qstar
 `codesign` smoke는 Darwin/macOS에서만 의미가 있다. Linux validation host에서는
 docs/manpage install과 runtime version만 확인한다.
 
-Linux runtime tarball은 아직 public beta asset이 아니다. Round Q109 이후 Linux는
-`.github/workflows/linux-validation.yml`의 Ubuntu gcc/clang CI 기반 source build
-validation path를 갖췄지만, Linux asset을 추가하려면 clean Linux release host 또는
-release CI에서 `make check`, `make qstar-linux-validation-tests`, Ninja backend parity,
-install docs/man smoke가 통과해야 한다.
+Linux runtime tarball은 아직 public beta asset이 아니다. Round Q113 이후 Linux는
+`.github/workflows/linux-validation.yml`의 Ubuntu gcc/clang CI 기반 validation path에
+더해 gcc lane에서 다음 release-candidate dry-run을 수행한다.
+
+```sh
+QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh
+test -f dist/release/qstar-v0.5.0-beta.1-linux-x86_64.tar.gz
+test -s dist/release/file-linux-x86_64.txt
+test -s dist/release/ldd-linux-x86_64.txt
+```
+
+Linux asset을 실제로 추가하려면 clean Linux release host 또는 release CI에서
+`make check`, `make qstar-linux-validation-tests`, Ninja backend parity, install
+docs/man smoke, Linux tarball dry-run이 모두 통과해야 한다.
 
 ## Tarball Layout
 
@@ -76,6 +91,8 @@ Runtime tarball은 prefix에 바로 풀 수 있어야 한다.
 ```txt
 bin/qstar
 share/doc/qstar/wiki/AI_INDEX.md
+share/doc/qstar/wiki/README.md
+share/doc/qstar/wiki/reference/qstar-lua.md
 share/man/man1/qstar.1
 share/man/man5/qstar-lua.5
 README.md

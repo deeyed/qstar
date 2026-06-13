@@ -3,9 +3,10 @@
 QStar v0.4 beta는 macOS arm64 binary를 먼저 배포했지만, Round Q97부터 Linux host
 지원은 `planned`가 아니라 `validation underway` 상태로 관리한다. 이 문서는 Linux를
 release artifact 후보로 올리기 전에 필요한 source build, path/process, depfile,
-install layout smoke를 고정한다.
+install layout smoke, release tarball dry-run을 고정한다.
 Round Q109부터 `.github/workflows/linux-validation.yml`이 이 gate를 Ubuntu CI에서
-gcc/clang matrix로 실행한다.
+gcc/clang matrix로 실행한다. Round Q113부터 gcc lane은
+`QSTAR_RELEASE_PLATFORM=linux-x86_64` packaging dry-run까지 수행한다.
 
 ## Scope
 
@@ -21,6 +22,8 @@ Linux validation은 다음을 확인한다.
   `qstar-lua(5)` manpage를 같은 prefix 아래에 배치하는지
 - `QSTAR_DOC_DIR=<prefix>/share/doc/qstar qstar docs --path`가 installed docs를
   가리키는지
+- Linux release candidate tarball이 ELF x86-64 binary, `ldd` sanity, installed
+  docs/wiki/manpages, `SHA256SUMS`, prefix layout을 만족하는지
 
 macOS local run에서는 Linux kernel, glibc, distro package layout, Linux `cc` 구현을
 직접 검증할 수 없다. 따라서 macOS에서는 portable path/process smoke만 수행하고,
@@ -114,6 +117,7 @@ ubuntu-latest / gcc:
   make qstar-linux-validation-tests
   make install PREFIX=/tmp/qstar-linux-smoke
   /tmp/qstar-linux-smoke/bin/qstar --version
+  QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh
 
 ubuntu-latest / clang:
   make all
@@ -128,6 +132,24 @@ Each lane sets `QSTAR_LINUX_VALIDATION_CC` to the matrix compiler, verifies
 Ninja backend parity tests through `make check`, and performs an explicit root
 pollution smoke: `.ninja_deps` and `.ninja_log` must stay under the QStar build
 directory, not the repository root.
+
+The gcc lane also performs a release-candidate packaging dry-run without
+publishing the artifact:
+
+```sh
+QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh
+test -f dist/release/qstar-v<version>-linux-x86_64.tar.gz
+test -s dist/release/file-linux-x86_64.txt
+test -s dist/release/ldd-linux-x86_64.txt
+tar -tzf dist/release/qstar-v<version>-linux-x86_64.tar.gz
+```
+
+`tools/package-public-beta.sh` refuses to build `linux-x86_64` packages on a
+non-Linux host, verifies `file(1)` reports an ELF x86-64 binary, records
+`ldd(1)` output, checks `qstar docs --path`, `qstar docs --ai-index`, and
+`qstar docs --show reference/qstar-lua.md` against the installed doc tree, and
+requires the tarball to contain the installed wiki home, AI index, Lua reference,
+and manpages.
 
 The install prefix smoke checks:
 
@@ -149,13 +171,18 @@ Before a `linux-*` release asset is added, all of the following must be true:
 - `make check` passes on Linux
 - `make qstar-linux-validation-tests` passes on Linux
 - `.github/workflows/linux-validation.yml` is green for both gcc and clang lanes
+- `QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh` passes on a
+  Linux host or Ubuntu CI packaging lane
 - `make install PREFIX=/tmp/qstar-linux-smoke` installs binary, docs, and
   manpages under that prefix
 - installed binary reports the tagged version
+- `file(1)` reports ELF x86-64 and `ldd(1)` output is recorded, or a static
+  binary exception is explicitly documented
 - clang and gcc depfile behavior is either both green or documented with a
   stable skip reason
 - Ninja backend parity passes without root `.ninja_*` files
 - release notes identify architecture and libc assumptions
 
-Until then, README platform status remains conservative: Linux is validation
-underway, Windows is still planned.
+Until a Linux asset is intentionally attached to a GitHub release, README
+platform status remains conservative: Linux is a binary release candidate path,
+not an official published artifact. Windows is still planned.

@@ -23,7 +23,7 @@ QStar는 0.5 beta line으로 이동할 수 있는 기반은 갖췄다. 단, 0.5�
 | Stella executor | medium corpus에서 no-op/incremental 양호 | 0.5 기본 backend 유지 가능 |
 | Ninja backend | 일반 C/C++/ASM project 후보 수준 | 비교/backend 후보로 유지 |
 | macOS release packaging | public beta gate 있음 | macOS arm64 beta asset 가능 |
-| Linux | validation-backed source build path | 0.5 release note에 보수적으로 표기 |
+| Linux | validation + binary release candidate dry-run | 0.5 release note에 보수적으로 표기 |
 | Windows | planned validation | 0.5 official support로 표기 금지 |
 | Docs/CLI drift | smoke guard로 관리 | 0.5 전에 한 번 더 sync 필요 |
 
@@ -129,12 +129,18 @@ Stella 기본값은 유지한다.
 
 Linux:
 
-- 상태는 `validation-backed source build path`다.
+- 상태는 `validation-backed source build path`에서 `binary release candidate path`로
+  올라갔다. 아직 public Linux asset을 publish하지는 않는다.
 - macOS local gate는 path/process/install layout smoke만 확인한다.
 - Round Q109 기준 `.github/workflows/linux-validation.yml`이 `ubuntu-latest`에서 gcc와
   clang lane을 실행하는 CI 후보를 제공한다.
+- Round Q113 기준 gcc lane은
+  `QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh`를 실행해
+  release-candidate tarball, ELF x86-64 `file(1)` report, `ldd(1)` report,
+  installed docs/wiki/manpage smoke, `SHA256SUMS`를 검증한다.
 - Linux release asset은 clean Linux host 또는 CI에서 `make all`, `make check`,
-  `make qstar-linux-validation-tests`, install docs/man smoke가 통과한 뒤에만 추가한다.
+  `make qstar-linux-validation-tests`, install docs/man smoke, Linux tarball dry-run이
+  통과한 뒤에만 추가한다.
 - clang/gcc depfile behavior는 `QSTAR_LINUX_VALIDATION_CC` matrix로 확인한다.
 
 Windows:
@@ -197,7 +203,8 @@ historical version record는 보존한다.
 ## Deferred After 0.5
 
 - Windows official support and Windows release artifact.
-- Linux release artifact if clean Linux CI가 아직 없다면 0.5 이후로 defer.
+- Linux public release artifact decision. Q113 adds the dry-run path, but attaching
+  the asset to a GitHub release remains a separate release decision.
 - Full `qstar.sharedlib` backend support.
 - Cale source Ninja lowering.
 - C++ modules execution policy.
@@ -220,7 +227,8 @@ release notes.
 ## Known Gaps
 
 - Performance gates are still report-only for timing thresholds.
-- Linux and Windows validation are not yet equal to macOS local validation.
+- Linux has a binary release-candidate dry-run, but it is not yet a published
+  artifact. Windows validation is not yet equal to macOS local validation.
 - `qstar.sharedlib` remains plan/check-only.
 - Cale source Ninja lowering is deferred.
 - Package/dependency resolution is intentionally outside QStar.

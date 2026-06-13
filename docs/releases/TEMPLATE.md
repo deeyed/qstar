@@ -3,8 +3,8 @@
 QStar vX.Y.Z Beta N is a prerelease of QStar as a standalone build system.
 
 This release is a beta. Publish only the platform artifacts that have passed
-the release gate for this tag. Keep planned platforms clearly marked as planned
-or validation underway.
+the release gate for this tag. Keep candidate and planned platforms clearly
+marked as candidate, validation underway, or planned.
 
 ## Highlights
 
@@ -34,6 +34,8 @@ qstar X.Y.Z-beta.N
 - Docs/wiki installed under `share/doc/qstar/wiki`:
 - Manpages installed under `share/man/man1` and `share/man/man5`:
 - macOS codesign verification:
+- Linux x86_64 candidate dry-run: `QSTAR_RELEASE_PLATFORM=linux-x86_64`
+  packaging, ELF `file(1)`, `ldd(1)`, installed docs/man smoke:
 - VSCode extension included: no, unless this section explicitly says otherwise.
 
 ## Validate
@@ -49,7 +51,7 @@ qstar --file /tmp/qstar-hello/qstar.lua build //:app --progress plain
 | Host platform | Status |
 | --- | --- |
 | macOS arm64 | Beta release artifact |
-| Linux | Validation underway through Ubuntu gcc/clang CI |
+| Linux x86_64 | Candidate dry-run through Ubuntu gcc/clang CI; publish only after release decision |
 | Windows | Planned validation |
 
 ## Notes
@@ -57,7 +59,8 @@ qstar --file /tmp/qstar-hello/qstar.lua build //:app --progress plain
 - The Makefile remains QStar's canonical bootstrap and release build path.
 - QStar self-host remains a release gate candidate and backend parity check.
 - Linux artifacts require `.github/workflows/linux-validation.yml` to be green for
-  gcc and clang, plus an install docs/man smoke, before publication.
+  gcc and clang, plus `QSTAR_RELEASE_PLATFORM=linux-x86_64` package dry-run,
+  ELF/ldd sanity, and install docs/man smoke, before publication.
 - Windows artifacts require native platform validation before publication.
 - QStar is licensed under Apache-2.0. Lua vendor license text is preserved in
   `LICENSE/lua.txt`.
