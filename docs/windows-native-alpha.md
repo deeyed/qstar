@@ -84,6 +84,11 @@ On non-Windows hosts, `tests/windows-native-alpha.sh` reports
 
 Current known gaps:
 
+- First observed Q159 alpha run on GitHub Actions `windows-2025-vs2026` with
+  MSYS2 UCRT64 reaches `make all CC=gcc` and fails in `src/daemon.c` because
+  `<sys/socket.h>` is not available. This confirms that the Unix-socket Stella
+  daemon implementation still needs a Windows portability boundary before
+  Windows source build can pass.
 - No Windows public release asset.
 - No stable Windows install layout contract.
 - No Visual Studio, `nmake`, or direct MSVC bootstrap lane.
