@@ -1,0 +1,4 @@
+build/
+stage/
+.ninja_log
+.ninja_deps

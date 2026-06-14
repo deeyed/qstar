@@ -5,12 +5,19 @@ projects. This is still not official Windows host support. The policy exists so
 future Windows work can add native execution, packaging, and CI without changing
 QStar authoring syntax again.
 
+Round Q173 seals the implementation plan for Windows `.exe`, static `.lib`,
+runtime `.dll`, import `.lib`, and PDB/debug artifacts before the shared library
+implementation starts. The matching Graph IR design note is
+`docs/windows-artifact-graph-ir.md`, and the forward-looking corpus lives in
+`tests/corpus/windows-artifacts`.
+
 ## Status
 
 ```txt
 host support: manual native CI alpha
 release asset: none
 policy status: pre-support artifact contract
+implementation plan: sealed for Q173
 local gate: make qstar-windows-prep-tests
 native alpha gate: make qstar-windows-native-alpha-tests
 ```
@@ -41,9 +48,11 @@ qstar.profile "windows-msvc" {
 }
 ```
 
-This is the current `.exe` contract. QStar does not automatically add `.exe`
-just because a profile target looks Windows-like. Automatic host-specific suffix
-selection is deferred until native Windows validation is stable.
+This is the final `.exe` naming contract for the Windows implementation plan.
+QStar does not automatically add `.exe` merely because a profile target looks
+Windows-like. Automatic host-specific suffix selection may be added only after
+native Windows validation is stable, and it must not change existing explicit
+`artifact_name` or profile `artifact_names` behavior.
 
 Install and stage policy:
 
@@ -53,9 +62,9 @@ Install and stage policy:
 
 ## Static Library Artifacts
 
-The cross-host default for `qstar.staticlib` remains `lib<name>.a`. A
-Windows-style static library name is available only through explicit artifact
-naming:
+The cross-host default for `qstar.staticlib` remains Unix-style `lib<name>.a`.
+Windows-style static archives use explicit artifact naming until real Windows
+archive tools are validated:
 
 ```lua
 qstar.staticlib "windows_static" {
@@ -76,7 +85,14 @@ qstar.profile "windows-msvc" {
 ```
 
 This fixes QStar's artifact path, planning contract, Stella action-log surface,
-and Ninja lowering path. The local prep gate also builds a fake
+and Ninja lowering path. It also deliberately separates two different `.lib`
+meanings:
+
+- static archive `.lib`: primary artifact of `qstar.staticlib`
+- import `.lib`: secondary artifact of Windows `qstar.sharedlib`
+
+Those two roles must not share an output group or be inferred from the same
+field. The local prep gate already builds a fake
 `windows_static.lib` with a package-local fake archiver so the `.lib` artifact
 path is tested beyond dry-run. That fixture does not claim that the selected
 archive tool is a native `lib.exe` or `llvm-lib` compatible archiver. Native
@@ -105,23 +121,27 @@ The planned link command uses `kernel32.lib`. `lib_dirs` render as
 
 ## Shared Library Artifacts
 
-Windows shared libraries are not enabled yet. The desired future contract has at
-least three artifact classes:
+Windows shared libraries are not enabled yet, but Q173 fixes the implementation
+contract. A Windows `qstar.sharedlib` has these artifact classes:
 
-- runtime library: `.dll`
-- import library: `.lib`
-- debug artifact: `.pdb`, optional and opt-in
+- runtime library: `.dll`, primary artifact
+- import library: `.lib`, secondary link/interface artifact
+- debug artifact: `.pdb`, optional and opt-in/deferred
 
-QStar's current artifact target model exposes one primary `target_file`. Windows
-shared libraries need a multi-artifact policy before QStar can support them
-without ambiguity. The expected future rule is:
+The primary artifact rule is stable:
 
 - `qstar.target_file("//:plugin")` points to the runtime `.dll`
-- import `.lib` is exposed through a separate future API or explicit generated
-  output, not by overloading the runtime artifact
-- PDB/debug output is opt-in and never silently installed
+- dependent executable/sharedlib targets link against the import `.lib`
+  automatically when the producer is a Windows sharedlib
+- the import `.lib` is addressable through a future selector form:
+  `qstar.target_file("//:plugin", { artifact = "import_lib" })`
+- PDB/debug output is opt-in/deferred and never silently installed
 
-Until that multi-artifact policy exists, Stella and Ninja reject Windows-like
+The selector form extends the existing helper instead of introducing a second
+artifact helper. It keeps QStar authoring centered around `qstar.target_file`,
+while preserving the current one-argument meaning for all existing projects.
+
+Until that multi-artifact implementation lands, Stella and Ninja reject Windows-like
 `qstar.sharedlib` targets with a diagnostic that names the missing runtime
 `.dll`, import `.lib`, and PDB/debug artifact policy.
 
@@ -131,12 +151,44 @@ PDB/debug artifacts are deferred. They should be opt-in metadata or an explicit
 debug artifact in a future release. They are not part of `qstar.target_file` and
 must not be installed or staged implicitly.
 
-Tentative future install/stage policy:
+Q173 does not introduce a stable PDB syntax. Linker options may still mention
+`/PDB:<path>` manually, but that path is not a QStar-owned debug artifact until
+the Graph IR has an explicit `debug_symbols` role. A later implementation may
+make it addressable as:
+
+```lua
+qstar.target_file("//:plugin", { artifact = "debug_symbols" })
+```
+
+only when the target explicitly opts into debug artifact ownership.
+
+Final install/stage direction:
 
 - runtime `.dll`: `bin/`
 - import `.lib`: `lib/`
-- PDB/debug artifact: opt-in role such as `symbols/` or explicit stage entry
+- static `.lib`: `lib/`
+- executable `.exe`: `bin/`
+- PDB/debug artifact: no implicit install; opt-in role such as `symbols/` or
+  explicit stage entry after debug artifact ownership exists
 - public headers: `include/`
+
+Stage follows the same roles, but stage destinations are explicit:
+
+```lua
+qstar.stage "sdk" {
+  root = "build/qstar/stage/sdk",
+  files = {
+    qstar.stage_file(qstar.target_file("//:tool"), "bin/tool.exe"),
+    qstar.stage_file(qstar.target_file("//:core"), "lib/core.lib"),
+    qstar.stage_file(qstar.target_file("//:plugin"), "bin/plugin.dll"),
+    qstar.stage_file(qstar.target_file("//:plugin", { artifact = "import_lib" }),
+      "lib/plugin.lib"),
+  },
+}
+```
+
+The last selector is reserved for the Windows sharedlib implementation and is
+not part of the current stable runtime surface yet.
 
 ## Ninja Lowering Scope
 
@@ -159,6 +211,16 @@ Unsupported until later Windows validation:
 
 Ninja and Stella should reject the same unsupported Windows sharedlib graph. The
 backend choice must not change the Windows artifact contract.
+
+When Windows sharedlib support is implemented, Stella and Ninja parity means:
+
+- both backends compute the same artifact map
+- both emit the same primary runtime `.dll` path
+- both track the import `.lib` as an output of the same link-shared action
+- both link consumers through the import `.lib`, not the runtime `.dll`
+- both keep PDB/debug artifacts out of install/stage unless explicitly owned
+- both preserve `qstar.target_file(label)` as the primary artifact path
+- both reject unsupported selector names with the same diagnostic
 
 ## Diagnostics
 
@@ -189,3 +251,8 @@ The gate verifies explicit `.exe` naming, profile `artifact_names`, external
 package paths, explicit static `.lib` artifact planning, fake static `.lib`
 build output through Stella and Ninja, and Windows sharedlib diagnostic parity.
 It does not claim official Windows support.
+
+Future implementation gates should add `tests/corpus/windows-artifacts` without
+weakening the existing response-file corpus. That corpus documents the expected
+`.exe`, static `.lib`, runtime `.dll`, import `.lib`, install/stage, and
+Stella/Ninja parity surface in one Windows-focused project shape.
