@@ -159,18 +159,33 @@ tools/perf-summary.sh /tmp/qstar-medium.perf
 대표 출력:
 
 ```txt
-perf_summary sample gate=medium mode=medium backend=stella phase=clean count=3 min_ms=237 median_ms=247 max_ms=260
-perf_summary sample gate=medium mode=medium backend=stella-daemon phase=noop count=3 min_ms=20 median_ms=22 max_ms=25
-perf_summary ratio gate=medium mode=medium backend=stella phase=clean backend_median_ms=247 ninja_median_ms=251 ratio_x100=98 threshold_x100=200 slack_ms=250 status=ok
-perf_summary ratio gate=medium mode=medium backend=stella-daemon phase=noop backend_median_ms=22 ninja_median_ms=73 ratio_x100=30 threshold_x100=200 slack_ms=250 status=ok
-perf_summary status=ok sample_count=12 ratio_count=9 warning_count=0 hard=0 threshold_x100=200 slack_ms=250
+perf_summary sample gate=medium mode=medium backend=stella phase=clean count=3 min_ms=237 median_ms=247 max_ms=260 skipped_reason=
+perf_summary sample gate=medium mode=medium backend=stella-daemon phase=noop count=3 min_ms=20 median_ms=22 max_ms=25 skipped_reason=
+perf_summary sample gate=medium mode=medium backend=stella-daemon phase=clean count=1 min_ms=skipped median_ms=skipped max_ms=skipped skipped_reason=socket-bind-not-permitted
+perf_summary ratio gate=medium mode=medium backend=stella phase=clean backend_median_ms=247 ninja_median_ms=251 ratio_x100=98 threshold_x100=200 slack_ms=250 warn_threshold_x100=200 warn_slack_ms=250 hard_threshold_x100=200 hard_slack_ms=250 status=ok
+perf_summary ratio gate=medium mode=medium backend=stella-daemon phase=noop backend_median_ms=22 ninja_median_ms=73 ratio_x100=30 threshold_x100=200 slack_ms=250 warn_threshold_x100=200 warn_slack_ms=250 hard_threshold_x100=200 hard_slack_ms=250 status=ok
+perf_summary status=ok sample_count=12 skipped_count=1 ratio_count=9 warning_count=0 hard_failure_count=0 hard=0 threshold_x100=200 slack_ms=250 hard_threshold_x100=200 hard_slack_ms=250
 ```
 
 Release note에 붙일 표는 markdown format으로 만든다.
 
 ```sh
-tools/perf-summary.sh --format markdown --label "QStar v0.5 perf snapshot" \
+tools/perf-summary.sh --format markdown --label "QStar perf snapshot" \
   /tmp/qstar-medium.perf
+```
+
+Markdown sample table은 모든 host에서 같은 column을 쓴다. Daemon이 sandbox나 host policy 때문에
+실행되지 않았으면 numeric cell을 비우지 않고 `Skipped reason` column에 이유를 남긴다.
+
+```md
+| Gate | Mode | Backend | Phase | Count | Min ms | Median ms | Max ms | Skipped reason |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- |
+| medium | medium | stella | clean | 3 | 237 | 247 | 260 |  |
+| medium | medium | stella-daemon | clean | 1 | - | - | - | socket-bind-not-permitted |
+
+| Gate | Mode | Backend | Phase | Backend median ms | Ninja median ms | Ratio | Warn threshold | Hard threshold | Status |
+| --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- |
+| medium | medium | stella | clean | 247 | 251 | 0.98x | 2.00x + 250ms | 2.00x + 250ms | ok |
 ```
 
 3회 반복 측정도 같은 도구에서 지원한다. `--` 뒤 command는 shell string이 아니라 argv-vector로
@@ -181,19 +196,59 @@ tools/perf-summary.sh --repeat 3 -- \
   env QSTAR_TEST_QSTAR=./build/bin/qstar sh tests/medium-project-performance.sh
 ```
 
-Threshold는 기본적으로 report-only다. `--hard`를 붙이면 ratio warning이 exit failure가 된다.
-따라서 local/release note 수집에는 기본 mode를 쓰고, CI에서 timing을 gate로 승격할 때만
-`--hard`를 사용한다.
+Threshold는 warning threshold와 hard threshold로 나눈다. Warning threshold는 release note와
+CI artifact에서 "주의가 필요한 수치"를 표시하는 report-only 기준이다. Hard threshold는
+`--hard`와 함께 쓸 때 exit failure로 승격할 기준이다. `--ratio-x100`과 `--slack-ms`는
+compatibility alias로 유지되며 warning threshold를 뜻한다.
 
 ```sh
-tools/perf-summary.sh --ratio-x100 200 --slack-ms 250 --hard /tmp/qstar-medium.perf
+tools/perf-summary.sh \
+  --warn-ratio-x100 150 --warn-slack-ms 0 \
+  --hard-ratio-x100 200 --hard-slack-ms 250 \
+  /tmp/qstar-medium.perf
+
+tools/perf-summary.sh \
+  --warn-ratio-x100 150 --warn-slack-ms 0 \
+  --hard-ratio-x100 200 --hard-slack-ms 250 \
+  --hard /tmp/qstar-medium.perf
 ```
 
-Makefile target도 제공한다.
+Makefile target도 제공한다. `qstar-perf-summary-tests`는 도구 자체의 parser와 markdown
+계약을 빠르게 검사하고, `qstar-performance-release-gate`는 medium/large raw log와 markdown
+summary를 release artifact 형태로 만든다.
 
 ```sh
 make qstar-perf-summary-tests
+
+QSTAR_PERF_REPEAT=3 \
+QSTAR_PERF_ARTIFACT_DIR=dist/perf \
+make qstar-performance-release-gate
 ```
+
+Release gate output:
+
+```txt
+dist/perf/medium-release-raw.txt
+dist/perf/medium-release-summary.txt
+dist/perf/medium-release-summary.md
+dist/perf/large-release-raw.txt
+dist/perf/large-release-summary.txt
+dist/perf/large-release-summary.md
+```
+
+Q176 release gate format은 macOS local run과 Linux CI artifact가 같은 markdown table을
+사용한다. Host/OS 차이는 label과 artifact name으로 표현하고, table column은 바꾸지 않는다.
+
+| Snapshot | Host | Corpus | Repeat | Stella clean | Stella no-op | Stella incremental | Ninja clean | Ninja no-op | Ninja incremental | Daemon |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Q166 | macOS arm64 | large 200 | 3 | 1054ms | 80ms | 137ms | 1220ms | 102ms | 154ms | measured |
+| Q166 | macOS arm64 | large 500 | 3 | 2437ms | 101ms | 145ms | 2816ms | 144ms | 228ms | measured |
+| Q169 | macOS arm64 | medium 47 | 1 | 236ms | 76ms | 91ms | 269ms | 74ms | 103ms | skipped: socket bind |
+| Q176 dry run | macOS arm64 | medium 47 | 1 | 269ms | 68ms | 89ms | 252ms | 72ms | 97ms | skipped: socket bind |
+| Q176 dry run | macOS arm64 | large 200 | 1 | 984ms | 72ms | 114ms | 1012ms | 92ms | 141ms | skipped: socket bind |
+
+Q176 dry run은 `QSTAR_PERF_REPEAT=1 QSTAR_LARGE_PROJECT_TARGETS=200`으로 release artifact
+format을 검증한 값이다. Public release note에는 repeat-3 또는 hosted CI artifact를 우선한다.
 
 ## Linux CI Performance Artifacts
 

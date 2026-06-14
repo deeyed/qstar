@@ -178,8 +178,12 @@ QStar가 하지 않는 일:
   `QSTAR_MEDIUM_PERF_REPORT_ONLY=0`이면 hard gate로 승격된다.
 - `make qstar-large-project-performance-tests`는 200/500 target synthetic corpus의 scaling을
   report-only line protocol로 기록한다. `tools/perf-summary.sh`는 medium/large output을
-  읽어 min/median/max와 Stella/Ninja ratio를 요약하고, `--repeat 3 -- ...`와
-  `--format markdown`으로 release note용 표를 만든다.
+  읽어 min/median/max와 Stella/Ninja ratio를 요약한다. `--format markdown` output은
+  `Skipped reason`, `Warn threshold`, `Hard threshold` column을 포함하므로 macOS local run과
+  Linux CI artifact가 같은 table format을 쓴다. `qstar-performance-release-gate`는
+  medium/large를 `QSTAR_PERF_REPEAT` 횟수만큼 실행하고 `dist/perf/*-release-summary.md`를
+  만든다.
+  Warning threshold는 report-only 기준이고, hard threshold는 `--hard`와 함께 쓰면 실패 기준이다.
   Q166 repeat-3 local snapshot은 `docs/perf/q166-large-performance-refresh.md`에 보관하며,
   normal Stella가 200/500 target large corpus에서 Ninja median과 같은 급 또는 더 빠른
   수치를 보였다는 0.7 readiness 입력으로 쓴다.

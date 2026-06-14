@@ -3824,6 +3824,10 @@ contains "docs/performance-gates.md" "dist/perf/linux-<compiler>-medium-perf.txt
 contains "docs/performance-gates.md" "async_final_actions"
 contains "docs/performance-gates.md" "Large Synthetic Corpus Gate"
 contains "docs/performance-gates.md" "large_project_gate"
+contains "docs/performance-gates.md" "qstar-performance-release-gate"
+contains "docs/performance-gates.md" "Skipped reason"
+contains "docs/performance-gates.md" "hard_threshold_x100"
+contains "docs/performance-gates.md" "Q176 release gate format"
 contains "docs/performance-gates.md" "Round Q166 local macOS arm64 repeat-3"
 contains "docs/performance-gates.md" "perf_summary sample gate=large mode=500 backend=stella-daemon phase=clean count=3"
 contains "docs/performance-gates.md" 'POSIX `poll()`'
@@ -3837,6 +3841,10 @@ contains "wiki/reference/performance-gates.md" "dist/perf/linux-<compiler>-mediu
 contains "wiki/reference/performance-gates.md" "async_final_actions"
 contains "wiki/reference/performance-gates.md" "Large Synthetic Corpus"
 contains "wiki/reference/performance-gates.md" "large_project_gate"
+contains "wiki/reference/performance-gates.md" "qstar-performance-release-gate"
+contains "wiki/reference/performance-gates.md" "Skipped reason"
+contains "wiki/reference/performance-gates.md" "hard_threshold_x100"
+contains "wiki/reference/performance-gates.md" "Q176 release gate format"
 contains "wiki/reference/performance-gates.md" "Round Q166 local macOS arm64 repeat-3"
 contains "wiki/reference/performance-gates.md" "perf_summary sample gate=large mode=500 backend=stella-daemon phase=clean count=3"
 contains "wiki/reference/performance-gates.md" "POSIX"
@@ -4261,6 +4269,7 @@ contains "Makefile" "qstar-systems-corpus-tests"
 contains "Makefile" "qstar-medium-project-readiness-tests"
 contains "Makefile" "qstar-large-project-performance-tests"
 contains "Makefile" "qstar-perf-summary-tests"
+contains "Makefile" "qstar-performance-release-gate"
 contains "tools/package-public-beta.sh" "SHA256SUMS"
 contains "tools/package-public-beta.sh" "VSCode VSIX must not be included"
 contains "tools/package-public-beta.sh" "linux-x86_64 release package must be built on a Linux host"
@@ -4337,24 +4346,34 @@ large_project_gate mode=200 backend=stella-daemon phase=clean elapsed_ms=710
 large_project_gate mode=200 backend=ninja phase=clean elapsed_ms=1000
 large_project_gate mode=200 backend=ninja phase=clean elapsed_ms=990
 large_project_gate mode=200 backend=ninja phase=clean elapsed_ms=1010
+large_project_gate mode=500 backend=stella-daemon phase=clean elapsed_ms=skipped reason=socket-bind-not-permitted
 EOF
 tools/perf-summary.sh "$tmp/perf-summary.in" > "$tmp/perf-summary.out" 2> "$tmp/perf-summary.err"
 contains "$tmp/perf-summary.out" "perf_summary sample gate=medium mode=medium backend=stella phase=clean count=3 min_ms=130 median_ms=150 max_ms=170"
 contains "$tmp/perf-summary.out" "perf_summary sample gate=medium mode=medium backend=stella-daemon phase=clean count=3 min_ms=85 median_ms=90 max_ms=95"
 contains "$tmp/perf-summary.out" "perf_summary sample gate=large mode=200 backend=stella phase=clean count=3 min_ms=880 median_ms=900 max_ms=920"
 contains "$tmp/perf-summary.out" "perf_summary sample gate=large mode=200 backend=stella-daemon phase=clean count=3 min_ms=690 median_ms=700 max_ms=710"
+contains "$tmp/perf-summary.out" "perf_summary sample gate=large mode=500 backend=stella-daemon phase=clean count=1 min_ms=skipped median_ms=skipped max_ms=skipped skipped_reason=socket-bind-not-permitted"
 contains "$tmp/perf-summary.out" "perf_summary ratio gate=medium mode=medium backend=stella phase=clean backend_median_ms=150 ninja_median_ms=105 ratio_x100=143"
 contains "$tmp/perf-summary.out" "perf_summary ratio gate=medium mode=medium backend=stella-daemon phase=clean backend_median_ms=90 ninja_median_ms=105 ratio_x100=86"
-contains "$tmp/perf-summary.out" "perf_summary status=ok sample_count=15 ratio_count=11 warning_count=0 hard=0"
+contains "$tmp/perf-summary.out" "warn_threshold_x100=200"
+contains "$tmp/perf-summary.out" "hard_threshold_x100=200"
+contains "$tmp/perf-summary.out" "perf_summary status=ok sample_count=15 skipped_count=1 ratio_count=11 warning_count=0 hard_failure_count=0 hard=0"
 tools/perf-summary.sh --format markdown --label "QStar perf" "$tmp/perf-summary.in" > "$tmp/perf-summary.md" 2> "$tmp/perf-summary-md.err"
 contains "$tmp/perf-summary.md" "## QStar perf"
-contains "$tmp/perf-summary.md" "| Gate | Mode | Backend | Phase | Count | Min ms | Median ms | Max ms |"
-contains "$tmp/perf-summary.md" "| medium | medium | stella | clean | 3 | 130 | 150 | 170 |"
-contains "$tmp/perf-summary.md" "| medium | medium | stella-daemon | clean | 3 | 85 | 90 | 95 |"
-if tools/perf-summary.sh --ratio-x100 100 --slack-ms 0 --hard "$tmp/perf-summary.in" > "$tmp/perf-summary-hard.out" 2> "$tmp/perf-summary-hard.err"; then
+contains "$tmp/perf-summary.md" "| Gate | Mode | Backend | Phase | Count | Min ms | Median ms | Max ms | Skipped reason |"
+contains "$tmp/perf-summary.md" "| medium | medium | stella | clean | 3 | 130 | 150 | 170 |  |"
+contains "$tmp/perf-summary.md" "| medium | medium | stella-daemon | clean | 3 | 85 | 90 | 95 |  |"
+contains "$tmp/perf-summary.md" "| large | 500 | stella-daemon | clean | 1 | - | - | - | socket-bind-not-permitted |"
+contains "$tmp/perf-summary.md" "Warn threshold"
+contains "$tmp/perf-summary.md" "Hard threshold"
+if tools/perf-summary.sh --warn-ratio-x100 100 --warn-slack-ms 0 --hard "$tmp/perf-summary.in" > "$tmp/perf-summary-hard.out" 2> "$tmp/perf-summary-hard.err"; then
 	fail "perf summary hard threshold unexpectedly passed"
 fi
-contains "$tmp/perf-summary-hard.out" "status=warn"
+contains "$tmp/perf-summary-hard.out" "status=fail"
+tools/perf-summary.sh --warn-ratio-x100 100 --warn-slack-ms 0 --hard-ratio-x100 200 --hard-slack-ms 0 "$tmp/perf-summary.in" > "$tmp/perf-summary-warn.out" 2> "$tmp/perf-summary-warn.err"
+contains "$tmp/perf-summary-warn.out" "status=warn"
+contains "$tmp/perf-summary-warn.out" "hard_failure_count=0"
 tools/perf-summary.sh --repeat 2 -- printf '%s\n' \
   "medium_project_gate backend=stella phase=clean elapsed_ms=10" \
   "medium_project_gate backend=ninja phase=clean elapsed_ms=10" \

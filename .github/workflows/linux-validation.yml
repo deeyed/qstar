@@ -81,7 +81,10 @@ jobs:
           grep -F "medium_project_gate backend=ninja phase=clean" "$perf_raw"
           tools/perf-summary.sh "$perf_raw" | tee "$perf_summary"
           grep -F "perf_summary status=ok" "$perf_summary"
+          grep -F "hard_threshold_x100=" "$perf_summary"
           tools/perf-summary.sh --format markdown --label "Linux ${{ matrix.compiler }} medium performance" "$perf_raw" > "$perf_markdown"
+          grep -F "Skipped reason" "$perf_markdown"
+          grep -F "Hard threshold" "$perf_markdown"
           test -s "$perf_markdown"
 
       - name: Upload Linux medium performance artifact
@@ -254,8 +257,11 @@ jobs:
             exit 1
           fi
           tools/perf-summary.sh "$perf_raw" | tee "$perf_summary"
+          grep -F "hard_threshold_x100=" "$perf_summary"
           tools/perf-summary.sh --format markdown --label "Linux daemon medium performance" \
             "$perf_raw" > "$perf_markdown"
+          grep -F "Skipped reason" "$perf_markdown"
+          grep -F "Hard threshold" "$perf_markdown"
 
       - name: Upload Linux daemon validation artifact
         uses: actions/upload-artifact@v4
@@ -412,7 +418,10 @@ jobs:
           grep -F "large_project_gate mode=200" "$perf_raw"
           grep -F "large_project_gate mode=500" "$perf_raw"
           tools/perf-summary.sh "$perf_raw" | tee "$perf_summary"
+          grep -F "hard_threshold_x100=" "$perf_summary"
           tools/perf-summary.sh --format markdown --label "Linux gcc large synthetic performance" "$perf_raw" > "$perf_markdown"
+          grep -F "Skipped reason" "$perf_markdown"
+          grep -F "Hard threshold" "$perf_markdown"
 
       - name: Upload Linux large performance artifact
         uses: actions/upload-artifact@v4

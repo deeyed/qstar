@@ -60,7 +60,7 @@ LUA_SRCS = \
 
 QSTAR_OBJS = $(QSTAR_SRCS:%.c=$(QSTAR_BUILD)/%.o)
 LUA_OBJS = $(LUA_SRCS:%.c=$(QSTAR_BUILD)/%.o)
-.PHONY: all check qstar-tests qstar-fmt-tests qstar-lint-tests qstar-lsp-tests qstar-lsp-navigation-tests qstar-editor-query-tests qstar-ninja-backend-parity-tests qstar-medium-project-readiness-tests qstar-large-project-performance-tests qstar-perf-summary-tests qstar-self-host-tests qstar-linux-validation-tests qstar-linux-daemon-validation-tests qstar-windows-prep-tests qstar-windows-native-alpha-tests qstar-public-beta-package qstar-public-beta-linux-package qstar-public-beta-github-upload qstar-public-beta-release-tests qstar-public-beta-download-smoke vscode-extension-tests qstar-v0-release-tests qstar-v0.1-release-tests qstar-v0.1-hardening-tests qstar-v0.2-authoring-tests qstar-v0.2-rc-tests qstar-v0.3-rc-tests qstar-v0.4-pilot-tests qstar-v0.5-readiness-tests qstar-pilot-readiness-tests qstar-wiki-cli-sync-tests qstar-release-candidate-tests qstar-full-regression-tests qstar-systems-corpus-tests qstar-project-corpus-tests qstar-standalone-integration-tests qstar-executor-v2-tests install clean
+.PHONY: all check qstar-tests qstar-fmt-tests qstar-lint-tests qstar-lsp-tests qstar-lsp-navigation-tests qstar-editor-query-tests qstar-ninja-backend-parity-tests qstar-medium-project-readiness-tests qstar-large-project-performance-tests qstar-perf-summary-tests qstar-performance-release-gate qstar-self-host-tests qstar-linux-validation-tests qstar-linux-daemon-validation-tests qstar-windows-prep-tests qstar-windows-native-alpha-tests qstar-public-beta-package qstar-public-beta-linux-package qstar-public-beta-github-upload qstar-public-beta-release-tests qstar-public-beta-download-smoke vscode-extension-tests qstar-v0-release-tests qstar-v0.1-release-tests qstar-v0.1-hardening-tests qstar-v0.2-authoring-tests qstar-v0.2-rc-tests qstar-v0.3-rc-tests qstar-v0.4-pilot-tests qstar-v0.5-readiness-tests qstar-pilot-readiness-tests qstar-wiki-cli-sync-tests qstar-release-candidate-tests qstar-full-regression-tests qstar-systems-corpus-tests qstar-project-corpus-tests qstar-standalone-integration-tests qstar-executor-v2-tests install clean
 
 all: $(BIN_DIR)/qstar
 
@@ -124,7 +124,48 @@ qstar-perf-summary-tests: all
 	grep -F "perf_summary sample gate=medium mode=medium backend=stella phase=clean" "$$tmp/summary.out"; \
 	grep -F "perf_summary ratio gate=medium mode=medium backend=stella phase=clean" "$$tmp/summary.out"; \
 	tools/perf-summary.sh --format markdown "$$tmp/medium.out" > "$$tmp/summary.md"; \
-	grep -F "| Gate | Mode | Backend | Phase | Count | Min ms | Median ms | Max ms |" "$$tmp/summary.md"
+	grep -F "| Gate | Mode | Backend | Phase | Count | Min ms | Median ms | Max ms | Skipped reason |" "$$tmp/summary.md"; \
+	{ \
+		printf '%s\n' 'medium_project_gate backend=stella phase=clean elapsed_ms=300'; \
+		printf '%s\n' 'medium_project_gate backend=ninja phase=clean elapsed_ms=100'; \
+		printf '%s\n' 'medium_project_gate backend=stella-daemon phase=clean elapsed_ms=skipped reason=socket-bind-not-permitted'; \
+		printf '%s\n' 'large_project_gate mode=200 backend=stella phase=clean elapsed_ms=180'; \
+		printf '%s\n' 'large_project_gate mode=200 backend=ninja phase=clean elapsed_ms=100'; \
+	} > "$$tmp/synthetic.out"; \
+	tools/perf-summary.sh --ratio-x100 150 --slack-ms 0 --hard-ratio-x100 250 --hard-slack-ms 0 "$$tmp/synthetic.out" > "$$tmp/synthetic-summary.out"; \
+	grep -F "skipped_reason=socket-bind-not-permitted" "$$tmp/synthetic-summary.out"; \
+	grep -F "hard_threshold_x100=250" "$$tmp/synthetic-summary.out"; \
+	tools/perf-summary.sh --format markdown "$$tmp/synthetic.out" > "$$tmp/synthetic-summary.md"; \
+	grep -F "| medium | medium | stella-daemon | clean | 1 | - | - | - | socket-bind-not-permitted |" "$$tmp/synthetic-summary.md"
+
+qstar-performance-release-gate: all
+	set -e; \
+	bin="$(BIN_DIR)/qstar"; \
+	case "$$bin" in /*) ;; *) bin="$(CURDIR)/$$bin";; esac; \
+	repeat="$${QSTAR_PERF_REPEAT:-3}"; \
+	out_dir="$${QSTAR_PERF_ARTIFACT_DIR:-dist/perf}"; \
+	mkdir -p "$$out_dir"; \
+	medium_raw="$$out_dir/medium-release-raw.txt"; \
+	large_raw="$$out_dir/large-release-raw.txt"; \
+	: > "$$medium_raw"; \
+	: > "$$large_raw"; \
+	i=1; \
+	while [ "$$i" -le "$$repeat" ]; do \
+		printf 'qstar-performance-release-gate: medium run %s/%s\n' "$$i" "$$repeat"; \
+		QSTAR_TEST_QSTAR="$$bin" sh tests/medium-project-performance.sh >> "$$medium_raw"; \
+		i=$$((i + 1)); \
+	done; \
+	i=1; \
+	while [ "$$i" -le "$$repeat" ]; do \
+		printf 'qstar-performance-release-gate: large run %s/%s\n' "$$i" "$$repeat"; \
+		QSTAR_TEST_QSTAR="$$bin" sh tests/large-project-performance.sh >> "$$large_raw"; \
+		i=$$((i + 1)); \
+	done; \
+	tools/perf-summary.sh --label "QStar medium release performance" "$$medium_raw" > "$$out_dir/medium-release-summary.txt"; \
+	tools/perf-summary.sh --format markdown --label "QStar medium release performance" "$$medium_raw" > "$$out_dir/medium-release-summary.md"; \
+	tools/perf-summary.sh --label "QStar large release performance" "$$large_raw" > "$$out_dir/large-release-summary.txt"; \
+	tools/perf-summary.sh --format markdown --label "QStar large release performance" "$$large_raw" > "$$out_dir/large-release-summary.md"; \
+	printf 'qstar-performance-release-gate: artifacts in %s\n' "$$out_dir"
 
 qstar-self-host-tests: all
 	bin="$(BIN_DIR)/qstar"; \
