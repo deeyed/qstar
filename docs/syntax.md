@@ -424,7 +424,10 @@ qstar.executable "app" {
 `deps`와 `public_deps`는 public include propagation을 허용한다. `private_deps`는
 build/link에는 참여하지만 consumer include path에는 영향을 주지 않는다.
 `sharedlib` target은 Darwin-like profile에서는 `.dylib`, Linux-like profile에서는 `.so`를
-생성한다. Windows `.dll`/import-library/PDB 정책은 아직 deferred diagnostic이다.
+생성한다. sharedlib에 의존하는 executable/test/sharedlib link action에는 build-tree 실행을
+위한 최소 rpath가 자동으로 추가된다. macOS는 `@loader_path/<relative-lib-dir>`,
+Linux는 `$ORIGIN/<relative-lib-dir>`를 사용한다. Windows `.dll`/import-library/PDB 정책은
+아직 deferred diagnostic이다.
 
 Round 19부터 test/install skeleton이 들어간다.
 
@@ -445,8 +448,9 @@ qstar --file qstar.lua stage //:esp
 
 `qstar test`는 test executable을 먼저 build하고 실행한다. stdout/stderr는
 `build/qstar/logs`에 보존된다. `qstar install`은 build된 executable, staticlib,
-sharedlib artifact와 public header를 prefix로 복사한다. package fetch와 registry metadata는
-아직 범위 밖이다.
+sharedlib artifact와 public header를 prefix로 복사한다. `qstar.stage`는
+`qstar.target_file("//:shared")`를 통해 sharedlib artifact를 stage tree로 복사할 수 있다.
+package fetch와 registry metadata는 아직 범위 밖이다.
 
 Round 56부터 `qstar.run_target`은 stdout, stderr, 선택적 `marker_log` 파일에서 marker를
 찾는다. QEMU나 emulator wrapper는 `qstar.cli { ... }`로 표현하고, serial output을

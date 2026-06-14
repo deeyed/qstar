@@ -369,7 +369,8 @@ Round 18 link policy invariant:
 - duplicate dependency/library/framework declarations are stable diagnostics.
 - `libs`, `lib_dirs`, and `frameworks` are rendered as target-profile-shaped
   argv flags; frameworks are Darwin-only.
-- `sharedlib` builds and installs on Darwin/Linux-like profiles; Windows
+- `sharedlib` builds and installs on Darwin/Linux-like profiles. Consumers get
+  build-tree runtime rpath flags based on `@loader_path` or `$ORIGIN`. Windows
   `.dll`/import-library/PDB policy rejects with a stable diagnostic.
 
 Round 19 developer-loop invariant:

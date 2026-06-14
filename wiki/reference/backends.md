@@ -52,8 +52,11 @@ qstar --file qstar.lua replay //:app:link:0
 ## Platform Policy
 
 `qstar.sharedlib`는 Darwin-like profile에서 `.dylib`와 `install_name`, Linux-like profile에서
-`.so`와 `soname`을 생성한다. Windows-like profile의 `.dll`/import-library/PDB/install
-layout은 아직 deferred이며 Stella/Ninja 모두 같은 diagnostic으로 거부한다.
+`.so`와 `soname`을 생성한다. sharedlib dependency를 link하는 executable/test/sharedlib
+edge에는 build-tree 실행용 rpath가 자동으로 추가된다. Stella는 실제 argv에
+`$ORIGIN`/`@loader_path` rpath를 넣고, Ninja lowering도 같은 의미의 `description`/command
+edge를 생성한다. Windows-like profile의 `.dll`/import-library/PDB/install layout은 아직
+deferred이며 Stella/Ninja 모두 같은 diagnostic으로 거부한다.
 
 Cale source action은 Stella-only language-provider action이다. Ninja wrapper lowering은
 이번 release에서 deferred이며, Cale source를 포함하는 target은 `-G stella`를 사용한다.

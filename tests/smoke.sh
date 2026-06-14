@@ -2923,6 +2923,10 @@ cat > "$tmp/src/link_main.c" <<'EOF'
 int util_value(void);
 int main(void) { return util_value() - core_value(); }
 EOF
+cat > "$tmp/src/plugin_main.c" <<'EOF'
+#include "core.h"
+int main(void) { return core_value() - 13; }
+EOF
 cat > "$tmp/src/bad_private.c" <<'EOF'
 #include "core_private.h"
 int main(void) { return CORE_PRIVATE_VALUE; }
@@ -2971,6 +2975,18 @@ qstar.sharedlib "plugin" {
   },
 }
 
+qstar.executable "plugin_app" {
+  sources = {"src/plugin_main.c"},
+  deps = {"//:plugin"},
+}
+
+qstar.stage "shared_bundle" {
+  root = "stage/shared",
+  files = {
+    qstar.stage_file(qstar.target_file("//:plugin"), "lib/plugin.shared"),
+  },
+}
+
 qstar.profile "windows-shared" {
   target = "x86_64-pc-windows-msvc",
   toolchain = "clang",
@@ -3015,16 +3031,22 @@ case "$(uname -s)" in
 		shared_artifact="build/qstar/out/___plugin/libplugin.dylib"
 		shared_flag="-dynamiclib"
 		shared_name_flag="@rpath/libplugin.dylib"
+		shared_rpath_flag="-Wl,-rpath,@loader_path/../___plugin"
+		shared_ninja_rpath_flag="-Wl,-rpath,@loader_path/../___plugin"
 		;;
 	Linux)
 		shared_artifact="build/qstar/out/___plugin/libplugin.so"
 		shared_flag="-shared"
 		shared_name_flag="-Wl,-soname,libplugin.so"
+		shared_rpath_flag='-Wl,-rpath,$ORIGIN/../___plugin'
+		shared_ninja_rpath_flag='-Wl,-rpath,$$ORIGIN/../___plugin'
 		;;
 	*)
 		shared_artifact="build/qstar/out/___plugin/libplugin.so"
 		shared_flag="-shared"
 		shared_name_flag="-Wl,-soname,libplugin.so"
+		shared_rpath_flag='-Wl,-rpath,$ORIGIN/../___plugin'
+		shared_ninja_rpath_flag='-Wl,-rpath,$$ORIGIN/../___plugin'
 		;;
 esac
 
@@ -3041,21 +3063,36 @@ test -f "$tmp/$shared_artifact" || fail "sharedlib artifact missing"
 contains "$tmp/shared-log.out" "description='Linking C shared library $shared_artifact'"
 contains "$tmp/shared-log.out" "$shared_flag"
 contains "$tmp/shared-log.out" "status ok"
+"$qstar" --file "$tmp/qstar.lua" build //:plugin_app --progress off > "$tmp/shared-app.out" 2> "$tmp/shared-app.err"
+contains "$tmp/shared-app.out" "status ok"
+"$tmp/build/qstar/out/___plugin_app/plugin_app"
+"$qstar" --file "$tmp/qstar.lua" action-log //:plugin_app:link:0 > "$tmp/shared-app-log.out" 2> "$tmp/shared-app-log.err"
+contains "$tmp/shared-app-log.out" "$shared_artifact"
+contains "$tmp/shared-app-log.out" "$shared_rpath_flag"
+"$qstar" --file "$tmp/qstar.lua" stage //:shared_bundle > "$tmp/shared-stage.out" 2> "$tmp/shared-stage.err"
+contains "$tmp/shared-stage.out" "status ok"
+contains "$tmp/shared-stage.out" "stage_file src=$shared_artifact dst=stage/shared/lib/plugin.shared mode=copy kind=target producer=//:plugin"
+test -f "$tmp/stage/shared/lib/plugin.shared" || fail "sharedlib stage artifact missing"
+contains "$tmp/build/qstar/stage/___shared_bundle/manifest.json" "\"producer\":\"//:plugin\""
 "$qstar" --file "$tmp/qstar.lua" install //:plugin --prefix "$tmp/shared-prefix" > "$tmp/shared-install.out" 2> "$tmp/shared-install.err"
 contains "$tmp/shared-install.out" "status ok"
 test -f "$tmp/shared-prefix/lib/$(basename "$shared_artifact")" || fail "sharedlib install artifact missing"
 test -f "$tmp/shared-prefix/include/core.h" || fail "sharedlib install header missing"
 contains "$tmp/build/qstar/install/manifest.json" "\"role\":\"sharedlib\""
-"$qstar" --file "$tmp/qstar.lua" emit-ninja //:plugin > "$tmp/shared-ninja-emit.out" 2> "$tmp/shared-ninja-emit.err"
+"$qstar" --file "$tmp/qstar.lua" emit-ninja //:plugin_app > "$tmp/shared-ninja-emit.out" 2> "$tmp/shared-ninja-emit.err"
 contains "$tmp/build/qstar/ninja/build.ninja" "qstar_action_id = //:plugin:link-shared:0"
+contains "$tmp/build/qstar/ninja/build.ninja" "qstar_action_id = //:plugin_app:link:0"
 contains "$tmp/build/qstar/ninja/build.ninja" "description = Linking C shared library $shared_artifact"
 contains "$tmp/build/qstar/ninja/build.ninja" "$shared_flag"
 contains "$tmp/build/qstar/ninja/build.ninja" "$shared_name_flag"
+contains "$tmp/build/qstar/ninja/build.ninja" "$shared_ninja_rpath_flag"
 if command -v ninja >/dev/null 2>&1; then
-	"$qstar" --file "$tmp/qstar.lua" -G ninja build //:plugin --progress off > "$tmp/shared-ninja.out" 2> "$tmp/shared-ninja.err"
+	"$qstar" --file "$tmp/qstar.lua" -G ninja build //:plugin_app --progress off > "$tmp/shared-ninja.out" 2> "$tmp/shared-ninja.err"
 	contains "$tmp/shared-ninja.out" "backend ninja"
 	contains "$tmp/shared-ninja.out" "status ok"
 	test -f "$tmp/$shared_artifact" || fail "sharedlib ninja artifact missing"
+	test -f "$tmp/build/qstar/out/___plugin_app/plugin_app" || fail "sharedlib ninja app missing"
+	"$tmp/build/qstar/out/___plugin_app/plugin_app"
 	test ! -f "$tmp/.ninja_log" || fail "sharedlib ninja wrote package root .ninja_log"
 	test ! -f "$tmp/.ninja_deps" || fail "sharedlib ninja wrote package root .ninja_deps"
 fi

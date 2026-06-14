@@ -62,6 +62,10 @@ int qstar_dirname(const char *path, char *dst, size_t dstlen);
 /** 두 path 조각을 slash 기준으로 결합한다. */
 int qstar_path_join(const char *a, const char *b, char *dst, size_t dstlen);
 
+/** 두 package-relative directory 사이의 상대 directory path를 계산한다. */
+int qstar_path_relative_between_dirs(const char *from_dir, const char *to_dir,
+    char *dst, size_t dstlen);
+
 /** QStar path가 package-relative normalized path인지 검사한다. */
 int qstar_path_is_package_relative(const char *path);
 

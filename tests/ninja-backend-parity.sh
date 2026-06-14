@@ -100,6 +100,18 @@ qstar.sharedlib "plugin" {
   sources = {"src/plugin.c"},
 }
 
+qstar.executable "plugin_app" {
+  sources = {"src/main.c"},
+  deps = {"//:plugin"},
+}
+
+qstar.stage "shared_bundle" {
+  root = "stage/shared",
+  files = {
+    qstar.stage_file(qstar.target_file("//:plugin"), "lib/plugin.shared"),
+  },
+}
+
 qstar.profile "windows-shared" {
   target = "x86_64-pc-windows-msvc",
   toolchain = "clang",
@@ -108,28 +120,37 @@ QSTAR
 cat > "$tmp/shared/src/plugin.c" <<'SRC'
 int plugin_value(void) { return 9; }
 SRC
+cat > "$tmp/shared/src/main.c" <<'SRC'
+int plugin_value(void);
+int main(void) { return plugin_value() - 9; }
+SRC
 case "$(uname -s)" in
 	Darwin)
 		shared_artifact="build/qstar/out/___plugin/libplugin.dylib"
 		shared_flag="-dynamiclib"
 		shared_name_flag="@rpath/libplugin.dylib"
+		shared_ninja_rpath_flag="-Wl,-rpath,@loader_path/../___plugin"
 		;;
 	Linux)
 		shared_artifact="build/qstar/out/___plugin/libplugin.so"
 		shared_flag="-shared"
 		shared_name_flag="-Wl,-soname,libplugin.so"
+		shared_ninja_rpath_flag='-Wl,-rpath,$$ORIGIN/../___plugin'
 		;;
 	*)
 		shared_artifact="build/qstar/out/___plugin/libplugin.so"
 		shared_flag="-shared"
 		shared_name_flag="-Wl,-soname,libplugin.so"
+		shared_ninja_rpath_flag='-Wl,-rpath,$$ORIGIN/../___plugin'
 		;;
 esac
-"$qstar" --file "$tmp/shared/qstar.lua" emit-ninja //:plugin > "$tmp/shared-emit.out" 2> "$tmp/shared-emit.err"
+"$qstar" --file "$tmp/shared/qstar.lua" emit-ninja //:plugin_app > "$tmp/shared-emit.out" 2> "$tmp/shared-emit.err"
 contains "$tmp/shared/build/qstar/ninja/build.ninja" "qstar_action_id = //:plugin:link-shared:0"
+contains "$tmp/shared/build/qstar/ninja/build.ninja" "qstar_action_id = //:plugin_app:link:0"
 contains "$tmp/shared/build/qstar/ninja/build.ninja" "description = Linking C shared library $shared_artifact"
 contains "$tmp/shared/build/qstar/ninja/build.ninja" "$shared_flag"
 contains "$tmp/shared/build/qstar/ninja/build.ninja" "$shared_name_flag"
+contains "$tmp/shared/build/qstar/ninja/build.ninja" "$shared_ninja_rpath_flag"
 if "$qstar" --file "$tmp/shared/qstar.lua" --profile windows-shared emit-ninja //:plugin > "$tmp/shared-windows.out" 2> "$tmp/shared-windows.err"; then
 	fail "windows sharedlib Ninja lowering unexpectedly succeeded"
 fi
@@ -183,10 +204,16 @@ if command -v ninja >/dev/null 2>&1; then
 	test ! -f "$object_bridge/.ninja_log" || fail "object bridge ninja wrote package root .ninja_log"
 	test ! -f "$object_bridge/.ninja_deps" || fail "object bridge ninja wrote package root .ninja_deps"
 
-	"$qstar" --file "$tmp/shared/qstar.lua" -G ninja build //:plugin --progress off > "$tmp/shared-build.out" 2> "$tmp/shared-build.err"
+	"$qstar" --file "$tmp/shared/qstar.lua" -G ninja build //:plugin_app --progress off > "$tmp/shared-build.out" 2> "$tmp/shared-build.err"
 	contains "$tmp/shared-build.out" "backend ninja"
 	contains "$tmp/shared-build.out" "status ok"
 	test -f "$tmp/shared/$shared_artifact" || fail "sharedlib ninja artifact missing"
+	test -f "$tmp/shared/build/qstar/out/___plugin_app/plugin_app" || fail "sharedlib ninja app missing"
+	"$tmp/shared/build/qstar/out/___plugin_app/plugin_app"
+	"$qstar" --file "$tmp/shared/qstar.lua" -G ninja stage //:shared_bundle > "$tmp/shared-stage.out" 2> "$tmp/shared-stage.err"
+	contains "$tmp/shared-stage.out" "backend ninja"
+	contains "$tmp/shared-stage.out" "stage_file src=$shared_artifact dst=stage/shared/lib/plugin.shared mode=copy"
+	test -f "$tmp/shared/stage/shared/lib/plugin.shared" || fail "sharedlib ninja stage artifact missing"
 	test ! -f "$tmp/shared/.ninja_log" || fail "sharedlib ninja wrote package root .ninja_log"
 	test ! -f "$tmp/shared/.ninja_deps" || fail "sharedlib ninja wrote package root .ninja_deps"
 else

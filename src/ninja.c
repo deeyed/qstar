@@ -1928,6 +1928,111 @@ collect_dep_artifacts(struct qstar_graph *graph, const struct qstar_target *targ
 	return 0;
 }
 
+/** sharedlib dependency의 build-tree runtime rpath를 재귀 수집한다. */
+static int
+collect_sharedlib_rpath_rec(struct qstar_graph *graph, const struct qstar_target *dep,
+    const char *consumer_dir, const struct qstar_resolved_toolchain *toolchain,
+    struct qstar_string_list *rpaths, struct qstar_string_list *seen)
+{
+	const struct qstar_target *next;
+	char artifact[QSTAR_PATH_MAX], dep_dir[QSTAR_PATH_MAX];
+	char rel[QSTAR_PATH_MAX], rpath[QSTAR_PATH_MAX], flag[QSTAR_PATH_MAX];
+	const char *base;
+	size_t i;
+
+	if (seen_label(seen, dep->label))
+		return 0;
+	if (qstar_string_list_push(seen, dep->label) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	if (strcmp(dep->kind, "sharedlib") == 0) {
+		if (qstar_graph_artifact_output_path(graph, dep, artifact,
+		    sizeof(artifact)) < 0 ||
+		    path_dirname(artifact, dep_dir, sizeof(dep_dir)) < 0 ||
+		    qstar_path_relative_between_dirs(consumer_dir, dep_dir, rel,
+		    sizeof(rel)) < 0)
+			return qstar_set_error(graph,
+			    "qstar: sharedlib runtime path is too long");
+		base = qstar_toolchain_target_is_darwin(toolchain->target) ?
+		    "@loader_path" : "$$ORIGIN";
+		if (strcmp(rel, ".") == 0)
+			snprintf(rpath, sizeof(rpath), "%s", base);
+		else
+			snprintf(rpath, sizeof(rpath), "%s/%s", base, rel);
+		if (snprintf(flag, sizeof(flag), "-Wl,-rpath,%s", rpath) >=
+		    (int)sizeof(flag))
+			return qstar_set_error(graph,
+			    "qstar: sharedlib runtime path is too long");
+		if (push_unique_tmp(rpaths, flag) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+	}
+	for (i = 0; i < dep->deps.len; i++) {
+		if (dep->deps.items[i][0] == '@')
+			continue;
+		next = find_target(graph, dep->deps.items[i]);
+		if (next && collect_sharedlib_rpath_rec(graph, next, consumer_dir,
+		    toolchain, rpaths, seen) < 0)
+			return -1;
+	}
+	for (i = 0; i < dep->private_deps.len; i++) {
+		if (dep->private_deps.items[i][0] == '@')
+			continue;
+		next = find_target(graph, dep->private_deps.items[i]);
+		if (next && collect_sharedlib_rpath_rec(graph, next, consumer_dir,
+		    toolchain, rpaths, seen) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+/** sharedlib dependency를 실행할 수 있도록 build-tree rpath link flag를 추가한다. */
+static int
+append_sharedlib_runtime_rpaths(struct qstar_graph *graph,
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
+    const char *artifact, struct ninja_argv *argv)
+{
+	const struct qstar_target *dep;
+	struct qstar_string_list rpaths, seen;
+	char consumer_dir[QSTAR_PATH_MAX];
+	size_t i;
+	int rc;
+
+	if (strcmp(target->kind, "staticlib") == 0 ||
+	    !qstar_toolchain_target_supports_sharedlib(toolchain->target))
+		return 0;
+	if (path_dirname(artifact, consumer_dir, sizeof(consumer_dir)) < 0)
+		return qstar_set_error(graph, "qstar: artifact directory path too long");
+	memset(&rpaths, 0, sizeof(rpaths));
+	memset(&seen, 0, sizeof(seen));
+	rc = 0;
+	for (i = 0; i < target->deps.len && rc == 0; i++) {
+		if (target->deps.items[i][0] == '@')
+			continue;
+		dep = find_target(graph, target->deps.items[i]);
+		if (dep)
+			rc = collect_sharedlib_rpath_rec(graph, dep, consumer_dir,
+			    toolchain, &rpaths, &seen);
+	}
+	for (i = 0; i < target->private_deps.len && rc == 0; i++) {
+		if (target->private_deps.items[i][0] == '@')
+			continue;
+		dep = find_target(graph, target->private_deps.items[i]);
+		if (dep)
+			rc = collect_sharedlib_rpath_rec(graph, dep, consumer_dir,
+			    toolchain, &rpaths, &seen);
+	}
+	if (rc == 0) {
+		for (i = 0; i < rpaths.len; i++) {
+			if (ninja_argv_push(graph, argv, rpaths.items[i]) < 0) {
+				rc = -1;
+				break;
+			}
+		}
+	}
+	qstar_string_list_free(&rpaths);
+	qstar_string_list_free(&seen);
+	return rc;
+}
+
 /** staticlib final archive action을 Ninja edge로 lower한다. */
 static int
 emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
@@ -2067,6 +2172,9 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		if (ninja_argv_push(graph, &argv, dep_artifacts.items[i]) < 0)
 			goto fail;
 	}
+	if (append_sharedlib_runtime_rpaths(graph, target, toolchain, artifact,
+	    &argv) < 0)
+		goto fail;
 	if (toolchain_needs_msvc_link_boundary(toolchain, target) &&
 	    ninja_argv_push(graph, &argv, "/link") < 0)
 		goto fail;

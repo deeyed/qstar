@@ -2472,6 +2472,92 @@ qstar_path_join(const char *a, const char *b, char *dst, size_t dstlen)
 	return 0;
 }
 
+/** normalized slash path를 component pointer 배열로 분해한다. */
+static int
+split_path_components(char *path, char **parts, size_t *len, size_t cap)
+{
+	char *p;
+
+	*len = 0;
+	if (!path || !*path || strcmp(path, ".") == 0)
+		return 0;
+	p = path;
+	while (*p) {
+		while (*p == '/')
+			p++;
+		if (!*p)
+			break;
+		if (*len >= cap)
+			return -1;
+		parts[(*len)++] = p;
+		while (*p && *p != '/')
+			p++;
+		if (*p)
+			*p++ = '\0';
+	}
+	return 0;
+}
+
+/** 상대 path buffer에 component 하나를 slash로 이어 붙인다. */
+static int
+append_relative_component(char *dst, size_t dstlen, size_t *used, const char *part)
+{
+	size_t len, need;
+
+	len = strlen(part);
+	need = *used + (*used ? 1 : 0) + len + 1;
+	if (need > dstlen)
+		return -1;
+	if (*used)
+		dst[(*used)++] = '/';
+	memcpy(dst + *used, part, len + 1);
+	*used += len;
+	return 0;
+}
+
+/** 두 package-relative directory 사이의 상대 directory path를 계산한다. */
+int
+qstar_path_relative_between_dirs(const char *from_dir, const char *to_dir,
+    char *dst, size_t dstlen)
+{
+	char from_buf[QSTAR_PATH_MAX], to_buf[QSTAR_PATH_MAX];
+	char *from_parts[128], *to_parts[128];
+	size_t from_len, to_len, common, used, i;
+
+	if (!dstlen)
+		return -1;
+	if (snprintf(from_buf, sizeof(from_buf), "%s", from_dir ? from_dir : ".") >=
+	    (int)sizeof(from_buf) ||
+	    snprintf(to_buf, sizeof(to_buf), "%s", to_dir ? to_dir : ".") >=
+	    (int)sizeof(to_buf))
+		return -1;
+	if (split_path_components(from_buf, from_parts, &from_len,
+	    sizeof(from_parts) / sizeof(from_parts[0])) < 0 ||
+	    split_path_components(to_buf, to_parts, &to_len,
+	    sizeof(to_parts) / sizeof(to_parts[0])) < 0)
+		return -1;
+	common = 0;
+	while (common < from_len && common < to_len &&
+	    strcmp(from_parts[common], to_parts[common]) == 0)
+		common++;
+	dst[0] = '\0';
+	used = 0;
+	for (i = common; i < from_len; i++) {
+		if (append_relative_component(dst, dstlen, &used, "..") < 0)
+			return -1;
+	}
+	for (i = common; i < to_len; i++) {
+		if (append_relative_component(dst, dstlen, &used, to_parts[i]) < 0)
+			return -1;
+	}
+	if (!used) {
+		if (dstlen < 2)
+			return -1;
+		snprintf(dst, dstlen, ".");
+	}
+	return 0;
+}
+
 /** QStar path가 package-relative normalized path인지 검사한다. */
 int
 qstar_path_is_package_relative(const char *path)

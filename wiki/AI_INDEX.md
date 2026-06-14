@@ -55,9 +55,11 @@ QStar가 하지 않는 일:
   필요하다. Ninja wrapper lowering은 deferred이며, HCL은 QStar가 해석하지 않는
   header-like path다.
   `sharedlib`는 Darwin-like profile에서 `.dylib`, Linux-like profile에서 `.so`를 만들며,
-  Windows `.dll`/import-library/PDB 정책은 deferred diagnostic으로 거부한다.
-- `make qstar-ninja-backend-parity-tests`는 staticlib, sharedlib, executable/test,
-  generated, configure_file, run_target, stage/install producer integration,
+  sharedlib dependency를 link하는 executable/test/sharedlib에는 build-tree 실행용
+  `@loader_path`/`$ORIGIN` rpath를 자동 추가한다. Windows `.dll`/import-library/PDB
+  정책은 deferred diagnostic으로 거부한다.
+- `make qstar-ninja-backend-parity-tests`는 staticlib, sharedlib, sharedlib-linked
+  executable/test, generated, configure_file, run_target, stage/install producer integration,
   action-log/replay, Windows sharedlib diagnostic, `.ninja_log`/`.ninja_deps` root
   pollution 방지를 확인한다.
 - `qstar emit-ninja [label]`은 `build/qstar/ninja/build.ninja`와 policy-controlled

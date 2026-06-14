@@ -129,6 +129,11 @@ Cale source actions are Stella-only language-provider actions in this release an
 .Ar stella
 generator.
 QStar does not interpret Cale or HCL semantics itself.
+Shared library consumers receive build-tree
+.Ar @loader_path
+or
+.Ar $ORIGIN
+rpath flags on Darwin-like and Linux-like profiles.
 Windows DLL/import-library/PDB shared library policy is deferred.
 .It Ic build
 Build using the effective generator.

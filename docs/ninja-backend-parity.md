@@ -19,6 +19,12 @@ The Ninja backend lowers:
 - `qstar.sharedlib` for Darwin-like and Linux-like profiles
 - `compile_commands.json` according to project policy
 
+When an executable, test, or shared library links against a QStar `sharedlib`
+dependency, Ninja lowering emits the same build-tree runtime search path policy
+as Stella: Darwin-like profiles use `@loader_path` relative rpaths and Linux-like
+profiles use `$ORIGIN` relative rpaths. This allows the freshly built artifact
+to run from `build/qstar/out/...` without requiring a prefix install first.
+
 Ninja action ids are written into `build.ninja` as `qstar_action_id` variables
 and as `# qstar-action-id:` comments. QStar also writes backend action logs so
 `qstar action-log <action-id>` and `qstar replay <action-id>` work for emitted
@@ -50,7 +56,7 @@ Run the dedicated gate with:
 make qstar-ninja-backend-parity-tests
 ```
 
-The gate checks staticlib, sharedlib, executable, test, generated actions,
+The gate checks staticlib, sharedlib, sharedlib-linked executable, test, generated actions,
 configure file, run target marker handling, stage/install producer integration,
 object artifact bridge parity through `tests/projects/object-artifact-bridge`,
 action-log and replay compatibility, Windows sharedlib diagnostics, and that `.ninja_log` /

@@ -87,6 +87,10 @@ Round 22의 target rule registry는 다음 형태다.
 | `objectlib` | `compile-objects` | `objects` | no | no, prepared |
 | `target` | `materialize` | `generic` | no | no |
 
+`sharedlib` dependency를 link하는 executable/test/sharedlib action은 build-tree 실행을
+위해 target artifact directory 기준 상대 rpath를 자동으로 받는다. Darwin-like profile은
+`@loader_path`, Linux-like profile은 `$ORIGIN` 기반이다.
+
 이렇게 두면 C/Cale-specific 결정이 graph core 안으로 들어오지 않는다. C++를
 추가할 때도 label/dependency/cache logic을 다시 쓰지 않고, registry와 command
 renderer를 확장하면 된다.
