@@ -50,6 +50,30 @@ jobs:
       - name: Run explicit Linux validation gate
         run: make qstar-linux-validation-tests
 
+      - name: Medium Stella/Ninja performance line protocol
+        run: |
+          set -euo pipefail
+          mkdir -p dist/perf
+          perf_raw="dist/perf/linux-${{ matrix.compiler }}-medium-perf.txt"
+          perf_summary="dist/perf/linux-${{ matrix.compiler }}-medium-summary.txt"
+          perf_markdown="dist/perf/linux-${{ matrix.compiler }}-medium-summary.md"
+          QSTAR_TEST_QSTAR=build/bin/qstar sh tests/medium-project-performance.sh | tee "$perf_raw"
+          grep -F "medium_project_gate scheduler runner=posix_spawn event_wait=poll" "$perf_raw"
+          grep -F "medium_project_gate backend=ninja phase=clean" "$perf_raw"
+          tools/perf-summary.sh "$perf_raw" | tee "$perf_summary"
+          tools/perf-summary.sh --format markdown --label "Linux ${{ matrix.compiler }} medium performance" "$perf_raw" > "$perf_markdown"
+
+      - name: Upload Linux medium performance artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qstar-linux-${{ matrix.compiler }}-medium-performance
+          path: |
+            dist/perf/linux-${{ matrix.compiler }}-medium-perf.txt
+            dist/perf/linux-${{ matrix.compiler }}-medium-summary.txt
+            dist/perf/linux-${{ matrix.compiler }}-medium-summary.md
+          if-no-files-found: ignore
+
       - name: Install prefix docs and manpage smoke
         run: |
           prefix="${RUNNER_TEMP}/qstar-linux-smoke-${{ matrix.compiler }}"
@@ -87,3 +111,50 @@ jobs:
           grep -Fx "share/doc/qstar/wiki/reference/qstar-lua.md" dist/release/linux-x86_64.contents.txt
           grep -Fx "share/man/man1/qstar.1" dist/release/linux-x86_64.contents.txt
           grep -Fx "share/man/man5/qstar-lua.5" dist/release/linux-x86_64.contents.txt
+
+  large-performance-report:
+    name: ubuntu / large performance report
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    env:
+      CC: gcc
+      CXX: g++
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build tools and Ninja
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc g++ ninja-build file
+          ninja --version
+          "$CC" --version
+
+      - name: Build QStar
+        run: make all
+
+      - name: Large synthetic performance line protocol
+        run: |
+          set -euo pipefail
+          mkdir -p dist/perf
+          perf_raw="dist/perf/linux-gcc-large-perf.txt"
+          perf_summary="dist/perf/linux-gcc-large-summary.txt"
+          perf_markdown="dist/perf/linux-gcc-large-summary.md"
+          QSTAR_TEST_QSTAR=build/bin/qstar sh tests/large-project-performance.sh | tee "$perf_raw"
+          grep -F "large_project_gate mode=200" "$perf_raw"
+          grep -F "large_project_gate mode=500" "$perf_raw"
+          tools/perf-summary.sh "$perf_raw" | tee "$perf_summary"
+          tools/perf-summary.sh --format markdown --label "Linux gcc large synthetic performance" "$perf_raw" > "$perf_markdown"
+
+      - name: Upload Linux large performance artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qstar-linux-gcc-large-performance
+          path: |
+            dist/perf/linux-gcc-large-perf.txt
+            dist/perf/linux-gcc-large-summary.txt
+            dist/perf/linux-gcc-large-summary.md
+          if-no-files-found: ignore

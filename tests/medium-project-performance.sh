@@ -382,6 +382,21 @@ scheduler_line=$(grep -m 1 '^action_scheduler ' "$tmp/stella_trace.out")
 default_jobs=$(field_value "$policy_line" jobs)
 initial_ready=$(field_value "$scheduler_line" ready)
 async_final_count=$(grep -E 'schedule_action id=.*:(archive|link):0 kind=(archive|link) slot=' "$tmp/stella_trace.out" | wc -l | tr -d ' ')
+runner=$(sed -n 's/.* runner=\([^ ]*\) .*/\1/p' "$tmp/stella_trace.out" | head -n 1)
+case "$(uname -s)" in
+Darwin|Linux)
+	if [ "$runner" != "posix_spawn" ]; then
+		fail "expected posix_spawn runner on POSIX host, got ${runner:-missing}"
+	fi
+	event_wait=poll
+	;;
+*)
+	if [ -z "$runner" ]; then
+		fail "could not parse scheduler runner"
+	fi
+	event_wait=platform
+	;;
+esac
 if [ -z "$default_jobs" ] || [ "$default_jobs" -lt 1 ]; then
 	fail "could not parse default scheduler jobs"
 fi
@@ -395,6 +410,7 @@ if [ "$async_final_count" -lt 2 ]; then
 	fail "expected async archive/link final actions in schedule trace"
 fi
 printf 'medium_project_gate scheduler default_jobs=%s ready_width=%s async_final_actions=%s trace_elapsed_ms=%s\n' "$default_jobs" "$initial_ready" "$async_final_count" "$stella_trace_ms"
+printf 'medium_project_gate scheduler runner=%s event_wait=%s\n' "$runner" "$event_wait"
 
 run_timed stella_clean "$qstar" --file "$root/qstar.lua" -B build/stella -G stella build //:firmware_image
 contains "$tmp/stella_clean.out" "group_target label=//:firmware_image"

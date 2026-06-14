@@ -2,11 +2,11 @@
 
 QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. Public
 beta에서는 macOS arm64 tarball을 먼저 배포한다. Linux host 지원은 Ubuntu gcc/clang CI
-기반 source build 검증과 `linux-x86_64` release-candidate tarball dry-run을 갖췄지만
-아직 public release artifact는 없다. Windows host 지원은 native validation candidate
-준비 단계다. Windows는 아직 공식 지원이 아니지만 path/process/response-file 준비 규칙과
-manual Windows workflow 후보를 QStar tree 안에서 검증한다. 모든 platform에서 소스에서
-직접 빌드할 수 있도록 검증 경로를 늘려간다.
+기반 source build 검증, `linux-x86_64` release-candidate tarball dry-run, Stella/Ninja
+medium performance artifact collection을 갖췄지만 아직 public release artifact는 없다.
+Windows host 지원은 native validation candidate 준비 단계다. Windows는 아직 공식 지원이
+아니지만 path/process/response-file 준비 규칙과 manual Windows workflow 후보를 QStar tree
+안에서 검증한다. 모든 platform에서 소스에서 직접 빌드할 수 있도록 검증 경로를 늘려간다.
 
 ## 최소 예제
 

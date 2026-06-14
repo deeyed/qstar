@@ -36,6 +36,9 @@ qstar X.Y.Z-beta.N
 - macOS codesign verification:
 - Linux x86_64 candidate dry-run: `QSTAR_RELEASE_PLATFORM=linux-x86_64`
   packaging, ELF `file(1)`, `ldd(1)`, installed docs/man smoke:
+- Linux medium performance artifacts: Ubuntu gcc/clang
+  `medium_project_gate ...`, `runner=posix_spawn event_wait=poll`,
+  Stella/Ninja summary:
 - VSCode extension included: no, unless this section explicitly says otherwise.
 
 ## Validate
@@ -51,7 +54,7 @@ qstar --file /tmp/qstar-hello/qstar.lua build //:app --progress plain
 | Host platform | Status |
 | --- | --- |
 | macOS arm64 | Beta release artifact |
-| Linux x86_64 | Candidate dry-run through Ubuntu gcc/clang CI; publish only after release decision |
+| Linux x86_64 | Candidate dry-run and Stella/Ninja medium perf artifacts through Ubuntu gcc/clang CI; publish only after release decision |
 | Windows | Planned or candidate validation; publish only after native release gate |
 
 ## Notes
@@ -60,7 +63,8 @@ qstar --file /tmp/qstar-hello/qstar.lua build //:app --progress plain
 - QStar self-host remains a release gate candidate and backend parity check.
 - Linux artifacts require `.github/workflows/linux-validation.yml` to be green for
   gcc and clang, plus `QSTAR_RELEASE_PLATFORM=linux-x86_64` package dry-run,
-  ELF/ldd sanity, and install docs/man smoke, before publication.
+  ELF/ldd sanity, install docs/man smoke, and medium perf artifact collection,
+  before publication.
 - Windows artifacts require native platform validation before publication.
 - QStar is licensed under Apache-2.0. Lua vendor license text is preserved in
   `LICENSE/lua.txt`.

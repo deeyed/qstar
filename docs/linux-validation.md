@@ -7,6 +7,9 @@ install layout smoke, release tarball dry-run을 고정한다.
 Round Q109부터 `.github/workflows/linux-validation.yml`이 이 gate를 Ubuntu CI에서
 gcc/clang matrix로 실행한다. Round Q113부터 gcc lane은
 `QSTAR_RELEASE_PLATFORM=linux-x86_64` packaging dry-run까지 수행한다.
+Round Q142부터 같은 Ubuntu gcc/clang lane은 Stella/Ninja medium performance line
+protocol도 수집하고 CI artifact로 업로드한다. Large synthetic corpus는 시간이 더 오래
+걸리므로 우선 `workflow_dispatch` 전용 report-only lane으로 분리한다.
 
 ## Scope
 
@@ -24,6 +27,11 @@ Linux validation은 다음을 확인한다.
   가리키는지
 - Linux release candidate tarball이 ELF x86-64 binary, `ldd` sanity, installed
   docs/wiki/manpages, `SHA256SUMS`, prefix layout을 만족하는지
+- Stella와 Ninja medium corpus timing이 `medium_project_gate ...` line protocol로
+  수집되는지
+- Linux에서 Stella process runner trace가 `runner=posix_spawn`과 `event_wait=poll`을
+  보고하는지
+- medium perf raw output, text summary, markdown summary가 CI artifact로 보존되는지
 
 macOS local run에서는 Linux kernel, glibc, distro package layout, Linux `cc` 구현을
 직접 검증할 수 없다. 따라서 macOS에서는 portable path/process smoke만 수행하고,
@@ -40,6 +48,7 @@ QStar tree에서 다음을 실행한다.
 make all
 make check
 make qstar-linux-validation-tests
+QSTAR_TEST_QSTAR=build/bin/qstar sh tests/medium-project-performance.sh
 git diff --check
 ```
 
@@ -115,6 +124,8 @@ ubuntu-latest / gcc:
   make all
   make check
   make qstar-linux-validation-tests
+  tests/medium-project-performance.sh
+  upload dist/perf/linux-gcc-medium-*.txt/md
   make install PREFIX=/tmp/qstar-linux-smoke
   /tmp/qstar-linux-smoke/bin/qstar --version
   QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh
@@ -123,6 +134,8 @@ ubuntu-latest / clang:
   make all
   make check
   make qstar-linux-validation-tests
+  tests/medium-project-performance.sh
+  upload dist/perf/linux-clang-medium-*.txt/md
   make install PREFIX=/tmp/qstar-linux-smoke
   /tmp/qstar-linux-smoke/bin/qstar --version
 ```
@@ -132,6 +145,33 @@ Each lane sets `QSTAR_LINUX_VALIDATION_CC` to the matrix compiler, verifies
 Ninja backend parity tests through `make check`, and performs an explicit root
 pollution smoke: `.ninja_deps` and `.ninja_log` must stay under the QStar build
 directory, not the repository root.
+
+Round Q142 adds a medium performance collection step to both compiler lanes. It
+does not make timing a hard CI threshold yet. The hard checks are that Stella and
+Ninja both run, the line protocol includes Ninja clean timing, and the Linux
+Stella trace reports the POSIX fast path:
+
+```txt
+medium_project_gate scheduler runner=posix_spawn event_wait=poll
+medium_project_gate backend=ninja phase=clean elapsed_ms=...
+```
+
+The uploaded medium artifacts are:
+
+```txt
+dist/perf/linux-<compiler>-medium-perf.txt
+dist/perf/linux-<compiler>-medium-summary.txt
+dist/perf/linux-<compiler>-medium-summary.md
+```
+
+The workflow also has a manual large performance job, intended for nightly or
+on-demand report-only runs:
+
+```txt
+workflow_dispatch / large-performance-report:
+  tests/large-project-performance.sh
+  upload dist/perf/linux-gcc-large-*.txt/md
+```
 
 The gcc lane also performs a release-candidate packaging dry-run without
 publishing the artifact:
@@ -171,6 +211,9 @@ Before a `linux-*` release asset is added, all of the following must be true:
 - `make check` passes on Linux
 - `make qstar-linux-validation-tests` passes on Linux
 - `.github/workflows/linux-validation.yml` is green for both gcc and clang lanes
+- medium Stella/Ninja performance line protocol is uploaded for both gcc and
+  clang lanes
+- Linux Stella trace reports `runner=posix_spawn` and `event_wait=poll`
 - `QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh` passes on a
   Linux host or Ubuntu CI packaging lane
 - `make install PREFIX=/tmp/qstar-linux-smoke` installs binary, docs, and

@@ -95,7 +95,12 @@ QStar가 하지 않는 일:
   `make qstar-linux-validation-tests`, install docs/man smoke를 실행한다. gcc lane은
   `QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh`로 ELF x86-64,
   `ldd`, installed docs/wiki/manpages, `SHA256SUMS`를 확인하는 publish 없는 dry-run을
-  수행한다.
+  수행한다. Round Q142부터 같은 gcc/clang lane은
+  `tests/medium-project-performance.sh`도 실행해 Stella/Ninja medium timing artifact를
+  업로드한다. Linux trace는
+  `medium_project_gate scheduler runner=posix_spawn event_wait=poll`을 포함해야 한다.
+  Large synthetic performance는 기본 push/PR lane이 아니라 `workflow_dispatch` 전용
+  `large-performance-report` job에서 report-only artifact로 수집한다.
 - Windows host 지원은 아직 official support가 아니다. Round Q114 기준
   `make qstar-windows-prep-tests`가 path/process/MSVC response-file 준비 규칙을 묶고,
   `.github/workflows/windows-validation.yml`은 `workflow_dispatch` 전용 native validation
@@ -112,6 +117,9 @@ QStar가 하지 않는 일:
   report-only line protocol로 기록한다. `tools/perf-summary.sh`는 medium/large output을
   읽어 min/median/max와 Stella/Ninja ratio를 요약하고, `--repeat 3 -- ...`와
   `--format markdown`으로 release note용 표를 만든다.
+  Linux CI artifact는 `dist/perf/linux-<compiler>-medium-perf.txt`,
+  `dist/perf/linux-<compiler>-medium-summary.txt`,
+  `dist/perf/linux-<compiler>-medium-summary.md` 이름을 사용한다.
 - Stella dirty-check의 canonical fast state는 `build/qstar/state/state.db`다.
   `build/qstar/state/actions.json`은 기본 생성물이 아니며
   `QSTAR_DEBUG_STATE_DUMPS=1 qstar build ...`로 요청한 debug/export dump다.

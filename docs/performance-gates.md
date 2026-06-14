@@ -25,6 +25,7 @@ make qstar-medium-project-readiness-tests
 ```txt
 medium_project_gate scheduler host_jobs=10
 medium_project_gate scheduler default_jobs=10 ready_width=40 async_final_actions=40 trace_elapsed_ms=257
+medium_project_gate scheduler runner=posix_spawn event_wait=poll
 medium_project_gate backend=stella phase=clean elapsed_ms=123
 medium_project_gate backend=stella phase=noop elapsed_ms=42
 medium_project_gate backend=stella phase=incremental elapsed_ms=51
@@ -55,6 +56,7 @@ Round Q137 local macOS arm64 대표 측정값:
 medium_project_gate target_count=47 min_targets=40
 medium_project_gate scheduler host_jobs=10
 medium_project_gate scheduler default_jobs=10 ready_width=40 async_final_actions=40 trace_elapsed_ms=257
+medium_project_gate scheduler runner=posix_spawn event_wait=poll
 medium_project_gate backend=stella phase=clean elapsed_ms=247
 medium_project_gate backend=stella phase=noop elapsed_ms=67
 medium_project_gate backend=stella phase=incremental elapsed_ms=89
@@ -184,6 +186,39 @@ Makefile target도 제공한다.
 
 ```sh
 make qstar-perf-summary-tests
+```
+
+## Linux CI Performance Artifacts
+
+Round Q142부터 `.github/workflows/linux-validation.yml`은 Ubuntu gcc/clang matrix에서
+medium performance line protocol을 수집한다. 이 lane은 Linux에서 macOS와 비슷한 Stella/Ninja
+경향이 재현되는지 보기 위한 validation input이며, timing threshold는 아직 report-only다.
+Hard check는 다음 세 가지다.
+
+- Stella medium build가 line protocol을 출력한다.
+- Ninja backend clean phase가 같은 output에 포함된다.
+- Stella scheduler trace가 Linux POSIX fast path를 보고한다.
+
+```txt
+medium_project_gate scheduler runner=posix_spawn event_wait=poll
+medium_project_gate backend=ninja phase=clean elapsed_ms=...
+```
+
+CI artifact는 compiler lane별로 업로드한다.
+
+```txt
+dist/perf/linux-<compiler>-medium-perf.txt
+dist/perf/linux-<compiler>-medium-summary.txt
+dist/perf/linux-<compiler>-medium-summary.md
+```
+
+Large synthetic corpus는 더 오래 걸리므로 push/PR 기본 lane에 넣지 않는다. 우선
+`workflow_dispatch` 전용 `large-performance-report` job에서 report-only artifact로 수집한다.
+
+```txt
+dist/perf/linux-gcc-large-perf.txt
+dist/perf/linux-gcc-large-summary.txt
+dist/perf/linux-gcc-large-summary.md
 ```
 
 ## Static Fixture

@@ -28,6 +28,7 @@ QSTAR_TEST_QSTAR=./build/bin/qstar sh tests/medium-project-performance.sh
 ```txt
 medium_project_gate scheduler host_jobs=10
 medium_project_gate scheduler default_jobs=10 ready_width=40 async_final_actions=40 trace_elapsed_ms=257
+medium_project_gate scheduler runner=posix_spawn event_wait=poll
 medium_project_gate backend=stella phase=clean elapsed_ms=123
 medium_project_gate backend=stella phase=noop elapsed_ms=42
 medium_project_gate backend=stella phase=incremental elapsed_ms=51
@@ -64,6 +65,7 @@ Round Q137 local macOS arm64 대표 측정값:
 medium_project_gate target_count=47 min_targets=40
 medium_project_gate scheduler host_jobs=10
 medium_project_gate scheduler default_jobs=10 ready_width=40 async_final_actions=40 trace_elapsed_ms=257
+medium_project_gate scheduler runner=posix_spawn event_wait=poll
 medium_project_gate backend=stella phase=clean elapsed_ms=247
 medium_project_gate backend=stella phase=noop elapsed_ms=67
 medium_project_gate backend=stella phase=incremental elapsed_ms=89
@@ -175,6 +177,40 @@ tools/perf-summary.sh --repeat 3 -- \
 
 ```sh
 tools/perf-summary.sh --ratio-x100 200 --slack-ms 250 --hard /tmp/qstar-medium.perf
+```
+
+## Linux CI Performance Artifacts
+
+Round Q142부터 Linux validation workflow는 Ubuntu gcc/clang matrix에서 medium corpus
+Stella/Ninja timing을 line protocol로 수집한다. 이 결과는 Linux에서 macOS 대표 수치와 같은
+성능 경향이 재현되는지 보기 위한 artifact이며, timing threshold는 아직 report-only다.
+
+Workflow hard check는 다음을 확인한다.
+
+- Stella medium build가 `medium_project_gate ...` output을 남긴다.
+- Ninja backend clean phase가 같은 output에 포함된다.
+- Linux Stella scheduler trace가 POSIX fast path를 보고한다.
+
+```txt
+medium_project_gate scheduler runner=posix_spawn event_wait=poll
+medium_project_gate backend=ninja phase=clean elapsed_ms=...
+```
+
+업로드되는 medium artifact:
+
+```txt
+dist/perf/linux-<compiler>-medium-perf.txt
+dist/perf/linux-<compiler>-medium-summary.txt
+dist/perf/linux-<compiler>-medium-summary.md
+```
+
+Large Synthetic Corpus는 기본 push/PR lane이 아니라 `workflow_dispatch` 전용
+`large-performance-report` job에서 report-only artifact로 수집한다.
+
+```txt
+dist/perf/linux-gcc-large-perf.txt
+dist/perf/linux-gcc-large-summary.txt
+dist/perf/linux-gcc-large-summary.md
 ```
 
 ## Large Synthetic Corpus

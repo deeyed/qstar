@@ -8,7 +8,8 @@ VSCode extension is not included in the public beta runtime tarball.
 ## Release Target
 
 현재 beta package 이름은 runtime version에서 파생한다. Public artifact는 아직 macOS arm64
-하나만 배포하지만, Linux x86_64는 CI에서 release-candidate packaging dry-run을 수행한다.
+하나만 배포하지만, Linux x86_64는 CI에서 release-candidate packaging dry-run과
+Stella/Ninja medium performance artifact collection을 수행한다.
 
 ```txt
 runtime version: qstar 0.5.1-beta.1
@@ -82,7 +83,10 @@ test -s dist/release/ldd-linux-x86_64.txt
 
 Linux asset을 실제로 추가하려면 clean Linux release host 또는 release CI에서
 `make check`, `make qstar-linux-validation-tests`, Ninja backend parity, install
-docs/man smoke, Linux tarball dry-run이 모두 통과해야 한다.
+docs/man smoke, Linux tarball dry-run, medium performance artifact collection이 모두
+통과해야 한다. Timing threshold는 아직 report-only지만,
+`medium_project_gate scheduler runner=posix_spawn event_wait=poll`과 Ninja clean phase는
+hard check다.
 
 ## Tarball Layout
 

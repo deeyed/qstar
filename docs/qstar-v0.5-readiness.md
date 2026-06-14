@@ -165,6 +165,10 @@ Linux:
   `make qstar-linux-validation-tests`, install docs/man smoke, Linux tarball dry-run이
   통과한 뒤에만 추가한다.
 - clang/gcc depfile behavior는 `QSTAR_LINUX_VALIDATION_CC` matrix로 확인한다.
+- Round Q142부터 같은 Ubuntu gcc/clang workflow가 medium Stella/Ninja performance line
+  protocol artifact를 업로드한다. Linux Stella trace는
+  `medium_project_gate scheduler runner=posix_spawn event_wait=poll`을 포함해야 하고,
+  Ninja clean phase도 같은 output에 있어야 한다. Timing threshold는 아직 report-only다.
 
 Windows:
 
@@ -220,7 +224,7 @@ historical version record는 보존한다.
 - CMake-style progress output: `[ 75%] Linking CXX executable app` 형식과
   warning/error stream coloring 상태 재검증.
 - Linux validation status refresh: `.github/workflows/linux-validation.yml`의 gcc/clang
-  lane 또는 clean Linux host 결과가 있으면 반영.
+  lane, medium performance artifact, clean Linux host 결과가 있으면 반영.
 - Docs/man/wiki/AI index sync: old generator name, old version string, removed API 잔재 제거.
 - VSCode extension version policy: runtime과 별도로 `0.3.0` 유지. 이번 runtime tarball에는
   VSIX를 포함하지 않는다.
