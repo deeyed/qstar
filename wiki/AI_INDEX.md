@@ -151,6 +151,9 @@ QStar가 하지 않는 일:
   report-only line protocol로 기록한다. `tools/perf-summary.sh`는 medium/large output을
   읽어 min/median/max와 Stella/Ninja ratio를 요약하고, `--repeat 3 -- ...`와
   `--format markdown`으로 release note용 표를 만든다.
+  Q166 repeat-3 local snapshot은 `docs/perf/q166-large-performance-refresh.md`에 보관하며,
+  normal Stella가 200/500 target large corpus에서 Ninja median과 같은 급 또는 더 빠른
+  수치를 보였다는 0.7 readiness 입력으로 쓴다.
   Round Q149 이후 medium/large gate는 socket이 허용되는 host에서 experimental daemon도
   `backend=stella-daemon`으로 측정한다. Daemon은 `clean`, `noop`, `incremental`을 모두
   기록하고, socket bind가 sandbox 정책으로 막히면

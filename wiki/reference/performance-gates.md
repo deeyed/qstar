@@ -282,29 +282,29 @@ compile database 누락, generated object bridge 누락, Ninja root `.ninja_log`
 오염은 hard fail이다. Large 결과는 stable 성능 보장이 아니라 representative local/CI run으로
 해석한다.
 
-Round Q138 local macOS arm64 대표 측정값:
+Round Q166 local macOS arm64 repeat-3 대표 측정값:
 
 ```txt
 large_project_gate mode=200 target_count=200 generated_actions=4 host_jobs=10
-large_project_gate mode=200 backend=stella phase=clean elapsed_ms=1115
-large_project_gate mode=200 backend=stella phase=noop elapsed_ms=77
-large_project_gate mode=200 backend=stella phase=incremental elapsed_ms=115
-large_project_gate mode=200 backend=stella-jobs jobs=10 phase=clean elapsed_ms=1123
-large_project_gate mode=200 backend=stella-jobs jobs=10 phase=incremental elapsed_ms=116
-large_project_gate mode=200 backend=ninja phase=clean elapsed_ms=2202
-large_project_gate mode=200 backend=ninja phase=incremental elapsed_ms=146
+perf_summary sample gate=large mode=200 backend=stella phase=clean count=3 min_ms=1006 median_ms=1054 max_ms=3553
+perf_summary sample gate=large mode=200 backend=stella phase=noop count=3 min_ms=79 median_ms=80 max_ms=102
+perf_summary sample gate=large mode=200 backend=stella phase=incremental count=3 min_ms=128 median_ms=137 max_ms=148
+perf_summary sample gate=large mode=200 backend=stella-daemon phase=clean count=3 min_ms=1056 median_ms=1389 max_ms=1543
+perf_summary sample gate=large mode=200 backend=ninja phase=clean count=3 min_ms=1127 median_ms=1220 max_ms=3714
+perf_summary sample gate=large mode=200 backend=ninja phase=noop count=3 min_ms=98 median_ms=102 max_ms=103
+perf_summary sample gate=large mode=200 backend=ninja phase=incremental count=3 min_ms=153 median_ms=154 max_ms=157
 large_project_gate mode=500 target_count=500 generated_actions=4 host_jobs=10
-large_project_gate mode=500 backend=stella phase=clean elapsed_ms=2284
-large_project_gate mode=500 backend=stella phase=noop elapsed_ms=98
-large_project_gate mode=500 backend=stella phase=incremental elapsed_ms=139
-large_project_gate mode=500 backend=stella-jobs jobs=10 phase=clean elapsed_ms=5171
-large_project_gate mode=500 backend=stella-jobs jobs=10 phase=incremental elapsed_ms=150
-large_project_gate mode=500 backend=ninja phase=clean elapsed_ms=2545
-large_project_gate mode=500 backend=ninja phase=incremental elapsed_ms=204
-large_project_gate status=ok perf_issue_count=0 report_only=1 modes="200 500"
+perf_summary sample gate=large mode=500 backend=stella phase=clean count=3 min_ms=2312 median_ms=2437 max_ms=4723
+perf_summary sample gate=large mode=500 backend=stella phase=noop count=3 min_ms=98 median_ms=101 max_ms=104
+perf_summary sample gate=large mode=500 backend=stella phase=incremental count=3 min_ms=140 median_ms=145 max_ms=160
+perf_summary sample gate=large mode=500 backend=stella-daemon phase=clean count=3 min_ms=2540 median_ms=2601 max_ms=2726
+perf_summary sample gate=large mode=500 backend=ninja phase=clean count=3 min_ms=2504 median_ms=2816 max_ms=4311
+perf_summary sample gate=large mode=500 backend=ninja phase=noop count=3 min_ms=142 median_ms=144 max_ms=369
+perf_summary sample gate=large mode=500 backend=ninja phase=incremental count=3 min_ms=207 median_ms=228 max_ms=344
+perf_summary status=ok sample_count=24 ratio_count=18 warning_count=0 hard=0 threshold_x100=200 slack_ms=250
 ```
 
-200 target mode에서는 Stella default와 explicit jobs clean이 Ninja보다 빠르게 측정됐다.
-500 target mode에서는 Stella default clean이 Ninja보다 빠르게 측정됐고, explicit jobs clean은
-이번 run에서 느리게 튀었지만 report-only ratio 범위 안에 있었다. No-op과 incremental은 두
-mode 모두 Ninja급 범위에 들어왔다.
+Normal Stella는 200/500 target mode 모두 clean, no-op, incremental median에서 Ninja보다
+빠르게 측정됐다. Stella daemon은 clean build에서 normal Stella보다 빠르지는 않지만,
+no-op/incremental은 같은 latency band에 있다. Max 값은 host noise로 크게 흔들릴 수 있으므로
+release note에는 median 중심으로만 인용한다.

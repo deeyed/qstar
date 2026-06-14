@@ -23,7 +23,8 @@ decision: next feature line should be 0.7.0-beta; keep 0.6.x for hotfixes only
   Windows alpha와 platform matrix를 한 단계 올리는 feature line에 가깝다.
 - Stella daemon은 beta opt-in으로는 쓸 수 있지만 default-on으로 올리려면 lifecycle,
   security, Linux daemon CI, stable protocol decision이 더 필요하다.
-- Stella executor와 Ninja backend는 medium corpus에서 같은 급의 수치를 보인다.
+- Stella executor와 Ninja backend는 medium corpus뿐 아니라 Q166 large synthetic corpus에서도
+  같은 급의 수치를 보인다.
 - v1.0은 아직 아니다. v1.0은 macOS/Linux/Windows official support와 release/CI matrix가
   모두 닫힌 뒤에만 붙인다.
 
@@ -101,8 +102,30 @@ Interpretation:
 - no-op and incremental are below 0.1s on this host.
 - clean build is also in the same range as Ninja for the current corpus.
 - Timing gates remain report-only because small projects are sensitive to host noise.
-- Large synthetic corpus and Linux performance artifacts should be used before making stronger
-  performance claims.
+- Large synthetic corpus and Linux performance artifacts should continue to be used before making
+  stronger performance claims.
+
+## Large Stella/Ninja Timing Snapshot
+
+Q166 local macOS arm64 repeat-3 large synthetic snapshot. Full summary is stored
+in `docs/perf/q166-large-performance-refresh.md`.
+
+| Mode | Backend | Clean median ms | No-op median ms | Incremental median ms |
+| --- | --- | ---: | ---: | ---: |
+| 200 targets | Stella | 1054 | 80 | 137 |
+| 200 targets | Stella daemon | 1389 | 95 | 129 |
+| 200 targets | Ninja | 1220 | 102 | 154 |
+| 500 targets | Stella | 2437 | 101 | 145 |
+| 500 targets | Stella daemon | 2601 | 107 | 151 |
+| 500 targets | Ninja | 2816 | 144 | 228 |
+
+Interpretation:
+
+- Normal Stella is at or ahead of Ninja on this local repeat-3 large corpus.
+- Stella daemon does not win clean builds here, but its no-op and incremental path remains in
+  the same latency band and is still useful for future IDE/build-service workflows.
+- Timing is report-only. The large corpus shows host noise, so 0.7 should cite these as
+  representative local medians, not stable performance guarantees.
 
 ## 0.7 Scope
 
