@@ -6480,7 +6480,7 @@ validate_sharedlib_platform(struct qstar_graph *graph, const struct qstar_target
 		return 0;
 	return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 	    "kind", target->label,
-	    "qstar: sharedlib target '%s' supports only Darwin and Linux-like profiles in this release; Windows .dll/import-library policy is deferred",
+	    "qstar: sharedlib target '%s' is not supported for Windows-like profiles yet; Windows shared libraries require a runtime .dll, import .lib, and optional PDB/debug artifact policy. Use custom_target/object bridge for now or see docs/windows-artifact-policy.md",
 	    target->label);
 }
 

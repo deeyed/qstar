@@ -152,8 +152,10 @@ Windows release asset은 아직 없다. 현재 QStar는 Windows 이식 전에 �
 - `.exe`는 `artifact_name = "tool.exe"` 또는 profile `artifact_names`로 명시한다.
 - 외부 system library `libs = {"kernel32"}`는 MSVC-like target에서 `kernel32.lib`로
   렌더링한다.
-- QStar가 직접 만드는 static `.lib`, `.dll`, import library, PDB, Windows install
-  layout은 아직 official contract가 아니다.
+- QStar가 직접 만드는 static `.lib`는 `artifact_name` 또는 profile `artifact_names`로
+  명시할 때만 pre-support planning contract다.
+- Windows `.dll`, import `.lib`, PDB/debug, Windows install layout은 아직 official
+  contract가 아니다. 상세 정책은 `docs/windows-artifact-policy.md`에 둔다.
 
 ```sh
 make qstar-windows-prep-tests

@@ -65,6 +65,7 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 - `progress-output.md`: CMake-style progress output, warning/error color, `qstar.status` descriptions.
 - `linux-validation.md`: Linux host validation path, Ubuntu gcc/clang CI workflow, install smoke, linux-x86_64 candidate tarball/extract smoke, Ninja parity, Stella/Ninja medium perf artifact 조건.
 - `windows-path-process.md`: Windows path/process/response-file pre-port contract와 manual native CI alpha workflow.
+- `windows-artifact-policy.md`: Windows `.exe`, explicit static `.lib`, deferred `.dll`/import `.lib`/PDB, install/stage artifact policy.
 - `windows-native-alpha.md`: Windows `workflow_dispatch` native CI alpha, MSYS2 UCRT64 bootstrap, limited smoke, known issues.
 - `public-beta-release.md`: public beta packaging, install smoke, codesign, wiki sync gate.
 - `qstar-v0.6-post-release-smoke.md`: GitHub release에 올라간 0.6 asset 다운로드 smoke 기록.

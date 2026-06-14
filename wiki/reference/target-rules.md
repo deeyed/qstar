@@ -31,8 +31,9 @@ qstar.target_family "boot" { variants = {"x86_64", "aarch64"} }
 `lib<name>.so`를 생성한다. Stella와 Ninja backend 모두 C/C++/ASM source를 compile하고
 `link-shared` final action을 실행한다. sharedlib에 의존하는 executable/test/sharedlib는
 build-tree 실행을 위해 macOS에서는 `@loader_path`, Linux에서는 `$ORIGIN` 기반 rpath를
-자동으로 받는다. Windows `.dll`/import-library/PDB 정책은 아직 deferred이며 Windows-like
-profile에서는 명확한 diagnostic을 낸다.
+자동으로 받는다. Windows runtime `.dll`, import `.lib`, PDB/debug artifact 정책은 아직
+deferred이며 Windows-like profile에서는 `docs/windows-artifact-policy.md`를 가리키는
+명확한 diagnostic을 낸다.
 
 Artifact target은 `configs = {"//:common_c"}`로 reusable option bundle을 참조할 수
 있다. Config merge 규칙은 [Reusable Configs](configs.md)에 둔다.

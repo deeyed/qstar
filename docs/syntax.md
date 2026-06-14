@@ -426,8 +426,8 @@ build/link에는 참여하지만 consumer include path에는 영향을 주지 �
 `sharedlib` target은 Darwin-like profile에서는 `.dylib`, Linux-like profile에서는 `.so`를
 생성한다. sharedlib에 의존하는 executable/test/sharedlib link action에는 build-tree 실행을
 위한 최소 rpath가 자동으로 추가된다. macOS는 `@loader_path/<relative-lib-dir>`,
-Linux는 `$ORIGIN/<relative-lib-dir>`를 사용한다. Windows `.dll`/import-library/PDB 정책은
-아직 deferred diagnostic이다.
+Linux는 `$ORIGIN/<relative-lib-dir>`를 사용한다. Windows runtime `.dll`, import `.lib`,
+PDB/debug artifact 정책은 아직 deferred diagnostic이다.
 
 Round 19부터 test/install skeleton이 들어간다.
 

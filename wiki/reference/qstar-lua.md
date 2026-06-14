@@ -59,7 +59,7 @@ qstar.staticlib "core" {
 `qstar.sharedlib`는 Darwin-like profile에서는 `.dylib`, Linux-like profile에서는 `.so`를
 생성한다. sharedlib dependency를 link하는 artifact target은 build-tree 실행을 위해
 macOS `@loader_path`, Linux `$ORIGIN` 기반 rpath를 자동으로 받는다. Windows
-`.dll`/import-library/PDB 정책은 deferred diagnostic이다.
+runtime `.dll`, import `.lib`, PDB/debug artifact 정책은 deferred diagnostic이다.
 
 `qstar.target_file("//:group")`은 error다. Group은 dependency closure를 묶는 label일 뿐
 artifact-producing target이 아니다.

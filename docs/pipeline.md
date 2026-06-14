@@ -371,7 +371,8 @@ Round 18 link policy invariant:
   argv flags; frameworks are Darwin-only.
 - `sharedlib` builds and installs on Darwin/Linux-like profiles. Consumers get
   build-tree runtime rpath flags based on `@loader_path` or `$ORIGIN`. Windows
-  `.dll`/import-library/PDB policy rejects with a stable diagnostic.
+  runtime `.dll`, import `.lib`, and PDB/debug policy rejects with a stable
+  diagnostic.
 
 Round 19 developer-loop invariant:
 

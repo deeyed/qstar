@@ -154,7 +154,8 @@ contains "$tmp/shared/build/qstar/ninja/build.ninja" "$shared_ninja_rpath_flag"
 if "$qstar" --file "$tmp/shared/qstar.lua" --profile windows-shared emit-ninja //:plugin > "$tmp/shared-windows.out" 2> "$tmp/shared-windows.err"; then
 	fail "windows sharedlib Ninja lowering unexpectedly succeeded"
 fi
-contains "$tmp/shared-windows.err" "Windows .dll/import-library policy is deferred"
+contains "$tmp/shared-windows.err" "Windows shared libraries require a runtime .dll"
+contains "$tmp/shared-windows.err" "docs/windows-artifact-policy.md"
 
 if command -v ninja >/dev/null 2>&1; then
 	"$qstar" --file "$c_app/qstar.lua" -G ninja build //:app --progress off > "$tmp/c-app-build.out" 2> "$tmp/c-app-build.err"

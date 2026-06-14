@@ -180,7 +180,7 @@ QStar-owned으로 남기는 surface:
 
 0.5에서도 deferred로 남길 것:
 
-- Windows `.dll`/import-library/PDB sharedlib policy
+- Windows runtime `.dll`, import `.lib`, PDB/debug sharedlib policy
 - Cale source Ninja wrapper lowering; Q116 fixes Cale source as Stella-only for now
 - C++ modules execution policy
 - advanced platform-specific dynamic library rpath/install layout policy
@@ -218,7 +218,7 @@ Windows:
   corpus로 준비한 단계다.
 - 0.5에서 Windows official support나 release artifact를 선언하지 않는다.
 - Native Windows source build, install layout, real Windows process spawn,
-  automatic static `.lib`, `.dll`/import library/PDB policy, regular CI lane은 별도
+  automatic static `.lib`, runtime `.dll`/import `.lib`/PDB policy, regular CI lane은 별도
   라운드로 남긴다.
 
 ## Docs And CLI Drift Summary
@@ -283,7 +283,7 @@ historical version record는 보존한다.
   Q148 adds experimental macOS `kqueue` and Linux `inotify` watcher invalidation. Background
   lifecycle and permission hardening remain post-0.5 work. Q150 adds read-only daemon queries
   for IDE/AI integration. Q151 allows documenting daemon as beta opt-in, but not as default-on.
-- Windows `.dll`/import-library/PDB sharedlib support.
+- Windows runtime `.dll`, import `.lib`, PDB/debug sharedlib support.
 - Cale source Ninja wrapper lowering.
 - C++ modules execution policy.
 - Remote package resolution, lockfile, registry, fetch policy.
@@ -311,7 +311,7 @@ release notes.
   artifact. Windows has a manual native validation candidate workflow, but it is
   not yet official host support.
 - `qstar.sharedlib` supports Darwin-like `.dylib` and Linux-like `.so` builds, but
-  Windows `.dll`/import-library/PDB policy is deferred.
+  Windows runtime `.dll`, import `.lib`, PDB/debug policy is deferred.
 - Cale source is a Stella-only language-provider action in this release; Ninja
   wrapper lowering is deferred by contract.
 - Package/dependency resolution is intentionally outside QStar.

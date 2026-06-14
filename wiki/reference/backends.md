@@ -55,8 +55,9 @@ qstar --file qstar.lua replay //:app:link:0
 `.so`와 `soname`을 생성한다. sharedlib dependency를 link하는 executable/test/sharedlib
 edge에는 build-tree 실행용 rpath가 자동으로 추가된다. Stella는 실제 argv에
 `$ORIGIN`/`@loader_path` rpath를 넣고, Ninja lowering도 같은 의미의 `description`/command
-edge를 생성한다. Windows-like profile의 `.dll`/import-library/PDB/install layout은 아직
-deferred이며 Stella/Ninja 모두 같은 diagnostic으로 거부한다.
+edge를 생성한다. Windows-like profile의 runtime `.dll`, import `.lib`,
+PDB/debug/install layout은 아직 deferred이며 Stella/Ninja 모두
+`docs/windows-artifact-policy.md`를 가리키는 같은 diagnostic으로 거부한다.
 
 Cale source action은 Stella-only language-provider action이다. Ninja wrapper lowering은
 이번 release에서 deferred이며, Cale source를 포함하는 target은 `-G stella`를 사용한다.
@@ -122,5 +123,5 @@ qstar --file qstar.lua -G ninja install //:app --prefix /tmp/qstar-install
 
 ## 관련 diagnostic
 
-- `qstar: sharedlib target '//:plugin' supports only Darwin and Linux-like profiles in this release; Windows .dll/import-library policy is deferred`
+- `qstar: sharedlib target '//:plugin' is not supported for Windows-like profiles yet; Windows shared libraries require a runtime .dll, import .lib, and optional PDB/debug artifact policy. Use custom_target/object bridge for now or see docs/windows-artifact-policy.md`
 - `qstar: Cale source 'src/unit.cale' is a Stella-only language-provider action in this release; Ninja wrapper lowering is deferred; use -G stella`

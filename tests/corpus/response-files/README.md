@@ -16,4 +16,6 @@ hosts can still verify MSVC response-file escaping for spaces, quotes,
 backslashes, trailing spaces, and Windows-like argv option paths. The corpus also
 checks `.exe` artifact naming through target-local `artifact_name` and
 profile-level `artifact_names`, `/LIBPATH:...`, and `.lib` system library
-spelling without claiming native Windows support.
+spelling without claiming native Windows support. It also checks explicit
+static `.lib` planning through profile `artifact_names`; automatic `.lib`
+selection and native Windows archiver behavior remain deferred.

@@ -56,8 +56,8 @@ QStar가 하지 않는 일:
   header-like path다.
   `sharedlib`는 Darwin-like profile에서 `.dylib`, Linux-like profile에서 `.so`를 만들며,
   sharedlib dependency를 link하는 executable/test/sharedlib에는 build-tree 실행용
-  `@loader_path`/`$ORIGIN` rpath를 자동 추가한다. Windows `.dll`/import-library/PDB
-  정책은 deferred diagnostic으로 거부한다.
+  `@loader_path`/`$ORIGIN` rpath를 자동 추가한다. Windows sharedlib는 runtime `.dll`,
+  import `.lib`, PDB/debug artifact 정책이 아직 없으므로 deferred diagnostic으로 거부한다.
 - `make qstar-ninja-backend-parity-tests`는 staticlib, sharedlib, sharedlib-linked
   executable/test, generated, configure_file, run_target, stage/install producer integration,
   action-log/replay, Windows sharedlib diagnostic, `.ninja_log`/`.ninja_deps` root
@@ -127,8 +127,10 @@ QStar가 하지 않는 일:
   실제 compiler/linker option이면 `compile_options`/`link_options` argv item으로 두고
   `response_style = "msvc"`로 escape한다. `.exe`는 target-local `artifact_name` 또는
   profile-level `artifact_names`로 명시할 수 있고, 외부 system library는 MSVC-like target에서 `.lib`로 렌더링한다.
-  QStar가 직접 만드는 static `.lib`, `.dll`, import library, PDB, Windows install layout은
-  native Windows 검증 전까지 official contract가 아니다.
+  explicit static `.lib`는 target-local `artifact_name` 또는 profile-level `artifact_names`로
+  planning할 수 있다. Automatic `.lib`, `.dll`, import `.lib`, PDB/debug, Windows install
+  layout은 native Windows 검증 전까지 official contract가 아니다. 상세 정책은
+  `docs/windows-artifact-policy.md`에 둔다.
 - `make qstar-medium-project-readiness-tests`는 Stella executor와 Ninja backend의 clean,
   no-op, incremental build 시간을 `medium_project_gate ...` line protocol로 기록한다.
   Round Q92 기준 timing threshold는 report-only가 기본이며,

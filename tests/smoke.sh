@@ -3099,11 +3099,13 @@ fi
 if "$qstar" --file "$tmp/qstar.lua" --profile windows-shared build //:plugin > "$tmp/shared-windows.out" 2> "$tmp/shared-windows.err"; then
 	fail "windows sharedlib unexpectedly succeeded"
 fi
-contains "$tmp/shared-windows.err" "Windows .dll/import-library policy is deferred"
+contains "$tmp/shared-windows.err" "Windows shared libraries require a runtime .dll"
+contains "$tmp/shared-windows.err" "docs/windows-artifact-policy.md"
 if "$qstar" --file "$tmp/qstar.lua" --profile windows-shared -G ninja build //:plugin > "$tmp/shared-windows-ninja.out" 2> "$tmp/shared-windows-ninja.err"; then
 	fail "windows sharedlib ninja unexpectedly succeeded"
 fi
-contains "$tmp/shared-windows-ninja.err" "Windows .dll/import-library policy is deferred"
+contains "$tmp/shared-windows-ninja.err" "Windows shared libraries require a runtime .dll"
+contains "$tmp/shared-windows-ninja.err" "docs/windows-artifact-policy.md"
 
 cat > "$tmp/src/test_pass.c" <<'EOF'
 int main(void) { return 0; }
@@ -3861,6 +3863,11 @@ contains "docs/windows-path-process.md" "qstar-windows-prep-tests"
 contains "docs/windows-path-process.md" "qstar-windows-native-alpha-tests"
 contains "docs/windows-path-process.md" "sources = {\"src\\\\main.c\"}       -- invalid"
 contains "docs/windows-path-process.md" ".github/workflows/windows-validation.yml"
+contains "docs/windows-artifact-policy.md" "Windows Artifact Policy"
+contains "docs/windows-artifact-policy.md" "runtime .dll"
+contains "docs/windows-artifact-policy.md" "import .lib"
+contains "docs/windows-artifact-policy.md" "PDB/debug"
+contains "docs/windows-artifact-policy.md" "windows_static.lib"
 contains "docs/windows-path-process.md" "workflow_dispatch"
 contains "docs/windows-path-process.md" "MSVC response-file escaping"
 contains "docs/windows-path-process.md" "drive-letter paths are not allowed"
@@ -3881,8 +3888,11 @@ contains "tests/windows-prep.sh" "___windows_rsp_compile_0.rsp"
 contains "tests/windows-prep.sh" "/DTRAIL=tail"
 contains "tests/windows-prep.sh" "/DWINPATH=C:"
 contains "tests/windows-prep.sh" "profile_named.exe"
+contains "tests/windows-prep.sh" "windows_static.lib"
 contains "tests/corpus/response-files/qstar.lua" "msvc_response_escape_args"
 contains "tests/corpus/response-files/qstar.lua" "windows-msvc-artifact-map"
+contains "tests/corpus/response-files/qstar.lua" "windows-msvc-static-artifact-map"
+contains "tests/corpus/response-files/qstar.lua" "windows_static.lib"
 contains "tests/corpus/response-files/qstar.lua" "/DSLASHQUOTE="
 contains "tests/corpus/response-files/tools/fake-clang-cl" "fake-clang-cl: output path not found"
 contains "docs/qstar-pilot-readiness-seal.md" "status: pilot-readiness seal"
@@ -4005,7 +4015,8 @@ contains "wiki/AI_INDEX.md" "qstar-windows-prep-tests"
 contains "wiki/AI_INDEX.md" "qstar-windows-native-alpha-tests"
 contains "wiki/AI_INDEX.md" ".github/workflows/windows-validation.yml"
 contains "wiki/AI_INDEX.md" "manual native CI"
-contains "wiki/AI_INDEX.md" 'static `.lib`, `.dll`, import library'
+contains "wiki/AI_INDEX.md" 'explicit static `.lib`'
+contains "wiki/AI_INDEX.md" "docs/windows-artifact-policy.md"
 contains "wiki/AI_INDEX.md" "qstar --file qstar.lua action-log"
 contains "wiki/AI_INDEX.md" "low-level/bootloader-style project"
 contains "wiki/reference/progress-output.md" "[ 75%] Linking CXX executable app"

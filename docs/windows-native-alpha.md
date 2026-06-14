@@ -91,12 +91,16 @@ Current known gaps:
   Windows source build can pass.
 - No Windows public release asset.
 - No stable Windows install layout contract.
+- Windows artifact policy is currently a pre-support contract in
+  `docs/windows-artifact-policy.md`; native validation still has to prove real
+  `.exe`, explicit static `.lib`, runtime `.dll`, import `.lib`, and PDB/debug
+  behavior.
 - No Visual Studio, `nmake`, or direct MSVC bootstrap lane.
 - The MSYS2 alpha lane pins `CC=gcc`; the hosted runner may provide a `CC=c99`
   environment value that is not an executable tool.
 - Real MSVC/clang-cl compiler execution is not yet a release gate.
-- Windows `.dll`, import library, PDB, and shared library install policy are
-  deferred.
+- Windows `.dll`, import `.lib`, PDB/debug, and shared library install policy
+  are deferred.
 - Persistent Stella daemon uses Unix socket paths today; Windows named pipe
   support is deferred.
 - QStar DSL package paths still intentionally reject drive letters and

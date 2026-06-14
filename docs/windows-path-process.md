@@ -16,7 +16,8 @@ response-file regression is exercised through both Stella and Ninja when `ninja`
 is available. Round Q159 turns that workflow into a manual native CI alpha with
 MSYS2 UCRT64 bootstrap, `qstar --version`, a limited smoke subset, install
 docs/man smoke, and uploaded failure logs. This still is not official Windows
-support.
+support. Round Q160 moves the artifact naming/install policy into
+`docs/windows-artifact-policy.md`.
 
 ## Status
 
@@ -148,7 +149,7 @@ The prep gate verifies MSVC response-file escaping for:
 
 ## Artifact Naming
 
-Current pre-port policy:
+The detailed artifact contract is `docs/windows-artifact-policy.md`. Summary:
 
 - Executable targets may use `artifact_name = "tool.exe"` or profile
   `artifact_names = {"//:tool=tool.exe"}`. This `.exe` spelling is the current
@@ -164,12 +165,12 @@ Current pre-port policy:
   `artifact_names = {"//:name=name.lib"}` explicitly. Automatic `.lib` output is
   deferred until native `lib.exe`/`llvm-lib` validation.
 - `qstar.sharedlib` is supported for Darwin-like `.dylib` and Linux-like `.so`
-  profiles, but Windows `.dll`, import library, PDB, runtime search path, and
-  install layout are deferred.
+  profiles, but Windows runtime `.dll`, import `.lib`, PDB/debug artifact,
+  runtime search path, and install layout are deferred.
 
-Do not claim Windows packaging support until `.exe`, static `.lib`, `.dll`,
-import library, debug artifact, and install layout behavior are validated on
-Windows.
+Do not claim Windows packaging support until `.exe`, static `.lib`, runtime
+`.dll`, import `.lib`, debug artifact, and install layout behavior are
+validated on Windows.
 
 ## Regression Gate
 
@@ -194,6 +195,8 @@ The gate checks:
 - `artifact_name = "windows_app.exe"` is reflected in the planned output path
 - `profile artifact_names = {"//:windows_mapped=profile_named.exe"}` is
   reflected in the planned output path
+- `profile artifact_names = {"//:windows_static=windows_static.lib"}` is
+  reflected in explicit static archive planning
 - drive-letter and backslash package paths are rejected with specific reason text
 
 Manual corpus commands:

@@ -164,5 +164,5 @@ generated action, staticlib, sharedlib, executable/test link, `qstar.run_target`
 `qstar.group` phony lowering/execution을 지원한다. `stage`/`install`은 copy와 manifest를
 QStar가 맡고, 참조 artifact build는 effective generator를 따른다. `sharedlib`는
 Darwin-like profile에서 `.dylib`, Linux-like profile에서 `.so`를 만들며 Windows
-`.dll`/import-library/PDB 정책은 아직 deferred다. Cale source action은 Stella-only
+runtime `.dll`, import `.lib`, PDB/debug artifact 정책은 아직 deferred다. Cale source action은 Stella-only
 language-provider action이며, HCL은 QStar가 해석하지 않는 header-like path다.

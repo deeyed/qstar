@@ -76,6 +76,11 @@ contains "$tmp/windows-dry.out" "output=build/qstar/out/___windows_app/windows_a
 contains "$tmp/windows-mapped-dry.out" "response_style=msvc"
 contains "$tmp/windows-mapped-dry.out" "output=build/qstar/out/___windows_mapped/profile_named.exe"
 
+"$qstar" --file "$corpus/qstar.lua" --profile windows-msvc-static-artifact-map dry-run \
+	//:windows_static > "$tmp/windows-static-dry.out" 2> "$tmp/windows-static-dry.err"
+contains "$tmp/windows-static-dry.out" "final_action=archive"
+contains "$tmp/windows-static-dry.out" "output=build/qstar/out/___windows_static/windows_static.lib"
+
 "$qstar" --file "$corpus/qstar.lua" --profile windows-msvc-fake \
 	--progress off build //:windows_rsp > "$tmp/windows-rsp.out" \
 	2> "$tmp/windows-rsp.err"
