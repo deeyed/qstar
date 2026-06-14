@@ -32,6 +32,8 @@ mkdir -p "$tmp"
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
 printf 'qstar-windows-native-alpha: host=%s mode=%s\n' "$host" "$mode"
+printf 'qstar-windows-native-alpha: baseline=msys2-ucrt64-gcc\n'
+printf 'qstar-windows-native-alpha: daemon_named_pipe=deferred\n'
 
 "$qstar" --version > "$tmp/version.out" 2> "$tmp/version.err"
 contains "$tmp/version.out" "qstar "

@@ -137,8 +137,12 @@ QStar가 하지 않는 일:
   `make qstar-windows-prep-tests`가 path/process/MSVC response-file 준비 규칙을 묶고,
   `make qstar-windows-native-alpha-tests`가 제한 smoke를 제공한다.
   `.github/workflows/windows-validation.yml`은 `workflow_dispatch` 전용 manual native CI
-  alpha다. MSYS2 UCRT64에서 `make all CC=gcc`, `qstar --version`, native alpha smoke,
+  alpha다. Q172 기준 baseline lane은 `msys2-ucrt64-gcc`이며, job 이름은
+  `windows alpha / msys2-ucrt64-gcc baseline`이다. MSYS2 UCRT64에서 `make all CC=gcc`,
+  `qstar --version`, native alpha smoke,
   Windows prep, install docs/man smoke를 실행하고 `qstar-windows-native-alpha` artifact로 로그를 남긴다.
+  이 artifact는 `windows-alpha-status.txt`, `KNOWN_ISSUES.md`, `status/*.status`를 포함해
+  실패 class를 raw log만으로 추적하지 않게 한다.
   Q164부터 `src/daemon.c`는 Windows stub을 제공해 Unix socket include 실패를 피하고,
   Windows host에서 `qstar daemon`/`--use-daemon=always`는 named pipe 구현 전까지 deferred
   diagnostic으로 처리한다.

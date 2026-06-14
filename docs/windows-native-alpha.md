@@ -12,6 +12,7 @@ workflow: .github/workflows/windows-validation.yml
 trigger: workflow_dispatch
 host: windows-latest
 bootstrap shell: MSYS2 UCRT64
+baseline lane: msys2-ucrt64-gcc
 primary compiler: mingw-w64-ucrt-x86_64-gcc
 release asset: none
 official support: no
@@ -20,6 +21,11 @@ official support: no
 The lane exists to turn Windows portability work into a real failure list. If it
 fails, the failure class should be copied into this document's Known Issues
 section before the next Windows round.
+
+Round Q172 fixes the alpha lane identity as `msys2-ucrt64-gcc`. The workflow
+now writes step status files and a generated `KNOWN_ISSUES.md` into the
+`qstar-windows-native-alpha` artifact so a failed run leaves a structured
+failure list instead of only a long console log.
 
 ## Toolchain Choice
 
@@ -37,6 +43,10 @@ lane yet. MSVC/clang-cl behavior is covered at the QStar graph/response-file
 contract level through the response-file corpus and fake `clang-cl` fixture.
 Real MSVC process execution remains a later validation step.
 
+Do not add a second Windows lane until the baseline lane has a stable failure
+history. `clang-cl`, MSVC, Visual Studio project generation, and `nmake` remain
+separate future lanes rather than hidden requirements of this alpha gate.
+
 ## Workflow Shape
 
 `.github/workflows/windows-validation.yml` is manual-only:
@@ -45,6 +55,8 @@ Real MSVC process execution remains a later validation step.
 workflow_dispatch
   inputs:
     run_ninja_parity: false by default
+  job:
+    windows alpha / msys2-ucrt64-gcc baseline
 ```
 
 The default alpha job runs:
@@ -75,6 +87,33 @@ All alpha logs are uploaded as the `qstar-windows-native-alpha` artifact. This
 is required because early native Windows failures are expected to be
 environment-sensitive.
 
+Round Q172 makes the artifact layout explicit:
+
+```txt
+environment.txt
+make-all.log
+version.log
+native-alpha.log
+windows-prep.log
+install.log
+SUMMARY.md
+KNOWN_ISSUES.md
+windows-alpha-status.txt
+status/environment.status
+status/make-all.status
+status/version.status
+status/native-alpha.status
+status/windows-prep.status
+status/ninja-backend-parity.status
+status/install.status
+```
+
+If a step fails, its status file is written before the step exits non-zero. The
+final `SUMMARY.md` and `KNOWN_ISSUES.md` steps run with `if: always()` so the
+artifact should still contain a machine-readable failure class. Missing status
+files mean the corresponding step was not reached, usually because an earlier
+baseline step failed.
+
 ## Local Contract Smoke
 
 Non-Windows hosts can run the contract-only subset:
@@ -88,6 +127,17 @@ On non-Windows hosts, `tests/windows-native-alpha.sh` reports
 `mode=contract-only`. On MSYS2/Cygwin/MinGW-like hosts it reports
 `mode=native-windows-alpha`.
 
+The smoke also prints:
+
+```txt
+qstar-windows-native-alpha: baseline=msys2-ucrt64-gcc
+qstar-windows-native-alpha: daemon_named_pipe=deferred
+```
+
+That output is intentional. Windows native validation is currently anchored to
+the MSYS2 UCRT64 gcc lane, and daemon named pipe work is not part of this alpha
+round.
+
 ## Known Issues
 
 Current known gaps:
@@ -95,6 +145,9 @@ Current known gaps:
 - Q159's first observed `src/daemon.c` `<sys/socket.h>` failure is addressed by
   Q164's Windows daemon stub. The manual alpha lane still needs to be rerun to
   discover the next real native failure class.
+- Q172 has not promoted Windows to official support. It only makes
+  `msys2-ucrt64-gcc` the baseline lane and ensures failed runs leave structured
+  status and known-issue artifacts.
 - Stella daemon on Windows is disabled/deferred. The future supported transport
   is a named pipe with Windows ACL rules, not Unix sockets.
 - No Windows public release asset.
@@ -117,6 +170,15 @@ Current known gaps:
 
 When the manual workflow fails, append new failure classes here instead of
 loosening the path/process contract silently.
+
+Use the generated artifact in this order:
+
+1. Read `windows-alpha-status.txt` for the first `status=fail` line.
+2. Open the corresponding `*.log` file named in that status line.
+3. Copy the failure class, not the entire raw log, into this Known Issues list.
+4. Keep daemon named pipe, MSVC bootstrap, public Windows asset, `.dll`/import
+   `.lib`, and PDB/debug policy deferred unless a later round explicitly takes
+   ownership of them.
 
 ## Promotion Criteria
 
