@@ -2,8 +2,8 @@
 
 Stella daemon은 QStar의 장기 성능 구조다. Round Q151 기준으로 foreground server, build
 client, streaming build output, in-memory dirty/deps state snapshot, file watcher invalidation,
-performance gate, read-only query API가 들어왔다. 판단은 "documented beta opt-in candidate"이며
-stable/default-on surface는 아니다. 정본 설계 문서는 `docs/daemon/stella-daemon.md`, beta
+performance gate, read-only query API가 들어왔다. `0.6.0-beta`에서는 documented beta opt-in
+feature로 다루며, stable/default-on surface는 아니다. 정본 설계 문서는 `docs/daemon/stella-daemon.md`, beta
 readiness 판단은 `docs/daemon-beta-readiness.md`다.
 
 ## 명령 이름
@@ -70,13 +70,13 @@ build/qstar/stella/daemon/qstar-daemon.sock
 
 Package root mismatch 같은 보안 오류는 fallback 대상이 아니다.
 
-Q151 결론:
+Q151 이후 결론:
 
 - 기본 `qstar build`는 normal Stella executor를 계속 사용한다.
 - `--use-daemon=auto`와 `--use-daemon=always`는 explicit opt-in이다.
-- `qstar daemon --query ...`는 IDE/AI용 read-only beta opt-in 후보로 문서화한다.
-- `0.5.2-beta.1`은 daemon readiness를 담는 적절한 다음 beta patch 후보이다.
-- `0.6.0-beta.1`은 background lifecycle/security/protocol이 더 닫힌 뒤 다시 검토한다.
+- `qstar daemon --query ...`는 IDE/AI용 read-only beta opt-in 기능으로 문서화한다.
+- `0.6.0-beta`는 daemon readiness를 담는 public beta line이다.
+- background lifecycle/security/protocol이 더 닫히기 전까지 daemon은 default-on이 아니다.
 
 Build stream이 시작된 뒤 daemon이 죽으면 client는 partial output 뒤에
 `qstar: daemon stream interrupted before final status`를 출력하고 실패한다. 이 경우

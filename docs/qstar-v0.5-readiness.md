@@ -1,15 +1,19 @@
 # QStar 0.5 Readiness Gate
 
+> Historical note: this file records the 0.5 beta readiness line and the
+> transition history that followed it. The current `0.6.0-beta` release gate is
+> `docs/qstar-v0.6-readiness.md`.
+
 이 문서는 QStar를 다음 beta/0.5 라인으로 올릴 준비가 되었는지 판단하기 위한
 readiness gate다. Q100은 판단 기준을 고정했고, Q110은 이 기준을 바탕으로
 `0.5.0-beta.1` release-prep line을 열었다. Q117은 Q111-Q116의 performance,
-platform, backend, language-provider 결과를 묶어 `0.5.1-beta.1` beta patch release
+platform, backend, language-provider 결과를 묶어 `0.6.0-beta` beta patch release
 후보를 판단한다.
 
 ```txt
 status: 0.5 beta patch readiness gate
-current runtime version: qstar 0.5.1-beta.1
-candidate line: qstar 0.5.1-beta.1
+current runtime version: qstar 0.6.0-beta
+candidate line: qstar 0.6.0-beta
 gate: make -C qstar qstar-v0.5-readiness-tests
 baseline date: 2026-06-13
 ```
@@ -35,11 +39,11 @@ QStar는 0.5 beta line으로 이동할 수 있는 기반은 갖췄다. 단, 0.5�
 있는 beta"다. v1.0 조건인 macOS/Linux/Windows official support, CI/release matrix,
 장기 안정 API는 아직 충족하지 않는다.
 
-Q117 판단은 `0.5.0-beta.2`가 아니라 `0.5.1-beta.1`을 추천한다. Q115의 shared library
+Q117 판단은 `0.5.0-beta.2`가 아니라 `0.6.0-beta`을 추천한다. Q115의 shared library
 policy와 Q116의 Cale backend contract는 기존 beta line의 단순 재포장이 아니라
 user-facing surface를 보강한 patch-level 변화이기 때문이다.
 
-Q151 판단은 다음 daemon-focused beta patch 후보로 `0.5.2-beta.1`을 추천한다.
+Q151 판단은 다음 daemon-focused beta patch 후보로 `0.6.0-beta`을 추천한다.
 Stella daemon은 Q145-Q150을 거치며 streaming output, in-memory dirty/deps state,
 file watcher invalidation, performance gate, read-only IDE API까지 갖췄으므로 hidden
 experiment에서 documented beta opt-in 후보로 올릴 수 있다. 하지만 background lifecycle,
@@ -233,7 +237,7 @@ Windows:
 - VSCode snippets/syntax surface
 - `README.md`, `README.ko.md`, release notes
 
-0.5 beta patch line에서는 `qstar 0.5.1-beta.1` version bump와 함께 위 문서의 old
+0.5 beta patch line에서는 `qstar 0.6.0-beta` version bump와 함께 위 문서의 old
 version string이 현재-facing 문서에 남아 있지 않은지 확인한다. 과거 seal 문서의
 historical version record는 보존한다.
 
@@ -252,8 +256,8 @@ historical version record는 보존한다.
 
 ## Q117 Beta Patch Gate
 
-- Runtime version bump: `qstar 0.5.1-beta.1`.
-- Release notes: `docs/releases/v0.5.1-beta.1.md`.
+- Runtime version bump: `qstar 0.6.0-beta`.
+- Release notes: `docs/releases/v0.6.0-beta.md`.
 - Public beta package smoke: `make qstar-public-beta-release-tests`.
 - Self-host gate: `make qstar-self-host-tests`.
 - Medium performance report: Stella vs Ninja clean/no-op/incremental 수치.
@@ -265,7 +269,7 @@ historical version record는 보존한다.
 - VSCode extension version policy: runtime과 별도로 `0.3.0` 유지. 이번 runtime tarball에는
   VSIX를 포함하지 않는다.
 - Release line decision: Q115/Q116의 sharedlib/Cale backend 계약을 포함하므로
-  `0.5.0-beta.2`가 아니라 `0.5.1-beta.1`로 낸다.
+  `0.5.0-beta.2`가 아니라 `0.6.0-beta`로 낸다.
 
 ## Deferred After 0.5
 
@@ -291,8 +295,8 @@ historical version record는 보존한다.
 
 - `0.4.x-beta.*`: public beta packaging, Stella/Ninja/self-host hardening line.
 - `0.5.0-beta.1`: medium project readiness, self-host regular gate, refreshed docs/release line.
-- `0.5.1-beta.1`: sharedlib policy, Cale backend contract, platform readiness, beta patch gate.
-- `0.5.2-beta.1`: Stella daemon beta opt-in readiness, read API release note, security gap report.
+- `0.6.0-beta`: sharedlib policy, Cale backend contract, platform readiness, beta patch gate.
+- `0.6.0-beta`: Stella daemon beta opt-in readiness, read API release note, security gap report.
 - `0.5.x-beta.*`: platform validation and backend parity patch line.
 - `1.0.0`: macOS, Linux, Windows official release artifacts and CI matrix are required.
 

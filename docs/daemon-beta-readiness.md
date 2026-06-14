@@ -6,9 +6,9 @@ native executor를 장기 실행 build service로 붙이는 experimental daemon 
 
 ```txt
 status: daemon beta opt-in readiness gate
-current runtime version: qstar 0.5.1-beta.1
-candidate line: qstar 0.5.2-beta.1
-decision: documented beta opt-in candidate, not default
+current runtime version: qstar 0.6.0-beta
+release line: qstar 0.6.0-beta
+decision: documented beta opt-in feature, not default
 baseline date: 2026-06-14
 ```
 
@@ -16,7 +16,7 @@ baseline date: 2026-06-14
 
 Stella daemon은 더 이상 문서 밖 hidden experiment로만 둘 단계는 지났다. Q145-Q150을 거치며
 streaming output, in-memory state, watcher invalidation, performance gate, read-only IDE API가
-모두 생겼다. 따라서 다음 beta patch에서는 “documented beta opt-in” 기능으로 올릴 수 있다.
+모두 생겼다. 따라서 `0.6.0-beta`에서는 “documented beta opt-in” 기능으로 올린다.
 
 단, daemon을 기본 build path로 켜면 안 된다.
 
@@ -31,10 +31,10 @@ streaming output, in-memory state, watcher invalidation, performance gate, read-
 | Windows named pipe | deferred |
 | Remote daemon | out of scope |
 
-Version bump 후보는 `0.5.2-beta.1`이 맞다. Q151은 daemon을 stable surface로 승격하지 않고,
-0.5 beta line 안에서 opt-in readiness와 release gate를 강화하는 patch-level 변화다.
-`0.6.0-beta.1`은 background lifecycle, socket permission hardening, protocol versioning,
-IDE integration contract가 더 닫힌 뒤에 검토한다.
+Version line은 `0.6.0-beta`로 승격한다. 이 승격은 daemon을 stable/default surface로 켜는
+것이 아니라, 명시적 opt-in 기능과 IDE/AI read API를 beta 문서 표면으로 올리는 변화다.
+Background lifecycle, socket permission hardening, protocol versioning, IDE integration
+contract가 더 닫히기 전까지 daemon은 default-on이 아니다.
 
 ## Q145-Q150 Summary
 
@@ -136,7 +136,7 @@ Daemon 보안은 beta opt-in의 남은 핵심이다.
 
 ## Release Gate
 
-Daemon beta opt-in candidate를 release note에 포함하려면 다음 gate가 통과해야 한다.
+Daemon beta opt-in feature를 release note에 포함하려면 다음 gate가 통과해야 한다.
 
 ```sh
 make all

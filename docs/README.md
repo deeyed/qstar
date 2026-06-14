@@ -67,7 +67,8 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 - `windows-path-process.md`: Windows path/process/response-file pre-port contract와 manual native validation candidate workflow.
 - `public-beta-release.md`: public beta packaging, install smoke, codesign, wiki sync gate.
 - `releases/TEMPLATE.md`: GitHub prerelease notes template.
-- `releases/v0.5.2-beta.1.md`: Stella daemon beta opt-in candidate release note.
+- `releases/v0.6.0-beta.md`: Stella daemon beta opt-in release note.
+- `qstar-v0.6-readiness.md`: 0.6 beta release readiness gate.
 - `qstar-v0.5-readiness.md`: 0.5 beta line으로 올릴지 판단하는 readiness gate.
 - `qstar-pilot-readiness-seal.md`: formatter/help/wiki/CLI sync까지 묶은 pilot-readiness gate.
 - `qstar-submodule-extraction-prep.md`: 독립 repo/submodule 전환 직전 체크리스트.
@@ -125,10 +126,10 @@ Round 110부터 runtime은 `0.5.0-beta.1` release-prep line으로 이동한다. 
 `releases/v0.5.0-beta.1.md`에 두고, VSCode extension package version은 runtime과 별도인
 `0.3.0`으로 유지한다.
 
-Round 117부터 runtime patch line은 `0.5.1-beta.1`로 이동한다. Release note는
-`releases/v0.5.1-beta.1.md`에 두며, 이 patch line은 Stella/Ninja timing, Linux/Windows
-readiness, sharedlib policy, Cale backend contract, install/package smoke를 묶어 다음
-public beta 판단을 고정한다.
+Round Q152 release cleanup부터 runtime line은 `0.6.0-beta`로 이동한다. Release note는
+`releases/v0.6.0-beta.md`, 현재-facing readiness gate는 `qstar-v0.6-readiness.md`에 둔다.
+이 line은 Stella daemon beta opt-in, Stella/Ninja timing, Linux/Windows readiness,
+self-host, install/package smoke를 묶어 public beta 판단을 고정한다.
 
 Round 116부터 Cale source는 Stella-only language-provider action으로 봉인한다. Ninja wrapper
 lowering은 Cale provider의 argv/depfile/response-file/replay 계약이 별도 라운드로 정리될

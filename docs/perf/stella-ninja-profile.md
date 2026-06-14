@@ -8,7 +8,7 @@ status: q118 ninja architecture profiling report
 date: 2026-06-13
 ninja clone: /tmp/qstar-ninja-profile
 ninja commit: 5a7fe11
-qstar version: 0.5.1-beta.1
+qstar version: 0.6.0-beta
 scope: architecture profiling, no code copied from Ninja
 ```
 

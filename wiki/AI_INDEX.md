@@ -79,10 +79,10 @@ QStar가 하지 않는 일:
   `qstar action-log`, `qstar replay`, `qstar last-failure`도 같은 action description을
   `description=` metadata로 보존한다. Stella 성공/skip action의 물리 `.log` 파일 존재는
   public contract가 아니며, 필요 시 compact state와 현재 graph에서 lazy 재구성될 수 있다.
-- 0.5 readiness 판단과 `0.5.1-beta.1` beta patch release-prep line은
-  `docs/qstar-v0.5-readiness.md`에 둔다. 이 문서는 self-host,
-  Stella/Ninja benchmark, Ninja parity, Linux/Windows status, docs/CLI drift, medium
-  project readiness, version policy, deferred surface를 요약한다.
+- 0.6 beta release 판단과 `0.6.0-beta` public prerelease line은
+  `docs/qstar-v0.6-readiness.md`에 둔다. 이 문서는 daemon beta opt-in, self-host,
+  Stella/Ninja benchmark, Linux/Windows status, package smoke, version policy, deferred
+  surface를 요약한다. 0.5 line의 연속 기록은 `docs/qstar-v0.5-readiness.md`에 남긴다.
 - Linux host 지원은 Round Q113 기준 validation-backed source build path에
   `linux-x86_64` release-candidate tarball dry-run이 더해진 상태다.
   `make qstar-linux-validation-tests`는 portable path/process, Linux depfile 후보,
@@ -147,10 +147,11 @@ QStar가 하지 않는 일:
   `hello`, `workspace.info`, `targets.list`, `diagnostics.list`,
   `compile_commands.path`, `build.summary`다. 계약 문서는
   `docs/contracts/daemon-read-api.md`에 둔다. Build/test/clean mutation은 read API에 없다.
-  Round Q151 판단은 documented beta opt-in candidate다. 기본 `qstar build`는 daemon을 쓰지
-  않고, `--use-daemon=auto|always`와 `qstar daemon --query ...`는 명시적으로 선택할 때만 쓴다.
-  다음 version 후보는 `0.5.2-beta.1`이며, `0.6.0-beta.1`은 background lifecycle/security가
-  더 닫힌 뒤 검토한다. 판단 문서는 `docs/daemon-beta-readiness.md`에 둔다.
+  Round Q151 판단 이후 daemon은 `0.6.0-beta`에서 documented beta opt-in 기능으로 승격한다.
+  기본 `qstar build`는 daemon을 쓰지 않고, `--use-daemon=auto|always`와
+  `qstar daemon --query ...`는 명시적으로 선택할 때만 쓴다. Background lifecycle,
+  socket permission hardening, protocol versioning, Windows named pipe는 아직 default-on
+  전에 닫아야 할 gap으로 남긴다. 판단 문서는 `docs/daemon-beta-readiness.md`에 둔다.
 - Stella dirty-check의 canonical fast state는 `build/qstar/state/state.db`다.
   `build/qstar/state/actions.json`은 기본 생성물이 아니며
   `QSTAR_DEBUG_STATE_DUMPS=1 qstar build ...`로 요청한 debug/export dump다.

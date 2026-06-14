@@ -12,10 +12,10 @@ VSCode extension is not included in the public beta runtime tarball.
 Stella/Ninja medium performance artifact collection을 수행한다.
 
 ```txt
-runtime version: qstar 0.5.1-beta.1
-release tag: v0.5.1-beta.1
-macOS asset: qstar-v0.5.1-beta.1-macos-arm64.tar.gz
-Linux RC dry-run asset: qstar-v0.5.1-beta.1-linux-x86_64.tar.gz
+runtime version: qstar 0.6.0-beta
+release tag: v0.6.0-beta
+macOS asset: qstar-v0.6.0-beta-macos-arm64.tar.gz
+Linux RC dry-run asset: qstar-v0.6.0-beta-linux-x86_64.tar.gz
 checksum file: SHA256SUMS
 ```
 
@@ -24,9 +24,9 @@ checksum file: SHA256SUMS
 검증한다. Tag를 아직 만들지 않은 main branch에서는 package smoke만 수행하고
 `tag=not-on-tag`를 출력한다.
 
-Round Q151 기준 다음 daemon-focused beta patch 후보는 `0.5.2-beta.1`이다. 이 후보는
-Stella daemon을 documented beta opt-in으로 설명하지만, default `qstar build` path를 바꾸지
-않는다. 후보 release note는 `docs/releases/v0.5.2-beta.1.md`, 판단 기준은
+Round Q151 이후 daemon-focused beta line은 `0.6.0-beta`로 승격한다. 이 release는
+Stella daemon을 documented beta opt-in 기능으로 설명하지만, default `qstar build` path를
+바꾸지 않는다. Release note는 `docs/releases/v0.6.0-beta.md`, 판단 기준은
 `docs/daemon-beta-readiness.md`에 둔다.
 
 ## Local Gate
@@ -81,7 +81,7 @@ Linux runtime tarball은 아직 public beta asset이 아니다. Round Q113 이�
 
 ```sh
 QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh
-test -f dist/release/qstar-v0.5.1-beta.1-linux-x86_64.tar.gz
+test -f dist/release/qstar-v0.6.0-beta-linux-x86_64.tar.gz
 test -s dist/release/file-linux-x86_64.txt
 test -s dist/release/ldd-linux-x86_64.txt
 ```
@@ -114,7 +114,7 @@ LICENSE/README.md
 예상 설치 명령:
 
 ```sh
-tar -xzf qstar-v0.5.1-beta.1-macos-arm64.tar.gz -C "$HOME/.local"
+tar -xzf qstar-v0.6.0-beta-macos-arm64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 ```
@@ -165,15 +165,15 @@ sample workspace, license payload만 확인하는 좁은 smoke다. Runtime과 ba
 Local smoke가 끝난 뒤 tag와 GitHub release를 만든다.
 
 ```sh
-git tag -a v0.5.1-beta.1 -m "QStar v0.5.1 beta 1"
-git push origin v0.5.1-beta.1
+git tag -a v0.6.0-beta -m "QStar v0.6.0 beta"
+git push origin v0.6.0-beta
 
-gh release create v0.5.1-beta.1 \
-  dist/release/qstar-v0.5.1-beta.1-macos-arm64.tar.gz \
+gh release create v0.6.0-beta \
+  dist/release/qstar-v0.6.0-beta-macos-arm64.tar.gz \
   dist/release/SHA256SUMS \
   --repo deeyed/qstar \
-  --title "QStar v0.5.1 Beta 1" \
-  --notes-file docs/releases/v0.5.1-beta.1.md \
+  --title "QStar v0.6.0 Beta" \
+  --notes-file docs/releases/v0.6.0-beta.md \
   --prerelease \
   --latest=false
 ```
