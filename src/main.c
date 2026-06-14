@@ -51,7 +51,7 @@ usage(FILE *out)
 	fputs("       --verbose  # keep progress and add argv/cache/action details\n", out);
 	fputs("       --schedule-trace  # add scheduler internals such as schedule_action\n", out);
 	fputs("       --use-daemon auto|never|always  # beta Stella daemon client\n", out);
-	fputs("       --daemon-socket path  # beta Stella daemon socket\n", out);
+	fputs("       --daemon-socket path  # beta Unix socket path; Windows named pipe deferred\n", out);
 	fputs("       --quiet\n", out);
 }
 
@@ -80,7 +80,7 @@ command_help(FILE *out, const char *cmd)
 		fputs("--schedule-trace adds scheduler internals; default output hides Stage/Status/schedule_action/build_action details.\n", out);
 		fputs("--color controls warning:/error: ANSI color in text output; JSON diagnostics stay uncolored.\n", out);
 		fputs("--use-daemon is experimental; auto falls back to normal Stella, always fails on daemon errors.\n", out);
-		fputs("--daemon-socket selects the experimental Unix socket path.\n", out);
+		fputs("--daemon-socket selects the experimental Unix socket path; Windows named pipe support is deferred.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "daemon") == 0) {
@@ -89,7 +89,8 @@ command_help(FILE *out, const char *cmd)
 		fputs("       qstar [options] daemon --socket path --serve\n", out);
 		fputs("       qstar [options] daemon --socket path --status\n", out);
 		fputs("       qstar [options] daemon --socket path --query method\n", out);
-		fputs("Run the beta opt-in persistent Stella daemon lifecycle.\n", out);
+		fputs("Run the beta opt-in persistent Stella daemon lifecycle on Unix socket hosts.\n", out);
+		fputs("Windows named pipe daemon support is deferred.\n", out);
 		fputs("Read-only query methods: hello, workspace.info, targets.list, diagnostics.list, compile_commands.path, build.summary.\n", out);
 		fputs("This is not a stable public surface yet; normal qstar build is unchanged.\n", out);
 		return;

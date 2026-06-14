@@ -130,6 +130,9 @@ QStar가 하지 않는 일:
   `.github/workflows/windows-validation.yml`은 `workflow_dispatch` 전용 manual native CI
   alpha다. MSYS2 UCRT64에서 `make all CC=gcc`, `qstar --version`, native alpha smoke,
   Windows prep, install docs/man smoke를 실행하고 `qstar-windows-native-alpha` artifact로 로그를 남긴다.
+  Q164부터 `src/daemon.c`는 Windows stub을 제공해 Unix socket include 실패를 피하고,
+  Windows host에서 `qstar daemon`/`--use-daemon=always`는 named pipe 구현 전까지 deferred
+  diagnostic으로 처리한다.
   QStar DSL path는 Windows에서도 `/`로 정규화된 package-relative path이며,
   backslash path와 drive-letter package path는 금지된다. Windows-like path 문자열이
   실제 compiler/linker option이면 `compile_options`/`link_options` argv item으로 두고

@@ -57,6 +57,14 @@ make qstar-windows-prep-tests CC=gcc
 make install CC=gcc PREFIX=/tmp/qstar-windows-smoke
 ```
 
+Round Q164 isolates the Unix socket Stella daemon implementation from Windows
+builds. `src/daemon.c` now provides a Windows stub that compiles without
+`<sys/socket.h>` and returns a clear deferred diagnostic for `qstar daemon` or
+`--use-daemon=always`. `--use-daemon=auto` can still fall back to the normal
+Stella build path. This should let `make all CC=gcc` progress past the first
+observed daemon source failure; any new native failure class belongs in the
+Known Issues section below.
+
 The optional `run_ninja_parity=true` input also runs:
 
 ```sh
@@ -84,11 +92,11 @@ On non-Windows hosts, `tests/windows-native-alpha.sh` reports
 
 Current known gaps:
 
-- First observed Q159 alpha run on GitHub Actions `windows-2025-vs2026` with
-  MSYS2 UCRT64 reaches `make all CC=gcc` and fails in `src/daemon.c` because
-  `<sys/socket.h>` is not available. This confirms that the Unix-socket Stella
-  daemon implementation still needs a Windows portability boundary before
-  Windows source build can pass.
+- Q159's first observed `src/daemon.c` `<sys/socket.h>` failure is addressed by
+  Q164's Windows daemon stub. The manual alpha lane still needs to be rerun to
+  discover the next real native failure class.
+- Stella daemon on Windows is disabled/deferred. The future supported transport
+  is a named pipe with Windows ACL rules, not Unix sockets.
 - No Windows public release asset.
 - No stable Windows install layout contract.
 - Windows artifact policy is currently a pre-support contract in

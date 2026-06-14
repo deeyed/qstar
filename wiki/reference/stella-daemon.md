@@ -24,6 +24,10 @@ qstar build //:app --use-daemon=never
 `qstar stella-daemon`은 채택하지 않는다. Daemon은 현재 Stella executor를 빠르게 만들기 위한
 service지만, CLI 명령은 QStar service lifecycle을 나타내는 `daemon`이 더 넓고 안정적이다.
 
+Windows host에서는 Q164 기준 daemon이 disabled/deferred 상태다. `_WIN32` build는 Unix
+socket backend 대신 stub을 컴파일하며, `qstar daemon`과 `--use-daemon=always`는 named pipe
+구현 전까지 deferred diagnostic을 낸다.
+
 `--start`는 background daemon을 띄우고 `qstar-daemon.pid`, `qstar-daemon.lock`,
 `qstar-daemon.log`를 socket directory에 둔다. `--stop`은 pid file과 hello response의 pid가
 일치할 때만 종료한다. `--serve`는 debugging용 foreground path로 계속 남긴다.

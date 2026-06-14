@@ -17,7 +17,10 @@ is available. Round Q159 turns that workflow into a manual native CI alpha with
 MSYS2 UCRT64 bootstrap, `qstar --version`, a limited smoke subset, install
 docs/man smoke, and uploaded failure logs. This still is not official Windows
 support. Round Q160 moves the artifact naming/install policy into
-`docs/windows-artifact-policy.md`.
+`docs/windows-artifact-policy.md`. Round Q164 isolates the Unix socket Stella
+daemon code behind a Windows stub so MSYS2 `make all CC=gcc` can progress past
+the previously observed `<sys/socket.h>` failure. The daemon remains disabled on
+Windows until a named-pipe transport and ACL policy are implemented.
 
 ## Status
 

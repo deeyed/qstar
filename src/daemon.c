@@ -7,13 +7,94 @@
 
 #include "internal.h"
 
+#include <string.h>
+
+#if defined(_WIN32)
+
+#define QSTAR_WINDOWS_DAEMON_UNSUPPORTED \
+	"Windows Stella daemon support is deferred; Unix socket daemon code is disabled on this host"
+
+/** Windows host에서 daemon 미지원 이유를 caller error buffer에 기록한다. */
+static void
+daemon_set_windows_unsupported(char *error, size_t error_len)
+{
+	if (error && error_len)
+		snprintf(error, error_len, "%s", QSTAR_WINDOWS_DAEMON_UNSUPPORTED);
+}
+
+/** CLI daemon mode 문자열을 experimental daemon policy로 변환한다. */
+int
+qstar_daemon_parse_mode(const char *s, int *mode)
+{
+	if (strcmp(s, "never") == 0 || strcmp(s, "off") == 0)
+		*mode = QSTAR_DAEMON_NEVER;
+	else if (strcmp(s, "auto") == 0)
+		*mode = QSTAR_DAEMON_AUTO;
+	else if (strcmp(s, "always") == 0 || strcmp(s, "on") == 0)
+		*mode = QSTAR_DAEMON_ALWAYS;
+	else
+		return -1;
+	return 0;
+}
+
+/** Windows host에서는 daemon client를 명확한 deferred diagnostic으로 비활성화한다. */
+int
+qstar_daemon_build_client(const char *socket_path, int mode, const char *file,
+    const char *label, const char *cli_build_dir, const char *cli_profile,
+    const char *cli_target, const char *cli_toolchain, const char *cli_stdlib,
+    const struct qstar_build_options *options, FILE *out, int *build_status,
+    char *error, size_t error_len)
+{
+	(void)socket_path;
+	(void)mode;
+	(void)file;
+	(void)label;
+	(void)cli_build_dir;
+	(void)cli_profile;
+	(void)cli_target;
+	(void)cli_toolchain;
+	(void)cli_stdlib;
+	(void)options;
+	(void)out;
+	if (build_status)
+		*build_status = 1;
+	daemon_set_windows_unsupported(error, error_len);
+	return -1;
+}
+
+/** Windows host에서는 daemon lifecycle command를 named pipe 구현 전까지 거부한다. */
+int
+qstar_daemon_command(int argc, char **argv, const char *file,
+    const char *cli_build_dir, const char *cli_profile, const char *cli_target,
+    const char *cli_toolchain, const char *cli_stdlib, FILE *out)
+{
+	int i;
+
+	(void)file;
+	(void)cli_build_dir;
+	(void)cli_profile;
+	(void)cli_target;
+	(void)cli_toolchain;
+	(void)cli_stdlib;
+	for (i = 0; i < argc; i++) {
+		if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+			fprintf(out, "qstar daemon: %s\n",
+			    QSTAR_WINDOWS_DAEMON_UNSUPPORTED);
+			return 0;
+		}
+	}
+	fprintf(stderr, "qstar: %s\n", QSTAR_WINDOWS_DAEMON_UNSUPPORTED);
+	return 1;
+}
+
+#else
+
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
@@ -2997,3 +3078,5 @@ qstar_daemon_command(int argc, char **argv, const char *file,
 		    cli_profile, cli_target, cli_toolchain, cli_stdlib, out);
 	return daemon_status(socket_path, out);
 }
+
+#endif

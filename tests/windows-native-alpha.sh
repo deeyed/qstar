@@ -36,6 +36,17 @@ printf 'qstar-windows-native-alpha: host=%s mode=%s\n' "$host" "$mode"
 "$qstar" --version > "$tmp/version.out" 2> "$tmp/version.err"
 contains "$tmp/version.out" "qstar "
 
+stub_cc=${CC:-cc}
+if command -v "$stub_cc" >/dev/null 2>&1; then
+	"$stub_cc" -D_WIN32 -std=c99 -Wall -Wextra -Wpedantic \
+		-Iinclude -Ivendor/lua -c src/daemon.c -o "$tmp/daemon-win-stub.o"
+	test -s "$tmp/daemon-win-stub.o" ||
+		fail "Windows daemon stub object was not created"
+	printf 'qstar-windows-native-alpha: daemon_stub=compiled cc=%s\n' "$stub_cc"
+else
+	printf 'qstar-windows-native-alpha: daemon_stub=skipped cc=%s reason=compiler-not-found\n' "$stub_cc"
+fi
+
 "$qstar" help > "$tmp/help.out" 2> "$tmp/help.err"
 contains "$tmp/help.out" "build [label]"
 contains "$tmp/help.out" "qstar docs"

@@ -20,6 +20,11 @@ related: docs/perf/stella-plan-cache-design.md
 related: docs/daemon-beta-readiness.md
 ```
 
+Round Q164 adds a Windows build boundary: `_WIN32` hosts compile a daemon stub
+instead of the Unix domain socket backend. `qstar daemon` and
+`--use-daemon=always` report that Windows daemon support is deferred; the future
+transport is a named pipe with Windows ACL validation.
+
 ## Decision
 
 User-facing command namespace는 `qstar daemon`으로 한다. Q144 MVP는 foreground server와
