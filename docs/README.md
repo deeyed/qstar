@@ -72,9 +72,11 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 - `public-beta-release.md`: public beta packaging, install smoke, codesign, wiki sync gate.
 - `qstar-v0.6-post-release-smoke.md`: GitHub release에 올라간 0.6 asset 다운로드 smoke 기록.
 - `releases/TEMPLATE.md`: GitHub prerelease notes template.
+- `releases/v0.8.0-beta.md`: 0.8 feature beta draft release note.
 - `releases/v0.7.0-beta.md`: 0.7 feature beta release-prep note.
 - `releases/v0.6.1-beta.md`: Linux x86_64 beta asset을 포함한 historical 0.6 beta release note.
 - `releases/v0.6.0-beta.md`: Stella daemon beta opt-in 첫 release note.
+- `qstar-v0.8-readiness.md`: 0.7 공개 이후 0.8 feature line과 v1 blocker를 재정렬하는 roadmap gate.
 - `qstar-v0.7-readiness.md`: 0.7 feature beta와 v1 blocker를 판단하는 current readiness gate.
 - `qstar-v0.6-readiness.md`: 0.6 beta release readiness gate.
 - `qstar-v0.5-readiness.md`: 0.5 beta line으로 올릴지 판단하는 readiness gate.

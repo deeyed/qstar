@@ -92,6 +92,12 @@ QStar가 하지 않는 일:
   다음 feature line은 `0.7.0-beta`가 맞고, `0.6.x-beta`는 release/package/doc
   hotfix용 patch line으로 남긴다. 0.7의 핵심은 Windows alpha/platform policy, daemon
   readiness, Linux/macOS asset gate hardening, Stella/Ninja/Linux timing refresh다.
+- 0.8 feature line 판단은 `docs/qstar-v0.8-readiness.md`에 둔다. Q177 기준 다음 방향은
+  Windows beta path와 Windows `qstar.sharedlib` `.dll`/import `.lib` implementation이다.
+  `0.7.x-beta`는 release/package/docs/perf-gate hotfix line으로 남기고, `0.8.0-beta`는
+  Windows process/event portability, real-host `.exe`/static `.lib`, Windows sharedlib
+  artifact parity, daemon default-prep hardening을 맡는다. Daemon은 계속 opt-in이고,
+  package resolver/registry/lockfile/fetch policy는 QStar core 밖에 둔다.
 - 0.6 beta release 판단과 `0.6.1-beta` public prerelease line은
   `docs/qstar-v0.6-readiness.md`에 둔다. 이 문서는 daemon beta opt-in, self-host,
   Stella/Ninja benchmark, Linux x86_64 beta asset, Windows status, package smoke,
