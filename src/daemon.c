@@ -31,6 +31,7 @@
 
 #define QSTAR_DAEMON_BUILD_MAGIC "qstar-daemon-build-v1"
 #define QSTAR_DAEMON_HELLO_MAGIC "qstar-daemon-hello-v1"
+#define QSTAR_DAEMON_QUERY_MAGIC "qstar-daemon-query-v1"
 #define QSTAR_DAEMON_RESPONSE_MAGIC "qstar-daemon-response-v1"
 #define QSTAR_DAEMON_STREAM_MAGIC "qstar-daemon-stream-v1"
 #define QSTAR_DAEMON_MAX_BODY (64U * 1024U * 1024U)
@@ -94,6 +95,7 @@ struct qstar_daemon_server {
 	char target[128];
 	char toolchain[128];
 	char stdlib_policy[128];
+	char graph_reason[128];
 	struct qstar_daemon_fp *fps;
 	size_t fp_len;
 	size_t fp_cap;
@@ -130,6 +132,43 @@ copy_string(char *dst, size_t dstlen, const char *src)
 	if (snprintf(dst, dstlen, "%s", src ? src : "") >= (int)dstlen)
 		return -1;
 	return 0;
+}
+
+/** JSON string literal을 daemon response에 맞게 escaping해 출력한다. */
+static void
+daemon_json_string(FILE *out, const char *s)
+{
+	const unsigned char *p = (const unsigned char *)(s ? s : "");
+
+	fputc('"', out);
+	while (*p) {
+		if (*p == '"' || *p == '\\')
+			fprintf(out, "\\%c", *p);
+		else if (*p == '\n')
+			fputs("\\n", out);
+		else if (*p == '\r')
+			fputs("\\r", out);
+		else if (*p == '\t')
+			fputs("\\t", out);
+		else if (*p < 0x20)
+			fprintf(out, "\\u%04x", *p);
+		else
+			fputc(*p, out);
+		p++;
+	}
+	fputc('"', out);
+}
+
+/** daemon read API method 이름이 public read-only surface인지 확인한다. */
+static int
+daemon_query_method_supported(const char *method)
+{
+	return strcmp(method, "hello") == 0 ||
+	    strcmp(method, "workspace.info") == 0 ||
+	    strcmp(method, "targets.list") == 0 ||
+	    strcmp(method, "diagnostics.list") == 0 ||
+	    strcmp(method, "compile_commands.path") == 0 ||
+	    strcmp(method, "build.summary") == 0;
 }
 
 /** fd에 지정한 byte 수 전체를 쓸 때까지 반복한다. */
@@ -489,14 +528,12 @@ send_request_line(int fd, const char *value)
 	return write_line(fd, value ? value : "");
 }
 
-/** daemon build request를 line protocol로 전송한다. */
+/** daemon request 본문을 line protocol로 전송한다. */
 static int
-send_build_request(int fd, const struct qstar_daemon_request *req)
+send_request_body(int fd, const struct qstar_daemon_request *req)
 {
 	char line[64];
 
-	if (write_line(fd, QSTAR_DAEMON_BUILD_MAGIC) < 0)
-		return -1;
 	if (send_request_line(fd, req->cwd) < 0 ||
 	    send_request_line(fd, req->file) < 0 ||
 	    send_request_line(fd, req->label) < 0 ||
@@ -523,6 +560,25 @@ send_build_request(int fd, const struct qstar_daemon_request *req)
 		return -1;
 	snprintf(line, sizeof(line), "%d", req->options.color_mode);
 	return write_line(fd, line);
+}
+
+/** daemon build request를 line protocol로 전송한다. */
+static int
+send_build_request(int fd, const struct qstar_daemon_request *req)
+{
+	if (write_line(fd, QSTAR_DAEMON_BUILD_MAGIC) < 0)
+		return -1;
+	return send_request_body(fd, req);
+}
+
+/** daemon read-only query request를 line protocol로 전송한다. */
+static int
+send_query_request(int fd, const char *method, const struct qstar_daemon_request *req)
+{
+	if (write_line(fd, QSTAR_DAEMON_QUERY_MAGIC) < 0 ||
+	    send_request_line(fd, method) < 0)
+		return -1;
+	return send_request_body(fd, req);
 }
 
 /** line protocol의 정수 값을 검증하며 파싱한다. */
@@ -566,6 +622,16 @@ read_request(int fd, struct qstar_daemon_request *req)
 	    parse_int_line(line, &req->options.color_mode) < 0)
 		return -1;
 	return 0;
+}
+
+/** daemon server가 read-only query method와 graph request 본문을 읽는다. */
+static int
+read_query_request(int fd, char *method, size_t method_len,
+    struct qstar_daemon_request *req)
+{
+	if (read_line(fd, method, method_len) < 0)
+		return -1;
+	return read_request(fd, req);
 }
 
 /** daemon byte-count response body를 client stdout으로 복사한다. */
@@ -734,6 +800,66 @@ qstar_daemon_build_client(const char *socket_path, int mode, const char *file,
 	}
 	close(fd);
 	return 0;
+}
+
+/** read-only query request를 experimental daemon으로 보내고 JSON 응답을 out에 복사한다. */
+static int
+daemon_query_client(const char *socket_path, const char *method, const char *file,
+    const char *cli_build_dir, const char *cli_profile, const char *cli_target,
+    const char *cli_toolchain, const char *cli_stdlib, FILE *out)
+{
+	struct qstar_daemon_request req;
+	char socket_buf[QSTAR_PATH_MAX], error[256];
+	int fd, status;
+
+	error[0] = '\0';
+	if (!daemon_query_method_supported(method)) {
+		fprintf(stderr, "qstar: unknown daemon query method '%s'\n", method);
+		return 2;
+	}
+	if (!socket_path || !*socket_path) {
+		if (default_socket_path(cli_build_dir, socket_buf, sizeof(socket_buf)) < 0) {
+			fprintf(stderr, "qstar: could not compute default daemon socket path\n");
+			return 1;
+		}
+		socket_path = socket_buf;
+	}
+	fd = connect_socket(socket_path, error, sizeof(error));
+	if (fd < 0) {
+		fprintf(out,
+		    "{\"schema\":\"qstar-daemon-read-v1\",\"method\":");
+		daemon_json_string(out, method);
+		fputs(",\"status\":\"unavailable\",\"reason\":", out);
+		daemon_json_string(out, error);
+		fputs("}\n", out);
+		return 1;
+	}
+	memset(&req, 0, sizeof(req));
+	if (!getcwd(req.cwd, sizeof(req.cwd))) {
+		fprintf(stderr, "qstar: getcwd: %s\n", strerror(errno));
+		close(fd);
+		return 1;
+	}
+	if (copy_string(req.file, sizeof(req.file), file) < 0 ||
+	    copy_string(req.build_dir, sizeof(req.build_dir), cli_build_dir) < 0 ||
+	    copy_string(req.profile, sizeof(req.profile), cli_profile) < 0 ||
+	    copy_string(req.target, sizeof(req.target), cli_target) < 0 ||
+	    copy_string(req.toolchain, sizeof(req.toolchain), cli_toolchain) < 0 ||
+	    copy_string(req.stdlib_policy, sizeof(req.stdlib_policy), cli_stdlib) < 0) {
+		fprintf(stderr, "qstar: daemon query field is too long\n");
+		close(fd);
+		return 1;
+	}
+	req.options.color_mode = QSTAR_COLOR_NEVER;
+	if (send_query_request(fd, method, &req) < 0 ||
+	    read_response(fd, out, &status, error, sizeof(error)) < 0) {
+		fprintf(stderr, "qstar: daemon query failed: %s\n",
+		    error[0] ? error : strerror(errno));
+		close(fd);
+		return 1;
+	}
+	close(fd);
+	return status;
 }
 
 /** daemon authoring fingerprint table을 해제한다. */
@@ -1322,6 +1448,24 @@ input_full_path(const struct qstar_graph *graph, const char *rel, char *dst,
 	return snprintf(dst, dstlen, "%s/%s", root, rel) < (int)dstlen ? 0 : -1;
 }
 
+/** read API 표시용 absolute path를 현재 daemon workspace cwd 기준으로 만든다. */
+static int
+daemon_absolute_input_path(const struct qstar_graph *graph, const char *rel,
+    char *dst, size_t dstlen)
+{
+	const char *root;
+	char cwd[QSTAR_PATH_MAX];
+
+	root = graph->package_root && *graph->package_root ? graph->package_root : ".";
+	if (root[0] == '/')
+		return snprintf(dst, dstlen, "%s/%s", root, rel) < (int)dstlen ? 0 : -1;
+	if (!getcwd(cwd, sizeof(cwd)))
+		return -1;
+	if (strcmp(root, ".") == 0)
+		return snprintf(dst, dstlen, "%s/%s", cwd, rel) < (int)dstlen ? 0 : -1;
+	return snprintf(dst, dstlen, "%s/%s/%s", cwd, root, rel) < (int)dstlen ? 0 : -1;
+}
+
 /** daemon server fingerprint table에 새 path fingerprint를 추가한다. */
 static int
 add_fp(struct qstar_daemon_server *server, const char *path, unsigned long long size,
@@ -1390,6 +1534,20 @@ same_identity(const struct qstar_daemon_server *server,
 	return strcmp(server->cwd, req->cwd) == 0 &&
 	    strcmp(server->file, req->file) == 0 &&
 	    strcmp(server->label, req->label) == 0 &&
+	    strcmp(server->build_dir, req->build_dir) == 0 &&
+	    strcmp(server->profile, req->profile) == 0 &&
+	    strcmp(server->target, req->target) == 0 &&
+	    strcmp(server->toolchain, req->toolchain) == 0 &&
+	    strcmp(server->stdlib_policy, req->stdlib_policy) == 0;
+}
+
+/** read-only query가 build label 차이만으로 daemon memory graph를 밀어내지 않도록 비교한다. */
+static int
+same_graph_identity(const struct qstar_daemon_server *server,
+    const struct qstar_daemon_request *req)
+{
+	return strcmp(server->cwd, req->cwd) == 0 &&
+	    strcmp(server->file, req->file) == 0 &&
 	    strcmp(server->build_dir, req->build_dir) == 0 &&
 	    strcmp(server->profile, req->profile) == 0 &&
 	    strcmp(server->target, req->target) == 0 &&
@@ -1488,9 +1646,11 @@ load_graph(struct qstar_daemon_server *server, const struct qstar_daemon_request
 	copy_string(server->toolchain, sizeof(server->toolchain), req->toolchain);
 	copy_string(server->stdlib_policy, sizeof(server->stdlib_policy), req->stdlib_policy);
 	server->graph_loaded = 1;
-	*reason = reload_reason && *reload_reason ? reload_reason :
+	snprintf(server->graph_reason, sizeof(server->graph_reason), "%s",
+	    reload_reason && *reload_reason ? reload_reason :
 	    (plan_loaded ? "plan-cache-hit" :
-	    (cache_reason[0] ? cache_reason : "evaluated"));
+	    (cache_reason[0] ? cache_reason : "evaluated")));
+	*reason = server->graph_reason;
 	return 0;
 }
 
@@ -1506,6 +1666,35 @@ ensure_graph(struct qstar_daemon_server *server, const struct qstar_daemon_reque
 		return load_graph(server, req, out, graph_status, reason, "identity-changed");
 	}
 	watcher_poll(&server->watcher, out, trace);
+	if (server->watcher.graph_dirty) {
+		*reason = server->watcher.incomplete ? "watcher-uncertain" :
+		    "watch-authoring-changed";
+		return load_graph(server, req, out, graph_status, reason, *reason);
+	}
+	if ((!server->watcher.active || server->watcher.incomplete) &&
+	    authoring_inputs_changed(server)) {
+		*reason = "authoring-input-changed";
+		return load_graph(server, req, out, graph_status, reason,
+		    "authoring-input-changed");
+	}
+	*graph_status = "hit";
+	*reason = "memory";
+	return 0;
+}
+
+/** read-only query용 graph hit/miss를 결정하되 build label identity는 보존한다. */
+static int
+ensure_graph_for_query(struct qstar_daemon_server *server,
+    const struct qstar_daemon_request *req, FILE *out, const char **graph_status,
+    const char **reason)
+{
+	if (!server->graph_loaded)
+		return load_graph(server, req, out, graph_status, reason, NULL);
+	if (!same_graph_identity(server, req)) {
+		*reason = "identity-changed";
+		return load_graph(server, req, out, graph_status, reason, "identity-changed");
+	}
+	watcher_poll(&server->watcher, out, 0);
 	if (server->watcher.graph_dirty) {
 		*reason = server->watcher.incomplete ? "watcher-uncertain" :
 		    "watch-authoring-changed";
@@ -1667,6 +1856,295 @@ send_simple_response(int fd, int status, const char *text)
 	return rc;
 }
 
+/** daemon read API의 hello JSON을 출력한다. */
+static void
+emit_query_hello(FILE *out)
+{
+	fputs("{\"schema\":\"qstar-daemon-read-v1\",\"method\":\"hello\","
+	    "\"status\":\"ok\",\"experimental\":true,\"readonly\":true,"
+	    "\"methods\":[\"hello\",\"workspace.info\",\"targets.list\","
+	    "\"diagnostics.list\",\"compile_commands.path\",\"build.summary\"]}\n", out);
+}
+
+/** graph load 실패를 daemon read API JSON error로 출력한다. */
+static void
+emit_query_graph_error(FILE *out, const char *method, const struct qstar_graph *graph)
+{
+	fputs("{\"schema\":\"qstar-daemon-read-v1\",\"method\":", out);
+	daemon_json_string(out, method);
+	fputs(",\"status\":\"error\",\"reason\":\"graph-load-failed\",\"message\":", out);
+	daemon_json_string(out, graph->error[0] ? graph->error :
+	    "qstar: daemon graph load failed");
+	fputs("}\n", out);
+}
+
+/** workspace.info read API response를 출력한다. */
+static void
+emit_workspace_info(FILE *out, const struct qstar_daemon_request *req,
+    const struct qstar_graph *graph, const char *graph_status, const char *reason)
+{
+	fputs("{\"schema\":\"qstar-daemon-read-v1\",\"method\":\"workspace.info\","
+	    "\"status\":\"ok\",\"readonly\":true,\"graph\":{\"status\":", out);
+	daemon_json_string(out, graph_status);
+	fputs(",\"reason\":", out);
+	daemon_json_string(out, reason);
+	fputs("},\"request\":{\"cwd\":", out);
+	daemon_json_string(out, req->cwd);
+	fputs(",\"file\":", out);
+	daemon_json_string(out, req->file);
+	fputs(",\"build_dir_override\":", out);
+	daemon_json_string(out, req->build_dir);
+	fputs("},\"package_root\":", out);
+	daemon_json_string(out, graph->package_root ? graph->package_root : ".");
+	fputs(",\"project\":{\"name\":", out);
+	daemon_json_string(out, graph->project.name && *graph->project.name ?
+	    graph->project.name : "");
+	fputs(",\"version\":", out);
+	daemon_json_string(out, graph->project.version && *graph->project.version ?
+	    graph->project.version : "");
+	fputs(",\"root\":", out);
+	daemon_json_string(out, graph->project.root && *graph->project.root ?
+	    graph->project.root : ".");
+	fputs(",\"build_dir\":", out);
+	daemon_json_string(out, qstar_graph_build_dir(graph));
+	fputs(",\"generated_dir\":", out);
+	daemon_json_string(out, qstar_graph_generated_dir(graph));
+	fputs(",\"compile_commands\":", out);
+	daemon_json_string(out, qstar_graph_compile_commands_policy(graph));
+	fputs(",\"generator\":", out);
+	daemon_json_string(out, qstar_graph_generator(graph));
+	fputs(",\"requested_generator\":", out);
+	daemon_json_string(out, qstar_graph_requested_generator(graph));
+	fprintf(out,
+	    "},\"target_count\":%zu,\"config_count\":%zu,"
+	    "\"generated_action_count\":%zu,\"stage_count\":%zu,"
+	    "\"target_family_count\":%zu,\"diagnostic_count\":%zu}\n",
+	    graph->len, graph->config_len, graph->genrule_len, graph->stage_len,
+	    graph->family_len, graph->lint_len);
+}
+
+/** 현재 graph에 저장된 diagnostics를 side-effect 없이 JSON으로 출력한다. */
+static void
+emit_diagnostics_list(FILE *out, const struct qstar_graph *graph)
+{
+	size_t i;
+	int errors, warnings, infos;
+
+	errors = 0;
+	warnings = 0;
+	infos = 0;
+	fputs("{\"schema\":\"qstar-daemon-read-v1\",\"method\":\"diagnostics.list\","
+	    "\"status\":\"ok\",\"readonly\":true,\"diagnostics\":[", out);
+	for (i = 0; i < graph->lint_len; i++) {
+		const struct qstar_lint_diagnostic *diag = &graph->lint_diagnostics[i];
+
+		if (i)
+			fputc(',', out);
+		if (diag->severity && strcmp(diag->severity, "error") == 0)
+			errors++;
+		else if (diag->severity && strcmp(diag->severity, "warning") == 0)
+			warnings++;
+		else
+			infos++;
+		fputs("{\"code\":", out);
+		daemon_json_string(out, diag->code);
+		fputs(",\"severity\":", out);
+		daemon_json_string(out, diag->severity);
+		fputs(",\"file\":", out);
+		daemon_json_string(out, diag->file);
+		fprintf(out, ",\"line\":%d,\"field\":", diag->line);
+		daemon_json_string(out, diag->field);
+		fputs(",\"label\":", out);
+		daemon_json_string(out, diag->label);
+		fputs(",\"message\":", out);
+		daemon_json_string(out, diag->message);
+		fputc('}', out);
+	}
+	fprintf(out, "],\"summary\":{\"errors\":%d,\"warnings\":%d,\"infos\":%d,"
+	    "\"total\":%zu}}\n", errors, warnings, infos, graph->lint_len);
+}
+
+/** project policy에 따른 compile_commands.json path를 read API JSON으로 출력한다. */
+static void
+emit_compile_commands_path(FILE *out, const struct qstar_graph *graph)
+{
+	const char *policy;
+	char rel[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX];
+	int enabled;
+
+	policy = qstar_graph_compile_commands_policy(graph);
+	enabled = strcmp(policy, "off") != 0;
+	rel[0] = '\0';
+	full[0] = '\0';
+	if (enabled) {
+		if (strcmp(policy, "root") == 0) {
+			snprintf(rel, sizeof(rel), "%s", "compile_commands.json");
+		} else if (qstar_graph_build_path(graph, "compile_commands.json", rel,
+		    sizeof(rel)) < 0 ||
+		    daemon_absolute_input_path(graph, rel, full, sizeof(full)) < 0) {
+			fputs("{\"schema\":\"qstar-daemon-read-v1\","
+			    "\"method\":\"compile_commands.path\","
+			    "\"status\":\"error\",\"reason\":\"path-too-long\"}\n", out);
+			return;
+		}
+		if (strcmp(policy, "root") == 0 &&
+		    daemon_absolute_input_path(graph, rel, full, sizeof(full)) < 0) {
+			fputs("{\"schema\":\"qstar-daemon-read-v1\","
+			    "\"method\":\"compile_commands.path\","
+			    "\"status\":\"error\",\"reason\":\"path-too-long\"}\n", out);
+			return;
+		}
+	}
+	fputs("{\"schema\":\"qstar-daemon-read-v1\","
+	    "\"method\":\"compile_commands.path\",\"status\":\"ok\",\"readonly\":true,"
+	    "\"policy\":", out);
+	daemon_json_string(out, policy);
+	fprintf(out, ",\"enabled\":%s,\"path\":", enabled ? "true" : "false");
+	daemon_json_string(out, enabled ? rel : "");
+	fputs(",\"absolute_path\":", out);
+	daemon_json_string(out, enabled ? full : "");
+	fputs("}\n", out);
+}
+
+/** build summary 파일을 computed build dir 아래에서만 읽어 read API JSON으로 감싼다. */
+static void
+emit_build_summary(FILE *out, const struct qstar_graph *graph)
+{
+	char rel[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX];
+	FILE *f;
+	int c;
+
+	if (qstar_graph_build_path(graph, "state/last-summary.json", rel,
+	    sizeof(rel)) < 0 ||
+	    daemon_absolute_input_path(graph, rel, full, sizeof(full)) < 0) {
+		fputs("{\"schema\":\"qstar-daemon-read-v1\",\"method\":\"build.summary\","
+		    "\"status\":\"error\",\"reason\":\"path-too-long\"}\n", out);
+		return;
+	}
+	f = fopen(full, "rb");
+	fputs("{\"schema\":\"qstar-daemon-read-v1\",\"method\":\"build.summary\","
+	    "\"status\":\"ok\",\"readonly\":true,\"path\":", out);
+	daemon_json_string(out, rel);
+	fputs(",\"absolute_path\":", out);
+	daemon_json_string(out, full);
+	if (!f) {
+		fputs(",\"exists\":false}\n", out);
+		return;
+	}
+	fputs(",\"exists\":true,\"summary\":", out);
+	while ((c = fgetc(f)) != EOF)
+		fputc(c, out);
+	fclose(f);
+	fputs("}\n", out);
+}
+
+/** read-only query request 하나를 처리하고 JSON response를 전송한다. */
+static int
+handle_query_request(struct qstar_daemon_server *server, int fd)
+{
+	struct qstar_daemon_request req;
+	char oldcwd[QSTAR_PATH_MAX], method[64];
+	const char *graph_status, *reason;
+	FILE *body, *scratch;
+	int rc;
+
+	body = NULL;
+	scratch = NULL;
+	rc = 0;
+	if (read_query_request(fd, method, sizeof(method), &req) < 0)
+		return send_simple_response(fd, 1,
+		    "{\"schema\":\"qstar-daemon-read-v1\",\"status\":\"error\","
+		    "\"reason\":\"invalid-request\"}\n");
+	body = tmpfile();
+	if (!body)
+		return -1;
+	if (!daemon_query_method_supported(method)) {
+		fputs("{\"schema\":\"qstar-daemon-read-v1\",\"method\":", body);
+		daemon_json_string(body, method);
+		fputs(",\"status\":\"error\",\"reason\":\"unknown-method\"}\n", body);
+		rc = send_file_response(fd, 2, body);
+		fclose(body);
+		return rc;
+	}
+	if (strcmp(method, "hello") == 0) {
+		emit_query_hello(body);
+		rc = send_file_response(fd, 0, body);
+		fclose(body);
+		return rc;
+	}
+	if (!getcwd(oldcwd, sizeof(oldcwd))) {
+		fputs("{\"schema\":\"qstar-daemon-read-v1\",\"method\":", body);
+		daemon_json_string(body, method);
+		fprintf(body,
+		    ",\"status\":\"error\",\"reason\":\"getcwd-failed\",\"message\":");
+		daemon_json_string(body, strerror(errno));
+		fputs("}\n", body);
+		rc = send_file_response(fd, 1, body);
+		fclose(body);
+		return rc;
+	}
+	if (chdir(req.cwd) < 0) {
+		fputs("{\"schema\":\"qstar-daemon-read-v1\",\"method\":", body);
+		daemon_json_string(body, method);
+		fputs(",\"status\":\"error\",\"reason\":\"workspace-enter-failed\","
+		    "\"workspace\":", body);
+		daemon_json_string(body, req.cwd);
+		fputs(",\"message\":", body);
+		daemon_json_string(body, strerror(errno));
+		fputs("}\n", body);
+		rc = send_file_response(fd, 1, body);
+		fclose(body);
+		return rc;
+	}
+	scratch = tmpfile();
+	if (!scratch) {
+		fputs("{\"schema\":\"qstar-daemon-read-v1\",\"method\":", body);
+		daemon_json_string(body, method);
+		fputs(",\"status\":\"error\",\"reason\":\"tmpfile-failed\"}\n", body);
+		rc = 1;
+		goto send_restore;
+	}
+	graph_status = "miss";
+	reason = "cold";
+	if (ensure_graph_for_query(server, &req, scratch, &graph_status, &reason) < 0) {
+		emit_query_graph_error(body, method, &server->graph);
+		rc = 1;
+		goto send_restore;
+	}
+	if (strcmp(method, "workspace.info") == 0)
+		emit_workspace_info(body, &req, &server->graph, graph_status, reason);
+	else if (strcmp(method, "targets.list") == 0) {
+		if (qstar_graph_list_targets_json(&server->graph, body) < 0) {
+			fputs("{\"schema\":\"qstar-daemon-read-v1\","
+			    "\"method\":\"targets.list\",\"status\":\"error\","
+			    "\"reason\":\"out-of-memory\"}\n", body);
+			rc = 1;
+		}
+	} else if (strcmp(method, "diagnostics.list") == 0) {
+		emit_diagnostics_list(body, &server->graph);
+	} else if (strcmp(method, "compile_commands.path") == 0) {
+		emit_compile_commands_path(body, &server->graph);
+	} else if (strcmp(method, "build.summary") == 0) {
+		emit_build_summary(body, &server->graph);
+	}
+send_restore:
+	if (scratch)
+		fclose(scratch);
+	if (chdir(oldcwd) < 0 && rc == 0) {
+		fputs("{\"schema\":\"qstar-daemon-read-v1\",\"method\":", body);
+		daemon_json_string(body, method);
+		fputs(",\"status\":\"error\",\"reason\":\"cwd-restore-failed\","
+		    "\"message\":", body);
+		daemon_json_string(body, strerror(errno));
+		fputs("}\n", body);
+		rc = 1;
+	}
+	if (send_file_response(fd, rc == 0 ? 0 : 1, body) < 0)
+		rc = 1;
+	fclose(body);
+	return rc == 0 ? 0 : -1;
+}
+
 /** foreground experimental daemon server를 Unix domain socket으로 실행한다. */
 static int
 serve_socket(const char *socket_path, FILE *out)
@@ -1715,6 +2193,8 @@ serve_socket(const char *socket_path, FILE *out)
 		if (read_line(client_fd, magic, sizeof(magic)) == 0) {
 			if (strcmp(magic, QSTAR_DAEMON_BUILD_MAGIC) == 0)
 				(void)handle_build_request(&server, client_fd);
+			else if (strcmp(magic, QSTAR_DAEMON_QUERY_MAGIC) == 0)
+				(void)handle_query_request(&server, client_fd);
 			else if (strcmp(magic, QSTAR_DAEMON_HELLO_MAGIC) == 0)
 				(void)send_simple_response(client_fd, 0,
 				    "daemon status=ok experimental=1\n");
@@ -1758,20 +2238,23 @@ daemon_usage(FILE *out)
 {
 	fputs("usage: qstar [options] daemon --socket path --serve\n", out);
 	fputs("       qstar [options] daemon --socket path --status\n", out);
+	fputs("       qstar [options] daemon --socket path --query method\n", out);
+	fputs("methods: hello, workspace.info, targets.list, diagnostics.list, compile_commands.path, build.summary\n", out);
 	fputs("Experimental Stella daemon. The stable build path is unchanged.\n", out);
 }
 
 /** experimental persistent Stella daemon command를 실행한다. */
 int
 qstar_daemon_command(int argc, char **argv, const char *file,
-    const char *cli_build_dir, FILE *out)
+    const char *cli_build_dir, const char *cli_profile, const char *cli_target,
+    const char *cli_toolchain, const char *cli_stdlib, FILE *out)
 {
-	const char *socket_path;
+	const char *socket_path, *query_method;
 	char socket_buf[QSTAR_PATH_MAX];
 	int serve, status, i;
 
-	(void)file;
 	socket_path = NULL;
+	query_method = NULL;
 	serve = 0;
 	status = 0;
 	for (i = 0; i < argc; i++) {
@@ -1787,6 +2270,13 @@ qstar_daemon_command(int argc, char **argv, const char *file,
 		} else if (strcmp(argv[i], "--status") == 0 ||
 		    strcmp(argv[i], "status") == 0) {
 			status = 1;
+		} else if (strcmp(argv[i], "--query") == 0 ||
+		    strcmp(argv[i], "query") == 0) {
+			if (i + 1 >= argc) {
+				daemon_usage(stderr);
+				return 2;
+			}
+			query_method = argv[++i];
 		} else if (strcmp(argv[i], "--help") == 0 ||
 		    strcmp(argv[i], "-h") == 0) {
 			daemon_usage(out);
@@ -1796,7 +2286,7 @@ qstar_daemon_command(int argc, char **argv, const char *file,
 			return 2;
 		}
 	}
-	if (serve + status != 1) {
+	if (serve + status + (query_method ? 1 : 0) != 1) {
 		daemon_usage(stderr);
 		return 2;
 	}
@@ -1809,5 +2299,8 @@ qstar_daemon_command(int argc, char **argv, const char *file,
 	}
 	if (serve)
 		return serve_socket(socket_path, out);
+	if (query_method)
+		return daemon_query_client(socket_path, query_method, file, cli_build_dir,
+		    cli_profile, cli_target, cli_toolchain, cli_stdlib, out);
 	return daemon_status(socket_path, out);
 }

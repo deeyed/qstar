@@ -143,6 +143,10 @@ QStar가 하지 않는 일:
   `deps_memory status=hit|miss|writeback`, `daemon_watcher status=active|event|unavailable`로
   memory/watcher path를 확인한다. Background start/stop과 Windows named pipe는 deferred다. 정본 설계는 `docs/daemon/stella-daemon.md`,
   사용자 reference는 `wiki/reference/stella-daemon.md`에 둔다.
+  Round Q150부터 `qstar daemon --socket path --query method` read API가 있으며 method는
+  `hello`, `workspace.info`, `targets.list`, `diagnostics.list`,
+  `compile_commands.path`, `build.summary`다. 계약 문서는
+  `docs/contracts/daemon-read-api.md`에 둔다. Build/test/clean mutation은 read API에 없다.
 - Stella dirty-check의 canonical fast state는 `build/qstar/state/state.db`다.
   `build/qstar/state/actions.json`은 기본 생성물이 아니며
   `QSTAR_DEBUG_STATE_DUMPS=1 qstar build ...`로 요청한 debug/export dump다.

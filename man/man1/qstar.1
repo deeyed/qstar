@@ -191,6 +191,7 @@ daemon socket.
 .Bd -literal -offset indent
 qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --serve
 qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --status
+qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query targets.list
 .Ed
 .Pp
 This is not a stable public surface yet. The Q144 MVP keeps Graph IR and the
@@ -221,6 +222,16 @@ and
 hit/miss/writeback lines, plus
 .Li daemon_watcher
 active/event/unavailable lines.
+.Pp
+Q150 adds read-only daemon queries for IDE/AI integration:
+.Li hello ,
+.Li workspace.info ,
+.Li targets.list ,
+.Li diagnostics.list ,
+.Li compile_commands.path ,
+and
+.Li build.summary .
+These queries do not execute build/test/clean actions and return JSON.
 .Pp
 Action descriptions are also preserved in action-log and replay metadata.
 .Ic qstar action-log ,

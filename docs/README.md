@@ -58,6 +58,7 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 - `language-provider-backend-contract.md`: Cale/Stella/Ninja/HCL language provider 경계 계약.
 - `performance-gates.md`: Stella/Ninja clean, no-op, incremental timing gate 계약.
 - `daemon/stella-daemon.md`: Experimental persistent Stella daemon command namespace, Unix socket MVP, fallback, watcher, security, IDE/AI integration design.
+- `contracts/daemon-read-api.md`: Stella IDE/AI가 사용할 daemon read-only query API 계약.
 - `perf/stella-ninja-profile.md`: Ninja architecture profiling과 Stella plan-cache 성능 개선 방향.
 - `perf/stella-plan-cache-design.md`: Stella lowered plan cache fingerprint, invalidation, internal file policy.
 - `progress-output.md`: CMake-style progress output, warning/error color, `qstar.status` descriptions.

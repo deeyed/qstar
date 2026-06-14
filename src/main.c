@@ -31,7 +31,7 @@ usage(FILE *out)
 	fputs("       qstar [options] last-failure\n", out);
 	fputs("       qstar [options] action-log <action-id>\n", out);
 	fputs("       qstar [options] replay <action-id>\n", out);
-	fputs("       qstar [options] daemon --socket path --serve  # experimental\n", out);
+	fputs("       qstar [options] daemon --socket path --serve|--status|--query method  # experimental\n", out);
 	fputs("       qstar lsp --stdio\n", out);
 	fputs("       qstar init c-app|c-lib|generated|mixed-cale [directory]\n", out);
 	fputs("       qstar [options] --dump-graph\n", out);
@@ -86,7 +86,9 @@ command_help(FILE *out, const char *cmd)
 	if (strcmp(cmd, "daemon") == 0) {
 		fputs("usage: qstar [options] daemon --socket path --serve\n", out);
 		fputs("       qstar [options] daemon --socket path --status\n", out);
+		fputs("       qstar [options] daemon --socket path --query method\n", out);
 		fputs("Run the experimental persistent Stella daemon in the foreground.\n", out);
+		fputs("Read-only query methods: hello, workspace.info, targets.list, diagnostics.list, compile_commands.path, build.summary.\n", out);
 		fputs("This is not a stable public surface yet; normal qstar build is unchanged.\n", out);
 		return;
 	}
@@ -747,7 +749,7 @@ main(int argc, char **argv)
 	}
 	if (strcmp(cmd, "daemon") == 0) {
 		rc = qstar_daemon_command(argc - arg, argv + arg, file, cli_build_dir,
-		    stdout);
+		    cli_profile, cli_target, cli_toolchain, cli_stdlib, stdout);
 		qstar_graph_free(&graph);
 		return rc;
 	}

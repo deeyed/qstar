@@ -12,6 +12,7 @@ experimental MVP로 들어왔지만, stable public surface는 아니다. 정본 
 ```sh
 qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --serve
 qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --status
+qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query targets.list
 qstar build //:app --use-daemon=auto --daemon-socket build/qstar/stella/daemon/qstar-daemon.sock
 qstar build //:app --use-daemon=always --daemon-socket build/qstar/stella/daemon/qstar-daemon.sock
 qstar build //:app --use-daemon=never
@@ -135,17 +136,35 @@ event, watcher overflow, backend 오류는 conservative graph reload로 처리�
 
 Daemon은 IDE/editor/AI frontend가 QStar context를 빠르게 읽는 연결점이 될 수 있다.
 
-후보 read API:
+Round Q150부터 첫 read-only query API가 구현되어 있다.
+
+```sh
+qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query hello
+qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query workspace.info
+qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query targets.list
+qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query diagnostics.list
+qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query compile_commands.path
+qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query build.summary
+```
+
+구현된 read API:
 
 - `workspace.info`
 - `targets.list`
-- `target.explain`
 - `diagnostics.list`
+- `compile_commands.path`
+- `build.summary`
+
+`hello`, `workspace.info`, `diagnostics.list`, `compile_commands.path`, `build.summary`는
+`qstar-daemon-read-v1` JSON을 반환한다. `targets.list`는 기존
+`qstar list-targets --format json`과 같은 `qstar-targets-v1` schema를 반환한다.
+
+Deferred read/action API:
+
+- `target.explain`
 - `build.status`
 - `action.log`
 - `replay.plan`
-
-후보 action API:
 
 - `build.request`
 - `test.request`
@@ -158,6 +177,7 @@ client policy가 있어야 한다.
 ## 관련 문서
 
 - `docs/daemon/stella-daemon.md`
+- `docs/contracts/daemon-read-api.md`
 - `docs/perf/stella-plan-cache-design.md`
 - [Performance Gates](performance-gates.md)
 - [Backends](backends.md)

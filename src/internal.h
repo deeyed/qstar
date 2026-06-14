@@ -242,7 +242,8 @@ int qstar_daemon_parse_mode(const char *s, int *mode);
 
 /** experimental persistent Stella daemon command를 실행한다. */
 int qstar_daemon_command(int argc, char **argv, const char *file,
-    const char *cli_build_dir, FILE *out);
+    const char *cli_build_dir, const char *cli_profile, const char *cli_target,
+    const char *cli_toolchain, const char *cli_stdlib, FILE *out);
 
 /** build request를 experimental daemon으로 보내고 응답 output을 out에 복사한다. */
 int qstar_daemon_build_client(const char *socket_path, int mode, const char *file,

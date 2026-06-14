@@ -20,11 +20,12 @@ related: docs/perf/stella-plan-cache-design.md
 ## Decision
 
 User-facing command namespace는 `qstar daemon`으로 한다. Q144 MVP는 foreground server와
-explicit build client만 제공한다.
+explicit build client를 제공했고, Q150부터 read-only query helper도 같은 namespace에 둔다.
 
 ```sh
 qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --serve
 qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --status
+qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query targets.list
 qstar build //:app --use-daemon=auto --daemon-socket build/qstar/stella/daemon/qstar-daemon.sock
 qstar build //:app --use-daemon=always --daemon-socket build/qstar/stella/daemon/qstar-daemon.sock
 qstar build //:app --use-daemon=never
@@ -305,31 +306,52 @@ Daemon security is part of the contract, not an afterthought.
 
 The daemon is the long-term bridge between QStar and IDE/editor/AI workflows.
 
-Possible read APIs:
+Q150 implements the first read-only query surface:
 
 ```txt
+qstar daemon --socket path --query method
+```
+
+Implemented read methods:
+
+```txt
+hello
 workspace.info
 targets.list
-target.explain
 diagnostics.list
+compile_commands.path
+build.summary
+```
+
+Responses are JSON. `targets.list` intentionally reuses the existing `qstar-targets-v1` schema from
+`qstar list-targets --format json`; the other methods use `qstar-daemon-read-v1`. The method
+contract is documented in `docs/contracts/daemon-read-api.md`.
+
+Deferred read/action APIs:
+
+```txt
+target.explain
 build.status
 action.log
 replay.plan
-compile_commands.path
-```
-
-Possible action APIs:
-
-```txt
 build.request
 test.request
 clean.request
 cancel.request
 ```
 
-Default IDE/AI capability should be read-only. Mutating actions such as build/test/clean require an
-explicit user action or a trusted local client policy. File edits are not daemon responsibilities.
-They belong to the editor or AI tool, with separate preview/apply/audit rules.
+Default IDE/AI capability is read-only. Mutating actions such as build/test/clean stay on the
+existing command path for now and require an explicit user action or a trusted local client policy.
+File edits are not daemon responsibilities. They belong to the editor or AI tool, with separate
+preview/apply/audit rules.
+
+Read API examples:
+
+```sh
+qstar --file qstar.lua daemon --socket /tmp/qstar.sock --query hello
+qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query targets.list
+qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query compile_commands.path
+```
 
 ## CLI Fallback
 
