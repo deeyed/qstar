@@ -60,7 +60,7 @@ qstar --file /tmp/qstar-hello/qstar.lua build //:app --progress plain
 | Host platform | Status |
 | --- | --- |
 | macOS arm64 | Beta release artifact |
-| Linux x86_64 | Candidate dry-run and Stella/Ninja medium perf artifacts through Ubuntu gcc/clang CI; publish only after release decision |
+| Linux x86_64 | Beta release artifact if built by Ubuntu gcc/clang CI release workflow or clean Linux host |
 | Windows | Planned or candidate validation; publish only after native release gate |
 
 ## Notes

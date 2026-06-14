@@ -9,14 +9,13 @@ tooling-friendly diagnostics for C, C++, assembly, generated files, and
 language-provider driven projects.
 
 QStar is currently in beta. The current public prerelease line is
-`v0.6.0-beta`, with macOS arm64 binaries published first. Linux has a
-validation-backed source build path and a `linux-x86_64` release-candidate
-tarball dry-run through Ubuntu gcc/clang CI, including extracted tarball smoke
-and explicit Ninja backend parity. The same Linux workflow now also collects
-Stella/Ninja medium performance line protocol artifacts, with daemon socket smoke
-available as an opt-in lane. Windows has a manual native validation candidate,
-but no public asset or official host support yet. QStar 1.0 is reserved for a
-release that is validated across macOS, Linux, and Windows.
+`v0.6.1-beta`, with macOS arm64 and Linux x86_64 runtime tarballs. Linux assets
+are produced only from the Ubuntu release workflow or a clean Linux x86_64 host,
+after source validation, Ninja backend parity, extracted tarball smoke, and
+Stella/Ninja medium performance artifact collection. Windows has a manual native
+validation candidate, but no public asset or official host support yet. QStar
+1.0 is reserved for a release that is validated across macOS, Linux, and
+Windows.
 
 ## Highlights
 
@@ -38,11 +37,17 @@ release that is validated across macOS, Linux, and Windows.
 
 ## Install
 
-Download the macOS arm64 tarball from the
+Download the runtime tarball for your host from the
 [GitHub Releases](https://github.com/deeyed/qstar/releases) page:
 
 ```sh
-tar -xzf qstar-v0.6.0-beta-macos-arm64.tar.gz -C "$HOME/.local"
+# macOS arm64
+tar -xzf qstar-v0.6.1-beta-macos-arm64.tar.gz -C "$HOME/.local"
+export PATH="$HOME/.local/bin:$PATH"
+qstar --version
+
+# Linux x86_64
+tar -xzf qstar-v0.6.1-beta-linux-x86_64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 ```
@@ -211,7 +216,7 @@ qstar replay <action-id>
 | Host platform | Status |
 | --- | --- |
 | macOS arm64 | Beta release artifact |
-| Linux x86_64 | Candidate tarball dry-run plus Stella/Ninja medium perf artifacts through Ubuntu gcc/clang CI; no public asset yet |
+| Linux x86_64 | Beta release artifact from Ubuntu release workflow or clean Linux host |
 | Windows | Manual native validation candidate; no public asset yet |
 
 QStar can model cross-compilation targets today, including freestanding and

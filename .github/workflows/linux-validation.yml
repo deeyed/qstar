@@ -7,6 +7,16 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
+      release_tag:
+        description: Release tag used by the optional Linux asset publish job
+        required: false
+        default: v0.6.1-beta
+        type: string
+      publish_linux_asset:
+        description: Publish the Linux x86_64 beta asset to the selected release
+        required: false
+        default: false
+        type: boolean
       daemon_socket_smoke:
         description: Run the opt-in Linux Stella daemon socket smoke lane
         required: false
@@ -203,6 +213,64 @@ jobs:
           path: |
             dist/perf/linux-daemon-medium-perf.txt
             dist/perf/linux-daemon-medium-summary.txt
+          if-no-files-found: ignore
+
+  publish-linux-release-asset:
+    name: ubuntu / publish linux release asset
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_linux_asset }}
+    permissions:
+      contents: write
+    env:
+      CC: gcc
+      CXX: g++
+      QSTAR_LINUX_VALIDATION_CC: gcc
+      QSTAR_RELEASE_PLATFORM: linux-x86_64
+      QSTAR_RELEASE_TAG: ${{ inputs.release_tag }}
+      QSTAR_RELEASE_REPO: ${{ github.repository }}
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
+          submodules: recursive
+
+      - name: Install release build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc g++ ninja-build file man-db
+          ninja --version
+          "$CC" --version
+          gh --version
+
+      - name: Run Linux release gates
+        run: |
+          set -euo pipefail
+          test -n "$QSTAR_RELEASE_TAG"
+          make all
+          make check
+          make qstar-linux-validation-tests
+          make qstar-ninja-backend-parity-tests
+
+      - name: Publish Linux beta release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: tools/publish-github-release-asset.sh
+
+      - name: Upload published Linux asset reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qstar-linux-x86_64-published-release-asset
+          path: |
+            dist/release/qstar-v*-linux-x86_64.tar.gz
+            dist/release/SHA256SUMS
+            dist/release/qstar-v*-linux-x86_64.contents.txt
+            dist/release/file-linux-x86_64.txt
+            dist/release/ldd-linux-x86_64.txt
+            dist/release/extract-file-linux-x86_64.txt
+            dist/release/extract-ldd-linux-x86_64.txt
+            dist/release/extract-docs-show-qstar-lua.txt
           if-no-files-found: ignore
 
   large-performance-report:

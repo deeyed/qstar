@@ -85,18 +85,19 @@ QStar가 하지 않는 일:
   `qstar action-log`, `qstar replay`, `qstar last-failure`도 같은 action description을
   `description=` metadata로 보존한다. Stella 성공/skip action의 물리 `.log` 파일 존재는
   public contract가 아니며, 필요 시 compact state와 현재 graph에서 lazy 재구성될 수 있다.
-- 0.6 beta release 판단과 `0.6.0-beta` public prerelease line은
+- 0.6 beta release 판단과 `0.6.1-beta` public prerelease line은
   `docs/qstar-v0.6-readiness.md`에 둔다. 이 문서는 daemon beta opt-in, self-host,
-  Stella/Ninja benchmark, Linux/Windows status, package smoke, version policy, deferred
-  surface를 요약한다. 0.5 line의 연속 기록은 `docs/qstar-v0.5-readiness.md`에 남긴다.
-- Linux host 지원은 Round Q156 기준 validation-backed source build path에
-  `linux-x86_64` release-candidate tarball dry-run, extracted tarball smoke,
-  explicit Ninja backend parity, medium performance artifact upload가 더해진 상태다.
+  Stella/Ninja benchmark, Linux x86_64 beta asset, Windows status, package smoke,
+  version policy, deferred surface를 요약한다. 0.5 line의 연속 기록은
+  `docs/qstar-v0.5-readiness.md`에 남긴다.
+- Linux host 지원은 Round Q157 기준 public beta asset 단계다.
+  `linux-x86_64` release tarball은 Ubuntu release workflow 또는 clean Linux x86_64 host
+  산출물만 사용하며, extracted tarball smoke, explicit Ninja backend parity, medium
+  performance artifact upload가 release gate다.
   `make qstar-linux-validation-tests`는 portable path/process, Linux depfile 후보,
   generated_dir, install layout, docs/manpage smoke를 묶는다. macOS에서는 제한된 path
-  smoke이고, Linux release asset은 깨끗한 Linux host 또는 CI에서 이 gate와 package
-  dry-run이 통과한 뒤에만 추가한다.
-- Round Q109/Q156의 Linux validation workflow는 `.github/workflows/linux-validation.yml`이다.
+  smoke다.
+- Round Q109/Q156/Q157의 Linux validation workflow는 `.github/workflows/linux-validation.yml`이다.
   `ubuntu-latest`에서 gcc/clang matrix를 돌리고 `QSTAR_LINUX_VALIDATION_CC`로 실제 depfile
   compiler lane을 고정한다. 각 lane은 Ninja를 설치하고 `make all`, `make check`,
   `make qstar-linux-validation-tests`, `make qstar-ninja-backend-parity-tests`,
@@ -110,6 +111,9 @@ QStar가 하지 않는 일:
   `medium_project_gate scheduler runner=posix_spawn event_wait=poll`을 포함해야 한다.
   Large synthetic performance는 기본 push/PR lane이 아니라 `workflow_dispatch` 전용
   `large-performance-report` job에서 report-only artifact로 수집한다.
+  Linux asset upload는 `workflow_dispatch`의 `publish_linux_asset=true`,
+  `release_tag=v0.6.1-beta` opt-in job에서만 수행하며,
+  `tools/publish-github-release-asset.sh`가 기존 `SHA256SUMS`에 Linux checksum을 병합한다.
   Linux daemon socket smoke도 기본 push/PR lane이 아니라 `workflow_dispatch`의
   `daemon_socket_smoke=true` opt-in job에서 검증한다.
 - Windows host 지원은 아직 official support가 아니다. Round Q114 기준

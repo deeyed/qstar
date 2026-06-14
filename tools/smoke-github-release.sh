@@ -32,6 +32,12 @@ case "$platform" in
 	macos-arm64|linux-x86_64) ;;
 	*) fail "download smoke is only defined for macos-arm64 or linux-x86_64, got '$platform'" ;;
 esac
+if test "$platform" = linux-x86_64 && test "$host" != Linux; then
+	fail "linux-x86_64 download smoke must be run on a Linux host"
+fi
+if test "$platform" = macos-arm64 && test "$host" != Darwin; then
+	fail "macos-arm64 download smoke must be run on a Darwin host"
+fi
 
 command -v curl >/dev/null 2>&1 || fail "curl is required for GitHub release download smoke"
 command -v tar >/dev/null 2>&1 || fail "tar is required for GitHub release download smoke"

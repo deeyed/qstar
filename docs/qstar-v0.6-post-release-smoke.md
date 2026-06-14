@@ -1,14 +1,15 @@
 # QStar 0.6 Post-Release Smoke
 
-이 문서는 `v0.6.0-beta` GitHub release가 실제 사용자 다운로드 경로에서 정상 동작하는지
+이 문서는 `v0.6.1-beta` GitHub release가 실제 사용자 다운로드 경로에서 정상 동작하는지
 확인하기 위한 post-release smoke 기록이다. Source tree에서 tarball을 만드는
 `make qstar-public-beta-release-tests`와 다르게, 이 gate는 GitHub release에 올라간 asset을
 다시 다운로드해서 검증한다.
 
 ```txt
-release tag: v0.6.0-beta
-release url: https://github.com/deeyed/qstar/releases/tag/v0.6.0-beta
-macOS asset: qstar-v0.6.0-beta-macos-arm64.tar.gz
+release tag: v0.6.1-beta
+release url: https://github.com/deeyed/qstar/releases/tag/v0.6.1-beta
+macOS asset: qstar-v0.6.1-beta-macos-arm64.tar.gz
+Linux asset: qstar-v0.6.1-beta-linux-x86_64.tar.gz
 checksum file: SHA256SUMS
 status: post-release download smoke required for release seal
 ```
@@ -21,7 +22,7 @@ make qstar-public-beta-download-smoke
 
 이 target은 `tools/smoke-github-release.sh`를 실행한다. 기본값은 현재
 `include/qstar/qstar.h`의 `QSTAR_VERSION`을 읽어 `v$QSTAR_VERSION` tag와
-`qstar-v$QSTAR_VERSION-macos-arm64.tar.gz` asset을 검증한다.
+현재 host에 맞는 `qstar-v$QSTAR_VERSION-<platform>.tar.gz` asset을 검증한다.
 
 ## What It Checks
 
@@ -48,12 +49,12 @@ make qstar-public-beta-download-smoke
 ```sh
 tmp=$(mktemp -d)
 cd "$tmp"
-curl -fsSLO https://github.com/deeyed/qstar/releases/download/v0.6.0-beta/qstar-v0.6.0-beta-macos-arm64.tar.gz
-curl -fsSLO https://github.com/deeyed/qstar/releases/download/v0.6.0-beta/SHA256SUMS
-shasum -a 256 qstar-v0.6.0-beta-macos-arm64.tar.gz
+curl -fsSLO https://github.com/deeyed/qstar/releases/download/v0.6.1-beta/qstar-v0.6.1-beta-macos-arm64.tar.gz
+curl -fsSLO https://github.com/deeyed/qstar/releases/download/v0.6.1-beta/SHA256SUMS
+shasum -a 256 qstar-v0.6.1-beta-macos-arm64.tar.gz
 cat SHA256SUMS
 mkdir root
-tar -xzf qstar-v0.6.0-beta-macos-arm64.tar.gz -C root
+tar -xzf qstar-v0.6.1-beta-macos-arm64.tar.gz -C root
 root/bin/qstar --version
 QSTAR_DOC_DIR="$tmp/root/share/doc/qstar" root/bin/qstar docs --path
 test -f root/share/man/man1/qstar.1
@@ -64,8 +65,9 @@ codesign --verify root/bin/qstar
 
 ## Known Issues After 0.6
 
-- Only macOS arm64 is a public binary asset.
-- Linux x86_64 has validation-backed source builds and release-candidate tarball dry-runs, but no public asset yet.
+- macOS arm64 and Linux x86_64 are public beta binary assets.
+- Linux x86_64 asset smoke must run on Linux; macOS hosts intentionally refuse
+  to execute the Linux binary.
 - Windows is a manual native validation candidate and not official host support.
 - Stella daemon is beta opt-in and default-off.
 - Stable daemon API version promise, Linux daemon CI lane, and Windows named pipe support remain deferred.
@@ -73,8 +75,9 @@ codesign --verify root/bin/qstar
 ## Overrides
 
 ```sh
-QSTAR_RELEASE_TAG=v0.6.0-beta make qstar-public-beta-download-smoke
+QSTAR_RELEASE_TAG=v0.6.1-beta make qstar-public-beta-download-smoke
 QSTAR_RELEASE_PLATFORM=macos-arm64 make qstar-public-beta-download-smoke
+QSTAR_RELEASE_PLATFORM=linux-x86_64 make qstar-public-beta-download-smoke
 QSTAR_RELEASE_SMOKE_DIR=/tmp/qstar-release-smoke tools/smoke-github-release.sh
 ```
 

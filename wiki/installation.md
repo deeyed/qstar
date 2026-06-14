@@ -1,10 +1,10 @@
 # Installation
 
 QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. Public
-beta에서는 macOS arm64 tarball을 먼저 배포한다. Linux host 지원은 Ubuntu gcc/clang CI
-기반 source build 검증, `linux-x86_64` release-candidate tarball dry-run, extracted
-tarball smoke, Stella/Ninja medium performance artifact collection을 갖췄지만 아직
-public release artifact는 없다.
+beta에서는 macOS arm64와 Linux x86_64 runtime tarball을 배포한다. Linux asset은 Ubuntu
+release workflow 또는 clean Linux x86_64 host에서 source build 검증,
+`linux-x86_64` tarball packaging, extracted tarball smoke, Stella/Ninja medium
+performance artifact collection을 통과한 산출물만 사용한다.
 Windows host 지원은 native validation candidate 준비 단계다. Windows는 아직 공식 지원이
 아니지만 path/process/response-file 준비 규칙과 manual Windows workflow 후보를 QStar tree
 안에서 검증한다. 모든 platform에서 소스에서 직접 빌드할 수 있도록 검증 경로를 늘려간다.
@@ -12,7 +12,11 @@ Windows host 지원은 native validation candidate 준비 단계다. Windows는 
 ## 최소 예제
 
 ```sh
-tar -xzf qstar-v0.6.0-beta-macos-arm64.tar.gz -C "$HOME/.local"
+tar -xzf qstar-v0.6.1-beta-macos-arm64.tar.gz -C "$HOME/.local"
+export PATH="$HOME/.local/bin:$PATH"
+qstar --version
+
+tar -xzf qstar-v0.6.1-beta-linux-x86_64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 ```
@@ -47,7 +51,7 @@ Public beta tarball은 Makefile-built binary를 기준으로 만든다.
 
 ```sh
 make qstar-public-beta-release-tests
-tar -tzf dist/release/qstar-v0.6.0-beta-macos-arm64.tar.gz
+tar -tzf dist/release/qstar-v0.6.1-beta-macos-arm64.tar.gz
 cat dist/release/SHA256SUMS
 ```
 
@@ -112,7 +116,7 @@ compiler lane은 `QSTAR_LINUX_VALIDATION_CC=gcc|clang`으로 고정한다. gcc l
 
 ```sh
 QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh
-test -f dist/release/qstar-v0.6.0-beta-linux-x86_64.tar.gz
+test -f dist/release/qstar-v0.6.1-beta-linux-x86_64.tar.gz
 test -s dist/release/file-linux-x86_64.txt
 test -s dist/release/ldd-linux-x86_64.txt
 test -s dist/release/extract-file-linux-x86_64.txt
@@ -123,7 +127,8 @@ test -s dist/release/extract-ldd-linux-x86_64.txt
 manpage가 tarball에 들어가는지, `SHA256SUMS`가 생성되는지를 확인한다. 이후 tarball을
 다시 extract해서 extracted `qstar --version`, `qstar docs --path`, `qstar docs --show`,
 manpage file, `file(1)`, `ldd(1)` smoke를 반복한다. GitHub release에 Linux asset을
-실제로 붙이는 결정은 별도 release 라운드에서 한다.
+붙일 때는 `.github/workflows/linux-validation.yml`의 `workflow_dispatch` input
+`publish_linux_asset=true`, `release_tag=v0.6.1-beta`를 사용한다.
 
 Linux daemon socket smoke는 기본 push/PR gate가 아니라 manual opt-in이다.
 `.github/workflows/linux-validation.yml`을 `workflow_dispatch`로 실행하면서

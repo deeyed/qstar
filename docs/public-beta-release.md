@@ -1,21 +1,21 @@
 # Public Beta Release Gate
 
 이 문서는 QStar public beta release를 다시 만들 때의 수동 실수를 줄이기 위한
-canonical checklist다. 현재 release asset은 macOS arm64 runtime tarball만 대상으로
-한다. VSCode extension은 별도 검증/패키징 대상이며 runtime tarball에 포함하지 않는다.
+canonical checklist다. 현재 release asset은 macOS arm64와 Linux x86_64 runtime tarball을
+대상으로 한다. VSCode extension은 별도 검증/패키징 대상이며 runtime tarball에 포함하지 않는다.
 VSCode extension is not included in the public beta runtime tarball.
 
 ## Release Target
 
-현재 beta package 이름은 runtime version에서 파생한다. Public artifact는 아직 macOS arm64
-하나만 배포하지만, Linux x86_64는 CI에서 release-candidate packaging dry-run과
-Stella/Ninja medium performance artifact collection을 수행한다.
+현재 beta package 이름은 runtime version에서 파생한다. Public artifact는 macOS arm64와
+Linux x86_64를 배포한다. Linux x86_64 artifact는 Ubuntu release workflow 또는 clean
+Linux x86_64 host에서 만든 산출물만 사용한다.
 
 ```txt
-runtime version: qstar 0.6.0-beta
-release tag: v0.6.0-beta
-macOS asset: qstar-v0.6.0-beta-macos-arm64.tar.gz
-Linux RC dry-run asset: qstar-v0.6.0-beta-linux-x86_64.tar.gz
+runtime version: qstar 0.6.1-beta
+release tag: v0.6.1-beta
+macOS asset: qstar-v0.6.1-beta-macos-arm64.tar.gz
+Linux asset: qstar-v0.6.1-beta-linux-x86_64.tar.gz
 checksum file: SHA256SUMS
 ```
 
@@ -24,10 +24,10 @@ checksum file: SHA256SUMS
 검증한다. Tag를 아직 만들지 않은 main branch에서는 package smoke만 수행하고
 `tag=not-on-tag`를 출력한다.
 
-Round Q151 이후 daemon-focused beta line은 `0.6.0-beta`로 승격한다. 이 release는
-Stella daemon을 documented beta opt-in 기능으로 설명하지만, default `qstar build` path를
-바꾸지 않는다. Release note는 `docs/releases/v0.6.0-beta.md`, 판단 기준은
-`docs/daemon-beta-readiness.md`에 둔다.
+Round Q157 이후 multi-host beta line은 `0.6.1-beta`다. 이 release는 Stella daemon을
+documented beta opt-in 기능으로 유지하면서 Linux x86_64 runtime asset을 추가한다.
+Default `qstar build` path는 바꾸지 않는다. Release note는
+`docs/releases/v0.6.1-beta.md`, 판단 기준은 `docs/qstar-v0.6-readiness.md`에 둔다.
 
 ## Local Gate
 
@@ -89,21 +89,21 @@ codesign -dv --verbose=2 /tmp/qstar-release-smoke/bin/qstar
 `codesign` smoke는 Darwin/macOS에서만 의미가 있다. Linux validation host에서는
 docs/manpage install과 runtime version만 확인한다.
 
-Linux runtime tarball은 아직 public beta asset이 아니다. Round Q113 이후 Linux는
-`.github/workflows/linux-validation.yml`의 Ubuntu gcc/clang CI 기반 validation path에
-더해 gcc lane에서 다음 release-candidate dry-run을 수행한다.
+Linux runtime tarball은 Q157부터 public beta asset이다. `.github/workflows/linux-validation.yml`의
+Ubuntu gcc/clang CI 기반 validation path에 더해 gcc lane에서 다음 release-candidate
+dry-run을 수행한다.
 
 ```sh
 QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh
-test -f dist/release/qstar-v0.6.0-beta-linux-x86_64.tar.gz
+test -f dist/release/qstar-v0.6.1-beta-linux-x86_64.tar.gz
 test -s dist/release/file-linux-x86_64.txt
 test -s dist/release/ldd-linux-x86_64.txt
 ```
 
-Linux asset을 실제로 추가하려면 clean Linux release host 또는 release CI에서
-`make check`, `make qstar-linux-validation-tests`, Ninja backend parity, install
-docs/man smoke, Linux tarball dry-run, medium performance artifact collection이 모두
-통과해야 한다. Timing threshold는 아직 report-only지만,
+Linux asset을 실제로 추가하려면 clean Linux release host 또는 release CI에서 `make check`,
+`make qstar-linux-validation-tests`, Ninja backend parity, install docs/man smoke,
+Linux tarball dry-run, medium performance artifact collection이 모두 통과해야 한다.
+Timing threshold는 아직 report-only지만,
 `medium_project_gate scheduler runner=posix_spawn event_wait=poll`과 Ninja clean phase는
 hard check다.
 Round Q156 이후 Linux dry-run은 tarball 생성에서 끝나지 않는다. CI는 생성된
@@ -112,7 +112,20 @@ extracted `bin/qstar --version`, `qstar docs --path`, `qstar docs --show
 reference/qstar-lua.md`, manpage file, `file(1)`, `ldd(1)`를 반복 검증한다. gcc lane은
 tarball, `SHA256SUMS`, contents report, installed/extracted `file`/`ldd`/docs reports,
 rendered manpage smoke를 `qstar-linux-x86_64-release-candidate-dry-run` artifact로
-업로드한다.
+업로드한다. 실제 GitHub release upload는 다음 opt-in 경로만 사용한다.
+
+```sh
+QSTAR_RELEASE_PLATFORM=linux-x86_64 \
+QSTAR_RELEASE_TAG=v0.6.1-beta \
+QSTAR_RELEASE_REPO=deeyed/qstar \
+  tools/publish-github-release-asset.sh
+```
+
+이 upload script는 GitHub release의 기존 `SHA256SUMS`를 내려받고, 같은 platform entry를
+교체한 뒤 Linux checksum을 병합해 다시 업로드한다. 따라서 macOS와 Linux checksum은 같은
+`SHA256SUMS` 안에 공존한다. `.github/workflows/linux-validation.yml`에서는
+`workflow_dispatch` input `publish_linux_asset=true`와 `release_tag=v0.6.1-beta`를 지정해
+같은 작업을 Ubuntu에서 수행한다.
 
 Linux daemon은 0.6 line에서 beta opt-in이지만 Linux release asset 조건에는 아직 기본
 gate로 넣지 않는다. 대신 `.github/workflows/linux-validation.yml`의
@@ -141,7 +154,11 @@ LICENSE/README.md
 예상 설치 명령:
 
 ```sh
-tar -xzf qstar-v0.6.0-beta-macos-arm64.tar.gz -C "$HOME/.local"
+tar -xzf qstar-v0.6.1-beta-macos-arm64.tar.gz -C "$HOME/.local"
+export PATH="$HOME/.local/bin:$PATH"
+qstar --version
+
+tar -xzf qstar-v0.6.1-beta-linux-x86_64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 ```
@@ -192,17 +209,26 @@ sample workspace, license payload만 확인하는 좁은 smoke다. Runtime과 ba
 Local smoke가 끝난 뒤 tag와 GitHub release를 만든다.
 
 ```sh
-git tag -a v0.6.0-beta -m "QStar v0.6.0 beta"
-git push origin v0.6.0-beta
+git tag -a v0.6.1-beta -m "QStar v0.6.1 beta"
+git push origin v0.6.1-beta
 
-gh release create v0.6.0-beta \
-  dist/release/qstar-v0.6.0-beta-macos-arm64.tar.gz \
+gh release create v0.6.1-beta \
+  dist/release/qstar-v0.6.1-beta-macos-arm64.tar.gz \
   dist/release/SHA256SUMS \
   --repo deeyed/qstar \
-  --title "QStar v0.6.0 Beta" \
-  --notes-file docs/releases/v0.6.0-beta.md \
+  --title "QStar v0.6.1 Beta" \
+  --notes-file docs/releases/v0.6.1-beta.md \
   --prerelease \
   --latest=false
+```
+
+Linux asset은 macOS release 생성 후 Ubuntu workflow에서 다음 input으로 붙인다.
+
+```txt
+workflow: Linux Validation
+release_tag: v0.6.1-beta
+publish_linux_asset: true
+daemon_socket_smoke: optional
 ```
 
 GitHub release 생성은 QStar commit/push, wiki sync, release smoke가 끝난 뒤에만 수행한다.

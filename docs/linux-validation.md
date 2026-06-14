@@ -1,9 +1,10 @@
 # Linux Validation Path
 
 QStar v0.4 beta는 macOS arm64 binary를 먼저 배포했지만, Round Q97부터 Linux host
-지원은 `planned`가 아니라 `validation underway` 상태로 관리한다. 이 문서는 Linux를
-release artifact 후보로 올리기 전에 필요한 source build, path/process, depfile,
-install layout smoke, release tarball dry-run을 고정한다.
+지원은 `planned`가 아니라 `validation underway` 상태로 관리했다. Round Q157부터 Linux
+x86_64는 public beta release artifact 대상이다. 이 문서는 Linux asset을 publish하기 전에
+필요한 source build, path/process, depfile, install layout smoke, release tarball dry-run,
+GitHub release upload 조건을 고정한다.
 Round Q109부터 `.github/workflows/linux-validation.yml`이 이 gate를 Ubuntu CI에서
 gcc/clang matrix로 실행한다. Round Q113부터 gcc lane은
 `QSTAR_RELEASE_PLATFORM=linux-x86_64` packaging dry-run까지 수행한다.
@@ -13,6 +14,8 @@ protocol도 수집하고 CI artifact로 업로드한다. Large synthetic corpus�
 Round Q156부터 release-candidate tarball을 다시 extract해서 실행, docs/wiki/manpage
 lookup, `file(1)`, `ldd(1)` sanity를 반복 검증하고, `workflow_dispatch`의
 `daemon_socket_smoke` input으로 Linux daemon socket smoke를 opt-in lane에서 수행한다.
+Round Q157부터 `publish_linux_asset=true` workflow_dispatch lane은 clean Ubuntu host에서
+tag를 checkout하고 Linux x86_64 tarball을 GitHub release에 업로드한다.
 
 ## Scope
 
@@ -202,8 +205,8 @@ workflow_dispatch / daemon_socket_smoke=true:
   upload dist/perf/linux-daemon-medium-*.txt
 ```
 
-The gcc lane also performs a release-candidate packaging dry-run without
-publishing the artifact:
+The gcc lane also performs a release-candidate packaging dry-run. On regular
+push/PR runs it does not publish the artifact:
 
 ```sh
 QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh
@@ -243,7 +246,8 @@ test -f "$prefix/share/man/man5/qstar-lua.5"
 ## Release Asset Conditions
 
 A Linux tarball must not be published merely because the source compiles once.
-Before a `linux-*` release asset is added, all of the following must be true:
+Before a `linux-*` release asset is added or refreshed, all of the following
+must be true:
 
 - source build passes on a clean Linux host or CI image
 - `make check` passes on Linux
@@ -271,6 +275,15 @@ Before a `linux-*` release asset is added, all of the following must be true:
   described as release-backed rather than validation-backed
 - release notes identify architecture and libc assumptions
 
-Until a Linux asset is intentionally attached to a GitHub release, README
-platform status remains conservative: Linux is a binary release candidate path,
-not an official published artifact. Windows is still planned.
+Release publication uses the manual workflow path:
+
+```txt
+workflow: Linux Validation
+release_tag: v0.6.1-beta
+publish_linux_asset: true
+```
+
+The publish job checks out the selected tag, reruns the Linux release gates,
+invokes `tools/publish-github-release-asset.sh`, uploads
+`qstar-v<version>-linux-x86_64.tar.gz`, and merges the Linux checksum into the
+release `SHA256SUMS`. Windows is still planned.

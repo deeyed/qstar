@@ -6,14 +6,12 @@ QStar는 Lua 기반 프로젝트 DSL, Stella 네이티브 executor, 선택형 Ni
 독립 빌드시스템이다. 목표는 deterministic build graph, 명시적 argv-vector command,
 대형 프로젝트용 reusable config, 도구가 읽기 쉬운 diagnostic을 제공하는 것이다.
 
-현재 공개 버전은 베타다. 현재 public prerelease line은 `v0.6.0-beta`이며 macOS arm64
-바이너리만 먼저 배포한다. Linux는 Ubuntu gcc/clang CI 기반 source build 검증 경로와
-`linux-x86_64` release-candidate tarball dry-run, extracted tarball smoke, explicit
-Ninja backend parity를 갖췄고, 같은 Linux workflow에서 Stella/Ninja medium performance
-line protocol artifact도 수집한다. Linux daemon socket smoke는 opt-in lane으로 확인한다.
-아직 Linux public asset은 없다. Windows는 manual native validation candidate 단계이며
-아직 public asset이나 official host support가 아니다. QStar 1.0은 macOS, Linux, Windows
-공식 지원이 모두 갖춰진 뒤에 올린다.
+현재 공개 버전은 베타다. 현재 public prerelease line은 `v0.6.1-beta`이며 macOS arm64와
+Linux x86_64 runtime tarball을 배포한다. Linux asset은 Ubuntu release workflow 또는 clean
+Linux x86_64 host에서 source validation, Ninja backend parity, extracted tarball smoke,
+Stella/Ninja medium performance artifact collection을 통과한 산출물만 사용한다. Windows는
+manual native validation candidate 단계이며 아직 public asset이나 official host support가
+아니다. QStar 1.0은 macOS, Linux, Windows 공식 지원이 모두 갖춰진 뒤에 올린다.
 
 ## 특징
 
@@ -31,10 +29,16 @@ line protocol artifact도 수집한다. Linux daemon socket smoke는 opt-in lane
 
 ## 설치
 
-GitHub Releases에서 macOS arm64 tarball을 내려받는다.
+GitHub Releases에서 host에 맞는 runtime tarball을 내려받는다.
 
 ```sh
-tar -xzf qstar-v0.6.0-beta-macos-arm64.tar.gz -C "$HOME/.local"
+# macOS arm64
+tar -xzf qstar-v0.6.1-beta-macos-arm64.tar.gz -C "$HOME/.local"
+export PATH="$HOME/.local/bin:$PATH"
+qstar --version
+
+# Linux x86_64
+tar -xzf qstar-v0.6.1-beta-linux-x86_64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 ```
@@ -196,7 +200,7 @@ qstar replay <action-id>
 | Host platform | 상태 |
 | --- | --- |
 | macOS arm64 | 베타 release artifact 제공 |
-| Linux x86_64 | Ubuntu gcc/clang CI 기반 candidate tarball dry-run과 Stella/Ninja medium perf artifact, public asset 없음 |
+| Linux x86_64 | Ubuntu release workflow 또는 clean Linux host 산출 beta release artifact 제공 |
 | Windows | manual native validation candidate, public asset 없음 |
 
 QStar는 freestanding, firmware-style cross build graph를 표현할 수 있지만, host
