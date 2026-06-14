@@ -2,13 +2,14 @@
 
 이 문서는 Round Q143에서 persistent Stella daemon의 장기 계약을 고정했고, Round Q144에서
 첫 experimental MVP 상태를 반영했으며, Round Q146에서 build output event stream을 추가했다.
+Round Q147부터 daemon은 `state.db`와 `deps.db`의 in-memory snapshot을 먼저 사용한다.
 아직 stable CLI surface가 아니다. 목표는 QStar의 Lua DSL과 rich diagnostics는 유지하면서,
 반복 build invocation마다 Lua eval, Graph IR load, plan cache load, dirty state load를
 처음부터 반복하지 않는 구조를 만드는 것이다.
 
 ```txt
-status: experimental-streaming-mvp
-round: Q146
+status: experimental-memory-state-mvp
+round: Q147
 command namespace: qstar daemon
 initial hosts: macOS and Linux over Unix domain sockets
 deferred hosts: Windows named pipe
@@ -66,11 +67,11 @@ daemon status=unavailable reason=socket-missing fallback=stella
 
 Q144 MVP는 같은 daemon process 안에서 Graph IR와 lowered plan cache 결과를 memory에
 유지한다. Q146부터 daemon build response는 byte-count buffer가 아니라 event stream으로
-전송되어 일반 Stella build와 같은 progress/warning/error output을 즉시 보여준다.
-Authoring input의 mtime/size가 바뀌면 graph를 다시 load한다. 일반 source/header
-변경은 기존 Stella dirty-check와 depfile/state DB가 처리한다. `state.db`와 `deps.db` 자체를
-daemon memory index로 완전히 올리는 작업, file watcher, background start/stop lifecycle,
-permission hardening은 후속 라운드다.
+전송되어 일반 Stella build와 같은 progress/warning/error output을 즉시 보여준다. Q147부터
+daemon build는 `state.db`와 `deps.db`를 매 invocation마다 다시 parse하기 전에 process memory
+snapshot을 먼저 사용한다. 성공 build 뒤에는 disk DB를 계속 writeback하므로 daemon crash 후
+일반 Stella build도 같은 state에서 복구할 수 있다. Authoring input의 mtime/size가 바뀌면 graph를
+다시 load한다. File watcher, background start/stop lifecycle, permission hardening은 후속 라운드다.
 
 ## Why A Daemon
 
@@ -217,8 +218,21 @@ Daemon memory state mirrors existing on-disk state.
 | Authoring input fingerprints | `stella/inputs.json` and file watcher | Keep current in memory, invalidate on watcher event. |
 | Lowered graph summary | `stella/graph.qsg` | Load once, reuse until fingerprint mismatch. |
 | Lowered action plan | `stella/actions.qsa` | Load once, reuse for matching build request closure. |
-| Dirty-check state | `state/state.db` | Keep compact index in memory, batch write after build. |
-| Discovered deps | `state/deps.db` | Keep header list index in memory, refresh on depfile change. |
+| Dirty-check state | `state/state.db` | Q147 keeps compact action state in memory and writes it back after successful builds. |
+| Discovered deps | `state/deps.db` | Q147 keeps depfile-discovered header state in memory and refreshes it on depfile change. |
+
+`state.db` and `deps.db` remain the crash-recovery format. The daemon memory cache is a fast
+mirror, not a replacement for the on-disk state.
+
+With `--schedule-trace`, daemon builds show whether memory state was used:
+
+```txt
+dirty_state_memory status=miss reason=cold
+dirty_state_memory status=hit entries=12
+dirty_state_memory status=writeback entries=12
+deps_memory status=hit entries=4
+deps_memory status=writeback entries=4
+```
 | Debug dumps | opt-in only | Do not create unless requested by env/trace. |
 
 If watcher state is uncertain, the daemon must fall back to the same fingerprint checks that a fresh
@@ -324,10 +338,10 @@ Recommended future implementation order:
 
 1. Q144: foreground `qstar daemon --serve`, `--status`, `qstar build --use-daemon=...` forwarding.
 2. Q146: CLI progress streaming instead of response-at-end forwarding.
-3. Background start/stop, pid/lock/stale cleanup, owner-only socket permission hardening.
-4. Read-only `hello`, `workspace.info`, `targets.list` protocol.
-5. File watcher invalidation for authoring files and source/header paths.
-6. In-memory `state.db` and `deps.db` indexes with batch write-back.
+3. Q147: in-memory `state.db` and `deps.db` snapshots with disk write-back.
+4. Background start/stop, pid/lock/stale cleanup, owner-only socket permission hardening.
+5. Read-only `hello`, `workspace.info`, `targets.list` protocol.
+6. File watcher invalidation for authoring files and source/header paths.
 7. IDE/AI read-only API surface and audit log.
 8. Windows named pipe design refresh and native validation.
 

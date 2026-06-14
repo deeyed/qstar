@@ -218,6 +218,19 @@ int qstar_stella_plan_cache_store(struct qstar_graph *graph, const char *file,
 /** 현재 Graph에서 실행 가능한 lowered action plan을 준비한다. */
 int qstar_graph_prepare_lowered_action_cache(struct qstar_graph *graph, const char *label);
 
+struct qstar_stella_state_cache;
+
+/** Stella daemon이 유지하는 in-memory dirty/deps state cache를 생성한다. */
+struct qstar_stella_state_cache *qstar_stella_state_cache_new(void);
+
+/** Stella daemon in-memory dirty/deps state cache를 해제한다. */
+void qstar_stella_state_cache_free(struct qstar_stella_state_cache *cache);
+
+/** in-memory dirty/deps state cache를 사용해 Stella build action을 실행한다. */
+int qstar_graph_build_with_state_cache(struct qstar_graph *graph, const char *label,
+    const struct qstar_build_options *options, FILE *out,
+    struct qstar_stella_state_cache *cache);
+
 enum {
 	QSTAR_DAEMON_NEVER = 0,
 	QSTAR_DAEMON_AUTO = 1,

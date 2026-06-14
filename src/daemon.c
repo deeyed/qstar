@@ -48,6 +48,7 @@ struct qstar_daemon_server {
 	struct qstar_graph graph;
 	int graph_init;
 	int graph_loaded;
+	struct qstar_stella_state_cache *state_cache;
 	char cwd[QSTAR_PATH_MAX];
 	char file[QSTAR_PATH_MAX];
 	char label[QSTAR_PATH_MAX];
@@ -712,6 +713,7 @@ static void
 server_free(struct qstar_daemon_server *server)
 {
 	free_fps(server);
+	qstar_stella_state_cache_free(server->state_cache);
 	if (server->graph_init)
 		qstar_graph_free(&server->graph);
 	memset(server, 0, sizeof(*server));
@@ -1043,8 +1045,16 @@ handle_build_request(struct qstar_daemon_server *server, int fd)
 		fprintf(body,
 		    "daemon_server status=build graph=%s reason=%s experimental=1\n",
 		    graph_status, reason);
-	rc = qstar_graph_build_with_options(&server->graph,
-	    req.label[0] ? req.label : NULL, &req.options, body) < 0 ? 1 : 0;
+	if (!server->state_cache)
+		server->state_cache = qstar_stella_state_cache_new();
+	if (!server->state_cache) {
+		fprintf(body, "qstar: daemon could not allocate state cache\n");
+		rc = 1;
+		goto send_restore;
+	}
+	rc = qstar_graph_build_with_state_cache(&server->graph,
+	    req.label[0] ? req.label : NULL, &req.options, body,
+	    server->state_cache) < 0 ? 1 : 0;
 	if (rc != 0 && server->graph.error[0])
 		fprintf(body, "%s\n", server->graph.error);
 send_restore:

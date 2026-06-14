@@ -118,6 +118,7 @@ struct qstar_build_ctx {
 		size_t index;
 	} *deps_prev_index;
 	size_t deps_prev_index_cap;
+	struct qstar_stella_state_cache *state_cache;
 	struct qstar_file_hash_entry {
 		char *rel;
 		char digest[32];
@@ -153,6 +154,17 @@ struct qstar_build_ctx {
 	size_t compile_len, compile_cap;
 	char env_key_cache[32];
 	int env_key_ready;
+};
+
+struct qstar_stella_state_cache {
+	char state_path[QSTAR_PATH_MAX];
+	int state_loaded;
+	struct qstar_state_entry *state;
+	size_t state_len, state_cap;
+	char deps_path[QSTAR_PATH_MAX];
+	int deps_loaded;
+	struct qstar_dep_entry *deps;
+	size_t deps_len, deps_cap;
 };
 
 struct qstar_action_material {
@@ -2142,6 +2154,44 @@ state_free(struct qstar_state_entry *entries, size_t len)
 	free(entries);
 }
 
+/** action state entry 배열을 깊은 복사한다. */
+static int
+state_entries_clone(struct qstar_state_entry **out, size_t *out_len,
+    size_t *out_cap, const struct qstar_state_entry *src, size_t src_len)
+{
+	struct qstar_build_ctx tmp;
+	struct qstar_action_material material;
+	size_t i;
+
+	memset(&tmp, 0, sizeof(tmp));
+	for (i = 0; i < src_len; i++) {
+		memset(&material, 0, sizeof(material));
+		snprintf(material.argv_key, sizeof(material.argv_key), "%s",
+		    src[i].argv_key ? src[i].argv_key : "");
+		snprintf(material.env_key, sizeof(material.env_key), "%s",
+		    src[i].env_key ? src[i].env_key : "");
+		snprintf(material.input_key, sizeof(material.input_key), "%s",
+		    src[i].input_key ? src[i].input_key : "");
+		snprintf(material.depfile_key, sizeof(material.depfile_key), "%s",
+		    src[i].depfile_key ? src[i].depfile_key : "");
+		snprintf(material.profile_key, sizeof(material.profile_key), "%s",
+		    src[i].profile_key ? src[i].profile_key : "");
+		snprintf(material.output_key, sizeof(material.output_key), "%s",
+		    src[i].output_key ? src[i].output_key : "");
+		snprintf(material.external_tool_key, sizeof(material.external_tool_key), "%s",
+		    src[i].external_tool_key ? src[i].external_tool_key : "");
+		if (state_push(&tmp, 0, src[i].id, src[i].key, src[i].output,
+		    src[i].status, src[i].kind, &material) < 0) {
+			state_free(tmp.prev, tmp.prev_len);
+			return -1;
+		}
+	}
+	*out = tmp.prev;
+	*out_len = tmp.prev_len;
+	*out_cap = tmp.prev_cap;
+	return 0;
+}
+
 /** 이전 action state를 O(1)에 가깝게 찾기 위한 build-local index를 만든다. */
 static int
 state_index_build(struct qstar_build_ctx *ctx)
@@ -2445,6 +2495,8 @@ state_prev_clear(struct qstar_build_ctx *ctx)
 	ctx->prev_index_cap = 0;
 }
 
+static int state_load(struct qstar_graph *graph, struct qstar_build_ctx *ctx);
+
 /** compact action state DB를 읽는다. 1=loaded, 0=fallback 가능, -1=fatal. */
 static int
 state_db_load(struct qstar_graph *graph, struct qstar_build_ctx *ctx)
@@ -2532,6 +2584,75 @@ done:
 	if (rc < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
 	build_tracef(ctx, "dirty_state_db status=miss reason=stale-or-invalid\n");
+	return 0;
+}
+
+/** daemon memory cache에서 action state를 먼저 복원한다. */
+static int
+state_load_with_memory(struct qstar_graph *graph, struct qstar_build_ctx *ctx)
+{
+	struct qstar_stella_state_cache *cache;
+	char path[QSTAR_PATH_MAX];
+
+	cache = ctx->state_cache;
+	if (!cache)
+		return state_load(graph, ctx);
+	if (full_path_under_build(graph, "state/state.db", path, sizeof(path)) < 0)
+		return qstar_set_error(graph, "qstar: state path too long");
+	if (cache->state_loaded && strcmp(cache->state_path, path) == 0) {
+		if (state_entries_clone(&ctx->prev, &ctx->prev_len, &ctx->prev_cap,
+		    cache->state, cache->state_len) < 0 ||
+		    state_index_build(ctx) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+		build_tracef(ctx, "dirty_state_memory status=hit entries=%zu\n",
+		    ctx->prev_len);
+		return 0;
+	}
+	build_tracef(ctx, "dirty_state_memory status=miss reason=%s\n",
+	    cache->state_loaded ? "path-changed" : "cold");
+	if (state_load(graph, ctx) < 0)
+		return -1;
+	state_free(cache->state, cache->state_len);
+	cache->state = NULL;
+	cache->state_len = 0;
+	cache->state_cap = 0;
+	if (state_entries_clone(&cache->state, &cache->state_len, &cache->state_cap,
+	    ctx->prev, ctx->prev_len) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	snprintf(cache->state_path, sizeof(cache->state_path), "%s", path);
+	cache->state_loaded = 1;
+	build_tracef(ctx, "dirty_state_memory status=store entries=%zu source=disk\n",
+	    cache->state_len);
+	return 0;
+}
+
+/** daemon memory cache에 build 후 action state를 반영한다. */
+static int
+state_memory_update(struct qstar_graph *graph, struct qstar_build_ctx *ctx)
+{
+	struct qstar_stella_state_cache *cache;
+	struct qstar_state_entry *copy;
+	size_t copy_len, copy_cap;
+	char path[QSTAR_PATH_MAX];
+
+	cache = ctx->state_cache;
+	if (!cache)
+		return 0;
+	if (full_path_under_build(graph, "state/state.db", path, sizeof(path)) < 0)
+		return qstar_set_error(graph, "qstar: state path too long");
+	copy = NULL;
+	copy_len = copy_cap = 0;
+	if (state_entries_clone(&copy, &copy_len, &copy_cap, ctx->next,
+	    ctx->next_len) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	state_free(cache->state, cache->state_len);
+	cache->state = copy;
+	cache->state_len = copy_len;
+	cache->state_cap = copy_cap;
+	snprintf(cache->state_path, sizeof(cache->state_path), "%s", path);
+	cache->state_loaded = 1;
+	build_tracef(ctx, "dirty_state_memory status=writeback entries=%zu\n",
+	    cache->state_len);
 	return 0;
 }
 
@@ -2735,6 +2856,64 @@ deps_record(struct qstar_build_ctx *ctx, const char *depfile,
 	return deps_entry_copy(entry, depfile, size, mtime, digest, inputs);
 }
 
+/** compact dependency entry 배열을 깊은 복사한다. */
+static int
+deps_entries_clone(struct qstar_dep_entry **out, size_t *out_len,
+    size_t *out_cap, const struct qstar_dep_entry *src, size_t src_len)
+{
+	struct qstar_build_ctx tmp;
+	size_t i;
+
+	memset(&tmp, 0, sizeof(tmp));
+	for (i = 0; i < src_len; i++) {
+		if (deps_record(&tmp, src[i].depfile, src[i].size, src[i].mtime,
+		    src[i].digest, &src[i].inputs) < 0) {
+			deps_entries_free(tmp.deps_next, tmp.deps_next_len);
+			return -1;
+		}
+	}
+	*out = tmp.deps_next;
+	*out_len = tmp.deps_next_len;
+	*out_cap = tmp.deps_next_cap;
+	return 0;
+}
+
+/** string list가 같은 순서와 값을 갖는지 확인한다. */
+static int
+string_list_equal(const struct qstar_string_list *a, const struct qstar_string_list *b)
+{
+	size_t i;
+
+	if (a->len != b->len)
+		return 0;
+	for (i = 0; i < a->len; i++) {
+		if (strcmp(a->items[i], b->items[i]) != 0)
+			return 0;
+	}
+	return 1;
+}
+
+/** deps DB next state가 이전 state와 같으면 rewrite를 생략할 수 있다. */
+static int
+deps_unchanged(const struct qstar_build_ctx *ctx)
+{
+	const struct qstar_dep_entry *prev;
+	const struct qstar_dep_entry *next;
+	size_t i;
+
+	if (ctx->deps_prev_len != ctx->deps_next_len)
+		return 0;
+	for (i = 0; i < ctx->deps_next_len; i++) {
+		next = &ctx->deps_next[i];
+		prev = deps_find_prev(ctx, next->depfile);
+		if (!prev || prev->size != next->size || prev->mtime != next->mtime ||
+		    strcmp(prev->digest, next->digest) != 0 ||
+		    !string_list_equal(&prev->inputs, &next->inputs))
+			return 0;
+	}
+	return 1;
+}
+
 /** compact discovered dependency DB를 읽는다. 1=loaded, 0=miss, -1=fatal. */
 static int
 deps_db_load(struct qstar_graph *graph, struct qstar_build_ctx *ctx)
@@ -2842,6 +3021,96 @@ done:
 	return 0;
 }
 
+/** daemon memory cache에서 discovered dependency state를 먼저 복원한다. */
+static int
+deps_load_with_memory(struct qstar_graph *graph, struct qstar_build_ctx *ctx)
+{
+	struct qstar_stella_state_cache *cache;
+	char path[QSTAR_PATH_MAX];
+
+	cache = ctx->state_cache;
+	if (!cache)
+		return deps_db_load(graph, ctx);
+	if (full_path_under_build(graph, "state/deps.db", path, sizeof(path)) < 0)
+		return qstar_set_error(graph, "qstar: dependency state path too long");
+	if (cache->deps_loaded && strcmp(cache->deps_path, path) == 0) {
+		if (deps_entries_clone(&ctx->deps_prev, &ctx->deps_prev_len,
+		    &ctx->deps_prev_cap, cache->deps, cache->deps_len) < 0 ||
+		    deps_index_build(ctx) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+		build_tracef(ctx, "deps_memory status=hit entries=%zu\n",
+		    ctx->deps_prev_len);
+		return 0;
+	}
+	build_tracef(ctx, "deps_memory status=miss reason=%s\n",
+	    cache->deps_loaded ? "path-changed" : "cold");
+	if (deps_db_load(graph, ctx) < 0)
+		return -1;
+	deps_entries_free(cache->deps, cache->deps_len);
+	cache->deps = NULL;
+	cache->deps_len = 0;
+	cache->deps_cap = 0;
+	if (ctx->deps_prev_len > 0) {
+		if (deps_entries_clone(&cache->deps, &cache->deps_len,
+		    &cache->deps_cap, ctx->deps_prev, ctx->deps_prev_len) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+	}
+	snprintf(cache->deps_path, sizeof(cache->deps_path), "%s", path);
+	cache->deps_loaded = ctx->deps_prev_len > 0;
+	if (cache->deps_loaded)
+		build_tracef(ctx, "deps_memory status=store entries=%zu source=disk\n",
+		    cache->deps_len);
+	return 0;
+}
+
+/** daemon memory cache에 build 후 discovered dependency state를 반영한다. */
+static int
+deps_memory_update(struct qstar_graph *graph, struct qstar_build_ctx *ctx)
+{
+	struct qstar_stella_state_cache *cache;
+	struct qstar_dep_entry *copy;
+	size_t copy_len, copy_cap;
+	char path[QSTAR_PATH_MAX];
+
+	cache = ctx->state_cache;
+	if (!cache || ctx->deps_next_len == 0)
+		return 0;
+	if (full_path_under_build(graph, "state/deps.db", path, sizeof(path)) < 0)
+		return qstar_set_error(graph, "qstar: dependency state path too long");
+	copy = NULL;
+	copy_len = copy_cap = 0;
+	if (deps_entries_clone(&copy, &copy_len, &copy_cap, ctx->deps_next,
+	    ctx->deps_next_len) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	deps_entries_free(cache->deps, cache->deps_len);
+	cache->deps = copy;
+	cache->deps_len = copy_len;
+	cache->deps_cap = copy_cap;
+	snprintf(cache->deps_path, sizeof(cache->deps_path), "%s", path);
+	cache->deps_loaded = 1;
+	build_tracef(ctx, "deps_memory status=writeback entries=%zu\n",
+	    cache->deps_len);
+	return 0;
+}
+
+/** Stella daemon이 유지하는 in-memory dirty/deps state cache를 생성한다. */
+struct qstar_stella_state_cache *
+qstar_stella_state_cache_new(void)
+{
+	return calloc(1, sizeof(struct qstar_stella_state_cache));
+}
+
+/** Stella daemon in-memory dirty/deps state cache를 해제한다. */
+void
+qstar_stella_state_cache_free(struct qstar_stella_state_cache *cache)
+{
+	if (!cache)
+		return;
+	state_free(cache->state, cache->state_len);
+	deps_entries_free(cache->deps, cache->deps_len);
+	free(cache);
+}
+
 /** compact discovered dependency DB를 쓴다. */
 static int
 deps_db_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
@@ -2855,6 +3124,8 @@ deps_db_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 		return 0;
 	if (full_path_under_build(graph, "state/deps.db", path, sizeof(path)) < 0)
 		return qstar_set_error(graph, "qstar: could not create dependency state");
+	if (deps_unchanged(ctx) && path_exists(path))
+		return 0;
 	if (full_path_under_build(graph, "state", dir, sizeof(dir)) < 0 ||
 	    mkdir_p(dir) < 0)
 		return qstar_set_error(graph, "qstar: could not create dependency state dir");
@@ -7859,10 +8130,11 @@ build_ctx_free(struct qstar_build_ctx *ctx)
 	memset(ctx, 0, sizeof(*ctx));
 }
 
-/** QStar local executor에 option을 적용해 제한된 build action을 실행한다. */
-int
-qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
-    const struct qstar_build_options *options, FILE *out)
+/** QStar local executor 공통 build 본체를 실행한다. */
+static int
+graph_build_with_options_and_state_cache(struct qstar_graph *graph, const char *label,
+    const struct qstar_build_options *options, FILE *out,
+    struct qstar_stella_state_cache *state_cache)
 {
 	struct qstar_build_ctx ctx;
 	int rc;
@@ -7880,11 +8152,12 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
 	ctx.progress_enabled = build_progress_enabled(out, ctx.progress_mode);
 	ctx.color_enabled = build_color_enabled(out, ctx.color_mode);
 	ctx.action_timeout_sec = action_timeout_sec_from_env();
-	if (state_load(graph, &ctx) < 0) {
+	ctx.state_cache = state_cache;
+	if (state_load_with_memory(graph, &ctx) < 0) {
 		build_ctx_free(&ctx);
 		return -1;
 	}
-	if (deps_db_load(graph, &ctx) < 0) {
+	if (deps_load_with_memory(graph, &ctx) < 0) {
 		build_ctx_free(&ctx);
 		return -1;
 	}
@@ -7905,7 +8178,11 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
 	if (rc == 0)
 		rc = state_write(graph, &ctx);
 	if (rc == 0)
+		rc = state_memory_update(graph, &ctx);
+	if (rc == 0)
 		rc = deps_db_write(graph, &ctx);
+	if (rc == 0)
+		rc = deps_memory_update(graph, &ctx);
 	if (rc == 0)
 		rc = compile_db_write(graph, &ctx);
 	if (build_summary_write(graph, &ctx, rc == 0 ? "success" : "failure") < 0 &&
@@ -7927,6 +8204,23 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
 	}
 	build_ctx_free(&ctx);
 	return rc;
+}
+
+/** QStar local executor에 option을 적용해 제한된 build action을 실행한다. */
+int
+qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
+    const struct qstar_build_options *options, FILE *out)
+{
+	return graph_build_with_options_and_state_cache(graph, label, options, out, NULL);
+}
+
+/** in-memory dirty/deps state cache를 사용해 Stella build action을 실행한다. */
+int
+qstar_graph_build_with_state_cache(struct qstar_graph *graph, const char *label,
+    const struct qstar_build_options *options, FILE *out,
+    struct qstar_stella_state_cache *cache)
+{
+	return graph_build_with_options_and_state_cache(graph, label, options, out, cache);
 }
 
 /** QStar local executor v1로 제한된 build action을 실행한다. */

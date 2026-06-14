@@ -1,7 +1,8 @@
 # Stella Daemon
 
-Stella daemon은 QStar의 장기 성능 구조다. Round Q146 기준으로 foreground server와 build
-client, 그리고 streaming build output이 experimental MVP로 들어왔지만, stable public surface는 아니다. 정본 설계 문서는
+Stella daemon은 QStar의 장기 성능 구조다. Round Q147 기준으로 foreground server, build
+client, streaming build output, in-memory dirty/deps state snapshot이 experimental MVP로
+들어왔지만, stable public surface는 아니다. 정본 설계 문서는
 `docs/daemon/stella-daemon.md`다.
 
 ## 명령 이름
@@ -24,9 +25,10 @@ service지만, CLI 명령은 QStar service lifecycle을 나타내는 `daemon`이
 현재 Stella는 `actions.qsa`, `state.db`, `deps.db` 같은 build directory 내부 cache를 사용한다.
 Q144 MVP는 Graph IR와 lowered plan cache 결과를 process memory에 유지한다. Q146부터 build
 response는 event stream으로 전달되어 일반 Stella build와 같은 progress/warning/error output을
-즉시 표시한다. Authoring input mtime/size가 바뀌면 graph를 다시 load하고, 일반 source/header
-변경은 기존 Stella dirty-check state가 처리한다. 장기 persistent daemon은 여기에 더해 다음
-상태를 process memory에 유지한다.
+즉시 표시한다. Q147부터 daemon은 `state.db`와 `deps.db`의 in-memory snapshot을 먼저 사용한다.
+성공 build 뒤에는 같은 state를 disk DB로 writeback하므로 daemon crash 뒤에도 일반 Stella build가
+복구할 수 있다. Authoring input mtime/size가 바뀌면 graph를 다시 load한다. 장기 persistent
+daemon은 여기에 더해 다음 상태를 process memory에 유지한다.
 
 - Lua runtime
 - Graph IR와 Stella Plan IR
@@ -93,6 +95,23 @@ status ok
 ```
 
 `--color never`와 `--progress off` 같은 기존 build option은 daemon 경로에서도 동일하게 적용된다.
+
+## In-Memory State
+
+Daemon build는 같은 build directory의 `state.db`와 `deps.db`를 process memory에 유지한다.
+첫 request는 disk DB를 읽고, 이후 같은 identity에서는 memory snapshot을 먼저 사용한다.
+
+`--schedule-trace`에서는 다음 line으로 확인할 수 있다.
+
+```txt
+dirty_state_memory status=hit entries=12
+deps_memory status=hit entries=4
+dirty_state_memory status=writeback entries=12
+deps_memory status=writeback entries=4
+```
+
+Disk DB는 계속 canonical crash-recovery format이다. Memory snapshot은 daemon fast path일 뿐,
+`qstar why-rebuild`, `qstar action-log`, `qstar replay`, `qstar last-failure`의 동작을 바꾸지 않는다.
 
 ## 보안 원칙
 

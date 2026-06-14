@@ -239,7 +239,8 @@ historical version record는 보존한다.
 - Persistent Stella daemon maturation. Q144 adds an experimental foreground Unix socket MVP with
   `qstar daemon --serve` and `qstar build --use-daemon=...`, and Q146 adds streaming build
   events so daemon builds render the same progress/warning/error output as normal Stella builds.
-  Background lifecycle, file watchers, and in-memory state/deps DB indexes remain post-0.5 work.
+  Q147 adds in-memory `state.db`/`deps.db` snapshots with disk writeback for crash recovery.
+  Background lifecycle and file watchers remain post-0.5 work.
 - Windows `.dll`/import-library/PDB sharedlib support.
 - Cale source Ninja wrapper lowering.
 - C++ modules execution policy.

@@ -201,7 +201,16 @@ action, summary, and raw output events. The CLI hides protocol frames and render
 the same CMake-style progress and warning/error color policy as normal Stella
 builds. If the stream starts and then terminates before a final status, the
 client reports daemon stream interruption and does not silently rerun the build
-through fallback.
+through fallback. Q147 keeps compact dirty-check and discovered-dependency state
+in process memory for daemon builds, while continuing to write
+.Pa state/state.db
+and
+.Pa state/deps.db
+as crash-recovery state. Schedule trace output includes
+.Li dirty_state_memory
+and
+.Li deps_memory
+hit/miss/writeback lines.
 .Pp
 Action descriptions are also preserved in action-log and replay metadata.
 .Ic qstar action-log ,
