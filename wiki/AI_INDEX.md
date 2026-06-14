@@ -147,6 +147,10 @@ QStar가 하지 않는 일:
   `hello`, `workspace.info`, `targets.list`, `diagnostics.list`,
   `compile_commands.path`, `build.summary`다. 계약 문서는
   `docs/contracts/daemon-read-api.md`에 둔다. Build/test/clean mutation은 read API에 없다.
+  Round Q151 판단은 documented beta opt-in candidate다. 기본 `qstar build`는 daemon을 쓰지
+  않고, `--use-daemon=auto|always`와 `qstar daemon --query ...`는 명시적으로 선택할 때만 쓴다.
+  다음 version 후보는 `0.5.2-beta.1`이며, `0.6.0-beta.1`은 background lifecycle/security가
+  더 닫힌 뒤 검토한다. 판단 문서는 `docs/daemon-beta-readiness.md`에 둔다.
 - Stella dirty-check의 canonical fast state는 `build/qstar/state/state.db`다.
   `build/qstar/state/actions.json`은 기본 생성물이 아니며
   `QSTAR_DEBUG_STATE_DUMPS=1 qstar build ...`로 요청한 debug/export dump다.

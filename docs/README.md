@@ -57,6 +57,7 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 - `ninja-backend-parity.md`: Ninja lowering parity, sharedlib policy, action-log/replay 계약.
 - `language-provider-backend-contract.md`: Cale/Stella/Ninja/HCL language provider 경계 계약.
 - `performance-gates.md`: Stella/Ninja clean, no-op, incremental timing gate 계약.
+- `daemon-beta-readiness.md`: Stella daemon을 beta opt-in으로 올릴지 판단하는 Q151 gate.
 - `daemon/stella-daemon.md`: Experimental persistent Stella daemon command namespace, Unix socket MVP, fallback, watcher, security, IDE/AI integration design.
 - `contracts/daemon-read-api.md`: Stella IDE/AI가 사용할 daemon read-only query API 계약.
 - `perf/stella-ninja-profile.md`: Ninja architecture profiling과 Stella plan-cache 성능 개선 방향.
@@ -66,6 +67,7 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 - `windows-path-process.md`: Windows path/process/response-file pre-port contract와 manual native validation candidate workflow.
 - `public-beta-release.md`: public beta packaging, install smoke, codesign, wiki sync gate.
 - `releases/TEMPLATE.md`: GitHub prerelease notes template.
+- `releases/v0.5.2-beta.1.md`: Stella daemon beta opt-in candidate release note.
 - `qstar-v0.5-readiness.md`: 0.5 beta line으로 올릴지 판단하는 readiness gate.
 - `qstar-pilot-readiness-seal.md`: formatter/help/wiki/CLI sync까지 묶은 pilot-readiness gate.
 - `qstar-submodule-extraction-prep.md`: 독립 repo/submodule 전환 직전 체크리스트.

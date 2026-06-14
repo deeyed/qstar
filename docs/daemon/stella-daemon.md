@@ -3,18 +3,20 @@
 이 문서는 Round Q143에서 persistent Stella daemon의 장기 계약을 고정했고, Round Q144에서
 첫 experimental MVP 상태를 반영했으며, Round Q146에서 build output event stream을 추가했다.
 Round Q147부터 daemon은 `state.db`와 `deps.db`의 in-memory snapshot을 먼저 사용한다. Round
-Q148부터 daemon은 file watcher event로 authoring graph invalidation을 먼저 판단한다.
-아직 stable CLI surface가 아니다. 목표는 QStar의 Lua DSL과 rich diagnostics는 유지하면서,
-반복 build invocation마다 Lua eval, Graph IR load, plan cache load, dirty state load를
-처음부터 반복하지 않는 구조를 만드는 것이다.
+Q148부터 daemon은 file watcher event로 authoring graph invalidation을 먼저 판단한다. Round
+Q150부터 read-only query API가 있고, Round Q151 판단은 documented beta opt-in candidate다.
+아직 stable/default-on CLI surface가 아니다. 목표는 QStar의 Lua DSL과 rich diagnostics는
+유지하면서, 반복 build invocation마다 Lua eval, Graph IR load, plan cache load, dirty state
+load를 처음부터 반복하지 않는 구조를 만드는 것이다.
 
 ```txt
-status: experimental-watcher-mvp
-round: Q148
+status: documented-beta-opt-in-candidate
+round: Q151
 command namespace: qstar daemon
 initial hosts: macOS and Linux over Unix domain sockets
 deferred hosts: Windows named pipe
 related: docs/perf/stella-plan-cache-design.md
+related: docs/daemon-beta-readiness.md
 ```
 
 ## Decision

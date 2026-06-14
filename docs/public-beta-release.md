@@ -24,6 +24,11 @@ checksum file: SHA256SUMS
 검증한다. Tag를 아직 만들지 않은 main branch에서는 package smoke만 수행하고
 `tag=not-on-tag`를 출력한다.
 
+Round Q151 기준 다음 daemon-focused beta patch 후보는 `0.5.2-beta.1`이다. 이 후보는
+Stella daemon을 documented beta opt-in으로 설명하지만, default `qstar build` path를 바꾸지
+않는다. 후보 release note는 `docs/releases/v0.5.2-beta.1.md`, 판단 기준은
+`docs/daemon-beta-readiness.md`에 둔다.
+
 ## Local Gate
 
 Release 전에 다음 gate를 순서대로 통과시킨다.

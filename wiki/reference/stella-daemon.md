@@ -1,9 +1,10 @@
 # Stella Daemon
 
-Stella daemon은 QStar의 장기 성능 구조다. Round Q148 기준으로 foreground server, build
-client, streaming build output, in-memory dirty/deps state snapshot, file watcher invalidation이
-experimental MVP로 들어왔지만, stable public surface는 아니다. 정본 설계 문서는
-`docs/daemon/stella-daemon.md`다.
+Stella daemon은 QStar의 장기 성능 구조다. Round Q151 기준으로 foreground server, build
+client, streaming build output, in-memory dirty/deps state snapshot, file watcher invalidation,
+performance gate, read-only query API가 들어왔다. 판단은 "documented beta opt-in candidate"이며
+stable/default-on surface는 아니다. 정본 설계 문서는 `docs/daemon/stella-daemon.md`, beta
+readiness 판단은 `docs/daemon-beta-readiness.md`다.
 
 ## 명령 이름
 
@@ -69,6 +70,14 @@ build/qstar/stella/daemon/qstar-daemon.sock
 
 Package root mismatch 같은 보안 오류는 fallback 대상이 아니다.
 
+Q151 결론:
+
+- 기본 `qstar build`는 normal Stella executor를 계속 사용한다.
+- `--use-daemon=auto`와 `--use-daemon=always`는 explicit opt-in이다.
+- `qstar daemon --query ...`는 IDE/AI용 read-only beta opt-in 후보로 문서화한다.
+- `0.5.2-beta.1`은 daemon readiness를 담는 적절한 다음 beta patch 후보이다.
+- `0.6.0-beta.1`은 background lifecycle/security/protocol이 더 닫힌 뒤 다시 검토한다.
+
 Build stream이 시작된 뒤 daemon이 죽으면 client는 partial output 뒤에
 `qstar: daemon stream interrupted before final status`를 출력하고 실패한다. 이 경우
 `--use-daemon=auto`도 normal Stella build로 조용히 재실행하지 않는다. Fallback은 daemon 연결
@@ -132,6 +141,15 @@ event, watcher overflow, backend 오류는 conservative graph reload로 처리�
 - remote access는 scope 밖이다.
 - daemon은 validated QStar graph에서 나온 action만 실행한다.
 
+Default-on 전까지 남은 gap:
+
+- socket directory/file owner-only enforcement 강화
+- socket owner mismatch reject
+- stale pid/socket cleanup
+- protocol version mismatch diagnostic
+- request root/build_dir mismatch hard reject와 test corpus
+- Windows named pipe ACL policy
+
 ## IDE/AI 연동
 
 Daemon은 IDE/editor/AI frontend가 QStar context를 빠르게 읽는 연결점이 될 수 있다.
@@ -177,6 +195,7 @@ client policy가 있어야 한다.
 ## 관련 문서
 
 - `docs/daemon/stella-daemon.md`
+- `docs/daemon-beta-readiness.md`
 - `docs/contracts/daemon-read-api.md`
 - `docs/perf/stella-plan-cache-design.md`
 - [Performance Gates](performance-gates.md)

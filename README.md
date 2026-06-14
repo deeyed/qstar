@@ -28,6 +28,7 @@ and Windows.
 - Reusable `qstar.config` bundles for large projects with repeated compiler
   options
 - Stella native executor with compact progress output
+- Stella daemon beta opt-in workflow for repeated local builds and IDE read APIs
 - Ninja backend with `-G ninja` for C/C++/ASM and generated/custom graph actions
 - Cale source support through Stella language-provider process actions
 - `compile_commands.json` generation for editor tooling
@@ -103,6 +104,22 @@ Use `-B` to choose a build directory and `-G` to choose a backend:
 qstar -B build/stella -G stella build //:app
 qstar -B build/ninja -G ninja build //:app
 ```
+
+## Stella Daemon
+
+QStar also has a documented beta opt-in daemon workflow. The default
+`qstar build` path still uses normal Stella; daemon residency is explicit.
+
+```sh
+qstar daemon --socket /tmp/qstar.sock --serve
+qstar --file qstar.lua -B build/qstar build //:app --use-daemon=auto --daemon-socket /tmp/qstar.sock
+qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query targets.list
+```
+
+The read API is intended for IDE/AI tooling and currently exposes `hello`,
+`workspace.info`, `targets.list`, `diagnostics.list`, `compile_commands.path`,
+and `build.summary`. Windows named pipe support and background daemon lifecycle
+are deferred.
 
 ## Authoring Surface
 

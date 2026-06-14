@@ -7,10 +7,12 @@ QStar has two user-facing generators:
 
 `auto` currently resolves to `stella`.
 
-Persistent Stella daemon은 별도 generator가 아니다. Q144 기준 experimental MVP이며,
+Persistent Stella daemon은 별도 generator가 아니다. Q151 기준 documented beta opt-in
+candidate이며,
 `qstar daemon --socket ... --serve`와
 `qstar build --use-daemon=auto|never|always --daemon-socket ...` 형태로 Stella executor를
-보조한다. 자세한 내용은 [Stella Daemon](stella-daemon.md)에 둔다.
+보조한다. 기본 `qstar build`는 여전히 normal Stella path를 사용한다. 자세한 내용은
+[Stella Daemon](stella-daemon.md)에 둔다.
 
 ## Ninja가 지원하는 것
 

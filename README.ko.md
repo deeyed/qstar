@@ -23,6 +23,7 @@ official host support가 아니다. QStar 1.0은 macOS, Linux, Windows 공식 �
   stage/install 지원
 - 반복 옵션을 줄이는 `qstar.config`
 - Stella native executor와 C/C++/ASM/generated graph용 `-G ninja` backend
+- 반복 로컬 빌드와 IDE read API를 위한 Stella daemon beta opt-in workflow
 - Cale source는 Stella language-provider process action으로 지원
 - `compile_commands.json`, LSP, VSCode extension, replay/action log, manpage,
   AI index 제공
@@ -92,6 +93,21 @@ qstar.executable "app" {
 qstar -B build/stella -G stella build //:app
 qstar -B build/ninja -G ninja build //:app
 ```
+
+## Stella Daemon
+
+QStar에는 문서화된 beta opt-in daemon workflow가 있다. 기본 `qstar build`는 여전히 일반
+Stella executor를 사용하며, daemon residency는 명시적으로 켤 때만 사용한다.
+
+```sh
+qstar daemon --socket /tmp/qstar.sock --serve
+qstar --file qstar.lua -B build/qstar build //:app --use-daemon=auto --daemon-socket /tmp/qstar.sock
+qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query targets.list
+```
+
+read API는 IDE/AI tooling을 위한 것이며 현재 `hello`, `workspace.info`, `targets.list`,
+`diagnostics.list`, `compile_commands.path`, `build.summary`를 제공한다. Windows named pipe와
+background daemon lifecycle은 아직 deferred다.
 
 ## 작성 예시
 

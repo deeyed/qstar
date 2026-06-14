@@ -1,0 +1,181 @@
+# Stella Daemon Beta Readiness Gate
+
+이 문서는 Round Q151에서 Stella daemon을 계속 hidden experimental로 둘지, beta opt-in 기능으로
+올릴지 판단하기 위한 readiness gate다. 여기서 `Stella daemon`은 Stella IDE가 아니라 QStar의
+native executor를 장기 실행 build service로 붙이는 experimental daemon path를 뜻한다.
+
+```txt
+status: daemon beta opt-in readiness gate
+current runtime version: qstar 0.5.1-beta.1
+candidate line: qstar 0.5.2-beta.1
+decision: documented beta opt-in candidate, not default
+baseline date: 2026-06-14
+```
+
+## Verdict
+
+Stella daemon은 더 이상 문서 밖 hidden experiment로만 둘 단계는 지났다. Q145-Q150을 거치며
+streaming output, in-memory state, watcher invalidation, performance gate, read-only IDE API가
+모두 생겼다. 따라서 다음 beta patch에서는 “documented beta opt-in” 기능으로 올릴 수 있다.
+
+단, daemon을 기본 build path로 켜면 안 된다.
+
+| 항목 | Q151 판단 |
+| --- | --- |
+| Default `qstar build` | normal Stella executor 유지 |
+| `--use-daemon=auto` | explicit opt-in으로 유지 |
+| `--use-daemon=always` | diagnostic/debug opt-in으로 유지 |
+| `qstar daemon --serve` | foreground experimental lifecycle 유지 |
+| `qstar daemon --query ...` | IDE/AI read-only beta opt-in 후보 |
+| Background daemon lifecycle | deferred |
+| Windows named pipe | deferred |
+| Remote daemon | out of scope |
+
+Version bump 후보는 `0.5.2-beta.1`이 맞다. Q151은 daemon을 stable surface로 승격하지 않고,
+0.5 beta line 안에서 opt-in readiness와 release gate를 강화하는 patch-level 변화다.
+`0.6.0-beta.1`은 background lifecycle, socket permission hardening, protocol versioning,
+IDE integration contract가 더 닫힌 뒤에 검토한다.
+
+## Q145-Q150 Summary
+
+| Round | 결과 |
+| --- | --- |
+| Q145 | daemon MVP 이후 성능 방향과 IDE 연동 목표를 정리 |
+| Q146 | build output을 event stream으로 전환해 progress/warning/error를 실시간 렌더링 |
+| Q147 | `state.db`/`deps.db` memory snapshot과 disk writeback path 추가 |
+| Q148 | macOS `kqueue`, Linux `inotify` watcher invalidation MVP 추가 |
+| Q149 | medium/large corpus에서 `backend=stella-daemon` performance line protocol 추가 |
+| Q150 | `qstar daemon --query ...` read-only API 추가 |
+
+Q150 read API method:
+
+```txt
+hello
+workspace.info
+targets.list
+diagnostics.list
+compile_commands.path
+build.summary
+```
+
+이 API는 build/test/clean mutation을 열지 않는다. Method contract는
+`docs/contracts/daemon-read-api.md`에 둔다.
+
+## Performance Snapshot
+
+Q151 local macOS arm64, socket 허용 환경에서 실행한 medium corpus 대표값:
+
+```txt
+medium_project_gate target_count=47 min_targets=40
+medium_project_gate scheduler host_jobs=10
+medium_project_gate scheduler default_jobs=10 ready_width=40 async_final_actions=40 trace_elapsed_ms=365
+medium_project_gate scheduler runner=posix_spawn event_wait=poll
+medium_project_gate backend=stella phase=clean elapsed_ms=299
+medium_project_gate backend=stella phase=noop elapsed_ms=73
+medium_project_gate backend=stella phase=incremental elapsed_ms=93
+medium_project_gate backend=stella-daemon phase=clean elapsed_ms=293 cli_clean_ms=299
+medium_project_gate backend=stella-daemon phase=noop elapsed_ms=89 cli_noop_ms=73
+medium_project_gate backend=stella-daemon phase=incremental elapsed_ms=104 cli_incremental_ms=93
+medium_project_gate backend=stella-jobs jobs=10 phase=clean elapsed_ms=294
+medium_project_gate backend=stella-jobs jobs=10 phase=noop elapsed_ms=79
+medium_project_gate backend=stella-jobs jobs=10 phase=incremental elapsed_ms=112
+medium_project_gate staticlib_argv_parity=ok target=//sys/kern/mm:kernel_mm
+medium_project_gate backend=ninja phase=clean elapsed_ms=300
+medium_project_gate backend=ninja phase=noop elapsed_ms=79
+medium_project_gate backend=ninja phase=incremental elapsed_ms=107
+medium_project_gate compare backend=stella-daemon phase=clean stella_ms=293 ninja_ms=300 ratio_x100=200 slack_ms=250
+medium_project_gate compare backend=stella-daemon phase=noop stella_ms=89 ninja_ms=79 ratio_x100=200 slack_ms=250
+medium_project_gate compare backend=stella-daemon phase=incremental stella_ms=104 ninja_ms=107 ratio_x100=200 slack_ms=250
+medium_project_gate status=ok perf_issue_count=0 report_only=1
+```
+
+해석:
+
+- daemon clean build는 같은 run의 normal Stella/Ninja와 같은 수준이다.
+- daemon no-op은 이번 run에서 Ninja보다 약간 느리게 나왔지만 slack 안에 있고 report-only다.
+- daemon incremental은 Ninja와 같은 수준이다.
+- socket bind가 금지된 sandbox에서는 daemon phase가
+  `elapsed_ms=skipped reason=socket-bind-not-permitted`로 기록된다.
+- daemon timing은 아직 release input이며 stable performance guarantee가 아니다.
+
+## Platform Status
+
+| Host | 상태 | Q151 판단 |
+| --- | --- | --- |
+| macOS | Unix domain socket, `posix_spawn`, `kqueue` watcher 검증 | beta opt-in 가능 |
+| Linux | Unix domain socket, `posix_spawn`, `poll`, `inotify` path 구현 및 CI validation 후보 | validation-backed beta opt-in 후보 |
+| Windows | named pipe, native process/watch integration 없음 | deferred |
+
+Linux는 Q142 이후 Ubuntu gcc/clang workflow가 medium performance artifact를 수집한다. 하지만
+daemon socket과 watcher behavior는 Linux CI에서 계속 validation-backed로만 표기한다. Windows는
+`qstar daemon` official host support로 표기하지 않는다.
+
+## Security Gaps
+
+Daemon 보안은 beta opt-in의 남은 핵심이다.
+
+현재 유지할 원칙:
+
+- remote daemon은 scope 밖이다.
+- daemon read API는 arbitrary file read를 제공하지 않는다.
+- build/test/clean mutation은 read API에 없다.
+- package root 밖 path는 기존 QStar graph validation과 watcher registration policy로 차단한다.
+- build stream 시작 후 daemon crash는 fallback하지 않고 실패한다.
+
+남은 gap:
+
+- socket directory/file permission owner-only enforcement 강화
+- socket owner mismatch reject
+- stale pid/socket cleanup
+- protocol version mismatch diagnostic
+- request root/build_dir mismatch hard reject와 test corpus
+- background daemon lifecycle lock/pid policy
+- Windows named pipe ACL policy
+
+이 gap 때문에 daemon은 아직 default-on 기능이 아니다.
+
+## Release Gate
+
+Daemon beta opt-in candidate를 release note에 포함하려면 다음 gate가 통과해야 한다.
+
+```sh
+make all
+make check
+make qstar-self-host-tests
+make qstar-medium-project-readiness-tests
+make qstar-public-beta-release-tests
+git diff --check
+```
+
+Socket 허용 host에서는 다음을 추가로 실행한다.
+
+```sh
+QSTAR_TEST_QSTAR=build/bin/qstar sh tests/smoke.sh
+QSTAR_TEST_QSTAR=build/bin/qstar sh tests/medium-project-performance.sh
+```
+
+Sandbox에서 socket bind가 막히면 daemon phase skip은 허용하지만, release readiness 문서에는
+`socket-bind-not-permitted`로 명시해야 한다.
+
+## Release Note Decision
+
+다음 beta release note에는 다음처럼 표기한다.
+
+- Stella daemon is a documented beta opt-in workflow.
+- Normal `qstar build` still uses Stella without daemon residency.
+- `--use-daemon=auto|always` and `qstar daemon --query ...` remain explicit.
+- macOS is the primary tested host.
+- Linux daemon validation is underway through CI artifacts.
+- Windows named pipe support is deferred.
+- Security hardening gaps remain before any default-on decision.
+
+## Deferred Before Default-On
+
+- Background daemon lifecycle: start/stop/status with pid/lock management.
+- Socket permission and owner verification.
+- Protocol version handshake.
+- Root/build-dir mismatch rejection tests.
+- Linux CI daemon socket/watcher lane with artifacts.
+- Windows named pipe daemon.
+- IDE-facing incremental diagnostics beyond current `diagnostics.list`.
+- Stable daemon API version promise.

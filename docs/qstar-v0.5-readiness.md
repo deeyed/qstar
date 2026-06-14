@@ -29,6 +29,7 @@ QStar는 0.5 beta line으로 이동할 수 있는 기반은 갖췄다. 단, 0.5�
 | Windows | native validation candidate prep | 0.5 official support로 표기 금지 |
 | Docs/CLI drift | smoke guard로 관리 | 0.5 전에 한 번 더 sync 필요 |
 | Cale backend | Stella-only language-provider contract | Ninja wrapper lowering deferred |
+| Stella daemon | documented beta opt-in candidate | default-on 금지, Q151 gate 참고 |
 
 0.5의 목표는 "QStar를 medium-size C/C++/systems-style project에 실험적으로 적용할 수
 있는 beta"다. v1.0 조건인 macOS/Linux/Windows official support, CI/release matrix,
@@ -37,6 +38,13 @@ QStar는 0.5 beta line으로 이동할 수 있는 기반은 갖췄다. 단, 0.5�
 Q117 판단은 `0.5.0-beta.2`가 아니라 `0.5.1-beta.1`을 추천한다. Q115의 shared library
 policy와 Q116의 Cale backend contract는 기존 beta line의 단순 재포장이 아니라
 user-facing surface를 보강한 patch-level 변화이기 때문이다.
+
+Q151 판단은 다음 daemon-focused beta patch 후보로 `0.5.2-beta.1`을 추천한다.
+Stella daemon은 Q145-Q150을 거치며 streaming output, in-memory dirty/deps state,
+file watcher invalidation, performance gate, read-only IDE API까지 갖췄으므로 hidden
+experiment에서 documented beta opt-in 후보로 올릴 수 있다. 하지만 background lifecycle,
+socket permission hardening, protocol version handshake, Windows named pipe가 남아 있어
+normal `qstar build` default로 켜면 안 된다. 자세한 기준은 `daemon-beta-readiness.md`에 둔다.
 
 ## Required Gate
 
@@ -106,6 +114,27 @@ Stella CLI, Stella daemon, Ninja의 ratio를 같은 summary tool로 비교한다
 sandbox 정책으로 막힌 환경에서는 daemon phase만
 `elapsed_ms=skipped reason=socket-bind-not-permitted`로 남기고 나머지 backend는 계속 측정한다.
 이 daemon timing은 아직 report-only release input이며 stable 성능 보장은 아니다.
+
+Round Q151 local macOS arm64 socket-enabled daemon 대표 측정값:
+
+```txt
+medium_project_gate backend=stella phase=clean elapsed_ms=299
+medium_project_gate backend=stella phase=noop elapsed_ms=73
+medium_project_gate backend=stella phase=incremental elapsed_ms=93
+medium_project_gate backend=stella-daemon phase=clean elapsed_ms=293 cli_clean_ms=299
+medium_project_gate backend=stella-daemon phase=noop elapsed_ms=89 cli_noop_ms=73
+medium_project_gate backend=stella-daemon phase=incremental elapsed_ms=104 cli_incremental_ms=93
+medium_project_gate backend=ninja phase=clean elapsed_ms=300
+medium_project_gate backend=ninja phase=noop elapsed_ms=79
+medium_project_gate backend=ninja phase=incremental elapsed_ms=107
+medium_project_gate compare backend=stella-daemon phase=clean stella_ms=293 ninja_ms=300 ratio_x100=200 slack_ms=250
+medium_project_gate compare backend=stella-daemon phase=noop stella_ms=89 ninja_ms=79 ratio_x100=200 slack_ms=250
+medium_project_gate compare backend=stella-daemon phase=incremental stella_ms=104 ninja_ms=107 ratio_x100=200 slack_ms=250
+medium_project_gate status=ok perf_issue_count=0 report_only=1
+```
+
+이 결과는 daemon이 medium corpus에서 normal Stella/Ninja와 같은 급의 latency를 보인다는
+근거지만, socket-enabled local run 하나이므로 stable 성능 보장으로 쓰지 않는다.
 
 해석:
 
@@ -248,7 +277,8 @@ historical version record는 보존한다.
   events so daemon builds render the same progress/warning/error output as normal Stella builds.
   Q147 adds in-memory `state.db`/`deps.db` snapshots with disk writeback for crash recovery.
   Q148 adds experimental macOS `kqueue` and Linux `inotify` watcher invalidation. Background
-  lifecycle and permission hardening remain post-0.5 work.
+  lifecycle and permission hardening remain post-0.5 work. Q150 adds read-only daemon queries
+  for IDE/AI integration. Q151 allows documenting daemon as beta opt-in, but not as default-on.
 - Windows `.dll`/import-library/PDB sharedlib support.
 - Cale source Ninja wrapper lowering.
 - C++ modules execution policy.
@@ -262,6 +292,7 @@ historical version record는 보존한다.
 - `0.4.x-beta.*`: public beta packaging, Stella/Ninja/self-host hardening line.
 - `0.5.0-beta.1`: medium project readiness, self-host regular gate, refreshed docs/release line.
 - `0.5.1-beta.1`: sharedlib policy, Cale backend contract, platform readiness, beta patch gate.
+- `0.5.2-beta.1`: Stella daemon beta opt-in readiness, read API release note, security gap report.
 - `0.5.x-beta.*`: platform validation and backend parity patch line.
 - `1.0.0`: macOS, Linux, Windows official release artifacts and CI matrix are required.
 

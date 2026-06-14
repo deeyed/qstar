@@ -149,11 +149,11 @@ Build accepts
 .Fl -quiet ,
 and
 .Fl -progress Ar auto|plain|off .
-Experimental daemon clients also accept
+Beta opt-in daemon clients also accept
 .Fl -use-daemon Ar auto|never|always
 and
 .Fl -daemon-socket Ar path .
-The daemon path is opt-in; normal
+The daemon path is opt-in and not the default; normal
 .Ar stella
 build behavior is unchanged.
 Default output is compact progress plus the final build summary.
@@ -186,8 +186,8 @@ prefix in bold red.
 .Fl -color Ar never
 and non-TTY output disable ANSI color, and JSON diagnostics remain uncolored.
 .It Ic daemon
-Run the experimental persistent Stella daemon in the foreground, or check a
-daemon socket.
+Run the beta opt-in persistent Stella daemon in the foreground, check a daemon
+socket, or query the read-only IDE/AI API.
 .Bd -literal -offset indent
 qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --serve
 qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --status
@@ -232,6 +232,10 @@ Q150 adds read-only daemon queries for IDE/AI integration:
 and
 .Li build.summary .
 These queries do not execute build/test/clean actions and return JSON.
+Q151 classifies the daemon as a documented beta opt-in candidate. The default
+build path remains normal Stella, Windows named pipe support is deferred, and
+socket permission/lifecycle hardening remains required before any default-on
+decision.
 .Pp
 Action descriptions are also preserved in action-log and replay metadata.
 .Ic qstar action-log ,
