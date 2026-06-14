@@ -99,6 +99,9 @@ dirty-check의 canonical fast path로 명확화하고, 사람이 읽는 `state/a
 `QSTAR_DEBUG_STATE_DUMPS=1` opt-in으로 내려 fast path에서 JSON debug export write를
 제거했다. Q133-Q136은 macOS default jobs 감지, staticlib dependency archive nesting 제거,
 compile dependency edge 완화, archive/link final action async scheduling을 더했다.
+Q140은 external generated action과 run action도 prepared-action scheduler path에 올렸고,
+Q141은 `state/graph.json`과 성공 `state/last-summary.json`을 debug/export opt-in으로 내려
+일반 clean build의 metadata write를 더 줄였다.
 
 Q137 대표 측정에서는 Stella clean이 Ninja 대비 2배 이내 목표를 넘어 1.5배 이내에 들어왔다.
 다만 timing은 host CPU, filesystem cache, compiler warm state에 흔들리므로, 이 수치를 stable
@@ -107,10 +110,10 @@ Q137 대표 측정에서는 Stella clean이 Ninja 대비 2배 이내 목표를 �
 staticlib archive argv가 dependency `.a`를 다시 넣지 않는지를 hard check한다. Timing ratio는
 release 판단용 report-only로 유지한다.
 
-남은 병목은 더 큰 corpus에서의 compiler process count, generated/run action의 동기 경로,
-remaining graph/metadata summary write, host별 process runner 편차다. 다음 목표는 medium
-gate에서 Stella clean을 Ninja 대비 1.5배 이내에 더 안정적으로 유지하고, 더 큰 synthetic
-corpus에서도 같은 경향이 나오는지 확인하는 것이다.
+남은 병목은 더 큰 corpus에서의 compiler process count, plan cache/store 비용,
+host별 process runner 편차다. 다음 목표는 medium gate에서 Stella clean을 Ninja 대비
+1.5배 이내에 더 안정적으로 유지하고, 더 큰 synthetic corpus에서도 같은 경향이 나오는지
+확인하는 것이다.
 
 Timing은 host CPU, filesystem cache, compiler, terminal load에 영향을 받는다. 그래서
 Round Q92 기준 timing threshold는 기본적으로 report-only다. 구조적 실패, graph 실패,

@@ -240,8 +240,11 @@ execution은 아직 범위 밖이다.
 
 Round 14/15는 incremental state와 diagnostic UX를 추가했다. Q121 이후 Stella는
 `build/qstar/state/state.db` compact state를 먼저 읽고, `state.db`가 dirty-check의
-canonical fast path다. Q132 이후 `build/qstar/state/actions.json`은
-`QSTAR_DEBUG_STATE_DUMPS=1`을 설정했을 때만 쓰는 debug/export dump다. action key와 output이 그대로이면
+canonical fast path다. Q141 이후 `build/qstar/state/actions.json`은
+`QSTAR_DEBUG_STATE_DUMPS=1`에서만 쓰고, `build/qstar/state/graph.json`과 성공
+`build/qstar/state/last-summary.json`은 `QSTAR_DEBUG_STATE_DUMPS=1` 또는
+`--schedule-trace`에서만 쓰는 debug/export dump다. 실패 summary와 `last-failure` replay는
+즉시 기록한다. action key와 output이 그대로이면
 action을 건너뛴다. Q123 이후 Stella는 `build/qstar/state/deps.db` compact dependency
 state를 함께 사용해 compiler depfile-discovered header list를 재사용한다.
 또한 `compile_commands.json`, `why-rebuild`, `clean`, `log`, `last-failure`,

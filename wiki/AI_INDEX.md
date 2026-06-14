@@ -113,8 +113,11 @@ QStar가 하지 않는 일:
   읽어 min/median/max와 Stella/Ninja ratio를 요약하고, `--repeat 3 -- ...`와
   `--format markdown`으로 release note용 표를 만든다.
 - Stella dirty-check의 canonical fast state는 `build/qstar/state/state.db`다.
-  `build/qstar/state/actions.json`은 기본 생성물이 아니며,
+  `build/qstar/state/actions.json`은 기본 생성물이 아니며
   `QSTAR_DEBUG_STATE_DUMPS=1 qstar build ...`로 요청한 debug/export dump다.
+  `build/qstar/state/graph.json`과 성공 `build/qstar/state/last-summary.json`은
+  `QSTAR_DEBUG_STATE_DUMPS=1` 또는 `--schedule-trace`에서만 생성된다. 실패 summary와
+  `last-failure` replay는 즉시 기록된다.
 - external command는 `qstar.cli { ... }` argv-vector로만 표현한다.
 - low-level/bootloader-style project도 generic primitive로 표현한다.
 

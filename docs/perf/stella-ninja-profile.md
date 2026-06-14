@@ -115,8 +115,10 @@ record로 저장하고, 새 정보가 없으면 write하지 않는다.
 
 QStar에 적용할 점:
 
-- Q132 이후 Stella `state/actions.json`은 사람이 읽는 debug/export dump이고,
-  `QSTAR_DEBUG_STATE_DUMPS=1`을 설정했을 때만 생성한다.
+- Q141 이후 Stella `state/actions.json`은 사람이 읽는 debug/export dump이고,
+  `QSTAR_DEBUG_STATE_DUMPS=1`을 설정했을 때만 생성한다. `state/graph.json`과 성공
+  `state/last-summary.json`은 `QSTAR_DEBUG_STATE_DUMPS=1` 또는 `--schedule-trace`에서만
+  생성한다. 실패 summary와 `last-failure` replay는 즉시 기록한다.
 - `build/qstar/state/state.db`가 canonical dirty-check fast path다. action id -> digest,
   output, mtime, depfile digest는 compact DB에서 바로 읽는다.
 - action log/replay는 QStar의 장점이므로 없애지 않는다. 대신 실행 성공 path에서는 batch
@@ -282,8 +284,9 @@ Q118 분석에서 확인한 주요 source anchor:
 - `build/qstar/state/actions.json` 옆에 fast-path `build/qstar/state/state.db` 추가
 - Stella build start에서 compact DB를 먼저 읽고, 없거나 stale이면 JSON state로 fallback
 - action id -> output, command digest, input digest, depfile digest lookup의 JSON parse overhead 제거
-- JSON state는 debugging/export surface로 유지한다. Q132 이후 기본 write는 중단됐고,
-  `QSTAR_DEBUG_STATE_DUMPS=1`일 때만 생성한다.
+- JSON state와 graph snapshot은 debugging/export surface로 유지한다. Q141 이후 JSON
+  action state는 `QSTAR_DEBUG_STATE_DUMPS=1`일 때만 생성하고, graph snapshot은
+  `QSTAR_DEBUG_STATE_DUMPS=1` 또는 `--schedule-trace`일 때만 생성한다.
 - `--schedule-trace`에서는 `dirty_state_db status=hit|miss`로 compact path 사용 여부 확인 가능
 - 대표 측정: Stella no-op 70ms, incremental 111ms로 Ninja no-op 80ms, incremental 120ms와
   같은 체감권을 유지했다. Clean은 745ms 대 Ninja 304ms로 다음 병목은 process runner와

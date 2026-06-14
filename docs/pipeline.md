@@ -457,8 +457,12 @@ Round 14 incremental-state invariant:
   own QStar targets.
 - `build/qstar/state/state.db` is the canonical compact internal dirty-check state
   loaded first by Stella.
-- `build/qstar/state/actions.json` records action id, key, output, and last status
-  for opt-in debug/export when `QSTAR_DEBUG_STATE_DUMPS=1` is set.
+- `build/qstar/state/actions.json` is opt-in debug/export metadata written when
+  `QSTAR_DEBUG_STATE_DUMPS=1` is set.
+- `build/qstar/state/graph.json` and success `build/qstar/state/last-summary.json`
+  are opt-in debug/export metadata written when `QSTAR_DEBUG_STATE_DUMPS=1` or
+  `--schedule-trace` is set.
+- failure `build/qstar/state/last-summary.json` is still written immediately.
 - `build/qstar/state/deps.db` is the compact internal depfile-discovered header
   state loaded before Stella reparses compiler depfiles.
 - action key v1 includes argv, declared input path metadata/content hash, output

@@ -2997,6 +2997,13 @@ debug_state_dumps_enabled(void)
 	return 1;
 }
 
+/** graph/summary 같은 debug/export metadata를 써도 되는지 확인한다. */
+static int
+debug_metadata_dumps_enabled(const struct qstar_build_ctx *ctx)
+{
+	return debug_state_dumps_enabled() || (ctx && ctx->schedule_trace);
+}
+
 /** 현재 action state를 compact DB에 쓰고, 요청 시 deterministic JSON dump도 쓴다. */
 static int
 state_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
@@ -3115,13 +3122,15 @@ json_generated_output_artifacts(FILE *f, const struct qstar_genrule *genrule)
 
 /** 현재 평가된 target/generated graph snapshot을 state에 저장한다. */
 static int
-graph_snapshot_write(struct qstar_graph *graph)
+graph_snapshot_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 {
 	char dir[QSTAR_PATH_MAX], path[QSTAR_PATH_MAX], tmp[QSTAR_PATH_MAX];
 	char buf[QSTAR_FILE_WRITE_BUFFER_SIZE];
 	FILE *f;
 	size_t i;
 
+	if (!debug_metadata_dumps_enabled(ctx))
+		return 0;
 	if (full_path_under_build(graph, "state", dir, sizeof(dir)) < 0 ||
 	    mkdir_p(dir) < 0 ||
 	    full_path_under_build(graph, "state/graph.json", path, sizeof(path)) < 0)
@@ -3220,10 +3229,17 @@ build_summary_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx
 	char buf[QSTAR_FILE_WRITE_BUFFER_SIZE];
 	FILE *f;
 
-	if (full_path_under_build(graph, "state", dir, sizeof(dir)) < 0 ||
-	    mkdir_p(dir) < 0 ||
-	    full_path_under_build(graph, "state/last-summary.json", path,
+	if (full_path_under_build(graph, "state/last-summary.json", path,
 	    sizeof(path)) < 0)
+		return qstar_set_error(graph, "qstar: could not create build summary dir");
+	if (strcmp(status, "success") == 0 && !debug_metadata_dumps_enabled(ctx)) {
+		if (path_exists(path) && unlink(path) < 0 && errno != ENOENT)
+			return qstar_set_error(graph,
+			    "qstar: could not remove stale build summary");
+		return 0;
+	}
+	if (full_path_under_build(graph, "state", dir, sizeof(dir)) < 0 ||
+	    mkdir_p(dir) < 0)
 		return qstar_set_error(graph, "qstar: could not create build summary dir");
 	snprintf(tmp, sizeof(tmp), "%s.tmp", path);
 	f = fopen(tmp, "w");
@@ -7880,7 +7896,7 @@ qstar_graph_build_with_options(struct qstar_graph *graph, const char *label,
 	    ctx.jobs > 1 ? "optional" : "no", ctx.jobs,
 	    ctx.jobs > 1 ? "action-dag-ready-queue" : "serial-ready-queue",
 	    ctx.action_timeout_sec);
-	rc = graph_snapshot_write(graph);
+	rc = graph_snapshot_write(graph, &ctx);
 	if (rc == 0)
 		rc = build_with_action_scheduler(graph, &ctx, label);
 	action_log_flush(&ctx);

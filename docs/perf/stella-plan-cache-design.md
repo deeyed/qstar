@@ -537,8 +537,11 @@ Status: implemented.
    형식으로 opt-in한다.
 4. 기존 build directory 호환을 위해 `state.db`가 없거나 stale이면 `actions.json` fallback
    read는 유지한다.
-5. `state/graph.json`과 `state/last-summary.json`은 각각 graph snapshot과 build summary
-   UX에 필요하므로 이번 라운드에서는 유지한다.
+5. Q141 이후 `state/graph.json`과 성공 `state/last-summary.json`도 fast path에서 기본
+   생성하지 않는다. `QSTAR_DEBUG_STATE_DUMPS=1` 또는 `--schedule-trace`에서만
+   debug/export metadata로 쓴다.
+6. 실패 `state/last-summary.json`과 `logs/last-failure.replay`는 status/replay UX를 위해
+   즉시 기록한다.
 
 Observed Q132 timing on the medium corpus, local macOS arm64:
 
@@ -626,11 +629,11 @@ default jobs, ready queue width, async final action, staticlib argv parity를 ga
 
 남은 성능 작업은 다음 순서가 적절하다.
 
-1. 더 큰 synthetic corpus를 추가해 compiler process count가 늘어날 때도 1.5-2배 범위를
-   유지하는지 본다.
-2. generated/run action을 prepared-action model에 통합할지 별도 라운드에서 결정한다.
-3. graph snapshot과 build summary write를 release/debug 필요도에 따라 더 줄인다.
-4. Linux CI에서 같은 line protocol을 수집해 macOS-local 수치만으로 판단하지 않게 한다.
+1. 더 큰 synthetic corpus에서 compiler process count가 늘어날 때도 1.5-2배 범위를
+   유지하는지 계속 추적한다.
+2. plan cache store/load 비용과 state DB write batching을 더 줄인다.
+3. Linux CI에서 같은 line protocol을 수집해 macOS-local 수치만으로 판단하지 않게 한다.
+4. stella daemon 같은 장기 실행 graph service가 실제로 필요한지 별도 라운드에서 판단한다.
 
 ### Q138 Large Synthetic Corpus Gate
 

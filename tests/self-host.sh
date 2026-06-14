@@ -32,6 +32,8 @@ ninja_build=${QSTAR_SELF_HOST_NINJA_BUILD_DIR:-build/qstar-self-ninja}
 stella_bin="$stella_build/out/___qstar/qstar"
 ninja_bin="$ninja_build/out/___qstar/qstar"
 
+rm -rf "$stella_build" "$ninja_build"
+
 "$qstar" --version > "$stella_build.makefile-version.out" 2> "$stella_build.makefile-version.err"
 contains "$stella_build.makefile-version.out" "qstar "
 

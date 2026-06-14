@@ -430,7 +430,8 @@ argv includes `-MMD -MF <object>.d`; subsequent action keys include
 package-local depfile-discovered headers. C++ compile steps use language `cxx`
 and tool role `cxx-compiler`.
 
-Round 38 keeps Graph IR diagnostic-only but includes the graph snapshot in the
-v0.1 hardening seal. `build/qstar/state/graph.json` and
-`build/qstar/state/last-summary.json` are local build UX artifacts, not stable public
-serialization formats.
+Round 38 kept Graph IR diagnostic-only but included the graph snapshot in the
+v0.1 hardening seal. Q141 moves `build/qstar/state/graph.json` and success
+`build/qstar/state/last-summary.json` to debug/export opt-in metadata, written
+only when `QSTAR_DEBUG_STATE_DUMPS=1` or `--schedule-trace` is set. Failure
+summary remains immediate so editor/status UX does not keep stale success.
