@@ -117,6 +117,11 @@ QStar가 하지 않는 일:
   report-only line protocol로 기록한다. `tools/perf-summary.sh`는 medium/large output을
   읽어 min/median/max와 Stella/Ninja ratio를 요약하고, `--repeat 3 -- ...`와
   `--format markdown`으로 release note용 표를 만든다.
+  Round Q149 이후 medium/large gate는 socket이 허용되는 host에서 experimental daemon도
+  `backend=stella-daemon`으로 측정한다. Daemon은 `clean`, `noop`, `incremental`을 모두
+  기록하고, socket bind가 sandbox 정책으로 막히면
+  `elapsed_ms=skipped reason=socket-bind-not-permitted`로 남긴다. Summary tool은 daemon과
+  Ninja의 ratio도 같은 표에 포함한다.
   Linux CI artifact는 `dist/perf/linux-<compiler>-medium-perf.txt`,
   `dist/perf/linux-<compiler>-medium-summary.txt`,
   `dist/perf/linux-<compiler>-medium-summary.md` 이름을 사용한다.

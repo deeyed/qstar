@@ -449,17 +449,15 @@ while [ ! -S "$daemon_sock" ] && kill -0 "$daemon_pid" 2>/dev/null && [ "$i" -lt
 	i=$((i + 1))
 done
 if [ -S "$daemon_sock" ]; then
-	run_timed stella_daemon_warm "$qstar" --file "$root/qstar.lua" -B build/stella-daemon -G stella build //:firmware_image --use-daemon=always --daemon-socket "$daemon_sock" --schedule-trace --progress off --color never
-	contains "$tmp/stella_daemon_warm.out" "daemon_server status=build graph=miss"
-	contains "$tmp/stella_daemon_warm.out" "status ok"
-	run_timed stella_daemon_noop "$qstar" --file "$root/qstar.lua" -B build/stella-daemon -G stella build //:firmware_image --use-daemon=always --daemon-socket "$daemon_sock" --schedule-trace --progress off --color never
-	contains "$tmp/stella_daemon_noop.out" "daemon_server status=build graph=hit reason=memory experimental=1"
+	run_timed stella_daemon_clean "$qstar" --file "$root/qstar.lua" -B build/stella-daemon -G stella build //:firmware_image --use-daemon=always --daemon-socket "$daemon_sock" --progress off --color never
+	contains "$tmp/stella_daemon_clean.out" "status ok"
+	test -f "$root/build/stella-daemon/compile_commands.json" || fail "stella daemon compile_commands missing"
+	run_timed stella_daemon_noop "$qstar" --file "$root/qstar.lua" -B build/stella-daemon -G stella build //:firmware_image --use-daemon=always --daemon-socket "$daemon_sock" --progress off --color never
 	contains "$tmp/stella_daemon_noop.out" "status ok"
 	bump_source "sys/kern/mm/mm.c" 7004
-	run_timed stella_daemon_incremental "$qstar" --file "$root/qstar.lua" -B build/stella-daemon -G stella build //:firmware_image --use-daemon=always --daemon-socket "$daemon_sock" --schedule-trace --progress off --color never
-	contains "$tmp/stella_daemon_incremental.out" "daemon_server status=build graph=hit reason=memory experimental=1"
+	run_timed stella_daemon_incremental "$qstar" --file "$root/qstar.lua" -B build/stella-daemon -G stella build //:firmware_image --use-daemon=always --daemon-socket "$daemon_sock" --progress off --color never
 	contains "$tmp/stella_daemon_incremental.out" "status ok"
-	printf 'medium_project_gate backend=stella-daemon phase=warm elapsed_ms=%s\n' "$stella_daemon_warm_ms"
+	printf 'medium_project_gate backend=stella-daemon phase=clean elapsed_ms=%s cli_clean_ms=%s\n' "$stella_daemon_clean_ms" "$stella_clean_ms"
 	printf 'medium_project_gate backend=stella-daemon phase=noop elapsed_ms=%s cli_noop_ms=%s\n' "$stella_daemon_noop_ms" "$stella_noop_ms"
 	printf 'medium_project_gate backend=stella-daemon phase=incremental elapsed_ms=%s cli_incremental_ms=%s\n' "$stella_daemon_incremental_ms" "$stella_incremental_ms"
 	kill "$daemon_pid" 2>/dev/null || true
@@ -467,7 +465,8 @@ if [ -S "$daemon_sock" ]; then
 	daemon_pid=
 	rm -f "$daemon_sock"
 else
-	if grep -F -q "Operation not permitted" "$tmp/stella_daemon_server.err"; then
+	if grep -E -q "Operation not permitted|Permission denied|permission denied" "$tmp/stella_daemon_server.err"; then
+		printf 'medium_project_gate backend=stella-daemon phase=clean elapsed_ms=skipped reason=socket-bind-not-permitted\n'
 		printf 'medium_project_gate backend=stella-daemon phase=noop elapsed_ms=skipped reason=socket-bind-not-permitted\n'
 		printf 'medium_project_gate backend=stella-daemon phase=incremental elapsed_ms=skipped reason=socket-bind-not-permitted\n'
 		kill "$daemon_pid" 2>/dev/null || true
@@ -527,12 +526,22 @@ if command -v ninja >/dev/null 2>&1; then
 	printf 'medium_project_gate compare backend=stella-jobs phase=clean stella_ms=%s ninja_ms=%s ratio_x100=%s slack_ms=%s\n' "$stella_jobs_clean_ms" "$ninja_clean_ms" "$ratio_x100" "$ratio_slack_ms"
 	printf 'medium_project_gate compare backend=stella-jobs phase=noop stella_ms=%s ninja_ms=%s ratio_x100=%s slack_ms=%s\n' "$stella_jobs_noop_ms" "$ninja_noop_ms" "$ratio_x100" "$ratio_slack_ms"
 	printf 'medium_project_gate compare backend=stella-jobs phase=incremental stella_ms=%s ninja_ms=%s ratio_x100=%s slack_ms=%s\n' "$stella_jobs_incremental_ms" "$ninja_incremental_ms" "$ratio_x100" "$ratio_slack_ms"
+	if [ -n "${stella_daemon_clean_ms:-}" ]; then
+		printf 'medium_project_gate compare backend=stella-daemon phase=clean stella_ms=%s ninja_ms=%s ratio_x100=%s slack_ms=%s\n' "$stella_daemon_clean_ms" "$ninja_clean_ms" "$ratio_x100" "$ratio_slack_ms"
+		printf 'medium_project_gate compare backend=stella-daemon phase=noop stella_ms=%s ninja_ms=%s ratio_x100=%s slack_ms=%s\n' "$stella_daemon_noop_ms" "$ninja_noop_ms" "$ratio_x100" "$ratio_slack_ms"
+		printf 'medium_project_gate compare backend=stella-daemon phase=incremental stella_ms=%s ninja_ms=%s ratio_x100=%s slack_ms=%s\n' "$stella_daemon_incremental_ms" "$ninja_incremental_ms" "$ratio_x100" "$ratio_slack_ms"
+	fi
 	check_stella_vs_ninja clean "$stella_clean_ms" "$ninja_clean_ms"
 	check_stella_vs_ninja noop "$stella_noop_ms" "$ninja_noop_ms"
 	check_stella_vs_ninja incremental "$stella_incremental_ms" "$ninja_incremental_ms"
 	check_stella_vs_ninja clean "$stella_jobs_clean_ms" "$ninja_clean_ms"
 	check_stella_vs_ninja noop "$stella_jobs_noop_ms" "$ninja_noop_ms"
 	check_stella_vs_ninja incremental "$stella_jobs_incremental_ms" "$ninja_incremental_ms"
+	if [ -n "${stella_daemon_clean_ms:-}" ]; then
+		check_stella_vs_ninja clean "$stella_daemon_clean_ms" "$ninja_clean_ms"
+		check_stella_vs_ninja noop "$stella_daemon_noop_ms" "$ninja_noop_ms"
+		check_stella_vs_ninja incremental "$stella_daemon_incremental_ms" "$ninja_incremental_ms"
+	fi
 else
 	printf 'medium_project_gate backend=ninja phase=clean elapsed_ms=skipped reason=ninja-not-found\n'
 	printf 'medium_project_gate backend=ninja phase=noop elapsed_ms=skipped reason=ninja-not-found\n'

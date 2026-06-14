@@ -1,8 +1,8 @@
 # QStar Performance Gates
 
-QStar는 Stella executor와 Ninja backend를 같은 medium project shape에서 비교해
-executor 품질을 숫자로 관리한다. 이 문서는 release gate의 개발자용 계약이다. 사용자
-문서는 `wiki/reference/performance-gates.md`를 함께 갱신한다.
+QStar는 Stella executor, experimental Stella daemon path, Ninja backend를 같은 medium/large
+project shape에서 비교해 executor 품질을 숫자로 관리한다. 이 문서는 release gate의 개발자용
+계약이다. 사용자 문서는 `wiki/reference/performance-gates.md`를 함께 갱신한다.
 
 ## Medium Corpus Gate
 
@@ -29,17 +29,22 @@ medium_project_gate scheduler runner=posix_spawn event_wait=poll
 medium_project_gate backend=stella phase=clean elapsed_ms=123
 medium_project_gate backend=stella phase=noop elapsed_ms=42
 medium_project_gate backend=stella phase=incremental elapsed_ms=51
+medium_project_gate backend=stella-daemon phase=clean elapsed_ms=110 cli_clean_ms=123
+medium_project_gate backend=stella-daemon phase=noop elapsed_ms=21 cli_noop_ms=42
+medium_project_gate backend=stella-daemon phase=incremental elapsed_ms=36 cli_incremental_ms=51
 medium_project_gate backend=stella-jobs jobs=10 phase=clean elapsed_ms=118
 medium_project_gate staticlib_argv_parity=ok target=//sys/kern/mm:kernel_mm
 medium_project_gate backend=ninja phase=clean elapsed_ms=100
 medium_project_gate backend=ninja phase=noop elapsed_ms=30
 medium_project_gate backend=ninja phase=incremental elapsed_ms=36
 medium_project_gate compare phase=clean stella_ms=123 ninja_ms=100 ratio_x100=200 slack_ms=250
+medium_project_gate compare backend=stella-daemon phase=noop stella_ms=21 ninja_ms=30 ratio_x100=200 slack_ms=250
 medium_project_gate status=ok perf_issue_count=0 report_only=1
 ```
 
 Ninja가 설치되어 있지 않으면 Ninja phase는 `skipped`로 기록한다. Stella phase는 항상
-실행되어야 한다.
+실행되어야 한다. Daemon socket bind가 sandbox나 host policy 때문에 불가능하면 daemon phase는
+`elapsed_ms=skipped reason=socket-bind-not-permitted`로 기록한다.
 
 ## Goals
 
@@ -155,8 +160,10 @@ tools/perf-summary.sh /tmp/qstar-medium.perf
 
 ```txt
 perf_summary sample gate=medium mode=medium backend=stella phase=clean count=3 min_ms=237 median_ms=247 max_ms=260
+perf_summary sample gate=medium mode=medium backend=stella-daemon phase=noop count=3 min_ms=20 median_ms=22 max_ms=25
 perf_summary ratio gate=medium mode=medium backend=stella phase=clean backend_median_ms=247 ninja_median_ms=251 ratio_x100=98 threshold_x100=200 slack_ms=250 status=ok
-perf_summary status=ok sample_count=9 ratio_count=6 warning_count=0 hard=0 threshold_x100=200 slack_ms=250
+perf_summary ratio gate=medium mode=medium backend=stella-daemon phase=noop backend_median_ms=22 ninja_median_ms=73 ratio_x100=30 threshold_x100=200 slack_ms=250 status=ok
+perf_summary status=ok sample_count=12 ratio_count=9 warning_count=0 hard=0 threshold_x100=200 slack_ms=250
 ```
 
 Release note에 붙일 표는 markdown format으로 만든다.
@@ -271,8 +278,8 @@ Large corpus shape:
   `qstar.output(..., {format = "object"})` object artifact를 만든다.
 - 생성된 object artifact는 staticlib source로 소비되고, executable shard는 해당 staticlib를
   link dependency로 받는다.
-- Stella default, Stella explicit `--jobs`, Ninja의 clean/no-op/incremental 시간을 모두
-  기록한다.
+- Stella default, Stella explicit `--jobs`, Stella daemon, Ninja의 clean/no-op/incremental
+  시간을 모두 기록한다.
 - 각 backend는 동일한 synthetic source tree를 별도 임시 root에 생성해 측정한다. Project-level
   `generated_dir`가 backend 간에 공유되어 clean 비교가 흐려지는 일을 피하기 위해서다.
 
@@ -282,14 +289,19 @@ Large gate line protocol은 `large_project_gate` prefix를 쓴다.
 large_project_gate mode=200 target_count=200 generated_actions=4 host_jobs=10
 large_project_gate mode=200 backend=stella phase=clean elapsed_ms=1234
 large_project_gate mode=200 backend=stella-jobs jobs=10 phase=clean elapsed_ms=1200
+large_project_gate mode=200 backend=stella-daemon phase=clean elapsed_ms=1040
+large_project_gate mode=200 backend=stella-daemon phase=noop elapsed_ms=30
+large_project_gate mode=200 backend=stella-daemon phase=incremental elapsed_ms=70
 large_project_gate mode=200 backend=ninja phase=clean elapsed_ms=900
 large_project_gate mode=200 compare phase=clean stella_ms=1234 ninja_ms=900 ratio_x100=200 slack_ms=500
+large_project_gate mode=200 compare backend=stella-daemon phase=noop stella_ms=30 ninja_ms=96 ratio_x100=200 slack_ms=500
 large_project_gate status=ok perf_issue_count=0 report_only=1 modes="200 500"
 ```
 
 Large gate의 timing threshold는 기본적으로 report-only다. Graph failure, build failure,
 compile database 누락, generated object bridge 누락, Ninja root `.ninja_log`/`.ninja_deps`
-오염은 hard fail이다.
+오염은 hard fail이다. Daemon socket bind가 불가능한 sandbox에서는 daemon backend만 skipped로
+기록하고 나머지 backend는 계속 측정한다.
 
 Large gate가 보는 질문은 medium gate와 다르다.
 

@@ -9,6 +9,7 @@ ratio_x100=${QSTAR_LARGE_STELLA_TO_NINJA_X100:-200}
 ratio_slack_ms=${QSTAR_LARGE_RATIO_SLACK_MS:-500}
 report_only=${QSTAR_LARGE_PERF_REPORT_ONLY:-1}
 perf_issue_count=0
+daemon_pid=
 
 fail() {
 	echo "qstar-large-project: $*" >&2
@@ -92,6 +93,19 @@ bump_source() {
 	name=$(printf 'lib%04d' "$index")
 	func=$(printf 'large_lib_%04d' "$index")
 	printf 'int %s(void) { return %s; }\n' "$func" "$value" > "$root/src/$name.c"
+}
+
+stop_daemon() {
+	if [ -n "${daemon_pid:-}" ]; then
+		kill "$daemon_pid" 2>/dev/null || true
+		wait "$daemon_pid" 2>/dev/null || true
+		daemon_pid=
+	fi
+}
+
+cleanup() {
+	stop_daemon
+	rm -rf "$tmp"
 }
 
 write_foreign_compiler() {
@@ -343,6 +357,51 @@ run_mode() {
 	contains "$tmp/stella_jobs_incremental_$mode.out" "status ok"
 	printf 'large_project_gate mode=%s backend=stella-jobs jobs=%s phase=incremental elapsed_ms=%s\n' "$mode" "$host_jobs" "$stella_jobs_incremental_ms"
 
+	stella_daemon_available=0
+	stella_daemon_root="$tmp/project-$mode-stella-daemon"
+	rm -rf "$stella_daemon_root"
+	mkdir -p "$stella_daemon_root"
+	write_project "$stella_daemon_root" "$mode"
+	daemon_sock="/tmp/qstar-large-daemon-${mode}.$$.sock"
+	rm -f "$daemon_sock"
+	"$qstar" --file "$stella_daemon_root/qstar.lua" -B build/stella-daemon daemon --socket "$daemon_sock" --serve > "$tmp/stella_daemon_server_$mode.out" 2> "$tmp/stella_daemon_server_$mode.err" &
+	daemon_pid=$!
+	i=0
+	while [ ! -S "$daemon_sock" ] && kill -0 "$daemon_pid" 2>/dev/null && [ "$i" -lt 30 ]; do
+		sleep 0.1
+		i=$((i + 1))
+	done
+	if [ -S "$daemon_sock" ]; then
+		run_timed "stella_daemon_clean_$mode" "$qstar" --file "$stella_daemon_root/qstar.lua" -B build/stella-daemon -G stella build //:all --use-daemon=always --daemon-socket "$daemon_sock" --progress off --color never
+		eval "stella_daemon_clean_ms=\$stella_daemon_clean_${mode}_ms"
+		contains "$tmp/stella_daemon_clean_$mode.out" "status ok"
+		test -f "$stella_daemon_root/build/stella-daemon/compile_commands.json" || fail "mode=${mode} stella daemon compile_commands missing"
+		printf 'large_project_gate mode=%s backend=stella-daemon phase=clean elapsed_ms=%s\n' "$mode" "$stella_daemon_clean_ms"
+		run_timed "stella_daemon_noop_$mode" "$qstar" --file "$stella_daemon_root/qstar.lua" -B build/stella-daemon -G stella build //:all --use-daemon=always --daemon-socket "$daemon_sock" --progress off --color never
+		eval "stella_daemon_noop_ms=\$stella_daemon_noop_${mode}_ms"
+		contains "$tmp/stella_daemon_noop_$mode.out" "status ok"
+		printf 'large_project_gate mode=%s backend=stella-daemon phase=noop elapsed_ms=%s\n' "$mode" "$stella_daemon_noop_ms"
+		bump_source "$stella_daemon_root" 5 7004
+		run_timed "stella_daemon_incremental_$mode" "$qstar" --file "$stella_daemon_root/qstar.lua" -B build/stella-daemon -G stella build //:all --use-daemon=always --daemon-socket "$daemon_sock" --progress off --color never
+		eval "stella_daemon_incremental_ms=\$stella_daemon_incremental_${mode}_ms"
+		contains "$tmp/stella_daemon_incremental_$mode.out" "status ok"
+		printf 'large_project_gate mode=%s backend=stella-daemon phase=incremental elapsed_ms=%s\n' "$mode" "$stella_daemon_incremental_ms"
+		stella_daemon_available=1
+		stop_daemon
+		rm -f "$daemon_sock"
+	else
+		if grep -E -q "Operation not permitted|Permission denied|permission denied" "$tmp/stella_daemon_server_$mode.err"; then
+			printf 'large_project_gate mode=%s backend=stella-daemon phase=clean elapsed_ms=skipped reason=socket-bind-not-permitted\n' "$mode"
+			printf 'large_project_gate mode=%s backend=stella-daemon phase=noop elapsed_ms=skipped reason=socket-bind-not-permitted\n' "$mode"
+			printf 'large_project_gate mode=%s backend=stella-daemon phase=incremental elapsed_ms=skipped reason=socket-bind-not-permitted\n' "$mode"
+			stop_daemon
+			rm -f "$daemon_sock"
+		else
+			cat "$tmp/stella_daemon_server_$mode.err" >&2
+			fail "mode=${mode} experimental daemon socket did not become ready"
+		fi
+	fi
+
 	if command -v ninja >/dev/null 2>&1; then
 		ninja_root="$tmp/project-$mode-ninja"
 		rm -rf "$ninja_root"
@@ -373,12 +432,22 @@ run_mode() {
 		printf 'large_project_gate mode=%s compare backend=stella-jobs phase=clean stella_ms=%s ninja_ms=%s ratio_x100=%s slack_ms=%s\n' "$mode" "$stella_jobs_clean_ms" "$ninja_clean_ms" "$ratio_x100" "$ratio_slack_ms"
 		printf 'large_project_gate mode=%s compare backend=stella-jobs phase=noop stella_ms=%s ninja_ms=%s ratio_x100=%s slack_ms=%s\n' "$mode" "$stella_jobs_noop_ms" "$ninja_noop_ms" "$ratio_x100" "$ratio_slack_ms"
 		printf 'large_project_gate mode=%s compare backend=stella-jobs phase=incremental stella_ms=%s ninja_ms=%s ratio_x100=%s slack_ms=%s\n' "$mode" "$stella_jobs_incremental_ms" "$ninja_incremental_ms" "$ratio_x100" "$ratio_slack_ms"
+		if [ "$stella_daemon_available" = 1 ]; then
+			printf 'large_project_gate mode=%s compare backend=stella-daemon phase=clean stella_ms=%s ninja_ms=%s ratio_x100=%s slack_ms=%s\n' "$mode" "$stella_daemon_clean_ms" "$ninja_clean_ms" "$ratio_x100" "$ratio_slack_ms"
+			printf 'large_project_gate mode=%s compare backend=stella-daemon phase=noop stella_ms=%s ninja_ms=%s ratio_x100=%s slack_ms=%s\n' "$mode" "$stella_daemon_noop_ms" "$ninja_noop_ms" "$ratio_x100" "$ratio_slack_ms"
+			printf 'large_project_gate mode=%s compare backend=stella-daemon phase=incremental stella_ms=%s ninja_ms=%s ratio_x100=%s slack_ms=%s\n' "$mode" "$stella_daemon_incremental_ms" "$ninja_incremental_ms" "$ratio_x100" "$ratio_slack_ms"
+		fi
 		check_stella_vs_ninja "$mode" stella clean "$stella_clean_ms" "$ninja_clean_ms"
 		check_stella_vs_ninja "$mode" stella noop "$stella_noop_ms" "$ninja_noop_ms"
 		check_stella_vs_ninja "$mode" stella incremental "$stella_incremental_ms" "$ninja_incremental_ms"
 		check_stella_vs_ninja "$mode" stella-jobs clean "$stella_jobs_clean_ms" "$ninja_clean_ms"
 		check_stella_vs_ninja "$mode" stella-jobs noop "$stella_jobs_noop_ms" "$ninja_noop_ms"
 		check_stella_vs_ninja "$mode" stella-jobs incremental "$stella_jobs_incremental_ms" "$ninja_incremental_ms"
+		if [ "$stella_daemon_available" = 1 ]; then
+			check_stella_vs_ninja "$mode" stella-daemon clean "$stella_daemon_clean_ms" "$ninja_clean_ms"
+			check_stella_vs_ninja "$mode" stella-daemon noop "$stella_daemon_noop_ms" "$ninja_noop_ms"
+			check_stella_vs_ninja "$mode" stella-daemon incremental "$stella_daemon_incremental_ms" "$ninja_incremental_ms"
+		fi
 	else
 		printf 'large_project_gate mode=%s backend=ninja phase=clean elapsed_ms=skipped reason=ninja-not-found\n' "$mode"
 		printf 'large_project_gate mode=%s backend=ninja phase=noop elapsed_ms=skipped reason=ninja-not-found\n' "$mode"
@@ -388,7 +457,7 @@ run_mode() {
 
 rm -rf "$tmp"
 mkdir -p "$tmp"
-trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+trap cleanup EXIT HUP INT TERM
 
 for mode in $modes; do
 	case "$mode" in

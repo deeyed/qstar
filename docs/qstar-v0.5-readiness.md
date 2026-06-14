@@ -100,6 +100,13 @@ medium_project_gate compare backend=stella-jobs phase=incremental stella_ms=88 n
 medium_project_gate status=ok perf_issue_count=0 report_only=1
 ```
 
+Q149 이후 같은 line protocol은 experimental Stella daemon path도 `backend=stella-daemon`으로
+기록한다. Daemon phase는 `clean`, `noop`, `incremental`을 모두 측정하며, Ninja가 있으면
+Stella CLI, Stella daemon, Ninja의 ratio를 같은 summary tool로 비교한다. Unix socket bind가
+sandbox 정책으로 막힌 환경에서는 daemon phase만
+`elapsed_ms=skipped reason=socket-bind-not-permitted`로 남기고 나머지 backend는 계속 측정한다.
+이 daemon timing은 아직 report-only release input이며 stable 성능 보장은 아니다.
+
 해석:
 
 - no-op은 Stella가 67ms로 0.2초대 목표를 충분히 만족하고 Ninja와 같은 수준으로 측정됐다.
