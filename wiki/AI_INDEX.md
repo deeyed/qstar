@@ -120,15 +120,18 @@ QStar가 하지 않는 일:
   Linux CI artifact는 `dist/perf/linux-<compiler>-medium-perf.txt`,
   `dist/perf/linux-<compiler>-medium-summary.txt`,
   `dist/perf/linux-<compiler>-medium-summary.md` 이름을 사용한다.
-- Persistent Stella daemon은 Q144 기준 experimental MVP다. 명령 namespace는
+- Persistent Stella daemon은 Q146 기준 streaming experimental MVP다. 명령 namespace는
   `qstar daemon`이고, `qstar stella-daemon`은 채택하지 않는다. 현재 구현은
   `qstar daemon --socket path --serve`, `qstar daemon --socket path --status`,
   `qstar build --use-daemon=auto|never|always --daemon-socket path`다. `auto`는 연결 실패 시
   normal Stella build로 fallback하고, `always`는 실패한다. Daemon은 같은 process에서
   Graph IR와 lowered plan cache 결과를 유지하고, authoring input mtime/size가 바뀌면
   graph를 다시 load한다. 일반 source/header 변경은 기존 Stella dirty-check가 처리한다.
-  File watcher, background start/stop, in-memory `state.db`/`deps.db`, streaming progress,
-  Windows named pipe는 deferred다. 정본 설계는 `docs/daemon/stella-daemon.md`,
+  Build response는 `qstar-daemon-stream-v1` event stream이며 CLI는 frame을 숨기고 payload만
+  렌더링한다. Event type은 `progress`, `diagnostic`, `action`, `summary`, `output`이고
+  마지막은 `final <status-code>`다. Stream 시작 후 daemon이 죽으면 fallback하지 않고 실패한다.
+  File watcher, background start/stop, in-memory `state.db`/`deps.db`, Windows named pipe는
+  deferred다. 정본 설계는 `docs/daemon/stella-daemon.md`,
   사용자 reference는 `wiki/reference/stella-daemon.md`에 둔다.
 - Stella dirty-check의 canonical fast state는 `build/qstar/state/state.db`다.
   `build/qstar/state/actions.json`은 기본 생성물이 아니며

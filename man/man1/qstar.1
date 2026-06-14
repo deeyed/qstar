@@ -196,7 +196,12 @@ qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --status
 This is not a stable public surface yet. The Q144 MVP keeps Graph IR and the
 lowered plan cache result in process memory, reloads on authoring input
 mtime/size changes, and lets existing Stella dirty-check state handle ordinary
-source/header changes.
+source/header changes. Q146 streams daemon build output as progress, diagnostic,
+action, summary, and raw output events. The CLI hides protocol frames and renders
+the same CMake-style progress and warning/error color policy as normal Stella
+builds. If the stream starts and then terminates before a final status, the
+client reports daemon stream interruption and does not silently rerun the build
+through fallback.
 .Pp
 Action descriptions are also preserved in action-log and replay metadata.
 .Ic qstar action-log ,

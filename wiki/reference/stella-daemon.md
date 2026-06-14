@@ -1,7 +1,7 @@
 # Stella Daemon
 
-Stella daemon은 QStar의 장기 성능 구조다. Round Q144 기준으로 foreground server와 build
-client가 experimental MVP로 들어왔지만, stable public surface는 아니다. 정본 설계 문서는
+Stella daemon은 QStar의 장기 성능 구조다. Round Q146 기준으로 foreground server와 build
+client, 그리고 streaming build output이 experimental MVP로 들어왔지만, stable public surface는 아니다. 정본 설계 문서는
 `docs/daemon/stella-daemon.md`다.
 
 ## 명령 이름
@@ -22,9 +22,11 @@ service지만, CLI 명령은 QStar service lifecycle을 나타내는 `daemon`이
 ## 목적
 
 현재 Stella는 `actions.qsa`, `state.db`, `deps.db` 같은 build directory 내부 cache를 사용한다.
-Q144 MVP는 Graph IR와 lowered plan cache 결과를 process memory에 유지한다. Authoring input
-mtime/size가 바뀌면 graph를 다시 load하고, 일반 source/header 변경은 기존 Stella dirty-check
-state가 처리한다. 장기 persistent daemon은 여기에 더해 다음 상태를 process memory에 유지한다.
+Q144 MVP는 Graph IR와 lowered plan cache 결과를 process memory에 유지한다. Q146부터 build
+response는 event stream으로 전달되어 일반 Stella build와 같은 progress/warning/error output을
+즉시 표시한다. Authoring input mtime/size가 바뀌면 graph를 다시 load하고, 일반 source/header
+변경은 기존 Stella dirty-check state가 처리한다. 장기 persistent daemon은 여기에 더해 다음
+상태를 process memory에 유지한다.
 
 - Lua runtime
 - Graph IR와 Stella Plan IR
@@ -61,6 +63,36 @@ build/qstar/stella/daemon/qstar-daemon.sock
 | `--use-daemon=always` | daemon 연결 또는 request 실패 시 command 실패 |
 
 Package root mismatch 같은 보안 오류는 fallback 대상이 아니다.
+
+Build stream이 시작된 뒤 daemon이 죽으면 client는 partial output 뒤에
+`qstar: daemon stream interrupted before final status`를 출력하고 실패한다. 이 경우
+`--use-daemon=auto`도 normal Stella build로 조용히 재실행하지 않는다. Fallback은 daemon 연결
+실패처럼 build stream이 시작되기 전의 unavailable 상태에만 적용한다.
+
+## Streaming Output
+
+Daemon build output은 client-visible raw protocol이 아니라 내부 event stream이다.
+
+```txt
+qstar-daemon-stream-v1
+event progress <bytes>
+event diagnostic <bytes>
+event action <bytes>
+event summary <bytes>
+event output <bytes>
+final <status-code>
+```
+
+CLI는 frame을 숨기고 payload만 렌더링한다. 그래서 daemon build도 일반 Stella build와 같은
+형식으로 보인다.
+
+```txt
+[ 75%] Linking C executable app
+warning: src/main.c:17: unused variable 'tmp'
+status ok
+```
+
+`--color never`와 `--progress off` 같은 기존 build option은 daemon 경로에서도 동일하게 적용된다.
 
 ## 보안 원칙
 

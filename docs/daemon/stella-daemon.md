@@ -1,13 +1,14 @@
 # Persistent Stella Daemon Workflow
 
 이 문서는 Round Q143에서 persistent Stella daemon의 장기 계약을 고정했고, Round Q144에서
-첫 experimental MVP 상태를 반영한다. 아직 stable CLI surface가 아니다. 목표는 QStar의 Lua DSL과 rich diagnostics는 유지하면서,
+첫 experimental MVP 상태를 반영했으며, Round Q146에서 build output event stream을 추가했다.
+아직 stable CLI surface가 아니다. 목표는 QStar의 Lua DSL과 rich diagnostics는 유지하면서,
 반복 build invocation마다 Lua eval, Graph IR load, plan cache load, dirty state load를
 처음부터 반복하지 않는 구조를 만드는 것이다.
 
 ```txt
-status: experimental-mvp
-round: Q144
+status: experimental-streaming-mvp
+round: Q146
 command namespace: qstar daemon
 initial hosts: macOS and Linux over Unix domain sockets
 deferred hosts: Windows named pipe
@@ -64,7 +65,9 @@ daemon status=unavailable reason=socket-missing fallback=stella
 `--use-daemon=always`에서는 fallback하지 않고 명확한 diagnostic을 낸다.
 
 Q144 MVP는 같은 daemon process 안에서 Graph IR와 lowered plan cache 결과를 memory에
-유지한다. Authoring input의 mtime/size가 바뀌면 graph를 다시 load한다. 일반 source/header
+유지한다. Q146부터 daemon build response는 byte-count buffer가 아니라 event stream으로
+전송되어 일반 Stella build와 같은 progress/warning/error output을 즉시 보여준다.
+Authoring input의 mtime/size가 바뀌면 graph를 다시 load한다. 일반 source/header
 변경은 기존 Stella dirty-check와 depfile/state DB가 처리한다. `state.db`와 `deps.db` 자체를
 daemon memory index로 완전히 올리는 작업, file watcher, background start/stop lifecycle,
 permission hardening은 후속 라운드다.
@@ -149,54 +152,52 @@ Unix socket 설계가 곧바로 official contract가 되지 않는다.
 
 ## Protocol
 
-Protocol은 newline-delimited JSON request/response를 1차 후보로 둔다. QStar는 이미 LSP와
-JSON output surface를 갖고 있으므로 IDE/AI integration에도 자연스럽다. 구현 시 큰 JSON
-dependency를 추가하지 않고 QStar-local minimal parser로 시작할 수 있다.
+Q146 implementation은 기존 request line protocol을 유지하고, build response만 event stream으로
+바꾼다. Status/hello 같은 짧은 request는 기존 buffered response를 계속 쓸 수 있다.
 
-첫 handshake:
+Build response 시작:
 
-```json
-{"id":1,"method":"hello","params":{"client":"qstar-cli","protocol":1,"qstar_version":"0.5.1-beta.1"}}
+```txt
+qstar-daemon-stream-v1
 ```
 
-응답:
+Output event frame:
 
-```json
-{"id":1,"ok":true,"result":{"service":"stella","protocol":1,"package_root":"/abs/project","build_dir":"build/qstar"}}
+```txt
+event <type> <byte-count>
+<raw-bytes>
 ```
 
-Build request:
+현재 type은 다음처럼 분류한다.
 
-```json
-{
-  "id": 2,
-  "method": "build",
-  "params": {
-    "file": "qstar.lua",
-    "label": "//:app",
-    "generator": "stella",
-    "build_dir": "build/qstar",
-    "profile": "default",
-    "target": "host",
-    "progress": "auto",
-    "color": "auto"
-  }
-}
+| Event | 의미 |
+| --- | --- |
+| `progress` | `[ 75%] Linking C executable app` 같은 CMake-style progress line |
+| `diagnostic` | `warning:` 또는 `error:` line |
+| `action` | `--verbose`/`--schedule-trace`에서 보이는 action/cache/scheduler line |
+| `summary` | `qstar build`, `backend`, `root`, `status` 같은 build summary line |
+| `output` | 그 밖의 원문 output |
+
+Final event:
+
+```txt
+final <status-code>
 ```
 
-Streaming events are response objects with the same request id:
+CLI client는 event frame 자체를 사용자에게 노출하지 않고, payload만 기존 stdout으로 렌더링한다.
+따라서 daemon build도 일반 Stella build처럼 보인다.
 
-```json
-{"id":2,"event":"progress","percent":75,"message":"Linking C executable app"}
-{"id":2,"event":"diagnostic","severity":"warning","message":"warning: ..."}
-{"id":2,"event":"action","action_id":"//:app:link:0","description":"Linking C executable app"}
+```txt
+[ 50%] Building C object build/qstar/out/___app/obj0.o
+[100%] Linking C executable build/qstar/out/___app/app
+[100%] Built target app
+status ok
 ```
 
-Final response:
-
-```json
-{"id":2,"ok":true,"result":{"status":"ok","run":3,"skip":12,"fail":0,"elapsed_ms":81}}
-```
+Stream이 시작된 뒤 daemon이 죽으면 client는 partial output 뒤에
+`qstar: daemon stream interrupted before final status`를 출력하고 command failure로 처리한다.
+이 경우 `--use-daemon=auto`도 같은 build를 normal Stella로 조용히 재실행하지 않는다. Fallback은
+연결 실패나 request 전송 실패처럼 build stream이 시작되기 전의 unavailable 상태에만 적용한다.
 
 Protocol requirements:
 
@@ -204,8 +205,8 @@ Protocol requirements:
 - Every request carries enough identity to reject build_dir/profile/generator mismatch.
 - The daemon never accepts shell-string commands from clients.
 - The daemon does not expose arbitrary filesystem read/write RPC.
-- Build output remains compatible with normal CLI output because the CLI client renders daemon
-  events through the same progress/color renderer.
+- Build output remains compatible with normal CLI output because the daemon streams the same
+  Stella progress/color output as event payloads and the CLI client renders payloads only.
 
 ## Persistent Cache Model
 
@@ -322,11 +323,11 @@ Root mismatch is never a fallback case because falling back could hide a securit
 Recommended future implementation order:
 
 1. Q144: foreground `qstar daemon --serve`, `--status`, `qstar build --use-daemon=...` forwarding.
-2. Background start/stop, pid/lock/stale cleanup, owner-only socket permission hardening.
-3. Read-only `hello`, `workspace.info`, `targets.list` protocol.
-4. File watcher invalidation for authoring files and source/header paths.
-5. In-memory `state.db` and `deps.db` indexes with batch write-back.
-6. CLI progress streaming instead of response-at-end forwarding.
+2. Q146: CLI progress streaming instead of response-at-end forwarding.
+3. Background start/stop, pid/lock/stale cleanup, owner-only socket permission hardening.
+4. Read-only `hello`, `workspace.info`, `targets.list` protocol.
+5. File watcher invalidation for authoring files and source/header paths.
+6. In-memory `state.db` and `deps.db` indexes with batch write-back.
 7. IDE/AI read-only API surface and audit log.
 8. Windows named pipe design refresh and native validation.
 

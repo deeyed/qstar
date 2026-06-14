@@ -1,6 +1,9 @@
 #if defined(__APPLE__) && defined(__MACH__) && !defined(_DARWIN_C_SOURCE)
 #define _DARWIN_C_SOURCE
 #endif
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
 
 #include "internal.h"
 
@@ -18,7 +21,10 @@
 #define QSTAR_DAEMON_BUILD_MAGIC "qstar-daemon-build-v1"
 #define QSTAR_DAEMON_HELLO_MAGIC "qstar-daemon-hello-v1"
 #define QSTAR_DAEMON_RESPONSE_MAGIC "qstar-daemon-response-v1"
+#define QSTAR_DAEMON_STREAM_MAGIC "qstar-daemon-stream-v1"
 #define QSTAR_DAEMON_MAX_BODY (64U * 1024U * 1024U)
+#define QSTAR_DAEMON_MAX_EVENT (16U * 1024U * 1024U)
+#define QSTAR_DAEMON_LINE_BUF 8192U
 
 struct qstar_daemon_request {
 	char cwd[QSTAR_PATH_MAX];
@@ -53,6 +59,13 @@ struct qstar_daemon_server {
 	struct qstar_daemon_fp *fps;
 	size_t fp_len;
 	size_t fp_cap;
+};
+
+struct qstar_daemon_event_stream {
+	int fd;
+	char line[QSTAR_DAEMON_LINE_BUF];
+	size_t line_len;
+	int failed;
 };
 
 /** daemon/client error buffer에 printf 형식 메시지를 기록한다. */
@@ -160,6 +173,176 @@ static int
 write_line(int fd, const char *s)
 {
 	return write_all(fd, s, strlen(s)) < 0 || write_all(fd, "\n", 1) < 0 ? -1 : 0;
+}
+
+/** byte buffer가 지정한 prefix로 시작하는지 확인한다. */
+static int
+bytes_starts_with(const char *buf, size_t len, const char *prefix)
+{
+	size_t n;
+
+	n = strlen(prefix);
+	return len >= n && memcmp(buf, prefix, n) == 0;
+}
+
+/** byte buffer 안에 needle이 포함되는지 확인한다. */
+static int
+bytes_contains(const char *buf, size_t len, const char *needle)
+{
+	size_t n, i;
+
+	n = strlen(needle);
+	if (n == 0 || len < n)
+		return 0;
+	for (i = 0; i + n <= len; i++) {
+		if (memcmp(buf + i, needle, n) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+/** daemon stream payload를 client event 종류로 분류한다. */
+static const char *
+classify_event_payload(const char *buf, size_t len)
+{
+	if (len == 0)
+		return "output";
+	if (buf[0] == '[' && bytes_contains(buf, len, "%]"))
+		return "progress";
+	if (bytes_contains(buf, len, "warning:") || bytes_contains(buf, len, "error:"))
+		return "diagnostic";
+	if (bytes_starts_with(buf, len, "action_") ||
+	    bytes_starts_with(buf, len, "build_action ") ||
+	    bytes_starts_with(buf, len, "schedule_action ") ||
+	    bytes_starts_with(buf, len, "cache_action ") ||
+	    bytes_starts_with(buf, len, "daemon_server ") ||
+	    bytes_starts_with(buf, len, "plan_cache ") ||
+	    bytes_starts_with(buf, len, "dirty_state_db ") ||
+	    bytes_starts_with(buf, len, "deps_db "))
+		return "action";
+	if (bytes_starts_with(buf, len, "qstar build ") ||
+	    bytes_starts_with(buf, len, "backend ") ||
+	    bytes_starts_with(buf, len, "root ") ||
+	    bytes_starts_with(buf, len, "status ") ||
+	    bytes_starts_with(buf, len, "run="))
+		return "summary";
+	return "output";
+}
+
+/** daemon event frame 하나를 전송한다. */
+static int
+write_event_frame(int fd, const char *type, const char *buf, size_t len)
+{
+	char header[128];
+
+	if (snprintf(header, sizeof(header), "event %s %lu", type,
+	    (unsigned long)len) >= (int)sizeof(header))
+		return -1;
+	if (write_line(fd, header) < 0)
+		return -1;
+	return len == 0 ? 0 : write_all(fd, buf, len);
+}
+
+/** daemon event stream에 buffered line을 frame으로 내보낸다. */
+static int
+event_stream_flush_line(struct qstar_daemon_event_stream *stream)
+{
+	const char *type;
+
+	if (stream->line_len == 0)
+		return 0;
+	type = classify_event_payload(stream->line, stream->line_len);
+	if (write_event_frame(stream->fd, type, stream->line, stream->line_len) < 0) {
+		stream->failed = 1;
+		return -1;
+	}
+	stream->line_len = 0;
+	return 0;
+}
+
+/** daemon event stream에 원문 build output byte를 소비시킨다. */
+static int
+event_stream_write_bytes(struct qstar_daemon_event_stream *stream,
+    const char *buf, size_t len)
+{
+	size_t i;
+
+	for (i = 0; i < len; i++) {
+		if (stream->line_len + 1 >= sizeof(stream->line)) {
+			if (event_stream_flush_line(stream) < 0)
+				return -1;
+		}
+		stream->line[stream->line_len++] = buf[i];
+		if (buf[i] == '\n' && event_stream_flush_line(stream) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+#if defined(__APPLE__) && defined(__MACH__)
+/** funopen write callback: FILE output을 daemon event frame으로 변환한다. */
+static int
+event_stream_writefn(void *cookie, const char *buf, int len)
+{
+	struct qstar_daemon_event_stream *stream;
+
+	stream = cookie;
+	if (len <= 0)
+		return 0;
+	return event_stream_write_bytes(stream, buf, (size_t)len) < 0 ? -1 : len;
+}
+#elif defined(__linux__)
+/** fopencookie write callback: FILE output을 daemon event frame으로 변환한다. */
+static ssize_t
+event_stream_writefn(void *cookie, const char *buf, size_t len)
+{
+	struct qstar_daemon_event_stream *stream;
+
+	stream = cookie;
+	if (len == 0)
+		return 0;
+	return event_stream_write_bytes(stream, buf, len) < 0 ? -1 : (ssize_t)len;
+}
+#endif
+
+/** daemon event stream FILE을 연다. */
+static FILE *
+open_event_stream(struct qstar_daemon_event_stream *stream, int fd)
+{
+	FILE *out;
+
+	memset(stream, 0, sizeof(*stream));
+	stream->fd = fd;
+#if defined(__APPLE__) && defined(__MACH__)
+	out = funopen(stream, NULL, event_stream_writefn, NULL, NULL);
+#elif defined(__linux__)
+	{
+		cookie_io_functions_t io;
+
+		memset(&io, 0, sizeof(io));
+		io.write = event_stream_writefn;
+		out = fopencookie(stream, "w", io);
+	}
+#else
+	out = NULL;
+#endif
+	if (out)
+		setvbuf(out, NULL, _IONBF, 0);
+	return out;
+}
+
+/** daemon event stream을 종료하기 전에 partial line을 flush한다. */
+static int
+finish_event_stream(struct qstar_daemon_event_stream *stream, FILE *out)
+{
+	int rc;
+
+	rc = 0;
+	if (out && fflush(out) != 0)
+		rc = -1;
+	if (event_stream_flush_line(stream) < 0)
+		rc = -1;
+	return rc;
 }
 
 /** Unix socket directory 생성을 위해 parent path를 재귀적으로 만든다. */
@@ -342,23 +525,16 @@ read_request(int fd, struct qstar_daemon_request *req)
 	return 0;
 }
 
-/** daemon response body를 client stdout으로 복사하고 build status를 반환한다. */
+/** daemon byte-count response body를 client stdout으로 복사한다. */
 static int
-read_response(int fd, FILE *out, int *build_status, char *error, size_t error_len)
+read_buffered_response(int fd, FILE *out, int *build_status, char *error,
+    size_t error_len)
 {
 	char line[256], *end;
 	unsigned long body_len, left, chunk;
 	char buf[8192];
 	int status;
 
-	if (read_line(fd, line, sizeof(line)) < 0) {
-		set_error(error, error_len, "daemon response missing");
-		return -1;
-	}
-	if (strcmp(line, QSTAR_DAEMON_RESPONSE_MAGIC) != 0) {
-		set_error(error, error_len, "daemon response has invalid magic");
-		return -1;
-	}
 	if (read_line(fd, line, sizeof(line)) < 0 ||
 	    sscanf(line, "status %d", &status) != 1) {
 		set_error(error, error_len, "daemon response missing status");
@@ -394,6 +570,71 @@ read_response(int fd, FILE *out, int *build_status, char *error, size_t error_le
 	}
 	*build_status = status;
 	return 0;
+}
+
+/** daemon event stream을 client stdout으로 렌더링하고 최종 build status를 읽는다. */
+static int
+read_stream_response(int fd, FILE *out, int *build_status, char *error,
+    size_t error_len)
+{
+	char line[256];
+	unsigned long len, left, chunk;
+	char buf[8192], type[64];
+	int status;
+
+	for (;;) {
+		if (read_line(fd, line, sizeof(line)) < 0) {
+			set_error(error, error_len, "daemon stream interrupted before final status");
+			fprintf(out, "qstar: %s\n", error);
+			*build_status = 1;
+			return 0;
+		}
+		if (sscanf(line, "final %d", &status) == 1) {
+			*build_status = status;
+			return 0;
+		}
+		if (sscanf(line, "event %63s %lu", type, &len) != 2 ||
+		    len > QSTAR_DAEMON_MAX_EVENT) {
+			set_error(error, error_len, "daemon stream has invalid event frame");
+			fprintf(out, "qstar: %s\n", error);
+			*build_status = 1;
+			return 0;
+		}
+		left = len;
+		while (left > 0) {
+			chunk = left > sizeof(buf) ? (unsigned long)sizeof(buf) : left;
+			if (read_exact(fd, buf, chunk) < 0) {
+				set_error(error, error_len,
+				    "daemon stream event body truncated");
+				fprintf(out, "qstar: %s\n", error);
+				*build_status = 1;
+				return 0;
+			}
+			if (chunk > 0 && fwrite(buf, 1, chunk, out) != chunk) {
+				set_error(error, error_len, "could not write daemon event");
+				return -1;
+			}
+			left -= chunk;
+		}
+	}
+}
+
+/** daemon response body를 client stdout으로 복사하고 build status를 반환한다. */
+static int
+read_response(int fd, FILE *out, int *build_status, char *error, size_t error_len)
+{
+	char line[256];
+
+	if (read_line(fd, line, sizeof(line)) < 0) {
+		set_error(error, error_len, "daemon response missing");
+		return -1;
+	}
+	if (strcmp(line, QSTAR_DAEMON_RESPONSE_MAGIC) == 0)
+		return read_buffered_response(fd, out, build_status, error, error_len);
+	if (strcmp(line, QSTAR_DAEMON_STREAM_MAGIC) == 0)
+		return read_stream_response(fd, out, build_status, error, error_len);
+	set_error(error, error_len, "daemon response has invalid magic");
+	return -1;
 }
 
 /** build request를 experimental daemon으로 보내고 응답 output을 out에 복사한다. */
@@ -737,23 +978,49 @@ send_file_response(int fd, int status, FILE *body)
 	return 0;
 }
 
-/** build request 하나를 Stella executor로 처리하고 response를 전송한다. */
+/** daemon stream final status frame을 보낸다. */
+static int
+send_stream_final(int fd, int status)
+{
+	char line[64];
+
+	snprintf(line, sizeof(line), "final %d", status);
+	return write_line(fd, line);
+}
+
+/** daemon stream에 text event를 간단히 보낸다. */
+static int
+send_stream_text(int fd, const char *type, const char *text)
+{
+	return write_event_frame(fd, type, text, strlen(text));
+}
+
+/** build request 하나를 Stella executor로 처리하고 stream response를 전송한다. */
 static int
 handle_build_request(struct qstar_daemon_server *server, int fd)
 {
 	struct qstar_daemon_request req;
+	struct qstar_daemon_event_stream stream;
 	char oldcwd[QSTAR_PATH_MAX];
 	const char *graph_status, *reason;
 	FILE *body;
 	int rc;
 
-	body = tmpfile();
-	if (!body)
-		return -1;
 	if (read_request(fd, &req) < 0) {
-		fprintf(body, "qstar: invalid daemon request\n");
-		rc = 1;
-		goto send;
+		if (write_line(fd, QSTAR_DAEMON_STREAM_MAGIC) < 0)
+			return -1;
+		(void)send_stream_text(fd, "diagnostic", "qstar: invalid daemon request\n");
+		(void)send_stream_final(fd, 1);
+		return -1;
+	}
+	if (write_line(fd, QSTAR_DAEMON_STREAM_MAGIC) < 0)
+		return -1;
+	body = open_event_stream(&stream, fd);
+	if (!body) {
+		(void)send_stream_text(fd, "diagnostic",
+		    "qstar: daemon stream is unsupported on this host\n");
+		(void)send_stream_final(fd, 1);
+		return -1;
 	}
 	if (!getcwd(oldcwd, sizeof(oldcwd))) {
 		fprintf(body, "qstar: daemon getcwd failed: %s\n", strerror(errno));
@@ -786,9 +1053,11 @@ send_restore:
 		rc = 1;
 	}
 send:
-	if (send_file_response(fd, rc, body) < 0)
+	if (finish_event_stream(&stream, body) < 0)
 		rc = 1;
 	fclose(body);
+	if (send_stream_final(fd, rc) < 0)
+		rc = 1;
 	return rc == 0 ? 0 : -1;
 }
 
