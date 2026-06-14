@@ -27,6 +27,13 @@ now writes step status files and a generated `KNOWN_ISSUES.md` into the
 `qstar-windows-native-alpha` artifact so a failed run leaves a structured
 failure list instead of only a long console log.
 
+The first Q172 hosted run was
+`https://github.com/deeyed/qstar/actions/runs/27508325529`. It reached the
+baseline Makefile bootstrap and failed in `src/executor.c` because MSYS2 UCRT64
+gcc does not provide POSIX `<poll.h>`. The artifact correctly recorded
+`status=fail step=make-all cc=gcc rc=2 log=make-all.log`, so the next Windows
+round has a concrete executor portability boundary to fix.
+
 ## Toolchain Choice
 
 The alpha lane uses MSYS2 UCRT64 first because QStar's current bootstrap build is
@@ -145,6 +152,10 @@ Current known gaps:
 - Q159's first observed `src/daemon.c` `<sys/socket.h>` failure is addressed by
   Q164's Windows daemon stub. The manual alpha lane still needs to be rerun to
   discover the next real native failure class.
+- Q172's hosted `msys2-ucrt64-gcc` run now fails at `src/executor.c` because the
+  Stella process/event runner includes POSIX `<poll.h>`. The next Windows
+  portability round should split executor process waiting/output drain behind a
+  Windows boundary instead of weakening the shell-free argv-vector contract.
 - Q172 has not promoted Windows to official support. It only makes
   `msys2-ucrt64-gcc` the baseline lane and ensures failed runs leave structured
   status and known-issue artifacts.
