@@ -1,15 +1,24 @@
-name: Windows Validation Candidate
+name: Windows Native CI Alpha
 
 on:
   workflow_dispatch:
+    inputs:
+      run_ninja_parity:
+        description: "Run the broader Ninja backend parity gate after alpha smoke"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 jobs:
-  windows-msys2:
-    name: windows / msys2-ucrt64
+  windows-msys2-ucrt64:
+    name: windows alpha / msys2-ucrt64
     runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      QSTAR_WINDOWS_ALPHA_DIR: dist/windows-alpha
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,24 +32,99 @@ jobs:
           update: true
           install: >-
             make
+            git
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-ninja
 
-      - name: Build QStar
+      - name: Record Windows alpha environment
         shell: msys2 {0}
-        run: make all
+        run: |
+          set -euo pipefail
+          mkdir -p "$QSTAR_WINDOWS_ALPHA_DIR"
+          {
+            printf 'qstar-windows-alpha: uname='
+            uname -a
+            printf 'qstar-windows-alpha: pwd=%s\n' "$PWD"
+            printf 'qstar-windows-alpha: msystem=%s\n' "${MSYSTEM:-unknown}"
+            printf 'qstar-windows-alpha: shell=%s\n' "${SHELL:-unknown}"
+            printf 'qstar-windows-alpha: make='
+            make --version | head -n 1
+            printf 'qstar-windows-alpha: gcc='
+            gcc --version | head -n 1
+            printf 'qstar-windows-alpha: ninja='
+            ninja --version
+          } | tee "$QSTAR_WINDOWS_ALPHA_DIR/environment.txt"
 
-      - name: Run Windows process prep gate
+      - name: Build QStar with Makefile bootstrap
         shell: msys2 {0}
-        run: make qstar-windows-prep-tests
+        run: |
+          set -euo pipefail
+          make all 2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/make-all.log"
+
+      - name: qstar --version smoke
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          qstar_bin="$PWD/build/bin/qstar"
+          if test ! -x "$qstar_bin" && test -x "$PWD/build/bin/qstar.exe"; then
+            qstar_bin="$PWD/build/bin/qstar.exe"
+          fi
+          "$qstar_bin" --version 2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/version.log"
+
+      - name: Run Windows native alpha smoke subset
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          make qstar-windows-native-alpha-tests \
+            2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/native-alpha.log"
+
+      - name: Run Windows path/process prep gate
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          make qstar-windows-prep-tests 2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/windows-prep.log"
+
+      - name: Optional Ninja backend parity gate
+        if: ${{ inputs.run_ninja_parity }}
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          make qstar-ninja-backend-parity-tests \
+            2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/ninja-backend-parity.log"
 
       - name: Install prefix docs and manpage smoke
         shell: msys2 {0}
         run: |
+          set -euo pipefail
           prefix=/tmp/qstar-windows-smoke
-          make install PREFIX="$prefix"
-          "$prefix/bin/qstar" --version
-          QSTAR_DOC_DIR="$prefix/share/doc/qstar" "$prefix/bin/qstar" docs --path
+          rm -rf "$prefix"
+          make install PREFIX="$prefix" 2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/install.log"
+          "$prefix/bin/qstar" --version 2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/install-version.log"
+          QSTAR_DOC_DIR="$prefix/share/doc/qstar" "$prefix/bin/qstar" docs --path \
+            2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/install-docs-path.log"
           test -f "$prefix/share/doc/qstar/wiki/AI_INDEX.md"
           test -f "$prefix/share/man/man1/qstar.1"
           test -f "$prefix/share/man/man5/qstar-lua.5"
+
+      - name: Write alpha summary
+        if: always()
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          mkdir -p "$QSTAR_WINDOWS_ALPHA_DIR"
+          {
+            printf '# Windows Native CI Alpha\n\n'
+            printf '- workflow: `%s`\n' "$GITHUB_WORKFLOW"
+            printf '- job: `windows alpha / msys2-ucrt64`\n'
+            printf '- run: `%s`\n' "$GITHUB_RUN_ID"
+            printf '- status: see step result and logs in this artifact\n'
+            printf '- support level: manual alpha validation, not official Windows support\n'
+          } > "$QSTAR_WINDOWS_ALPHA_DIR/SUMMARY.md"
+
+      - name: Upload Windows alpha logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qstar-windows-native-alpha
+          path: dist/windows-alpha
+          if-no-files-found: warn

@@ -10,7 +10,7 @@ QStar는 Lua 기반 프로젝트 DSL, Stella 네이티브 executor, 선택형 Ni
 Linux x86_64 runtime tarball을 배포한다. Linux asset은 Ubuntu release workflow 또는 clean
 Linux x86_64 host에서 source validation, Ninja backend parity, extracted tarball smoke,
 Stella/Ninja medium performance artifact collection을 통과한 산출물만 사용한다. Windows는
-manual native validation candidate 단계이며 아직 public asset이나 official host support가
+manual native CI alpha 단계이며 아직 public asset이나 official host support가
 아니다. QStar 1.0은 macOS, Linux, Windows 공식 지원이 모두 갖춰진 뒤에 올린다.
 
 ## 특징
@@ -201,7 +201,7 @@ qstar replay <action-id>
 | --- | --- |
 | macOS arm64 | 베타 release artifact 제공 |
 | Linux x86_64 | Ubuntu release workflow 또는 clean Linux host 산출 beta release artifact 제공 |
-| Windows | manual native validation candidate, public asset 없음 |
+| Windows | MSYS2 UCRT64 기반 manual native CI alpha, public asset 없음 |
 
 QStar는 freestanding, firmware-style cross build graph를 표현할 수 있지만, host
 지원 선언은 보수적으로 가져간다. 1.0은 macOS, Linux, Windows release artifact와 CI가

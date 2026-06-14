@@ -217,7 +217,7 @@ qstar replay <action-id>
 | --- | --- |
 | macOS arm64 | Beta release artifact |
 | Linux x86_64 | Beta release artifact from Ubuntu release workflow or clean Linux host |
-| Windows | Manual native validation candidate; no public asset yet |
+| Windows | Manual native CI alpha through MSYS2 UCRT64; no public asset yet |
 
 QStar can model cross-compilation targets today, including freestanding and
 firmware-style projects, but official host support is intentionally conservative.

@@ -5,9 +5,10 @@ beta에서는 macOS arm64와 Linux x86_64 runtime tarball을 배포한다. Linux
 release workflow 또는 clean Linux x86_64 host에서 source build 검증,
 `linux-x86_64` tarball packaging, extracted tarball smoke, Stella/Ninja medium
 performance artifact collection을 통과한 산출물만 사용한다.
-Windows host 지원은 native validation candidate 준비 단계다. Windows는 아직 공식 지원이
-아니지만 path/process/response-file 준비 규칙과 manual Windows workflow 후보를 QStar tree
-안에서 검증한다. 모든 platform에서 소스에서 직접 빌드할 수 있도록 검증 경로를 늘려간다.
+Windows host 지원은 manual native CI alpha 단계다. Windows는 아직 공식 지원이 아니지만
+path/process/response-file 준비 규칙과 MSYS2 UCRT64 기반 manual Windows workflow를 QStar
+tree 안에서 검증한다. 모든 platform에서 소스에서 직접 빌드할 수 있도록 검증 경로를
+늘려간다.
 
 ## 최소 예제
 
@@ -31,6 +32,7 @@ make qstar-self-host-tests
 make qstar-public-beta-release-tests
 make qstar-linux-validation-tests
 make qstar-windows-prep-tests
+make qstar-windows-native-alpha-tests
 make install PREFIX="$HOME/.local"
 qstar init c-app /tmp/qstar-install-smoke
 qstar --file /tmp/qstar-install-smoke/qstar.lua build //:app
@@ -162,10 +164,11 @@ make qstar-windows-prep-tests
   --profile windows-msvc-fake build //:windows_rsp
 ```
 
-`.github/workflows/windows-validation.yml`은 `workflow_dispatch` 전용 후보 workflow다.
-MSYS2 UCRT64 환경에서 `make all`, `make qstar-windows-prep-tests`, install docs/man smoke를
-실행하도록 설계했지만, regular CI나 release gate가 되기 전까지 Windows official support로
-표기하지 않는다.
+`.github/workflows/windows-validation.yml`은 `workflow_dispatch` 전용 alpha workflow다.
+MSYS2 UCRT64 환경에서 `make all`, `qstar --version`,
+`make qstar-windows-native-alpha-tests`, `make qstar-windows-prep-tests`, install docs/man
+smoke를 실행하고 `qstar-windows-native-alpha` artifact로 실패 로그를 올린다. 그래도
+regular CI나 release gate가 되기 전까지 Windows official support로 표기하지 않는다.
 
 ## 관련 diagnostic
 

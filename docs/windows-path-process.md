@@ -13,22 +13,26 @@ the shell-free argv-vector contract. The local gate creates real MSVC-style
 response files with a fake `clang-cl` fixture, asserts drive-letter/backslash
 diagnostics, and keeps a manual Windows GitHub Actions candidate workflow. The
 response-file regression is exercised through both Stella and Ninja when `ninja`
-is available. This still is not official Windows support.
+is available. Round Q159 turns that workflow into a manual native CI alpha with
+MSYS2 UCRT64 bootstrap, `qstar --version`, a limited smoke subset, install
+docs/man smoke, and uploaded failure logs. This still is not official Windows
+support.
 
 ## Status
 
 ```txt
-host support: planned validation
+host support: manual native CI alpha
 official release artifact: none
 purpose of this document: pre-port contract
 gate: make -C qstar qstar-windows-prep-tests
-candidate workflow: .github/workflows/windows-validation.yml
+alpha smoke: make -C qstar qstar-windows-native-alpha-tests
+alpha workflow: .github/workflows/windows-validation.yml
 ```
 
 Linux has validation and release-candidate packaging dry-run coverage. Windows
-remains planned until QStar has a green native Windows CI lane, source build,
-install smoke, response-file execution with real Windows tools, and artifact
-packaging story.
+has a manual alpha lane, but remains unofficial until QStar has a green regular
+Windows CI lane, source build, install smoke, response-file execution with real
+Windows tools, and artifact packaging story.
 
 ## Path Normalization Rule
 
@@ -202,15 +206,22 @@ Manual corpus commands:
   --profile windows-msvc-fake build //:windows_rsp
 ```
 
-These commands prepare the port; they do not replace native Windows CI.
+These commands prepare the port; they do not replace the manual native Windows
+alpha workflow.
 
-## Windows GitHub Actions Candidate
+## Windows GitHub Actions Alpha
 
 `.github/workflows/windows-validation.yml` is intentionally manual-only through
 `workflow_dispatch`. It checks out submodules, uses an MSYS2 UCRT64 environment,
-runs `make all`, runs `make qstar-windows-prep-tests`, and performs an install
-docs/manpage smoke under `/tmp/qstar-windows-smoke`.
+runs `make all`, records `qstar --version`, runs
+`make qstar-windows-native-alpha-tests`, runs `make qstar-windows-prep-tests`,
+and performs an install docs/manpage smoke under `/tmp/qstar-windows-smoke`.
+When the `run_ninja_parity=true` input is enabled it also runs
+`make qstar-ninja-backend-parity-tests`.
 
-This workflow is a porting candidate, not a release gate. It must become green
-and be promoted to regular CI before README or release notes can claim Windows
-host support.
+The workflow uploads a `qstar-windows-native-alpha` artifact with environment,
+build, smoke, and install logs. This workflow is an alpha porting lane, not a
+release gate. It must become repeatedly green and be promoted to regular CI
+before README or release notes can claim Windows host support.
+
+The native alpha tracking document is `docs/windows-native-alpha.md`.
