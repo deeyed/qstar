@@ -153,6 +153,10 @@ Socket은 build directory 아래에 둔다. Project root에 `.qstar.sock` 같은
 `--start`는 같은 socket에 이미 daemon이 응답하면 `daemon already running`으로 실패한다.
 `--stop`은 pid file과 hello response의 pid가 일치할 때만 종료한다. Pid file이 없는데 socket이
 응답하는 경우에는 안전하지 않은 stop으로 보고 실패한다.
+Q175부터 lifecycle regression은 `--start`, `--status`, `--stop`, duplicate start,
+package-root/build-dir mismatch, stale socket cleanup, stale pid cleanup, stale lock cleanup을
+같이 확인한다. Stale cleanup은 보수적이다. QStar는 owner-only socket directory 아래의
+현재 사용자 소유 Unix socket/pid/lock sidecar만 정리하며, non-socket path는 절대 unlink하지 않는다.
 
 권장 permission:
 
@@ -397,8 +401,11 @@ Recommended future implementation order:
 6. Q153: owner-only socket directory/file checks, protocol mismatch diagnostics, and identity hard
    rejection.
 7. Q154: background `--start`/`--stop`, pid/lock file, and duplicate start diagnostic.
-8. IDE/AI read-only API surface and audit log.
-9. Windows named pipe design refresh and native validation.
+8. Q175: lifecycle beta seal with stale socket/pid/lock cleanup regression,
+   package-root mismatch hard reject, Linux inotify status artifact, and Windows named pipe
+   deferred status.
+9. IDE/AI read-only API surface and audit log.
+10. Windows named pipe design refresh and native validation.
 
 ## Non-Goals
 

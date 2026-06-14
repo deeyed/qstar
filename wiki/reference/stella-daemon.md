@@ -31,6 +31,10 @@ socket backend 대신 stub을 컴파일하며, `qstar daemon`과 `--use-daemon=a
 `--start`는 background daemon을 띄우고 `qstar-daemon.pid`, `qstar-daemon.lock`,
 `qstar-daemon.log`를 socket directory에 둔다. `--stop`은 pid file과 hello response의 pid가
 일치할 때만 종료한다. `--serve`는 debugging용 foreground path로 계속 남긴다.
+Q175 기준 beta lifecycle regression은 `--start`, `--status`, `--stop`, duplicate start,
+package-root/build-dir mismatch hard reject, stale socket cleanup, stale pid cleanup, stale lock
+cleanup을 함께 확인한다. Stale cleanup은 owner-only Unix socket directory 안의 현재 사용자
+소유 sidecar만 대상으로 하며, non-socket path는 제거하지 않는다.
 
 ## 목적
 
@@ -88,6 +92,8 @@ Q151 이후 결론:
 - `0.6.0-beta`는 daemon readiness를 담는 public beta line이다.
 - stable daemon API version promise, Linux daemon CI lane, Windows named pipe가 더 닫히기 전까지
   daemon은 default-on이 아니다.
+- Linux `daemon_socket_smoke=true` lane은 inotify watcher trace와 `qstar daemon --status`
+  artifact를 남긴다.
 
 Build stream이 시작된 뒤 daemon이 죽으면 client는 partial output 뒤에
 `qstar: daemon stream interrupted before final status`를 출력하고 실패한다. 이 경우

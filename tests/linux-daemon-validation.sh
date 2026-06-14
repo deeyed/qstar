@@ -15,6 +15,7 @@ noop_trace_file="$artifact_dir/linux-daemon-validation-noop-trace.txt"
 incremental_trace_file="$artifact_dir/linux-daemon-validation-incremental-trace.txt"
 server_out_file="$artifact_dir/linux-daemon-validation-server.out"
 server_err_file="$artifact_dir/linux-daemon-validation-server.err"
+status_query_file="$artifact_dir/linux-daemon-validation-status-query.txt"
 
 fail() {
 	echo "qstar-linux-daemon-validation: $*" >&2
@@ -115,6 +116,11 @@ if [ ! -S "$daemon_sock" ]; then
 	fail "daemon-socket-not-ready"
 fi
 
+"$qstar" --file "$root/qstar.lua" -B build/stella-daemon daemon \
+	--socket "$daemon_sock" --status > "$status_query_file" \
+	2> "$artifact_dir/linux-daemon-validation-status-query.err"
+contains "$status_query_file" "daemon status=ok experimental=1 pid="
+
 "$qstar" --file "$root/qstar.lua" -B build/stella-daemon -G stella \
 	build //:app --use-daemon=always --daemon-socket "$daemon_sock" \
 	--schedule-trace --progress off --color never > "$trace_file" 2> "$artifact_dir/linux-daemon-validation-trace.err"
@@ -145,6 +151,7 @@ contains "$incremental_trace_file" "daemon_watcher status=event backend=inotify"
 {
 	printf 'linux_daemon_validation status=ok watcher_backend=inotify host=Linux\n'
 	printf 'socket=%s\n' "$daemon_sock"
+	grep -m 1 'daemon status=ok experimental=1 pid=' "$status_query_file"
 	grep -m 1 'daemon_watcher status=active backend=inotify' "$trace_file"
 	grep -m 1 'daemon_watcher status=event backend=inotify' "$incremental_trace_file"
 } > "$status_file"

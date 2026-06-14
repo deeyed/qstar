@@ -35,9 +35,11 @@ Version line은 `0.6.0-beta`로 승격한다. 이 승격은 daemon을 stable/def
 것이 아니라, 명시적 opt-in 기능과 IDE/AI read API를 beta 문서 표면으로 올리는 변화다.
 Q153 이후 socket permission hardening과 protocol mismatch diagnostic은 beta opt-in 기준으로
 닫혔고, Q154 이후 background lifecycle MVP도 들어왔다. Q167 이후 Linux opt-in CI lane은
-`inotify` watcher trace와 skip/fail reason artifact를 남긴다. Stable API version promise,
-release 간 반복 Linux daemon history, Windows named pipe가 더 닫히기 전까지 daemon은
-default-on이 아니다.
+`inotify` watcher trace와 skip/fail reason artifact를 남긴다. Q175는 lifecycle beta seal로
+`--start`/`--status`/`--stop`, duplicate start, package-root/build-dir mismatch hard reject,
+stale socket/pid/lock cleanup regression, Linux inotify status query artifact를 묶었다.
+Stable API version promise, release 간 반복 Linux daemon history, Windows named pipe가 더
+닫히기 전까지 daemon은 default-on이 아니다.
 
 ## Q145-Q167 Summary
 
@@ -50,6 +52,7 @@ default-on이 아니다.
 | Q149 | medium/large corpus에서 `backend=stella-daemon` performance line protocol 추가 |
 | Q150 | `qstar daemon --query ...` read-only API 추가 |
 | Q167 | Linux opt-in CI에서 `inotify` watcher trace, daemon status/reason artifact 추가 |
+| Q175 | lifecycle beta seal: stale socket/pid/lock cleanup, root mismatch reject, Linux status artifact |
 
 Q150 read API method:
 
@@ -113,6 +116,8 @@ medium_project_gate status=ok perf_issue_count=0 report_only=1
 Linux는 Q142 이후 Ubuntu gcc/clang workflow가 medium performance artifact를 수집한다. Q167부터
 `daemon_socket_smoke=true` workflow는 `make qstar-linux-daemon-validation-tests`를 실행해
 `daemon_watcher status=active backend=inotify`와 watcher event trace를 artifact로 남긴다.
+Q175부터 같은 lane은 daemon socket 준비 뒤 `qstar daemon --status`도 기록해
+`daemon status=ok experimental=1 pid=...` lifecycle surface를 함께 남긴다.
 그래도 daemon socket과 watcher behavior는 Linux CI에서 계속 validation-backed로만 표기한다.
 Windows는 `qstar daemon` official host support로 표기하지 않는다.
 
@@ -137,7 +142,9 @@ Daemon 보안은 beta opt-in의 남은 핵심이다.
 이 gap 때문에 daemon은 아직 default-on 기능이 아니다. Q153 이후 owner-only socket directory/file
 검사, owner mismatch reject, protocol mismatch diagnostic, package root/build_dir hard reject, 안전한
 stale socket probe는 beta opt-in 기준으로 구현되어 있다. Q154 이후 `--start`/`--stop`, pid file,
-lock file, duplicate start diagnostic도 beta opt-in 기준으로 구현되어 있다.
+lock file, duplicate start diagnostic도 beta opt-in 기준으로 구현되어 있다. Q175 이후 smoke는
+죽은 foreground daemon이 남긴 stale socket을 `--start`가 정리하는지, stale pid/lock sidecar가
+보수적으로 정리되는지, 다른 package root가 같은 socket에 붙을 때 hard reject되는지도 확인한다.
 
 ## Release Gate
 

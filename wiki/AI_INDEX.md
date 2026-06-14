@@ -224,7 +224,12 @@ QStar가 하지 않는 일:
   hard reject는 beta opt-in 기준으로 구현되어 있다. Q154 이후 `qstar daemon --start/--stop`,
   pid file, lock file, duplicate start diagnostic도 beta opt-in 기준으로 구현되어 있다. Stable
   daemon API version promise, Linux daemon CI lane, Windows named pipe는 아직 default-on 전에
-  닫아야 할 gap으로 남긴다. 판단 문서는 `docs/daemon-beta-readiness.md`에 둔다.
+  닫아야 할 gap으로 남긴다. Q175부터 daemon beta lifecycle seal은 `--start`, `--status`,
+  `--stop`, duplicate start, package-root/build-dir mismatch hard reject, stale socket cleanup,
+  stale pid cleanup, stale lock cleanup을 regression으로 묶는다. Linux
+  `daemon_socket_smoke=true` lane은 inotify trace와 함께 `qstar daemon --status` artifact도
+  남긴다. Windows named pipe는 계속 deferred다. 판단 문서는
+  `docs/daemon-beta-readiness.md`에 둔다.
 - Stella dirty-check의 canonical fast state는 `build/qstar/state/state.db`다.
   `build/qstar/state/actions.json`은 기본 생성물이 아니며
   `QSTAR_DEBUG_STATE_DUMPS=1 qstar build ...`로 요청한 debug/export dump다.

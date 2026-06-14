@@ -342,10 +342,29 @@ if [ -S "$daemon_sock" ]; then
 		fail "daemon build_dir mismatch unexpectedly succeeded"
 	fi
 	contains "$tmp/daemon-mismatch.out" "daemon identity mismatch: build_dir differs"
+	other_root="$tmp/daemon-other-root"
+	mkdir -p "$other_root/src"
+	cat > "$other_root/qstar.lua" <<'EOF'
+qstar.executable "app" {
+  sources = {"src/main.c"},
+}
+EOF
+	cat > "$other_root/src/main.c" <<'EOF'
+int main(void) { return 0; }
+EOF
+	if "$qstar" --file "$other_root/qstar.lua" -B build/daemon build //:app --use-daemon=always --daemon-socket "$daemon_sock" --progress off --color never > "$tmp/daemon-root-mismatch.out" 2> "$tmp/daemon-root-mismatch.err"; then
+		fail "daemon package root mismatch unexpectedly succeeded"
+	fi
+	contains "$tmp/daemon-root-mismatch.out" "daemon identity mismatch: package root differs"
 	kill "$daemon_pid" 2>/dev/null || true
 	wait "$daemon_pid" 2>/dev/null || true
 	daemon_pid=
-	rm -f "$daemon_sock"
+	"$qstar" --file "$tmp/qstar.lua" -B build/daemon-stale-socket daemon --socket "$daemon_sock" --start > "$tmp/daemon-stale-socket-start.out" 2> "$tmp/daemon-stale-socket-start.err"
+	contains "$tmp/daemon-stale-socket-start.out" "daemon status=started experimental=1 pid="
+	"$qstar" --file "$tmp/qstar.lua" -B build/daemon-stale-socket daemon --socket "$daemon_sock" --status > "$tmp/daemon-stale-socket-status.out" 2> "$tmp/daemon-stale-socket-status.err"
+	contains "$tmp/daemon-stale-socket-status.out" "daemon status=ok experimental=1 pid="
+	"$qstar" --file "$tmp/qstar.lua" -B build/daemon-stale-socket daemon --socket "$daemon_sock" --stop > "$tmp/daemon-stale-socket-stop.out" 2> "$tmp/daemon-stale-socket-stop.err"
+	contains "$tmp/daemon-stale-socket-stop.out" "daemon status=stopped pid="
 	lifecycle_sock="$daemon_dir/qd.sock"
 	"$qstar" --file "$tmp/qstar.lua" -B build/daemon-lifecycle daemon --socket "$lifecycle_sock" --start > "$tmp/daemon-lifecycle-start.out" 2> "$tmp/daemon-lifecycle-start.err"
 	contains "$tmp/daemon-lifecycle-start.out" "daemon status=started experimental=1 pid="
@@ -362,6 +381,31 @@ if [ -S "$daemon_sock" ]; then
 	contains "$tmp/daemon-lifecycle-stop.out" "daemon status=stopped pid="
 	"$qstar" --file "$tmp/qstar.lua" -B build/daemon-lifecycle daemon --socket "$lifecycle_sock" --status > "$tmp/daemon-lifecycle-stopped.out" 2> "$tmp/daemon-lifecycle-stopped.err" || true
 	contains "$tmp/daemon-lifecycle-stopped.out" "daemon status=unavailable reason=socket-missing"
+	stale_lifecycle_dir="$tmp/daemon-stale-lifecycle"
+	mkdir -p "$stale_lifecycle_dir"
+	chmod 700 "$stale_lifecycle_dir"
+	stale_lifecycle_sock="$stale_lifecycle_dir/qd.sock"
+	cat > "$stale_lifecycle_dir/qstar-daemon.pid" <<EOF
+qstar-daemon-pid-v1
+pid 99999999
+socket $stale_lifecycle_sock
+EOF
+	printf 'qstar-daemon-lock-v1\npid 99999999\n' > "$stale_lifecycle_dir/qstar-daemon.lock"
+	"$qstar" --file "$tmp/qstar.lua" -B build/daemon-stale-lifecycle daemon --socket "$stale_lifecycle_sock" --start > "$tmp/daemon-stale-lifecycle-start.out" 2> "$tmp/daemon-stale-lifecycle-start.err"
+	contains "$tmp/daemon-stale-lifecycle-start.out" "daemon cleanup=stale-pid pid=99999999"
+	contains "$tmp/daemon-stale-lifecycle-start.out" "daemon status=started experimental=1 pid="
+	"$qstar" --file "$tmp/qstar.lua" -B build/daemon-stale-lifecycle daemon --socket "$stale_lifecycle_sock" --stop > "$tmp/daemon-stale-lifecycle-stop.out" 2> "$tmp/daemon-stale-lifecycle-stop.err"
+	contains "$tmp/daemon-stale-lifecycle-stop.out" "daemon status=stopped pid="
+	stale_lock_dir="$tmp/daemon-stale-lock"
+	mkdir -p "$stale_lock_dir"
+	chmod 700 "$stale_lock_dir"
+	stale_lock_sock="$stale_lock_dir/qd.sock"
+	printf 'qstar-daemon-lock-v1\npid 99999999\n' > "$stale_lock_dir/qstar-daemon.lock"
+	"$qstar" --file "$tmp/qstar.lua" -B build/daemon-stale-lock daemon --socket "$stale_lock_sock" --start > "$tmp/daemon-stale-lock-start.out" 2> "$tmp/daemon-stale-lock-start.err"
+	contains "$tmp/daemon-stale-lock-start.out" "daemon cleanup=stale-lock"
+	contains "$tmp/daemon-stale-lock-start.out" "daemon status=started experimental=1 pid="
+	"$qstar" --file "$tmp/qstar.lua" -B build/daemon-stale-lock daemon --socket "$stale_lock_sock" --stop > "$tmp/daemon-stale-lock-stop.out" 2> "$tmp/daemon-stale-lock-stop.err"
+	contains "$tmp/daemon-stale-lock-stop.out" "daemon status=stopped pid="
 else
 	if grep -F -q "Operation not permitted" "$tmp/daemon-server.err"; then
 		echo "qstar-smoke: experimental daemon socket smoke skipped: sandbox disallows Unix socket bind" >&2
@@ -3767,6 +3811,9 @@ contains "docs/daemon-beta-readiness.md" "default"
 contains "docs/daemon-beta-readiness.md" "Windows named pipe"
 contains "docs/daemon-beta-readiness.md" "0.6.0-beta"
 contains "docs/daemon-beta-readiness.md" "medium_project_gate backend=stella-daemon phase=clean"
+contains "docs/daemon-beta-readiness.md" "Q175"
+contains "docs/daemon-beta-readiness.md" "stale socket/pid/lock cleanup"
+contains "docs/daemon-beta-readiness.md" "package-root/build-dir mismatch hard reject"
 contains "docs/performance-gates.md" "Round Q137 local macOS arm64"
 contains "docs/performance-gates.md" "medium_project_gate backend=stella-jobs"
 contains "docs/performance-gates.md" "backend=stella-daemon"
@@ -3813,6 +3860,9 @@ contains "docs/contracts/daemon-read-api.md" "compile_commands.path"
 contains "docs/contracts/daemon-read-api.md" "build.summary"
 contains "docs/contracts/daemon-read-api.md" "build/test/clean 같은 mutation"
 contains "docs/daemon/stella-daemon.md" "Existing socket cleanup is conservative"
+contains "docs/daemon/stella-daemon.md" "Q175"
+contains "docs/daemon/stella-daemon.md" "stale socket cleanup"
+contains "docs/daemon/stella-daemon.md" "stale pid cleanup"
 contains "docs/daemon-beta-readiness.md" "Q153 이후 owner-only socket directory/file"
 contains "docs/perf/stella-ninja-profile.md" "runner=posix_spawn|fork"
 contains "docs/perf/stella-ninja-profile.md" "Q130: Event-Driven Output Drain"
@@ -3893,6 +3943,8 @@ contains ".github/workflows/linux-validation.yml" "linux-daemon-validation-statu
 contains ".github/workflows/linux-validation.yml" "daemon_watcher status=active backend=inotify"
 contains ".github/workflows/linux-validation.yml" "qstar-linux-x86_64-published-release-asset"
 contains "tests/linux-daemon-validation.sh" "linux_daemon_validation status=ok watcher_backend=inotify"
+contains "tests/linux-daemon-validation.sh" "linux-daemon-validation-status-query.txt"
+contains "tests/linux-daemon-validation.sh" "daemon status=ok experimental=1 pid="
 contains "tests/linux-daemon-validation.sh" "daemon_watcher status=event backend=inotify"
 contains "tests/linux-validation.sh" "QSTAR_LINUX_VALIDATION_CC"
 contains "tests/medium-project-performance.sh" "event_wait=poll"
@@ -4119,6 +4171,9 @@ contains "wiki/AI_INDEX.md" "qstar-v0.5-readiness.md"
 contains "wiki/AI_INDEX.md" "qstar-linux-validation-tests"
 contains "wiki/AI_INDEX.md" "qstar daemon"
 contains "wiki/AI_INDEX.md" "qstar daemon --socket path --start|--stop|--serve|--status"
+contains "wiki/AI_INDEX.md" "Q175"
+contains "wiki/AI_INDEX.md" "stale socket cleanup"
+contains "wiki/AI_INDEX.md" "stale pid cleanup"
 contains "wiki/AI_INDEX.md" "compile_commands.path"
 contains "wiki/AI_INDEX.md" "docs/contracts/daemon-read-api.md"
 contains "wiki/AI_INDEX.md" "docs/daemon-beta-readiness.md"
@@ -4167,6 +4222,8 @@ contains "wiki/reference/stella-daemon.md" "qstar build //:app --use-daemon=auto
 contains "wiki/reference/stella-daemon.md" "Unix domain socket"
 contains "wiki/reference/stella-daemon.md" "named pipe deferred"
 contains "wiki/reference/stella-daemon.md" "Package root mismatch"
+contains "wiki/reference/stella-daemon.md" "Q175"
+contains "wiki/reference/stella-daemon.md" "stale lock"
 contains "man/man1/qstar.1" "Ic action-log"
 contains "man/man1/qstar.1" "Fl G Ar stella|ninja|auto"
 contains "man/man1/qstar.1" "CMake-style action descriptions"
