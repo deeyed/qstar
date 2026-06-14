@@ -22,6 +22,10 @@ Round Q163부터 publish lane은 업로드 직후 같은 release asset을 다시
 Round Q167부터 daemon opt-in lane은 medium performance뿐 아니라 Linux-only daemon
 validation script를 먼저 실행해 Unix socket, `inotify` watcher trace, memory-state trace,
 skip/fail reason artifact를 남긴다.
+Round Q171부터 hosted release verification은 matrix install smoke reports,
+downloaded-release tarball contents, download-smoke stdout, and a
+`linux-hosted-release-decision.txt` artifact를 남긴다. 이 파일이 `status=published`와
+`download_smoke=ok`를 기록하기 전에는 Linux asset을 release-backed로 보지 않는다.
 
 ## Scope
 
@@ -194,6 +198,20 @@ dist/perf/linux-<compiler>-medium-summary.txt
 dist/perf/linux-<compiler>-medium-summary.md
 ```
 
+Round Q171 requires the text summary to include `perf_summary status=ok` and
+also preserves install-prefix smoke evidence for each compiler lane:
+
+```txt
+dist/release/linux-<compiler>-install-smoke/version.txt
+dist/release/linux-<compiler>-install-smoke/docs-path.txt
+dist/release/linux-<compiler>-install-smoke/docs-ai-index.txt
+dist/release/linux-<compiler>-install-smoke/docs-show-qstar-lua.txt
+dist/release/linux-<compiler>-install-smoke/man-qstar.1.txt
+dist/release/linux-<compiler>-install-smoke/man-qstar-lua.5.txt
+dist/release/linux-<compiler>-install-smoke/file.txt
+dist/release/linux-<compiler>-install-smoke/ldd.txt
+```
+
 The workflow also has a manual large performance job, intended for nightly or
 on-demand report-only runs:
 
@@ -227,6 +245,8 @@ workflow_dispatch / publish_linux_asset=true:
   download the uploaded asset again
   verify SHA256SUMS, qstar --version, docs/wiki, manpage, file, ldd smoke
   upload dist/release/download-smoke-linux-x86_64/download/*.txt
+  upload dist/release/download-smoke-linux-x86_64/download-smoke.log
+  upload dist/release/linux-hosted-release-decision.txt
 ```
 
 The gcc lane also performs a release-candidate packaging dry-run. On regular
@@ -262,12 +282,27 @@ The publish job then runs the same release from the GitHub download URL using
 
 ```txt
 SHA256SUMS
+contents.txt
 file-linux-x86_64.txt
 ldd-linux-x86_64.txt
 docs-show-home.txt
 docs-show-qstar-lua.txt
 man-qstar.1.txt
 man-qstar-lua.5.txt
+```
+
+Q171 also preserves:
+
+```txt
+dist/release/download-smoke-linux-x86_64/download-smoke.log
+dist/release/linux-hosted-release-decision.txt
+```
+
+The decision file must contain:
+
+```txt
+linux_release_asset status=published
+download_smoke=ok
 ```
 
 The install prefix smoke checks:
@@ -293,6 +328,8 @@ must be true:
 - `.github/workflows/linux-validation.yml` is green for both gcc and clang lanes
 - medium Stella/Ninja performance line protocol is uploaded for both gcc and
   clang lanes
+- medium summary artifacts contain `perf_summary status=ok`
+- install smoke artifacts are uploaded for both gcc and clang lanes
 - Linux Stella trace reports `runner=posix_spawn` and `event_wait=poll`
 - `QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh` passes on a
   Linux host or Ubuntu CI packaging lane
@@ -303,6 +340,8 @@ must be true:
   `qstar-linux-x86_64-release-candidate-dry-run`
 - uploaded GitHub release asset passes `make qstar-public-beta-download-smoke`
   on a Linux host and preserves `download-smoke-linux-x86_64` reports
+- `linux-hosted-release-decision.txt` records `status=published` and
+  `download_smoke=ok`
 - `make install PREFIX=/tmp/qstar-linux-smoke` installs binary, docs, and
   manpages under that prefix
 - installed binary reports the tagged version

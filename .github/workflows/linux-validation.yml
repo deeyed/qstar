@@ -80,7 +80,9 @@ jobs:
           grep -F "medium_project_gate scheduler runner=posix_spawn event_wait=poll" "$perf_raw"
           grep -F "medium_project_gate backend=ninja phase=clean" "$perf_raw"
           tools/perf-summary.sh "$perf_raw" | tee "$perf_summary"
+          grep -F "perf_summary status=ok" "$perf_summary"
           tools/perf-summary.sh --format markdown --label "Linux ${{ matrix.compiler }} medium performance" "$perf_raw" > "$perf_markdown"
+          test -s "$perf_markdown"
 
       - name: Upload Linux medium performance artifact
         uses: actions/upload-artifact@v4
@@ -95,18 +97,47 @@ jobs:
 
       - name: Install prefix docs and manpage smoke
         run: |
+          set -euo pipefail
           prefix="${RUNNER_TEMP}/qstar-linux-smoke-${{ matrix.compiler }}"
+          report_dir="dist/release/linux-${{ matrix.compiler }}-install-smoke"
+          mkdir -p "$report_dir"
           make install PREFIX="$prefix"
-          "$prefix/bin/qstar" --version
-          QSTAR_DOC_DIR="$prefix/share/doc/qstar" "$prefix/bin/qstar" docs --path
-          QSTAR_DOC_DIR="$prefix/share/doc/qstar" "$prefix/bin/qstar" docs --ai-index
-          QSTAR_DOC_DIR="$prefix/share/doc/qstar" "$prefix/bin/qstar" docs --show reference/qstar-lua.md
+          "$prefix/bin/qstar" --version | tee "$report_dir/version.txt"
+          QSTAR_DOC_DIR="$prefix/share/doc/qstar" "$prefix/bin/qstar" docs --path | tee "$report_dir/docs-path.txt"
+          QSTAR_DOC_DIR="$prefix/share/doc/qstar" "$prefix/bin/qstar" docs --ai-index | tee "$report_dir/docs-ai-index.txt"
+          QSTAR_DOC_DIR="$prefix/share/doc/qstar" "$prefix/bin/qstar" docs --show reference/qstar-lua.md > "$report_dir/docs-show-qstar-lua.txt"
+          grep -F "qstar.project" "$report_dir/docs-show-qstar-lua.txt"
           test -f "$prefix/share/doc/qstar/wiki/AI_INDEX.md"
           test -f "$prefix/share/doc/qstar/wiki/reference/qstar-lua.md"
           test -f "$prefix/share/man/man1/qstar.1"
           test -f "$prefix/share/man/man5/qstar-lua.5"
-          MANPAGER=cat MANWIDTH=80 man -l "$prefix/share/man/man1/qstar.1" > "${RUNNER_TEMP}/qstar.1.${{ matrix.compiler }}.txt"
-          MANPAGER=cat MANWIDTH=80 man -l "$prefix/share/man/man5/qstar-lua.5" > "${RUNNER_TEMP}/qstar-lua.5.${{ matrix.compiler }}.txt"
+          MANPAGER=cat MANWIDTH=80 man -l "$prefix/share/man/man1/qstar.1" > "$report_dir/man-qstar.1.txt"
+          MANPAGER=cat MANWIDTH=80 man -l "$prefix/share/man/man5/qstar-lua.5" > "$report_dir/man-qstar-lua.5.txt"
+          file "$prefix/bin/qstar" > "$report_dir/file.txt"
+          if ! ldd "$prefix/bin/qstar" > "$report_dir/ldd.txt" 2>&1; then
+            if grep -F "statically linked" "$report_dir/file.txt"; then
+              printf 'statically linked binary; ldd is not applicable\n' > "$report_dir/ldd.txt"
+            else
+              cat "$report_dir/ldd.txt"
+              exit 1
+            fi
+          fi
+
+      - name: Upload Linux install smoke artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qstar-linux-${{ matrix.compiler }}-install-smoke
+          path: |
+            dist/release/linux-${{ matrix.compiler }}-install-smoke/version.txt
+            dist/release/linux-${{ matrix.compiler }}-install-smoke/docs-path.txt
+            dist/release/linux-${{ matrix.compiler }}-install-smoke/docs-ai-index.txt
+            dist/release/linux-${{ matrix.compiler }}-install-smoke/docs-show-qstar-lua.txt
+            dist/release/linux-${{ matrix.compiler }}-install-smoke/man-qstar.1.txt
+            dist/release/linux-${{ matrix.compiler }}-install-smoke/man-qstar-lua.5.txt
+            dist/release/linux-${{ matrix.compiler }}-install-smoke/file.txt
+            dist/release/linux-${{ matrix.compiler }}-install-smoke/ldd.txt
+          if-no-files-found: ignore
 
       - name: Ninja backend root pollution smoke
         run: |
@@ -126,6 +157,7 @@ jobs:
           test -f dist/release/SHA256SUMS
           test -s dist/release/file-linux-x86_64.txt
           test -s dist/release/ldd-linux-x86_64.txt
+          test -s dist/release/docs-show-qstar-lua.txt
           test -s dist/release/extract-file-linux-x86_64.txt
           test -s dist/release/extract-ldd-linux-x86_64.txt
           test -s dist/release/extract-docs-show-qstar-lua.txt
@@ -292,9 +324,12 @@ jobs:
         run: |
           set -euo pipefail
           smoke_dir="$PWD/dist/release/download-smoke-linux-x86_64"
+          mkdir -p "$smoke_dir"
           QSTAR_RELEASE_PLATFORM=linux-x86_64 \
           QSTAR_RELEASE_SMOKE_DIR="$smoke_dir" \
-            make qstar-public-beta-download-smoke
+            make qstar-public-beta-download-smoke | tee "$smoke_dir/download-smoke.log"
+          grep -F "qstar-release-download-smoke: status=ok" "$smoke_dir/download-smoke.log"
+          test -s "$smoke_dir/download/contents.txt"
           test -s "$smoke_dir/download/file-linux-x86_64.txt"
           test -s "$smoke_dir/download/ldd-linux-x86_64.txt"
           test -s "$smoke_dir/download/docs-show-home.txt"
@@ -302,6 +337,20 @@ jobs:
           test -s "$smoke_dir/download/man-qstar.1.txt"
           test -s "$smoke_dir/download/man-qstar-lua.5.txt"
           grep -F "ELF" "$smoke_dir/download/file-linux-x86_64.txt"
+
+      - name: Write Linux hosted release decision
+        run: |
+          set -euo pipefail
+          decision="dist/release/linux-hosted-release-decision.txt"
+          mkdir -p "$(dirname "$decision")"
+          {
+            printf 'linux_release_asset status=published\n'
+            printf 'tag=%s\n' "$QSTAR_RELEASE_TAG"
+            printf 'platform=%s\n' "$QSTAR_RELEASE_PLATFORM"
+            printf 'download_smoke=ok\n'
+            printf 'artifact=qstar-%s-%s.tar.gz\n' "$QSTAR_RELEASE_TAG" "$QSTAR_RELEASE_PLATFORM"
+            printf 'reports=download-smoke-linux-x86_64\n'
+          } > "$decision"
 
       - name: Upload published Linux asset reports
         uses: actions/upload-artifact@v4
@@ -318,12 +367,15 @@ jobs:
             dist/release/extract-ldd-linux-x86_64.txt
             dist/release/extract-docs-show-qstar-lua.txt
             dist/release/download-smoke-linux-x86_64/download/SHA256SUMS
+            dist/release/download-smoke-linux-x86_64/download/contents.txt
             dist/release/download-smoke-linux-x86_64/download/file-linux-x86_64.txt
             dist/release/download-smoke-linux-x86_64/download/ldd-linux-x86_64.txt
             dist/release/download-smoke-linux-x86_64/download/docs-show-home.txt
             dist/release/download-smoke-linux-x86_64/download/docs-show-qstar-lua.txt
             dist/release/download-smoke-linux-x86_64/download/man-qstar.1.txt
             dist/release/download-smoke-linux-x86_64/download/man-qstar-lua.5.txt
+            dist/release/download-smoke-linux-x86_64/download-smoke.log
+            dist/release/linux-hosted-release-decision.txt
           if-no-files-found: ignore
 
   large-performance-report:

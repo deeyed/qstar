@@ -123,7 +123,11 @@ QStar가 하지 않는 일:
   `tools/publish-github-release-asset.sh`가 기존 `SHA256SUMS`에 Linux checksum을 병합한다.
   Upload 직후에는 `make qstar-public-beta-download-smoke`를 다시 실행하고
   `download-smoke-linux-x86_64` artifact에 checksum, `file`, `ldd`, docs/wiki, manpage
-  reports를 남긴다.
+  reports를 남긴다. Q171부터 hosted release verification은 gcc/clang install-smoke
+  artifacts, medium `perf_summary status=ok`, downloaded `contents.txt`,
+  `download-smoke.log`, and `linux-hosted-release-decision.txt`도 보존한다. Linux asset은
+  decision file이 `linux_release_asset status=published`와 `download_smoke=ok`를 기록한
+  뒤 release-backed로 본다.
   Linux daemon socket smoke도 기본 push/PR lane이 아니라 `workflow_dispatch`의
   `daemon_socket_smoke=true` opt-in job에서 검증한다.
 - Windows host 지원은 아직 official support가 아니다. Round Q114/Q158/Q159 기준
