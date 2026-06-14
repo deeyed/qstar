@@ -85,6 +85,10 @@ QStar가 하지 않는 일:
   `qstar action-log`, `qstar replay`, `qstar last-failure`도 같은 action description을
   `description=` metadata로 보존한다. Stella 성공/skip action의 물리 `.log` 파일 존재는
   public contract가 아니며, 필요 시 compact state와 현재 graph에서 lazy 재구성될 수 있다.
+- 0.7 feature beta 판단과 v1 blocker 정리는 `docs/qstar-v0.7-readiness.md`에 둔다.
+  Q161 기준 다음 feature line은 `0.7.0-beta`가 맞고, `0.6.x-beta`는 release/package/doc
+  hotfix용 patch line으로 남긴다. 0.7의 핵심은 Windows alpha/platform policy, daemon
+  readiness, Linux/macOS asset gate hardening, Stella/Ninja/Linux timing refresh다.
 - 0.6 beta release 판단과 `0.6.1-beta` public prerelease line은
   `docs/qstar-v0.6-readiness.md`에 둔다. 이 문서는 daemon beta opt-in, self-host,
   Stella/Ninja benchmark, Linux x86_64 beta asset, Windows status, package smoke,
