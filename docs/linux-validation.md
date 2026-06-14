@@ -279,7 +279,7 @@ Release publication uses the manual workflow path:
 
 ```txt
 workflow: Linux Validation
-release_tag: v0.6.1-beta
+release_tag: v0.7.0-beta
 publish_linux_asset: true
 ```
 

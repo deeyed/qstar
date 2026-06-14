@@ -116,7 +116,7 @@ QStar가 하지 않는 일:
   Large synthetic performance는 기본 push/PR lane이 아니라 `workflow_dispatch` 전용
   `large-performance-report` job에서 report-only artifact로 수집한다.
   Linux asset upload는 `workflow_dispatch`의 `publish_linux_asset=true`,
-  `release_tag=v0.6.1-beta` opt-in job에서만 수행하며,
+  `release_tag=v0.7.0-beta` opt-in job에서만 수행하며,
   `tools/publish-github-release-asset.sh`가 기존 `SHA256SUMS`에 Linux checksum을 병합한다.
   Linux daemon socket smoke도 기본 push/PR lane이 아니라 `workflow_dispatch`의
   `daemon_socket_smoke=true` opt-in job에서 검증한다.

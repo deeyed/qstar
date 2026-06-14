@@ -5,7 +5,7 @@ line으로 올릴지 판단하기 위한 Q161 readiness gate다.
 
 ```txt
 status: 0.7 readiness gate
-current runtime version: qstar 0.6.1-beta
+current runtime version: qstar 0.7.0-beta
 candidate line: qstar 0.7.0-beta
 baseline date: 2026-06-14
 decision: next feature line should be 0.7.0-beta; keep 0.6.x for hotfixes only
@@ -17,7 +17,7 @@ decision: next feature line should be 0.7.0-beta; keep 0.6.x for hotfixes only
 
 판단:
 
-- `0.6.1-beta`는 macOS arm64와 Linux x86_64 public beta asset을 연 release line이다.
+- `0.7.0-beta`는 macOS arm64와 Linux x86_64 public beta asset을 이어받는 release-prep line이다.
 - `0.6.x-beta`는 release smoke, checksum, install/codesign, 문서 오탈자 같은 patch에 남긴다.
 - Q160 이후 Windows artifact policy가 별도 문서로 고정되었고, 다음 작업은 단순 patch보다
   Windows alpha와 platform matrix를 한 단계 올리는 feature line에 가깝다.
@@ -73,25 +73,25 @@ as the conservative path.
 
 ## Stella/Ninja Timing Snapshot
 
-Latest local macOS arm64 `make check` snapshot on 2026-06-14:
+Q162 local macOS arm64 `make check` snapshot recorded on 2026-06-14:
 
 ```txt
 medium_project_gate target_count=47 min_targets=40
 medium_project_gate scheduler host_jobs=10
-medium_project_gate scheduler default_jobs=10 ready_width=40 async_final_actions=40 trace_elapsed_ms=244
+medium_project_gate scheduler default_jobs=10 ready_width=40 async_final_actions=40 trace_elapsed_ms=277
 medium_project_gate scheduler runner=posix_spawn event_wait=poll
-medium_project_gate backend=stella phase=clean elapsed_ms=243
-medium_project_gate backend=stella phase=noop elapsed_ms=70
-medium_project_gate backend=stella phase=incremental elapsed_ms=98
+medium_project_gate backend=stella phase=clean elapsed_ms=274
+medium_project_gate backend=stella phase=noop elapsed_ms=79
+medium_project_gate backend=stella phase=incremental elapsed_ms=131
 medium_project_gate backend=stella-daemon phase=clean elapsed_ms=skipped reason=socket-bind-not-permitted
 medium_project_gate backend=stella-daemon phase=noop elapsed_ms=skipped reason=socket-bind-not-permitted
 medium_project_gate backend=stella-daemon phase=incremental elapsed_ms=skipped reason=socket-bind-not-permitted
-medium_project_gate backend=stella-jobs jobs=10 phase=clean elapsed_ms=244
-medium_project_gate backend=stella-jobs jobs=10 phase=noop elapsed_ms=70
-medium_project_gate backend=stella-jobs jobs=10 phase=incremental elapsed_ms=92
-medium_project_gate backend=ninja phase=clean elapsed_ms=263
-medium_project_gate backend=ninja phase=noop elapsed_ms=75
-medium_project_gate backend=ninja phase=incremental elapsed_ms=103
+medium_project_gate backend=stella-jobs jobs=10 phase=clean elapsed_ms=291
+medium_project_gate backend=stella-jobs jobs=10 phase=noop elapsed_ms=79
+medium_project_gate backend=stella-jobs jobs=10 phase=incremental elapsed_ms=115
+medium_project_gate backend=ninja phase=clean elapsed_ms=297
+medium_project_gate backend=ninja phase=noop elapsed_ms=86
+medium_project_gate backend=ninja phase=incremental elapsed_ms=129
 medium_project_gate status=ok perf_issue_count=0 report_only=1
 ```
 

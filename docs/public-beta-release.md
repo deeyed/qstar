@@ -12,10 +12,10 @@ Linux x86_64를 배포한다. Linux x86_64 artifact는 Ubuntu release workflow �
 Linux x86_64 host에서 만든 산출물만 사용한다.
 
 ```txt
-runtime version: qstar 0.6.1-beta
-release tag: v0.6.1-beta
-macOS asset: qstar-v0.6.1-beta-macos-arm64.tar.gz
-Linux asset: qstar-v0.6.1-beta-linux-x86_64.tar.gz
+runtime version: qstar 0.7.0-beta
+release tag: v0.7.0-beta
+macOS asset: qstar-v0.7.0-beta-macos-arm64.tar.gz
+Linux asset: qstar-v0.7.0-beta-linux-x86_64.tar.gz
 checksum file: SHA256SUMS
 ```
 
@@ -24,10 +24,10 @@ checksum file: SHA256SUMS
 검증한다. Tag를 아직 만들지 않은 main branch에서는 package smoke만 수행하고
 `tag=not-on-tag`를 출력한다.
 
-Round Q157 이후 multi-host beta line은 `0.6.1-beta`다. 이 release는 Stella daemon을
-documented beta opt-in 기능으로 유지하면서 Linux x86_64 runtime asset을 추가한다.
-Default `qstar build` path는 바꾸지 않는다. Release note는
-`docs/releases/v0.6.1-beta.md`, 판단 기준은 `docs/qstar-v0.6-readiness.md`에 둔다.
+Round Q162 이후 feature beta line은 `0.7.0-beta`다. `0.6.x-beta`는
+release/package/documentation hotfix용 patch line으로 남긴다. Default `qstar build` path는
+바꾸지 않는다. Release note는 `docs/releases/v0.7.0-beta.md`, 판단 기준은
+`docs/qstar-v0.7-readiness.md`에 둔다.
 
 ## Local Gate
 
@@ -95,7 +95,7 @@ dry-run을 수행한다.
 
 ```sh
 QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh
-test -f dist/release/qstar-v0.6.1-beta-linux-x86_64.tar.gz
+test -f dist/release/qstar-v0.7.0-beta-linux-x86_64.tar.gz
 test -s dist/release/file-linux-x86_64.txt
 test -s dist/release/ldd-linux-x86_64.txt
 ```
@@ -116,7 +116,7 @@ rendered manpage smoke를 `qstar-linux-x86_64-release-candidate-dry-run` artifac
 
 ```sh
 QSTAR_RELEASE_PLATFORM=linux-x86_64 \
-QSTAR_RELEASE_TAG=v0.6.1-beta \
+QSTAR_RELEASE_TAG=v0.7.0-beta \
 QSTAR_RELEASE_REPO=deeyed/qstar \
   tools/publish-github-release-asset.sh
 ```
@@ -124,10 +124,10 @@ QSTAR_RELEASE_REPO=deeyed/qstar \
 이 upload script는 GitHub release의 기존 `SHA256SUMS`를 내려받고, 같은 platform entry를
 교체한 뒤 Linux checksum을 병합해 다시 업로드한다. 따라서 macOS와 Linux checksum은 같은
 `SHA256SUMS` 안에 공존한다. `.github/workflows/linux-validation.yml`에서는
-`workflow_dispatch` input `publish_linux_asset=true`와 `release_tag=v0.6.1-beta`를 지정해
+`workflow_dispatch` input `publish_linux_asset=true`와 `release_tag=v0.7.0-beta`를 지정해
 같은 작업을 Ubuntu에서 수행한다.
 
-Linux daemon은 0.6 line에서 beta opt-in이지만 Linux release asset 조건에는 아직 기본
+Linux daemon은 0.7 line에서도 beta opt-in이며 Linux release asset 조건에는 아직 기본
 gate로 넣지 않는다. 대신 `.github/workflows/linux-validation.yml`의
 `workflow_dispatch` input `daemon_socket_smoke=true`를 켜면 daemon medium smoke를 별도
 job으로 실행하고, `backend=stella-daemon` clean/noop/incremental line이 모두 존재하는지
@@ -154,11 +154,11 @@ LICENSE/README.md
 예상 설치 명령:
 
 ```sh
-tar -xzf qstar-v0.6.1-beta-macos-arm64.tar.gz -C "$HOME/.local"
+tar -xzf qstar-v0.7.0-beta-macos-arm64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 
-tar -xzf qstar-v0.6.1-beta-linux-x86_64.tar.gz -C "$HOME/.local"
+tar -xzf qstar-v0.7.0-beta-linux-x86_64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 ```
@@ -184,7 +184,7 @@ Network push가 필요한 작업이므로 local package smoke와 문서 drift ga
 
 ## VSCode Extension Policy
 
-VSCode extension은 runtime과 별도 version을 가진다. QStar 0.5 beta 준비 기준 현재
+VSCode extension은 runtime과 별도 version을 가진다. QStar 0.7 beta 준비 기준 현재
 package version은 `0.3.0`이고, runtime tarball에는 포함하지 않는다. Extension 기능이나
 Marketplace 배포 정책이 바뀌는 라운드가 아니므로 이번 runtime bump와 함께 자동으로
 올리지 않는다.
@@ -209,15 +209,15 @@ sample workspace, license payload만 확인하는 좁은 smoke다. Runtime과 ba
 Local smoke가 끝난 뒤 tag와 GitHub release를 만든다.
 
 ```sh
-git tag -a v0.6.1-beta -m "QStar v0.6.1 beta"
-git push origin v0.6.1-beta
+git tag -a v0.7.0-beta -m "QStar v0.7.0 beta"
+git push origin v0.7.0-beta
 
-gh release create v0.6.1-beta \
-  dist/release/qstar-v0.6.1-beta-macos-arm64.tar.gz \
+gh release create v0.7.0-beta \
+  dist/release/qstar-v0.7.0-beta-macos-arm64.tar.gz \
   dist/release/SHA256SUMS \
   --repo deeyed/qstar \
-  --title "QStar v0.6.1 Beta" \
-  --notes-file docs/releases/v0.6.1-beta.md \
+  --title "QStar v0.7.0 Beta" \
+  --notes-file docs/releases/v0.7.0-beta.md \
   --prerelease \
   --latest=false
 ```
@@ -226,7 +226,7 @@ Linux asset은 macOS release 생성 후 Ubuntu workflow에서 다음 input으로
 
 ```txt
 workflow: Linux Validation
-release_tag: v0.6.1-beta
+release_tag: v0.7.0-beta
 publish_linux_asset: true
 daemon_socket_smoke: optional
 ```
