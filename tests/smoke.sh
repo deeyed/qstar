@@ -2980,6 +2980,11 @@ qstar.executable "plugin_app" {
   deps = {"//:plugin"},
 }
 
+qstar.test "plugin_test" {
+  sources = {"src/plugin_main.c"},
+  deps = {"//:plugin"},
+}
+
 qstar.stage "shared_bundle" {
   root = "stage/shared",
   files = {
@@ -3066,6 +3071,8 @@ contains "$tmp/shared-log.out" "status ok"
 "$qstar" --file "$tmp/qstar.lua" build //:plugin_app --progress off > "$tmp/shared-app.out" 2> "$tmp/shared-app.err"
 contains "$tmp/shared-app.out" "status ok"
 "$tmp/build/qstar/out/___plugin_app/plugin_app"
+"$qstar" --file "$tmp/qstar.lua" test //:plugin_test > "$tmp/shared-test.out" 2> "$tmp/shared-test.err"
+contains "$tmp/shared-test.out" "test_result label=//:plugin_test status=pass"
 "$qstar" --file "$tmp/qstar.lua" action-log //:plugin_app:link:0 > "$tmp/shared-app-log.out" 2> "$tmp/shared-app-log.err"
 contains "$tmp/shared-app-log.out" "$shared_artifact"
 contains "$tmp/shared-app-log.out" "$shared_rpath_flag"
@@ -4027,6 +4034,8 @@ contains "wiki/README.md" "reference/progress-output.md"
 contains "wiki/README.md" "reference/stella-daemon.md"
 contains "wiki/reference/backends.md" "Persistent Stella daemon"
 contains "wiki/reference/backends.md" "qstar build --use-daemon=auto|never|always"
+contains "wiki/reference/backends.md" "Q168 regression gate"
+contains "docs/qstar-v0.7-readiness.md" "Q168 seals the macOS/Linux sharedlib regression surface"
 contains "wiki/AI_INDEX.md" "QStar AI Index"
 contains "wiki/AI_INDEX.md" "qstar.custom_target"
 contains "wiki/AI_INDEX.md" "qstar.output(path, {format = \"object\"})"
@@ -4034,6 +4043,7 @@ contains "wiki/AI_INDEX.md" "object artifact bridge"
 contains "wiki/AI_INDEX.md" "qstar.import_module"
 contains "wiki/AI_INDEX.md" "qstar.config"
 contains "wiki/AI_INDEX.md" "qstar.status"
+contains "wiki/AI_INDEX.md" "sharedlib stage/install producer integration"
 contains "wiki/AI_INDEX.md" "description="
 contains "wiki/AI_INDEX.md" "generated_dir"
 contains "wiki/AI_INDEX.md" "qstar-public-beta-release-tests"

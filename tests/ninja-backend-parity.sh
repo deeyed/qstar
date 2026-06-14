@@ -105,6 +105,11 @@ qstar.executable "plugin_app" {
   deps = {"//:plugin"},
 }
 
+qstar.test "plugin_test" {
+  sources = {"src/main.c"},
+  deps = {"//:plugin"},
+}
+
 qstar.stage "shared_bundle" {
   root = "stage/shared",
   files = {
@@ -211,10 +216,17 @@ if command -v ninja >/dev/null 2>&1; then
 	test -f "$tmp/shared/$shared_artifact" || fail "sharedlib ninja artifact missing"
 	test -f "$tmp/shared/build/qstar/out/___plugin_app/plugin_app" || fail "sharedlib ninja app missing"
 	"$tmp/shared/build/qstar/out/___plugin_app/plugin_app"
+	"$qstar" --file "$tmp/shared/qstar.lua" -G ninja test //:plugin_test > "$tmp/shared-test.out" 2> "$tmp/shared-test.err"
+	contains "$tmp/shared-test.out" "backend ninja"
+	contains "$tmp/shared-test.out" "test_result label=//:plugin_test status=pass"
 	"$qstar" --file "$tmp/shared/qstar.lua" -G ninja stage //:shared_bundle > "$tmp/shared-stage.out" 2> "$tmp/shared-stage.err"
 	contains "$tmp/shared-stage.out" "backend ninja"
 	contains "$tmp/shared-stage.out" "stage_file src=$shared_artifact dst=stage/shared/lib/plugin.shared mode=copy"
 	test -f "$tmp/shared/stage/shared/lib/plugin.shared" || fail "sharedlib ninja stage artifact missing"
+	"$qstar" --file "$tmp/shared/qstar.lua" -G ninja install //:plugin --prefix "$tmp/shared-prefix" > "$tmp/shared-install.out" 2> "$tmp/shared-install.err"
+	contains "$tmp/shared-install.out" "backend ninja"
+	test -f "$tmp/shared-prefix/lib/$(basename "$shared_artifact")" || fail "sharedlib ninja install artifact missing"
+	contains "$tmp/shared/build/qstar/install/manifest.json" "\"role\":\"sharedlib\""
 	test ! -f "$tmp/shared/.ninja_log" || fail "sharedlib ninja wrote package root .ninja_log"
 	test ! -f "$tmp/shared/.ninja_deps" || fail "sharedlib ninja wrote package root .ninja_deps"
 else

@@ -59,7 +59,7 @@ QStar가 하지 않는 일:
   `@loader_path`/`$ORIGIN` rpath를 자동 추가한다. Windows sharedlib는 runtime `.dll`,
   import `.lib`, PDB/debug artifact 정책이 아직 없으므로 deferred diagnostic으로 거부한다.
 - `make qstar-ninja-backend-parity-tests`는 staticlib, sharedlib, sharedlib-linked
-  executable/test, generated, configure_file, run_target, stage/install producer integration,
+  executable/test, generated, configure_file, run_target, sharedlib stage/install producer integration,
   action-log/replay, Windows sharedlib diagnostic, `.ninja_log`/`.ninja_deps` root
   pollution 방지를 확인한다.
 - `qstar emit-ninja [label]`은 `build/qstar/ninja/build.ninja`와 policy-controlled

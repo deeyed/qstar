@@ -54,6 +54,12 @@ and optional PDB/debug output. Until that policy is implemented, Stella and Ninj
 Windows-like `qstar.sharedlib` targets with a diagnostic that points to
 `docs/windows-artifact-policy.md`.
 
+Q168 seals the macOS/Linux sharedlib regression surface: sharedlib-linked
+executables and tests must run from the build tree through the generated rpath,
+Ninja and Stella must both preserve stage/install artifact handling, and
+Windows-like sharedlib targets must keep the deferred diagnostic until the
+multi-artifact policy is implemented.
+
 ## Daemon Status
 
 Stella daemon is a documented beta opt-in workflow, not the default build path.

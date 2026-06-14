@@ -55,9 +55,11 @@ qstar --file qstar.lua replay //:app:link:0
 `.so`와 `soname`을 생성한다. sharedlib dependency를 link하는 executable/test/sharedlib
 edge에는 build-tree 실행용 rpath가 자동으로 추가된다. Stella는 실제 argv에
 `$ORIGIN`/`@loader_path` rpath를 넣고, Ninja lowering도 같은 의미의 `description`/command
-edge를 생성한다. Windows-like profile의 runtime `.dll`, import `.lib`,
-PDB/debug/install layout은 아직 deferred이며 Stella/Ninja 모두
-`docs/windows-artifact-policy.md`를 가리키는 같은 diagnostic으로 거부한다.
+edge를 생성한다. Q168 regression gate는 sharedlib-linked executable/test 실행,
+sharedlib stage/install artifact 처리, Windows deferred diagnostic을 함께 확인한다.
+Windows-like profile의 runtime `.dll`, import `.lib`, PDB/debug/install layout은 아직
+deferred이며 Stella/Ninja 모두 `docs/windows-artifact-policy.md`를 가리키는 같은
+diagnostic으로 거부한다.
 
 Cale source action은 Stella-only language-provider action이다. Ninja wrapper lowering은
 이번 release에서 deferred이며, Cale source를 포함하는 target은 `-G stella`를 사용한다.
