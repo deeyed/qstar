@@ -12,7 +12,7 @@ load를 처음부터 반복하지 않는 구조를 만드는 것이다.
 
 ```txt
 status: documented-beta-opt-in-candidate
-round: Q151
+round: Q167
 command namespace: qstar daemon
 initial hosts: macOS and Linux over Unix domain sockets
 deferred hosts: Windows named pipe
@@ -24,6 +24,9 @@ Round Q164 adds a Windows build boundary: `_WIN32` hosts compile a daemon stub
 instead of the Unix domain socket backend. `qstar daemon` and
 `--use-daemon=always` report that Windows daemon support is deferred; the future
 transport is a named pipe with Windows ACL validation.
+Round Q167 strengthens Linux validation with an opt-in CI lane that records
+`inotify` watcher status/events, daemon server logs, schedule traces, and
+skip/fail reason artifacts.
 
 ## Decision
 
@@ -266,7 +269,7 @@ Initial watcher backends:
 | Host | Backend | Status |
 | --- | --- | --- |
 | macOS | kqueue vnode events | MVP implemented |
-| Linux | inotify | MVP implemented, CI validation still required |
+| Linux | inotify | MVP implemented, opt-in CI validation artifact |
 | Windows | named pipe plus ReadDirectoryChangesW | Deferred |
 
 Watcher scope:

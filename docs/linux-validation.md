@@ -19,6 +19,9 @@ tag를 checkout하고 Linux x86_64 tarball을 GitHub release에 업로드한다.
 Round Q163부터 publish lane은 업로드 직후 같은 release asset을 다시 다운로드해
 `SHA256SUMS`, extracted prefix, docs/wiki lookup, manpage source/render reports,
 `file(1)`, `ldd(1)`를 반복 검증한다.
+Round Q167부터 daemon opt-in lane은 medium performance뿐 아니라 Linux-only daemon
+validation script를 먼저 실행해 Unix socket, `inotify` watcher trace, memory-state trace,
+skip/fail reason artifact를 남긴다.
 
 ## Scope
 
@@ -49,6 +52,8 @@ Linux validation은 다음을 확인한다.
 - medium perf raw output, text summary, markdown summary가 CI artifact로 보존되는지
 - Linux daemon socket smoke는 기본 push/PR gate가 아니라 `workflow_dispatch`의
   `daemon_socket_smoke` input으로 켜는 opt-in lane에서 수행되는지
+- Linux daemon opt-in lane이 `daemon_watcher status=active backend=inotify`와
+  `daemon_watcher status=event backend=inotify` trace를 artifact로 보존하는지
 
 macOS local run에서는 Linux kernel, glibc, distro package layout, Linux `cc` 구현을
 직접 검증할 수 없다. 따라서 macOS에서는 portable path/process smoke만 수행하고,
@@ -198,17 +203,22 @@ workflow_dispatch / large-performance-report:
   upload dist/perf/linux-gcc-large-*.txt/md
 ```
 
-Round Q156 adds a second manual job for daemon socket validation. This is not a
-regular push/PR gate because socket behavior can vary across runners and
-sandboxed CI, but maintainers should run it before promoting Linux daemon
-support from validation-backed to release-backed:
+Round Q156 adds a second manual job for daemon socket validation. Round Q167
+strengthens it into a Linux daemon validation lane. It is not a regular push/PR
+gate because socket behavior can vary across runners and sandboxed CI, but
+maintainers should run it before promoting Linux daemon support from
+validation-backed to release-backed:
 
 ```txt
 workflow_dispatch / daemon_socket_smoke=true:
+  make qstar-linux-daemon-validation-tests
+  require linux_daemon_validation status=ok watcher_backend=inotify
+  require daemon_watcher status=active backend=inotify
+  require daemon_watcher status=event backend=inotify
   tests/medium-project-performance.sh
   require backend=stella-daemon clean/noop/incremental lines
   fail if socket-bind-not-permitted appears
-  upload dist/perf/linux-daemon-medium-*.txt
+  upload dist/perf/linux-daemon-validation-*.txt and linux-daemon-medium-*.txt/md
 
 workflow_dispatch / publish_linux_asset=true:
   checkout selected release tag
@@ -303,6 +313,9 @@ must be true:
 - Ninja backend parity passes without root `.ninja_*` files
 - optional `daemon_socket_smoke` is green before Linux daemon behavior is
   described as release-backed rather than validation-backed
+- daemon opt-in artifact includes `linux-daemon-validation-status.txt`,
+  `linux-daemon-validation-reason.txt`, server logs, schedule traces, and
+  medium performance summaries
 - release notes identify architecture and libc assumptions
 
 Release publication uses the manual workflow path:

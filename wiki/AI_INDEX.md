@@ -162,6 +162,10 @@ QStar가 하지 않는 일:
   Linux CI artifact는 `dist/perf/linux-<compiler>-medium-perf.txt`,
   `dist/perf/linux-<compiler>-medium-summary.txt`,
   `dist/perf/linux-<compiler>-medium-summary.md` 이름을 사용한다.
+  Q167부터 `daemon_socket_smoke=true` opt-in job은
+  `make qstar-linux-daemon-validation-tests`를 실행하고
+  `linux-daemon-validation-status.txt`, `linux-daemon-validation-reason.txt`,
+  `linux-daemon-validation-*-trace.txt`에 `backend=inotify` watcher trace와 skip/fail reason을 남긴다.
 - Persistent Stella daemon은 watcher-backed memory-state streaming beta opt-in 기능이다. 명령 namespace는
   `qstar daemon`이고, `qstar stella-daemon`은 채택하지 않는다. 현재 구현은
   `qstar daemon --socket path --start|--stop|--serve|--status`,

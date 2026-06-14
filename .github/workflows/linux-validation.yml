@@ -188,14 +188,32 @@ jobs:
       - name: Build QStar
         run: make all
 
-      - name: Linux Stella daemon socket smoke
+      - name: Linux Stella daemon validation
         run: |
           set -euo pipefail
           mkdir -p dist/perf
-          daemon_tmp="${RUNNER_TEMP}/qstar-daemon-smoke"
+          daemon_tmp="${RUNNER_TEMP}/qstar-daemon-validation"
+          QSTAR_DAEMON_TMPDIR="$daemon_tmp" \
+          QSTAR_DAEMON_ARTIFACT_DIR="dist/perf" \
+            make qstar-linux-daemon-validation-tests
+          grep -F "linux_daemon_validation status=ok watcher_backend=inotify" \
+            dist/perf/linux-daemon-validation-status.txt
+          grep -F "daemon_watcher status=active backend=inotify" \
+            dist/perf/linux-daemon-validation-trace.txt
+          grep -F "daemon_watcher status=event backend=inotify" \
+            dist/perf/linux-daemon-validation-incremental-trace.txt
+
+      - name: Linux Stella daemon medium performance
+        run: |
+          set -euo pipefail
+          mkdir -p dist/perf
+          daemon_tmp="${RUNNER_TEMP}/qstar-daemon-medium"
           perf_raw="dist/perf/linux-daemon-medium-perf.txt"
           perf_summary="dist/perf/linux-daemon-medium-summary.txt"
-          QSTAR_DAEMON_TMPDIR="$daemon_tmp" QSTAR_TEST_QSTAR=build/bin/qstar sh tests/medium-project-performance.sh | tee "$perf_raw"
+          perf_markdown="dist/perf/linux-daemon-medium-summary.md"
+          QSTAR_DAEMON_TMPDIR="$daemon_tmp" \
+          QSTAR_TEST_QSTAR=build/bin/qstar \
+            sh tests/medium-project-performance.sh | tee "$perf_raw"
           grep -F "medium_project_gate backend=stella-daemon phase=clean elapsed_ms=" "$perf_raw"
           grep -F "medium_project_gate backend=stella-daemon phase=noop elapsed_ms=" "$perf_raw"
           grep -F "medium_project_gate backend=stella-daemon phase=incremental elapsed_ms=" "$perf_raw"
@@ -204,15 +222,28 @@ jobs:
             exit 1
           fi
           tools/perf-summary.sh "$perf_raw" | tee "$perf_summary"
+          tools/perf-summary.sh --format markdown --label "Linux daemon medium performance" \
+            "$perf_raw" > "$perf_markdown"
 
-      - name: Upload Linux daemon socket performance artifact
+      - name: Upload Linux daemon validation artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: qstar-linux-daemon-medium-performance
+          name: qstar-linux-daemon-validation
           path: |
+            dist/perf/linux-daemon-validation-status.txt
+            dist/perf/linux-daemon-validation-reason.txt
+            dist/perf/linux-daemon-validation-trace.txt
+            dist/perf/linux-daemon-validation-trace.err
+            dist/perf/linux-daemon-validation-noop-trace.txt
+            dist/perf/linux-daemon-validation-noop-trace.err
+            dist/perf/linux-daemon-validation-incremental-trace.txt
+            dist/perf/linux-daemon-validation-incremental-trace.err
+            dist/perf/linux-daemon-validation-server.out
+            dist/perf/linux-daemon-validation-server.err
             dist/perf/linux-daemon-medium-perf.txt
             dist/perf/linux-daemon-medium-summary.txt
+            dist/perf/linux-daemon-medium-summary.md
           if-no-files-found: ignore
 
   publish-linux-release-asset:

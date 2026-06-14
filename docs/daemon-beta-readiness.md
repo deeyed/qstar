@@ -34,10 +34,12 @@ streaming output, in-memory state, watcher invalidation, performance gate, read-
 Version line은 `0.6.0-beta`로 승격한다. 이 승격은 daemon을 stable/default surface로 켜는
 것이 아니라, 명시적 opt-in 기능과 IDE/AI read API를 beta 문서 표면으로 올리는 변화다.
 Q153 이후 socket permission hardening과 protocol mismatch diagnostic은 beta opt-in 기준으로
-닫혔고, Q154 이후 background lifecycle MVP도 들어왔다. Stable API version promise, Linux daemon
-CI lane, Windows named pipe가 더 닫히기 전까지 daemon은 default-on이 아니다.
+닫혔고, Q154 이후 background lifecycle MVP도 들어왔다. Q167 이후 Linux opt-in CI lane은
+`inotify` watcher trace와 skip/fail reason artifact를 남긴다. Stable API version promise,
+release 간 반복 Linux daemon history, Windows named pipe가 더 닫히기 전까지 daemon은
+default-on이 아니다.
 
-## Q145-Q150 Summary
+## Q145-Q167 Summary
 
 | Round | 결과 |
 | --- | --- |
@@ -47,6 +49,7 @@ CI lane, Windows named pipe가 더 닫히기 전까지 daemon은 default-on이 �
 | Q148 | macOS `kqueue`, Linux `inotify` watcher invalidation MVP 추가 |
 | Q149 | medium/large corpus에서 `backend=stella-daemon` performance line protocol 추가 |
 | Q150 | `qstar daemon --query ...` read-only API 추가 |
+| Q167 | Linux opt-in CI에서 `inotify` watcher trace, daemon status/reason artifact 추가 |
 
 Q150 read API method:
 
@@ -107,9 +110,11 @@ medium_project_gate status=ok perf_issue_count=0 report_only=1
 | Linux | Unix domain socket, `posix_spawn`, `poll`, `inotify` path 구현 및 CI validation 후보 | validation-backed beta opt-in 후보 |
 | Windows | named pipe, native process/watch integration 없음 | deferred |
 
-Linux는 Q142 이후 Ubuntu gcc/clang workflow가 medium performance artifact를 수집한다. 하지만
-daemon socket과 watcher behavior는 Linux CI에서 계속 validation-backed로만 표기한다. Windows는
-`qstar daemon` official host support로 표기하지 않는다.
+Linux는 Q142 이후 Ubuntu gcc/clang workflow가 medium performance artifact를 수집한다. Q167부터
+`daemon_socket_smoke=true` workflow는 `make qstar-linux-daemon-validation-tests`를 실행해
+`daemon_watcher status=active backend=inotify`와 watcher event trace를 artifact로 남긴다.
+그래도 daemon socket과 watcher behavior는 Linux CI에서 계속 validation-backed로만 표기한다.
+Windows는 `qstar daemon` official host support로 표기하지 않는다.
 
 ## Security Gaps
 
@@ -126,7 +131,7 @@ Daemon 보안은 beta opt-in의 남은 핵심이다.
 남은 gap:
 
 - stable daemon API version promise
-- Linux CI daemon socket/watcher lane with artifacts
+- repeated Linux CI daemon socket/watcher lane history across releases
 - Windows named pipe ACL policy
 
 이 gap 때문에 daemon은 아직 default-on 기능이 아니다. Q153 이후 owner-only socket directory/file

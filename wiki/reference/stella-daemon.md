@@ -157,10 +157,15 @@ event, watcher overflow, backend 오류는 conservative graph reload로 처리�
 - remote access는 scope 밖이다.
 - daemon은 validated QStar graph에서 나온 action만 실행한다.
 
+Q167부터 Linux opt-in CI lane은 `make qstar-linux-daemon-validation-tests`를 실행해
+`daemon_watcher status=active backend=inotify`, watcher event trace, server log,
+skip/fail reason artifact를 보존한다. 이 lane은 `workflow_dispatch`의
+`daemon_socket_smoke=true`에서 실행된다.
+
 Default-on 전까지 남은 gap:
 
 - stable daemon API version promise
-- Linux CI daemon socket/watcher lane with artifacts
+- repeated Linux CI daemon socket/watcher lane history across releases
 - Windows named pipe ACL policy
 
 ## IDE/AI 연동

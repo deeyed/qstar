@@ -72,6 +72,10 @@ Stella daemon is a documented beta opt-in workflow, not the default build path.
 beta service for Stella IDE/AI integration while preserving normal `qstar build`
 as the conservative path.
 
+Q167 adds a Linux opt-in daemon validation lane. It records Unix socket
+validation, `inotify` watcher active/event traces, server logs, and skip/fail
+reason artifacts under `dist/perf/linux-daemon-validation-*`.
+
 ## Stella/Ninja Timing Snapshot
 
 Q162 local macOS arm64 `make check` snapshot recorded on 2026-06-14:
