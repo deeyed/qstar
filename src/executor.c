@@ -167,6 +167,7 @@ struct qstar_action_material {
 
 struct qstar_prepared_action {
 	const struct qstar_target *target;
+	const struct qstar_genrule *genrule;
 	const struct qstar_resolved_toolchain *toolchain;
 	char id[QSTAR_PATH_MAX];
 	char kind[32];
@@ -178,6 +179,7 @@ struct qstar_prepared_action {
 	struct qstar_action_material material;
 	char *argv[QSTAR_EXEC_MAX_ARGV];
 	size_t argc;
+	int timeout_sec;
 	struct qstar_string_list outputs;
 	struct qstar_string_list inputs;
 	struct qstar_string_list depfile_inputs;
@@ -192,6 +194,7 @@ struct qstar_running_action {
 	char name[QSTAR_PATH_MAX];
 	char action_log[QSTAR_PATH_MAX];
 	struct qstar_child_capture capture;
+	int timeout_sec;
 };
 
 enum qstar_sched_node_kind {
@@ -962,7 +965,8 @@ running_actions_event_wait_timeout_ms(const struct qstar_running_action *running
 	for (i = 0; i < jobs; i++) {
 		if (running[i].pid <= 0)
 			continue;
-		candidate = process_event_wait_timeout_ms(running[i].start, timeout_sec);
+		candidate = process_event_wait_timeout_ms(running[i].start,
+		    running[i].timeout_sec > 0 ? running[i].timeout_sec : timeout_sec);
 		if (candidate < best)
 			best = candidate;
 	}
@@ -3489,6 +3493,49 @@ action_owner_label(const struct qstar_target *target, const char *id, char *dst,
 	return dst;
 }
 
+/** prepared action의 user-facing owner label을 반환한다. */
+static const char *
+prepared_action_owner_label(const struct qstar_prepared_action *action)
+{
+	if (action && action->target)
+		return action->target->label;
+	if (action && action->genrule)
+		return action->genrule->label;
+	return action && action->id[0] ? action->id : "<action>";
+}
+
+/** prepared action의 diagnostic origin file을 반환한다. */
+static const char *
+prepared_action_origin_file(const struct qstar_prepared_action *action)
+{
+	if (action && action->target)
+		return action->target->origin_file;
+	if (action && action->genrule)
+		return action->genrule->origin_file;
+	return "";
+}
+
+/** prepared action의 diagnostic origin line을 반환한다. */
+static int
+prepared_action_origin_line(const struct qstar_prepared_action *action)
+{
+	if (action && action->target)
+		return action->target->origin_line;
+	if (action && action->genrule)
+		return action->genrule->origin_line;
+	return 0;
+}
+
+/** prepared action별 timeout을 반환한다. */
+static int
+prepared_action_timeout_sec(const struct qstar_build_ctx *ctx,
+    const struct qstar_prepared_action *action)
+{
+	if (action && action->timeout_sec > 0)
+		return action->timeout_sec;
+	return ctx ? ctx->action_timeout_sec : QSTAR_ACTION_TIMEOUT_SEC;
+}
+
 /** 실패한 executor action을 debug UX용 stable kind로 분류한다. */
 static const char *
 classify_failure_kind(const char *kind, const struct qstar_target *target,
@@ -4422,13 +4469,112 @@ free_owned_argv(char **argv, size_t argc)
 		free(argv[i]);
 }
 
+/** 외부 custom_target generated action을 prepared process action으로 만든다. */
+static int
+prepare_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const struct qstar_target *target, const struct qstar_genrule *genrule,
+    struct qstar_prepared_action *action)
+{
+	char output_identity[QSTAR_PATH_MAX];
+	char resolved_tool[QSTAR_PATH_MAX], tool_mode[64], tool_error[QSTAR_PATH_MAX];
+	struct qstar_resolved_toolchain toolchain;
+	size_t i;
+
+	memset(action, 0, sizeof(*action));
+	action->target = target;
+	action->genrule = genrule;
+	snprintf(action->kind, sizeof(action->kind), "generate");
+	snprintf(action->id, sizeof(action->id), "%s:generate:0", genrule->label);
+	if (genrule->config_header)
+		return qstar_set_error_origin(graph, genrule->origin_file,
+		    genrule->origin_line, "command", genrule->label,
+		    "qstar: configure_file '%s' is not an external process action",
+		    genrule->label);
+	if (qstar_profile_resolve_command_tool(graph, genrule->tool, resolved_tool,
+	    sizeof(resolved_tool), tool_mode, sizeof(tool_mode), tool_error,
+	    sizeof(tool_error)) < 0)
+		return qstar_set_error_origin(graph, genrule->origin_file,
+		    genrule->origin_line, "command", genrule->label, "%s",
+		    tool_error);
+	if (genrule->args.len + 2 > QSTAR_EXEC_MAX_ARGV)
+		return qstar_set_error(graph, "qstar: generated action argv too long");
+	if (!ctx->action_scheduler &&
+	    build_generated_artifact_dependencies(graph, ctx, genrule) < 0)
+		return -1;
+	for (i = 0; i < genrule->args.len; i++) {
+		if (generated_arg_escapes_package(genrule->args.items[i]))
+			return qstar_set_error_origin(graph, genrule->origin_file,
+			    genrule->origin_line, "args", genrule->label,
+			    "qstar: generated action arg '%s' escapes package root",
+			    genrule->args.items[i]);
+	}
+	for (i = 0; i < genrule->outputs.len; i++) {
+		if (mkdir_parent_under_root(graph, genrule->outputs.items[i]) < 0)
+			return qstar_set_error(graph,
+			    "qstar: could not create generated output directory");
+		if (qstar_string_list_push(&action->outputs,
+		    genrule->outputs.items[i]) < 0) {
+			prepared_action_free(action);
+			return qstar_set_error(graph, "qstar: out of memory");
+		}
+	}
+	if (qstar_genrule_output_identity_list(genrule, output_identity,
+	    sizeof(output_identity)) < 0) {
+		prepared_action_free(action);
+		return qstar_set_error(graph, "qstar: generated output identity is too long");
+	}
+	if (push_resolved_command_argv(graph, action->argv, &action->argc,
+	    resolved_tool) < 0) {
+		prepared_action_free(action);
+		return -1;
+	}
+	for (i = 0; i < genrule->args.len; i++) {
+		if (push_resolved_command_argv(graph, action->argv, &action->argc,
+		    genrule->args.items[i]) < 0) {
+			prepared_action_free(action);
+			return -1;
+		}
+	}
+	for (i = 0; i < genrule->inputs.len; i++) {
+		if (push_generated_action_input(graph, &action->inputs,
+		    genrule->inputs.items[i]) < 0) {
+			prepared_action_free(action);
+			return -1;
+		}
+	}
+	if (push_target_file_argv_inputs(graph, genrule, &action->inputs) < 0) {
+		prepared_action_free(action);
+		return -1;
+	}
+	if (qstar_profile_tool_mode_is_package_input(tool_mode) &&
+	    qstar_string_list_push(&action->inputs, resolved_tool) < 0) {
+		prepared_action_free(action);
+		return qstar_set_error(graph, "qstar: out of memory");
+	}
+	memset(&toolchain, 0, sizeof(toolchain));
+	snprintf(toolchain.name, sizeof(toolchain.name), "%s",
+	    target ? target->toolchain : "custom");
+	snprintf(toolchain.target, sizeof(toolchain.target), "%s",
+	    graph->profile.target ? graph->profile.target : "host");
+	compute_action_key(ctx, graph, target, &toolchain, action->id, "generate",
+	    action->argv, &action->inputs, NULL, output_identity, action->key,
+	    sizeof(action->key), &action->material);
+	build_tracef(ctx,
+	    "generated_sandbox id=%s inputs=package-root outputs=generated-only cwd=package-root network=disabled tool=%s tool_mode=%s resolved_tool=%s output_identity=%s\n",
+	    genrule->label, genrule->tool, tool_mode, resolved_tool, output_identity);
+	if (qstar_action_description_generate(genrule, action->description,
+	    sizeof(action->description)) < 0)
+		snprintf(action->description, sizeof(action->description), "<too-long>");
+	return 0;
+}
+
 /** generated action 하나를 external tool policy와 cache key에 맞춰 실행한다. */
 static int
 run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
     const struct qstar_target *target, const struct qstar_genrule *genrule)
 {
 	char id[QSTAR_PATH_MAX], key[32], output_identity[QSTAR_PATH_MAX];
-	char resolved_tool[QSTAR_PATH_MAX], tool_mode[64], tool_error[QSTAR_PATH_MAX];
+	char resolved_tool[QSTAR_PATH_MAX], tool_mode[64];
 	char description[QSTAR_PATH_MAX];
 	char *argv[QSTAR_EXEC_MAX_ARGV];
 	struct qstar_string_list inputs;
@@ -4436,17 +4582,20 @@ run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	struct qstar_action_material material;
 	size_t argc, argi, inputi;
 
-	if (!genrule->config_header &&
-	    qstar_profile_resolve_command_tool(graph, genrule->tool, resolved_tool,
-	    sizeof(resolved_tool), tool_mode, sizeof(tool_mode), tool_error,
-	    sizeof(tool_error)) < 0)
-		return qstar_set_error_origin(graph, genrule->origin_file,
-		    genrule->origin_line, "command", genrule->label, "%s",
-		    tool_error);
-	if (genrule->config_header) {
-		snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
-		snprintf(tool_mode, sizeof(tool_mode), "builtin");
+	if (!genrule->config_header) {
+		struct qstar_prepared_action action;
+		int rc;
+
+		if (prepare_generated_action(graph, ctx, target, genrule, &action) < 0)
+			return -1;
+		rc = run_action(graph, ctx, target, action.id, action.kind, action.key,
+		    &action.outputs, action.argv, NULL, &action.material,
+		    action.description);
+		prepared_action_free(&action);
+		return rc;
 	}
+	snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
+	snprintf(tool_mode, sizeof(tool_mode), "builtin");
 	if (genrule->args.len + 2 > QSTAR_EXEC_MAX_ARGV)
 		return qstar_set_error(graph, "qstar: generated action argv too long");
 	if (!ctx->action_scheduler &&
@@ -4626,40 +4775,36 @@ run_target_is_noop_true(const struct qstar_target *target)
 	    (!target->run_marker_log || !*target->run_marker_log);
 }
 
-/** qstar.run_target command를 dependency build 이후 실행한다. */
+/** qstar.run_target command를 prepared process action으로 만든다. */
 static int
-run_target_command(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
-    const struct qstar_target *target)
+prepare_run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const struct qstar_target *target, struct qstar_prepared_action *action)
 {
-	struct qstar_string_list inputs, outputs;
-	struct qstar_action_material material;
-	char *argv[QSTAR_EXEC_MAX_ARGV];
-	char id[QSTAR_PATH_MAX], stamp[QSTAR_PATH_MAX], stamp_sub[QSTAR_PATH_MAX];
-	char key[32], artifact[QSTAR_PATH_MAX];
-	char marker_source[32], marker_path[QSTAR_PATH_MAX];
-	char action_name[QSTAR_PATH_MAX], stdout_rel[QSTAR_PATH_MAX], stderr_rel[QSTAR_PATH_MAX];
-	char logdir[QSTAR_PATH_MAX], action_log[QSTAR_PATH_MAX];
-	char owner[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
-	size_t argc, i;
-	int old_timeout, rc;
 	const struct qstar_target *dep;
+	struct qstar_string_list inputs, outputs;
+	char artifact[QSTAR_PATH_MAX], owner[QSTAR_PATH_MAX];
+	char stamp_sub[QSTAR_PATH_MAX], stamp[QSTAR_PATH_MAX];
+	size_t i;
 
-	if (run_target_is_noop_true(target)) {
-		build_tracef(ctx,
-		    "run_target label=%s command=noop reason=true-aggregate action=none artifact=<none>\n",
+	memset(action, 0, sizeof(*action));
+	action->target = target;
+	snprintf(action->kind, sizeof(action->kind), "run");
+	snprintf(action->id, sizeof(action->id), "%s:run:0", target->label);
+	action->timeout_sec = target->run_timeout_sec > 0 ? target->run_timeout_sec : 0;
+	if (run_target_is_noop_true(target))
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "action", target->label,
+		    "qstar: run_target '%s' is a no-op aggregate and has no process action",
 		    target->label);
-		return 0;
-	}
 	if (target->run_command.len == 0)
-		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-		    "command", target->label,
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "command", target->label,
 		    "qstar: run_target '%s' requires command = qstar.cli { ... }",
 		    target->label);
-	argc = 0;
 	for (i = 0; i < target->run_command.len; i++) {
-		if (push_resolved_command_argv(graph, argv, &argc,
+		if (push_resolved_command_argv(graph, action->argv, &action->argc,
 		    target->run_command.items[i]) < 0) {
-			free_owned_argv(argv, argc);
+			prepared_action_free(action);
 			return -1;
 		}
 	}
@@ -4669,11 +4814,12 @@ run_target_command(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		dep = find_target(graph, target->deps.items[i]);
 		if (dep && strcmp(dep->kind, "group") == 0)
 			continue;
-		if (!dep || qstar_graph_artifact_output_path(graph, dep, artifact, sizeof(artifact)) < 0)
+		if (!dep || qstar_graph_artifact_output_path(graph, dep, artifact,
+		    sizeof(artifact)) < 0)
 			continue;
 		if (qstar_string_list_push(&inputs, artifact) < 0) {
 			qstar_string_list_free(&inputs);
-			free_owned_argv(argv, argc);
+			prepared_action_free(action);
 			return qstar_set_error(graph, "qstar: out of memory");
 		}
 	}
@@ -4682,54 +4828,59 @@ run_target_command(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	    (int)sizeof(stamp_sub) ||
 	    qstar_graph_build_path(graph, stamp_sub, stamp, sizeof(stamp)) < 0) {
 		qstar_string_list_free(&inputs);
-		free_owned_argv(argv, argc);
+		prepared_action_free(action);
 		return qstar_set_error(graph, "qstar: run stamp path too long");
 	}
 	if (qstar_string_list_push(&outputs, stamp) < 0) {
 		qstar_string_list_free(&inputs);
-		free_owned_argv(argv, argc);
+		prepared_action_free(action);
 		return qstar_set_error(graph, "qstar: out of memory");
 	}
-	snprintf(id, sizeof(id), "%s:run:0", target->label);
-	compute_action_key(ctx, graph, target, NULL, id, "run", argv, &inputs, NULL,
-	    stamp, key, sizeof(key), &material);
+	if (qstar_action_description_run(target, action->description,
+	    sizeof(action->description)) < 0)
+		snprintf(action->description, sizeof(action->description), "<too-long>");
+	compute_action_key(ctx, graph, target, NULL, action->id, "run", action->argv,
+	    &inputs, NULL, stamp, action->key, sizeof(action->key),
+	    &action->material);
+	action->inputs = inputs;
+	action->outputs = outputs;
 	fprintf(ctx->out,
 	    "run_target label=%s command=argv timeout_sec=%d marker=%s marker_log=%s\n",
-	    target->label, target->run_timeout_sec ? target->run_timeout_sec :
-	    ctx->action_timeout_sec,
+	    target->label, prepared_action_timeout_sec(ctx, action),
 	    target->run_marker && *target->run_marker ? target->run_marker : "<none>",
-	    target->run_marker_log && *target->run_marker_log ? target->run_marker_log :
-	    "<none>");
-	old_timeout = ctx->action_timeout_sec;
-	if (target->run_timeout_sec > 0)
-		ctx->action_timeout_sec = target->run_timeout_sec;
-	if (qstar_action_description_run(target, description, sizeof(description)) < 0)
-		snprintf(description, sizeof(description), "<too-long>");
-	rc = run_action(graph, ctx, target, id, "run", key, &outputs, argv, NULL, &material,
-	    description);
-	ctx->action_timeout_sec = old_timeout;
-	if (rc == 0 && target->run_marker && *target->run_marker &&
-	    !run_marker_match(graph, id, target->run_marker, target->run_marker_log,
-	    marker_source, sizeof(marker_source), marker_path, sizeof(marker_path))) {
-		action_log_name(id, action_name, sizeof(action_name));
+	    target->run_marker_log && *target->run_marker_log ?
+	    target->run_marker_log : "<none>");
+	return 0;
+}
+
+/** run_target process 성공 뒤 marker 검증과 stamp 생성을 마무리한다. */
+static int
+finish_run_target_success(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const struct qstar_prepared_action *action, const char *action_log)
+{
+	const struct qstar_target *target = action->target;
+	char marker_source[32], marker_path[QSTAR_PATH_MAX];
+	char action_name[QSTAR_PATH_MAX], stdout_rel[QSTAR_PATH_MAX];
+	char stderr_rel[QSTAR_PATH_MAX];
+
+	if (!target)
+		return 0;
+	if (target->run_marker && *target->run_marker &&
+	    !run_marker_match(graph, action->id, target->run_marker,
+	    target->run_marker_log, marker_source, sizeof(marker_source),
+	    marker_path, sizeof(marker_path))) {
+		action_log_name(action->id, action_name, sizeof(action_name));
 		if (build_log_rel(graph, action_name, ".stdout", stdout_rel,
 		    sizeof(stdout_rel)) < 0 ||
 		    build_log_rel(graph, action_name, ".stderr", stderr_rel,
-		    sizeof(stderr_rel)) < 0) {
-			qstar_string_list_free(&inputs);
-			qstar_string_list_free(&outputs);
-			free_owned_argv(argv, argc);
+		    sizeof(stderr_rel)) < 0)
 			return qstar_set_error(graph, "qstar: action log path too long");
-		}
-		write_failure_replay_detail(graph, id, NULL, argv, description,
-		    "marker-missing", target->label, stdout_rel, stderr_rel, target->run_marker,
-		    target->run_marker_log);
-		if (ensure_action_log_dir(graph, ctx, logdir, sizeof(logdir)) == 0) {
-			snprintf(action_log, sizeof(action_log), "%s/%s.log", logdir,
-			    action_name);
-			write_action_log_text(action_log, argv, "marker-missing",
-			    description);
-		}
+		write_failure_replay_detail(graph, action->id, NULL, action->argv,
+		    action->description, "marker-missing", target->label,
+		    stdout_rel, stderr_rel, target->run_marker, target->run_marker_log);
+		if (action_log && *action_log)
+			write_action_log_text(action_log, action->argv, "marker-missing",
+			    action->description);
 		ctx->fail_count++;
 		ctx->cancelled = 1;
 		fprintf(ctx->out,
@@ -4737,19 +4888,53 @@ run_target_command(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    target->label, target->run_marker, stdout_rel, stderr_rel,
 		    target->run_marker_log && *target->run_marker_log ?
 		    target->run_marker_log : "<none>", qstar_graph_build_dir(graph));
-		rc = qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-		    "marker", target->label,
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "marker", target->label,
 		    "qstar: run_target '%s' marker '%s' was not found; replay=%s/logs/last-failure.replay",
 		    target->label, target->run_marker, qstar_graph_build_dir(graph));
 	}
-	if (rc == 0 && write_run_stamp(graph, stamp) < 0)
-		rc = -1;
-	if (rc == 0 && target->run_marker && *target->run_marker)
-		fprintf(ctx->out, "run_marker label=%s status=matched marker=%s source=%s path=%s\n",
+	if (action->outputs.len > 0 && write_run_stamp(graph, action->outputs.items[0]) < 0)
+		return -1;
+	if (target->run_marker && *target->run_marker)
+		fprintf(ctx->out,
+		    "run_marker label=%s status=matched marker=%s source=%s path=%s\n",
 		    target->label, target->run_marker, marker_source, marker_path);
-	qstar_string_list_free(&inputs);
-	qstar_string_list_free(&outputs);
-	free_owned_argv(argv, argc);
+	return 0;
+}
+
+/** qstar.run_target command를 dependency build 이후 실행한다. */
+static int
+run_target_command(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const struct qstar_target *target)
+{
+	struct qstar_prepared_action action;
+	char logdir[QSTAR_PATH_MAX], action_name[QSTAR_PATH_MAX];
+	char action_log[QSTAR_PATH_MAX];
+	int old_timeout, rc;
+
+	if (run_target_is_noop_true(target)) {
+		build_tracef(ctx,
+		    "run_target label=%s command=noop reason=true-aggregate action=none artifact=<none>\n",
+		    target->label);
+		return 0;
+	}
+	if (prepare_run_action(graph, ctx, target, &action) < 0)
+		return -1;
+	old_timeout = ctx->action_timeout_sec;
+	ctx->action_timeout_sec = prepared_action_timeout_sec(ctx, &action);
+	rc = run_action(graph, ctx, target, action.id, action.kind, action.key,
+	    &action.outputs, action.argv, NULL, &action.material, action.description);
+	ctx->action_timeout_sec = old_timeout;
+	if (ensure_action_log_dir(graph, ctx, logdir, sizeof(logdir)) == 0) {
+		action_log_name(action.id, action_name, sizeof(action_name));
+		snprintf(action_log, sizeof(action_log), "%s/%s.log", logdir,
+		    action_name);
+	} else {
+		action_log[0] = '\0';
+	}
+	if (rc == 0)
+		rc = finish_run_target_success(graph, ctx, &action, action_log);
+	prepared_action_free(&action);
 	return rc;
 }
 
@@ -5394,11 +5579,15 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	const char *runner;
 	pid_t pid;
 	int use_rsp;
+	const char *owner_label;
+	int timeout_sec;
 
 	child_capture_init(&running->capture);
+	owner_label = prepared_action_owner_label(action);
+	timeout_sec = prepared_action_timeout_sec(ctx, action);
 	build_tracef(ctx,
 	    "parallel_event target=%s event=queue id=%s order=%zu slot=%zu state=ready retry=no\n",
-	    action->target->label, action->id, queue_index, slot);
+	    owner_label, action->id, queue_index, slot);
 	if (ensure_action_log_dir(graph, ctx, logdir, sizeof(logdir)) < 0)
 		return -1;
 	action_log_name(action->id, running->name, sizeof(running->name));
@@ -5427,7 +5616,7 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		ctx->skip_count++;
 		build_tracef(ctx,
 		    "parallel_event target=%s event=skip id=%s slot=%zu state=cache-hit retry=no\n",
-		    action->target->label, action->id, slot);
+		    owner_label, action->id, slot);
 		return state_push(ctx, 1, action->id, action->key, action->outputs.items[0],
 		    "skip", action->kind, &action->material) < 0 ?
 		    qstar_set_error(graph, "qstar: out of memory") : 0;
@@ -5435,7 +5624,7 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	progress_run_action(ctx, action->description);
 	build_tracef(ctx,
 	    "build_action id=%s status=run timeout_sec=%d stdout=%s stderr=%s\n",
-	    action->id, ctx->action_timeout_sec, child_stdout_path, child_stderr_path);
+	    action->id, timeout_sec, child_stdout_path, child_stderr_path);
 	if (ctx->explain_cache)
 		fprintf(ctx->out, "cache_miss id=%s reason=%s key=%s previous=%s\n",
 		    action->id, cache_reason(graph, prev, action->key, &action->outputs,
@@ -5462,11 +5651,12 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	running->pid = pid;
 	running->start = time(NULL);
 	running->slot = slot;
+	running->timeout_sec = timeout_sec;
 	build_tracef(ctx, "schedule_action id=%s slot=%zu pid=%ld runner=%s state=started\n",
 	    action->id, slot, (long)pid, runner);
 	build_tracef(ctx,
 	    "parallel_event target=%s event=start id=%s slot=%zu pid=%ld state=running retry=on-failure\n",
-	    action->target->label, action->id, slot, (long)pid);
+	    owner_label, action->id, slot, (long)pid);
 	return 1;
 }
 
@@ -5478,12 +5668,14 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	struct qstar_prepared_action *action = running->action;
 	char stdout_rel[QSTAR_PATH_MAX], stderr_rel[QSTAR_PATH_MAX], replay_rel[QSTAR_PATH_MAX];
 	const char *failure_kind;
+	const char *owner_label;
 	int exit_code;
 
 	child_capture_finish(ctx, &running->capture);
 	exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
 	action_log_queue_exit_ref(ctx, running->action_log, action->argv, exit_code,
 	    action->description);
+	owner_label = prepared_action_owner_label(action);
 	if (exit_code != 0) {
 		failure_kind = classify_failure_kind(action->kind, action->target,
 		    action->argv, "exit-code");
@@ -5500,20 +5692,36 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    action->id, exit_code);
 		build_tracef(ctx,
 		    "parallel_event target=%s event=fail id=%s slot=%zu exit=%d state=failed retry=next-build cancel=active\n",
-		    action->target->label, action->id, running->slot, exit_code);
+		    owner_label, action->id, running->slot, exit_code);
 		write_failure_replay_detail(graph, action->id, action->toolchain,
-		    action->argv, action->description, failure_kind, action->target->label,
-		    stdout_rel, stderr_rel, NULL, NULL);
+		    action->argv, action->description, failure_kind, owner_label,
+		    stdout_rel, stderr_rel,
+		    action->target ? action->target->run_marker : NULL,
+		    action->target ? action->target->run_marker_log : NULL);
 		emit_action_diagnostic(ctx->out, action->id, action->kind,
-		    action->target->label, failure_kind, "fail", exit_code,
+		    owner_label, failure_kind, "fail", exit_code,
 		    stdout_rel, stderr_rel, replay_rel);
 		ctx->fail_count++;
 		ctx->cancelled = 1;
-		return qstar_set_error_origin(graph, action->target->origin_file,
-		    action->target->origin_line, failure_kind, action->target->label,
+		if (strcmp(action->kind, "run") == 0) {
+			fprintf(ctx->out,
+			    "run_target_result label=%s status=exit-code exit=%d replay=%s stdout=%s stderr=%s\n",
+			    owner_label, exit_code, replay_rel, stdout_rel, stderr_rel);
+			return qstar_set_error_origin(graph,
+			    prepared_action_origin_file(action),
+			    prepared_action_origin_line(action), failure_kind,
+			    owner_label,
+			    "qstar: run_target '%s' failed with exit code %d; replay=%s",
+			    owner_label, exit_code, replay_rel);
+		}
+		return qstar_set_error_origin(graph, prepared_action_origin_file(action),
+		    prepared_action_origin_line(action), failure_kind, owner_label,
 		    "qstar: action '%s' failed with status %d; replay=%s/logs/last-failure.replay",
 		    action->id, exit_code, qstar_graph_build_dir(graph));
 	}
+	if (strcmp(action->kind, "run") == 0 &&
+	    finish_run_target_success(graph, ctx, action, running->action_log) < 0)
+		return -1;
 	ctx->run_count++;
 	if (state_push(ctx, 1, action->id, action->key, action->outputs.items[0],
 	    "run", action->kind, &action->material) < 0)
@@ -5523,7 +5731,7 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	    running->slot);
 	build_tracef(ctx,
 	    "parallel_event target=%s event=finish id=%s slot=%zu state=success retry=no\n",
-	    action->target->label, action->id, running->slot);
+	    owner_label, action->id, running->slot);
 	return 0;
 }
 
@@ -5548,7 +5756,7 @@ cancel_running_actions(struct qstar_build_ctx *ctx, struct qstar_running_action 
 		    running[i].action->id, running[i].slot);
 		build_tracef(ctx,
 		    "parallel_event target=%s event=cancel id=%s slot=%zu state=cancelled reason=parallel-failure retry=next-build\n",
-		    running[i].action->target->label, running[i].action->id,
+		    prepared_action_owner_label(running[i].action), running[i].action->id,
 		    running[i].slot);
 	}
 }
@@ -7200,7 +7408,7 @@ skip_prepared_action_prequeue(struct qstar_graph *graph, struct qstar_build_ctx 
 		    action->id, child_stdout_path, child_stderr_path);
 		build_tracef(ctx,
 		    "scheduler_event event=pre_skip id=%s target=%s state=cache-hit retry=no\n",
-		    action->id, action->target->label);
+		    action->id, prepared_action_owner_label(action));
 		action_log_queue_skip_ref(ctx, action_log, action->argv,
 		    action->description);
 	}
@@ -7285,7 +7493,28 @@ scheduler_prepare_process_node(struct qstar_scheduler *sched, size_t node_index)
 		return prepare_final_action(sched->graph, sched->ctx, node->target,
 		    node->toolchain, &node->action);
 	}
+	if (node->kind == QSTAR_SCHED_GENERATE)
+		return prepare_generated_action(sched->graph, sched->ctx, NULL,
+		    node->genrule, &node->action);
+	if (node->kind == QSTAR_SCHED_RUN)
+		return prepare_run_action(sched->graph, sched->ctx, node->target,
+		    &node->action);
 	return qstar_set_error(sched->graph, "qstar: scheduler node is not a process action");
+}
+
+/** scheduler node가 async process runner에 올라갈 수 있는지 확인한다. */
+static int
+scheduler_node_is_process_action(const struct qstar_sched_node *node)
+{
+	if (!node)
+		return 0;
+	if (node->kind == QSTAR_SCHED_COMPILE || node->kind == QSTAR_SCHED_FINAL)
+		return 1;
+	if (node->kind == QSTAR_SCHED_GENERATE)
+		return node->genrule && !node->genrule->config_header;
+	if (node->kind == QSTAR_SCHED_RUN)
+		return !run_target_is_noop_true(node->target);
+	return 0;
 }
 
 /** scheduler graph에서 사용자-facing progress action 수를 계산한다. */
@@ -7345,8 +7574,7 @@ scheduler_execute(struct qstar_scheduler *sched)
 				break;
 			if (sched->nodes[node_index].state != QSTAR_SCHED_READY)
 				continue;
-			if (sched->nodes[node_index].kind != QSTAR_SCHED_COMPILE &&
-			    sched->nodes[node_index].kind != QSTAR_SCHED_FINAL) {
+			if (!scheduler_node_is_process_action(&sched->nodes[node_index])) {
 				if (progress_node_counts(&sched->nodes[node_index]))
 					progress_status(sched->ctx,
 					    progress_stage_name(&sched->nodes[node_index]),
@@ -7399,7 +7627,7 @@ scheduler_execute(struct qstar_scheduler *sched)
 			}
 			build_tracef(sched->ctx,
 			    "parallel_slot target=%s slot=%zu state=assign action=%s queue=%zu scheduler=global\n",
-			    sched->nodes[node_index].target->label, slot,
+			    prepared_action_owner_label(&sched->nodes[node_index].action), slot,
 			    sched->nodes[node_index].action.id,
 			    sched->nodes[node_index].target_queue_index);
 			rc = start_prepared_action(sched->graph, sched->ctx,
@@ -7433,7 +7661,27 @@ scheduler_execute(struct qstar_scheduler *sched)
 			waited = waitpid(running[i].pid, &status, WNOHANG);
 			if (waited == 0) {
 				if (time(NULL) - running[i].start >=
-				    sched->ctx->action_timeout_sec) {
+				    running[i].timeout_sec) {
+					char stdout_rel[QSTAR_PATH_MAX];
+					char stderr_rel[QSTAR_PATH_MAX];
+					char replay_rel[QSTAR_PATH_MAX];
+					const char *owner_label;
+					const char *failure_kind;
+
+					owner_label = prepared_action_owner_label(running[i].action);
+					failure_kind = classify_failure_kind(
+					    running[i].action->kind, running[i].action->target,
+					    running[i].action->argv, "timeout");
+					if (build_log_rel(sched->graph, running[i].name,
+					    ".stdout", stdout_rel, sizeof(stdout_rel)) < 0)
+						snprintf(stdout_rel, sizeof(stdout_rel), "<none>");
+					if (build_log_rel(sched->graph, running[i].name,
+					    ".stderr", stderr_rel, sizeof(stderr_rel)) < 0)
+						snprintf(stderr_rel, sizeof(stderr_rel), "<none>");
+					if (build_replay_rel(sched->graph, replay_rel,
+					    sizeof(replay_rel)) < 0)
+						snprintf(replay_rel, sizeof(replay_rel),
+						    "build/qstar/logs/last-failure.replay");
 					kill(running[i].pid, SIGKILL);
 					waitpid(running[i].pid, &status, 0);
 					running[i].pid = 0;
@@ -7443,28 +7691,49 @@ scheduler_execute(struct qstar_scheduler *sched)
 					    running[i].action_log,
 					    running[i].action->argv, 124,
 					    running[i].action->description);
-					write_failure_replay(sched->graph,
+					write_failure_replay_detail(sched->graph,
 					    running[i].action->id,
 					    running[i].action->toolchain,
 					    running[i].action->argv,
-					    running[i].action->description);
+					    running[i].action->description, failure_kind,
+					    owner_label, stdout_rel, stderr_rel,
+					    running[i].action->target ?
+					    running[i].action->target->run_marker : NULL,
+					    running[i].action->target ?
+					    running[i].action->target->run_marker_log : NULL);
 					sched->ctx->fail_count++;
 					sched->ctx->cancelled = 1;
 					build_tracef(sched->ctx,
 					    "build_action id=%s status=timeout timeout_sec=%d\n",
-					    running[i].action->id,
-					    sched->ctx->action_timeout_sec);
+					    running[i].action->id, running[i].timeout_sec);
 					build_tracef(sched->ctx,
 					    "parallel_event target=%s event=timeout id=%s slot=%zu state=timeout retry=next-build cancel=active\n",
-					    running[i].action->target->label,
+					    owner_label,
 					    running[i].action->id, running[i].slot);
+					emit_action_diagnostic(sched->ctx->out,
+					    running[i].action->id, running[i].action->kind,
+					    owner_label, failure_kind, "timeout", 124,
+					    stdout_rel, stderr_rel, replay_rel);
+					if (strcmp(running[i].action->kind, "run") == 0) {
+						fprintf(sched->ctx->out,
+						    "run_target_result label=%s status=timeout timeout_sec=%d replay=%s stdout=%s stderr=%s\n",
+						    owner_label, running[i].timeout_sec,
+						    replay_rel, stdout_rel, stderr_rel);
+						rc = qstar_set_error_origin(sched->graph,
+						    prepared_action_origin_file(running[i].action),
+						    prepared_action_origin_line(running[i].action),
+						    failure_kind, owner_label,
+						    "qstar: run_target '%s' timed out after %d seconds; replay=%s",
+						    owner_label, running[i].timeout_sec,
+						    replay_rel);
+						goto fail;
+					}
 					rc = qstar_set_error_origin(sched->graph,
-					    running[i].action->target->origin_file,
-					    running[i].action->target->origin_line, "action",
-					    running[i].action->target->label,
+					    prepared_action_origin_file(running[i].action),
+					    prepared_action_origin_line(running[i].action),
+					    failure_kind, owner_label,
 					    "qstar: action '%s' timed out after %d seconds; replay=%s/logs/last-failure.replay",
-					    running[i].action->id,
-					    sched->ctx->action_timeout_sec,
+					    running[i].action->id, running[i].timeout_sec,
 					    qstar_graph_build_dir(sched->graph));
 					goto fail;
 				}
