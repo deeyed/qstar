@@ -632,6 +632,48 @@ default jobs, ready queue width, async final action, staticlib argv parity를 ga
 3. graph snapshot과 build summary write를 release/debug 필요도에 따라 더 줄인다.
 4. Linux CI에서 같은 line protocol을 수집해 macOS-local 수치만으로 판단하지 않게 한다.
 
+### Q138 Large Synthetic Corpus Gate
+
+Status: implemented.
+
+Q138은 medium corpus보다 큰 synthetic project shape를 별도 report gate로 추가한다. Medium
+gate는 release smoke와 beta readiness 대표값이고, large gate는 scaling 관찰용이다.
+
+Large gate는 기본적으로 200 target과 500 target mode를 만든다. 각 mode는 staticlib fanout,
+mode별 executable link shard, `qstar.group "all"`, fake external compiler 기반 object artifact
+bridge를 포함한다. Link shard는 500 target mode에서 argv-limit test가 아니라 scheduler
+scaling test가 되도록 staticlib dependency를 나누어 가진다. Object artifact bridge는 새
+language provider를 추가하지 않고 `qstar.custom_target`이
+`qstar.output(..., {format = "object"})`를 만들고, staticlib가 그 object를 source로 소비한 뒤
+executable shard가 해당 staticlib를 link dependency로 받는 구조다.
+
+Line protocol은 `large_project_gate` prefix를 쓴다. Timing은 report-only이고, graph/build
+failure, compile database 누락, generated object 누락, Ninja root `.ninja_log`/`.ninja_deps`
+오염은 hard fail이다.
+
+Observed Q138 timing on the large synthetic corpus, local macOS arm64:
+
+```txt
+large_project_gate mode=200 target_count=200 generated_actions=4 host_jobs=10
+large_project_gate mode=200 backend=stella phase=clean elapsed_ms=1115
+large_project_gate mode=200 backend=stella phase=noop elapsed_ms=77
+large_project_gate mode=200 backend=stella phase=incremental elapsed_ms=115
+large_project_gate mode=200 backend=stella-jobs jobs=10 phase=clean elapsed_ms=1123
+large_project_gate mode=200 backend=ninja phase=clean elapsed_ms=2202
+large_project_gate mode=200 backend=ninja phase=incremental elapsed_ms=146
+large_project_gate mode=500 target_count=500 generated_actions=4 host_jobs=10
+large_project_gate mode=500 backend=stella phase=clean elapsed_ms=2284
+large_project_gate mode=500 backend=stella phase=noop elapsed_ms=98
+large_project_gate mode=500 backend=stella phase=incremental elapsed_ms=139
+large_project_gate mode=500 backend=stella-jobs jobs=10 phase=clean elapsed_ms=5171
+large_project_gate mode=500 backend=ninja phase=clean elapsed_ms=2545
+large_project_gate mode=500 backend=ninja phase=incremental elapsed_ms=204
+large_project_gate status=ok perf_issue_count=0 report_only=1 modes="200 500"
+```
+
+첫 large gate에서는 Stella가 이 host에서 Ninja와 같은 성능권에 머물렀다. 다음 성능 작업은
+medium-only micro-optimization보다 multi-run summary와 Linux CI 수집이 더 중요하다.
+
 ## Acceptance Criteria
 
 Q120 이후:

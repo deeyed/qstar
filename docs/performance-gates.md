@@ -146,3 +146,104 @@ QSTAR_MEDIUM_PERF_REPORT_ONLY=0 make qstar-medium-project-readiness-tests
 이 fixture는 `qstar.group`, `qstar.config`, 여러 `qstar.staticlib`, 하나의 executable을
 포함한다. 성능 비교의 정본은 dynamic gate이고, 정적 fixture는 authoring과 manual smoke를
 위한 안정된 입력이다.
+
+## Large Synthetic Corpus Gate
+
+Q138부터 large synthetic corpus gate를 별도로 둔다. Medium gate는 release smoke에
+가깝고, large gate는 Stella/Ninja scheduler scaling을 보기 위한 report-only 성능 입력이다.
+
+```sh
+QSTAR_TEST_QSTAR=./build/bin/qstar sh tests/large-project-performance.sh
+```
+
+Makefile target도 제공한다.
+
+```sh
+make qstar-large-project-performance-tests
+```
+
+기본 mode는 200 target과 500 target이다.
+
+```sh
+QSTAR_LARGE_PROJECT_TARGETS="200 500" sh tests/large-project-performance.sh
+```
+
+빠른 local 확인이 필요하면 한 mode만 실행할 수 있다.
+
+```sh
+QSTAR_LARGE_PROJECT_TARGETS=200 QSTAR_TEST_QSTAR=./build/bin/qstar \
+  sh tests/large-project-performance.sh
+```
+
+Large corpus shape:
+
+- `qstar.staticlib` fanout target을 mode별로 생성한다.
+- mode별로 하나 이상의 `qstar.executable` link shard가 staticlib를 나누어 dependency로 가진다.
+- `qstar.group "all"`이 top-level aggregate다.
+- 여러 `qstar.custom_target`이 fake external compiler를 호출해
+  `qstar.output(..., {format = "object"})` object artifact를 만든다.
+- 생성된 object artifact는 staticlib source로 소비되고, executable shard는 해당 staticlib를
+  link dependency로 받는다.
+- Stella default, Stella explicit `--jobs`, Ninja의 clean/no-op/incremental 시간을 모두
+  기록한다.
+- 각 backend는 동일한 synthetic source tree를 별도 임시 root에 생성해 측정한다. Project-level
+  `generated_dir`가 backend 간에 공유되어 clean 비교가 흐려지는 일을 피하기 위해서다.
+
+Large gate line protocol은 `large_project_gate` prefix를 쓴다.
+
+```txt
+large_project_gate mode=200 target_count=200 generated_actions=4 host_jobs=10
+large_project_gate mode=200 backend=stella phase=clean elapsed_ms=1234
+large_project_gate mode=200 backend=stella-jobs jobs=10 phase=clean elapsed_ms=1200
+large_project_gate mode=200 backend=ninja phase=clean elapsed_ms=900
+large_project_gate mode=200 compare phase=clean stella_ms=1234 ninja_ms=900 ratio_x100=200 slack_ms=500
+large_project_gate status=ok perf_issue_count=0 report_only=1 modes="200 500"
+```
+
+Large gate의 timing threshold는 기본적으로 report-only다. Graph failure, build failure,
+compile database 누락, generated object bridge 누락, Ninja root `.ninja_log`/`.ninja_deps`
+오염은 hard fail이다.
+
+Large gate가 보는 질문은 medium gate와 다르다.
+
+| Gate | 목적 |
+| --- | --- |
+| Medium | release smoke와 beta readiness 대표값 |
+| Large | target/action 수가 늘어날 때 scheduler scaling, link sharding, metadata overhead 관찰 |
+
+Large gate 결과가 안정화되기 전까지는 release note에 숫자를 넣더라도 "representative
+local run"으로만 표기한다. Stable 성능 보장으로 쓰지 않는다.
+
+Round Q138 local macOS arm64 대표 측정값:
+
+```txt
+large_project_gate mode=200 target_count=200 generated_actions=4 host_jobs=10
+large_project_gate mode=200 backend=stella phase=clean elapsed_ms=1115
+large_project_gate mode=200 backend=stella phase=noop elapsed_ms=77
+large_project_gate mode=200 backend=stella phase=incremental elapsed_ms=115
+large_project_gate mode=200 backend=stella-jobs jobs=10 phase=clean elapsed_ms=1123
+large_project_gate mode=200 backend=stella-jobs jobs=10 phase=noop elapsed_ms=77
+large_project_gate mode=200 backend=stella-jobs jobs=10 phase=incremental elapsed_ms=116
+large_project_gate mode=200 backend=ninja phase=clean elapsed_ms=2202
+large_project_gate mode=200 backend=ninja phase=noop elapsed_ms=96
+large_project_gate mode=200 backend=ninja phase=incremental elapsed_ms=146
+large_project_gate mode=500 target_count=500 generated_actions=4 host_jobs=10
+large_project_gate mode=500 backend=stella phase=clean elapsed_ms=2284
+large_project_gate mode=500 backend=stella phase=noop elapsed_ms=98
+large_project_gate mode=500 backend=stella phase=incremental elapsed_ms=139
+large_project_gate mode=500 backend=stella-jobs jobs=10 phase=clean elapsed_ms=5171
+large_project_gate mode=500 backend=stella-jobs jobs=10 phase=noop elapsed_ms=103
+large_project_gate mode=500 backend=stella-jobs jobs=10 phase=incremental elapsed_ms=150
+large_project_gate mode=500 backend=ninja phase=clean elapsed_ms=2545
+large_project_gate mode=500 backend=ninja phase=noop elapsed_ms=159
+large_project_gate mode=500 backend=ninja phase=incremental elapsed_ms=204
+large_project_gate status=ok perf_issue_count=0 report_only=1 modes="200 500"
+```
+
+해석:
+
+- 200 target mode에서는 Stella default와 explicit jobs clean이 Ninja보다 빠르게 측정됐다.
+- 500 target mode에서는 Stella default clean이 Ninja보다 빠르게 측정됐고, explicit jobs clean은
+  이번 run에서 느리게 튀었지만 report-only ratio 범위 안에 있었다.
+- no-op과 incremental은 200/500 mode 모두 Ninja급 또는 그보다 빠른 범위에 들어왔다.
+- 이 결과는 large target count에서 Q137의 scheduler 개선이 무너지지 않는다는 첫 증거다.
