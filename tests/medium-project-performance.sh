@@ -12,6 +12,7 @@ ratio_slack_ms=${QSTAR_MEDIUM_RATIO_SLACK_MS:-250}
 min_targets=${QSTAR_MEDIUM_MIN_TARGETS:-40}
 report_only=${QSTAR_MEDIUM_PERF_REPORT_ONLY:-1}
 perf_issue_count=0
+daemon_pid=
 
 fail() {
 	echo "qstar-medium-project: $*" >&2
@@ -132,9 +133,17 @@ write_staticlib() {
 	printf 'int %s(void) { return %s; }\n' "$func" "$value" > "$root/$dir/$base.c"
 }
 
+cleanup() {
+	if [ -n "${daemon_pid:-}" ]; then
+		kill "$daemon_pid" 2>/dev/null || true
+		wait "$daemon_pid" 2>/dev/null || true
+	fi
+	rm -rf "$tmp"
+}
+
 rm -rf "$tmp"
 mkdir -p "$root"
-trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+trap cleanup EXIT HUP INT TERM
 
 cat > "$root/qstar.lua" <<'EOF'
 qstar.project {
@@ -429,6 +438,46 @@ run_timed stella_incremental "$qstar" --file "$root/qstar.lua" -B build/stella -
 contains "$tmp/stella_incremental.out" "status ok"
 check_elapsed_max "stella incremental build" "$stella_incremental_ms" "$incremental_max_ms"
 printf 'medium_project_gate backend=stella phase=incremental elapsed_ms=%s\n' "$stella_incremental_ms"
+
+daemon_sock="/tmp/qstar-medium-daemon.$$.sock"
+rm -f "$daemon_sock"
+"$qstar" --file "$root/qstar.lua" -B build/stella-daemon daemon --socket "$daemon_sock" --serve > "$tmp/stella_daemon_server.out" 2> "$tmp/stella_daemon_server.err" &
+daemon_pid=$!
+i=0
+while [ ! -S "$daemon_sock" ] && kill -0 "$daemon_pid" 2>/dev/null && [ "$i" -lt 30 ]; do
+	sleep 0.1
+	i=$((i + 1))
+done
+if [ -S "$daemon_sock" ]; then
+	run_timed stella_daemon_warm "$qstar" --file "$root/qstar.lua" -B build/stella-daemon -G stella build //:firmware_image --use-daemon=always --daemon-socket "$daemon_sock" --schedule-trace --progress off --color never
+	contains "$tmp/stella_daemon_warm.out" "daemon_server status=build graph=miss"
+	contains "$tmp/stella_daemon_warm.out" "status ok"
+	run_timed stella_daemon_noop "$qstar" --file "$root/qstar.lua" -B build/stella-daemon -G stella build //:firmware_image --use-daemon=always --daemon-socket "$daemon_sock" --schedule-trace --progress off --color never
+	contains "$tmp/stella_daemon_noop.out" "daemon_server status=build graph=hit reason=memory experimental=1"
+	contains "$tmp/stella_daemon_noop.out" "status ok"
+	bump_source "sys/kern/mm/mm.c" 7004
+	run_timed stella_daemon_incremental "$qstar" --file "$root/qstar.lua" -B build/stella-daemon -G stella build //:firmware_image --use-daemon=always --daemon-socket "$daemon_sock" --schedule-trace --progress off --color never
+	contains "$tmp/stella_daemon_incremental.out" "daemon_server status=build graph=hit reason=memory experimental=1"
+	contains "$tmp/stella_daemon_incremental.out" "status ok"
+	printf 'medium_project_gate backend=stella-daemon phase=warm elapsed_ms=%s\n' "$stella_daemon_warm_ms"
+	printf 'medium_project_gate backend=stella-daemon phase=noop elapsed_ms=%s cli_noop_ms=%s\n' "$stella_daemon_noop_ms" "$stella_noop_ms"
+	printf 'medium_project_gate backend=stella-daemon phase=incremental elapsed_ms=%s cli_incremental_ms=%s\n' "$stella_daemon_incremental_ms" "$stella_incremental_ms"
+	kill "$daemon_pid" 2>/dev/null || true
+	wait "$daemon_pid" 2>/dev/null || true
+	daemon_pid=
+	rm -f "$daemon_sock"
+else
+	if grep -F -q "Operation not permitted" "$tmp/stella_daemon_server.err"; then
+		printf 'medium_project_gate backend=stella-daemon phase=noop elapsed_ms=skipped reason=socket-bind-not-permitted\n'
+		printf 'medium_project_gate backend=stella-daemon phase=incremental elapsed_ms=skipped reason=socket-bind-not-permitted\n'
+		kill "$daemon_pid" 2>/dev/null || true
+		wait "$daemon_pid" 2>/dev/null || true
+		daemon_pid=
+	else
+		cat "$tmp/stella_daemon_server.err" >&2
+		fail "experimental daemon socket did not become ready"
+	fi
+fi
 
 run_timed stella_jobs_clean "$qstar" --file "$root/qstar.lua" -B build/stella-jobs -G stella build //:firmware_image --jobs "$host_jobs"
 contains "$tmp/stella_jobs_clean.out" "group_target label=//:firmware_image"

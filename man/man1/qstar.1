@@ -1,4 +1,4 @@
-.Dd June 13, 2026
+.Dd June 14, 2026
 .Dt QSTAR 1
 .Os
 .Sh NAME
@@ -149,6 +149,13 @@ Build accepts
 .Fl -quiet ,
 and
 .Fl -progress Ar auto|plain|off .
+Experimental daemon clients also accept
+.Fl -use-daemon Ar auto|never|always
+and
+.Fl -daemon-socket Ar path .
+The daemon path is opt-in; normal
+.Ar stella
+build behavior is unchanged.
 Default output is compact progress plus the final build summary.
 Verbose output adds status lines and
 .Li build_action
@@ -178,6 +185,18 @@ prefix in orange/yellow. It highlights the
 prefix in bold red.
 .Fl -color Ar never
 and non-TTY output disable ANSI color, and JSON diagnostics remain uncolored.
+.It Ic daemon
+Run the experimental persistent Stella daemon in the foreground, or check a
+daemon socket.
+.Bd -literal -offset indent
+qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --serve
+qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --status
+.Ed
+.Pp
+This is not a stable public surface yet. The Q144 MVP keeps Graph IR and the
+lowered plan cache result in process memory, reloads on authoring input
+mtime/size changes, and lets existing Stella dirty-check state handle ordinary
+source/header changes.
 .Pp
 Action descriptions are also preserved in action-log and replay metadata.
 .Ic qstar action-log ,

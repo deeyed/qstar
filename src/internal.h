@@ -218,4 +218,24 @@ int qstar_stella_plan_cache_store(struct qstar_graph *graph, const char *file,
 /** 현재 Graph에서 실행 가능한 lowered action plan을 준비한다. */
 int qstar_graph_prepare_lowered_action_cache(struct qstar_graph *graph, const char *label);
 
+enum {
+	QSTAR_DAEMON_NEVER = 0,
+	QSTAR_DAEMON_AUTO = 1,
+	QSTAR_DAEMON_ALWAYS = 2
+};
+
+/** CLI daemon mode 문자열을 experimental daemon policy로 변환한다. */
+int qstar_daemon_parse_mode(const char *s, int *mode);
+
+/** experimental persistent Stella daemon command를 실행한다. */
+int qstar_daemon_command(int argc, char **argv, const char *file,
+    const char *cli_build_dir, FILE *out);
+
+/** build request를 experimental daemon으로 보내고 응답 output을 out에 복사한다. */
+int qstar_daemon_build_client(const char *socket_path, int mode, const char *file,
+    const char *label, const char *cli_build_dir, const char *cli_profile,
+    const char *cli_target, const char *cli_toolchain, const char *cli_stdlib,
+    const struct qstar_build_options *options, FILE *out, int *build_status,
+    char *error, size_t error_len);
+
 #endif

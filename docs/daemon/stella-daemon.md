@@ -1,13 +1,13 @@
 # Persistent Stella Daemon Workflow
 
-이 문서는 Round Q143에서 persistent Stella daemon의 장기 계약을 고정한다. 아직 구현된
-CLI surface가 아니라 설계 문서다. 목표는 QStar의 Lua DSL과 rich diagnostics는 유지하면서,
+이 문서는 Round Q143에서 persistent Stella daemon의 장기 계약을 고정했고, Round Q144에서
+첫 experimental MVP 상태를 반영한다. 아직 stable CLI surface가 아니다. 목표는 QStar의 Lua DSL과 rich diagnostics는 유지하면서,
 반복 build invocation마다 Lua eval, Graph IR load, plan cache load, dirty state load를
 처음부터 반복하지 않는 구조를 만드는 것이다.
 
 ```txt
-status: design-only
-round: Q143
+status: experimental-mvp
+round: Q144
 command namespace: qstar daemon
 initial hosts: macOS and Linux over Unix domain sockets
 deferred hosts: Windows named pipe
@@ -16,15 +16,15 @@ related: docs/perf/stella-plan-cache-design.md
 
 ## Decision
 
-User-facing command namespace는 `qstar daemon`으로 한다.
+User-facing command namespace는 `qstar daemon`으로 한다. Q144 MVP는 foreground server와
+explicit build client만 제공한다.
 
 ```sh
-qstar daemon start --file qstar.lua -B build/qstar
-qstar daemon status --file qstar.lua -B build/qstar
-qstar daemon stop --file qstar.lua -B build/qstar
-qstar build --daemon auto //:app
-qstar build --daemon on //:app
-qstar build --daemon off //:app
+qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --serve
+qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --status
+qstar build //:app --use-daemon=auto --daemon-socket build/qstar/stella/daemon/qstar-daemon.sock
+qstar build //:app --use-daemon=always --daemon-socket build/qstar/stella/daemon/qstar-daemon.sock
+qstar build //:app --use-daemon=never
 ```
 
 `qstar stella-daemon`은 채택하지 않는다. 이유는 세 가지다.
@@ -39,17 +39,18 @@ name도 `stella`로 기록할 수 있지만, CLI command는 `qstar daemon`이다
 
 ## Rollout Policy
 
-초기 구현은 opt-in이다.
+초기 구현은 opt-in이다. Q143 설계안의 `--daemon auto|on|off` 이름은 Q144 MVP에서
+`--use-daemon=auto|always|never`로 바뀌었다.
 
 | Mode | 의미 |
 | --- | --- |
-| `--daemon off` | daemon을 사용하지 않고 현재 Stella build path를 그대로 사용한다. |
-| `--daemon auto` | daemon 연결을 시도하고 실패하면 normal Stella build로 fallback한다. |
-| `--daemon on` | daemon 연결 또는 request가 실패하면 command failure로 처리한다. |
+| `--use-daemon=never` | daemon을 사용하지 않고 현재 Stella build path를 그대로 사용한다. |
+| `--use-daemon=auto` | daemon 연결을 시도하고 실패하면 normal Stella build로 fallback한다. |
+| `--use-daemon=always` | daemon 연결 또는 request가 실패하면 command failure로 처리한다. |
 
 초기 beta에서는 `qstar build` 기본값을 즉시 daemon으로 바꾸지 않는다. CLI standalone build의
 예측 가능성을 위해 normal Stella path를 유지하고, IDE/editor frontend와 performance
-실험은 `--daemon auto` 또는 explicit daemon lifecycle로 시작한다. 충분히 안정화되면 future
+실험은 `--use-daemon=auto` 또는 explicit daemon lifecycle로 시작한다. 충분히 안정화되면 future
 release에서 default policy를 다시 검토한다.
 
 Fallback은 silent success가 아니다. `--verbose` 또는 `--schedule-trace`에서는 다음처럼
@@ -60,7 +61,13 @@ daemon status=unavailable reason=socket-missing fallback=stella
 ```
 
 일반 output에서는 daemon fallback이 build result를 오염시키지 않아야 한다. 단,
-`--daemon on`에서는 fallback하지 않고 명확한 diagnostic을 낸다.
+`--use-daemon=always`에서는 fallback하지 않고 명확한 diagnostic을 낸다.
+
+Q144 MVP는 같은 daemon process 안에서 Graph IR와 lowered plan cache 결과를 memory에
+유지한다. Authoring input의 mtime/size가 바뀌면 graph를 다시 load한다. 일반 source/header
+변경은 기존 Stella dirty-check와 depfile/state DB가 처리한다. `state.db`와 `deps.db` 자체를
+daemon memory index로 완전히 올리는 작업, file watcher, background start/stop lifecycle,
+permission hardening은 후속 라운드다.
 
 ## Why A Daemon
 
@@ -299,7 +306,7 @@ They belong to the editor or AI tool, with separate preview/apply/audit rules.
 
 Fallback behavior:
 
-| Condition | `--daemon auto` | `--daemon on` |
+| Condition | `--use-daemon=auto` | `--use-daemon=always` |
 | --- | --- | --- |
 | socket missing | normal Stella build | fail |
 | protocol mismatch | normal Stella build | fail |
@@ -314,12 +321,12 @@ Root mismatch is never a fallback case because falling back could hide a securit
 
 Recommended future implementation order:
 
-1. `qstar daemon status/start/stop` skeleton with Unix socket and stale cleanup.
-2. Read-only `hello`, `workspace.info`, `targets.list` protocol.
-3. Persistent plan cache load with authoring fingerprint validation.
-4. `qstar build --daemon auto` forwarding, CLI progress rendering, normal fallback.
-5. File watcher invalidation for authoring files and source/header paths.
-6. In-memory `state.db` and `deps.db` indexes with batch write-back.
+1. Q144: foreground `qstar daemon --serve`, `--status`, `qstar build --use-daemon=...` forwarding.
+2. Background start/stop, pid/lock/stale cleanup, owner-only socket permission hardening.
+3. Read-only `hello`, `workspace.info`, `targets.list` protocol.
+4. File watcher invalidation for authoring files and source/header paths.
+5. In-memory `state.db` and `deps.db` indexes with batch write-back.
+6. CLI progress streaming instead of response-at-end forwarding.
 7. IDE/AI read-only API surface and audit log.
 8. Windows named pipe design refresh and native validation.
 

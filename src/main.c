@@ -31,6 +31,7 @@ usage(FILE *out)
 	fputs("       qstar [options] last-failure\n", out);
 	fputs("       qstar [options] action-log <action-id>\n", out);
 	fputs("       qstar [options] replay <action-id>\n", out);
+	fputs("       qstar [options] daemon --socket path --serve  # experimental\n", out);
 	fputs("       qstar lsp --stdio\n", out);
 	fputs("       qstar init c-app|c-lib|generated|mixed-cale [directory]\n", out);
 	fputs("       qstar [options] --dump-graph\n", out);
@@ -49,6 +50,8 @@ usage(FILE *out)
 	fputs("       --progress auto|plain|off  # default: CMake-style action progress\n", out);
 	fputs("       --verbose  # keep progress and add argv/cache/action details\n", out);
 	fputs("       --schedule-trace  # add scheduler internals such as schedule_action\n", out);
+	fputs("       --use-daemon auto|never|always  # experimental Stella daemon client\n", out);
+	fputs("       --daemon-socket path  # experimental Stella daemon socket\n", out);
 	fputs("       --quiet\n", out);
 }
 
@@ -68,7 +71,7 @@ command_help(FILE *out, const char *cmd)
 		return;
 	}
 	if (strcmp(cmd, "build") == 0) {
-		fputs("usage: qstar [options] build [label] [--jobs N] [--schedule-trace] [--explain-cache] [--verbose|--quiet] [--progress auto|plain|off]\n", out);
+		fputs("usage: qstar [options] build [label] [--jobs N] [--schedule-trace] [--explain-cache] [--verbose|--quiet] [--progress auto|plain|off] [--use-daemon auto|never|always]\n", out);
 		fputs("Build a target, generated action, run target, or group target in the validated graph.\n", out);
 		fputs("--jobs defaults to the host CPU count when omitted.\n", out);
 		fputs("Default progress uses CMake-style action lines such as '[ 75%] Linking CXX executable app'.\n", out);
@@ -76,6 +79,15 @@ command_help(FILE *out, const char *cmd)
 		fputs("--verbose keeps progress and adds argv/cache/action details.\n", out);
 		fputs("--schedule-trace adds scheduler internals; default output hides Stage/Status/schedule_action/build_action details.\n", out);
 		fputs("--color controls warning:/error: ANSI color in text output; JSON diagnostics stay uncolored.\n", out);
+		fputs("--use-daemon is experimental; auto falls back to normal Stella, always fails on daemon errors.\n", out);
+		fputs("--daemon-socket selects the experimental Unix socket path.\n", out);
+		return;
+	}
+	if (strcmp(cmd, "daemon") == 0) {
+		fputs("usage: qstar [options] daemon --socket path --serve\n", out);
+		fputs("       qstar [options] daemon --socket path --status\n", out);
+		fputs("Run the experimental persistent Stella daemon in the foreground.\n", out);
+		fputs("This is not a stable public surface yet; normal qstar build is unchanged.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "docs") == 0) {
@@ -436,13 +448,14 @@ main(int argc, char **argv)
 	struct qstar_graph graph;
 	const char *file, *cmd, *label, *diagnostic_format, *lint_format, *list_format;
 	const char *cli_profile, *cli_target, *cli_toolchain, *cli_stdlib;
-	const char *cli_generator, *cli_build_dir;
+	const char *cli_generator, *cli_build_dir, *daemon_socket;
 	struct qstar_build_options build_options;
 	struct qstar_install_options install_options;
 	struct qstar_stage_options stage_options;
 	char init_error[512];
 	char plan_cache_reason[128], plan_cache_store_reason[128];
 	int arg, rc, cli_overrides_applied, plan_cache_loaded, plan_cache_checked;
+	int daemon_mode, daemon_status;
 
 	qstar_graph_init(&graph);
 	memset(&build_options, 0, sizeof(build_options));
@@ -460,6 +473,8 @@ main(int argc, char **argv)
 	cli_stdlib = NULL;
 	cli_generator = NULL;
 	cli_build_dir = NULL;
+	daemon_socket = NULL;
+	daemon_mode = QSTAR_DAEMON_NEVER;
 	if (argc == 2 && strcmp(argv[1], "--version") == 0) {
 		print_version(stdout);
 		qstar_graph_free(&graph);
@@ -730,6 +745,12 @@ main(int argc, char **argv)
 		qstar_graph_free(&graph);
 		return rc < 0 ? 1 : rc;
 	}
+	if (strcmp(cmd, "daemon") == 0) {
+		rc = qstar_daemon_command(argc - arg, argv + arg, file, cli_build_dir,
+		    stdout);
+		qstar_graph_free(&graph);
+		return rc;
+	}
 	label = NULL;
 	cli_overrides_applied = 0;
 	plan_cache_loaded = 0;
@@ -884,6 +905,29 @@ main(int argc, char **argv)
 			} else if (strcmp(argv[arg], "--quiet") == 0) {
 				build_options.quiet = 1;
 				arg++;
+			} else if (strncmp(argv[arg], "--use-daemon=", 13) == 0) {
+				if (qstar_daemon_parse_mode(argv[arg] + 13, &daemon_mode) < 0) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				arg++;
+			} else if (strcmp(argv[arg], "--use-daemon") == 0) {
+				if (arg + 1 >= argc ||
+				    qstar_daemon_parse_mode(argv[arg + 1], &daemon_mode) < 0) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				arg += 2;
+			} else if (strcmp(argv[arg], "--daemon-socket") == 0) {
+				if (arg + 1 >= argc) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				daemon_socket = argv[arg + 1];
+				arg += 2;
 			} else if (!label) {
 				label = argv[arg++];
 			} else {
@@ -920,6 +964,35 @@ main(int argc, char **argv)
 	if (rc == 0 && strcmp(cmd, "build") == 0) {
 		rc = qstar_graph_set_cli_overrides(&graph, cli_generator, cli_build_dir);
 		cli_overrides_applied = rc == 0;
+	}
+	if (rc == 0 && strcmp(cmd, "build") == 0 &&
+	    daemon_mode != QSTAR_DAEMON_NEVER) {
+		char daemon_error[512];
+		int client_rc;
+
+		if (strcmp(qstar_graph_generator(&graph), "ninja") == 0) {
+			if (daemon_mode == QSTAR_DAEMON_ALWAYS)
+				rc = qstar_set_error(&graph,
+				    "qstar: --use-daemon=always is only supported with the Stella generator");
+		} else {
+			daemon_status = 1;
+			client_rc = qstar_daemon_build_client(daemon_socket, daemon_mode,
+			    file, label, cli_build_dir, cli_profile, cli_target,
+			    cli_toolchain, cli_stdlib, &build_options, stdout,
+			    &daemon_status, daemon_error, sizeof(daemon_error));
+			if (client_rc == 0) {
+				qstar_graph_free(&graph);
+				return daemon_status == 0 ? 0 : 1;
+			}
+			if (daemon_mode == QSTAR_DAEMON_ALWAYS) {
+				rc = qstar_set_error(&graph, "qstar: daemon build failed: %s",
+				    daemon_error[0] ? daemon_error : "unknown");
+			} else if (build_options.schedule_trace || build_options.verbose) {
+				fprintf(stdout,
+				    "daemon status=unavailable reason=%s fallback=stella\n",
+				    daemon_error[0] ? daemon_error : "unknown");
+			}
+		}
 	}
 	if (rc == 0 && strcmp(cmd, "build") == 0 &&
 	    strcmp(qstar_graph_generator(&graph), "stella") == 0) {

@@ -236,9 +236,9 @@ historical version record는 보존한다.
 - Windows official support and Windows release artifact.
 - Linux public release artifact decision. Q113 adds the dry-run path, but attaching
   the asset to a GitHub release remains a separate release decision.
-- Persistent Stella daemon implementation. Q143 fixes the design in
-  `docs/daemon/stella-daemon.md`, but CLI daemon lifecycle and socket protocol are
-  post-0.5 implementation work.
+- Persistent Stella daemon maturation. Q144 adds an experimental foreground Unix socket MVP with
+  `qstar daemon --serve` and `qstar build --use-daemon=...`, but background lifecycle, streaming
+  progress, file watchers, and in-memory state/deps DB indexes remain post-0.5 work.
 - Windows `.dll`/import-library/PDB sharedlib support.
 - Cale source Ninja wrapper lowering.
 - C++ modules execution policy.

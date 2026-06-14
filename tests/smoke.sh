@@ -7,6 +7,7 @@ group_tmp=${TMPDIR:-/tmp}/qstar-smoke-group.$$
 last_step="setup"
 last_prefix=
 dumped=0
+daemon_pid=
 
 dump_file_tail() {
 	file=$1
@@ -73,6 +74,10 @@ step() {
 
 cleanup() {
 	rc=$?
+	if [ -n "${daemon_pid:-}" ]; then
+		kill "$daemon_pid" 2>/dev/null || true
+		wait "$daemon_pid" 2>/dev/null || true
+	fi
 	if [ "$rc" -ne 0 ]; then
 		echo "qstar-smoke: failed during $last_step (exit $rc)" >&2
 		dump_step_files
@@ -235,6 +240,49 @@ printf '%s\n' '-- plan cache invalidation smoke' >> "$tmp/qstar.lua"
 "$qstar" --file "$tmp/qstar.lua" build //:app --progress off --schedule-trace > "$tmp/plan-cache-miss.out" 2> "$tmp/plan-cache-miss.err"
 contains "$tmp/plan-cache-miss.out" "plan_cache status=miss reason=authoring-input-changed"
 contains "$tmp/plan-cache-miss.out" "status ok"
+
+step "initial build smoke: experimental Stella daemon" "daemon"
+daemon_sock="/tmp/qstar-daemon-smoke.$$.sock"
+rm -f "$daemon_sock"
+"$qstar" --file "$tmp/qstar.lua" daemon --socket "$daemon_sock" --serve > "$tmp/daemon-server.out" 2> "$tmp/daemon-server.err" &
+daemon_pid=$!
+i=0
+while [ ! -S "$daemon_sock" ] && kill -0 "$daemon_pid" 2>/dev/null && [ "$i" -lt 30 ]; do
+	sleep 0.1
+	i=$((i + 1))
+done
+if [ -S "$daemon_sock" ]; then
+	"$qstar" --file "$tmp/qstar.lua" daemon --socket "$daemon_sock" --status > "$tmp/daemon-status.out" 2> "$tmp/daemon-status.err"
+	contains "$tmp/daemon-status.out" "daemon status=ok experimental=1"
+	"$qstar" --file "$tmp/qstar.lua" -B build/daemon build //:app --use-daemon=always --daemon-socket "$daemon_sock" --schedule-trace --progress off --color never > "$tmp/daemon-first.out" 2> "$tmp/daemon-first.err"
+	contains "$tmp/daemon-first.out" "daemon_server status=build graph=miss"
+	contains "$tmp/daemon-first.out" "status ok"
+	"$qstar" --file "$tmp/qstar.lua" -B build/daemon build //:app --use-daemon=always --daemon-socket "$daemon_sock" --schedule-trace --progress off --color never > "$tmp/daemon-second.out" 2> "$tmp/daemon-second.err"
+	contains "$tmp/daemon-second.out" "daemon_server status=build graph=hit reason=memory experimental=1"
+	contains "$tmp/daemon-second.out" "status ok"
+	printf 'int main(void) { return 1; }\n' > "$tmp/src/main.c"
+	"$qstar" --file "$tmp/qstar.lua" -B build/daemon build //:app --use-daemon=always --daemon-socket "$daemon_sock" --schedule-trace --progress off --color never > "$tmp/daemon-incremental.out" 2> "$tmp/daemon-incremental.err"
+	contains "$tmp/daemon-incremental.out" "daemon_server status=build graph=hit reason=memory experimental=1"
+	contains "$tmp/daemon-incremental.out" "status ok"
+	printf 'int main(void) { return 0; }\n' > "$tmp/src/main.c"
+	kill "$daemon_pid" 2>/dev/null || true
+	wait "$daemon_pid" 2>/dev/null || true
+	daemon_pid=
+	rm -f "$daemon_sock"
+else
+	if grep -F -q "Operation not permitted" "$tmp/daemon-server.err"; then
+		echo "qstar-smoke: experimental daemon socket smoke skipped: sandbox disallows Unix socket bind" >&2
+		kill "$daemon_pid" 2>/dev/null || true
+		wait "$daemon_pid" 2>/dev/null || true
+		daemon_pid=
+	else
+		fail "experimental daemon socket did not become ready"
+	fi
+fi
+"$qstar" --file "$tmp/qstar.lua" -B build/daemon-fallback build //:app --use-daemon=auto --daemon-socket "$daemon_sock" --schedule-trace --progress off --color never > "$tmp/daemon-fallback.out" 2> "$tmp/daemon-fallback.err"
+contains "$tmp/daemon-fallback.out" "daemon status=unavailable"
+contains "$tmp/daemon-fallback.out" "fallback=stella"
+contains "$tmp/daemon-fallback.out" "status ok"
 
 step "initial build smoke: action descriptions" "action-description-dry"
 "$qstar" --file "$tmp/qstar.lua" dry-run //:smoke > "$tmp/action-description-dry.out" 2> "$tmp/action-description-dry.err"
@@ -3546,7 +3594,7 @@ contains "docs/qstar-v0.5-readiness.md" "qstar-v0.5-readiness-tests"
 contains "docs/qstar-v0.5-readiness.md" "medium_project_gate backend=stella phase=noop"
 contains "docs/qstar-v0.5-readiness.md" "qstar 0.5.1-beta.1"
 contains "docs/qstar-v0.5-readiness.md" "CMake-style progress output"
-contains "docs/qstar-v0.5-readiness.md" "Persistent Stella daemon implementation"
+contains "docs/qstar-v0.5-readiness.md" "Persistent Stella daemon maturation"
 contains "docs/qstar-v0.5-readiness.md" "Linux"
 contains "docs/qstar-v0.5-readiness.md" "Windows"
 contains "docs/performance-gates.md" "Round Q137 local macOS arm64"
@@ -3573,7 +3621,7 @@ contains "docs/perf/stella-plan-cache-design.md" "Q131 Lazy Success Action Logs"
 contains "docs/perf/stella-plan-cache-design.md" "Q137 Stella/Ninja Performance Seal"
 contains "docs/perf/stella-plan-cache-design.md" "persistent Stella daemon design"
 contains "docs/daemon/stella-daemon.md" "command namespace: qstar daemon"
-contains "docs/daemon/stella-daemon.md" "qstar build --daemon auto"
+contains "docs/daemon/stella-daemon.md" "qstar build //:app --use-daemon=auto"
 contains "docs/daemon/stella-daemon.md" "Unix domain socket"
 contains "docs/daemon/stella-daemon.md" "Windows named pipe"
 contains "docs/daemon/stella-daemon.md" "workspace.info"
@@ -3701,7 +3749,7 @@ contains "wiki/README.md" "AI_INDEX.md"
 contains "wiki/README.md" "reference/progress-output.md"
 contains "wiki/README.md" "reference/stella-daemon.md"
 contains "wiki/reference/backends.md" "Persistent Stella daemon"
-contains "wiki/reference/backends.md" "qstar build --daemon auto|on|off"
+contains "wiki/reference/backends.md" "qstar build --use-daemon=auto|never|always"
 contains "wiki/AI_INDEX.md" "QStar AI Index"
 contains "wiki/AI_INDEX.md" "qstar.custom_target"
 contains "wiki/AI_INDEX.md" "qstar.output(path, {format = \"object\"})"
@@ -3734,8 +3782,8 @@ contains "wiki/reference/progress-output.md" "warning:"
 not_contains "wiki/reference/progress-output.md" "[5%] Stage"
 not_contains "wiki/reference/progress-output.md" "[ 5%] Stage"
 not_contains "wiki/reference/progress-output.md" "Stage 1:"
-contains "wiki/reference/stella-daemon.md" "qstar daemon start"
-contains "wiki/reference/stella-daemon.md" "qstar build --daemon auto"
+contains "wiki/reference/stella-daemon.md" "qstar daemon --socket"
+contains "wiki/reference/stella-daemon.md" "qstar build //:app --use-daemon=auto"
 contains "wiki/reference/stella-daemon.md" "Unix domain socket"
 contains "wiki/reference/stella-daemon.md" "named pipe deferred"
 contains "wiki/reference/stella-daemon.md" "Package root mismatch"
