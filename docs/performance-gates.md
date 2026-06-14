@@ -134,6 +134,55 @@ Release 후보에서 timing을 hard gate로 승격하려면 다음처럼 실행�
 QSTAR_MEDIUM_PERF_REPORT_ONLY=0 make qstar-medium-project-readiness-tests
 ```
 
+## Perf Summary Tool
+
+Q139부터 raw line protocol을 직접 눈으로 읽지 않고 `tools/perf-summary.sh`로 요약한다.
+이 도구는 `medium_project_gate`와 `large_project_gate`를 모두 읽고, 동일한
+gate/mode/backend/phase sample의 `min`, `median`, `max`와 Stella/Ninja ratio를 출력한다.
+
+```sh
+QSTAR_TEST_QSTAR=./build/bin/qstar sh tests/medium-project-performance.sh \
+  > /tmp/qstar-medium.perf
+tools/perf-summary.sh /tmp/qstar-medium.perf
+```
+
+대표 출력:
+
+```txt
+perf_summary sample gate=medium mode=medium backend=stella phase=clean count=3 min_ms=237 median_ms=247 max_ms=260
+perf_summary ratio gate=medium mode=medium backend=stella phase=clean backend_median_ms=247 ninja_median_ms=251 ratio_x100=98 threshold_x100=200 slack_ms=250 status=ok
+perf_summary status=ok sample_count=9 ratio_count=6 warning_count=0 hard=0 threshold_x100=200 slack_ms=250
+```
+
+Release note에 붙일 표는 markdown format으로 만든다.
+
+```sh
+tools/perf-summary.sh --format markdown --label "QStar v0.5 perf snapshot" \
+  /tmp/qstar-medium.perf
+```
+
+3회 반복 측정도 같은 도구에서 지원한다. `--` 뒤 command는 shell string이 아니라 argv-vector로
+실행한다. Environment override가 필요하면 `env`나 `sh -c`를 명시한다.
+
+```sh
+tools/perf-summary.sh --repeat 3 -- \
+  env QSTAR_TEST_QSTAR=./build/bin/qstar sh tests/medium-project-performance.sh
+```
+
+Threshold는 기본적으로 report-only다. `--hard`를 붙이면 ratio warning이 exit failure가 된다.
+따라서 local/release note 수집에는 기본 mode를 쓰고, CI에서 timing을 gate로 승격할 때만
+`--hard`를 사용한다.
+
+```sh
+tools/perf-summary.sh --ratio-x100 200 --slack-ms 250 --hard /tmp/qstar-medium.perf
+```
+
+Makefile target도 제공한다.
+
+```sh
+make qstar-perf-summary-tests
+```
+
 ## Static Fixture
 
 사용자가 직접 Stella build를 반복 실행할 수 있도록 정적 fixture도 유지한다.

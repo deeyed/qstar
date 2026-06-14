@@ -59,7 +59,7 @@ LUA_SRCS = \
 
 QSTAR_OBJS = $(QSTAR_SRCS:%.c=$(QSTAR_BUILD)/%.o)
 LUA_OBJS = $(LUA_SRCS:%.c=$(QSTAR_BUILD)/%.o)
-.PHONY: all check qstar-tests qstar-fmt-tests qstar-lint-tests qstar-lsp-tests qstar-lsp-navigation-tests qstar-editor-query-tests qstar-ninja-backend-parity-tests qstar-medium-project-readiness-tests qstar-large-project-performance-tests qstar-self-host-tests qstar-linux-validation-tests qstar-windows-prep-tests qstar-public-beta-package qstar-public-beta-release-tests vscode-extension-tests qstar-v0-release-tests qstar-v0.1-release-tests qstar-v0.1-hardening-tests qstar-v0.2-authoring-tests qstar-v0.2-rc-tests qstar-v0.3-rc-tests qstar-v0.4-pilot-tests qstar-v0.5-readiness-tests qstar-pilot-readiness-tests qstar-wiki-cli-sync-tests qstar-release-candidate-tests qstar-full-regression-tests qstar-systems-corpus-tests qstar-project-corpus-tests qstar-standalone-integration-tests qstar-executor-v2-tests install clean
+.PHONY: all check qstar-tests qstar-fmt-tests qstar-lint-tests qstar-lsp-tests qstar-lsp-navigation-tests qstar-editor-query-tests qstar-ninja-backend-parity-tests qstar-medium-project-readiness-tests qstar-large-project-performance-tests qstar-perf-summary-tests qstar-self-host-tests qstar-linux-validation-tests qstar-windows-prep-tests qstar-public-beta-package qstar-public-beta-release-tests vscode-extension-tests qstar-v0-release-tests qstar-v0.1-release-tests qstar-v0.1-hardening-tests qstar-v0.2-authoring-tests qstar-v0.2-rc-tests qstar-v0.3-rc-tests qstar-v0.4-pilot-tests qstar-v0.5-readiness-tests qstar-pilot-readiness-tests qstar-wiki-cli-sync-tests qstar-release-candidate-tests qstar-full-regression-tests qstar-systems-corpus-tests qstar-project-corpus-tests qstar-standalone-integration-tests qstar-executor-v2-tests install clean
 
 all: $(BIN_DIR)/qstar
 
@@ -111,6 +111,18 @@ qstar-large-project-performance-tests: all
 	bin="$(BIN_DIR)/qstar"; \
 	case "$$bin" in /*) ;; *) bin="$(CURDIR)/$$bin";; esac; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/large-project-performance.sh
+
+qstar-perf-summary-tests: all
+	tmp="$${TMPDIR:-/tmp}/qstar-perf-summary-make.$$$$"; \
+	rm -rf "$$tmp"; \
+	mkdir -p "$$tmp"; \
+	trap 'rm -rf "$$tmp"' EXIT HUP INT TERM; \
+	QSTAR_TEST_QSTAR="$(CURDIR)/$(BIN_DIR)/qstar" sh tests/medium-project-performance.sh > "$$tmp/medium.out"; \
+	tools/perf-summary.sh "$$tmp/medium.out" > "$$tmp/summary.out"; \
+	grep -F "perf_summary sample gate=medium mode=medium backend=stella phase=clean" "$$tmp/summary.out"; \
+	grep -F "perf_summary ratio gate=medium mode=medium backend=stella phase=clean" "$$tmp/summary.out"; \
+	tools/perf-summary.sh --format markdown "$$tmp/medium.out" > "$$tmp/summary.md"; \
+	grep -F "| Gate | Mode | Backend | Phase | Count | Min ms | Median ms | Max ms |" "$$tmp/summary.md"
 
 qstar-self-host-tests: all
 	bin="$(BIN_DIR)/qstar"; \

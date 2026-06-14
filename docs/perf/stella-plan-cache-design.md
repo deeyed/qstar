@@ -674,6 +674,39 @@ large_project_gate status=ok perf_issue_count=0 report_only=1 modes="200 500"
 첫 large gate에서는 Stella가 이 host에서 Ninja와 같은 성능권에 머물렀다. 다음 성능 작업은
 medium-only micro-optimization보다 multi-run summary와 Linux CI 수집이 더 중요하다.
 
+### Q139 Perf Summary And Baseline Tool
+
+Status: implemented.
+
+Q139는 medium/large gate의 raw line protocol을 사람이 직접 비교하지 않도록
+`tools/perf-summary.sh`를 추가한다. 이 도구는 `medium_project_gate`와 `large_project_gate`
+line을 모두 읽고, 같은 gate/mode/backend/phase sample을 묶어 count, min, median, max를
+계산한다. Ninja sample이 있는 phase는 Stella 및 Stella explicit jobs backend와 Ninja median의
+ratio도 계산한다.
+
+기본 출력은 다시 line protocol이다. Release automation이나 regression bot은 이 format을
+읽고, 사람이 release note에 붙일 때는 markdown format을 쓴다.
+
+```sh
+tools/perf-summary.sh /tmp/qstar-medium.perf
+tools/perf-summary.sh --format markdown --label "QStar perf snapshot" /tmp/qstar-medium.perf
+```
+
+도구 자체가 3회 반복 실행을 지원한다. `--` 뒤 command는 shell string이 아니라 argv-vector로
+실행하므로, environment override는 `env`나 `sh -c`를 명시한다.
+
+```sh
+tools/perf-summary.sh --repeat 3 -- \
+  env QSTAR_TEST_QSTAR=./build/bin/qstar sh tests/medium-project-performance.sh
+```
+
+Threshold는 두 층이다.
+
+- performance scripts: graph/build failure는 hard fail, timing ratio는 기본 report-only.
+- perf summary: 기본은 report-only, `--hard`를 주면 ratio warning을 exit failure로 승격.
+
+이 분리 덕분에 release note 수집과 CI hard gate를 같은 raw input에서 만들 수 있다.
+
 ## Acceptance Criteria
 
 Q120 이후:

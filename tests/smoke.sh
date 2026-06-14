@@ -3717,12 +3717,73 @@ contains "Makefile" "qstar-full-regression-tests"
 contains "Makefile" "qstar-systems-corpus-tests"
 contains "Makefile" "qstar-medium-project-readiness-tests"
 contains "Makefile" "qstar-large-project-performance-tests"
+contains "Makefile" "qstar-perf-summary-tests"
 contains "tools/package-public-beta.sh" "SHA256SUMS"
 contains "tools/package-public-beta.sh" "VSCode VSIX must not be included"
 contains "tools/package-public-beta.sh" "linux-x86_64 release package must be built on a Linux host"
 contains "tools/package-public-beta.sh" "ldd is required for linux-x86_64 release sanity"
 contains "tools/package-public-beta.sh" "docs --show reference/qstar-lua.md"
 contains "tools/sync-github-wiki.sh" "Progress Output"
+contains "tools/perf-summary.sh" "medium_project_gate"
+contains "docs/performance-gates.md" "tools/perf-summary.sh --repeat 3 --"
+contains "docs/performance-gates.md" "perf_summary ratio"
+contains "wiki/reference/performance-gates.md" "tools/perf-summary.sh --repeat 3 --"
+contains "wiki/AI_INDEX.md" "tools/perf-summary.sh"
+
+step "perf summary tool" "perf-summary"
+cat > "$tmp/perf-summary.in" <<'EOF'
+medium_project_gate backend=stella phase=clean elapsed_ms=150
+medium_project_gate backend=stella phase=noop elapsed_ms=70
+medium_project_gate backend=stella phase=incremental elapsed_ms=95
+medium_project_gate backend=stella-jobs jobs=10 phase=clean elapsed_ms=140
+medium_project_gate backend=stella-jobs jobs=10 phase=noop elapsed_ms=68
+medium_project_gate backend=stella-jobs jobs=10 phase=incremental elapsed_ms=90
+medium_project_gate backend=ninja phase=clean elapsed_ms=100
+medium_project_gate backend=ninja phase=noop elapsed_ms=75
+medium_project_gate backend=ninja phase=incremental elapsed_ms=120
+medium_project_gate backend=stella phase=clean elapsed_ms=170
+medium_project_gate backend=stella phase=noop elapsed_ms=72
+medium_project_gate backend=stella phase=incremental elapsed_ms=100
+medium_project_gate backend=stella-jobs jobs=10 phase=clean elapsed_ms=145
+medium_project_gate backend=stella-jobs jobs=10 phase=noop elapsed_ms=69
+medium_project_gate backend=stella-jobs jobs=10 phase=incremental elapsed_ms=92
+medium_project_gate backend=ninja phase=clean elapsed_ms=110
+medium_project_gate backend=ninja phase=noop elapsed_ms=78
+medium_project_gate backend=ninja phase=incremental elapsed_ms=125
+medium_project_gate backend=stella phase=clean elapsed_ms=130
+medium_project_gate backend=stella phase=noop elapsed_ms=65
+medium_project_gate backend=stella phase=incremental elapsed_ms=91
+medium_project_gate backend=stella-jobs jobs=10 phase=clean elapsed_ms=138
+medium_project_gate backend=stella-jobs jobs=10 phase=noop elapsed_ms=67
+medium_project_gate backend=stella-jobs jobs=10 phase=incremental elapsed_ms=88
+medium_project_gate backend=ninja phase=clean elapsed_ms=105
+medium_project_gate backend=ninja phase=noop elapsed_ms=77
+medium_project_gate backend=ninja phase=incremental elapsed_ms=122
+large_project_gate mode=200 backend=stella phase=clean elapsed_ms=900
+large_project_gate mode=200 backend=stella phase=clean elapsed_ms=880
+large_project_gate mode=200 backend=stella phase=clean elapsed_ms=920
+large_project_gate mode=200 backend=ninja phase=clean elapsed_ms=1000
+large_project_gate mode=200 backend=ninja phase=clean elapsed_ms=990
+large_project_gate mode=200 backend=ninja phase=clean elapsed_ms=1010
+EOF
+tools/perf-summary.sh "$tmp/perf-summary.in" > "$tmp/perf-summary.out" 2> "$tmp/perf-summary.err"
+contains "$tmp/perf-summary.out" "perf_summary sample gate=medium mode=medium backend=stella phase=clean count=3 min_ms=130 median_ms=150 max_ms=170"
+contains "$tmp/perf-summary.out" "perf_summary sample gate=large mode=200 backend=stella phase=clean count=3 min_ms=880 median_ms=900 max_ms=920"
+contains "$tmp/perf-summary.out" "perf_summary ratio gate=medium mode=medium backend=stella phase=clean backend_median_ms=150 ninja_median_ms=105 ratio_x100=143"
+contains "$tmp/perf-summary.out" "perf_summary status=ok sample_count=11 ratio_count=7 warning_count=0 hard=0"
+tools/perf-summary.sh --format markdown --label "QStar perf" "$tmp/perf-summary.in" > "$tmp/perf-summary.md" 2> "$tmp/perf-summary-md.err"
+contains "$tmp/perf-summary.md" "## QStar perf"
+contains "$tmp/perf-summary.md" "| Gate | Mode | Backend | Phase | Count | Min ms | Median ms | Max ms |"
+contains "$tmp/perf-summary.md" "| medium | medium | stella | clean | 3 | 130 | 150 | 170 |"
+if tools/perf-summary.sh --ratio-x100 100 --slack-ms 0 --hard "$tmp/perf-summary.in" > "$tmp/perf-summary-hard.out" 2> "$tmp/perf-summary-hard.err"; then
+	fail "perf summary hard threshold unexpectedly passed"
+fi
+contains "$tmp/perf-summary-hard.out" "status=warn"
+tools/perf-summary.sh --repeat 2 -- printf '%s\n' \
+  "medium_project_gate backend=stella phase=clean elapsed_ms=10" \
+  "medium_project_gate backend=ninja phase=clean elapsed_ms=10" \
+  > "$tmp/perf-summary-repeat.out" 2> "$tmp/perf-summary-repeat.err"
+contains "$tmp/perf-summary-repeat.out" "perf_summary sample gate=medium mode=medium backend=stella phase=clean count=2 min_ms=10 median_ms=10 max_ms=10"
 if grep -R -n --include='*.md' -E 'timeout_sec[[:space:]]*=' docs wiki >/dev/null; then
 	fail "QStar docs/wiki contain stale timeout_sec authoring examples"
 fi

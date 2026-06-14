@@ -134,6 +134,46 @@ QSTAR_MEDIUM_PERF_REPORT_ONLY=0 make qstar-medium-project-readiness-tests
 - `QSTAR_MEDIUM_RATIO_SLACK_MS`
 - `QSTAR_MEDIUM_MIN_TARGETS`
 
+## Perf Summary Tool
+
+Q139부터 raw line protocol은 `tools/perf-summary.sh`로 요약한다. 이 도구는
+`medium_project_gate`와 `large_project_gate`를 모두 읽고, 같은 gate/mode/backend/phase
+sample의 `min`, `median`, `max`와 Stella/Ninja ratio를 계산한다.
+
+```sh
+QSTAR_TEST_QSTAR=./build/bin/qstar sh tests/medium-project-performance.sh \
+  > /tmp/qstar-medium.perf
+tools/perf-summary.sh /tmp/qstar-medium.perf
+```
+
+대표 출력:
+
+```txt
+perf_summary sample gate=medium mode=medium backend=stella phase=clean count=3 min_ms=237 median_ms=247 max_ms=260
+perf_summary ratio gate=medium mode=medium backend=stella phase=clean backend_median_ms=247 ninja_median_ms=251 ratio_x100=98 threshold_x100=200 slack_ms=250 status=ok
+perf_summary status=ok sample_count=9 ratio_count=6 warning_count=0 hard=0 threshold_x100=200 slack_ms=250
+```
+
+Release note용 표는 markdown format으로 만든다.
+
+```sh
+tools/perf-summary.sh --format markdown --label "QStar perf snapshot" \
+  /tmp/qstar-medium.perf
+```
+
+반복 측정은 `--repeat`로 한다. `--` 뒤 command는 shell string이 아니라 argv-vector다.
+
+```sh
+tools/perf-summary.sh --repeat 3 -- \
+  env QSTAR_TEST_QSTAR=./build/bin/qstar sh tests/medium-project-performance.sh
+```
+
+기본은 report-only다. Ratio warning을 실패로 승격해야 할 때만 `--hard`를 붙인다.
+
+```sh
+tools/perf-summary.sh --ratio-x100 200 --slack-ms 250 --hard /tmp/qstar-medium.perf
+```
+
 ## Large Synthetic Corpus
 
 Q138부터 large synthetic corpus gate를 별도로 둔다. Medium gate가 beta readiness 대표값이라면,
