@@ -131,6 +131,10 @@ manpage가 tarball에 들어가는지, `SHA256SUMS`가 생성되는지를 확인
 manpage file, `file(1)`, `ldd(1)` smoke를 반복한다. GitHub release에 Linux asset을
 붙일 때는 `.github/workflows/linux-validation.yml`의 `workflow_dispatch` input
 `publish_linux_asset=true`, `release_tag=v0.7.0-beta`를 사용한다.
+이 publish lane은 upload 직후 GitHub release URL에서 Linux asset을 다시 다운로드하고
+`make qstar-public-beta-download-smoke`로 checksum, extracted tree, wiki home, Lua
+reference, manpage source/render report, `file(1)`, `ldd(1)`를 확인한다. 결과는
+`download-smoke-linux-x86_64` artifact로 보존된다.
 
 Linux daemon socket smoke는 기본 push/PR gate가 아니라 manual opt-in이다.
 `.github/workflows/linux-validation.yml`을 `workflow_dispatch`로 실행하면서

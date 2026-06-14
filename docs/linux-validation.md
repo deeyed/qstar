@@ -16,6 +16,9 @@ lookup, `file(1)`, `ldd(1)` sanity를 반복 검증하고, `workflow_dispatch`�
 `daemon_socket_smoke` input으로 Linux daemon socket smoke를 opt-in lane에서 수행한다.
 Round Q157부터 `publish_linux_asset=true` workflow_dispatch lane은 clean Ubuntu host에서
 tag를 checkout하고 Linux x86_64 tarball을 GitHub release에 업로드한다.
+Round Q163부터 publish lane은 업로드 직후 같은 release asset을 다시 다운로드해
+`SHA256SUMS`, extracted prefix, docs/wiki lookup, manpage source/render reports,
+`file(1)`, `ldd(1)`를 반복 검증한다.
 
 ## Scope
 
@@ -36,6 +39,9 @@ Linux validation은 다음을 확인한다.
 - release-candidate tarball을 임시 prefix에 다시 extract했을 때 `qstar --version`,
   `qstar docs --path`, `qstar docs --show`, manpage file, `file(1)`, `ldd(1)`가
   다시 통과하는지
+- GitHub release에 업로드된 Linux asset을 다시 다운로드했을 때 checksum,
+  extracted `qstar --version`, docs/wiki home, Lua reference, manpage source,
+  `file(1)`, `ldd(1)` smoke가 다시 통과하는지
 - Stella와 Ninja medium corpus timing이 `medium_project_gate ...` line protocol로
   수집되는지
 - Linux에서 Stella process runner trace가 `runner=posix_spawn`과 `event_wait=poll`을
@@ -203,6 +209,14 @@ workflow_dispatch / daemon_socket_smoke=true:
   require backend=stella-daemon clean/noop/incremental lines
   fail if socket-bind-not-permitted appears
   upload dist/perf/linux-daemon-medium-*.txt
+
+workflow_dispatch / publish_linux_asset=true:
+  checkout selected release tag
+  rerun Linux release gates
+  publish qstar-v<version>-linux-x86_64.tar.gz
+  download the uploaded asset again
+  verify SHA256SUMS, qstar --version, docs/wiki, manpage, file, ldd smoke
+  upload dist/release/download-smoke-linux-x86_64/download/*.txt
 ```
 
 The gcc lane also performs a release-candidate packaging dry-run. On regular
@@ -231,6 +245,20 @@ The same script then extracts the tarball into
 `qstar --version`, docs lookup, manpage presence, `file(1)`, and `ldd(1)` checks
 against the extracted tree. The workflow uploads the dry-run tarball and sanity
 reports as `qstar-linux-x86_64-release-candidate-dry-run`.
+
+The publish job then runs the same release from the GitHub download URL using
+`make qstar-public-beta-download-smoke`. The smoke output is preserved under
+`dist/release/download-smoke-linux-x86_64/download/` and includes:
+
+```txt
+SHA256SUMS
+file-linux-x86_64.txt
+ldd-linux-x86_64.txt
+docs-show-home.txt
+docs-show-qstar-lua.txt
+man-qstar.1.txt
+man-qstar-lua.5.txt
+```
 
 The install prefix smoke checks:
 
@@ -263,6 +291,8 @@ must be true:
   `file(1)`, and `ldd(1)` smoke
 - the dry-run tarball and reports are uploaded as
   `qstar-linux-x86_64-release-candidate-dry-run`
+- uploaded GitHub release asset passes `make qstar-public-beta-download-smoke`
+  on a Linux host and preserves `download-smoke-linux-x86_64` reports
 - `make install PREFIX=/tmp/qstar-linux-smoke` installs binary, docs, and
   manpages under that prefix
 - installed binary reports the tagged version

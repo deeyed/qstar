@@ -75,8 +75,9 @@ QStar가 하지 않는 일:
   mirror는 `tools/sync-github-wiki.sh`로 수행한다.
 - GitHub release 생성 뒤에는 `make qstar-public-beta-download-smoke`를 실행해 실제 uploaded
   asset을 다시 다운로드하고 `SHA256SUMS`, `/tmp` extract, `qstar --version`, installed
-  docs/manpages, macOS codesign을 확인한다. 0.6 post-release 기록은
-  `docs/qstar-v0.6-post-release-smoke.md`에 둔다.
+  docs/manpages, macOS codesign을 확인한다. Linux x86_64 download smoke는 Linux host에서
+  `file(1)`, `ldd(1)`, wiki home, Lua reference, manpage source/render report도 보존한다.
+  0.6 post-release 기록은 `docs/qstar-v0.6-post-release-smoke.md`에 둔다.
 - Progress output contract는 `docs/progress-output.md`와 `wiki/reference/progress-output.md`에
   둔다. QStar 0.5 UI line은 `[ 75%] Linking CXX executable app` 같은 CMake-style
   action description을 일반 출력으로 사용하고, legacy scheduler stage wording, `Status: ...`,
@@ -118,6 +119,9 @@ QStar가 하지 않는 일:
   Linux asset upload는 `workflow_dispatch`의 `publish_linux_asset=true`,
   `release_tag=v0.7.0-beta` opt-in job에서만 수행하며,
   `tools/publish-github-release-asset.sh`가 기존 `SHA256SUMS`에 Linux checksum을 병합한다.
+  Upload 직후에는 `make qstar-public-beta-download-smoke`를 다시 실행하고
+  `download-smoke-linux-x86_64` artifact에 checksum, `file`, `ldd`, docs/wiki, manpage
+  reports를 남긴다.
   Linux daemon socket smoke도 기본 push/PR lane이 아니라 `workflow_dispatch`의
   `daemon_socket_smoke=true` opt-in job에서 검증한다.
 - Windows host 지원은 아직 official support가 아니다. Round Q114/Q158/Q159 기준

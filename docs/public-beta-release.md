@@ -69,8 +69,10 @@ make qstar-public-beta-download-smoke
 
 이 target은 `tools/smoke-github-release.sh`를 실행한다. Script는 GitHub release의
 tarball과 `SHA256SUMS`를 다운로드하고, checksum, prefix layout, `/tmp` extract 후
-`qstar --version`, installed docs, installed manpages, macOS codesign을 확인한다. 자세한
-0.6 post-release 기록은 `docs/qstar-v0.6-post-release-smoke.md`에 둔다.
+`qstar --version`, installed docs, installed wiki home, installed Lua reference,
+installed manpages, `file(1)`, macOS codesign을 확인한다. Linux x86_64 smoke는 Linux
+host에서만 실행되며 `ldd(1)` report도 남긴다. 자세한 0.6 post-release 기록은
+`docs/qstar-v0.6-post-release-smoke.md`에 둔다.
 
 ## Install Smoke
 
@@ -125,7 +127,10 @@ QSTAR_RELEASE_REPO=deeyed/qstar \
 교체한 뒤 Linux checksum을 병합해 다시 업로드한다. 따라서 macOS와 Linux checksum은 같은
 `SHA256SUMS` 안에 공존한다. `.github/workflows/linux-validation.yml`에서는
 `workflow_dispatch` input `publish_linux_asset=true`와 `release_tag=v0.7.0-beta`를 지정해
-같은 작업을 Ubuntu에서 수행한다.
+같은 작업을 Ubuntu에서 수행한다. Round Q163 이후 이 publish job은 upload 직후
+`make qstar-public-beta-download-smoke`를 다시 실행해 GitHub release URL에서 내려받은
+Linux tarball을 검증하고, `download-smoke-linux-x86_64` artifact에 checksum,
+`file(1)`, `ldd(1)`, docs/wiki, manpage reports를 보존한다.
 
 Linux daemon은 0.7 line에서도 beta opt-in이며 Linux release asset 조건에는 아직 기본
 gate로 넣지 않는다. 대신 `.github/workflows/linux-validation.yml`의

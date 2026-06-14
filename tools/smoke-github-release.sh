@@ -86,6 +86,12 @@ install_root=$tmp/root
 archive=$download/$asset
 sha_file=$download/SHA256SUMS
 contents=$download/contents.txt
+file_report=$download/file-$platform.txt
+ldd_report=$download/ldd-$platform.txt
+docs_home_report=$download/docs-show-home.txt
+docs_lua_report=$download/docs-show-qstar-lua.txt
+man1_report=$download/man-qstar.1.txt
+man5_report=$download/man-qstar-lua.5.txt
 
 curl -fsSL "$base_url/$asset" -o "$archive"
 curl -fsSL "$base_url/SHA256SUMS" -o "$sha_file"
@@ -139,27 +145,56 @@ case "$ai_path" in
 	*) fail "docs --ai-index returned '$ai_path'" ;;
 esac
 QSTAR_DOC_DIR="$install_root/share/doc/qstar" \
-	"$install_root/bin/qstar" docs --show reference/qstar-lua.md > "$download/docs-show-qstar-lua.txt"
-grep -F "qstar.project" "$download/docs-show-qstar-lua.txt" >/dev/null || \
+	"$install_root/bin/qstar" docs --show README.md > "$docs_home_report"
+grep -F "QStar" "$docs_home_report" >/dev/null || \
+	fail "docs --show README.md did not print wiki home"
+QSTAR_DOC_DIR="$install_root/share/doc/qstar" \
+	"$install_root/bin/qstar" docs --show reference/qstar-lua.md > "$docs_lua_report"
+grep -F "qstar.project" "$docs_lua_report" >/dev/null || \
 	fail "docs --show reference/qstar-lua.md did not print qstar-lua reference"
 
 test -s "$install_root/share/man/man1/qstar.1" || fail "installed qstar(1) manpage missing"
 test -s "$install_root/share/man/man5/qstar-lua.5" || fail "installed qstar-lua(5) manpage missing"
+grep -F ".Dt QSTAR 1" "$install_root/share/man/man1/qstar.1" >/dev/null || \
+	fail "installed qstar(1) manpage does not look like qstar"
+grep -F ".Dt QSTAR-LUA 5" "$install_root/share/man/man5/qstar-lua.5" >/dev/null || \
+	fail "installed qstar-lua(5) manpage does not look like qstar-lua"
+if command -v man >/dev/null 2>&1; then
+	MANPAGER=cat MANWIDTH=80 man -l "$install_root/share/man/man1/qstar.1" > "$man1_report" 2>/dev/null || true
+	MANPAGER=cat MANWIDTH=80 man -l "$install_root/share/man/man5/qstar-lua.5" > "$man5_report" 2>/dev/null || true
+fi
 
 if command -v file >/dev/null 2>&1; then
-	file "$install_root/bin/qstar" > "$download/file-$platform.txt"
+	file "$install_root/bin/qstar" > "$file_report"
 	case "$platform" in
 	macos-arm64)
-		grep -F "arm64" "$download/file-$platform.txt" >/dev/null || \
+		grep -F "arm64" "$file_report" >/dev/null || \
 			fail "release binary is not reported as arm64"
 		;;
 	linux-x86_64)
-		grep -F "ELF" "$download/file-$platform.txt" >/dev/null || \
+		grep -F "ELF" "$file_report" >/dev/null || \
 			fail "linux release binary is not reported as ELF"
-		grep -E "x86[-_]64|x86-64|AMD x86-64" "$download/file-$platform.txt" >/dev/null || \
+		grep -E "x86[-_]64|x86-64|AMD x86-64" "$file_report" >/dev/null || \
 			fail "linux release binary is not reported as x86-64"
 		;;
 	esac
+else
+	case "$platform" in
+	macos-arm64|linux-x86_64)
+		fail "file(1) is required for $platform download smoke"
+		;;
+	esac
+fi
+
+if test "$platform" = linux-x86_64; then
+	command -v ldd >/dev/null 2>&1 || fail "ldd is required for linux-x86_64 download smoke"
+	if ! ldd "$install_root/bin/qstar" > "$ldd_report" 2>&1; then
+		if grep -F "statically linked" "$file_report" >/dev/null; then
+			printf 'statically linked binary; ldd is not applicable\n' > "$ldd_report"
+		else
+			fail "ldd failed for downloaded linux-x86_64 release binary"
+		fi
+	fi
 fi
 
 if test "$host" = Darwin && command -v codesign >/dev/null 2>&1; then

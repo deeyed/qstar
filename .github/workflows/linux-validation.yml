@@ -10,7 +10,7 @@ on:
       release_tag:
         description: Release tag used by the optional Linux asset publish job
         required: false
-        default: v0.6.1-beta
+        default: v0.7.0-beta
         type: string
       publish_linux_asset:
         description: Publish the Linux x86_64 beta asset to the selected release
@@ -257,6 +257,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: tools/publish-github-release-asset.sh
 
+      - name: Download published Linux asset smoke
+        run: |
+          set -euo pipefail
+          smoke_dir="$PWD/dist/release/download-smoke-linux-x86_64"
+          QSTAR_RELEASE_PLATFORM=linux-x86_64 \
+          QSTAR_RELEASE_SMOKE_DIR="$smoke_dir" \
+            make qstar-public-beta-download-smoke
+          test -s "$smoke_dir/download/file-linux-x86_64.txt"
+          test -s "$smoke_dir/download/ldd-linux-x86_64.txt"
+          test -s "$smoke_dir/download/docs-show-home.txt"
+          test -s "$smoke_dir/download/docs-show-qstar-lua.txt"
+          test -s "$smoke_dir/download/man-qstar.1.txt"
+          test -s "$smoke_dir/download/man-qstar-lua.5.txt"
+          grep -F "ELF" "$smoke_dir/download/file-linux-x86_64.txt"
+
       - name: Upload published Linux asset reports
         uses: actions/upload-artifact@v4
         if: always()
@@ -271,6 +286,13 @@ jobs:
             dist/release/extract-file-linux-x86_64.txt
             dist/release/extract-ldd-linux-x86_64.txt
             dist/release/extract-docs-show-qstar-lua.txt
+            dist/release/download-smoke-linux-x86_64/download/SHA256SUMS
+            dist/release/download-smoke-linux-x86_64/download/file-linux-x86_64.txt
+            dist/release/download-smoke-linux-x86_64/download/ldd-linux-x86_64.txt
+            dist/release/download-smoke-linux-x86_64/download/docs-show-home.txt
+            dist/release/download-smoke-linux-x86_64/download/docs-show-qstar-lua.txt
+            dist/release/download-smoke-linux-x86_64/download/man-qstar.1.txt
+            dist/release/download-smoke-linux-x86_64/download/man-qstar-lua.5.txt
           if-no-files-found: ignore
 
   large-performance-report:
