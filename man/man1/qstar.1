@@ -186,9 +186,11 @@ prefix in bold red.
 .Fl -color Ar never
 and non-TTY output disable ANSI color, and JSON diagnostics remain uncolored.
 .It Ic daemon
-Run the beta opt-in persistent Stella daemon in the foreground, check a daemon
-socket, or query the read-only IDE/AI API.
+Run the beta opt-in persistent Stella daemon lifecycle, check a daemon socket,
+or query the read-only IDE/AI API.
 .Bd -literal -offset indent
+qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --start
+qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --stop
 qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --serve
 qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --status
 qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query targets.list
@@ -236,8 +238,12 @@ Q151 and the 0.6 beta line classify the daemon as a documented beta opt-in
 feature. The default
 build path remains normal Stella, Windows named pipe support is deferred, and
 socket files are local-only and owner-only. Package root or build directory
-mismatch is rejected instead of hidden by fallback. Background lifecycle
-lock/pid management remains required before any default-on decision.
+mismatch is rejected instead of hidden by fallback. Q154 adds background
+.Fl -start
+and
+.Fl -stop
+with pid and lock sidecar files, while default-on lifecycle policy remains
+deferred.
 .Pp
 Action descriptions are also preserved in action-log and replay metadata.
 .Ic qstar action-log ,

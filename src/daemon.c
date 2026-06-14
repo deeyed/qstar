@@ -642,6 +642,173 @@ daemon_prepare_server_socket_path(const char *socket_path, char *error,
 	return -1;
 }
 
+/** daemon socket directory 아래 sidecar file path를 만든다. */
+static int
+daemon_sidecar_path(const char *socket_path, const char *name, char *dst,
+    size_t dst_len, char *error, size_t error_len)
+{
+	char dir[QSTAR_PATH_MAX];
+
+	if (daemon_socket_dirname(socket_path, dir, sizeof(dir), error, error_len) < 0)
+		return -1;
+	if (snprintf(dst, dst_len, "%s/%s", dir, name) >= (int)dst_len) {
+		set_error(error, error_len, "daemon sidecar path is too long: %s/%s",
+		    dir, name);
+		return -1;
+	}
+	return 0;
+}
+
+/** lifecycle sidecar file을 owner-only mode로 새로 쓴다. */
+static int
+daemon_write_text_file_0600(const char *path, const char *text, char *error,
+    size_t error_len)
+{
+	int fd;
+	size_t len;
+
+	fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+	if (fd < 0) {
+		set_error(error, error_len, "could not write daemon sidecar '%s': %s",
+		    path, strerror(errno));
+		return -1;
+	}
+	(void)fchmod(fd, 0600);
+	len = strlen(text);
+	if (write_all(fd, text, len) < 0) {
+		set_error(error, error_len, "could not write daemon sidecar '%s': %s",
+		    path, strerror(errno));
+		close(fd);
+		return -1;
+	}
+	if (close(fd) < 0) {
+		set_error(error, error_len, "could not close daemon sidecar '%s': %s",
+		    path, strerror(errno));
+		return -1;
+	}
+	return 0;
+}
+
+/** daemon pid file에 background daemon identity를 기록한다. */
+static int
+daemon_write_pid_file(const char *pid_path, pid_t pid, const char *socket_path,
+    char *error, size_t error_len)
+{
+	char body[QSTAR_PATH_MAX + 128];
+
+	if (snprintf(body, sizeof(body),
+	    "qstar-daemon-pid-v1\npid %ld\nsocket %s\n", (long)pid,
+	    socket_path) >= (int)sizeof(body)) {
+		set_error(error, error_len, "daemon pid file body is too long");
+		return -1;
+	}
+	return daemon_write_text_file_0600(pid_path, body, error, error_len);
+}
+
+/** daemon pid file에서 pid와 socket identity를 읽는다. */
+static int
+daemon_read_pid_file(const char *pid_path, pid_t *pid_out, char *socket_out,
+    size_t socket_len)
+{
+	FILE *f;
+	char line[QSTAR_PATH_MAX + 128];
+	long pid;
+	int saw_pid;
+
+	f = fopen(pid_path, "r");
+	if (!f)
+		return -1;
+	pid = -1;
+	saw_pid = 0;
+	if (socket_out && socket_len)
+		socket_out[0] = '\0';
+	while (fgets(line, sizeof(line), f)) {
+		char *nl;
+
+		nl = strchr(line, '\n');
+		if (nl)
+			*nl = '\0';
+		if (sscanf(line, "pid %ld", &pid) == 1) {
+			saw_pid = 1;
+		} else if (strncmp(line, "socket ", 7) == 0 && socket_out && socket_len) {
+			snprintf(socket_out, socket_len, "%s", line + 7);
+		} else if (!saw_pid && sscanf(line, "%ld", &pid) == 1) {
+			saw_pid = 1;
+		}
+	}
+	fclose(f);
+	if (!saw_pid || pid <= 0)
+		return -1;
+	*pid_out = (pid_t)pid;
+	return 0;
+}
+
+/** pid가 살아 있는 process를 가리키는지 확인한다. */
+static int
+daemon_pid_alive(pid_t pid)
+{
+	if (pid <= 0)
+		return 0;
+	if (kill(pid, 0) == 0)
+		return 1;
+	return errno == EPERM;
+}
+
+/** socket sidecar가 현재 사용자 소유 socket일 때만 제거한다. */
+static int
+daemon_unlink_socket_if_safe(const char *socket_path)
+{
+	struct stat st;
+
+	if (lstat(socket_path, &st) < 0)
+		return errno == ENOENT ? 0 : -1;
+	if (!S_ISSOCK(st.st_mode) || st.st_uid != geteuid())
+		return -1;
+	return unlink(socket_path);
+}
+
+/** pid/lock/socket lifecycle sidecar를 stale cleanup으로 제거한다. */
+static void
+daemon_cleanup_lifecycle_files(const char *socket_path, const char *pid_path,
+    const char *lock_path)
+{
+	(void)daemon_unlink_socket_if_safe(socket_path);
+	if (pid_path)
+		(void)unlink(pid_path);
+	if (lock_path)
+		(void)unlink(lock_path);
+}
+
+/** background start를 serialize하기 위한 lifecycle lock file을 만든다. */
+static int
+daemon_create_lifecycle_lock(const char *lock_path, pid_t pid, char *error,
+    size_t error_len)
+{
+	char body[128];
+	int fd;
+
+	fd = open(lock_path, O_WRONLY | O_CREAT | O_EXCL, 0600);
+	if (fd < 0) {
+		set_error(error, error_len, "daemon lock is already present: %s",
+		    lock_path);
+		return -1;
+	}
+	(void)fchmod(fd, 0600);
+	snprintf(body, sizeof(body), "qstar-daemon-lock-v1\npid %ld\n", (long)pid);
+	if (write_all(fd, body, strlen(body)) < 0) {
+		set_error(error, error_len, "could not write daemon lock '%s': %s",
+		    lock_path, strerror(errno));
+		close(fd);
+		return -1;
+	}
+	if (close(fd) < 0) {
+		set_error(error, error_len, "could not close daemon lock '%s': %s",
+		    lock_path, strerror(errno));
+		return -1;
+	}
+	return 0;
+}
+
 /** CLI override 기준의 default experimental daemon socket path를 계산한다. */
 static int
 default_socket_path(const char *cli_build_dir, char *dst, size_t dstlen)
@@ -917,6 +1084,56 @@ read_response(int fd, FILE *out, int *build_status, char *error, size_t error_le
 	    "daemon protocol mismatch: expected %s or %s, got '%s'",
 	    QSTAR_DAEMON_RESPONSE_MAGIC, QSTAR_DAEMON_STREAM_MAGIC, line);
 	return -1;
+}
+
+/** daemon hello response를 memory buffer로 읽고 daemon pid를 추출한다. */
+static int
+daemon_hello(const char *socket_path, char *body, size_t body_len, int *status_out,
+    pid_t *pid_out, char *error, size_t error_len)
+{
+	FILE *tmp;
+	char *p;
+	long pid;
+	size_t n;
+	int fd, status;
+
+	if (body && body_len)
+		body[0] = '\0';
+	if (pid_out)
+		*pid_out = 0;
+	fd = connect_socket(socket_path, error, error_len);
+	if (fd < 0)
+		return -1;
+	tmp = tmpfile();
+	if (!tmp) {
+		set_error(error, error_len, "tmpfile: %s", strerror(errno));
+		close(fd);
+		return -1;
+	}
+	status = 1;
+	if (write_line(fd, QSTAR_DAEMON_HELLO_MAGIC) < 0 ||
+	    read_response(fd, tmp, &status, error, error_len) < 0) {
+		fclose(tmp);
+		close(fd);
+		return -1;
+	}
+	close(fd);
+	if (status_out)
+		*status_out = status;
+	if (body && body_len) {
+		if (fflush(tmp) != 0 || fseek(tmp, 0, SEEK_SET) != 0) {
+			set_error(error, error_len, "could not read daemon hello body");
+			fclose(tmp);
+			return -1;
+		}
+		n = fread(body, 1, body_len - 1, tmp);
+		body[n] = '\0';
+	}
+	if (body && (p = strstr(body, "pid=")) != NULL && sscanf(p, "pid=%ld", &pid) == 1 &&
+	    pid > 0 && pid_out)
+		*pid_out = (pid_t)pid;
+	fclose(tmp);
+	return 0;
 }
 
 /** build request를 experimental daemon으로 보내고 응답 output을 out에 복사한다. */
@@ -2369,6 +2586,7 @@ serve_socket(const char *socket_path, FILE *out)
 	struct qstar_daemon_server server;
 	struct sockaddr_un addr;
 	char error[256], protocol_error[384];
+	char hello[128];
 	char magic[128];
 	int listen_fd, client_fd;
 
@@ -2418,9 +2636,12 @@ serve_socket(const char *socket_path, FILE *out)
 				(void)handle_build_request(&server, client_fd);
 			else if (strcmp(magic, QSTAR_DAEMON_QUERY_MAGIC) == 0)
 				(void)handle_query_request(&server, client_fd);
-			else if (strcmp(magic, QSTAR_DAEMON_HELLO_MAGIC) == 0)
-				(void)send_simple_response(client_fd, 0,
-				    "daemon status=ok experimental=1\n");
+			else if (strcmp(magic, QSTAR_DAEMON_HELLO_MAGIC) == 0) {
+				snprintf(hello, sizeof(hello),
+				    "daemon status=ok experimental=1 pid=%ld\n",
+				    (long)getpid());
+				(void)send_simple_response(client_fd, 0, hello);
+			}
 			else {
 				snprintf(protocol_error, sizeof(protocol_error),
 				    "qstar: daemon protocol mismatch: expected %s, %s, or %s, got '%s'\n",
@@ -2436,34 +2657,267 @@ serve_socket(const char *socket_path, FILE *out)
 	return 1;
 }
 
+/** daemon lifecycle sidecar path 묶음을 계산한다. */
+static int
+daemon_lifecycle_paths(const char *socket_path, char *pid_path, size_t pid_len,
+    char *lock_path, size_t lock_len, char *log_path, size_t log_len,
+    char *error, size_t error_len)
+{
+	if (daemon_sidecar_path(socket_path, "qstar-daemon.pid", pid_path, pid_len,
+	    error, error_len) < 0 ||
+	    daemon_sidecar_path(socket_path, "qstar-daemon.lock", lock_path, lock_len,
+	    error, error_len) < 0 ||
+	    daemon_sidecar_path(socket_path, "qstar-daemon.log", log_path, log_len,
+	    error, error_len) < 0)
+		return -1;
+	return 0;
+}
+
+/** pid file이 죽은 daemon을 가리킬 때 sidecar를 정리한다. */
+static int
+daemon_cleanup_stale_lifecycle(const char *socket_path, const char *pid_path,
+    const char *lock_path, FILE *out)
+{
+	char recorded_socket[QSTAR_PATH_MAX];
+	pid_t pid;
+
+	if (daemon_read_pid_file(pid_path, &pid, recorded_socket,
+	    sizeof(recorded_socket)) == 0) {
+		if (recorded_socket[0] && strcmp(recorded_socket, socket_path) != 0)
+			return 0;
+		if (daemon_pid_alive(pid))
+			return 0;
+		fprintf(out, "daemon cleanup=stale-pid pid=%ld\n", (long)pid);
+		daemon_cleanup_lifecycle_files(socket_path, pid_path, lock_path);
+		return 1;
+	}
+	if (access(lock_path, F_OK) == 0) {
+		fprintf(out, "daemon cleanup=stale-lock\n");
+		daemon_cleanup_lifecycle_files(socket_path, pid_path, lock_path);
+		return 1;
+	}
+	return 0;
+}
+
+/** background daemon이 socket hello에 응답할 때까지 짧게 기다린다. */
+static int
+daemon_wait_for_ready(const char *socket_path, pid_t child_pid, pid_t *daemon_pid,
+    char *error, size_t error_len)
+{
+	char body[512], hello_error[256];
+	int status, i;
+	pid_t pid;
+
+	for (i = 0; i < 50; i++) {
+		hello_error[0] = '\0';
+		if (daemon_hello(socket_path, body, sizeof(body), &status, &pid,
+		    hello_error, sizeof(hello_error)) == 0 && status == 0) {
+			if (pid <= 0)
+				pid = child_pid;
+			if (daemon_pid)
+				*daemon_pid = pid;
+			return 0;
+		}
+		if (!daemon_pid_alive(child_pid)) {
+			set_error(error, error_len,
+			    "daemon process exited before socket became ready");
+			return -1;
+		}
+		usleep(100000);
+	}
+	set_error(error, error_len, "daemon did not become ready");
+	return -1;
+}
+
+/** daemon background child에서 stdio를 log/null로 격리한다. */
+static void
+daemon_child_redirect_stdio(const char *log_path)
+{
+	FILE *log;
+
+	(void)freopen("/dev/null", "r", stdin);
+	log = freopen(log_path, "a", stdout);
+	if (!log)
+		(void)freopen("/dev/null", "w", stdout);
+	if (!freopen(log_path, "a", stderr))
+		(void)freopen("/dev/null", "w", stderr);
+}
+
+/** foreground serve를 background process로 띄우고 pid/lock file을 작성한다. */
+static int
+daemon_start(const char *socket_path, FILE *out)
+{
+	char body[512], error[256], pid_path[QSTAR_PATH_MAX];
+	char lock_path[QSTAR_PATH_MAX], log_path[QSTAR_PATH_MAX];
+	pid_t pid, hello_pid;
+	int status;
+
+	error[0] = '\0';
+	if (daemon_validate_socket_path(socket_path, error, sizeof(error)) < 0 ||
+	    daemon_check_socket_directory(socket_path, 1, error, sizeof(error)) < 0 ||
+	    daemon_lifecycle_paths(socket_path, pid_path, sizeof(pid_path),
+	    lock_path, sizeof(lock_path), log_path, sizeof(log_path), error,
+	    sizeof(error)) < 0) {
+		fprintf(stderr, "qstar: %s\n", error);
+		return 1;
+	}
+	if (daemon_hello(socket_path, body, sizeof(body), &status, &hello_pid,
+	    error, sizeof(error)) == 0 && status == 0) {
+		fprintf(stderr, "qstar: daemon already running socket=%s pid=%ld\n",
+		    socket_path, (long)hello_pid);
+		return 1;
+	}
+	(void)daemon_cleanup_stale_lifecycle(socket_path, pid_path, lock_path, out);
+	if (daemon_read_pid_file(pid_path, &pid, body, sizeof(body)) == 0 &&
+	    daemon_pid_alive(pid)) {
+		fprintf(stderr,
+		    "qstar: daemon already running according to pid file pid=%ld socket=%s\n",
+		    (long)pid, socket_path);
+		return 1;
+	}
+	if (daemon_prepare_server_socket_path(socket_path, error, sizeof(error)) < 0) {
+		fprintf(stderr, "qstar: %s\n", error);
+		return 1;
+	}
+	pid = fork();
+	if (pid < 0) {
+		fprintf(stderr, "qstar: daemon fork failed: %s\n", strerror(errno));
+		return 1;
+	}
+	if (pid == 0) {
+		(void)setsid();
+		daemon_child_redirect_stdio(log_path);
+		_exit(serve_socket(socket_path, stdout));
+	}
+	if (daemon_create_lifecycle_lock(lock_path, pid, error, sizeof(error)) < 0 ||
+	    daemon_write_pid_file(pid_path, pid, socket_path, error, sizeof(error)) < 0) {
+		(void)kill(pid, SIGTERM);
+		daemon_cleanup_lifecycle_files(socket_path, pid_path, lock_path);
+		fprintf(stderr, "qstar: %s\n", error);
+		return 1;
+	}
+	if (daemon_wait_for_ready(socket_path, pid, &hello_pid, error, sizeof(error)) < 0) {
+		(void)kill(pid, SIGTERM);
+		daemon_cleanup_lifecycle_files(socket_path, pid_path, lock_path);
+		fprintf(stderr, "qstar: %s\n", error);
+		return 1;
+	}
+	if (hello_pid != pid)
+		(void)daemon_write_pid_file(pid_path, hello_pid, socket_path, error,
+		    sizeof(error));
+	fprintf(out, "daemon status=started experimental=1 pid=%ld socket=%s\n",
+	    (long)(hello_pid ? hello_pid : pid), socket_path);
+	return 0;
+}
+
 /** daemon socket에 hello request를 보내 status를 확인한다. */
 static int
 daemon_status(const char *socket_path, FILE *out)
 {
-	char error[256];
-	int fd, status;
+	char body[512], error[256], pid_path[QSTAR_PATH_MAX];
+	char lock_path[QSTAR_PATH_MAX], log_path[QSTAR_PATH_MAX];
+	char recorded_socket[QSTAR_PATH_MAX];
+	pid_t pid;
+	int status;
 
-	fd = connect_socket(socket_path, error, sizeof(error));
-	if (fd < 0) {
+	error[0] = '\0';
+	if (daemon_hello(socket_path, body, sizeof(body), &status, &pid,
+	    error, sizeof(error)) == 0) {
+		fputs(body, out);
+		return status;
+	}
+	if (daemon_lifecycle_paths(socket_path, pid_path, sizeof(pid_path),
+	    lock_path, sizeof(lock_path), log_path, sizeof(log_path), error,
+	    sizeof(error)) == 0 &&
+	    daemon_read_pid_file(pid_path, &pid, recorded_socket,
+	    sizeof(recorded_socket)) == 0 &&
+	    (!recorded_socket[0] || strcmp(recorded_socket, socket_path) == 0) &&
+	    !daemon_pid_alive(pid)) {
+		fprintf(out, "daemon status=unavailable reason=stale-pid pid=%ld\n",
+		    (long)pid);
+		return 1;
+	}
+	{
 		fprintf(out, "daemon status=unavailable reason=%s\n", error);
 		return 1;
 	}
-	if (write_line(fd, QSTAR_DAEMON_HELLO_MAGIC) < 0 ||
-	    read_response(fd, out, &status, error, sizeof(error)) < 0) {
-		fprintf(out, "daemon status=unavailable reason=%s\n",
-		    error[0] ? error : "protocol-error");
-		close(fd);
+}
+
+/** pid/hello identity가 일치하는 background daemon을 종료한다. */
+static int
+daemon_stop(const char *socket_path, FILE *out)
+{
+	char body[512], error[256], pid_path[QSTAR_PATH_MAX];
+	char lock_path[QSTAR_PATH_MAX], log_path[QSTAR_PATH_MAX];
+	char recorded_socket[QSTAR_PATH_MAX];
+	pid_t pid, hello_pid;
+	int status, i;
+
+	error[0] = '\0';
+	if (daemon_validate_socket_path(socket_path, error, sizeof(error)) < 0 ||
+	    daemon_lifecycle_paths(socket_path, pid_path, sizeof(pid_path),
+	    lock_path, sizeof(lock_path), log_path, sizeof(log_path), error,
+	    sizeof(error)) < 0) {
+		fprintf(stderr, "qstar: %s\n", error);
 		return 1;
 	}
-	close(fd);
-	return status;
+	if (daemon_read_pid_file(pid_path, &pid, recorded_socket,
+	    sizeof(recorded_socket)) < 0) {
+		if (daemon_hello(socket_path, body, sizeof(body), &status, &hello_pid,
+		    error, sizeof(error)) == 0 && status == 0) {
+			fprintf(stderr,
+			    "qstar: daemon is running but pid file is missing; refusing unsafe stop\n");
+			return 1;
+		}
+		daemon_cleanup_lifecycle_files(socket_path, pid_path, lock_path);
+		fprintf(out, "daemon status=stopped reason=not-running\n");
+		return 0;
+	}
+	if (recorded_socket[0] && strcmp(recorded_socket, socket_path) != 0) {
+		fprintf(stderr, "qstar: daemon pid file socket mismatch: %s\n",
+		    recorded_socket);
+		return 1;
+	}
+	if (!daemon_pid_alive(pid)) {
+		daemon_cleanup_lifecycle_files(socket_path, pid_path, lock_path);
+		fprintf(out, "daemon status=stopped cleanup=stale-pid pid=%ld\n",
+		    (long)pid);
+		return 0;
+	}
+	hello_pid = 0;
+	if (daemon_hello(socket_path, body, sizeof(body), &status, &hello_pid,
+	    error, sizeof(error)) < 0 || status != 0 || hello_pid != pid) {
+		fprintf(stderr,
+		    "qstar: daemon pid/socket identity mismatch; refusing unsafe stop\n");
+		return 1;
+	}
+	if (kill(pid, SIGTERM) < 0) {
+		fprintf(stderr, "qstar: could not stop daemon pid=%ld: %s\n",
+		    (long)pid, strerror(errno));
+		return 1;
+	}
+	for (i = 0; i < 50; i++) {
+		if (!daemon_pid_alive(pid))
+			break;
+		usleep(100000);
+	}
+	if (daemon_pid_alive(pid)) {
+		(void)kill(pid, SIGKILL);
+		for (i = 0; i < 20 && daemon_pid_alive(pid); i++)
+			usleep(100000);
+	}
+	daemon_cleanup_lifecycle_files(socket_path, pid_path, lock_path);
+	fprintf(out, "daemon status=stopped pid=%ld\n", (long)pid);
+	return 0;
 }
 
 /** experimental daemon subcommand usage를 출력한다. */
 static void
 daemon_usage(FILE *out)
 {
-	fputs("usage: qstar [options] daemon --socket path --serve\n", out);
+	fputs("usage: qstar [options] daemon --socket path --start\n", out);
+	fputs("       qstar [options] daemon --socket path --stop\n", out);
+	fputs("       qstar [options] daemon --socket path --serve\n", out);
 	fputs("       qstar [options] daemon --socket path --status\n", out);
 	fputs("       qstar [options] daemon --socket path --query method\n", out);
 	fputs("methods: hello, workspace.info, targets.list, diagnostics.list, compile_commands.path, build.summary\n", out);
@@ -2478,10 +2932,12 @@ qstar_daemon_command(int argc, char **argv, const char *file,
 {
 	const char *socket_path, *query_method;
 	char socket_buf[QSTAR_PATH_MAX];
-	int serve, status, i;
+	int start, stop, serve, status, i;
 
 	socket_path = NULL;
 	query_method = NULL;
+	start = 0;
+	stop = 0;
 	serve = 0;
 	status = 0;
 	for (i = 0; i < argc; i++) {
@@ -2491,8 +2947,14 @@ qstar_daemon_command(int argc, char **argv, const char *file,
 				return 2;
 			}
 			socket_path = argv[++i];
-		} else if (strcmp(argv[i], "--serve") == 0 ||
+		} else if (strcmp(argv[i], "--start") == 0 ||
 		    strcmp(argv[i], "start") == 0) {
+			start = 1;
+		} else if (strcmp(argv[i], "--stop") == 0 ||
+		    strcmp(argv[i], "stop") == 0) {
+			stop = 1;
+		} else if (strcmp(argv[i], "--serve") == 0 ||
+		    strcmp(argv[i], "serve") == 0) {
 			serve = 1;
 		} else if (strcmp(argv[i], "--status") == 0 ||
 		    strcmp(argv[i], "status") == 0) {
@@ -2513,7 +2975,7 @@ qstar_daemon_command(int argc, char **argv, const char *file,
 			return 2;
 		}
 	}
-	if (serve + status + (query_method ? 1 : 0) != 1) {
+	if (start + stop + serve + status + (query_method ? 1 : 0) != 1) {
 		daemon_usage(stderr);
 		return 2;
 	}
@@ -2524,6 +2986,10 @@ qstar_daemon_command(int argc, char **argv, const char *file,
 		}
 		socket_path = socket_buf;
 	}
+	if (start)
+		return daemon_start(socket_path, out);
+	if (stop)
+		return daemon_stop(socket_path, out);
 	if (serve)
 		return serve_socket(socket_path, out);
 	if (query_method)

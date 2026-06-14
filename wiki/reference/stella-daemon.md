@@ -11,6 +11,8 @@ readiness 판단은 `docs/daemon-beta-readiness.md`다.
 명령 namespace는 `qstar daemon`으로 정한다.
 
 ```sh
+qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --start
+qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --stop
 qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --serve
 qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --status
 qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query targets.list
@@ -21,6 +23,10 @@ qstar build //:app --use-daemon=never
 
 `qstar stella-daemon`은 채택하지 않는다. Daemon은 현재 Stella executor를 빠르게 만들기 위한
 service지만, CLI 명령은 QStar service lifecycle을 나타내는 `daemon`이 더 넓고 안정적이다.
+
+`--start`는 background daemon을 띄우고 `qstar-daemon.pid`, `qstar-daemon.lock`,
+`qstar-daemon.log`를 socket directory에 둔다. `--stop`은 pid file과 hello response의 pid가
+일치할 때만 종료한다. `--serve`는 debugging용 foreground path로 계속 남긴다.
 
 ## 목적
 
@@ -76,7 +82,8 @@ Q151 이후 결론:
 - `--use-daemon=auto`와 `--use-daemon=always`는 explicit opt-in이다.
 - `qstar daemon --query ...`는 IDE/AI용 read-only beta opt-in 기능으로 문서화한다.
 - `0.6.0-beta`는 daemon readiness를 담는 public beta line이다.
-- background lifecycle/security/protocol이 더 닫히기 전까지 daemon은 default-on이 아니다.
+- stable daemon API version promise, Linux daemon CI lane, Windows named pipe가 더 닫히기 전까지
+  daemon은 default-on이 아니다.
 
 Build stream이 시작된 뒤 daemon이 죽으면 client는 partial output 뒤에
 `qstar: daemon stream interrupted before final status`를 출력하고 실패한다. 이 경우
@@ -148,7 +155,6 @@ event, watcher overflow, backend 오류는 conservative graph reload로 처리�
 
 Default-on 전까지 남은 gap:
 
-- background daemon lifecycle lock/pid policy
 - stable daemon API version promise
 - Linux CI daemon socket/watcher lane with artifacts
 - Windows named pipe ACL policy

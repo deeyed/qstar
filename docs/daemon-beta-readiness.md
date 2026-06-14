@@ -25,17 +25,17 @@ streaming output, in-memory state, watcher invalidation, performance gate, read-
 | Default `qstar build` | normal Stella executor 유지 |
 | `--use-daemon=auto` | explicit opt-in으로 유지 |
 | `--use-daemon=always` | diagnostic/debug opt-in으로 유지 |
-| `qstar daemon --serve` | foreground experimental lifecycle 유지 |
+| `qstar daemon --start/--stop` | background beta opt-in lifecycle 후보 |
+| `qstar daemon --serve` | foreground debugging lifecycle 유지 |
 | `qstar daemon --query ...` | IDE/AI read-only beta opt-in 후보 |
-| Background daemon lifecycle | deferred |
 | Windows named pipe | deferred |
 | Remote daemon | out of scope |
 
 Version line은 `0.6.0-beta`로 승격한다. 이 승격은 daemon을 stable/default surface로 켜는
 것이 아니라, 명시적 opt-in 기능과 IDE/AI read API를 beta 문서 표면으로 올리는 변화다.
 Q153 이후 socket permission hardening과 protocol mismatch diagnostic은 beta opt-in 기준으로
-닫혔지만, background lifecycle, stable API version promise, Linux daemon CI lane, Windows named
-pipe가 더 닫히기 전까지 daemon은 default-on이 아니다.
+닫혔고, Q154 이후 background lifecycle MVP도 들어왔다. Stable API version promise, Linux daemon
+CI lane, Windows named pipe가 더 닫히기 전까지 daemon은 default-on이 아니다.
 
 ## Q145-Q150 Summary
 
@@ -125,14 +125,14 @@ Daemon 보안은 beta opt-in의 남은 핵심이다.
 
 남은 gap:
 
-- background daemon lifecycle lock/pid policy
 - stable daemon API version promise
 - Linux CI daemon socket/watcher lane with artifacts
 - Windows named pipe ACL policy
 
 이 gap 때문에 daemon은 아직 default-on 기능이 아니다. Q153 이후 owner-only socket directory/file
 검사, owner mismatch reject, protocol mismatch diagnostic, package root/build_dir hard reject, 안전한
-stale socket probe는 beta opt-in 기준으로 구현되어 있다.
+stale socket probe는 beta opt-in 기준으로 구현되어 있다. Q154 이후 `--start`/`--stop`, pid file,
+lock file, duplicate start diagnostic도 beta opt-in 기준으로 구현되어 있다.
 
 ## Release Gate
 
@@ -171,7 +171,6 @@ Sandbox에서 socket bind가 막히면 daemon phase skip은 허용하지만, rel
 
 ## Deferred Before Default-On
 
-- Background daemon lifecycle: start/stop/status with pid/lock management.
 - Stable daemon API version promise.
 - Linux CI daemon socket/watcher lane with artifacts.
 - Windows named pipe daemon.

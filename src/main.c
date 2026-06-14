@@ -31,7 +31,7 @@ usage(FILE *out)
 	fputs("       qstar [options] last-failure\n", out);
 	fputs("       qstar [options] action-log <action-id>\n", out);
 	fputs("       qstar [options] replay <action-id>\n", out);
-	fputs("       qstar [options] daemon --socket path --serve|--status|--query method  # experimental\n", out);
+	fputs("       qstar [options] daemon --socket path --start|--stop|--serve|--status|--query method  # beta\n", out);
 	fputs("       qstar lsp --stdio\n", out);
 	fputs("       qstar init c-app|c-lib|generated|mixed-cale [directory]\n", out);
 	fputs("       qstar [options] --dump-graph\n", out);
@@ -50,8 +50,8 @@ usage(FILE *out)
 	fputs("       --progress auto|plain|off  # default: CMake-style action progress\n", out);
 	fputs("       --verbose  # keep progress and add argv/cache/action details\n", out);
 	fputs("       --schedule-trace  # add scheduler internals such as schedule_action\n", out);
-	fputs("       --use-daemon auto|never|always  # experimental Stella daemon client\n", out);
-	fputs("       --daemon-socket path  # experimental Stella daemon socket\n", out);
+	fputs("       --use-daemon auto|never|always  # beta Stella daemon client\n", out);
+	fputs("       --daemon-socket path  # beta Stella daemon socket\n", out);
 	fputs("       --quiet\n", out);
 }
 
@@ -84,10 +84,12 @@ command_help(FILE *out, const char *cmd)
 		return;
 	}
 	if (strcmp(cmd, "daemon") == 0) {
-		fputs("usage: qstar [options] daemon --socket path --serve\n", out);
+		fputs("usage: qstar [options] daemon --socket path --start\n", out);
+		fputs("       qstar [options] daemon --socket path --stop\n", out);
+		fputs("       qstar [options] daemon --socket path --serve\n", out);
 		fputs("       qstar [options] daemon --socket path --status\n", out);
 		fputs("       qstar [options] daemon --socket path --query method\n", out);
-		fputs("Run the experimental persistent Stella daemon in the foreground.\n", out);
+		fputs("Run the beta opt-in persistent Stella daemon lifecycle.\n", out);
 		fputs("Read-only query methods: hello, workspace.info, targets.list, diagnostics.list, compile_commands.path, build.summary.\n", out);
 		fputs("This is not a stable public surface yet; normal qstar build is unchanged.\n", out);
 		return;

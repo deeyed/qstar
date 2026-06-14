@@ -24,8 +24,11 @@ related: docs/daemon-beta-readiness.md
 
 User-facing command namespace는 `qstar daemon`으로 한다. Q144 MVP는 foreground server와
 explicit build client를 제공했고, Q150부터 read-only query helper도 같은 namespace에 둔다.
+Q154부터는 `--start`/`--stop` background lifecycle도 같은 namespace에 둔다.
 
 ```sh
+qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --start
+qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --stop
 qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --serve
 qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --status
 qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query targets.list
@@ -139,6 +142,9 @@ build/qstar/stella/daemon/
 
 Socket은 build directory 아래에 둔다. Project root에 `.qstar.sock` 같은 파일을 만들지
 않는다. Build directory가 지워지면 daemon은 stale로 간주된다.
+`--start`는 같은 socket에 이미 daemon이 응답하면 `daemon already running`으로 실패한다.
+`--stop`은 pid file과 hello response의 pid가 일치할 때만 종료한다. Pid file이 없는데 socket이
+응답하는 경우에는 안전하지 않은 stop으로 보고 실패한다.
 
 권장 permission:
 
@@ -382,7 +388,7 @@ Recommended future implementation order:
 5. Q150: read-only `hello`, `workspace.info`, `targets.list` protocol.
 6. Q153: owner-only socket directory/file checks, protocol mismatch diagnostics, and identity hard
    rejection.
-7. Background start/stop and pid/lock lifecycle.
+7. Q154: background `--start`/`--stop`, pid/lock file, and duplicate start diagnostic.
 8. IDE/AI read-only API surface and audit log.
 9. Windows named pipe design refresh and native validation.
 

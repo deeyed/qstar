@@ -346,6 +346,22 @@ if [ -S "$daemon_sock" ]; then
 	wait "$daemon_pid" 2>/dev/null || true
 	daemon_pid=
 	rm -f "$daemon_sock"
+	lifecycle_sock="$daemon_dir/qd.sock"
+	"$qstar" --file "$tmp/qstar.lua" -B build/daemon-lifecycle daemon --socket "$lifecycle_sock" --start > "$tmp/daemon-lifecycle-start.out" 2> "$tmp/daemon-lifecycle-start.err"
+	contains "$tmp/daemon-lifecycle-start.out" "daemon status=started experimental=1 pid="
+	contains "$tmp/daemon-lifecycle-start.out" "socket=$lifecycle_sock"
+	"$qstar" --file "$tmp/qstar.lua" -B build/daemon-lifecycle daemon --socket "$lifecycle_sock" --status > "$tmp/daemon-lifecycle-status.out" 2> "$tmp/daemon-lifecycle-status.err"
+	contains "$tmp/daemon-lifecycle-status.out" "daemon status=ok experimental=1 pid="
+	if "$qstar" --file "$tmp/qstar.lua" -B build/daemon-lifecycle daemon --socket "$lifecycle_sock" --start > "$tmp/daemon-lifecycle-start2.out" 2> "$tmp/daemon-lifecycle-start2.err"; then
+		fail "daemon duplicate start unexpectedly succeeded"
+	fi
+	contains "$tmp/daemon-lifecycle-start2.err" "daemon already running"
+	"$qstar" --file "$tmp/qstar.lua" -B build/daemon-lifecycle daemon --socket "$lifecycle_sock" --query hello > "$tmp/daemon-lifecycle-query.out" 2> "$tmp/daemon-lifecycle-query.err"
+	contains "$tmp/daemon-lifecycle-query.out" "\"method\":\"hello\""
+	"$qstar" --file "$tmp/qstar.lua" -B build/daemon-lifecycle daemon --socket "$lifecycle_sock" --stop > "$tmp/daemon-lifecycle-stop.out" 2> "$tmp/daemon-lifecycle-stop.err"
+	contains "$tmp/daemon-lifecycle-stop.out" "daemon status=stopped pid="
+	"$qstar" --file "$tmp/qstar.lua" -B build/daemon-lifecycle daemon --socket "$lifecycle_sock" --status > "$tmp/daemon-lifecycle-stopped.out" 2> "$tmp/daemon-lifecycle-stopped.err" || true
+	contains "$tmp/daemon-lifecycle-stopped.out" "daemon status=unavailable reason=socket-missing"
 else
 	if grep -F -q "Operation not permitted" "$tmp/daemon-server.err"; then
 		echo "qstar-smoke: experimental daemon socket smoke skipped: sandbox disallows Unix socket bind" >&2
@@ -3716,6 +3732,7 @@ contains "docs/perf/stella-plan-cache-design.md" "Q131 Lazy Success Action Logs"
 contains "docs/perf/stella-plan-cache-design.md" "Q137 Stella/Ninja Performance Seal"
 contains "docs/perf/stella-plan-cache-design.md" "persistent Stella daemon design"
 contains "docs/daemon/stella-daemon.md" "command namespace: qstar daemon"
+contains "docs/daemon/stella-daemon.md" "qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --start"
 contains "docs/daemon/stella-daemon.md" "qstar build //:app --use-daemon=auto"
 contains "docs/daemon/stella-daemon.md" "Unix domain socket"
 contains "docs/daemon/stella-daemon.md" "Windows named pipe"
@@ -3884,6 +3901,7 @@ contains "wiki/AI_INDEX.md" "qstar-v0.6-readiness.md"
 contains "wiki/AI_INDEX.md" "qstar-v0.5-readiness.md"
 contains "wiki/AI_INDEX.md" "qstar-linux-validation-tests"
 contains "wiki/AI_INDEX.md" "qstar daemon"
+contains "wiki/AI_INDEX.md" "qstar daemon --socket path --start|--stop|--serve|--status"
 contains "wiki/AI_INDEX.md" "compile_commands.path"
 contains "wiki/AI_INDEX.md" "docs/contracts/daemon-read-api.md"
 contains "wiki/AI_INDEX.md" "docs/daemon-beta-readiness.md"

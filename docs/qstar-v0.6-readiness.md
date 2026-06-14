@@ -30,6 +30,8 @@ QStar는 `0.6.0-beta` public prerelease를 낼 수 있다.
 
 0.6에서 사용자-facing으로 강조할 기능:
 
+- `qstar daemon --socket path --start`
+- `qstar daemon --socket path --stop`
 - `qstar daemon --socket path --serve`
 - `qstar build --use-daemon=auto|always --daemon-socket path`
 - `qstar daemon --socket path --query method`
@@ -88,9 +90,8 @@ make qstar-public-beta-release-tests
 
 - Linux public binary asset.
 - Windows official host support and release asset.
-- Daemon background lifecycle commands.
-- Daemon socket owner/permission hardening.
 - Stable daemon protocol version promise.
+- Linux daemon socket/watcher CI lane.
 - Windows named pipe daemon.
 - Remote daemon access.
 - Cale source Ninja wrapper lowering.

@@ -107,14 +107,15 @@ QStar에는 문서화된 beta opt-in daemon workflow가 있다. 기본 `qstar bu
 Stella executor를 사용하며, daemon residency는 명시적으로 켤 때만 사용한다.
 
 ```sh
-qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --serve
+qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --start
 qstar --file qstar.lua -B build/qstar build //:app --use-daemon=auto --daemon-socket build/qstar/stella/daemon/qstar-daemon.sock
 qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query targets.list
+qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --stop
 ```
 
 read API는 IDE/AI tooling을 위한 것이며 현재 `hello`, `workspace.info`, `targets.list`,
-`diagnostics.list`, `compile_commands.path`, `build.summary`를 제공한다. Socket file은 local-only,
-owner-only 정책을 따른다. Windows named pipe와 background daemon lifecycle은 아직 deferred다.
+`diagnostics.list`, `compile_commands.path`, `build.summary`를 제공한다. Socket/pid/lock file은
+local-only, owner-only 정책을 따른다. Windows named pipe는 아직 deferred다.
 
 ## 작성 예시
 

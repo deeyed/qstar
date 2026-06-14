@@ -129,9 +129,9 @@ QStar가 하지 않는 일:
   Linux CI artifact는 `dist/perf/linux-<compiler>-medium-perf.txt`,
   `dist/perf/linux-<compiler>-medium-summary.txt`,
   `dist/perf/linux-<compiler>-medium-summary.md` 이름을 사용한다.
-- Persistent Stella daemon은 Q148 기준 watcher-backed memory-state streaming experimental MVP다. 명령 namespace는
+- Persistent Stella daemon은 watcher-backed memory-state streaming beta opt-in 기능이다. 명령 namespace는
   `qstar daemon`이고, `qstar stella-daemon`은 채택하지 않는다. 현재 구현은
-  `qstar daemon --socket path --serve`, `qstar daemon --socket path --status`,
+  `qstar daemon --socket path --start|--stop|--serve|--status`,
   `qstar build --use-daemon=auto|never|always --daemon-socket path`다. `auto`는 연결 실패 시
   normal Stella build로 fallback하고, `always`는 실패한다. Daemon은 같은 process에서
   Graph IR와 lowered plan cache 결과를 유지하고, `state.db`/`deps.db` memory snapshot을 먼저
@@ -155,9 +155,10 @@ QStar가 하지 않는 일:
   기본 `qstar build`는 daemon을 쓰지 않고, `--use-daemon=auto|always`와
   `qstar daemon --query ...`는 명시적으로 선택할 때만 쓴다. Q153 이후 socket directory/file
   owner-only 검사, owner mismatch reject, protocol mismatch diagnostic, package root/build_dir
-  hard reject는 beta opt-in 기준으로 구현되어 있다. Background lifecycle, stable daemon API
-  version promise, Linux daemon CI lane, Windows named pipe는 아직 default-on 전에 닫아야 할
-  gap으로 남긴다. 판단 문서는 `docs/daemon-beta-readiness.md`에 둔다.
+  hard reject는 beta opt-in 기준으로 구현되어 있다. Q154 이후 `qstar daemon --start/--stop`,
+  pid file, lock file, duplicate start diagnostic도 beta opt-in 기준으로 구현되어 있다. Stable
+  daemon API version promise, Linux daemon CI lane, Windows named pipe는 아직 default-on 전에
+  닫아야 할 gap으로 남긴다. 판단 문서는 `docs/daemon-beta-readiness.md`에 둔다.
 - Stella dirty-check의 canonical fast state는 `build/qstar/state/state.db`다.
   `build/qstar/state/actions.json`은 기본 생성물이 아니며
   `QSTAR_DEBUG_STATE_DUMPS=1 qstar build ...`로 요청한 debug/export dump다.

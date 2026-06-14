@@ -68,7 +68,7 @@ codesign --verify root/bin/qstar
 - Linux x86_64 has validation-backed source builds and release-candidate tarball dry-runs, but no public asset yet.
 - Windows is a manual native validation candidate and not official host support.
 - Stella daemon is beta opt-in and default-off.
-- Daemon background lifecycle, stable daemon API version promise, Linux daemon CI lane, and Windows named pipe support remain deferred.
+- Stable daemon API version promise, Linux daemon CI lane, and Windows named pipe support remain deferred.
 
 ## Overrides
 
