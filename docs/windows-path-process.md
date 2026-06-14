@@ -213,11 +213,11 @@ alpha workflow.
 
 `.github/workflows/windows-validation.yml` is intentionally manual-only through
 `workflow_dispatch`. It checks out submodules, uses an MSYS2 UCRT64 environment,
-runs `make all`, records `qstar --version`, runs
-`make qstar-windows-native-alpha-tests`, runs `make qstar-windows-prep-tests`,
-and performs an install docs/manpage smoke under `/tmp/qstar-windows-smoke`.
-When the `run_ninja_parity=true` input is enabled it also runs
-`make qstar-ninja-backend-parity-tests`.
+runs `make all CC=gcc`, records `qstar --version`, runs
+`make qstar-windows-native-alpha-tests CC=gcc`, runs
+`make qstar-windows-prep-tests CC=gcc`, and performs an install docs/manpage
+smoke under `/tmp/qstar-windows-smoke`. When the `run_ninja_parity=true` input
+is enabled it also runs `make qstar-ninja-backend-parity-tests CC=gcc`.
 
 The workflow uploads a `qstar-windows-native-alpha` artifact with environment,
 build, smoke, and install logs. This workflow is an alpha porting lane, not a

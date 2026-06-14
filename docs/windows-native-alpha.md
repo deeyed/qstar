@@ -50,11 +50,11 @@ workflow_dispatch
 The default alpha job runs:
 
 ```sh
-make all
+make all CC=gcc
 build/bin/qstar --version
-make qstar-windows-native-alpha-tests
-make qstar-windows-prep-tests
-make install PREFIX=/tmp/qstar-windows-smoke
+make qstar-windows-native-alpha-tests CC=gcc
+make qstar-windows-prep-tests CC=gcc
+make install CC=gcc PREFIX=/tmp/qstar-windows-smoke
 ```
 
 The optional `run_ninja_parity=true` input also runs:
@@ -87,6 +87,8 @@ Current known gaps:
 - No Windows public release asset.
 - No stable Windows install layout contract.
 - No Visual Studio, `nmake`, or direct MSVC bootstrap lane.
+- The MSYS2 alpha lane pins `CC=gcc`; the hosted runner may provide a `CC=c99`
+  environment value that is not an executable tool.
 - Real MSVC/clang-cl compiler execution is not yet a release gate.
 - Windows `.dll`, import library, PDB, and shared library install policy are
   deferred.

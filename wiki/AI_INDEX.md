@@ -120,8 +120,8 @@ QStar가 하지 않는 일:
   `make qstar-windows-prep-tests`가 path/process/MSVC response-file 준비 규칙을 묶고,
   `make qstar-windows-native-alpha-tests`가 제한 smoke를 제공한다.
   `.github/workflows/windows-validation.yml`은 `workflow_dispatch` 전용 manual native CI
-  alpha다. MSYS2 UCRT64에서 `make all`, `qstar --version`, native alpha smoke, Windows prep,
-  install docs/man smoke를 실행하고 `qstar-windows-native-alpha` artifact로 로그를 남긴다.
+  alpha다. MSYS2 UCRT64에서 `make all CC=gcc`, `qstar --version`, native alpha smoke,
+  Windows prep, install docs/man smoke를 실행하고 `qstar-windows-native-alpha` artifact로 로그를 남긴다.
   QStar DSL path는 Windows에서도 `/`로 정규화된 package-relative path이며,
   backslash path와 drive-letter package path는 금지된다. Windows-like path 문자열이
   실제 compiler/linker option이면 `compile_options`/`link_options` argv item으로 두고

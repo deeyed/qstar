@@ -59,7 +59,7 @@ jobs:
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          make all 2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/make-all.log"
+          make all CC=gcc 2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/make-all.log"
 
       - name: qstar --version smoke
         shell: msys2 {0}
@@ -75,21 +75,22 @@ jobs:
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          make qstar-windows-native-alpha-tests \
+          make qstar-windows-native-alpha-tests CC=gcc \
             2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/native-alpha.log"
 
       - name: Run Windows path/process prep gate
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          make qstar-windows-prep-tests 2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/windows-prep.log"
+          make qstar-windows-prep-tests CC=gcc \
+            2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/windows-prep.log"
 
       - name: Optional Ninja backend parity gate
         if: ${{ inputs.run_ninja_parity }}
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          make qstar-ninja-backend-parity-tests \
+          make qstar-ninja-backend-parity-tests CC=gcc \
             2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/ninja-backend-parity.log"
 
       - name: Install prefix docs and manpage smoke
@@ -98,7 +99,7 @@ jobs:
           set -euo pipefail
           prefix=/tmp/qstar-windows-smoke
           rm -rf "$prefix"
-          make install PREFIX="$prefix" 2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/install.log"
+          make install CC=gcc PREFIX="$prefix" 2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/install.log"
           "$prefix/bin/qstar" --version 2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/install-version.log"
           QSTAR_DOC_DIR="$prefix/share/doc/qstar" "$prefix/bin/qstar" docs --path \
             2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/install-docs-path.log"
@@ -114,11 +115,11 @@ jobs:
           mkdir -p "$QSTAR_WINDOWS_ALPHA_DIR"
           {
             printf '# Windows Native CI Alpha\n\n'
-            printf '- workflow: `%s`\n' "$GITHUB_WORKFLOW"
-            printf '- job: `windows alpha / msys2-ucrt64`\n'
-            printf '- run: `%s`\n' "$GITHUB_RUN_ID"
-            printf '- status: see step result and logs in this artifact\n'
-            printf '- support level: manual alpha validation, not official Windows support\n'
+            printf '%s\n' "- workflow: \`$GITHUB_WORKFLOW\`"
+            printf '%s\n' '- job: `windows alpha / msys2-ucrt64`'
+            printf '%s\n' "- run: \`$GITHUB_RUN_ID\`"
+            printf '%s\n' '- status: see step result and logs in this artifact'
+            printf '%s\n' '- support level: manual alpha validation, not official Windows support'
           } > "$QSTAR_WINDOWS_ALPHA_DIR/SUMMARY.md"
 
       - name: Upload Windows alpha logs

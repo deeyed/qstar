@@ -165,10 +165,11 @@ make qstar-windows-prep-tests
 ```
 
 `.github/workflows/windows-validation.yml`은 `workflow_dispatch` 전용 alpha workflow다.
-MSYS2 UCRT64 환경에서 `make all`, `qstar --version`,
-`make qstar-windows-native-alpha-tests`, `make qstar-windows-prep-tests`, install docs/man
-smoke를 실행하고 `qstar-windows-native-alpha` artifact로 실패 로그를 올린다. 그래도
-regular CI나 release gate가 되기 전까지 Windows official support로 표기하지 않는다.
+MSYS2 UCRT64 환경에서 `make all CC=gcc`, `qstar --version`,
+`make qstar-windows-native-alpha-tests CC=gcc`, `make qstar-windows-prep-tests CC=gcc`,
+install docs/man smoke를 실행하고 `qstar-windows-native-alpha` artifact로 실패 로그를
+올린다. 그래도 regular CI나 release gate가 되기 전까지 Windows official support로
+표기하지 않는다.
 
 ## 관련 diagnostic
 
