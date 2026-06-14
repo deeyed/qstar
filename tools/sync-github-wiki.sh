@@ -56,6 +56,8 @@ cat > "$work/_Sidebar.md" <<'EOF'
 - [Target Rules](reference/target-rules)
 - [Profiles](reference/profiles)
 - [Diagnostics](reference/diagnostics)
+- [Performance Gates](reference/performance-gates)
+- [Stella Daemon](reference/stella-daemon)
 - [Progress Output](reference/progress-output)
 EOF
 

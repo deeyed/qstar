@@ -10,6 +10,7 @@ date: 2026-06-14
 depends-on: docs/perf/stella-ninja-profile.md
 scope: internal plan cache design and current behavior
 implementation: graph cache plus executable compile/archive/link action plan active for Stella build
+next-step: persistent Stella daemon design in docs/daemon/stella-daemon.md
 ```
 
 ## Goal
@@ -114,6 +115,11 @@ Q121 이후에는 build start에서 `build/qstar/state/state.db`를 먼저 읽�
 Q123 이후에는 `build/qstar/state/deps.db`도 함께 읽는다. 이 DB는 compiler depfile 자체를
 매번 다시 파싱하기 전에, depfile path/size/mtime/content hash가 그대로인지 확인하고
 저장된 discovered header list를 재사용한다.
+
+Q143 persistent daemon design은 이 파일 기반 cache를 없애지 않는다. Daemon은
+`actions.qsa`, `state.db`, `deps.db`를 process memory에 올려 반복 CLI invocation 사이의
+Lua runtime 초기화, graph load, plan cache load, dirty state load를 줄이는 상위 residency
+layer다. 정본 설계는 `docs/daemon/stella-daemon.md`에 둔다.
 
 ## Atomicity Policy
 
@@ -769,3 +775,5 @@ medium_project_gate status=ok perf_issue_count=1 report_only=1
 Stella plan cache는 QStar를 Ninja처럼 낮은 수준 build executor로 바꾸는 작업이 아니라,
 QStar의 고수준 authoring phase와 Stella의 execution phase를 분리하는 작업이다. Q120은
 whole-plan cache MVP로 시작하고, partial cache나 LSP index reuse는 그 이후로 미룬다.
+Q143의 persistent daemon은 이 분리를 한 단계 더 밀어, lowered plan과 dirty-check state를
+process lifetime 동안 유지하는 장기 구조다.

@@ -210,6 +210,11 @@ qstar build //:app
 이 구조는 QStar의 Lua DSL 장점을 버리는 것이 아니라, authoring 단계와 execution 단계를
 분리하는 것이다.
 
+Q143의 persistent Stella daemon은 이 분리를 process lifetime으로 확장하는 장기 구조다.
+Plan cache가 lowered execution graph를 build directory에 저장한다면, daemon은 같은 graph와
+dirty-check state를 메모리에 유지해 반복 CLI invocation의 fixed cost를 더 줄인다. 정본
+설계는 `docs/daemon/stella-daemon.md`에 둔다.
+
 ## Proposed Internal Files
 
 내부 파일명은 user-facing DSL 확장자가 아니므로 안정 API로 공개하지 않는다.

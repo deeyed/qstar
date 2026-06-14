@@ -121,6 +121,7 @@ qstar docs --show reference/qstar-lua.md
 - [Run Target](reference/run-target.md)
 - [Profiles](reference/profiles.md)
 - [Performance Gates](reference/performance-gates.md)
+- [Stella Daemon](reference/stella-daemon.md)
 - [Progress Output](reference/progress-output.md)
 - [Diagnostics](reference/diagnostics.md)
 

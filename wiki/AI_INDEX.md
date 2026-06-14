@@ -120,6 +120,13 @@ QStar가 하지 않는 일:
   Linux CI artifact는 `dist/perf/linux-<compiler>-medium-perf.txt`,
   `dist/perf/linux-<compiler>-medium-summary.txt`,
   `dist/perf/linux-<compiler>-medium-summary.md` 이름을 사용한다.
+- Persistent Stella daemon은 Q143 기준 design-only surface다. 명령 namespace는
+  `qstar daemon`으로 결정했고, `qstar stella-daemon`은 채택하지 않는다. 초기 host는
+  macOS/Linux Unix socket이고 Windows named pipe는 deferred다. Daemon은 `actions.qsa`,
+  `state.db`, `deps.db`, file watcher, loaded Graph IR/Stella Plan IR을 process lifetime
+  동안 유지해 반복 invocation의 Lua eval/graph load/plan load 비용을 줄이는 장기 구조다.
+  정본 설계는 `docs/daemon/stella-daemon.md`, 사용자 reference 초안은
+  `wiki/reference/stella-daemon.md`에 둔다.
 - Stella dirty-check의 canonical fast state는 `build/qstar/state/state.db`다.
   `build/qstar/state/actions.json`은 기본 생성물이 아니며
   `QSTAR_DEBUG_STATE_DUMPS=1 qstar build ...`로 요청한 debug/export dump다.
