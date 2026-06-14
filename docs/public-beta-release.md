@@ -58,6 +58,20 @@ make qstar-public-beta-release-tests
 - `SHA256SUMS`가 release tarball을 포함한다.
 - VSCode `.vsix`는 runtime tarball에 포함되지 않는다.
 
+## Downloaded Asset Gate
+
+GitHub release를 만든 뒤에는 source tree의 local tarball이 아니라 실제 uploaded asset을
+다시 다운로드해 검증한다.
+
+```sh
+make qstar-public-beta-download-smoke
+```
+
+이 target은 `tools/smoke-github-release.sh`를 실행한다. Script는 GitHub release의
+tarball과 `SHA256SUMS`를 다운로드하고, checksum, prefix layout, `/tmp` extract 후
+`qstar --version`, installed docs, installed manpages, macOS codesign을 확인한다. 자세한
+0.6 post-release 기록은 `docs/qstar-v0.6-post-release-smoke.md`에 둔다.
+
 ## Install Smoke
 
 Release tarball 생성과 별개로 installed tree smoke를 한 번 더 수행한다.
@@ -179,3 +193,4 @@ gh release create v0.6.0-beta \
 ```
 
 GitHub release 생성은 QStar commit/push, wiki sync, release smoke가 끝난 뒤에만 수행한다.
+Release 생성 뒤에는 반드시 `make qstar-public-beta-download-smoke`를 한 번 더 실행한다.

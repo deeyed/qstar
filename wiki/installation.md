@@ -56,6 +56,15 @@ tarball layout, `SHA256SUMS`, VSCode `.vsix` 미포함 정책을 확인한다.
 GitHub Wiki mirror는 source tree의 `wiki/`가 최신인 것을 확인한 뒤
 `tools/sync-github-wiki.sh`로 수행한다.
 
+GitHub release를 만든 뒤에는 실제 uploaded asset을 다시 다운로드해 검증한다.
+
+```sh
+make qstar-public-beta-download-smoke
+```
+
+이 gate는 release tarball과 `SHA256SUMS`를 GitHub에서 다운로드하고, checksum, `/tmp`
+extract, `qstar --version`, installed docs/manpages, macOS codesign을 확인한다.
+
 ## 실패 예제
 
 ```sh

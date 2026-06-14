@@ -62,6 +62,13 @@ build/bin/qstar --file qstar.lua -B build/qstar-self build //:qstar
 build/bin/qstar --file qstar.lua -B build/qstar-self-ninja -G ninja build //:qstar
 ```
 
+릴리즈 담당자는 local source tree에서 만든 tarball뿐 아니라 GitHub에 업로드된 release
+asset도 다음 명령으로 검증한다.
+
+```sh
+make qstar-public-beta-download-smoke
+```
+
 ## 빠른 시작
 
 ```sh

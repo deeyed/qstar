@@ -71,6 +71,10 @@ QStar가 하지 않는 일:
   installed binary version, installed wiki/manpages, macOS codesign, prefix-style
   tarball layout, `SHA256SUMS`, VSCode `.vsix` 미포함 정책을 확인한다. GitHub Wiki
   mirror는 `tools/sync-github-wiki.sh`로 수행한다.
+- GitHub release 생성 뒤에는 `make qstar-public-beta-download-smoke`를 실행해 실제 uploaded
+  asset을 다시 다운로드하고 `SHA256SUMS`, `/tmp` extract, `qstar --version`, installed
+  docs/manpages, macOS codesign을 확인한다. 0.6 post-release 기록은
+  `docs/qstar-v0.6-post-release-smoke.md`에 둔다.
 - Progress output contract는 `docs/progress-output.md`와 `wiki/reference/progress-output.md`에
   둔다. QStar 0.5 UI line은 `[ 75%] Linking CXX executable app` 같은 CMake-style
   action description을 일반 출력으로 사용하고, legacy scheduler stage wording, `Status: ...`,

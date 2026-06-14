@@ -71,6 +71,13 @@ build/bin/qstar --file qstar.lua -B build/qstar-self build //:qstar
 build/bin/qstar --file qstar.lua -B build/qstar-self-ninja -G ninja build //:qstar
 ```
 
+Maintainers can verify the uploaded GitHub release asset, not just the local
+source-tree tarball, with:
+
+```sh
+make qstar-public-beta-download-smoke
+```
+
 ## Quick Start
 
 Create and build a small C application:
