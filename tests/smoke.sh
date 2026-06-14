@@ -143,7 +143,11 @@ qstar.run_target "fail" {
 EOF
 
 cat > "$tmp/src/main.c" <<'EOF'
-int main(void) { return 0; }
+#include "dep.h"
+int main(void) { return SMOKE_VALUE; }
+EOF
+cat > "$tmp/src/dep.h" <<'EOF'
+#define SMOKE_VALUE 0
 EOF
 cat > "$tmp/tools/fail.sh" <<'EOF'
 #!/bin/sh
@@ -256,24 +260,34 @@ if [ -S "$daemon_sock" ]; then
 	contains "$tmp/daemon-status.out" "daemon status=ok experimental=1"
 	"$qstar" --file "$tmp/qstar.lua" -B build/daemon build //:app --use-daemon=always --daemon-socket "$daemon_sock" --schedule-trace --progress off --color never > "$tmp/daemon-first.out" 2> "$tmp/daemon-first.err"
 	contains "$tmp/daemon-first.out" "daemon_server status=build graph=miss"
+	contains "$tmp/daemon-first.out" "daemon_watcher status=active"
 	contains "$tmp/daemon-first.out" "dirty_state_memory status=miss reason=cold"
 	contains "$tmp/daemon-first.out" "dirty_state_memory status=writeback"
 	contains "$tmp/daemon-first.out" "status ok"
 	"$qstar" --file "$tmp/qstar.lua" -B build/daemon build //:app --use-daemon=always --daemon-socket "$daemon_sock" --schedule-trace --progress off --color never > "$tmp/daemon-second.out" 2> "$tmp/daemon-second.err"
 	contains "$tmp/daemon-second.out" "daemon_server status=build graph=hit reason=memory experimental=1"
+	contains "$tmp/daemon-second.out" "daemon_watcher status=active"
 	contains "$tmp/daemon-second.out" "dirty_state_memory status=hit"
 	contains "$tmp/daemon-second.out" "deps_memory status=hit"
 	contains "$tmp/daemon-second.out" "status ok"
+	printf '%s\n' '-- daemon watcher authoring invalidation smoke' >> "$tmp/qstar.lua"
+	"$qstar" --file "$tmp/qstar.lua" -B build/daemon build //:app --use-daemon=always --daemon-socket "$daemon_sock" --schedule-trace --progress off --color never > "$tmp/daemon-authoring.out" 2> "$tmp/daemon-authoring.err"
+	contains "$tmp/daemon-authoring.out" "daemon_watcher status=event"
+	contains "$tmp/daemon-authoring.out" "scope=authoring"
+	contains "$tmp/daemon-authoring.out" "daemon_server status=build graph=miss reason=watch-authoring-changed experimental=1"
+	contains "$tmp/daemon-authoring.out" "status ok"
+	printf '#define SMOKE_VALUE 1\n' > "$tmp/src/dep.h"
+	"$qstar" --file "$tmp/qstar.lua" -B build/daemon build //:app --use-daemon=always --daemon-socket "$daemon_sock" --schedule-trace --progress off --color never > "$tmp/daemon-incremental.out" 2> "$tmp/daemon-incremental.err"
+	contains "$tmp/daemon-incremental.out" "daemon_watcher status=event"
+	contains "$tmp/daemon-incremental.out" "scope=input"
+	contains "$tmp/daemon-incremental.out" "daemon_server status=build graph=hit reason=memory experimental=1"
+	contains "$tmp/daemon-incremental.out" "status ok"
+	printf '#define SMOKE_VALUE 0\n' > "$tmp/src/dep.h"
 	"$qstar" --file "$tmp/qstar.lua" -B build/daemon-ui build //:app --use-daemon=always --daemon-socket "$daemon_sock" --progress plain --color never > "$tmp/daemon-ui.out" 2> "$tmp/daemon-ui.err"
 	contains "$tmp/daemon-ui.out" "[100%] Built target app"
 	contains "$tmp/daemon-ui.out" "status ok"
 	not_contains "$tmp/daemon-ui.out" "qstar-daemon-stream"
 	not_contains "$tmp/daemon-ui.out" "event progress"
-	printf 'int main(void) { return 1; }\n' > "$tmp/src/main.c"
-	"$qstar" --file "$tmp/qstar.lua" -B build/daemon build //:app --use-daemon=always --daemon-socket "$daemon_sock" --schedule-trace --progress off --color never > "$tmp/daemon-incremental.out" 2> "$tmp/daemon-incremental.err"
-	contains "$tmp/daemon-incremental.out" "daemon_server status=build graph=hit reason=memory experimental=1"
-	contains "$tmp/daemon-incremental.out" "status ok"
-	printf 'int main(void) { return 0; }\n' > "$tmp/src/main.c"
 	kill "$daemon_pid" 2>/dev/null || true
 	wait "$daemon_pid" 2>/dev/null || true
 	daemon_pid=
@@ -622,6 +636,7 @@ qstar.executable "app" {
 }
 EOF
 cp "$tmp/src/main.c" "$tmp/build-policy-root/src/main.c"
+cp "$tmp/src/dep.h" "$tmp/build-policy-root/src/dep.h"
 "$qstar" --file "$tmp/build-policy-root/qstar.lua" build //:app > "$tmp/build-policy-root.out" 2> "$tmp/build-policy-root.err"
 test -f "$tmp/build-policy-root/out/qstar/state/state.db" || fail "custom build_dir compact state missing"
 test -f "$tmp/build-policy-root/out/qstar/state/deps.db" || fail "custom build_dir compact deps missing"
@@ -644,6 +659,7 @@ qstar.executable "app" {
 }
 EOF
 cp "$tmp/src/main.c" "$tmp/build-policy-off/src/main.c"
+cp "$tmp/src/dep.h" "$tmp/build-policy-off/src/dep.h"
 "$qstar" --file "$tmp/build-policy-off/qstar.lua" build //:app > "$tmp/build-policy-off.out" 2> "$tmp/build-policy-off.err"
 test -f "$tmp/build-policy-off/build/qstar/state/state.db" || fail "off policy compact state missing"
 test -f "$tmp/build-policy-off/build/qstar/state/deps.db" || fail "off policy compact deps missing"
@@ -666,6 +682,7 @@ qstar.executable "app" {
 }
 EOF
 cp "$tmp/src/main.c" "$tmp/cli-overrides/src/main.c"
+cp "$tmp/src/dep.h" "$tmp/cli-overrides/src/dep.h"
 "$qstar" --file "$tmp/cli-overrides/qstar.lua" -B cli/qstar -G auto build //:app > "$tmp/cli-overrides-build.out" 2> "$tmp/cli-overrides-build.err"
 test -f "$tmp/cli-overrides/cli/qstar/state/state.db" || fail "CLI -B build dir compact state missing"
 test -f "$tmp/cli-overrides/cli/qstar/state/deps.db" || fail "CLI -B build dir compact deps missing"

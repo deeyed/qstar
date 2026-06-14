@@ -8,6 +8,7 @@
 #include "internal.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -17,6 +18,16 @@
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
+
+#if defined(__APPLE__) && defined(__MACH__)
+#include <sys/event.h>
+#include <sys/time.h>
+#ifndef O_EVTONLY
+#define O_EVTONLY O_RDONLY
+#endif
+#elif defined(__linux__)
+#include <sys/inotify.h>
+#endif
 
 #define QSTAR_DAEMON_BUILD_MAGIC "qstar-daemon-build-v1"
 #define QSTAR_DAEMON_HELLO_MAGIC "qstar-daemon-hello-v1"
@@ -44,6 +55,32 @@ struct qstar_daemon_fp {
 	unsigned long long mtime;
 };
 
+enum {
+	QSTAR_DAEMON_WATCH_AUTHORING = 1 << 0,
+	QSTAR_DAEMON_WATCH_INPUT = 1 << 1
+};
+
+struct qstar_daemon_watch_entry {
+	char *path;
+	int scope;
+	int fd;
+	int wd;
+};
+
+struct qstar_daemon_watcher {
+	int active;
+	int backend_fd;
+	char backend[16];
+	char reason[96];
+	int incomplete;
+	int skipped_missing;
+	int graph_dirty;
+	int input_dirty;
+	struct qstar_daemon_watch_entry *entries;
+	size_t len;
+	size_t cap;
+};
+
 struct qstar_daemon_server {
 	struct qstar_graph graph;
 	int graph_init;
@@ -60,6 +97,7 @@ struct qstar_daemon_server {
 	struct qstar_daemon_fp *fps;
 	size_t fp_len;
 	size_t fp_cap;
+	struct qstar_daemon_watcher watcher;
 };
 
 struct qstar_daemon_event_stream {
@@ -68,6 +106,9 @@ struct qstar_daemon_event_stream {
 	size_t line_len;
 	int failed;
 };
+
+static int input_full_path(const struct qstar_graph *graph, const char *rel,
+    char *dst, size_t dstlen);
 
 /** daemon/client error buffer에 printf 형식 메시지를 기록한다. */
 static void
@@ -217,6 +258,7 @@ classify_event_payload(const char *buf, size_t len)
 	    bytes_starts_with(buf, len, "schedule_action ") ||
 	    bytes_starts_with(buf, len, "cache_action ") ||
 	    bytes_starts_with(buf, len, "daemon_server ") ||
+	    bytes_starts_with(buf, len, "daemon_watcher ") ||
 	    bytes_starts_with(buf, len, "plan_cache ") ||
 	    bytes_starts_with(buf, len, "dirty_state_db ") ||
 	    bytes_starts_with(buf, len, "deps_db "))
@@ -708,11 +750,531 @@ free_fps(struct qstar_daemon_server *server)
 	server->fp_cap = 0;
 }
 
+/** watcher scope bitset을 trace용 이름으로 바꾼다. */
+static const char *
+watch_scope_name(int scope)
+{
+	if (scope & QSTAR_DAEMON_WATCH_AUTHORING)
+		return "authoring";
+	if (scope & QSTAR_DAEMON_WATCH_INPUT)
+		return "input";
+	return "unknown";
+}
+
+/** watcher scope에 맞는 conservative invalidation 이름을 반환한다. */
+static const char *
+watch_invalidation_name(int scope)
+{
+	return scope & QSTAR_DAEMON_WATCH_AUTHORING ? "graph" : "dirty-check";
+}
+
+/** watcher entry table과 backend fd를 닫는다. */
+static void
+watcher_close(struct qstar_daemon_watcher *watcher)
+{
+	size_t i;
+
+	for (i = 0; i < watcher->len; i++) {
+#if defined(__APPLE__) && defined(__MACH__)
+		if (watcher->entries[i].fd >= 0)
+			close(watcher->entries[i].fd);
+#endif
+		free(watcher->entries[i].path);
+	}
+	free(watcher->entries);
+	watcher->entries = NULL;
+	watcher->len = 0;
+	watcher->cap = 0;
+	if (watcher->active && watcher->backend_fd >= 0)
+		close(watcher->backend_fd);
+	watcher->active = 0;
+	watcher->backend_fd = -1;
+	watcher->backend[0] = '\0';
+	watcher->incomplete = 0;
+	watcher->skipped_missing = 0;
+	watcher->graph_dirty = 0;
+	watcher->input_dirty = 0;
+}
+
+/** watcher를 사용할 수 없을 때 fallback 이유를 저장한다. */
+static void
+watcher_unavailable(struct qstar_daemon_watcher *watcher, const char *reason)
+{
+	watcher_close(watcher);
+	snprintf(watcher->backend, sizeof(watcher->backend), "%s", "polling");
+	snprintf(watcher->reason, sizeof(watcher->reason), "%s",
+	    reason && *reason ? reason : "unavailable");
+}
+
+/** watcher backend를 연다. 실패해도 daemon은 fingerprint fallback으로 계속 동작한다. */
+static int
+watcher_open(struct qstar_daemon_watcher *watcher)
+{
+	watcher_close(watcher);
+#if defined(__APPLE__) && defined(__MACH__)
+	watcher->backend_fd = kqueue();
+	if (watcher->backend_fd < 0) {
+		watcher_unavailable(watcher, strerror(errno));
+		return 0;
+	}
+	watcher->active = 1;
+	snprintf(watcher->backend, sizeof(watcher->backend), "%s", "kqueue");
+	watcher->reason[0] = '\0';
+	return 0;
+#elif defined(__linux__)
+	watcher->backend_fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+	if (watcher->backend_fd < 0) {
+		watcher_unavailable(watcher, strerror(errno));
+		return 0;
+	}
+	watcher->active = 1;
+	snprintf(watcher->backend, sizeof(watcher->backend), "%s", "inotify");
+	watcher->reason[0] = '\0';
+	return 0;
+#else
+	watcher_unavailable(watcher, "unsupported-host");
+	return 0;
+#endif
+}
+
+/** watcher가 완전하지 않음을 기록하고 fingerprint scan fallback을 유지한다. */
+static void
+watcher_mark_incomplete(struct qstar_daemon_watcher *watcher, const char *reason)
+{
+	watcher->incomplete = 1;
+	if (!watcher->reason[0])
+		snprintf(watcher->reason, sizeof(watcher->reason), "%s",
+		    reason && *reason ? reason : "incomplete");
+}
+
+/** watcher entry를 path로 찾는다. */
+static struct qstar_daemon_watch_entry *
+watcher_find_path(struct qstar_daemon_watcher *watcher, const char *path)
+{
+	size_t i;
+
+	for (i = 0; i < watcher->len; i++) {
+		if (strcmp(watcher->entries[i].path, path) == 0)
+			return &watcher->entries[i];
+	}
+	return NULL;
+}
+
+#if defined(__APPLE__) && defined(__MACH__)
+/** watcher entry를 kqueue ident fd로 찾는다. */
+static struct qstar_daemon_watch_entry *
+watcher_find_fd(struct qstar_daemon_watcher *watcher, int fd)
+{
+	size_t i;
+
+	for (i = 0; i < watcher->len; i++) {
+		if (watcher->entries[i].fd == fd)
+			return &watcher->entries[i];
+	}
+	return NULL;
+}
+#elif defined(__linux__)
+/** watcher entry를 inotify watch descriptor로 찾는다. */
+static struct qstar_daemon_watch_entry *
+watcher_find_wd(struct qstar_daemon_watcher *watcher, int wd)
+{
+	size_t i;
+
+	for (i = 0; i < watcher->len; i++) {
+		if (watcher->entries[i].wd == wd)
+			return &watcher->entries[i];
+	}
+	return NULL;
+}
+#endif
+
+/** watcher에 기존 파일 하나를 등록한다. 없는 파일은 다음 dirty check에 맡긴다. */
+static int
+watcher_add_existing(struct qstar_daemon_watcher *watcher, const char *path, int scope)
+{
+	struct qstar_daemon_watch_entry *entry, *items;
+	struct stat st;
+	size_t ncap;
+
+	if (!watcher->active)
+		return 0;
+	entry = watcher_find_path(watcher, path);
+	if (entry) {
+		entry->scope |= scope;
+		return 0;
+	}
+	if (stat(path, &st) < 0) {
+		if (errno == ENOENT)
+			watcher->skipped_missing = 1;
+		else
+			watcher_mark_incomplete(watcher, "stat-failed");
+		return 0;
+	}
+	if (!S_ISREG(st.st_mode))
+		return 0;
+	if (watcher->len == watcher->cap) {
+		ncap = watcher->cap ? watcher->cap * 2 : 64;
+		items = realloc(watcher->entries, ncap * sizeof(items[0]));
+		if (!items)
+			return -1;
+		watcher->entries = items;
+		watcher->cap = ncap;
+	}
+	entry = &watcher->entries[watcher->len];
+	memset(entry, 0, sizeof(*entry));
+	entry->fd = -1;
+	entry->wd = -1;
+	entry->scope = scope;
+	entry->path = qstar_strdup(path);
+	if (!entry->path)
+		return -1;
+#if defined(__APPLE__) && defined(__MACH__)
+	entry->fd = open(path, O_EVTONLY);
+	if (entry->fd < 0 && O_EVTONLY != O_RDONLY)
+		entry->fd = open(path, O_RDONLY);
+	if (entry->fd < 0) {
+		free(entry->path);
+		entry->path = NULL;
+		watcher_mark_incomplete(watcher, "watch-open-failed");
+		return 0;
+	}
+	{
+		struct kevent ev;
+
+		EV_SET(&ev, entry->fd, EVFILT_VNODE, EV_ADD | EV_CLEAR,
+		    NOTE_WRITE | NOTE_EXTEND | NOTE_ATTRIB | NOTE_DELETE |
+		    NOTE_RENAME | NOTE_REVOKE, 0, NULL);
+		if (kevent(watcher->backend_fd, &ev, 1, NULL, 0, NULL) < 0) {
+			close(entry->fd);
+			free(entry->path);
+			entry->path = NULL;
+			watcher_mark_incomplete(watcher, "watch-add-failed");
+			return 0;
+		}
+	}
+#elif defined(__linux__)
+	entry->wd = inotify_add_watch(watcher->backend_fd, path,
+	    IN_CLOSE_WRITE | IN_MODIFY | IN_ATTRIB | IN_DELETE_SELF |
+	    IN_MOVE_SELF | IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO);
+	if (entry->wd < 0) {
+		free(entry->path);
+		entry->path = NULL;
+		watcher_mark_incomplete(watcher, "watch-add-failed");
+		return 0;
+	}
+#endif
+	watcher->len++;
+	return 0;
+}
+
+/** package-relative path 하나를 watcher에 등록한다. package 밖 path는 등록하지 않는다. */
+static int
+watcher_add_rel(struct qstar_daemon_server *server, const char *rel, int scope)
+{
+	char path[QSTAR_PATH_MAX];
+
+	if (!rel || !*rel || !qstar_path_is_package_relative(rel))
+		return 0;
+	if (input_full_path(&server->graph, rel, path, sizeof(path)) < 0)
+		return -1;
+	return watcher_add_existing(&server->watcher, path, scope);
+}
+
+/** string list의 package-relative path들을 watcher에 등록한다. */
+static int
+watcher_add_list(struct qstar_daemon_server *server,
+    const struct qstar_string_list *list, int scope)
+{
+	size_t i;
+
+	for (i = 0; i < list->len; i++) {
+		if (watcher_add_rel(server, list->items[i], scope) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+/** watcher용 depfile token 하나를 package input watch로 추가한다. */
+static int
+watcher_add_depfile_token(struct qstar_daemon_server *server, char *token, size_t *len)
+{
+	if (*len == 0)
+		return 0;
+	token[*len] = '\0';
+	*len = 0;
+	return watcher_add_rel(server, token, QSTAR_DAEMON_WATCH_INPUT);
+}
+
+/** compiler depfile에서 discovered header를 best-effort로 watcher에 등록한다. */
+static int
+watcher_add_depfile_inputs(struct qstar_daemon_server *server, const char *depfile)
+{
+	char full[QSTAR_PATH_MAX], token[QSTAR_PATH_MAX];
+	FILE *f;
+	int c, rhs, escape;
+	size_t len;
+
+	if (!depfile || !*depfile || !qstar_path_is_package_relative(depfile))
+		return 0;
+	if (input_full_path(&server->graph, depfile, full, sizeof(full)) < 0)
+		return -1;
+	f = fopen(full, "r");
+	if (!f) {
+		if (errno == ENOENT)
+			server->watcher.skipped_missing = 1;
+		else
+			watcher_mark_incomplete(&server->watcher, "depfile-open-failed");
+		return 0;
+	}
+	rhs = 0;
+	escape = 0;
+	len = 0;
+	while ((c = fgetc(f)) != EOF) {
+		if (!rhs) {
+			if (c == ':')
+				rhs = 1;
+			continue;
+		}
+		if (escape) {
+			escape = 0;
+			if (c == '\n' || c == '\r')
+				continue;
+		} else if (c == '\\') {
+			escape = 1;
+			continue;
+		} else if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+			if (watcher_add_depfile_token(server, token, &len) < 0) {
+				fclose(f);
+				return -1;
+			}
+			continue;
+		}
+		if (len + 1 >= sizeof(token)) {
+			watcher_mark_incomplete(&server->watcher, "depfile-token-too-long");
+			len = 0;
+			continue;
+		}
+		token[len++] = (char)c;
+	}
+	if (watcher_add_depfile_token(server, token, &len) < 0) {
+		fclose(f);
+		return -1;
+	}
+	fclose(f);
+	return 0;
+}
+
+/** 현재 Graph IR에서 daemon watcher가 관찰할 authoring/source/header path를 다시 구성한다. */
+static int
+watcher_refresh(struct qstar_daemon_server *server)
+{
+	size_t i;
+
+	if (watcher_open(&server->watcher) < 0)
+		return -1;
+	if (!server->watcher.active)
+		return 0;
+	if (watcher_add_list(server, &server->graph.evaluated_fragments,
+	    QSTAR_DAEMON_WATCH_AUTHORING) < 0)
+		return -1;
+	for (i = 0; i < server->graph.len; i++) {
+		const struct qstar_target *target = &server->graph.targets[i];
+
+		if (watcher_add_list(server, &target->sources,
+		    QSTAR_DAEMON_WATCH_INPUT) < 0 ||
+		    watcher_add_list(server, &target->public_headers,
+		    QSTAR_DAEMON_WATCH_INPUT) < 0 ||
+		    watcher_add_list(server, &target->private_headers,
+		    QSTAR_DAEMON_WATCH_INPUT) < 0)
+			return -1;
+		if (watcher_add_rel(server, target->linker_script,
+		    QSTAR_DAEMON_WATCH_INPUT) < 0 ||
+		    watcher_add_rel(server, target->run_marker,
+		    QSTAR_DAEMON_WATCH_INPUT) < 0 ||
+		    watcher_add_rel(server, target->run_marker_log,
+		    QSTAR_DAEMON_WATCH_INPUT) < 0)
+			return -1;
+	}
+	for (i = 0; i < server->graph.genrule_len; i++) {
+		const struct qstar_genrule *genrule = &server->graph.genrules[i];
+
+		if (watcher_add_list(server, &genrule->inputs,
+		    QSTAR_DAEMON_WATCH_INPUT) < 0 ||
+		    watcher_add_list(server, &genrule->outputs,
+		    QSTAR_DAEMON_WATCH_INPUT) < 0)
+			return -1;
+	}
+	for (i = 0; i < server->graph.stage_len; i++) {
+		if (watcher_add_list(server, &server->graph.stages[i].srcs,
+		    QSTAR_DAEMON_WATCH_INPUT) < 0)
+			return -1;
+	}
+	for (i = 0; i < server->graph.cached_action_len; i++) {
+		const struct qstar_cached_action *action = &server->graph.cached_actions[i];
+
+		if (watcher_add_list(server, &action->inputs,
+		    QSTAR_DAEMON_WATCH_INPUT) < 0 ||
+		    watcher_add_list(server, &action->depfile_inputs,
+		    QSTAR_DAEMON_WATCH_INPUT) < 0 ||
+		    watcher_add_list(server, &action->outputs,
+		    QSTAR_DAEMON_WATCH_INPUT) < 0)
+			return -1;
+		if (watcher_add_rel(server, action->depfile,
+		    QSTAR_DAEMON_WATCH_INPUT) < 0 ||
+		    watcher_add_depfile_inputs(server, action->depfile) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+/** watcher event 하나를 conservative invalidation flag로 반영한다. */
+static void
+watcher_note_event(struct qstar_daemon_watcher *watcher,
+    const struct qstar_daemon_watch_entry *entry, FILE *out, int trace,
+    const char *reason)
+{
+	if (entry->scope & QSTAR_DAEMON_WATCH_AUTHORING)
+		watcher->graph_dirty = 1;
+	if (entry->scope & QSTAR_DAEMON_WATCH_INPUT)
+		watcher->input_dirty = 1;
+	if (trace)
+		fprintf(out,
+		    "daemon_watcher status=event backend=%s scope=%s path=%s invalidation=%s reason=%s\n",
+		    watcher->backend, watch_scope_name(entry->scope), entry->path,
+		    watch_invalidation_name(entry->scope),
+		    reason && *reason ? reason : "changed");
+}
+
+/** watcher overflow나 backend 오류를 graph reload가 필요한 conservative 상태로 바꾼다. */
+static void
+watcher_note_uncertain(struct qstar_daemon_watcher *watcher, FILE *out, int trace,
+    const char *reason)
+{
+	watcher->graph_dirty = 1;
+	watcher_mark_incomplete(watcher, reason);
+	if (trace)
+		fprintf(out,
+		    "daemon_watcher status=event backend=%s scope=unknown path=<unknown> invalidation=graph reason=%s\n",
+		    watcher->backend[0] ? watcher->backend : "polling",
+		    reason && *reason ? reason : "uncertain");
+}
+
+/** request 직전에 watcher event queue를 non-blocking으로 소비한다. */
+static void
+watcher_poll(struct qstar_daemon_watcher *watcher, FILE *out, int trace)
+{
+	if (!watcher->active)
+		return;
+	watcher->graph_dirty = 0;
+	watcher->input_dirty = 0;
+#if defined(__APPLE__) && defined(__MACH__)
+	for (;;) {
+		struct kevent events[32];
+		struct timespec timeout;
+		int n, i;
+
+		timeout.tv_sec = 0;
+		timeout.tv_nsec = 0;
+		n = kevent(watcher->backend_fd, NULL, 0, events,
+		    (int)(sizeof(events) / sizeof(events[0])), &timeout);
+		if (n < 0) {
+			if (errno == EINTR)
+				continue;
+			watcher_note_uncertain(watcher, out, trace, strerror(errno));
+			return;
+		}
+		if (n == 0)
+			return;
+		for (i = 0; i < n; i++) {
+			struct qstar_daemon_watch_entry *entry;
+
+			if (events[i].flags & EV_ERROR) {
+				watcher_note_uncertain(watcher, out, trace, "event-error");
+				continue;
+			}
+			entry = watcher_find_fd(watcher, (int)events[i].ident);
+			if (!entry) {
+				watcher_note_uncertain(watcher, out, trace, "unknown-watch");
+				continue;
+			}
+			if (events[i].fflags & (NOTE_DELETE | NOTE_RENAME | NOTE_REVOKE))
+				watcher_note_event(watcher, entry, out, trace, "delete-or-rename");
+			else
+				watcher_note_event(watcher, entry, out, trace, "changed");
+		}
+	}
+#elif defined(__linux__)
+	for (;;) {
+		char buf[8192]
+#if defined(__GNUC__)
+		    __attribute__((aligned(__alignof__(struct inotify_event))))
+#endif
+		    ;
+		ssize_t n;
+		char *p, *end;
+
+		n = read(watcher->backend_fd, buf, sizeof(buf));
+		if (n < 0) {
+			if (errno == EINTR)
+				continue;
+			if (errno == EAGAIN || errno == EWOULDBLOCK)
+				return;
+			watcher_note_uncertain(watcher, out, trace, strerror(errno));
+			return;
+		}
+		if (n == 0)
+			return;
+		p = buf;
+		end = buf + n;
+		while (p + sizeof(struct inotify_event) <= end) {
+			struct inotify_event *ev = (struct inotify_event *)p;
+			struct qstar_daemon_watch_entry *entry;
+			const char *reason;
+
+			if (ev->mask & IN_Q_OVERFLOW) {
+				watcher_note_uncertain(watcher, out, trace, "queue-overflow");
+				p += sizeof(*ev) + ev->len;
+				continue;
+			}
+			entry = watcher_find_wd(watcher, ev->wd);
+			if (!entry) {
+				watcher_note_uncertain(watcher, out, trace, "unknown-watch");
+				p += sizeof(*ev) + ev->len;
+				continue;
+			}
+			reason = ev->mask & (IN_DELETE_SELF | IN_MOVE_SELF | IN_DELETE |
+			    IN_MOVED_FROM | IN_MOVED_TO) ? "delete-or-rename" : "changed";
+			watcher_note_event(watcher, entry, out, trace, reason);
+			p += sizeof(*ev) + ev->len;
+		}
+	}
+#else
+	(void)out;
+	(void)trace;
+#endif
+}
+
+/** watcher 상태를 schedule trace에 기록한다. */
+static void
+watcher_trace_status(const struct qstar_daemon_watcher *watcher, FILE *out)
+{
+	if (!watcher->active) {
+		fprintf(out, "daemon_watcher status=unavailable backend=polling reason=%s\n",
+		    watcher->reason[0] ? watcher->reason : "unsupported-host");
+		return;
+	}
+	fprintf(out,
+	    "daemon_watcher status=active backend=%s watches=%zu incomplete=%d skipped_missing=%d\n",
+	    watcher->backend, watcher->len, watcher->incomplete,
+	    watcher->skipped_missing);
+}
+
 /** daemon server가 소유한 graph와 memory cache를 해제한다. */
 static void
 server_free(struct qstar_daemon_server *server)
 {
 	free_fps(server);
+	watcher_close(&server->watcher);
 	qstar_stella_state_cache_free(server->state_cache);
 	if (server->graph_init)
 		qstar_graph_free(&server->graph);
@@ -838,13 +1400,14 @@ same_identity(const struct qstar_daemon_server *server,
 /** daemon memory에 Graph IR와 lowered plan cache 결과를 load한다. */
 static int
 load_graph(struct qstar_daemon_server *server, const struct qstar_daemon_request *req,
-    FILE *out, const char **graph_status, const char **reason)
+    FILE *out, const char **graph_status, const char **reason, const char *reload_reason)
 {
 	char cache_reason[128], store_reason[128];
 	int rc, plan_loaded;
 
 	*graph_status = "miss";
 	*reason = "cold";
+	watcher_close(&server->watcher);
 	if (server->graph_init)
 		qstar_graph_free(&server->graph);
 	qstar_graph_init(&server->graph);
@@ -908,6 +1471,9 @@ load_graph(struct qstar_daemon_server *server, const struct qstar_daemon_request
 	if (rc == 0 && capture_authoring_fps(server) < 0)
 		rc = qstar_set_error(&server->graph,
 		    "qstar: could not fingerprint daemon authoring inputs");
+	if (rc == 0 && watcher_refresh(server) < 0)
+		rc = qstar_set_error(&server->graph,
+		    "qstar: could not prepare daemon file watcher");
 	if (rc < 0) {
 		fprintf(out, "%s\n", server->graph.error[0] ? server->graph.error :
 		    "qstar: daemon graph load failed");
@@ -922,25 +1488,34 @@ load_graph(struct qstar_daemon_server *server, const struct qstar_daemon_request
 	copy_string(server->toolchain, sizeof(server->toolchain), req->toolchain);
 	copy_string(server->stdlib_policy, sizeof(server->stdlib_policy), req->stdlib_policy);
 	server->graph_loaded = 1;
-	*reason = plan_loaded ? "plan-cache-hit" :
-	    (cache_reason[0] ? cache_reason : "evaluated");
+	*reason = reload_reason && *reload_reason ? reload_reason :
+	    (plan_loaded ? "plan-cache-hit" :
+	    (cache_reason[0] ? cache_reason : "evaluated"));
 	return 0;
 }
 
 /** request를 처리하기 전에 daemon memory graph hit/miss와 invalidation을 결정한다. */
 static int
 ensure_graph(struct qstar_daemon_server *server, const struct qstar_daemon_request *req,
-    FILE *out, const char **graph_status, const char **reason)
+    FILE *out, const char **graph_status, const char **reason, int trace)
 {
 	if (!server->graph_loaded)
-		return load_graph(server, req, out, graph_status, reason);
+		return load_graph(server, req, out, graph_status, reason, NULL);
 	if (!same_identity(server, req)) {
 		*reason = "identity-changed";
-		return load_graph(server, req, out, graph_status, reason);
+		return load_graph(server, req, out, graph_status, reason, "identity-changed");
 	}
-	if (authoring_inputs_changed(server)) {
+	watcher_poll(&server->watcher, out, trace);
+	if (server->watcher.graph_dirty) {
+		*reason = server->watcher.incomplete ? "watcher-uncertain" :
+		    "watch-authoring-changed";
+		return load_graph(server, req, out, graph_status, reason, *reason);
+	}
+	if ((!server->watcher.active || server->watcher.incomplete) &&
+	    authoring_inputs_changed(server)) {
 		*reason = "authoring-input-changed";
-		return load_graph(server, req, out, graph_status, reason);
+		return load_graph(server, req, out, graph_status, reason,
+		    "authoring-input-changed");
 	}
 	*graph_status = "hit";
 	*reason = "memory";
@@ -1037,14 +1612,17 @@ handle_build_request(struct qstar_daemon_server *server, int fd)
 	}
 	graph_status = "miss";
 	reason = "cold";
-	if (ensure_graph(server, &req, body, &graph_status, &reason) < 0) {
+	if (ensure_graph(server, &req, body, &graph_status, &reason,
+	    req.options.schedule_trace || req.options.verbose) < 0) {
 		rc = 1;
 		goto send_restore;
 	}
-	if (req.options.schedule_trace || req.options.verbose)
+	if (req.options.schedule_trace || req.options.verbose) {
 		fprintf(body,
 		    "daemon_server status=build graph=%s reason=%s experimental=1\n",
 		    graph_status, reason);
+		watcher_trace_status(&server->watcher, body);
+	}
 	if (!server->state_cache)
 		server->state_cache = qstar_stella_state_cache_new();
 	if (!server->state_cache) {
@@ -1055,6 +1633,8 @@ handle_build_request(struct qstar_daemon_server *server, int fd)
 	rc = qstar_graph_build_with_state_cache(&server->graph,
 	    req.label[0] ? req.label : NULL, &req.options, body,
 	    server->state_cache) < 0 ? 1 : 0;
+	if (rc == 0 && server->watcher.active && server->watcher.skipped_missing)
+		(void)watcher_refresh(server);
 	if (rc != 0 && server->graph.error[0])
 		fprintf(body, "%s\n", server->graph.error);
 send_restore:

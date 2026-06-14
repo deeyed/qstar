@@ -194,23 +194,33 @@ qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --status
 .Ed
 .Pp
 This is not a stable public surface yet. The Q144 MVP keeps Graph IR and the
-lowered plan cache result in process memory, reloads on authoring input
-mtime/size changes, and lets existing Stella dirty-check state handle ordinary
-source/header changes. Q146 streams daemon build output as progress, diagnostic,
-action, summary, and raw output events. The CLI hides protocol frames and renders
-the same CMake-style progress and warning/error color policy as normal Stella
-builds. If the stream starts and then terminates before a final status, the
-client reports daemon stream interruption and does not silently rerun the build
-through fallback. Q147 keeps compact dirty-check and discovered-dependency state
-in process memory for daemon builds, while continuing to write
+lowered plan cache result in process memory. Q146 streams daemon build output as
+progress, diagnostic, action, summary, and raw output events. The CLI hides
+protocol frames and renders the same CMake-style progress and warning/error
+color policy as normal Stella builds. If the stream starts and then terminates
+before a final status, the client reports daemon stream interruption and does
+not silently rerun the build through fallback. Q147 keeps compact dirty-check
+and discovered-dependency state in process memory for daemon builds, while
+continuing to write
 .Pa state/state.db
 and
 .Pa state/deps.db
-as crash-recovery state. Schedule trace output includes
+as crash-recovery state. Q148 adds macOS
+.Li kqueue
+and Linux
+.Li inotify
+file watcher invalidation. When the watcher is active, authoring changes reload
+the graph from watcher events instead of first repeating the full authoring
+fingerprint scan. If the watcher is unavailable or incomplete, the daemon falls
+back to the existing fingerprint scan. Source/header watcher events are traced as
+dirty-check invalidation signals; existing Stella dirty-check state still decides
+which actions rebuild. Schedule trace output includes
 .Li dirty_state_memory
 and
 .Li deps_memory
-hit/miss/writeback lines.
+hit/miss/writeback lines, plus
+.Li daemon_watcher
+active/event/unavailable lines.
 .Pp
 Action descriptions are also preserved in action-log and replay metadata.
 .Ic qstar action-log ,

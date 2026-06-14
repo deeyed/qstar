@@ -2,14 +2,15 @@
 
 이 문서는 Round Q143에서 persistent Stella daemon의 장기 계약을 고정했고, Round Q144에서
 첫 experimental MVP 상태를 반영했으며, Round Q146에서 build output event stream을 추가했다.
-Round Q147부터 daemon은 `state.db`와 `deps.db`의 in-memory snapshot을 먼저 사용한다.
+Round Q147부터 daemon은 `state.db`와 `deps.db`의 in-memory snapshot을 먼저 사용한다. Round
+Q148부터 daemon은 file watcher event로 authoring graph invalidation을 먼저 판단한다.
 아직 stable CLI surface가 아니다. 목표는 QStar의 Lua DSL과 rich diagnostics는 유지하면서,
 반복 build invocation마다 Lua eval, Graph IR load, plan cache load, dirty state load를
 처음부터 반복하지 않는 구조를 만드는 것이다.
 
 ```txt
-status: experimental-memory-state-mvp
-round: Q147
+status: experimental-watcher-mvp
+round: Q148
 command namespace: qstar daemon
 initial hosts: macOS and Linux over Unix domain sockets
 deferred hosts: Windows named pipe
@@ -70,8 +71,10 @@ Q144 MVP는 같은 daemon process 안에서 Graph IR와 lowered plan cache 결�
 전송되어 일반 Stella build와 같은 progress/warning/error output을 즉시 보여준다. Q147부터
 daemon build는 `state.db`와 `deps.db`를 매 invocation마다 다시 parse하기 전에 process memory
 snapshot을 먼저 사용한다. 성공 build 뒤에는 disk DB를 계속 writeback하므로 daemon crash 후
-일반 Stella build도 같은 state에서 복구할 수 있다. Authoring input의 mtime/size가 바뀌면 graph를
-다시 load한다. File watcher, background start/stop lifecycle, permission hardening은 후속 라운드다.
+일반 Stella build도 같은 state에서 복구할 수 있다. Q148부터 authoring file watcher가 active인
+경우 매 build request마다 전체 authoring fingerprint scan을 먼저 반복하지 않는다. Watcher가
+불완전하거나 unavailable이면 기존 fingerprint scan으로 되돌아간다. Background start/stop
+lifecycle, permission hardening은 후속 라운드다.
 
 ## Why A Daemon
 
@@ -224,9 +227,12 @@ Daemon memory state mirrors existing on-disk state.
 `state.db` and `deps.db` remain the crash-recovery format. The daemon memory cache is a fast
 mirror, not a replacement for the on-disk state.
 
-With `--schedule-trace`, daemon builds show whether memory state was used:
+With `--schedule-trace`, daemon builds show whether memory state and watcher invalidation were used:
 
 ```txt
+daemon_watcher status=active backend=kqueue watches=18 incomplete=0 skipped_missing=0
+daemon_watcher status=event backend=kqueue scope=authoring path=qstar.lua invalidation=graph reason=changed
+daemon_watcher status=event backend=kqueue scope=input path=src/main.c invalidation=dirty-check reason=changed
 dirty_state_memory status=miss reason=cold
 dirty_state_memory status=hit entries=12
 dirty_state_memory status=writeback entries=12
@@ -244,8 +250,8 @@ Initial watcher backends:
 
 | Host | Backend | Status |
 | --- | --- | --- |
-| macOS | FSEvents or kqueue candidate | Design target |
-| Linux | inotify | Design target |
+| macOS | kqueue vnode events | MVP implemented |
+| Linux | inotify | MVP implemented, CI validation still required |
 | Windows | named pipe plus ReadDirectoryChangesW | Deferred |
 
 Watcher scope:
@@ -254,11 +260,14 @@ Watcher scope:
 - imported `.qst`
 - imported `.qsm`
 - source/header paths in the requested graph
-- generated_dir paths owned by QStar
-- build state files under the effective build_dir
+- generated inputs and generated outputs that already exist when the watcher set is refreshed
 
-Watcher must not watch or traverse package root parents. If a source path escapes the package root,
-existing QStar validation rejects it before daemon use.
+The watcher only accepts package-relative paths that QStar already considers inside the package root.
+Workspace root parents are never watched. Missing generated outputs are skipped during the first
+registration and picked up after a successful build refresh when possible. If a watcher cannot be
+registered, the daemon marks the watcher incomplete and keeps the older authoring fingerprint scan as
+fallback. If a source path escapes the package root, existing QStar validation rejects it before
+daemon use.
 
 Watcher invalidation classes:
 
@@ -269,6 +278,11 @@ Watcher invalidation classes:
 | generated output deleted | Mark producing/consuming action dirty. |
 | build_dir deleted | Stop daemon or mark stale. |
 | profile/toolchain input changed | Drop Graph IR and Stella Plan IR. |
+
+The Q148 MVP does not bypass Stella dirty checking for source/header changes. Source/header watcher
+events are traced as `invalidation=dirty-check`; the existing compact `state.db`/`deps.db` path still
+decides which action is dirty. Event loss, overflow, or backend errors are conservative graph
+invalidation events.
 
 ## Security
 
@@ -339,9 +353,9 @@ Recommended future implementation order:
 1. Q144: foreground `qstar daemon --serve`, `--status`, `qstar build --use-daemon=...` forwarding.
 2. Q146: CLI progress streaming instead of response-at-end forwarding.
 3. Q147: in-memory `state.db` and `deps.db` snapshots with disk write-back.
-4. Background start/stop, pid/lock/stale cleanup, owner-only socket permission hardening.
-5. Read-only `hello`, `workspace.info`, `targets.list` protocol.
-6. File watcher invalidation for authoring files and source/header paths.
+4. Q148: file watcher invalidation for authoring files and source/header paths.
+5. Background start/stop, pid/lock/stale cleanup, owner-only socket permission hardening.
+6. Read-only `hello`, `workspace.info`, `targets.list` protocol.
 7. IDE/AI read-only API surface and audit log.
 8. Windows named pipe design refresh and native validation.
 

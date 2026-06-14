@@ -1,8 +1,8 @@
 # Stella Daemon
 
-Stella daemon은 QStar의 장기 성능 구조다. Round Q147 기준으로 foreground server, build
-client, streaming build output, in-memory dirty/deps state snapshot이 experimental MVP로
-들어왔지만, stable public surface는 아니다. 정본 설계 문서는
+Stella daemon은 QStar의 장기 성능 구조다. Round Q148 기준으로 foreground server, build
+client, streaming build output, in-memory dirty/deps state snapshot, file watcher invalidation이
+experimental MVP로 들어왔지만, stable public surface는 아니다. 정본 설계 문서는
 `docs/daemon/stella-daemon.md`다.
 
 ## 명령 이름
@@ -27,8 +27,10 @@ Q144 MVP는 Graph IR와 lowered plan cache 결과를 process memory에 유지한
 response는 event stream으로 전달되어 일반 Stella build와 같은 progress/warning/error output을
 즉시 표시한다. Q147부터 daemon은 `state.db`와 `deps.db`의 in-memory snapshot을 먼저 사용한다.
 성공 build 뒤에는 같은 state를 disk DB로 writeback하므로 daemon crash 뒤에도 일반 Stella build가
-복구할 수 있다. Authoring input mtime/size가 바뀌면 graph를 다시 load한다. 장기 persistent
-daemon은 여기에 더해 다음 상태를 process memory에 유지한다.
+복구할 수 있다. Q148부터 daemon은 macOS `kqueue` 또는 Linux `inotify` file watcher가 active인
+경우 authoring input stat scan을 매 request마다 반복하지 않고, watcher event로 graph reload
+여부를 먼저 결정한다. Watcher가 unavailable이거나 incomplete이면 기존 fingerprint scan으로
+fallback한다. 장기 persistent daemon은 여기에 더해 다음 상태를 process memory에 유지한다.
 
 - Lua runtime
 - Graph IR와 Stella Plan IR
@@ -108,10 +110,17 @@ dirty_state_memory status=hit entries=12
 deps_memory status=hit entries=4
 dirty_state_memory status=writeback entries=12
 deps_memory status=writeback entries=4
+daemon_watcher status=active backend=kqueue watches=18 incomplete=0 skipped_missing=0
+daemon_watcher status=event backend=kqueue scope=authoring path=qstar.lua invalidation=graph reason=changed
+daemon_watcher status=event backend=kqueue scope=input path=src/main.c invalidation=dirty-check reason=changed
 ```
 
 Disk DB는 계속 canonical crash-recovery format이다. Memory snapshot은 daemon fast path일 뿐,
 `qstar why-rebuild`, `qstar action-log`, `qstar replay`, `qstar last-failure`의 동작을 바꾸지 않는다.
+
+Source/header watcher event는 dirty-check를 대체하지 않는다. 이벤트는 `invalidation=dirty-check`로
+기록되고, 실제 rebuild 판단은 기존 compact `state.db`/`deps.db` 경로가 계속 담당한다. Authoring
+event, watcher overflow, backend 오류는 conservative graph reload로 처리한다.
 
 ## 보안 원칙
 
