@@ -1,5 +1,6 @@
 #include "internal.h"
 
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -583,7 +584,7 @@ write_windows_response_arg(FILE *f, const char *s)
 	p = (const unsigned char *)(s ? s : "");
 	quote = *p == '\0';
 	for (; *p; p++) {
-		if (*p == ' ' || *p == '\t' || *p == '"' || *p == '\\')
+		if (isspace(*p) || *p == '"' || *p == '\\')
 			quote = 1;
 	}
 	if (!quote) {

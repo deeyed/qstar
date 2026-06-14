@@ -32,6 +32,9 @@ replay 정보를 안정적으로 남긴다.
 Windows/MSVC 계열 profile은 package path와 별개로 response-file quoting style만 고른다.
 QStar DSL의 source/header/output path는 Windows에서도 `/`로 정규화된 package-relative
 path를 쓴다. `src\\main.c`나 `C:\\SDK\\include`를 source/include path로 쓰지 않는다.
+반대로 `/DWINPATH=C:\\Program Files\\SDK\\Include` 같은 Windows-style 문자열이 실제
+compiler argv option인 경우에는 `compile_options`나 `link_options`에 그대로 둘 수 있고,
+QStar가 `response_style = "msvc"` 규칙으로 response file에 escape한다.
 
 ```lua
 qstar.profile "windows-msvc" {
@@ -67,5 +70,7 @@ make qstar-windows-prep-tests
 
 - `response_style=msvc`
 - `/LIBPATH:sdk/lib/um/x64`
+- `"/DQUOTE=\"value\""`
+- `"/DWINPATH=C:\Program Files\QStar\Include"`
 - `argv_digest=...`
 - `response file is not supported by this toolchain profile`

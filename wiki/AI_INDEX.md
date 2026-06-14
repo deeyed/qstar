@@ -116,12 +116,14 @@ QStar가 하지 않는 일:
   `tools/publish-github-release-asset.sh`가 기존 `SHA256SUMS`에 Linux checksum을 병합한다.
   Linux daemon socket smoke도 기본 push/PR lane이 아니라 `workflow_dispatch`의
   `daemon_socket_smoke=true` opt-in job에서 검증한다.
-- Windows host 지원은 아직 official support가 아니다. Round Q114 기준
+- Windows host 지원은 아직 official support가 아니다. Round Q114/Q158 기준
   `make qstar-windows-prep-tests`가 path/process/MSVC response-file 준비 규칙을 묶고,
   `.github/workflows/windows-validation.yml`은 `workflow_dispatch` 전용 native validation
   candidate다. QStar DSL path는 Windows에서도 `/`로 정규화된 package-relative path이며,
-  backslash path와 drive-letter package path는 금지된다. `.exe`는 `artifact_name`으로
-  명시할 수 있고, 외부 system library는 MSVC-like target에서 `.lib`로 렌더링한다.
+  backslash path와 drive-letter package path는 금지된다. Windows-like path 문자열이
+  실제 compiler/linker option이면 `compile_options`/`link_options` argv item으로 두고
+  `response_style = "msvc"`로 escape한다. `.exe`는 target-local `artifact_name` 또는
+  profile-level `artifact_names`로 명시할 수 있고, 외부 system library는 MSVC-like target에서 `.lib`로 렌더링한다.
   QStar가 직접 만드는 static `.lib`, `.dll`, import library, PDB, Windows install layout은
   native Windows 검증 전까지 official contract가 아니다.
 - `make qstar-medium-project-readiness-tests`는 Stella executor와 Ninja backend의 clean,

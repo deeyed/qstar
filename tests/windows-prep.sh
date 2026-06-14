@@ -71,6 +71,11 @@ contains "$tmp/windows-dry.out" "/LIBPATH:sdk/lib/um/x64"
 contains "$tmp/windows-dry.out" "kernel32.lib"
 contains "$tmp/windows-dry.out" "output=build/qstar/out/___windows_app/windows_app.exe"
 
+"$qstar" --file "$corpus/qstar.lua" --profile windows-msvc-artifact-map dry-run \
+	//:windows_mapped > "$tmp/windows-mapped-dry.out" 2> "$tmp/windows-mapped-dry.err"
+contains "$tmp/windows-mapped-dry.out" "response_style=msvc"
+contains "$tmp/windows-mapped-dry.out" "output=build/qstar/out/___windows_mapped/profile_named.exe"
+
 "$qstar" --file "$corpus/qstar.lua" --profile windows-msvc-fake \
 	--progress off build //:windows_rsp > "$tmp/windows-rsp.out" \
 	2> "$tmp/windows-rsp.err"
@@ -88,6 +93,10 @@ contains "$compile_rsp" '"/DNAME=alpha beta"'
 contains "$compile_rsp" '"/DQUOTE=\"value\""'
 contains "$compile_rsp" '"/DTRAIL=tail\\"'
 contains "$compile_rsp" "/DSEMICOLON=a;b"
+contains "$compile_rsp" '"/DWINPATH=C:\Program Files\QStar\Include"'
+contains "$compile_rsp" '"/DJSON={\"path\":\"C:\qstar\include\"}"'
+contains "$compile_rsp" '"/DSPACE_TRAIL=value with trailing space "'
+contains "$compile_rsp" '"/DSLASHQUOTE=C:\qstar\\\"quoted\""'
 contains "$link_rsp" '"/PDB:build/qstar/pdb/windows rsp.pdb"'
 contains "$link_rsp" '"/MANIFESTDEPENDENCY:type='"'"'win32'"'"' name='"'"'QStar Probe'"'"'"'
 contains "$link_rsp" '"/LIBPATH:sdk/lib with space/um/x64"'
@@ -109,6 +118,9 @@ if command -v ninja >/dev/null 2>&1; then
 	test -f "$link_rsp" || fail "ninja fake Windows link response file missing"
 	contains "$compile_rsp" '"/DQUOTE=\"value\""'
 	contains "$compile_rsp" '"/DTRAIL=tail\\"'
+	contains "$compile_rsp" '"/DWINPATH=C:\Program Files\QStar\Include"'
+	contains "$compile_rsp" '"/DJSON={\"path\":\"C:\qstar\include\"}"'
+	contains "$compile_rsp" '"/DSLASHQUOTE=C:\qstar\\\"quoted\""'
 	contains "$link_rsp" '"/LIBPATH:sdk/lib with space/um/x64"'
 fi
 
@@ -124,6 +136,7 @@ if "$qstar" --file "$tmp/bad-drive/qstar.lua" check //:bad \
 fi
 contains "$tmp/bad-drive.err" "must be package-relative"
 contains "$tmp/bad-drive.err" "drive-letter paths are not allowed"
+contains "$tmp/bad-drive.err" "write project files as slash-normalized paths"
 
 cat > "$tmp/bad-drive-slash/qstar.lua" <<'EOF'
 qstar.executable "bad" {
@@ -136,6 +149,7 @@ if "$qstar" --file "$tmp/bad-drive-slash/qstar.lua" check //:bad \
 fi
 contains "$tmp/bad-drive-slash.err" "must be package-relative"
 contains "$tmp/bad-drive-slash.err" "drive-letter paths are not allowed"
+contains "$tmp/bad-drive-slash.err" "absolute tool locations in profiles"
 
 cat > "$tmp/bad-backslash/src/main.c" <<'EOF'
 int main(void) { return 0; }
@@ -155,6 +169,7 @@ if "$qstar" --file "$tmp/bad-backslash/qstar.lua" check //:bad \
 	fail "backslash include path unexpectedly succeeded"
 fi
 contains "$tmp/bad-backslash.err" "must be package-relative"
-contains "$tmp/bad-backslash.err" "backslashes are not allowed"
+contains "$tmp/bad-backslash.err" "backslash paths are not normalized"
+contains "$tmp/bad-backslash.err" "use '/' separators"
 
 printf 'qstar-windows-prep: passed\n'

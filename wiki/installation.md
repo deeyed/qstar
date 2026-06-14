@@ -143,6 +143,8 @@ Windows release asset은 아직 없다. 현재 QStar는 Windows 이식 전에 �
 - QStar DSL path는 Windows에서도 `/` 기반 package-relative path다.
 - `src\\main.c`, `C:\\SDK\\include` 같은 path는 source/include/output/stage field에
   쓰지 않는다.
+- `C:\\Program Files\\SDK\\Include` 같은 문자열이 compiler/linker option이라면
+  `compile_options`/`link_options` argv item으로 두고 `response_style = "msvc"`로 escape한다.
 - process 실행은 shell string이 아니라 `qstar.cli { ... }` argv-vector다.
 - MSVC 계열 response file은 `response_style = "msvc"`로 dry-run과 log에서 확인한다.
 - `.exe`는 `artifact_name = "tool.exe"` 또는 profile `artifact_names`로 명시한다.

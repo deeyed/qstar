@@ -41,6 +41,22 @@ qstar.profile "windows-msvc-fake" {
   },
 }
 
+qstar.profile "windows-msvc-artifact-map" {
+  toolchain = "clang",
+  target = "x86_64-pc-windows-msvc",
+  cc = "clang-cl",
+  cxx = "clang-cl",
+  linker = "clang-cl",
+  response_files = "on",
+  response_style = "msvc",
+  tool_overrides = {
+    "qstar-argv-probe=tools/argv-probe.sh",
+  },
+  artifact_names = {
+    "//:windows_mapped=profile_named.exe",
+  },
+}
+
 qstar.config "long_c_command" {
   lang = {
     c = {
@@ -82,6 +98,10 @@ qstar.config "msvc_response_escape_args" {
         "/DQUOTE=\"value\"",
         "/DTRAIL=tail\\",
         "/DSEMICOLON=a;b",
+        "/DWINPATH=C:\\Program Files\\QStar\\Include",
+        "/DJSON={\"path\":\"C:\\qstar\\include\"}",
+        "/DSPACE_TRAIL=value with trailing space ",
+        "/DSLASHQUOTE=C:\\qstar\\\"quoted\"",
       },
     },
   },
@@ -163,6 +183,13 @@ qstar.executable "windows_rsp" {
     "/GUARD:CF",
     "/MACHINE:X64",
     "/VERSION:0.5",
+  },
+}
+
+qstar.executable "windows_mapped" {
+  configs = {"//:long_c_command"},
+  sources = {
+    "src/main.c",
   },
 }
 

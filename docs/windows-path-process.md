@@ -7,11 +7,13 @@ release packaging still need native Windows validation before a Windows release
 artifact exists.
 
 Round Q114 moves this from a docs-only pre-port note to a native validation
-candidate path. The local gate now creates real MSVC-style response files with a
-fake `clang-cl` fixture, asserts drive-letter/backslash diagnostics, and keeps a
-manual Windows GitHub Actions candidate workflow. The response-file regression
-is exercised through both Stella and Ninja when `ninja` is available. This still
-is not official Windows support.
+candidate path. Round Q158 hardens the highest-risk pre-port layer: path
+diagnostics, MSVC/clang-cl response-file escaping, `.exe` artifact naming, and
+the shell-free argv-vector contract. The local gate creates real MSVC-style
+response files with a fake `clang-cl` fixture, asserts drive-letter/backslash
+diagnostics, and keeps a manual Windows GitHub Actions candidate workflow. The
+response-file regression is exercised through both Stella and Ninja when `ninja`
+is available. This still is not official Windows support.
 
 ## Status
 
@@ -68,9 +70,9 @@ Round Q114 diagnostics distinguish common mistakes:
 
 - `C:\project\src\main.c` and `C:/project/src/main.c` report that drive-letter
   paths are not allowed. The emitted reason text is
-  `drive-letter paths are not allowed`.
+  `drive-letter paths are not allowed in package paths`.
 - `sdk\include` reports that backslashes are not allowed and `/` separators are
-  required. The emitted reason text is `backslashes are not allowed`.
+  required. The emitted reason text is `backslash paths are not normalized`.
 - `../escape`, `./local`, duplicate separators, and colon-containing package
   paths remain invalid package paths.
 
@@ -129,6 +131,14 @@ The prep gate verifies MSVC response-file escaping for:
 - embedded double quotes: `"/DQUOTE=\"value\""`
 - trailing backslashes: `"/DTRAIL=tail\\"`
 - semicolons preserved without shell splitting: `/DSEMICOLON=a;b`
+- Windows-like argv option paths with spaces and backslashes:
+  `"/DWINPATH=C:\Program Files\QStar\Include"`
+- JSON-like values with quotes and backslashes:
+  `"/DJSON={\"path\":\"C:\qstar\include\"}"`
+- an argument ending with a literal space:
+  `"/DSPACE_TRAIL=value with trailing space "`
+- a backslash immediately before an embedded quote:
+  `"/DSLASHQUOTE=C:\qstar\\\"quoted\""`
 - linker paths with spaces: `"/PDB:build/qstar/pdb/windows rsp.pdb"`
 - `/LIBPATH:...` paths with spaces
 
@@ -138,7 +148,8 @@ Current pre-port policy:
 
 - Executable targets may use `artifact_name = "tool.exe"` or profile
   `artifact_names = {"//:tool=tool.exe"}`. This `.exe` spelling is the current
-  Windows executable naming contract.
+  Windows executable naming contract. The local prep gate verifies both target
+  local `artifact_name` and profile-level `artifact_names` mapping.
 - External Windows libraries in `libs = {"kernel32"}` render as `kernel32.lib`
   for Windows/MSVC-like targets. This external library spelling is sealed for
   the pre-port contract.
@@ -173,8 +184,12 @@ The gate checks:
 - fake Windows/MSVC build creates real compile and link `.rsp` files
 - MSVC response escaping for spaces, quotes, semicolons, and trailing
   backslashes
+- MSVC response escaping for Windows-like define/path options, JSON-like values,
+  trailing-space arguments, and backslash-before-quote arguments
 - Windows/MSVC dry-run renders `/link`, `/LIBPATH:...`, and `kernel32.lib`
 - `artifact_name = "windows_app.exe"` is reflected in the planned output path
+- `profile artifact_names = {"//:windows_mapped=profile_named.exe"}` is
+  reflected in the planned output path
 - drive-letter and backslash package paths are rejected with specific reason text
 
 Manual corpus commands:

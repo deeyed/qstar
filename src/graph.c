@@ -2589,9 +2589,9 @@ qstar_path_package_relative_reason(const char *path)
 	if (path[0] == '/')
 		return "absolute paths are not allowed";
 	if (isalpha((unsigned char)path[0]) && path[1] == ':')
-		return "drive-letter paths are not allowed; use package-relative slash-normalized paths";
+		return "drive-letter paths are not allowed in package paths; write project files as slash-normalized paths like 'src/main.c' and keep absolute tool locations in profiles";
 	if (strchr(path, '\\'))
-		return "backslashes are not allowed; use '/' separators";
+		return "backslash paths are not normalized; use '/' separators like 'src/main.c'";
 	if (strchr(path, ':'))
 		return "colon characters are reserved in package paths";
 	if (strcmp(path, ".") == 0 || strcmp(path, "..") == 0 ||

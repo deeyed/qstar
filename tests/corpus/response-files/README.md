@@ -12,6 +12,8 @@ qstar --file tests/corpus/response-files/qstar.lua --profile windows-msvc-fake b
 ```
 
 `windows-msvc-fake` uses a package-local fake `clang-cl` script so non-Windows
-hosts can still verify MSVC response-file escaping, `.exe` artifact naming,
-`/LIBPATH:...`, and `.lib` system library spelling without claiming native
-Windows support.
+hosts can still verify MSVC response-file escaping for spaces, quotes,
+backslashes, trailing spaces, and Windows-like argv option paths. The corpus also
+checks `.exe` artifact naming through target-local `artifact_name` and
+profile-level `artifact_names`, `/LIBPATH:...`, and `.lib` system library
+spelling without claiming native Windows support.
