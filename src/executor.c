@@ -8789,15 +8789,16 @@ install_one_target(struct qstar_graph *graph, const struct qstar_target *target,
 		return qstar_set_error(graph, "qstar: install artifact path too long");
 	if (strcmp(target->kind, "exe") == 0) {
 		role = "exe";
-		snprintf(dst, sizeof(dst), "%s/bin/%s", ctx->options->prefix, target->name);
+		snprintf(dst, sizeof(dst), "%s/bin/%s", ctx->options->prefix,
+		    artifact_basename(artifact));
 	} else if (strcmp(target->kind, "sharedlib") == 0) {
 		role = "sharedlib";
 		snprintf(dst, sizeof(dst), "%s/lib/%s", ctx->options->prefix,
 		    artifact_basename(artifact));
 	} else {
 		role = "staticlib";
-		snprintf(dst, sizeof(dst), "%s/lib/lib%s.a", ctx->options->prefix,
-		    target->name);
+		snprintf(dst, sizeof(dst), "%s/lib/%s", ctx->options->prefix,
+		    artifact_basename(artifact));
 	}
 	if (install_file(graph, ctx, target, artifact, dst, role) < 0)
 		return -1;

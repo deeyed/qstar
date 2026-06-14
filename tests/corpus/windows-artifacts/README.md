@@ -1,7 +1,8 @@
 # Windows Artifacts Corpus
 
-This corpus records the Q173 Windows artifact implementation contract before
-Windows shared library support is implemented.
+This corpus records the Q173 Windows artifact implementation contract and the
+Q174 executable/static-library regression gate before Windows shared library
+support is implemented.
 
 It is intentionally separate from `tests/corpus/response-files`:
 
@@ -17,20 +18,28 @@ Useful current commands:
 qstar --file tests/corpus/windows-artifacts/qstar.lua check
 qstar --file tests/corpus/windows-artifacts/qstar.lua --profile windows-msvc dry-run //:tool
 qstar --file tests/corpus/windows-artifacts/qstar.lua --profile windows-msvc dry-run //:core
-qstar --file tests/corpus/windows-artifacts/qstar.lua --profile windows-msvc dry-run //:layout
+qstar --file tests/corpus/windows-artifacts/qstar.lua --profile windows-msvc-fake build //:all
+qstar --file tests/corpus/windows-artifacts/qstar.lua --profile windows-msvc-fake stage //:layout
+qstar --file tests/corpus/windows-artifacts/qstar.lua --profile windows-msvc-fake install //:tool --prefix /tmp/qstar-windows-artifacts
+qstar --file tests/corpus/windows-artifacts/qstar.lua --profile windows-msvc-fake install //:core --prefix /tmp/qstar-windows-artifacts
 ```
 
 Current expected behavior:
 
 - `//:tool` plans an explicit `.exe` primary artifact.
 - `//:core` plans an explicit static `.lib` primary artifact.
+- `//:profile_tool` and `//:profile_core` prove profile-level
+  `artifact_names` for `.exe` and static `.lib`.
+- `windows-msvc-fake` builds those artifacts on non-Windows hosts with
+  package-local fake tools; this validates QStar naming, Stella/Ninja lowering,
+  stage, and install layout without claiming native Windows tool support.
 - `//:plugin` is a Windows `sharedlib` contract target. Current dry-run output
   may show a provisional primary `.dll` path, but that is not the complete
   Windows shared library implementation. Backend execution/lowering is not
   considered sealed until the multi-output runtime `.dll` plus import `.lib`
   artifact map lands.
 - `//:layout` stages the currently supported executable and static library
-  primary artifacts only.
+  primary artifacts under `bin/` and `lib/`.
 
 Future expected behavior after Windows sharedlib implementation:
 

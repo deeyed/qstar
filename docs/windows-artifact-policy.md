@@ -11,6 +11,13 @@ implementation starts. The matching Graph IR design note is
 `docs/windows-artifact-graph-ir.md`, and the forward-looking corpus lives in
 `tests/corpus/windows-artifacts`.
 
+Round Q174 promotes executable and static-library artifacts from contract-only
+planning to a local regression gate. The `tests/corpus/windows-artifacts`
+fixture now builds explicit `.exe` and static `.lib` outputs with a fake
+Windows-like toolchain, verifies target-local and profile-level artifact names,
+checks Stella/Ninja lowering, stages those artifacts, and installs them under
+the Windows layout. Windows shared libraries remain deferred.
+
 ## Status
 
 ```txt
@@ -18,6 +25,7 @@ host support: manual native CI alpha
 release asset: none
 policy status: pre-support artifact contract
 implementation plan: sealed for Q173
+exe/static artifact gate: sealed for Q174
 local gate: make qstar-windows-prep-tests
 native alpha gate: make qstar-windows-native-alpha-tests
 ```
@@ -56,7 +64,7 @@ native Windows validation is stable, and it must not change existing explicit
 
 Install and stage policy:
 
-- install role: `bin/<artifact-name>`
+- install role: `bin/<artifact-basename>`
 - stage role: explicit `qstar.stage_file(qstar.target_file("//:tool"), "...")`
 - `qstar.target_file("//:tool")`: returns the primary executable artifact path
 
@@ -100,7 +108,7 @@ archive tool is a native `lib.exe` or `llvm-lib` compatible archiver. Native
 
 Install and stage policy:
 
-- install role: `lib/<artifact-name>`
+- install role: `lib/<artifact-basename>`
 - stage role: explicit `qstar.stage_file(qstar.target_file("//:core"), "...")`
 - `qstar.target_file("//:core")`: returns the primary static library artifact
 
@@ -249,10 +257,14 @@ make qstar-windows-prep-tests
 The gate verifies explicit `.exe` naming, profile `artifact_names`, external
 `.lib` spelling, `/LIBPATH`, MSVC response-file escaping, slash-normalized
 package paths, explicit static `.lib` artifact planning, fake static `.lib`
-build output through Stella and Ninja, and Windows sharedlib diagnostic parity.
-It does not claim official Windows support.
+build output through Stella and Ninja, `.exe` and static `.lib` install/stage
+layout through the Windows artifacts corpus, and Windows sharedlib diagnostic
+parity. It does not claim official Windows support.
+Windows sharedlib diagnostic parity stays part of the gate while runtime `.dll`
+plus import `.lib` implementation is deferred.
 
-Future implementation gates should add `tests/corpus/windows-artifacts` without
-weakening the existing response-file corpus. That corpus documents the expected
-`.exe`, static `.lib`, runtime `.dll`, import `.lib`, install/stage, and
-Stella/Ninja parity surface in one Windows-focused project shape.
+`tests/corpus/windows-artifacts` is now part of the prep gate. It keeps the
+expected `.exe`, static `.lib`, runtime `.dll`, import `.lib`, install/stage,
+and Stella/Ninja parity surface in one Windows-focused project shape. The
+runtime `.dll` plus import `.lib` part remains a future implementation target,
+while executable and static library artifacts are regression-tested today.

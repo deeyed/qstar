@@ -4,6 +4,7 @@ set -eu
 qstar=${QSTAR_TEST_QSTAR:-build/bin/qstar}
 tmp=${TMPDIR:-/tmp}/qstar-windows-prep.$$
 corpus=tests/corpus/response-files
+artifact_corpus=tests/corpus/windows-artifacts
 build_dir=build/qstar
 
 fail() {
@@ -28,9 +29,10 @@ not_contains() {
 
 rm -rf "$tmp"
 mkdir -p "$tmp"
-rm -rf "$corpus/build" "$corpus/stage"
+rm -rf "$corpus/build" "$corpus/stage" "$artifact_corpus/build" "$artifact_corpus/stage"
 rm -f "$corpus/.ninja_log" "$corpus/.ninja_deps"
-trap 'rm -rf "$tmp"; rm -rf "$corpus/build" "$corpus/stage"; rm -f "$corpus/.ninja_log" "$corpus/.ninja_deps"' EXIT HUP INT TERM
+rm -f "$artifact_corpus/.ninja_log" "$artifact_corpus/.ninja_deps"
+trap 'rm -rf "$tmp"; rm -rf "$corpus/build" "$corpus/stage" "$artifact_corpus/build" "$artifact_corpus/stage"; rm -f "$corpus/.ninja_log" "$corpus/.ninja_deps" "$artifact_corpus/.ninja_log" "$artifact_corpus/.ninja_deps"' EXIT HUP INT TERM
 
 "$qstar" --file "$corpus/qstar.lua" build //:all \
 	--progress off > "$tmp/build.out" 2> "$tmp/build.err"
@@ -179,6 +181,146 @@ if command -v ninja >/dev/null 2>&1; then
 	contains "$tmp/windows-shared-ninja.err" "Windows shared libraries require a runtime .dll"
 	contains "$tmp/windows-shared-ninja.err" "import .lib"
 	contains "$tmp/windows-shared-ninja.err" "docs/windows-artifact-policy.md"
+fi
+
+"$qstar" --file "$artifact_corpus/qstar.lua" check \
+	> "$tmp/windows-artifacts-check.out" 2> "$tmp/windows-artifacts-check.err"
+contains "$tmp/windows-artifacts-check.out" "status ok"
+"$qstar" --file "$artifact_corpus/qstar.lua" --profile windows-msvc \
+	dry-run //:all > "$tmp/windows-artifacts-dry.out" \
+	2> "$tmp/windows-artifacts-dry.err"
+contains "$tmp/windows-artifacts-dry.out" "output=build/qstar/out/___tool/tool.exe"
+contains "$tmp/windows-artifacts-dry.out" "output=build/qstar/out/___core/core.lib"
+contains "$tmp/windows-artifacts-dry.out" "output=build/qstar/out/___profile_tool/profile_tool.exe"
+contains "$tmp/windows-artifacts-dry.out" "output=build/qstar/out/___profile_core/profile_core.lib"
+contains "$tmp/windows-artifacts-dry.out" "response_style=msvc"
+contains "$tmp/windows-artifacts-dry.out" '"/DQSTAR_WINDOWS_ARTIFACT=alpha beta"'
+contains "$tmp/windows-artifacts-dry.out" \
+	'"/DQSTAR_WINDOWS_PATH=C:\\Program Files\\QStar\\Include"'
+contains "$tmp/windows-artifacts-dry.out" '"/DQSTAR_WINDOWS_QUOTE=\"artifact\""'
+
+"$qstar" --file "$artifact_corpus/qstar.lua" --profile windows-msvc-fake \
+	--progress off build //:all > "$tmp/windows-artifacts-build.out" \
+	2> "$tmp/windows-artifacts-build.err"
+contains "$tmp/windows-artifacts-build.out" "status ok"
+test -x "$artifact_corpus/$build_dir/out/___tool/tool.exe" ||
+	fail "Windows artifact corpus tool.exe missing"
+test -x "$artifact_corpus/$build_dir/out/___profile_tool/profile_tool.exe" ||
+	fail "Windows artifact corpus profile_tool.exe missing"
+test -f "$artifact_corpus/$build_dir/out/___core/core.lib" ||
+	fail "Windows artifact corpus core.lib missing"
+test -f "$artifact_corpus/$build_dir/out/___profile_core/profile_core.lib" ||
+	fail "Windows artifact corpus profile_core.lib missing"
+contains "$artifact_corpus/$build_dir/out/___core/core.lib" "fake static library"
+contains "$artifact_corpus/$build_dir/out/___profile_core/profile_core.lib" \
+	"fake static library"
+
+"$qstar" --file "$artifact_corpus/qstar.lua" --profile windows-msvc-fake \
+	stage //:layout > "$tmp/windows-artifacts-stage.out" \
+	2> "$tmp/windows-artifacts-stage.err"
+contains "$tmp/windows-artifacts-stage.out" "stage_file src=build/qstar/out/___tool/tool.exe"
+contains "$tmp/windows-artifacts-stage.out" "stage_file src=build/qstar/out/___core/core.lib"
+test -f "$artifact_corpus/$build_dir/stage/windows-layout/bin/tool.exe" ||
+	fail "Windows artifact corpus staged tool.exe missing"
+test -f "$artifact_corpus/$build_dir/stage/windows-layout/bin/profile_tool.exe" ||
+	fail "Windows artifact corpus staged profile_tool.exe missing"
+test -f "$artifact_corpus/$build_dir/stage/windows-layout/lib/core.lib" ||
+	fail "Windows artifact corpus staged core.lib missing"
+test -f "$artifact_corpus/$build_dir/stage/windows-layout/lib/profile_core.lib" ||
+	fail "Windows artifact corpus staged profile_core.lib missing"
+
+"$qstar" --file "$artifact_corpus/qstar.lua" --profile windows-msvc-fake \
+	install //:tool --prefix "$tmp/windows-artifacts-prefix" \
+	> "$tmp/windows-artifacts-install-tool.out" \
+	2> "$tmp/windows-artifacts-install-tool.err"
+test -f "$tmp/windows-artifacts-prefix/bin/tool.exe" ||
+	fail "Windows artifact corpus installed tool.exe missing"
+"$qstar" --file "$artifact_corpus/qstar.lua" --profile windows-msvc-fake \
+	install //:core --prefix "$tmp/windows-artifacts-prefix" \
+	> "$tmp/windows-artifacts-install-core.out" \
+	2> "$tmp/windows-artifacts-install-core.err"
+test -f "$tmp/windows-artifacts-prefix/lib/core.lib" ||
+	fail "Windows artifact corpus installed core.lib missing"
+"$qstar" --file "$artifact_corpus/qstar.lua" --profile windows-msvc-fake \
+	install //:profile_tool --prefix "$tmp/windows-artifacts-prefix" \
+	> "$tmp/windows-artifacts-install-profile-tool.out" \
+	2> "$tmp/windows-artifacts-install-profile-tool.err"
+test -f "$tmp/windows-artifacts-prefix/bin/profile_tool.exe" ||
+	fail "Windows artifact corpus installed profile_tool.exe missing"
+"$qstar" --file "$artifact_corpus/qstar.lua" --profile windows-msvc-fake \
+	install //:profile_core --prefix "$tmp/windows-artifacts-prefix" \
+	> "$tmp/windows-artifacts-install-profile-core.out" \
+	2> "$tmp/windows-artifacts-install-profile-core.err"
+test -f "$tmp/windows-artifacts-prefix/lib/profile_core.lib" ||
+	fail "Windows artifact corpus installed profile_core.lib missing"
+
+if "$qstar" --file "$artifact_corpus/qstar.lua" --profile windows-msvc-fake \
+	build //:plugin > "$tmp/windows-artifacts-shared.out" \
+	2> "$tmp/windows-artifacts-shared.err"; then
+	fail "Windows artifact corpus sharedlib unexpectedly succeeded"
+fi
+contains "$tmp/windows-artifacts-shared.err" "Windows shared libraries require a runtime .dll"
+contains "$tmp/windows-artifacts-shared.err" "import .lib"
+contains "$tmp/windows-artifacts-shared.err" "docs/windows-artifact-policy.md"
+
+if command -v ninja >/dev/null 2>&1; then
+	rm -rf "$artifact_corpus/$build_dir" "$artifact_corpus/.ninja_log" \
+		"$artifact_corpus/.ninja_deps"
+	"$qstar" --file "$artifact_corpus/qstar.lua" --profile windows-msvc-fake \
+		-G ninja --progress off build //:all \
+		> "$tmp/windows-artifacts-ninja-build.out" \
+		2> "$tmp/windows-artifacts-ninja-build.err"
+	contains "$tmp/windows-artifacts-ninja-build.out" "backend ninja"
+	contains "$tmp/windows-artifacts-ninja-build.out" "status ok"
+	test -x "$artifact_corpus/$build_dir/out/___tool/tool.exe" ||
+		fail "Ninja Windows artifact corpus tool.exe missing"
+	test -x "$artifact_corpus/$build_dir/out/___profile_tool/profile_tool.exe" ||
+		fail "Ninja Windows artifact corpus profile_tool.exe missing"
+	test -f "$artifact_corpus/$build_dir/out/___core/core.lib" ||
+		fail "Ninja Windows artifact corpus core.lib missing"
+	test -f "$artifact_corpus/$build_dir/out/___profile_core/profile_core.lib" ||
+		fail "Ninja Windows artifact corpus profile_core.lib missing"
+	contains "$artifact_corpus/$build_dir/ninja/build.ninja" \
+		"build/qstar/out/___tool/tool.exe"
+	contains "$artifact_corpus/$build_dir/ninja/build.ninja" \
+		"build/qstar/out/___core/core.lib"
+	test ! -f "$artifact_corpus/.ninja_log" ||
+		fail "Windows artifact corpus root .ninja_log pollution"
+	test ! -f "$artifact_corpus/.ninja_deps" ||
+		fail "Windows artifact corpus root .ninja_deps pollution"
+
+	"$qstar" --file "$artifact_corpus/qstar.lua" --profile windows-msvc-fake \
+		-G ninja stage //:layout > "$tmp/windows-artifacts-ninja-stage.out" \
+		2> "$tmp/windows-artifacts-ninja-stage.err"
+	contains "$tmp/windows-artifacts-ninja-stage.out" "backend ninja"
+	test -f "$artifact_corpus/$build_dir/stage/windows-layout/bin/tool.exe" ||
+		fail "Ninja Windows artifact corpus staged tool.exe missing"
+	test -f "$artifact_corpus/$build_dir/stage/windows-layout/lib/core.lib" ||
+		fail "Ninja Windows artifact corpus staged core.lib missing"
+
+	"$qstar" --file "$artifact_corpus/qstar.lua" --profile windows-msvc-fake \
+		-G ninja install //:tool --prefix "$tmp/windows-artifacts-ninja-prefix" \
+		> "$tmp/windows-artifacts-ninja-install-tool.out" \
+		2> "$tmp/windows-artifacts-ninja-install-tool.err"
+	test -f "$tmp/windows-artifacts-ninja-prefix/bin/tool.exe" ||
+		fail "Ninja Windows artifact corpus installed tool.exe missing"
+	"$qstar" --file "$artifact_corpus/qstar.lua" --profile windows-msvc-fake \
+		-G ninja install //:core --prefix "$tmp/windows-artifacts-ninja-prefix" \
+		> "$tmp/windows-artifacts-ninja-install-core.out" \
+		2> "$tmp/windows-artifacts-ninja-install-core.err"
+	test -f "$tmp/windows-artifacts-ninja-prefix/lib/core.lib" ||
+		fail "Ninja Windows artifact corpus installed core.lib missing"
+
+	if "$qstar" --file "$artifact_corpus/qstar.lua" --profile windows-msvc-fake \
+		-G ninja build //:plugin > "$tmp/windows-artifacts-shared-ninja.out" \
+		2> "$tmp/windows-artifacts-shared-ninja.err"; then
+		fail "Windows artifact corpus Ninja sharedlib unexpectedly succeeded"
+	fi
+	contains "$tmp/windows-artifacts-shared-ninja.err" \
+		"Windows shared libraries require a runtime .dll"
+	contains "$tmp/windows-artifacts-shared-ninja.err" "import .lib"
+	contains "$tmp/windows-artifacts-shared-ninja.err" \
+		"docs/windows-artifact-policy.md"
 fi
 
 mkdir -p "$tmp/bad-drive" "$tmp/bad-drive-slash" "$tmp/bad-backslash/src"

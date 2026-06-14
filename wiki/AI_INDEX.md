@@ -156,7 +156,11 @@ QStar가 하지 않는 일:
   `qstar.target_file("//:plugin")`은 runtime `.dll`, future selector
   `qstar.target_file("//:plugin", { artifact = "import_lib" })`은 import `.lib`를 뜻한다.
   PDB/debug artifact는 opt-in/deferred이며 implicit install/stage 대상이 아니다.
-  forward-looking fixture는 `tests/corpus/windows-artifacts`에 둔다.
+  Q174부터 `tests/corpus/windows-artifacts`는 forward-looking 문서 fixture가 아니라
+  executable/staticlib regression gate도 맡는다. `windows-msvc-fake` profile은
+  package-local fake `clang-cl`/`lib` 도구로 target-local `.exe`/static `.lib`와
+  profile-level `artifact_names` `.exe`/static `.lib`를 Stella와 Ninja 양쪽에서 build하고,
+  stage/install layout은 `.exe`를 `bin/`, static `.lib`를 `lib/` 아래로 확인한다.
   QStar DSL path는 Windows에서도 `/`로 정규화된 package-relative path이며,
   backslash path와 drive-letter package path는 금지된다. Windows-like path 문자열이
   실제 compiler/linker option이면 `compile_options`/`link_options` argv item으로 두고
@@ -164,9 +168,10 @@ QStar가 하지 않는 일:
   profile-level `artifact_names`로 명시할 수 있고, 외부 system library는 MSVC-like target에서 `.lib`로 렌더링한다.
   explicit static `.lib`는 target-local `artifact_name` 또는 profile-level `artifact_names`로
   planning할 수 있다. Q165 prep gate는 `.exe` metadata, fake static `.lib` Stella/Ninja
-  build, Windows sharedlib diagnostic parity를 같이 확인한다. Automatic `.lib`, `.dll`,
-  import `.lib`, PDB/debug, Windows install layout은 native Windows 검증 전까지 official
-  contract가 아니다. 상세 정책은 `docs/windows-artifact-policy.md`에 둔다.
+  build, Windows sharedlib diagnostic parity를 같이 확인했고, Q174는 `.exe`/static `.lib`
+  install/stage layout까지 더한다. Automatic `.lib`, `.dll`, import `.lib`, PDB/debug은
+  native Windows 검증 전까지 official contract가 아니다. 상세 정책은
+  `docs/windows-artifact-policy.md`에 둔다.
 - `make qstar-medium-project-readiness-tests`는 Stella executor와 Ninja backend의 clean,
   no-op, incremental build 시간을 `medium_project_gate ...` line protocol로 기록한다.
   Round Q92 기준 timing threshold는 report-only가 기본이며,
