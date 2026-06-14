@@ -127,7 +127,10 @@ QStar가 하지 않는 일:
   artifacts, medium `perf_summary status=ok`, downloaded `contents.txt`,
   `download-smoke.log`, and `linux-hosted-release-decision.txt`도 보존한다. Linux asset은
   decision file이 `linux_release_asset status=published`와 `download_smoke=ok`를 기록한
-  뒤 release-backed로 본다.
+  뒤 release-backed로 본다. Q171 hosted run
+  `https://github.com/deeyed/qstar/actions/runs/27507809666`은 `v0.7.0-beta`
+  Linux x86_64 asset을 publish하고 download smoke까지 통과했으므로, 이 release의
+  `qstar-v0.7.0-beta-linux-x86_64.tar.gz`는 release-backed beta asset이다.
   Linux daemon socket smoke도 기본 push/PR lane이 아니라 `workflow_dispatch`의
   `daemon_socket_smoke=true` opt-in job에서 검증한다.
 - Windows host 지원은 아직 official support가 아니다. Round Q114/Q158/Q159 기준

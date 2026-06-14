@@ -27,6 +27,23 @@ downloaded-release tarball contents, download-smoke stdout, and a
 `linux-hosted-release-decision.txt` artifact를 남긴다. 이 파일이 `status=published`와
 `download_smoke=ok`를 기록하기 전에는 Linux asset을 release-backed로 보지 않는다.
 
+Q171 hosted verification run
+`https://github.com/deeyed/qstar/actions/runs/27507809666` passed the gcc lane,
+clang lane, large performance report, and publish-linux-release-asset job for
+`v0.7.0-beta`. The daemon socket smoke job was skipped intentionally because the
+workflow input was disabled. The release now contains
+`qstar-v0.7.0-beta-linux-x86_64.tar.gz`, and the hosted decision artifact
+records:
+
+```txt
+linux_release_asset status=published
+tag=v0.7.0-beta
+platform=linux-x86_64
+download_smoke=ok
+artifact=qstar-v0.7.0-beta-linux-x86_64.tar.gz
+reports=download-smoke-linux-x86_64
+```
+
 ## Scope
 
 Linux validation은 다음을 확인한다.
