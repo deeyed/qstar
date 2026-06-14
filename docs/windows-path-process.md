@@ -19,7 +19,9 @@ docs/man smoke, and uploaded failure logs. This still is not official Windows
 support. Round Q160 moves the artifact naming/install policy into
 `docs/windows-artifact-policy.md`. Round Q164 isolates the Unix socket Stella
 daemon code behind a Windows stub so MSYS2 `make all CC=gcc` can progress past
-the previously observed `<sys/socket.h>` failure. The daemon remains disabled on
+the previously observed `<sys/socket.h>` failure. Round Q165 seals the artifact
+policy with explicit `.exe` introspection, fake static `.lib` Stella/Ninja
+builds, and Windows sharedlib diagnostic parity. The daemon remains disabled on
 Windows until a named-pipe transport and ACL policy are implemented.
 
 ## Status
@@ -196,10 +198,15 @@ The gate checks:
   trailing-space arguments, and backslash-before-quote arguments
 - Windows/MSVC dry-run renders `/link`, `/LIBPATH:...`, and `kernel32.lib`
 - `artifact_name = "windows_app.exe"` is reflected in the planned output path
+  and target metadata.
 - `profile artifact_names = {"//:windows_mapped=profile_named.exe"}` is
   reflected in the planned output path
 - `profile artifact_names = {"//:windows_static=windows_static.lib"}` is
   reflected in explicit static archive planning
+- fake static `.lib` artifacts are built through Stella and Ninja on non-Windows
+  hosts without claiming native `lib.exe`/`llvm-lib` support
+- Windows-like `qstar.sharedlib` targets fail with the same deferred
+  runtime `.dll`, import `.lib`, and PDB/debug diagnostic for Stella and Ninja
 - drive-letter and backslash package paths are rejected with specific reason text
 
 Manual corpus commands:

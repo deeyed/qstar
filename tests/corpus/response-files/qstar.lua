@@ -73,6 +73,23 @@ qstar.profile "windows-msvc-static-artifact-map" {
   },
 }
 
+qstar.profile "windows-msvc-static-fake" {
+  toolchain = "clang",
+  target = "x86_64-pc-windows-msvc",
+  cc = "tools/fake-clang-cl",
+  cxx = "tools/fake-clang-cl",
+  ar = "tools/fake-lib",
+  linker = "tools/fake-clang-cl",
+  response_files = "on",
+  response_style = "msvc",
+  tool_overrides = {
+    "qstar-argv-probe=tools/argv-probe.sh",
+  },
+  artifact_names = {
+    "//:windows_static=windows_static.lib",
+  },
+}
+
 qstar.config "long_c_command" {
   lang = {
     c = {
@@ -211,6 +228,12 @@ qstar.executable "windows_mapped" {
 
 qstar.staticlib "windows_static" {
   configs = {"//:long_c_command"},
+  sources = {
+    "src/main.c",
+  },
+}
+
+qstar.sharedlib "windows_plugin" {
   sources = {
     "src/main.c",
   },

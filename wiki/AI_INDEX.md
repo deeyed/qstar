@@ -139,9 +139,10 @@ QStar가 하지 않는 일:
   `response_style = "msvc"`로 escape한다. `.exe`는 target-local `artifact_name` 또는
   profile-level `artifact_names`로 명시할 수 있고, 외부 system library는 MSVC-like target에서 `.lib`로 렌더링한다.
   explicit static `.lib`는 target-local `artifact_name` 또는 profile-level `artifact_names`로
-  planning할 수 있다. Automatic `.lib`, `.dll`, import `.lib`, PDB/debug, Windows install
-  layout은 native Windows 검증 전까지 official contract가 아니다. 상세 정책은
-  `docs/windows-artifact-policy.md`에 둔다.
+  planning할 수 있다. Q165 prep gate는 `.exe` metadata, fake static `.lib` Stella/Ninja
+  build, Windows sharedlib diagnostic parity를 같이 확인한다. Automatic `.lib`, `.dll`,
+  import `.lib`, PDB/debug, Windows install layout은 native Windows 검증 전까지 official
+  contract가 아니다. 상세 정책은 `docs/windows-artifact-policy.md`에 둔다.
 - `make qstar-medium-project-readiness-tests`는 Stella executor와 Ninja backend의 clean,
   no-op, incremental build 시간을 `medium_project_gate ...` line protocol로 기록한다.
   Round Q92 기준 timing threshold는 report-only가 기본이며,

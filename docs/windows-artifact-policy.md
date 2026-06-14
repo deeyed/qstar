@@ -75,10 +75,12 @@ qstar.profile "windows-msvc" {
 }
 ```
 
-This only fixes QStar's artifact path and planning contract. It does not claim
-that the selected archive tool is a native `lib.exe` or `llvm-lib` compatible
-archiver. Native `.lib` archive production needs a later validation pass with
-real Windows tools.
+This fixes QStar's artifact path, planning contract, Stella action-log surface,
+and Ninja lowering path. The local prep gate also builds a fake
+`windows_static.lib` with a package-local fake archiver so the `.lib` artifact
+path is tested beyond dry-run. That fixture does not claim that the selected
+archive tool is a native `lib.exe` or `llvm-lib` compatible archiver. Native
+`.lib` archive production needs a later validation pass with real Windows tools.
 
 Install and stage policy:
 
@@ -184,5 +186,6 @@ make qstar-windows-prep-tests
 
 The gate verifies explicit `.exe` naming, profile `artifact_names`, external
 `.lib` spelling, `/LIBPATH`, MSVC response-file escaping, slash-normalized
-package paths, and explicit static `.lib` artifact planning. It does not claim
-official Windows support.
+package paths, explicit static `.lib` artifact planning, fake static `.lib`
+build output through Stella and Ninja, and Windows sharedlib diagnostic parity.
+It does not claim official Windows support.
