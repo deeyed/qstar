@@ -87,7 +87,9 @@ QStar가 하지 않는 일:
   `description=` metadata로 보존한다. Stella 성공/skip action의 물리 `.log` 파일 존재는
   public contract가 아니며, 필요 시 compact state와 현재 graph에서 lazy 재구성될 수 있다.
 - 0.7 feature beta 판단과 v1 blocker 정리는 `docs/qstar-v0.7-readiness.md`에 둔다.
-  Q161 기준 다음 feature line은 `0.7.0-beta`가 맞고, `0.6.x-beta`는 release/package/doc
+  Q169 기준 이 문서는 local `make check`, self-host, large performance, public beta
+  package smoke 결과를 묶어 `v0.7.0-beta` tag/release 준비 라운드로 넘겨도 된다고 판단한다.
+  다음 feature line은 `0.7.0-beta`가 맞고, `0.6.x-beta`는 release/package/doc
   hotfix용 patch line으로 남긴다. 0.7의 핵심은 Windows alpha/platform policy, daemon
   readiness, Linux/macOS asset gate hardening, Stella/Ninja/Linux timing refresh다.
 - 0.6 beta release 판단과 `0.6.1-beta` public prerelease line은
