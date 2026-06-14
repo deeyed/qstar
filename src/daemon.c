@@ -451,15 +451,195 @@ mkdir_p(const char *path)
 	return 0;
 }
 
-/** 파일 path의 parent directory를 재귀적으로 만든다. */
+/** daemon socket path가 remote/abstract endpoint처럼 보이는지 보수적으로 검사한다. */
 static int
-mkdir_parent(const char *path)
+daemon_socket_path_is_remote(const char *path)
+{
+	if (!path || !*path)
+		return 0;
+	if (path[0] == '@')
+		return 1;
+	return strstr(path, "://") != NULL || strchr(path, ':') != NULL;
+}
+
+/** daemon socket path가 local normalized filesystem path인지 검사한다. */
+static int
+daemon_validate_socket_path(const char *socket_path, char *error, size_t error_len)
+{
+	if (!socket_path || !*socket_path) {
+		set_error(error, error_len, "daemon socket path is empty");
+		return -1;
+	}
+	if (daemon_socket_path_is_remote(socket_path)) {
+		set_error(error, error_len,
+		    "remote daemon socket paths are not supported: %s", socket_path);
+		return -1;
+	}
+	if (strcmp(socket_path, ".") == 0 || strcmp(socket_path, "..") == 0 ||
+	    strncmp(socket_path, "../", 3) == 0 || strstr(socket_path, "/../") ||
+	    strstr(socket_path, "/./")) {
+		set_error(error, error_len,
+		    "daemon socket path must be a local normalized filesystem path: %s",
+		    socket_path);
+		return -1;
+	}
+	if (strlen(socket_path) >= sizeof(((struct sockaddr_un *)0)->sun_path)) {
+		set_error(error, error_len, "socket path too long: %s", socket_path);
+		return -1;
+	}
+	return 0;
+}
+
+/** daemon socket이 위치할 directory path를 계산한다. */
+static int
+daemon_socket_dirname(const char *socket_path, char *dir, size_t dir_len,
+    char *error, size_t error_len)
+{
+	if (qstar_dirname(socket_path, dir, dir_len) < 0) {
+		set_error(error, error_len, "daemon socket directory path is too long");
+		return -1;
+	}
+	return 0;
+}
+
+/** daemon socket directory가 현재 사용자만 접근 가능한지 확인한다. */
+static int
+daemon_check_socket_directory(const char *socket_path, int create,
+    char *error, size_t error_len)
 {
 	char dir[QSTAR_PATH_MAX];
+	struct stat st;
+	uid_t uid;
 
-	if (qstar_dirname(path, dir, sizeof(dir)) < 0)
+	if (daemon_socket_dirname(socket_path, dir, sizeof(dir), error, error_len) < 0)
 		return -1;
-	return mkdir_p(dir);
+	if (create && mkdir_p(dir) < 0) {
+		set_error(error, error_len, "could not create daemon socket directory '%s': %s",
+		    dir, strerror(errno));
+		return -1;
+	}
+	if (lstat(dir, &st) < 0) {
+		set_error(error, error_len, "daemon socket directory missing: %s", dir);
+		return -1;
+	}
+	if (!S_ISDIR(st.st_mode)) {
+		set_error(error, error_len, "daemon socket directory is not a directory: %s",
+		    dir);
+		return -1;
+	}
+	uid = geteuid();
+	if (st.st_uid != uid) {
+		set_error(error, error_len,
+		    "daemon socket directory owner mismatch: %s", dir);
+		return -1;
+	}
+	if ((st.st_mode & 077) != 0) {
+		if (!create || chmod(dir, 0700) < 0 || lstat(dir, &st) < 0 ||
+		    (st.st_mode & 077) != 0) {
+			set_error(error, error_len,
+			    "daemon socket directory must be owner-only: %s", dir);
+			return -1;
+		}
+	}
+	return 0;
+}
+
+/** 기존 daemon socket file이 현재 사용자 전용 Unix socket인지 검사한다. */
+static int
+daemon_check_socket_file(const char *socket_path, char *error, size_t error_len)
+{
+	struct stat st;
+	uid_t uid;
+
+	if (lstat(socket_path, &st) < 0) {
+		set_error(error, error_len, errno == ENOENT ? "socket-missing" :
+		    "stat %s: %s", socket_path, strerror(errno));
+		return -1;
+	}
+	if (!S_ISSOCK(st.st_mode)) {
+		set_error(error, error_len,
+		    "daemon socket path exists and is not a socket: %s", socket_path);
+		return -1;
+	}
+	uid = geteuid();
+	if (st.st_uid != uid) {
+		set_error(error, error_len, "daemon socket owner mismatch: %s", socket_path);
+		return -1;
+	}
+	if ((st.st_mode & 077) != 0) {
+		set_error(error, error_len,
+		    "daemon socket file must be owner-only: %s", socket_path);
+		return -1;
+	}
+	return 0;
+}
+
+/** 보안 검사를 마친 local Unix socket에 raw connect를 시도한다. */
+static int
+daemon_raw_connect(const char *socket_path, int *saved_errno)
+{
+	struct sockaddr_un addr;
+	int fd;
+
+	fd = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (fd < 0) {
+		if (saved_errno)
+			*saved_errno = errno;
+		return -1;
+	}
+	memset(&addr, 0, sizeof(addr));
+	addr.sun_family = AF_UNIX;
+	snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", socket_path);
+	if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+		if (saved_errno)
+			*saved_errno = errno;
+		close(fd);
+		return -1;
+	}
+	if (saved_errno)
+		*saved_errno = 0;
+	return fd;
+}
+
+/** server start 전에 stale socket인지 확인하고 안전한 경우에만 제거한다. */
+static int
+daemon_prepare_server_socket_path(const char *socket_path, char *error,
+    size_t error_len)
+{
+	struct stat st;
+	int fd, saved_errno;
+
+	if (daemon_validate_socket_path(socket_path, error, error_len) < 0 ||
+	    daemon_check_socket_directory(socket_path, 1, error, error_len) < 0)
+		return -1;
+	if (lstat(socket_path, &st) < 0) {
+		if (errno == ENOENT)
+			return 0;
+		set_error(error, error_len, "stat %s: %s", socket_path, strerror(errno));
+		return -1;
+	}
+	if (daemon_check_socket_file(socket_path, error, error_len) < 0)
+		return -1;
+	fd = daemon_raw_connect(socket_path, &saved_errno);
+	if (fd >= 0) {
+		close(fd);
+		set_error(error, error_len, "daemon socket is already in use: %s",
+		    socket_path);
+		return -1;
+	}
+	if (saved_errno == ECONNREFUSED || saved_errno == ENOENT ||
+	    saved_errno == ECONNRESET) {
+		if (unlink(socket_path) < 0) {
+			set_error(error, error_len,
+			    "could not remove stale daemon socket '%s': %s",
+			    socket_path, strerror(errno));
+			return -1;
+		}
+		return 0;
+	}
+	set_error(error, error_len, "daemon stale socket probe failed for %s: %s",
+	    socket_path, strerror(saved_errno));
+	return -1;
 }
 
 /** CLI override 기준의 default experimental daemon socket path를 계산한다. */
@@ -482,25 +662,16 @@ default_socket_path(const char *cli_build_dir, char *dst, size_t dstlen)
 static int
 connect_socket(const char *socket_path, char *error, size_t error_len)
 {
-	struct sockaddr_un addr;
-	int fd;
+	int fd, saved_errno;
 
-	fd = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (daemon_validate_socket_path(socket_path, error, error_len) < 0 ||
+	    daemon_check_socket_directory(socket_path, 0, error, error_len) < 0 ||
+	    daemon_check_socket_file(socket_path, error, error_len) < 0)
+		return -1;
+	fd = daemon_raw_connect(socket_path, &saved_errno);
 	if (fd < 0) {
-		set_error(error, error_len, "socket: %s", strerror(errno));
-		return -1;
-	}
-	memset(&addr, 0, sizeof(addr));
-	addr.sun_family = AF_UNIX;
-	if (strlen(socket_path) >= sizeof(addr.sun_path)) {
-		set_error(error, error_len, "socket path too long: %s", socket_path);
-		close(fd);
-		return -1;
-	}
-	snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", socket_path);
-	if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-		set_error(error, error_len, "connect %s: %s", socket_path, strerror(errno));
-		close(fd);
+		set_error(error, error_len, "connect %s: %s", socket_path,
+		    strerror(saved_errno));
 		return -1;
 	}
 	return fd;
@@ -742,7 +913,9 @@ read_response(int fd, FILE *out, int *build_status, char *error, size_t error_le
 		return read_buffered_response(fd, out, build_status, error, error_len);
 	if (strcmp(line, QSTAR_DAEMON_STREAM_MAGIC) == 0)
 		return read_stream_response(fd, out, build_status, error, error_len);
-	set_error(error, error_len, "daemon response has invalid magic");
+	set_error(error, error_len,
+	    "daemon protocol mismatch: expected %s or %s, got '%s'",
+	    QSTAR_DAEMON_RESPONSE_MAGIC, QSTAR_DAEMON_STREAM_MAGIC, line);
 	return -1;
 }
 
@@ -1555,6 +1728,42 @@ same_graph_identity(const struct qstar_daemon_server *server,
 	    strcmp(server->stdlib_policy, req->stdlib_policy) == 0;
 }
 
+/** daemon memory graph가 고정한 workspace identity와 request가 충돌하는지 검사한다. */
+static int
+reject_workspace_identity_mismatch(struct qstar_daemon_server *server,
+    const struct qstar_daemon_request *req, FILE *out)
+{
+	const char *kind, *server_value, *request_value;
+
+	if (!server->graph_loaded)
+		return 0;
+	kind = NULL;
+	server_value = NULL;
+	request_value = NULL;
+	if (strcmp(server->cwd, req->cwd) != 0) {
+		kind = "package root";
+		server_value = server->cwd;
+		request_value = req->cwd;
+	} else if (strcmp(server->file, req->file) != 0) {
+		kind = "entry file";
+		server_value = server->file;
+		request_value = req->file;
+	} else if (strcmp(server->build_dir, req->build_dir) != 0) {
+		kind = "build_dir";
+		server_value = server->build_dir;
+		request_value = req->build_dir;
+	}
+	if (!kind)
+		return 0;
+	server->graph.error[0] = '\0';
+	(void)qstar_set_error(&server->graph,
+	    "qstar: daemon identity mismatch: %s differs (server='%s', request='%s')",
+	    kind, server_value ? server_value : "", request_value ? request_value : "");
+	if (out)
+		fprintf(out, "%s\n", server->graph.error);
+	return -1;
+}
+
 /** daemon memory에 Graph IR와 lowered plan cache 결과를 load한다. */
 static int
 load_graph(struct qstar_daemon_server *server, const struct qstar_daemon_request *req,
@@ -1661,6 +1870,10 @@ ensure_graph(struct qstar_daemon_server *server, const struct qstar_daemon_reque
 {
 	if (!server->graph_loaded)
 		return load_graph(server, req, out, graph_status, reason, NULL);
+	if (reject_workspace_identity_mismatch(server, req, out) < 0) {
+		*reason = "identity-mismatch";
+		return -1;
+	}
 	if (!same_identity(server, req)) {
 		*reason = "identity-changed";
 		return load_graph(server, req, out, graph_status, reason, "identity-changed");
@@ -1686,10 +1899,14 @@ ensure_graph(struct qstar_daemon_server *server, const struct qstar_daemon_reque
 static int
 ensure_graph_for_query(struct qstar_daemon_server *server,
     const struct qstar_daemon_request *req, FILE *out, const char **graph_status,
-    const char **reason)
+	const char **reason)
 {
 	if (!server->graph_loaded)
 		return load_graph(server, req, out, graph_status, reason, NULL);
+	if (reject_workspace_identity_mismatch(server, req, out) < 0) {
+		*reason = "identity-mismatch";
+		return -1;
+	}
 	if (!same_graph_identity(server, req)) {
 		*reason = "identity-changed";
 		return load_graph(server, req, out, graph_status, reason, "identity-changed");
@@ -2151,18 +2368,19 @@ serve_socket(const char *socket_path, FILE *out)
 {
 	struct qstar_daemon_server server;
 	struct sockaddr_un addr;
+	char error[256], protocol_error[384];
 	char magic[128];
 	int listen_fd, client_fd;
 
 	memset(&server, 0, sizeof(server));
+	error[0] = '\0';
+	if (daemon_prepare_server_socket_path(socket_path, error, sizeof(error)) < 0) {
+		fprintf(stderr, "qstar: %s\n", error);
+		return 1;
+	}
 	listen_fd = socket(AF_UNIX, SOCK_STREAM, 0);
 	if (listen_fd < 0) {
 		fprintf(stderr, "qstar: daemon socket failed: %s\n", strerror(errno));
-		return 1;
-	}
-	if (mkdir_parent(socket_path) < 0) {
-		fprintf(stderr, "qstar: daemon could not create socket directory\n");
-		close(listen_fd);
 		return 1;
 	}
 	memset(&addr, 0, sizeof(addr));
@@ -2173,10 +2391,15 @@ serve_socket(const char *socket_path, FILE *out)
 		return 1;
 	}
 	snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", socket_path);
-	unlink(socket_path);
 	if (bind(listen_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0 ||
 	    listen(listen_fd, 16) < 0) {
 		fprintf(stderr, "qstar: daemon listen failed: %s\n", strerror(errno));
+		close(listen_fd);
+		return 1;
+	}
+	if (chmod(socket_path, 0600) < 0) {
+		fprintf(stderr, "qstar: daemon could not protect socket file: %s\n",
+		    strerror(errno));
 		close(listen_fd);
 		return 1;
 	}
@@ -2198,9 +2421,13 @@ serve_socket(const char *socket_path, FILE *out)
 			else if (strcmp(magic, QSTAR_DAEMON_HELLO_MAGIC) == 0)
 				(void)send_simple_response(client_fd, 0,
 				    "daemon status=ok experimental=1\n");
-			else
-				(void)send_simple_response(client_fd, 1,
-				    "qstar: unknown daemon request\n");
+			else {
+				snprintf(protocol_error, sizeof(protocol_error),
+				    "qstar: daemon protocol mismatch: expected %s, %s, or %s, got '%s'\n",
+				    QSTAR_DAEMON_BUILD_MAGIC, QSTAR_DAEMON_QUERY_MAGIC,
+				    QSTAR_DAEMON_HELLO_MAGIC, magic);
+				(void)send_simple_response(client_fd, 1, protocol_error);
+			}
 		}
 		close(client_fd);
 	}

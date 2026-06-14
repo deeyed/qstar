@@ -3,6 +3,7 @@ set -eu
 
 qstar=${QSTAR_TEST_QSTAR:-build/bin/qstar}
 tmp=${TMPDIR:-/tmp}/qstar-large-project-performance.$$
+daemon_tmp=${QSTAR_DAEMON_TMPDIR:-/tmp}/qstar-large-daemon.$$
 modes=${QSTAR_LARGE_PROJECT_TARGETS:-"200 500"}
 object_count=${QSTAR_LARGE_OBJECT_BRIDGE_COUNT:-4}
 ratio_x100=${QSTAR_LARGE_STELLA_TO_NINJA_X100:-200}
@@ -105,7 +106,7 @@ stop_daemon() {
 
 cleanup() {
 	stop_daemon
-	rm -rf "$tmp"
+	rm -rf "$tmp" "$daemon_tmp"
 }
 
 write_foreign_compiler() {
@@ -362,7 +363,10 @@ run_mode() {
 	rm -rf "$stella_daemon_root"
 	mkdir -p "$stella_daemon_root"
 	write_project "$stella_daemon_root" "$mode"
-	daemon_sock="/tmp/qstar-large-daemon-${mode}.$$.sock"
+	daemon_dir="$daemon_tmp/$mode"
+	mkdir -p "$daemon_dir"
+	chmod 700 "$daemon_dir"
+	daemon_sock="$daemon_dir/qstar-large-daemon.sock"
 	rm -f "$daemon_sock"
 	"$qstar" --file "$stella_daemon_root/qstar.lua" -B build/stella-daemon daemon --socket "$daemon_sock" --serve > "$tmp/stella_daemon_server_$mode.out" 2> "$tmp/stella_daemon_server_$mode.err" &
 	daemon_pid=$!
@@ -455,7 +459,7 @@ run_mode() {
 	fi
 }
 
-rm -rf "$tmp"
+rm -rf "$tmp" "$daemon_tmp"
 mkdir -p "$tmp"
 trap cleanup EXIT HUP INT TERM
 

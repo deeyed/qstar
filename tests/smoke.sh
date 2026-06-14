@@ -245,8 +245,34 @@ printf '%s\n' '-- plan cache invalidation smoke' >> "$tmp/qstar.lua"
 contains "$tmp/plan-cache-miss.out" "plan_cache status=miss reason=authoring-input-changed"
 contains "$tmp/plan-cache-miss.out" "status ok"
 
+step "initial build smoke: daemon socket security" "daemon-security"
+daemon_dir="$tmp/daemon-secure"
+mkdir -p "$daemon_dir"
+chmod 700 "$daemon_dir"
+if "$qstar" --file "$tmp/qstar.lua" daemon --socket "tcp://127.0.0.1:9417" --status > "$tmp/daemon-remote.out" 2> "$tmp/daemon-remote.err"; then
+	fail "remote daemon socket path unexpectedly succeeded"
+fi
+contains "$tmp/daemon-remote.out" "daemon status=unavailable"
+contains "$tmp/daemon-remote.out" "remote daemon socket paths are not supported"
+daemon_insecure_dir="$tmp/daemon-insecure"
+mkdir -p "$daemon_insecure_dir"
+chmod 755 "$daemon_insecure_dir"
+if "$qstar" --file "$tmp/qstar.lua" daemon --socket "$daemon_insecure_dir/qstar-daemon.sock" --status > "$tmp/daemon-insecure.out" 2> "$tmp/daemon-insecure.err"; then
+	fail "insecure daemon socket directory unexpectedly succeeded"
+fi
+contains "$tmp/daemon-insecure.out" "daemon status=unavailable"
+contains "$tmp/daemon-insecure.out" "daemon socket directory must be owner-only"
+daemon_bad_sock="$daemon_dir/not-a-socket.sock"
+printf 'not a socket\n' > "$daemon_bad_sock"
+if "$qstar" --file "$tmp/qstar.lua" daemon --socket "$daemon_bad_sock" --serve > "$tmp/daemon-stale-file.out" 2> "$tmp/daemon-stale-file.err"; then
+	fail "non-socket daemon path unexpectedly started a server"
+fi
+contains "$tmp/daemon-stale-file.err" "daemon socket path exists and is not a socket"
+contains "$daemon_bad_sock" "not a socket"
+rm -f "$daemon_bad_sock"
+
 step "initial build smoke: experimental Stella daemon" "daemon"
-daemon_sock="/tmp/qstar-daemon-smoke.$$.sock"
+daemon_sock="$daemon_dir/qstar-daemon.sock"
 rm -f "$daemon_sock"
 "$qstar" --file "$tmp/qstar.lua" daemon --socket "$daemon_sock" --serve > "$tmp/daemon-server.out" 2> "$tmp/daemon-server.err" &
 daemon_pid=$!
@@ -307,11 +333,15 @@ if [ -S "$daemon_sock" ]; then
 	contains "$tmp/daemon-incremental.out" "daemon_server status=build graph=hit reason=memory experimental=1"
 	contains "$tmp/daemon-incremental.out" "status ok"
 	printf '#define SMOKE_VALUE 0\n' > "$tmp/src/dep.h"
-	"$qstar" --file "$tmp/qstar.lua" -B build/daemon-ui build //:app --use-daemon=always --daemon-socket "$daemon_sock" --progress plain --color never > "$tmp/daemon-ui.out" 2> "$tmp/daemon-ui.err"
+	"$qstar" --file "$tmp/qstar.lua" -B build/daemon build //:app --use-daemon=always --daemon-socket "$daemon_sock" --progress plain --color never > "$tmp/daemon-ui.out" 2> "$tmp/daemon-ui.err"
 	contains "$tmp/daemon-ui.out" "[100%] Built target app"
 	contains "$tmp/daemon-ui.out" "status ok"
 	not_contains "$tmp/daemon-ui.out" "qstar-daemon-stream"
 	not_contains "$tmp/daemon-ui.out" "event progress"
+	if "$qstar" --file "$tmp/qstar.lua" -B build/daemon-ui build //:app --use-daemon=always --daemon-socket "$daemon_sock" --progress off --color never > "$tmp/daemon-mismatch.out" 2> "$tmp/daemon-mismatch.err"; then
+		fail "daemon build_dir mismatch unexpectedly succeeded"
+	fi
+	contains "$tmp/daemon-mismatch.out" "daemon identity mismatch: build_dir differs"
 	kill "$daemon_pid" 2>/dev/null || true
 	wait "$daemon_pid" 2>/dev/null || true
 	daemon_pid=
@@ -3695,7 +3725,8 @@ contains "docs/contracts/daemon-read-api.md" "qstar-daemon-query-v1"
 contains "docs/contracts/daemon-read-api.md" "compile_commands.path"
 contains "docs/contracts/daemon-read-api.md" "build.summary"
 contains "docs/contracts/daemon-read-api.md" "build/test/clean 같은 mutation"
-contains "docs/daemon/stella-daemon.md" "Stale pid/socket cleanup"
+contains "docs/daemon/stella-daemon.md" "Existing socket cleanup is conservative"
+contains "docs/daemon-beta-readiness.md" "Q153 이후 owner-only socket directory/file"
 contains "docs/perf/stella-ninja-profile.md" "runner=posix_spawn|fork"
 contains "docs/perf/stella-ninja-profile.md" "Q130: Event-Driven Output Drain"
 contains "docs/perf/stella-ninja-profile.md" "Q133-Q137: Scheduler Semantics And Performance Seal"

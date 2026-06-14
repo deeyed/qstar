@@ -300,8 +300,8 @@ Daemon security is part of the contract, not an afterthought.
   protocol version.
 - The daemon never accepts arbitrary command execution RPC. It only executes actions produced by the
   validated QStar graph.
-- Stale pid/socket cleanup requires both pid liveness check and socket handshake failure before
-  unlinking.
+- Existing socket cleanup is conservative: QStar only removes a socket file after owner/permission
+  checks pass and a connect probe proves no listener is alive. Non-socket files are never unlinked.
 - Remote access is out of scope. A future remote daemon must be an explicit opt-in feature with
   authentication and audit logging.
 
@@ -351,9 +351,9 @@ preview/apply/audit rules.
 Read API examples:
 
 ```sh
-qstar --file qstar.lua daemon --socket /tmp/qstar.sock --query hello
-qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query targets.list
-qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query compile_commands.path
+qstar --file qstar.lua daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query hello
+qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query targets.list
+qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query compile_commands.path
 ```
 
 ## CLI Fallback
@@ -364,7 +364,7 @@ Fallback behavior:
 | --- | --- | --- |
 | socket missing | normal Stella build | fail |
 | protocol mismatch | normal Stella build | fail |
-| stale daemon | cleanup then normal Stella build | fail after cleanup attempt |
+| stale daemon socket | cleanup then normal Stella build | fail after cleanup attempt |
 | request rejected due to root mismatch | fail | fail |
 | daemon build action fails | fail | fail |
 | daemon crashes mid-build | fail, leave last-failure if available | fail |
@@ -379,10 +379,12 @@ Recommended future implementation order:
 2. Q146: CLI progress streaming instead of response-at-end forwarding.
 3. Q147: in-memory `state.db` and `deps.db` snapshots with disk write-back.
 4. Q148: file watcher invalidation for authoring files and source/header paths.
-5. Background start/stop, pid/lock/stale cleanup, owner-only socket permission hardening.
-6. Read-only `hello`, `workspace.info`, `targets.list` protocol.
-7. IDE/AI read-only API surface and audit log.
-8. Windows named pipe design refresh and native validation.
+5. Q150: read-only `hello`, `workspace.info`, `targets.list` protocol.
+6. Q153: owner-only socket directory/file checks, protocol mismatch diagnostics, and identity hard
+   rejection.
+7. Background start/stop and pid/lock lifecycle.
+8. IDE/AI read-only API surface and audit log.
+9. Windows named pipe design refresh and native validation.
 
 ## Non-Goals
 

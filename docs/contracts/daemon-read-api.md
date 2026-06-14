@@ -29,12 +29,12 @@ Daemon read API는 임의 파일 읽기 API가 아니다.
 ## CLI
 
 ```sh
-qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query hello
-qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query workspace.info
-qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query targets.list
-qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query diagnostics.list
-qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query compile_commands.path
-qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query build.summary
+qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query hello
+qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query workspace.info
+qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query targets.list
+qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query diagnostics.list
+qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query compile_commands.path
+qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query build.summary
 ```
 
 `--file`, `-B`, `--profile`, `--target`, `--toolchain`, `--stdlib`은 build command와 같은

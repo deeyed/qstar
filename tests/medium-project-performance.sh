@@ -4,6 +4,7 @@ set -eu
 qstar=${QSTAR_TEST_QSTAR:-build/bin/qstar}
 tmp=${TMPDIR:-/tmp}/qstar-medium-project-performance.$$
 root=$tmp/project
+daemon_dir=${QSTAR_DAEMON_TMPDIR:-/tmp}/qstar-medium-daemon.$$
 clean_max_ms=${QSTAR_MEDIUM_CLEAN_MAX_MS:-120000}
 noop_max_ms=${QSTAR_MEDIUM_NOOP_MAX_MS:-300}
 incremental_max_ms=${QSTAR_MEDIUM_INCREMENTAL_MAX_MS:-1000}
@@ -138,10 +139,10 @@ cleanup() {
 		kill "$daemon_pid" 2>/dev/null || true
 		wait "$daemon_pid" 2>/dev/null || true
 	fi
-	rm -rf "$tmp"
+	rm -rf "$tmp" "$daemon_dir"
 }
 
-rm -rf "$tmp"
+rm -rf "$tmp" "$daemon_dir"
 mkdir -p "$root"
 trap cleanup EXIT HUP INT TERM
 
@@ -439,7 +440,9 @@ contains "$tmp/stella_incremental.out" "status ok"
 check_elapsed_max "stella incremental build" "$stella_incremental_ms" "$incremental_max_ms"
 printf 'medium_project_gate backend=stella phase=incremental elapsed_ms=%s\n' "$stella_incremental_ms"
 
-daemon_sock="/tmp/qstar-medium-daemon.$$.sock"
+mkdir -p "$daemon_dir"
+chmod 700 "$daemon_dir"
+daemon_sock="$daemon_dir/qstar-medium-daemon.sock"
 rm -f "$daemon_sock"
 "$qstar" --file "$root/qstar.lua" -B build/stella-daemon daemon --socket "$daemon_sock" --serve > "$tmp/stella_daemon_server.out" 2> "$tmp/stella_daemon_server.err" &
 daemon_pid=$!

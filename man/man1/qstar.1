@@ -235,8 +235,9 @@ These queries do not execute build/test/clean actions and return JSON.
 Q151 and the 0.6 beta line classify the daemon as a documented beta opt-in
 feature. The default
 build path remains normal Stella, Windows named pipe support is deferred, and
-socket permission/lifecycle hardening remains required before any default-on
-decision.
+socket files are local-only and owner-only. Package root or build directory
+mismatch is rejected instead of hidden by fallback. Background lifecycle
+lock/pid management remains required before any default-on decision.
 .Pp
 Action descriptions are also preserved in action-log and replay metadata.
 .Ic qstar action-log ,

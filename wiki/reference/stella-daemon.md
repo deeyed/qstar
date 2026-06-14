@@ -137,17 +137,20 @@ event, watcher overflow, backend 오류는 conservative graph reload로 처리�
 - daemon은 하나의 package root와 하나의 build directory만 담당한다.
 - 모든 path는 package root 또는 build directory 아래인지 다시 검사한다.
 - socket directory와 socket permission은 owner-only여야 한다.
-- stale socket cleanup은 pid liveness와 handshake failure를 둘 다 확인한 뒤에만 한다.
+- socket directory는 `0700`, socket file은 `0600`이어야 하며 owner가 현재 사용자와 달라야 하면
+  client와 server가 모두 거부한다.
+- stale socket cleanup은 owner/permission 검사를 통과하고 connect probe가 살아있는 listener 없음을
+  확인한 뒤에만 한다. non-socket file은 제거하지 않는다.
+- package root, entry file, build directory가 이미 daemon memory에 고정된 값과 다르면 hard reject한다.
+- protocol magic/version이 맞지 않으면 protocol mismatch diagnostic을 낸다.
 - remote access는 scope 밖이다.
 - daemon은 validated QStar graph에서 나온 action만 실행한다.
 
 Default-on 전까지 남은 gap:
 
-- socket directory/file owner-only enforcement 강화
-- socket owner mismatch reject
-- stale pid/socket cleanup
-- protocol version mismatch diagnostic
-- request root/build_dir mismatch hard reject와 test corpus
+- background daemon lifecycle lock/pid policy
+- stable daemon API version promise
+- Linux CI daemon socket/watcher lane with artifacts
 - Windows named pipe ACL policy
 
 ## IDE/AI 연동
@@ -157,12 +160,12 @@ Daemon은 IDE/editor/AI frontend가 QStar context를 빠르게 읽는 연결점�
 Round Q150부터 첫 read-only query API가 구현되어 있다.
 
 ```sh
-qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query hello
-qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query workspace.info
-qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query targets.list
-qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query diagnostics.list
-qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query compile_commands.path
-qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query build.summary
+qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query hello
+qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query workspace.info
+qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query targets.list
+qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query diagnostics.list
+qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query compile_commands.path
+qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query build.summary
 ```
 
 구현된 read API:

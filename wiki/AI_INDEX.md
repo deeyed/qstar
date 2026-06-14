@@ -153,9 +153,11 @@ QStar가 하지 않는 일:
   `docs/contracts/daemon-read-api.md`에 둔다. Build/test/clean mutation은 read API에 없다.
   Round Q151 판단 이후 daemon은 `0.6.0-beta`에서 documented beta opt-in 기능으로 승격한다.
   기본 `qstar build`는 daemon을 쓰지 않고, `--use-daemon=auto|always`와
-  `qstar daemon --query ...`는 명시적으로 선택할 때만 쓴다. Background lifecycle,
-  socket permission hardening, protocol versioning, Windows named pipe는 아직 default-on
-  전에 닫아야 할 gap으로 남긴다. 판단 문서는 `docs/daemon-beta-readiness.md`에 둔다.
+  `qstar daemon --query ...`는 명시적으로 선택할 때만 쓴다. Q153 이후 socket directory/file
+  owner-only 검사, owner mismatch reject, protocol mismatch diagnostic, package root/build_dir
+  hard reject는 beta opt-in 기준으로 구현되어 있다. Background lifecycle, stable daemon API
+  version promise, Linux daemon CI lane, Windows named pipe는 아직 default-on 전에 닫아야 할
+  gap으로 남긴다. 판단 문서는 `docs/daemon-beta-readiness.md`에 둔다.
 - Stella dirty-check의 canonical fast state는 `build/qstar/state/state.db`다.
   `build/qstar/state/actions.json`은 기본 생성물이 아니며
   `QSTAR_DEBUG_STATE_DUMPS=1 qstar build ...`로 요청한 debug/export dump다.

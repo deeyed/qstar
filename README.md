@@ -118,15 +118,15 @@ QStar also has a documented beta opt-in daemon workflow. The default
 `qstar build` path still uses normal Stella; daemon residency is explicit.
 
 ```sh
-qstar daemon --socket /tmp/qstar.sock --serve
-qstar --file qstar.lua -B build/qstar build //:app --use-daemon=auto --daemon-socket /tmp/qstar.sock
-qstar --file qstar.lua -B build/qstar daemon --socket /tmp/qstar.sock --query targets.list
+qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --serve
+qstar --file qstar.lua -B build/qstar build //:app --use-daemon=auto --daemon-socket build/qstar/stella/daemon/qstar-daemon.sock
+qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query targets.list
 ```
 
 The read API is intended for IDE/AI tooling and currently exposes `hello`,
 `workspace.info`, `targets.list`, `diagnostics.list`, `compile_commands.path`,
-and `build.summary`. Windows named pipe support and background daemon lifecycle
-are deferred.
+and `build.summary`. Socket files are local-only and owner-only; Windows named
+pipe support and background daemon lifecycle are deferred.
 
 ## Authoring Surface
 
