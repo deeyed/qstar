@@ -106,6 +106,19 @@ docs/man smoke, Linux tarball dry-run, medium performance artifact collection이
 통과해야 한다. Timing threshold는 아직 report-only지만,
 `medium_project_gate scheduler runner=posix_spawn event_wait=poll`과 Ninja clean phase는
 hard check다.
+Round Q156 이후 Linux dry-run은 tarball 생성에서 끝나지 않는다. CI는 생성된
+`qstar-v<version>-linux-x86_64.tar.gz`를 `dist/release/...-extract-smoke`에 다시 풀고,
+extracted `bin/qstar --version`, `qstar docs --path`, `qstar docs --show
+reference/qstar-lua.md`, manpage file, `file(1)`, `ldd(1)`를 반복 검증한다. gcc lane은
+tarball, `SHA256SUMS`, contents report, installed/extracted `file`/`ldd`/docs reports,
+rendered manpage smoke를 `qstar-linux-x86_64-release-candidate-dry-run` artifact로
+업로드한다.
+
+Linux daemon은 0.6 line에서 beta opt-in이지만 Linux release asset 조건에는 아직 기본
+gate로 넣지 않는다. 대신 `.github/workflows/linux-validation.yml`의
+`workflow_dispatch` input `daemon_socket_smoke=true`를 켜면 daemon medium smoke를 별도
+job으로 실행하고, `backend=stella-daemon` clean/noop/incremental line이 모두 존재하는지
+확인한다.
 
 ## Tarball Layout
 

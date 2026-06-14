@@ -63,7 +63,7 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 - `perf/stella-ninja-profile.md`: Ninja architecture profiling과 Stella plan-cache 성능 개선 방향.
 - `perf/stella-plan-cache-design.md`: Stella lowered plan cache fingerprint, invalidation, internal file policy.
 - `progress-output.md`: CMake-style progress output, warning/error color, `qstar.status` descriptions.
-- `linux-validation.md`: Linux host validation path, Ubuntu gcc/clang CI workflow, install smoke, linux-x86_64 candidate tarball dry-run, Stella/Ninja medium perf artifact 조건.
+- `linux-validation.md`: Linux host validation path, Ubuntu gcc/clang CI workflow, install smoke, linux-x86_64 candidate tarball/extract smoke, Ninja parity, Stella/Ninja medium perf artifact 조건.
 - `windows-path-process.md`: Windows path/process/response-file pre-port contract와 manual native validation candidate workflow.
 - `public-beta-release.md`: public beta packaging, install smoke, codesign, wiki sync gate.
 - `qstar-v0.6-post-release-smoke.md`: GitHub release에 올라간 0.6 asset 다운로드 smoke 기록.

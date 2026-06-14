@@ -22,6 +22,16 @@ else
 	platform=$(printf '%s-%s' "$host" "$arch" | tr '[:upper:]' '[:lower:]')
 fi
 
+if test "$platform" = linux-x86_64 && test "$host" != Linux; then
+	fail "linux-x86_64 release package must be built on a Linux host"
+fi
+if test "$platform" = linux-x86_64; then
+	case "$arch" in
+	x86_64|amd64) ;;
+	*) fail "linux-x86_64 release package must be built on an x86_64 Linux host, got '$arch'" ;;
+	esac
+fi
+
 expected_version="qstar $version"
 tag=$(git describe --tags --exact-match 2>/dev/null || true)
 if test -n "$tag" && test "$tag" != "v$version"; then
@@ -46,16 +56,25 @@ contents_file=$dist_abs/$name.contents.txt
 file_report=$dist_abs/file-$platform.txt
 ldd_report=$dist_abs/ldd-$platform.txt
 docs_show_report=$dist_abs/docs-show-qstar-lua.txt
+extract_root=$dist_abs/$name-extract-smoke
+extract_file_report=$dist_abs/extract-file-$platform.txt
+extract_ldd_report=$dist_abs/extract-ldd-$platform.txt
+extract_docs_show_report=$dist_abs/extract-docs-show-qstar-lua.txt
 
 case "$install_root" in
 	"$root"/dist/release/qstar-v*-root) ;;
 	*) fail "refusing to clean unexpected install root '$install_root'" ;;
 esac
+case "$extract_root" in
+	"$root"/dist/release/qstar-v*-extract-smoke) ;;
+	*) fail "refusing to clean unexpected extract smoke root '$extract_root'" ;;
+esac
 
 mkdir -p "$dist_abs"
-rm -rf "$install_root"
+rm -rf "$install_root" "$extract_root"
 rm -f "$archive" "$sha_file" "$contents_file" \
-	"$file_report" "$ldd_report" "$docs_show_report"
+	"$file_report" "$ldd_report" "$docs_show_report" \
+	"$extract_file_report" "$extract_ldd_report" "$extract_docs_show_report"
 
 make_cmd=${MAKE:-make}
 $make_cmd install PREFIX="$install_root"
@@ -102,10 +121,6 @@ if test "$host" = Darwin && command -v codesign >/dev/null 2>&1; then
 		fail "codesign detail verification failed"
 	codesign --verify "$install_root/bin/qstar" >/dev/null 2>&1 || \
 		fail "codesign signature verification failed"
-fi
-
-if test "$platform" = linux-x86_64 && test "$host" != Linux; then
-	fail "linux-x86_64 release package must be built on a Linux host"
 fi
 
 if command -v file >/dev/null 2>&1; then
@@ -178,10 +193,60 @@ fi
 
 grep -F "$archive_base" "$sha_file" >/dev/null || fail "SHA256SUMS does not mention '$archive_base'"
 
+mkdir -p "$extract_root"
+tar -xzf "$archive" -C "$extract_root"
+test -x "$extract_root/bin/qstar" || fail "extracted qstar binary missing"
+extract_version=$("$extract_root/bin/qstar" --version)
+test "$extract_version" = "$expected_version" || \
+	fail "extracted qstar version '$extract_version' does not match '$expected_version'"
+extract_docs_path=$(QSTAR_DOC_DIR="$extract_root/share/doc/qstar" "$extract_root/bin/qstar" docs --path)
+case "$extract_docs_path" in
+	"$extract_root"/share/doc/qstar/wiki) ;;
+	*) fail "extracted docs --path returned '$extract_docs_path'" ;;
+esac
+extract_ai_path=$(QSTAR_DOC_DIR="$extract_root/share/doc/qstar" "$extract_root/bin/qstar" docs --ai-index)
+case "$extract_ai_path" in
+	"$extract_root"/share/doc/qstar/wiki/AI_INDEX.md) ;;
+	*) fail "extracted docs --ai-index returned '$extract_ai_path'" ;;
+esac
+QSTAR_DOC_DIR="$extract_root/share/doc/qstar" \
+	"$extract_root/bin/qstar" docs --show reference/qstar-lua.md > "$extract_docs_show_report"
+grep -F "qstar.project" "$extract_docs_show_report" >/dev/null || \
+	fail "extracted docs --show reference/qstar-lua.md did not print qstar-lua reference"
+test -s "$extract_root/share/man/man1/qstar.1" || fail "extracted qstar(1) manpage missing"
+test -s "$extract_root/share/man/man5/qstar-lua.5" || fail "extracted qstar-lua(5) manpage missing"
+
+if command -v file >/dev/null 2>&1; then
+	file "$extract_root/bin/qstar" > "$extract_file_report"
+	case "$platform" in
+	macos-arm64)
+		grep -F "arm64" "$extract_file_report" >/dev/null || \
+			fail "extracted release binary is not reported as arm64"
+		;;
+	linux-x86_64)
+		grep -F "ELF" "$extract_file_report" >/dev/null || \
+			fail "extracted linux release binary is not reported as ELF"
+		grep -E "x86[-_]64|x86-64|AMD x86-64" "$extract_file_report" >/dev/null || \
+			fail "extracted linux release binary is not reported as x86-64"
+		;;
+	esac
+fi
+
+if test "$platform" = linux-x86_64; then
+	if ! ldd "$extract_root/bin/qstar" > "$extract_ldd_report" 2>&1; then
+		if grep -F "statically linked" "$extract_file_report" >/dev/null; then
+			printf 'statically linked binary; ldd is not applicable\n' > "$extract_ldd_report"
+		else
+			fail "ldd failed for extracted linux-x86_64 release binary"
+		fi
+	fi
+fi
+
 printf 'qstar-release-package: version=%s\n' "$version"
 printf 'qstar-release-package: platform=%s\n' "$platform"
 printf 'qstar-release-package: asset=%s\n' "$archive"
 printf 'qstar-release-package: sha256sums=%s\n' "$sha_file"
+printf 'qstar-release-package: extract_smoke=%s\n' "$extract_root"
 if test -n "$tag"; then
 	printf 'qstar-release-package: tag=%s\n' "$tag"
 else

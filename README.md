@@ -11,11 +11,12 @@ language-provider driven projects.
 QStar is currently in beta. The current public prerelease line is
 `v0.6.0-beta`, with macOS arm64 binaries published first. Linux has a
 validation-backed source build path and a `linux-x86_64` release-candidate
-tarball dry-run through Ubuntu gcc/clang CI. The same Linux workflow now also
-collects Stella/Ninja medium performance line protocol artifacts. Windows has a
-manual native validation candidate, but no public asset or official host support
-yet. QStar 1.0 is reserved for a release that is validated across macOS, Linux,
-and Windows.
+tarball dry-run through Ubuntu gcc/clang CI, including extracted tarball smoke
+and explicit Ninja backend parity. The same Linux workflow now also collects
+Stella/Ninja medium performance line protocol artifacts, with daemon socket smoke
+available as an opt-in lane. Windows has a manual native validation candidate,
+but no public asset or official host support yet. QStar 1.0 is reserved for a
+release that is validated across macOS, Linux, and Windows.
 
 ## Highlights
 

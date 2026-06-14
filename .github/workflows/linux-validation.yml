@@ -6,6 +6,12 @@ on:
       - main
   pull_request:
   workflow_dispatch:
+    inputs:
+      daemon_socket_smoke:
+        description: Run the opt-in Linux Stella daemon socket smoke lane
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -37,7 +43,7 @@ jobs:
       - name: Install build tools and Ninja
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang gcc g++ ninja-build file
+          sudo apt-get install -y build-essential clang gcc g++ ninja-build file man-db
           ninja --version
           "$CC" --version
 
@@ -49,6 +55,9 @@ jobs:
 
       - name: Run explicit Linux validation gate
         run: make qstar-linux-validation-tests
+
+      - name: Run explicit Ninja backend parity gate
+        run: make qstar-ninja-backend-parity-tests
 
       - name: Medium Stella/Ninja performance line protocol
         run: |
@@ -80,9 +89,14 @@ jobs:
           make install PREFIX="$prefix"
           "$prefix/bin/qstar" --version
           QSTAR_DOC_DIR="$prefix/share/doc/qstar" "$prefix/bin/qstar" docs --path
+          QSTAR_DOC_DIR="$prefix/share/doc/qstar" "$prefix/bin/qstar" docs --ai-index
+          QSTAR_DOC_DIR="$prefix/share/doc/qstar" "$prefix/bin/qstar" docs --show reference/qstar-lua.md
           test -f "$prefix/share/doc/qstar/wiki/AI_INDEX.md"
+          test -f "$prefix/share/doc/qstar/wiki/reference/qstar-lua.md"
           test -f "$prefix/share/man/man1/qstar.1"
           test -f "$prefix/share/man/man5/qstar-lua.5"
+          MANPAGER=cat MANWIDTH=80 man -l "$prefix/share/man/man1/qstar.1" > "${RUNNER_TEMP}/qstar.1.${{ matrix.compiler }}.txt"
+          MANPAGER=cat MANWIDTH=80 man -l "$prefix/share/man/man5/qstar-lua.5" > "${RUNNER_TEMP}/qstar-lua.5.${{ matrix.compiler }}.txt"
 
       - name: Ninja backend root pollution smoke
         run: |
@@ -102,6 +116,9 @@ jobs:
           test -f dist/release/SHA256SUMS
           test -s dist/release/file-linux-x86_64.txt
           test -s dist/release/ldd-linux-x86_64.txt
+          test -s dist/release/extract-file-linux-x86_64.txt
+          test -s dist/release/extract-ldd-linux-x86_64.txt
+          test -s dist/release/extract-docs-show-qstar-lua.txt
           grep -F "$archive_base" dist/release/SHA256SUMS
           grep -F "ELF" dist/release/file-linux-x86_64.txt
           grep -E "x86[-_]64|x86-64|AMD x86-64" dist/release/file-linux-x86_64.txt
@@ -111,6 +128,82 @@ jobs:
           grep -Fx "share/doc/qstar/wiki/reference/qstar-lua.md" dist/release/linux-x86_64.contents.txt
           grep -Fx "share/man/man1/qstar.1" dist/release/linux-x86_64.contents.txt
           grep -Fx "share/man/man5/qstar-lua.5" dist/release/linux-x86_64.contents.txt
+          extract_root="dist/release/qstar-v${version}-linux-x86_64-extract-smoke"
+          "$extract_root/bin/qstar" --version
+          QSTAR_DOC_DIR="$extract_root/share/doc/qstar" "$extract_root/bin/qstar" docs --path
+          QSTAR_DOC_DIR="$extract_root/share/doc/qstar" "$extract_root/bin/qstar" docs --show reference/qstar-lua.md
+          MANPAGER=cat MANWIDTH=80 man -l "$extract_root/share/man/man1/qstar.1" > dist/release/linux-x86_64.man1.txt
+          MANPAGER=cat MANWIDTH=80 man -l "$extract_root/share/man/man5/qstar-lua.5" > dist/release/linux-x86_64.man5.txt
+
+      - name: Upload Linux release-candidate dry-run artifact
+        uses: actions/upload-artifact@v4
+        if: matrix.compiler == 'gcc' && always()
+        with:
+          name: qstar-linux-x86_64-release-candidate-dry-run
+          path: |
+            dist/release/qstar-v*-linux-x86_64.tar.gz
+            dist/release/SHA256SUMS
+            dist/release/qstar-v*-linux-x86_64.contents.txt
+            dist/release/file-linux-x86_64.txt
+            dist/release/ldd-linux-x86_64.txt
+            dist/release/docs-show-qstar-lua.txt
+            dist/release/extract-file-linux-x86_64.txt
+            dist/release/extract-ldd-linux-x86_64.txt
+            dist/release/extract-docs-show-qstar-lua.txt
+            dist/release/linux-x86_64.contents.txt
+            dist/release/linux-x86_64.man1.txt
+            dist/release/linux-x86_64.man5.txt
+          if-no-files-found: ignore
+
+  daemon-socket-smoke:
+    name: ubuntu / daemon socket smoke
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.daemon_socket_smoke }}
+    env:
+      CC: gcc
+      CXX: g++
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build tools and Ninja
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc g++ ninja-build file
+          ninja --version
+          "$CC" --version
+
+      - name: Build QStar
+        run: make all
+
+      - name: Linux Stella daemon socket smoke
+        run: |
+          set -euo pipefail
+          mkdir -p dist/perf
+          daemon_tmp="${RUNNER_TEMP}/qstar-daemon-smoke"
+          perf_raw="dist/perf/linux-daemon-medium-perf.txt"
+          perf_summary="dist/perf/linux-daemon-medium-summary.txt"
+          QSTAR_DAEMON_TMPDIR="$daemon_tmp" QSTAR_TEST_QSTAR=build/bin/qstar sh tests/medium-project-performance.sh | tee "$perf_raw"
+          grep -F "medium_project_gate backend=stella-daemon phase=clean elapsed_ms=" "$perf_raw"
+          grep -F "medium_project_gate backend=stella-daemon phase=noop elapsed_ms=" "$perf_raw"
+          grep -F "medium_project_gate backend=stella-daemon phase=incremental elapsed_ms=" "$perf_raw"
+          if grep -F "socket-bind-not-permitted" "$perf_raw"; then
+            echo "Linux daemon socket smoke unexpectedly skipped" >&2
+            exit 1
+          fi
+          tools/perf-summary.sh "$perf_raw" | tee "$perf_summary"
+
+      - name: Upload Linux daemon socket performance artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qstar-linux-daemon-medium-performance
+          path: |
+            dist/perf/linux-daemon-medium-perf.txt
+            dist/perf/linux-daemon-medium-summary.txt
+          if-no-files-found: ignore
 
   large-performance-report:
     name: ubuntu / large performance report

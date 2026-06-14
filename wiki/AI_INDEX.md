@@ -89,24 +89,29 @@ QStar가 하지 않는 일:
   `docs/qstar-v0.6-readiness.md`에 둔다. 이 문서는 daemon beta opt-in, self-host,
   Stella/Ninja benchmark, Linux/Windows status, package smoke, version policy, deferred
   surface를 요약한다. 0.5 line의 연속 기록은 `docs/qstar-v0.5-readiness.md`에 남긴다.
-- Linux host 지원은 Round Q113 기준 validation-backed source build path에
-  `linux-x86_64` release-candidate tarball dry-run이 더해진 상태다.
+- Linux host 지원은 Round Q156 기준 validation-backed source build path에
+  `linux-x86_64` release-candidate tarball dry-run, extracted tarball smoke,
+  explicit Ninja backend parity, medium performance artifact upload가 더해진 상태다.
   `make qstar-linux-validation-tests`는 portable path/process, Linux depfile 후보,
   generated_dir, install layout, docs/manpage smoke를 묶는다. macOS에서는 제한된 path
   smoke이고, Linux release asset은 깨끗한 Linux host 또는 CI에서 이 gate와 package
   dry-run이 통과한 뒤에만 추가한다.
-- Round Q109의 Linux validation workflow는 `.github/workflows/linux-validation.yml`이다.
+- Round Q109/Q156의 Linux validation workflow는 `.github/workflows/linux-validation.yml`이다.
   `ubuntu-latest`에서 gcc/clang matrix를 돌리고 `QSTAR_LINUX_VALIDATION_CC`로 실제 depfile
   compiler lane을 고정한다. 각 lane은 Ninja를 설치하고 `make all`, `make check`,
-  `make qstar-linux-validation-tests`, install docs/man smoke를 실행한다. gcc lane은
+  `make qstar-linux-validation-tests`, `make qstar-ninja-backend-parity-tests`,
+  install docs/man smoke를 실행한다. gcc lane은
   `QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh`로 ELF x86-64,
-  `ldd`, installed docs/wiki/manpages, `SHA256SUMS`를 확인하는 publish 없는 dry-run을
-  수행한다. Round Q142부터 같은 gcc/clang lane은
+  `ldd`, installed/extracted docs/wiki/manpages, `SHA256SUMS`를 확인하는 publish 없는
+  dry-run을 수행하고, `qstar-linux-x86_64-release-candidate-dry-run` artifact를 업로드한다.
+  Round Q142부터 같은 gcc/clang lane은
   `tests/medium-project-performance.sh`도 실행해 Stella/Ninja medium timing artifact를
   업로드한다. Linux trace는
   `medium_project_gate scheduler runner=posix_spawn event_wait=poll`을 포함해야 한다.
   Large synthetic performance는 기본 push/PR lane이 아니라 `workflow_dispatch` 전용
   `large-performance-report` job에서 report-only artifact로 수집한다.
+  Linux daemon socket smoke도 기본 push/PR lane이 아니라 `workflow_dispatch`의
+  `daemon_socket_smoke=true` opt-in job에서 검증한다.
 - Windows host 지원은 아직 official support가 아니다. Round Q114 기준
   `make qstar-windows-prep-tests`가 path/process/MSVC response-file 준비 규칙을 묶고,
   `.github/workflows/windows-validation.yml`은 `workflow_dispatch` 전용 native validation

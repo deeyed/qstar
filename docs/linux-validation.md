@@ -10,6 +10,9 @@ gcc/clang matrix로 실행한다. Round Q113부터 gcc lane은
 Round Q142부터 같은 Ubuntu gcc/clang lane은 Stella/Ninja medium performance line
 protocol도 수집하고 CI artifact로 업로드한다. Large synthetic corpus는 시간이 더 오래
 걸리므로 우선 `workflow_dispatch` 전용 report-only lane으로 분리한다.
+Round Q156부터 release-candidate tarball을 다시 extract해서 실행, docs/wiki/manpage
+lookup, `file(1)`, `ldd(1)` sanity를 반복 검증하고, `workflow_dispatch`의
+`daemon_socket_smoke` input으로 Linux daemon socket smoke를 opt-in lane에서 수행한다.
 
 ## Scope
 
@@ -27,11 +30,16 @@ Linux validation은 다음을 확인한다.
   가리키는지
 - Linux release candidate tarball이 ELF x86-64 binary, `ldd` sanity, installed
   docs/wiki/manpages, `SHA256SUMS`, prefix layout을 만족하는지
+- release-candidate tarball을 임시 prefix에 다시 extract했을 때 `qstar --version`,
+  `qstar docs --path`, `qstar docs --show`, manpage file, `file(1)`, `ldd(1)`가
+  다시 통과하는지
 - Stella와 Ninja medium corpus timing이 `medium_project_gate ...` line protocol로
   수집되는지
 - Linux에서 Stella process runner trace가 `runner=posix_spawn`과 `event_wait=poll`을
   보고하는지
 - medium perf raw output, text summary, markdown summary가 CI artifact로 보존되는지
+- Linux daemon socket smoke는 기본 push/PR gate가 아니라 `workflow_dispatch`의
+  `daemon_socket_smoke` input으로 켜는 opt-in lane에서 수행되는지
 
 macOS local run에서는 Linux kernel, glibc, distro package layout, Linux `cc` 구현을
 직접 검증할 수 없다. 따라서 macOS에서는 portable path/process smoke만 수행하고,
@@ -124,16 +132,20 @@ ubuntu-latest / gcc:
   make all
   make check
   make qstar-linux-validation-tests
+  make qstar-ninja-backend-parity-tests
   tests/medium-project-performance.sh
   upload dist/perf/linux-gcc-medium-*.txt/md
   make install PREFIX=/tmp/qstar-linux-smoke
   /tmp/qstar-linux-smoke/bin/qstar --version
   QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh
+  extract qstar-v<version>-linux-x86_64.tar.gz and run qstar/docs/man/file/ldd smoke
+  upload dist/release/qstar-v*-linux-x86_64.tar.gz and sanity reports
 
 ubuntu-latest / clang:
   make all
   make check
   make qstar-linux-validation-tests
+  make qstar-ninja-backend-parity-tests
   tests/medium-project-performance.sh
   upload dist/perf/linux-clang-medium-*.txt/md
   make install PREFIX=/tmp/qstar-linux-smoke
@@ -145,6 +157,10 @@ Each lane sets `QSTAR_LINUX_VALIDATION_CC` to the matrix compiler, verifies
 Ninja backend parity tests through `make check`, and performs an explicit root
 pollution smoke: `.ninja_deps` and `.ninja_log` must stay under the QStar build
 directory, not the repository root.
+
+Round Q156 also runs `make qstar-ninja-backend-parity-tests` as an explicit
+named step so Ninja backend regressions are visible even though `make check`
+already covers the same corpus.
 
 Round Q142 adds a medium performance collection step to both compiler lanes. It
 does not make timing a hard CI threshold yet. The hard checks are that Stella and
@@ -173,6 +189,19 @@ workflow_dispatch / large-performance-report:
   upload dist/perf/linux-gcc-large-*.txt/md
 ```
 
+Round Q156 adds a second manual job for daemon socket validation. This is not a
+regular push/PR gate because socket behavior can vary across runners and
+sandboxed CI, but maintainers should run it before promoting Linux daemon
+support from validation-backed to release-backed:
+
+```txt
+workflow_dispatch / daemon_socket_smoke=true:
+  tests/medium-project-performance.sh
+  require backend=stella-daemon clean/noop/incremental lines
+  fail if socket-bind-not-permitted appears
+  upload dist/perf/linux-daemon-medium-*.txt
+```
+
 The gcc lane also performs a release-candidate packaging dry-run without
 publishing the artifact:
 
@@ -181,6 +210,9 @@ QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh
 test -f dist/release/qstar-v<version>-linux-x86_64.tar.gz
 test -s dist/release/file-linux-x86_64.txt
 test -s dist/release/ldd-linux-x86_64.txt
+test -s dist/release/extract-file-linux-x86_64.txt
+test -s dist/release/extract-ldd-linux-x86_64.txt
+test -s dist/release/extract-docs-show-qstar-lua.txt
 tar -tzf dist/release/qstar-v<version>-linux-x86_64.tar.gz
 ```
 
@@ -190,6 +222,12 @@ non-Linux host, verifies `file(1)` reports an ELF x86-64 binary, records
 `qstar docs --show reference/qstar-lua.md` against the installed doc tree, and
 requires the tarball to contain the installed wiki home, AI index, Lua reference,
 and manpages.
+
+The same script then extracts the tarball into
+`dist/release/qstar-v<version>-linux-x86_64-extract-smoke` and repeats
+`qstar --version`, docs lookup, manpage presence, `file(1)`, and `ldd(1)` checks
+against the extracted tree. The workflow uploads the dry-run tarball and sanity
+reports as `qstar-linux-x86_64-release-candidate-dry-run`.
 
 The install prefix smoke checks:
 
@@ -216,6 +254,11 @@ Before a `linux-*` release asset is added, all of the following must be true:
 - Linux Stella trace reports `runner=posix_spawn` and `event_wait=poll`
 - `QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh` passes on a
   Linux host or Ubuntu CI packaging lane
+- the release-candidate tarball is extracted again and the extracted tree passes
+  `qstar --version`, `qstar docs --path`, `qstar docs --show`, manpage file,
+  `file(1)`, and `ldd(1)` smoke
+- the dry-run tarball and reports are uploaded as
+  `qstar-linux-x86_64-release-candidate-dry-run`
 - `make install PREFIX=/tmp/qstar-linux-smoke` installs binary, docs, and
   manpages under that prefix
 - installed binary reports the tagged version
@@ -224,6 +267,8 @@ Before a `linux-*` release asset is added, all of the following must be true:
 - clang and gcc depfile behavior is either both green or documented with a
   stable skip reason
 - Ninja backend parity passes without root `.ninja_*` files
+- optional `daemon_socket_smoke` is green before Linux daemon behavior is
+  described as release-backed rather than validation-backed
 - release notes identify architecture and libc assumptions
 
 Until a Linux asset is intentionally attached to a GitHub release, README
