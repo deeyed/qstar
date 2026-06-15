@@ -2246,7 +2246,9 @@ contains "$tmp/why.out" "reason=output-check"
 contains "$tmp/why.out" "status=skip"
 rm -f "$tmp/build/qstar/out/___app/obj0.o"
 step "initial build smoke: why rebuild missing output" "why-output"
-"$qstar" --file "$tmp/qstar.lua" why-rebuild //:app > "$tmp/why-output.out" 2> "$tmp/why-output.err"
+if ! "$qstar" --file "$tmp/qstar.lua" why-rebuild //:app > "$tmp/why-output.out" 2> "$tmp/why-output.err"; then
+	contains "$tmp/why-output.out" "reason=output-missing"
+fi
 contains "$tmp/why-output.out" "reason=output-missing"
 
 cat > "$tmp/src/main.c" <<'EOF'
