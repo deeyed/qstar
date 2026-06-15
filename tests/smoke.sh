@@ -858,7 +858,7 @@ if "$qstar" --file "$tmp/cli-overrides/qstar.lua" -B /tmp/qstar-build list-targe
 fi
 contains "$tmp/cli-overrides-bad-builddir.err" "CLI build directory override must be package-relative"
 
-step "profile-era CLI hard cut" "cli-hard-cut"
+step "build-context-era CLI hard cut" "cli-hard-cut"
 "$qstar" --help > "$tmp/cli-hard-cut-help.out" 2> "$tmp/cli-hard-cut-help.err"
 not_contains "$tmp/cli-hard-cut-help.out" "--target triple"
 not_contains "$tmp/cli-hard-cut-help.out" "--toolchain"
@@ -5410,7 +5410,7 @@ qstar.executable "app" {
 }
 EOF
 "$qstar" --file "$tmp/toolset-diagnostics/qstar.lua" --qstar-internal-target x86_64-unknown-none-elf --qstar-internal-toolchain clang --qstar-internal-stdlib none dry-run //:app > "$tmp/toolset-dry.out" 2> "$tmp/toolset-dry.err"
-contains "$tmp/toolset-dry.out" "resolved_toolchain owner=//:app toolchain=clang profile=default target=x86_64-unknown-none-elf stdlib=none resolver=toolset-schema-v1 toolset=//:custom cc=clang-custom"
+contains "$tmp/toolset-dry.out" "resolved_toolchain owner=//:app toolchain=clang build_context=default target=x86_64-unknown-none-elf stdlib=none resolver=toolset-schema-v1 toolset=//:custom cc=clang-custom"
 contains "$tmp/toolset-dry.out" "\"toolset include\""
 contains "$tmp/toolset-dry.out" "\"-Ltoolset lib\""
 contains "$tmp/toolset-dry.out" "digest="
@@ -5467,7 +5467,7 @@ chmod +x "$tmp/toolchain-app/tools/fake-cc.sh" "$tmp/toolchain-app/tools/fake-li
 cat > "$tmp/toolchain-app/src/module.c" <<'EOF'
 int module_main(void) { return 0; }
 EOF
-cat > "$tmp/toolchain-app/linker/profile.ld" <<'EOF'
+cat > "$tmp/toolchain-app/linker/context.ld" <<'EOF'
 SECTIONS { . = 0x1000; }
 EOF
 cat > "$tmp/toolchain-app/linker/module.ld" <<'EOF'
@@ -5559,11 +5559,11 @@ contains "$tmp/toolchain-corpus-explain.out" "target_c_compile_options=[-std=c23
 contains "$tmp/toolchain-corpus-explain.out" "target_system_include_dirs=[sysroot/include]"
 
 step "doctor missing tools"
-mkdir -p "$tmp/profile-doctor-missing/src"
-cat > "$tmp/profile-doctor-missing/src/main.c" <<'EOF'
+mkdir -p "$tmp/context-doctor-missing/src"
+cat > "$tmp/context-doctor-missing/src/main.c" <<'EOF'
 int main(void) { return 0; }
 EOF
-cat > "$tmp/profile-doctor-missing/qstar.lua" <<'EOF'
+cat > "$tmp/context-doctor-missing/qstar.lua" <<'EOF'
 qstar.toolset "missing" {
   tools = {
     c = qstar.cli {"qstar-missing-cc"},
@@ -5582,10 +5582,10 @@ qstar.executable "app" {
   sources = {"src/main.c"},
 }
 EOF
-"$qstar" --file "$tmp/profile-doctor-missing/qstar.lua" doctor > "$tmp/profile-doctor-missing.out" 2> "$tmp/profile-doctor-missing.err"
-contains "$tmp/profile-doctor-missing.out" "toolchain-tool role=cc name=qstar-missing-cc required=true mode=path status=missing severity=warning"
-contains "$tmp/profile-doctor-missing.out" "toolchain-tool role=linker name=qstar-missing-ld required=true mode=path status=missing severity=warning"
-contains "$tmp/profile-doctor-missing.out" "external-tool name=qstar-missing-objcopy mode=path status=missing"
+"$qstar" --file "$tmp/context-doctor-missing/qstar.lua" doctor > "$tmp/context-doctor-missing.out" 2> "$tmp/context-doctor-missing.err"
+contains "$tmp/context-doctor-missing.out" "toolchain-tool role=cc name=qstar-missing-cc required=true mode=path status=missing severity=warning"
+contains "$tmp/context-doctor-missing.out" "toolchain-tool role=linker name=qstar-missing-ld required=true mode=path status=missing severity=warning"
+contains "$tmp/context-doctor-missing.out" "external-tool name=qstar-missing-objcopy mode=path status=missing"
 
 step "external tool policy"
 mkdir -p "$tmp/exttool/bin" "$tmp/exttool/src" "$tmp/exttool/tools"
@@ -5715,7 +5715,7 @@ qstar.executable "app" {
 }
 EOF
 if "$qstar" --file "$tmp/absolute-tool/qstar.lua" check //:app > "$tmp/absolute-tool-deny.out" 2> "$tmp/absolute-tool-deny.err"; then
-	fail "absolute external tool unexpectedly succeeded without profile capability"
+	fail "absolute external tool unexpectedly succeeded without build context capability"
 fi
 contains "$tmp/absolute-tool-deny.err" "requires allow_absolute_tools=true"
 cat > "$tmp/absolute-tool/qstar.lua" <<EOF

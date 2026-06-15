@@ -121,7 +121,7 @@ struct qstar_build_ctx {
 		char *env_key;
 		char *input_key;
 		char *depfile_key;
-		char *profile_key;
+		char *build_context_key;
 		char *output_key;
 		char *external_tool_key;
 	} *prev, *next;
@@ -198,7 +198,7 @@ struct qstar_action_material {
 	char env_key[32];
 	char input_key[32];
 	char depfile_key[32];
-	char profile_key[32];
+	char build_context_key[32];
 	char output_key[32];
 	char external_tool_key[32];
 };
@@ -1792,24 +1792,24 @@ compute_input_key(struct qstar_build_ctx *ctx, struct qstar_graph *graph,
 	format_key(h, dst, dstlen);
 }
 
-/** profile/toolchain 선택만 별도 digest로 만든다. */
+/** build context/toolchain 선택만 별도 digest로 만든다. */
 static void
-compute_profile_key(struct qstar_graph *graph,
+compute_build_context_key(struct qstar_graph *graph,
     const struct qstar_resolved_toolchain *toolchain, char *dst, size_t dstlen)
 {
 	unsigned long long h = QSTAR_HASH_INIT;
 	size_t i;
 
-	hash_str(&h, graph->profile.name ? graph->profile.name : "default");
-	hash_str(&h, graph->profile.target ? graph->profile.target : "host");
-	hash_str(&h, graph->profile.allow_absolute_tools ?
-	    graph->profile.allow_absolute_tools : "false");
-	for (i = 0; i < graph->profile.compile_options.len; i++)
-		hash_str(&h, graph->profile.compile_options.items[i]);
-	for (i = 0; i < graph->profile.path_tools.len; i++)
-		hash_str(&h, graph->profile.path_tools.items[i]);
-	for (i = 0; i < graph->profile.tool_overrides.len; i++)
-		hash_str(&h, graph->profile.tool_overrides.items[i]);
+	hash_str(&h, graph->build_context.name ? graph->build_context.name : "default");
+	hash_str(&h, graph->build_context.target ? graph->build_context.target : "host");
+	hash_str(&h, graph->build_context.allow_absolute_tools ?
+	    graph->build_context.allow_absolute_tools : "false");
+	for (i = 0; i < graph->build_context.compile_options.len; i++)
+		hash_str(&h, graph->build_context.compile_options.items[i]);
+	for (i = 0; i < graph->build_context.path_tools.len; i++)
+		hash_str(&h, graph->build_context.path_tools.items[i]);
+	for (i = 0; i < graph->build_context.tool_overrides.len; i++)
+		hash_str(&h, graph->build_context.tool_overrides.items[i]);
 	hash_toolsets(&h, graph);
 	if (toolchain) {
 		hash_str(&h, toolchain->name);
@@ -1849,10 +1849,10 @@ compute_external_tool_key(struct qstar_graph *graph,
 	size_t i;
 
 	hash_str(&h, argv && argv[0] ? argv[0] : "");
-	for (i = 0; i < graph->profile.path_tools.len; i++)
-		hash_str(&h, graph->profile.path_tools.items[i]);
-	for (i = 0; i < graph->profile.tool_overrides.len; i++)
-		hash_str(&h, graph->profile.tool_overrides.items[i]);
+	for (i = 0; i < graph->build_context.path_tools.len; i++)
+		hash_str(&h, graph->build_context.path_tools.items[i]);
+	for (i = 0; i < graph->build_context.tool_overrides.len; i++)
+		hash_str(&h, graph->build_context.tool_overrides.items[i]);
 	hash_toolsets(&h, graph);
 	if (toolchain) {
 		hash_str(&h, toolchain->cc);
@@ -1884,8 +1884,8 @@ compute_action_key(struct qstar_build_ctx *ctx, struct qstar_graph *graph,
 		    sizeof(material->input_key));
 		compute_input_key(ctx, graph, depfile_inputs, material->depfile_key,
 		    sizeof(material->depfile_key));
-		compute_profile_key(graph, toolchain, material->profile_key,
-		    sizeof(material->profile_key));
+		compute_build_context_key(graph, toolchain, material->build_context_key,
+		    sizeof(material->build_context_key));
 		compute_output_key(output, material->output_key,
 		    sizeof(material->output_key));
 		compute_external_tool_key(graph, toolchain, argv,
@@ -1898,7 +1898,7 @@ compute_action_key(struct qstar_build_ctx *ctx, struct qstar_graph *graph,
 		hash_str(&h, material->env_key);
 		hash_str(&h, material->input_key);
 		hash_str(&h, material->depfile_key);
-		hash_str(&h, material->profile_key);
+		hash_str(&h, material->build_context_key);
 		hash_str(&h, material->output_key);
 		hash_str(&h, material->external_tool_key);
 		format_key(h, dst, dstlen);
@@ -1908,16 +1908,16 @@ compute_action_key(struct qstar_build_ctx *ctx, struct qstar_graph *graph,
 	hash_str(&h, kind);
 	hash_str(&h, target ? target->label : "<generated>");
 	hash_str(&h, output);
-	hash_str(&h, graph->profile.name ? graph->profile.name : "default");
-	hash_str(&h, graph->profile.target ? graph->profile.target : "host");
-	hash_str(&h, graph->profile.allow_absolute_tools ?
-	    graph->profile.allow_absolute_tools : "false");
-	for (i = 0; i < graph->profile.compile_options.len; i++)
-		hash_str(&h, graph->profile.compile_options.items[i]);
-	for (i = 0; i < graph->profile.path_tools.len; i++)
-		hash_str(&h, graph->profile.path_tools.items[i]);
-	for (i = 0; i < graph->profile.tool_overrides.len; i++)
-		hash_str(&h, graph->profile.tool_overrides.items[i]);
+	hash_str(&h, graph->build_context.name ? graph->build_context.name : "default");
+	hash_str(&h, graph->build_context.target ? graph->build_context.target : "host");
+	hash_str(&h, graph->build_context.allow_absolute_tools ?
+	    graph->build_context.allow_absolute_tools : "false");
+	for (i = 0; i < graph->build_context.compile_options.len; i++)
+		hash_str(&h, graph->build_context.compile_options.items[i]);
+	for (i = 0; i < graph->build_context.path_tools.len; i++)
+		hash_str(&h, graph->build_context.path_tools.items[i]);
+	for (i = 0; i < graph->build_context.tool_overrides.len; i++)
+		hash_str(&h, graph->build_context.tool_overrides.items[i]);
 	hash_toolsets(&h, graph);
 	if (toolchain) {
 		hash_str(&h, toolchain->name);
@@ -2399,12 +2399,12 @@ state_push(struct qstar_build_ctx *ctx, int next, const char *id, const char *ke
 	p->env_key = qstar_strdup(material ? material->env_key : "");
 	p->input_key = qstar_strdup(material ? material->input_key : "");
 	p->depfile_key = qstar_strdup(material ? material->depfile_key : "");
-	p->profile_key = qstar_strdup(material ? material->profile_key : "");
+	p->build_context_key = qstar_strdup(material ? material->build_context_key : "");
 	p->output_key = qstar_strdup(material ? material->output_key : "");
 	p->external_tool_key = qstar_strdup(material ? material->external_tool_key : "");
 	return p->id && p->key && p->output && p->status && p->kind &&
 	    p->argv_key && p->env_key && p->input_key && p->depfile_key &&
-	    p->profile_key && p->output_key && p->external_tool_key ? 0 : -1;
+	    p->build_context_key && p->output_key && p->external_tool_key ? 0 : -1;
 }
 
 /** state entry 배열을 해제한다. */
@@ -2423,7 +2423,7 @@ state_free(struct qstar_state_entry *entries, size_t len)
 		free(entries[i].env_key);
 		free(entries[i].input_key);
 		free(entries[i].depfile_key);
-		free(entries[i].profile_key);
+		free(entries[i].build_context_key);
 		free(entries[i].output_key);
 		free(entries[i].external_tool_key);
 	}
@@ -2450,8 +2450,8 @@ state_entries_clone(struct qstar_state_entry **out, size_t *out_len,
 		    src[i].input_key ? src[i].input_key : "");
 		snprintf(material.depfile_key, sizeof(material.depfile_key), "%s",
 		    src[i].depfile_key ? src[i].depfile_key : "");
-		snprintf(material.profile_key, sizeof(material.profile_key), "%s",
-		    src[i].profile_key ? src[i].profile_key : "");
+		snprintf(material.build_context_key, sizeof(material.build_context_key), "%s",
+		    src[i].build_context_key ? src[i].build_context_key : "");
 		snprintf(material.output_key, sizeof(material.output_key), "%s",
 		    src[i].output_key ? src[i].output_key : "");
 		snprintf(material.external_tool_key, sizeof(material.external_tool_key), "%s",
@@ -2589,8 +2589,8 @@ state_preserve_previous_unvisited(struct qstar_build_ctx *ctx)
 		    ctx->prev[i].input_key ? ctx->prev[i].input_key : "");
 		snprintf(material.depfile_key, sizeof(material.depfile_key), "%s",
 		    ctx->prev[i].depfile_key ? ctx->prev[i].depfile_key : "");
-		snprintf(material.profile_key, sizeof(material.profile_key), "%s",
-		    ctx->prev[i].profile_key ? ctx->prev[i].profile_key : "");
+		snprintf(material.build_context_key, sizeof(material.build_context_key), "%s",
+		    ctx->prev[i].build_context_key ? ctx->prev[i].build_context_key : "");
 		snprintf(material.output_key, sizeof(material.output_key), "%s",
 		    ctx->prev[i].output_key ? ctx->prev[i].output_key : "");
 		snprintf(material.external_tool_key, sizeof(material.external_tool_key), "%s",
@@ -2631,7 +2631,7 @@ state_unchanged_ignoring_status(const struct qstar_build_ctx *ctx)
 		    !state_field_equal(prev->env_key, next->env_key) ||
 		    !state_field_equal(prev->input_key, next->input_key) ||
 		    !state_field_equal(prev->depfile_key, next->depfile_key) ||
-		    !state_field_equal(prev->profile_key, next->profile_key) ||
+		    !state_field_equal(prev->build_context_key, next->build_context_key) ||
 		    !state_field_equal(prev->output_key, next->output_key) ||
 		    !state_field_equal(prev->external_tool_key, next->external_tool_key))
 			return 0;
@@ -2671,7 +2671,7 @@ state_update_material(struct qstar_build_ctx *ctx, const char *id, const char *k
 		REPLACE_FIELD(env_key, material->env_key);
 		REPLACE_FIELD(input_key, material->input_key);
 		REPLACE_FIELD(depfile_key, material->depfile_key);
-		REPLACE_FIELD(profile_key, material->profile_key);
+		REPLACE_FIELD(build_context_key, material->build_context_key);
 		REPLACE_FIELD(output_key, material->output_key);
 		REPLACE_FIELD(external_tool_key, material->external_tool_key);
 #undef REPLACE_FIELD
@@ -2821,8 +2821,8 @@ state_db_load(struct qstar_graph *graph, struct qstar_build_ctx *ctx)
 		    sizeof(material.input_key)) < 0 ||
 		    state_db_read_digest(f, material.depfile_key,
 		    sizeof(material.depfile_key)) < 0 ||
-		    state_db_read_digest(f, material.profile_key,
-		    sizeof(material.profile_key)) < 0 ||
+		    state_db_read_digest(f, material.build_context_key,
+		    sizeof(material.build_context_key)) < 0 ||
 		    state_db_read_digest(f, material.output_key,
 		    sizeof(material.output_key)) < 0 ||
 		    state_db_read_digest(f, material.external_tool_key,
@@ -2970,7 +2970,7 @@ state_db_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 		    state_db_write_string(f, ctx->next[i].env_key) < 0 ||
 		    state_db_write_string(f, ctx->next[i].input_key) < 0 ||
 		    state_db_write_string(f, ctx->next[i].depfile_key) < 0 ||
-		    state_db_write_string(f, ctx->next[i].profile_key) < 0 ||
+		    state_db_write_string(f, ctx->next[i].build_context_key) < 0 ||
 		    state_db_write_string(f, ctx->next[i].output_key) < 0 ||
 		    state_db_write_string(f, ctx->next[i].external_tool_key) < 0) {
 			fclose(f);
@@ -3509,8 +3509,11 @@ state_load(struct qstar_graph *graph, struct qstar_build_ctx *ctx)
 		    sizeof(material.input_key));
 		json_field_copy(line, "depfile_key", material.depfile_key,
 		    sizeof(material.depfile_key));
-		json_field_copy(line, "profile_key", material.profile_key,
-		    sizeof(material.profile_key));
+		json_field_copy(line, "build_context_key", material.build_context_key,
+		    sizeof(material.build_context_key));
+		if (!material.build_context_key[0])
+			json_field_copy(line, "profile_key", material.build_context_key,
+			    sizeof(material.build_context_key));
 		json_field_copy(line, "output_key", material.output_key,
 		    sizeof(material.output_key));
 		json_field_copy(line, "external_tool_key", material.external_tool_key,
@@ -3605,8 +3608,8 @@ state_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 		json_string(f, ctx->next[i].input_key);
 		fputs(",\"depfile_key\":", f);
 		json_string(f, ctx->next[i].depfile_key);
-		fputs(",\"profile_key\":", f);
-		json_string(f, ctx->next[i].profile_key);
+		fputs(",\"build_context_key\":", f);
+		json_string(f, ctx->next[i].build_context_key);
 		fputs(",\"output_key\":", f);
 		json_string(f, ctx->next[i].output_key);
 		fputs(",\"external_tool_key\":", f);
@@ -3702,13 +3705,13 @@ graph_snapshot_write(struct qstar_graph *graph, const struct qstar_build_ctx *ct
 	fputs(",\"requested_generator\":", f);
 	json_string(f, qstar_graph_requested_generator(graph));
 	fputc('}', f);
-	fputs(",\"profile\":{", f);
+	fputs(",\"build_context\":{", f);
 	fputs("\"name\":", f);
-	json_string(f, graph->profile.name ? graph->profile.name : "default");
+	json_string(f, graph->build_context.name ? graph->build_context.name : "default");
 	fputs(",\"target\":", f);
-	json_string(f, graph->profile.target ? graph->profile.target : "host");
+	json_string(f, graph->build_context.target ? graph->build_context.target : "host");
 	fputs(",\"toolchain\":", f);
-	json_string(f, graph->profile.toolchain ? graph->profile.toolchain : "default");
+	json_string(f, graph->build_context.toolchain ? graph->build_context.toolchain : "default");
 	fputs("},\"targets\":[\n", f);
 	for (i = 0; i < graph->len; i++) {
 		if (i)
@@ -4000,9 +4003,9 @@ cache_reason(struct qstar_graph *graph, const struct qstar_state_entry *prev,
 		if (prev->input_key && *prev->input_key &&
 		    strcmp(prev->input_key, material->input_key) != 0)
 			return "input-changed";
-		if (prev->profile_key && *prev->profile_key &&
-		    strcmp(prev->profile_key, material->profile_key) != 0)
-			return "profile-changed";
+		if (prev->build_context_key && *prev->build_context_key &&
+		    strcmp(prev->build_context_key, material->build_context_key) != 0)
+			return "build-context-changed";
 	}
 	return "key-changed";
 }
@@ -5016,7 +5019,7 @@ prepare_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		prepared_action_free(action);
 		return -1;
 	}
-	if (qstar_profile_tool_mode_is_package_input(tool_mode) &&
+	if (qstar_external_tool_mode_is_package_input(tool_mode) &&
 	    qstar_string_list_push(&action->inputs, resolved_tool) < 0) {
 		prepared_action_free(action);
 		return qstar_set_error(graph, "qstar: out of memory");
@@ -5025,7 +5028,7 @@ prepare_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	snprintf(toolchain.name, sizeof(toolchain.name), "%s",
 	    target ? target->toolchain : "custom");
 	snprintf(toolchain.target, sizeof(toolchain.target), "%s",
-	    graph->profile.target ? graph->profile.target : "host");
+	    graph->build_context.target ? graph->build_context.target : "host");
 	compute_action_key(ctx, graph, target, &toolchain, action->id, "generate",
 	    action->argv, &action->inputs, NULL, output_identity, action->key,
 	    sizeof(action->key), &action->material);
@@ -5112,7 +5115,7 @@ run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		return -1;
 	}
 	if (!genrule->config_header &&
-	    qstar_profile_tool_mode_is_package_input(tool_mode) &&
+	    qstar_external_tool_mode_is_package_input(tool_mode) &&
 	    qstar_string_list_push(&inputs, resolved_tool) < 0) {
 		qstar_string_list_free(&inputs);
 		free_owned_argv(argv, argc);
@@ -5122,7 +5125,7 @@ run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	snprintf(toolchain.name, sizeof(toolchain.name), "%s",
 	    target ? target->toolchain : "custom");
 	snprintf(toolchain.target, sizeof(toolchain.target), "%s",
-	    graph->profile.target ? graph->profile.target : "host");
+	    graph->build_context.target ? graph->build_context.target : "host");
 	compute_action_key(ctx, graph, target, &toolchain, id, "generate", argv,
 	    &inputs, NULL, output_identity, key, sizeof(key), &material);
 	qstar_string_list_free(&inputs);
@@ -5832,8 +5835,8 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	wants_depfile = (strcmp(source.language, "c") == 0 || is_cxx ||
 	    source_uses_asm_preprocessor(target, &source));
 	action->wants_depfile = wants_depfile;
-	if (graph->profile.compile_options.len +
-	    graph->profile.include_dirs.len * 2 +
+	if (graph->build_context.compile_options.len +
+	    graph->build_context.include_dirs.len * 2 +
 	    (is_asm ? target->asm_include_dirs.len * 2 : includes.len * 2) +
 	    (is_asm ? 0 : target->system_include_dirs.len * 2) +
 	    (is_asm ? target->asm_compile_options.len :
@@ -5903,15 +5906,15 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    target->asm_compile_options.items[i]) < 0)
 			goto fail;
 	}
-	for (i = 0; i < graph->profile.compile_options.len; i++) {
+	for (i = 0; i < graph->build_context.compile_options.len; i++) {
 		if (prepared_action_push_argv(graph, action,
-		    graph->profile.compile_options.items[i]) < 0)
+		    graph->build_context.compile_options.items[i]) < 0)
 			goto fail;
 	}
-	for (i = 0; i < graph->profile.include_dirs.len; i++) {
+	for (i = 0; i < graph->build_context.include_dirs.len; i++) {
 		if (prepared_action_push_argv(graph, action, "-I") < 0 ||
 		    prepared_action_push_argv(graph, action,
-		    graph->profile.include_dirs.items[i]) < 0)
+		    graph->build_context.include_dirs.items[i]) < 0)
 			goto fail;
 	}
 	for (i = 0; !is_asm && i < includes.len; i++) {
@@ -6643,7 +6646,7 @@ validate_sharedlib_platform(struct qstar_graph *graph, const struct qstar_target
 		return 0;
 	return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 	    "kind", target->label,
-	    "qstar: sharedlib target '%s' is not supported for Windows-like profiles yet; Windows shared libraries require a runtime .dll, import .lib, and optional PDB/debug artifact policy. Use custom_target/object bridge for now or see docs/windows-artifact-policy.md",
+	    "qstar: sharedlib target '%s' is not supported for Windows-like build contexts yet; Windows shared libraries require a runtime .dll, import .lib, and optional PDB/debug artifact policy. Use custom_target/object bridge for now or see docs/windows-artifact-policy.md",
 	    target->label);
 }
 
@@ -6730,15 +6733,15 @@ toolchain_uses_msvc_out_arg(const struct qstar_resolved_toolchain *toolchain,
 	return strstr(tool, "lld-link") != NULL || strstr(tool, "link.exe") != NULL;
 }
 
-/** target/profile link_options를 argv에 추가한다. */
+/** target/build context link_options를 argv에 추가한다. */
 static int
 append_link_policy_flags(struct qstar_graph *graph, const struct qstar_target *target,
     char **argv, size_t *argc)
 {
 	size_t i;
 
-	for (i = 0; i < graph->profile.link_options.len; i++) {
-		if (append_owned_argv(graph, argv, argc, graph->profile.link_options.items[i]) < 0)
+	for (i = 0; i < graph->build_context.link_options.len; i++) {
+		if (append_owned_argv(graph, argv, argc, graph->build_context.link_options.items[i]) < 0)
 			return -1;
 	}
 	for (i = 0; i < target->link_options.len; i++) {
@@ -6784,7 +6787,7 @@ push_link_action_inputs(struct qstar_graph *graph, const struct qstar_target *ta
 	return 0;
 }
 
-/** system lib/lib_dir/framework link flags를 target profile별 spelling으로 추가한다. */
+/** system lib/lib_dir/framework link flags를 target context별 spelling으로 추가한다. */
 static int
 append_system_link_flags(struct qstar_graph *graph, const struct qstar_target *target,
     const struct qstar_resolved_toolchain *toolchain, char **argv, size_t *argc)
@@ -6794,11 +6797,11 @@ append_system_link_flags(struct qstar_graph *graph, const struct qstar_target *t
 	int windows;
 
 	windows = target_is_windows(toolchain->target);
-	for (i = 0; i < graph->profile.lib_dirs.len; i++) {
+	for (i = 0; i < graph->build_context.lib_dirs.len; i++) {
 		if (windows)
-			snprintf(flag, sizeof(flag), "/LIBPATH:%s", graph->profile.lib_dirs.items[i]);
+			snprintf(flag, sizeof(flag), "/LIBPATH:%s", graph->build_context.lib_dirs.items[i]);
 		else
-			snprintf(flag, sizeof(flag), "-L%s", graph->profile.lib_dirs.items[i]);
+			snprintf(flag, sizeof(flag), "-L%s", graph->build_context.lib_dirs.items[i]);
 		if (append_owned_argv(graph, argv, argc, flag) < 0)
 			return -1;
 	}
@@ -9744,7 +9747,7 @@ prepare_lazy_generated_action(struct qstar_graph *graph, const struct qstar_genr
 	snprintf(action->id, sizeof(action->id), "%s:generate:0", genrule->label);
 	snprintf(action->kind, sizeof(action->kind), "generate");
 	if (!genrule->config_header &&
-	    qstar_profile_resolve_command_tool(graph, genrule->tool, resolved_tool,
+	    qstar_external_tool_resolve_command_tool(graph, genrule->tool, resolved_tool,
 	    sizeof(resolved_tool), tool_mode, sizeof(tool_mode), tool_error,
 	    sizeof(tool_error)) < 0)
 		return qstar_set_error_origin(graph, genrule->origin_file,

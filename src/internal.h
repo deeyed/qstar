@@ -109,7 +109,7 @@ int qstar_label_package_alias(const char *label, char *dst, size_t dstlen);
 /** canonical target label에서 local package path를 추출한다. */
 int qstar_label_package_path(const char *label, char *dst, size_t dstlen);
 
-/** target/profile 입력을 합쳐 host/clang toolchain v1을 결정한다. */
+/** target/build context 입력을 합쳐 host/clang toolchain v1을 결정한다. */
 int qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *target,
     struct qstar_resolved_toolchain *resolved);
 
@@ -137,21 +137,21 @@ int qstar_toolchain_target_is_linux(const char *target);
 /** target triple이 이번 sharedlib 구현에서 지원되는지 확인한다. */
 int qstar_toolchain_target_supports_sharedlib(const char *target);
 
-/** profile external tool policy로 custom_target 첫 argv를 실행 path로 해석한다. */
-int qstar_profile_resolve_command_tool(const struct qstar_graph *graph, const char *tool,
+/** build context external tool policy로 custom_target 첫 argv를 실행 path로 해석한다. */
+int qstar_external_tool_resolve_command_tool(const struct qstar_graph *graph, const char *tool,
     char *resolved, size_t resolved_len, char *mode, size_t mode_len, char *error,
     size_t error_len);
 
-/** profile/toolset external tool policy로 custom_target 첫 argv를 실행 path로 해석한다. */
+/** build context/toolset external tool policy로 custom_target 첫 argv를 실행 path로 해석한다. */
 int qstar_resolve_command_tool_for_target(const struct qstar_graph *graph,
     const struct qstar_target *target, const char *tool, char *resolved, size_t resolved_len,
     char *mode, size_t mode_len, char *error, size_t error_len);
 
 /** resolved tool mode가 package-local file input으로 action key에 들어가야 하는지 본다. */
-int qstar_profile_tool_mode_is_package_input(const char *mode);
+int qstar_external_tool_mode_is_package_input(const char *mode);
 
 /** PATH에서 실행 tool을 찾고 발견한 절대 path를 반환한다. */
-int qstar_profile_find_path_tool(const char *tool, char *dst, size_t dstlen);
+int qstar_external_tool_find_path_tool(const char *tool, char *dst, size_t dstlen);
 
 /** build directory 아래 상대 path를 deterministic package-relative path로 만든다. */
 int qstar_graph_build_path(const struct qstar_graph *graph, const char *subpath,
@@ -171,7 +171,7 @@ int qstar_graph_depfile_output_path(const struct qstar_graph *graph,
 /** target artifact output path를 deterministic package-relative path로 만든다. */
 int qstar_artifact_output_path(const struct qstar_target *target, char *dst, size_t dstlen);
 
-/** profile/target artifact_name policy를 적용한 artifact output path를 만든다. */
+/** build context/target artifact_name policy를 적용한 artifact output path를 만든다. */
 int qstar_graph_artifact_output_path(const struct qstar_graph *graph,
     const struct qstar_target *target, char *dst, size_t dstlen);
 
@@ -253,12 +253,12 @@ int qstar_graph_visit_closure(struct qstar_graph *graph, const char *label,
 
 /** Stella lowered plan cache를 읽어 Lua eval 없이 Graph IR를 복원한다. */
 int qstar_stella_plan_cache_try_load(struct qstar_graph *graph, const char *file,
-    const char *cmd, const char *label, const char *cli_profile, const char *cli_target,
+    const char *cmd, const char *label, const char *cli_build_context, const char *cli_target,
     const char *cli_toolchain, const char *cli_stdlib, char *reason, size_t reason_len);
 
 /** 검증된 Graph IR와 lowered action summary를 Stella plan cache로 저장한다. */
 int qstar_stella_plan_cache_store(struct qstar_graph *graph, const char *file,
-    const char *cmd, const char *label, const char *cli_profile, const char *cli_target,
+    const char *cmd, const char *label, const char *cli_build_context, const char *cli_target,
     const char *cli_toolchain, const char *cli_stdlib, char *reason, size_t reason_len);
 
 /** 현재 Graph에서 실행 가능한 lowered action plan을 준비한다. */
@@ -288,12 +288,12 @@ int qstar_daemon_parse_mode(const char *s, int *mode);
 
 /** experimental persistent Stella daemon command를 실행한다. */
 int qstar_daemon_command(int argc, char **argv, const char *file,
-    const char *cli_build_dir, const char *cli_profile, const char *cli_target,
+    const char *cli_build_dir, const char *cli_build_context, const char *cli_target,
     const char *cli_toolchain, const char *cli_stdlib, FILE *out);
 
 /** build request를 experimental daemon으로 보내고 응답 output을 out에 복사한다. */
 int qstar_daemon_build_client(const char *socket_path, int mode, const char *file,
-    const char *label, const char *cli_build_dir, const char *cli_profile,
+    const char *label, const char *cli_build_dir, const char *cli_build_context,
     const char *cli_target, const char *cli_toolchain, const char *cli_stdlib,
     const struct qstar_build_options *options, FILE *out, int *build_status,
     char *error, size_t error_len);

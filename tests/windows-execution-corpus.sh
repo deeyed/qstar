@@ -2,7 +2,7 @@
 set -eu
 
 qstar=${QSTAR_TEST_QSTAR:-build/bin/qstar}
-profile=${QSTAR_WINDOWS_EXECUTION_PROFILE:-msys2-ucrt64-gcc}
+baseline=${QSTAR_WINDOWS_EXECUTION_BASELINE:-msys2-ucrt64-gcc}
 tmp=${TMPDIR:-/tmp}/qstar-windows-execution.$$
 corpus=tests/corpus/windows-execution
 build_dir=build/qstar
@@ -42,7 +42,7 @@ MINGW*|MSYS*|CYGWIN*)
 	;;
 esac
 
-printf 'qstar-windows-execution: host=%s mode=%s profile-removed=%s\n' "$host" "$mode" "$profile"
+printf 'qstar-windows-execution: host=%s mode=%s baseline=%s\n' "$host" "$mode" "$baseline"
 
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-target x86_64-w64-mingw32 check \
 	> "$tmp/check.out" 2> "$tmp/check.err"

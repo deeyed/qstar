@@ -36,9 +36,9 @@ struct doctor_tool_requirements {
 	int linker;
 };
 
-/** profile 문자열이 없을 때 explain dump에 쓸 기본값을 반환한다. */
+/** build context 문자열이 없을 때 explain dump에 쓸 기본값을 반환한다. */
 static const char *
-profile_or_default(const char *s, const char *fallback)
+context_or_default(const char *s, const char *fallback)
 {
 	return s && *s ? s : fallback;
 }
@@ -326,38 +326,38 @@ dump_closure_order(FILE *out, const struct qstar_plan *plan)
 	fputs("]\n", out);
 }
 
-/** profile input과 package alias map을 command-plan header에 출력한다. */
+/** build context input과 package alias map을 command-plan header에 출력한다. */
 static void
 dump_plan_inputs(FILE *out, const struct qstar_graph *graph)
 {
-	fprintf(out, "profile name=%s target=%s toolchain=%s stdlib=%s\n",
-	    profile_or_default(graph->profile.name, "default"),
-	    profile_or_default(graph->profile.target, "host"),
-	    profile_or_default(graph->profile.toolchain, "default"),
-	    profile_or_default(graph->profile.stdlib_policy, "default"));
-	fprintf(out, "profile_tools cc=%s cxx=%s ar=%s linker=%s sysroot=%s resource_dir=%s\n",
-	    profile_or_default(graph->profile.cc, "<default>"),
-	    profile_or_default(graph->profile.cxx, "<default>"),
-	    profile_or_default(graph->profile.ar, "<default>"),
-	    profile_or_default(graph->profile.linker, "<default>"),
-	    profile_or_default(graph->profile.sysroot, "<none>"),
-	    profile_or_default(graph->profile.resource_dir, "<none>"));
-	fprintf(out, "profile_response response_files=%s response_style=%s\n",
-	    profile_or_default(graph->profile.response_files, "auto"),
-	    profile_or_default(graph->profile.response_style, "auto"));
-	fputs("profile_link link_options=", out);
-	dump_list(out, &graph->profile.link_options);
+	fprintf(out, "build_context name=%s target=%s toolchain=%s stdlib=%s\n",
+	    context_or_default(graph->build_context.name, "default"),
+	    context_or_default(graph->build_context.target, "host"),
+	    context_or_default(graph->build_context.toolchain, "default"),
+	    context_or_default(graph->build_context.stdlib_policy, "default"));
+	fprintf(out, "build_context_tools cc=%s cxx=%s ar=%s linker=%s sysroot=%s resource_dir=%s\n",
+	    context_or_default(graph->build_context.cc, "<default>"),
+	    context_or_default(graph->build_context.cxx, "<default>"),
+	    context_or_default(graph->build_context.ar, "<default>"),
+	    context_or_default(graph->build_context.linker, "<default>"),
+	    context_or_default(graph->build_context.sysroot, "<none>"),
+	    context_or_default(graph->build_context.resource_dir, "<none>"));
+	fprintf(out, "build_context_response response_files=%s response_style=%s\n",
+	    context_or_default(graph->build_context.response_files, "auto"),
+	    context_or_default(graph->build_context.response_style, "auto"));
+	fputs("build_context_link link_options=", out);
+	dump_list(out, &graph->build_context.link_options);
 	fputc('\n', out);
-	fputs("profile_compile compile_options=", out);
-	dump_list(out, &graph->profile.compile_options);
+	fputs("build_context_compile compile_options=", out);
+	dump_list(out, &graph->build_context.compile_options);
 	fputs(" include_dirs=", out);
-	dump_list(out, &graph->profile.include_dirs);
+	dump_list(out, &graph->build_context.include_dirs);
 	fputc('\n', out);
-	fprintf(out, "profile_external_tools allow_absolute=%s path_tools=",
-	    profile_or_default(graph->profile.allow_absolute_tools, "false"));
-	dump_list(out, &graph->profile.path_tools);
+	fprintf(out, "external_tool_policy allow_absolute=%s path_tools=",
+	    context_or_default(graph->build_context.allow_absolute_tools, "false"));
+	dump_list(out, &graph->build_context.path_tools);
 	fputs(" tool_overrides=", out);
-	dump_list(out, &graph->profile.tool_overrides);
+	dump_list(out, &graph->build_context.tool_overrides);
 	fputc('\n', out);
 	fputs("package_aliases ", out);
 	dump_package_aliases(out, graph);
@@ -394,11 +394,11 @@ dump_action_key(FILE *out, const struct qstar_graph *graph, const struct qstar_t
 {
 	fprintf(out,
 	    "  action_key id=%s:%s:%zu kind=%s owner=%s input=%s output=%s "
-	    "language=%s profile=%s target=%s toolchain=%s stdlib=%s deps=",
+	    "language=%s build_context=%s target=%s toolchain=%s stdlib=%s deps=",
 	    target->label, kind, index, kind, target->label, input, output,
 	    language,
-	    profile_or_default(graph->profile.name, "default"),
-	    profile_or_default(graph->profile.target, "host"),
+	    context_or_default(graph->build_context.name, "default"),
+	    context_or_default(graph->build_context.target, "host"),
 	    target->toolchain, target->stdlib_policy);
 	dump_list(out, &target->deps);
 	fputs(" packages=", out);
@@ -416,7 +416,7 @@ dump_command_skeleton(FILE *out, const struct qstar_graph *graph,
 	    "  command_skeleton id=%s:%s:%zu phase=%s language=%s tool=%s "
 	    "toolchain=%s target=%s stdlib=%s input=%s output=%s execute=no\n",
 	    target->label, kind, index, kind, language, tool, target->toolchain,
-	    profile_or_default(graph->profile.target, "host"), target->stdlib_policy,
+	    context_or_default(graph->build_context.target, "host"), target->stdlib_policy,
 	    input, output);
 }
 
@@ -651,19 +651,19 @@ collect_compile_include_dirs(const struct qstar_graph *graph, const struct qstar
 	return 0;
 }
 
-/** target compile option이 profile/config/local merge 뒤 어떻게 보이는지 설명한다. */
+/** target compile option이 build context/config/local merge 뒤 어떻게 보이는지 설명한다. */
 static void
 dump_effective_compile_merge(FILE *out, const struct qstar_graph *graph,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain)
 {
 	fprintf(out,
-	    "  effective_compile_merge owner=%s profile=%s target=%s response_files=%s response_style=%s order=profile,target profile_compile_options=",
-	    target->label, profile_or_default(graph->profile.name, "default"),
-	    profile_or_default(graph->profile.target, "host"),
+	    "  effective_compile_merge owner=%s build_context=%s target=%s response_files=%s response_style=%s order=build_context,target build_context_compile_options=",
+	    target->label, context_or_default(graph->build_context.name, "default"),
+	    context_or_default(graph->build_context.target, "host"),
 	    toolchain->response_files ? "on" : "off", toolchain->response_style);
-	dump_list(out, &graph->profile.compile_options);
-	fputs(" profile_include_dirs=", out);
-	dump_list(out, &graph->profile.include_dirs);
+	dump_list(out, &graph->build_context.compile_options);
+	fputs(" build_context_include_dirs=", out);
+	dump_list(out, &graph->build_context.include_dirs);
 	fputs(" target_c_compile_options=", out);
 	dump_list(out, &target->cflags);
 	fputs(" target_cxx_compile_options=", out);
@@ -772,8 +772,8 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	tool = is_asm ? toolchain->asm_ : is_cxx ? toolchain->cxx : toolchain->cc;
 	cross = strcmp(toolchain->name, "clang") == 0 && strcmp(toolchain->target, "host") != 0;
 	argc = 5 + plan_tool_role_argc(graph, target, role) - 1 +
-	    graph->profile.compile_options.len +
-	    graph->profile.include_dirs.len * 2 +
+	    graph->build_context.compile_options.len +
+	    graph->build_context.include_dirs.len * 2 +
 	    (is_asm ? target->asm_include_dirs.len * 2 : includes.len * 2) +
 	    (is_asm ? 0 : target->system_include_dirs.len * 2) +
 	    (cross ? 1 : 0) + (wants_depfile ? 3 : 0) +
@@ -824,11 +824,11 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 		argv_item(out, &dump, target->cxxflags.items[i]);
 	for (i = 0; is_asm && i < target->asm_compile_options.len; i++)
 		argv_item(out, &dump, target->asm_compile_options.items[i]);
-	for (i = 0; i < graph->profile.compile_options.len; i++)
-		argv_item(out, &dump, graph->profile.compile_options.items[i]);
-	for (i = 0; i < graph->profile.include_dirs.len; i++) {
+	for (i = 0; i < graph->build_context.compile_options.len; i++)
+		argv_item(out, &dump, graph->build_context.compile_options.items[i]);
+	for (i = 0; i < graph->build_context.include_dirs.len; i++) {
 		argv_item(out, &dump, "-I");
-		argv_item(out, &dump, graph->profile.include_dirs.items[i]);
+		argv_item(out, &dump, graph->build_context.include_dirs.items[i]);
 	}
 	for (i = 0; !is_asm && i < includes.len; i++) {
 		argv_item(out, &dump, "-I");
@@ -887,22 +887,22 @@ toolchain_uses_msvc_out_arg(const struct qstar_resolved_toolchain *toolchain,
 	return strstr(tool, "lld-link") != NULL || strstr(tool, "link.exe") != NULL;
 }
 
-/** target/profile link_options가 argv에 추가할 argument 수를 계산한다. */
+/** target/build context link_options가 argv에 추가할 argument 수를 계산한다. */
 static size_t
 link_policy_arg_count(const struct qstar_graph *graph, const struct qstar_target *target)
 {
-	return graph->profile.link_options.len + target->link_options.len;
+	return graph->build_context.link_options.len + target->link_options.len;
 }
 
-/** target/profile link_options를 deterministic command argv dump에 추가한다. */
+/** target/build context link_options를 deterministic command argv dump에 추가한다. */
 static void
 dump_link_policy_argv(FILE *out, struct qstar_argv_dump *dump,
     const struct qstar_graph *graph, const struct qstar_target *target)
 {
 	size_t i;
 
-	for (i = 0; i < graph->profile.link_options.len; i++)
-		argv_item(out, dump, graph->profile.link_options.items[i]);
+	for (i = 0; i < graph->build_context.link_options.len; i++)
+		argv_item(out, dump, graph->build_context.link_options.items[i]);
 	for (i = 0; i < target->link_options.len; i++)
 		argv_item(out, dump, target->link_options.items[i]);
 }
@@ -1009,7 +1009,7 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 	    3 + plan_tool_role_argc(graph, target, "link");
 	if (strcmp(action, "archive") != 0)
 		argc += target->lib_dirs.len + (toolchain->sysroot[0] ? 1 : 0) +
-		    graph->profile.lib_dirs.len + target->libs.len +
+		    graph->build_context.lib_dirs.len + target->libs.len +
 		    (darwin ? target->frameworks.len * 2 : 0) +
 		    link_policy_arg_count(graph, target) +
 		    (toolchain_needs_msvc_link_boundary(toolchain, target) ? 1 : 0);
@@ -1055,14 +1055,14 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 		argv_item(out, &dump, "<target-objects>");
 		if (toolchain_needs_msvc_link_boundary(toolchain, target))
 			argv_item(out, &dump, "/link");
-		for (i = 0; i < graph->profile.lib_dirs.len; i++) {
+		for (i = 0; i < graph->build_context.lib_dirs.len; i++) {
 			if (windows) {
 				snprintf(buf, sizeof(buf), "/LIBPATH:%s",
-				    graph->profile.lib_dirs.items[i]);
+				    graph->build_context.lib_dirs.items[i]);
 				argv_item(out, &dump, buf);
 			} else {
 				snprintf(buf, sizeof(buf), "-L%s",
-				    graph->profile.lib_dirs.items[i]);
+				    graph->build_context.lib_dirs.items[i]);
 				argv_item(out, &dump, buf);
 			}
 		}
@@ -1227,11 +1227,11 @@ dump_consumed_genrules(FILE *out, const struct qstar_plan *plan,
 		dump_genrule_artifacts(out, genrule, "  ");
 		fprintf(out,
 		    "  action_key id=%s:generate:0 kind=generate owner=%s consumer=%s "
-		    "input=%s output=%s language=generated profile=%s target=%s "
+		    "input=%s output=%s language=generated build_context=%s target=%s "
 		    "toolchain=%s stdlib=%s deps=[] packages=",
 		    genrule->label, genrule->label, target->label, inputs, identities,
-		    profile_or_default(plan->graph->profile.name, "default"),
-		    profile_or_default(plan->graph->profile.target, "host"),
+		    context_or_default(plan->graph->build_context.name, "default"),
+		    context_or_default(plan->graph->build_context.target, "host"),
 		    target->toolchain, target->stdlib_policy);
 		dump_package_aliases(out, plan->graph);
 		fputc('\n', out);
@@ -1240,7 +1240,7 @@ dump_consumed_genrules(FILE *out, const struct qstar_plan *plan,
 		    "tool=%s resolved_tool=%s tool_mode=%s toolchain=%s target=%s stdlib=%s input=%s output=%s "
 		    "consumer=%s execute=no\n",
 		    genrule->label, genrule->tool, resolved_tool, tool_mode,
-		    target->toolchain, profile_or_default(plan->graph->profile.target, "host"),
+		    target->toolchain, context_or_default(plan->graph->build_context.target, "host"),
 		    target->stdlib_policy, inputs, identities, target->label);
 		dump_genrule_argv(out, plan->graph, target, genrule);
 	}
@@ -1262,7 +1262,7 @@ dump_direct_genrule_plan(FILE *out, const struct qstar_graph *graph,
 	if (genrule->config_header) {
 		snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
 		snprintf(tool_mode, sizeof(tool_mode), "builtin");
-	} else if (qstar_profile_resolve_command_tool(graph, genrule->tool,
+	} else if (qstar_external_tool_resolve_command_tool(graph, genrule->tool,
 	    resolved_tool, sizeof(resolved_tool), tool_mode, sizeof(tool_mode),
 	    tool_error, sizeof(tool_error)) < 0) {
 		snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
@@ -1281,21 +1281,21 @@ dump_direct_genrule_plan(FILE *out, const struct qstar_graph *graph,
 	dump_genrule_artifacts(out, genrule, "  ");
 	fprintf(out,
 	    "  action_key id=%s:generate:0 kind=generate owner=%s consumer=<direct> "
-	    "input=%s output=%s language=generated profile=%s target=%s toolchain=custom stdlib=none deps=[] packages=",
+	    "input=%s output=%s language=generated build_context=%s target=%s toolchain=custom stdlib=none deps=[] packages=",
 	    genrule->label, genrule->label, inputs, identities,
-	    profile_or_default(graph->profile.name, "default"),
-	    profile_or_default(graph->profile.target, "host"));
+	    context_or_default(graph->build_context.name, "default"),
+	    context_or_default(graph->build_context.target, "host"));
 	dump_package_aliases(out, graph);
 	fputc('\n', out);
 	fprintf(out,
 	    "  command_skeleton id=%s:generate:0 phase=generate language=generated "
 	    "tool=%s resolved_tool=%s tool_mode=%s toolchain=custom target=%s stdlib=none input=%s output=%s consumer=<direct> execute=no\n",
 	    genrule->label, genrule->tool, resolved_tool, tool_mode,
-	    profile_or_default(graph->profile.target, "host"), inputs, identities);
+	    context_or_default(graph->build_context.target, "host"), inputs, identities);
 	dump_genrule_argv(out, graph, NULL, genrule);
 }
 
-/** target-local toolchain/profile resolver skeleton을 출력한다. */
+/** target-local toolchain/build context resolver skeleton을 출력한다. */
 static int
 dump_resolved_toolchain(FILE *out, const struct qstar_plan *plan,
     const struct qstar_target *target, struct qstar_resolved_toolchain *resolved)
@@ -1303,11 +1303,11 @@ dump_resolved_toolchain(FILE *out, const struct qstar_plan *plan,
 	if (qstar_resolve_toolchain(plan->graph, target, resolved) < 0)
 		return -1;
 	fprintf(out,
-	    "  resolved_toolchain owner=%s toolchain=%s profile=%s target=%s "
+	    "  resolved_toolchain owner=%s toolchain=%s build_context=%s target=%s "
 	    "stdlib=%s resolver=%s toolset=%s cc=%s cxx=%s asm=%s ar=%s "
 	    "linker=%s sysroot=%s resource_dir=%s response_files=%s response_style=%s\n",
 	    target->label, resolved->name,
-	    profile_or_default(plan->graph->profile.name, "default"),
+	    context_or_default(plan->graph->build_context.name, "default"),
 	    resolved->target, resolved->stdlib_policy, resolved->resolver,
 	    resolved->toolset[0] ? resolved->toolset : "<none>",
 	    resolved->cc, resolved->cxx, resolved->asm_, resolved->ar,
@@ -1419,7 +1419,7 @@ doctor_path_state(const struct qstar_graph *graph, const char *path, char *full,
 
 /** doctor path 상태를 stable text로 출력한다. */
 static void
-dump_profile_path_doctor(FILE *out, const struct qstar_graph *graph, const char *name,
+dump_build_context_path_doctor(FILE *out, const struct qstar_graph *graph, const char *name,
     const char *path, int want_dir)
 {
 	char full[QSTAR_PATH_MAX];
@@ -1428,7 +1428,7 @@ dump_profile_path_doctor(FILE *out, const struct qstar_graph *graph, const char 
 
 	if (!path || !*path) {
 		fprintf(out,
-		    "profile-path name=%s path=<none> mode=unset status=not-set type=none\n",
+		    "build-context-path name=%s path=<none> mode=unset status=not-set type=none\n",
 		    name);
 		return;
 	}
@@ -1436,13 +1436,13 @@ dump_profile_path_doctor(FILE *out, const struct qstar_graph *graph, const char 
 	if (doctor_path_state(graph, path, full, sizeof(full), &exists, &executable,
 	    &is_dir) < 0) {
 		fprintf(out,
-		    "profile-path name=%s path=%s mode=invalid status=invalid type=unknown\n",
+		    "build-context-path name=%s path=%s mode=invalid status=invalid type=unknown\n",
 		    name, path);
 		return;
 	}
 	type = exists ? is_dir ? "directory" : "file" : "missing";
 	status = !exists ? "missing" : want_dir && !is_dir ? "not-directory" : "found";
-	fprintf(out, "profile-path name=%s path=%s mode=%s status=%s type=%s full=%s\n",
+	fprintf(out, "build-context-path name=%s path=%s mode=%s status=%s type=%s full=%s\n",
 	    name, path, mode, status, type, full);
 }
 
@@ -1480,7 +1480,7 @@ dump_toolchain_tool_doctor(FILE *out, const struct qstar_graph *graph,
 		(void)is_dir;
 		return;
 	}
-	if (qstar_profile_find_path_tool(tool, found, sizeof(found))) {
+	if (qstar_external_tool_find_path_tool(tool, found, sizeof(found))) {
 		fprintf(out,
 		    "toolchain-tool role=%s name=%s required=%s mode=path status=found severity=info path=%s executable=yes\n",
 		    role, tool, required ? "true" : "false", found);
@@ -1496,7 +1496,7 @@ dump_path_tool_doctor(FILE *out, const char *tool)
 {
 	char found[QSTAR_PATH_MAX];
 
-	if (qstar_profile_find_path_tool(tool, found, sizeof(found)))
+	if (qstar_external_tool_find_path_tool(tool, found, sizeof(found)))
 		fprintf(out, "external-tool name=%s mode=path status=found path=%s\n",
 		    tool, found);
 	else
@@ -1504,7 +1504,7 @@ dump_path_tool_doctor(FILE *out, const char *tool)
 		    tool);
 }
 
-/** profile/toolset external tool discovery 상태를 doctor output에 출력한다. */
+/** build context/toolset external tool discovery 상태를 doctor output에 출력한다. */
 static void
 dump_external_tool_doctor(FILE *out, const struct qstar_plan *plan)
 {
@@ -1516,23 +1516,23 @@ dump_external_tool_doctor(FILE *out, const struct qstar_plan *plan)
 	int exists, executable, is_dir;
 
 	graph = plan->graph;
-	path_tool_count = graph->profile.path_tools.len;
+	path_tool_count = graph->build_context.path_tools.len;
 	(void)plan;
 	for (i = 0; i < graph->toolset_len; i++)
 		path_tool_count += graph->toolsets[i].path_tools.len;
 	fprintf(out, "external-tool-policy path_tools=%zu tool_overrides=%zu allow_absolute=%s\n",
-	    path_tool_count, graph->profile.tool_overrides.len,
-	    profile_or_default(graph->profile.allow_absolute_tools, "false"));
-	for (i = 0; i < graph->profile.path_tools.len; i++)
-		dump_path_tool_doctor(out, graph->profile.path_tools.items[i]);
+	    path_tool_count, graph->build_context.tool_overrides.len,
+	    context_or_default(graph->build_context.allow_absolute_tools, "false"));
+	for (i = 0; i < graph->build_context.path_tools.len; i++)
+		dump_path_tool_doctor(out, graph->build_context.path_tools.items[i]);
 	for (i = 0; i < graph->toolset_len; i++)
 		for (j = 0; j < graph->toolsets[i].path_tools.len; j++)
 			dump_path_tool_doctor(out, graph->toolsets[i].path_tools.items[j]);
-	for (i = 0; i < graph->profile.tool_overrides.len; i++) {
-		if (!split_tool_override_for_doctor(graph->profile.tool_overrides.items[i],
+	for (i = 0; i < graph->build_context.tool_overrides.len; i++) {
+		if (!split_tool_override_for_doctor(graph->build_context.tool_overrides.items[i],
 		    name, sizeof(name), value, sizeof(value))) {
 			fprintf(out, "external-tool-override entry=%s status=invalid\n",
-			    graph->profile.tool_overrides.items[i]);
+			    graph->build_context.tool_overrides.items[i]);
 			continue;
 		}
 		if (strchr(value, '/') || strchr(value, '\\')) {
@@ -1551,7 +1551,7 @@ dump_external_tool_doctor(FILE *out, const struct qstar_plan *plan)
 				    "external-tool-override name=%s value=%s mode=invalid status=invalid path=<none> executable=no\n",
 				    name, value);
 			}
-		} else if (qstar_profile_find_path_tool(value, found, sizeof(found))) {
+		} else if (qstar_external_tool_find_path_tool(value, found, sizeof(found))) {
 			fprintf(out,
 			    "external-tool-override name=%s value=%s mode=path status=found path=%s\n",
 			    name, value, found);
@@ -1594,7 +1594,7 @@ collect_doctor_tool_requirements(const struct qstar_plan *plan,
 	}
 }
 
-/** depfile 생성 policy를 profile/compiler 관점에서 doctor에 출력한다. */
+/** depfile 생성 policy를 build context/compiler 관점에서 doctor에 출력한다. */
 static void
 dump_depfile_doctor(FILE *out, const struct doctor_tool_requirements *req,
     const struct qstar_resolved_toolchain *toolchain)
@@ -2114,8 +2114,8 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 		    toolchain.response_files ? "on" : "off", toolchain.response_style);
 		fprintf(out,
 		    "response-policy configured_files=%s configured_style=%s effective_files=%s effective_style=%s\n",
-		    profile_or_default(graph->profile.response_files, "auto"),
-		    profile_or_default(graph->profile.response_style, "auto"),
+		    context_or_default(graph->build_context.response_files, "auto"),
+		    context_or_default(graph->build_context.response_style, "auto"),
 		    toolchain.response_files ? "on" : "off", toolchain.response_style);
 		dump_toolchain_tool_doctor(out, graph, "cc", toolchain.cc, tool_req.cc);
 			dump_toolchain_tool_doctor(out, graph, "cxx", toolchain.cxx,
@@ -2123,9 +2123,9 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 			dump_toolchain_tool_doctor(out, graph, "ar", toolchain.ar, tool_req.ar);
 		dump_toolchain_tool_doctor(out, graph, "linker", toolchain.linker,
 		    tool_req.linker);
-		dump_profile_path_doctor(out, graph, "sysroot", graph->profile.sysroot, 1);
-		dump_profile_path_doctor(out, graph, "resource_dir",
-		    graph->profile.resource_dir, 1);
+		dump_build_context_path_doctor(out, graph, "sysroot", graph->build_context.sysroot, 1);
+		dump_build_context_path_doctor(out, graph, "resource_dir",
+		    graph->build_context.resource_dir, 1);
 		dump_depfile_doctor(out, &tool_req, &toolchain);
 	}
 	if (qstar_path_join(graph->package_root ? graph->package_root : ".",
@@ -2138,12 +2138,12 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 			    qstar_graph_build_dir(graph));
 	}
 	fprintf(out, "build-context name=%s target=%s toolchain=%s stdlib=%s\n",
-	    graph->profile.name ? graph->profile.name : "default",
-	    graph->profile.target ? graph->profile.target : "host",
-	    graph->profile.toolchain ? graph->profile.toolchain : "host",
-	    graph->profile.stdlib_policy ? graph->profile.stdlib_policy : "system");
+	    graph->build_context.name ? graph->build_context.name : "default",
+	    graph->build_context.target ? graph->build_context.target : "host",
+	    graph->build_context.toolchain ? graph->build_context.toolchain : "host",
+	    graph->build_context.stdlib_policy ? graph->build_context.stdlib_policy : "system");
 	fprintf(out, "build-context-options include_dirs=%zu lib_dirs=%zu\n",
-	    graph->profile.include_dirs.len, graph->profile.lib_dirs.len);
+	    graph->build_context.include_dirs.len, graph->build_context.lib_dirs.len);
 		dump_external_tool_doctor(out, &plan);
 	fputs("diagnostics ok\n", out);
 	fputs("file-inputs ok\n", out);

@@ -3358,7 +3358,7 @@ register_global_constants(lua_State *L, const struct qstar_lua_context *ctx)
 	const char *target;
 
 	graph = ctx->graph;
-	target = graph->profile.target && *graph->profile.target ? graph->profile.target : "host";
+	target = graph->build_context.target && *graph->build_context.target ? graph->build_context.target : "host";
 	set_global_string(L, "QSTAR_VERSION", QSTAR_VERSION);
 	set_global_integer(L, "QSTAR_VERSION_MAJOR", QSTAR_VERSION_MAJOR);
 	set_global_integer(L, "QSTAR_VERSION_MINOR", QSTAR_VERSION_MINOR);

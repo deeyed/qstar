@@ -61,7 +61,7 @@ qstar.executable "named_tool" {
     "//:windows_c",
   },
   sources = {
-    "src/profile_tool.c",
+    "src/context_tool.c",
   },
   artifact_name = "named_tool.exe",
   libs = {
@@ -74,7 +74,7 @@ qstar.staticlib "named_core" {
     "//:windows_c",
   },
   sources = {
-    "src/profile_core.c",
+    "src/context_core.c",
   },
   artifact_name = "named_core.lib",
 }

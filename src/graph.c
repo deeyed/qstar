@@ -237,30 +237,30 @@ free_package_alias(struct qstar_package_alias *pkg)
 	free(pkg->root);
 }
 
-/** profile input이 소유한 문자열을 해제한다. */
+/** build context input이 소유한 문자열을 해제한다. */
 static void
-free_profile_input(struct qstar_profile_input *profile)
+free_build_context(struct qstar_build_context *context)
 {
-	free(profile->name);
-	free(profile->target);
-	free(profile->toolchain);
-	free(profile->stdlib_policy);
-	free(profile->cc);
-	free(profile->cxx);
-	free(profile->ar);
-	free(profile->linker);
-	free(profile->sysroot);
-	free(profile->resource_dir);
-	free(profile->response_files);
-	free(profile->response_style);
-	free(profile->allow_absolute_tools);
-	qstar_string_list_free(&profile->artifact_names);
-	qstar_string_list_free(&profile->compile_options);
-	qstar_string_list_free(&profile->include_dirs);
-	qstar_string_list_free(&profile->lib_dirs);
-	qstar_string_list_free(&profile->link_options);
-	qstar_string_list_free(&profile->path_tools);
-	qstar_string_list_free(&profile->tool_overrides);
+	free(context->name);
+	free(context->target);
+	free(context->toolchain);
+	free(context->stdlib_policy);
+	free(context->cc);
+	free(context->cxx);
+	free(context->ar);
+	free(context->linker);
+	free(context->sysroot);
+	free(context->resource_dir);
+	free(context->response_files);
+	free(context->response_style);
+	free(context->allow_absolute_tools);
+	qstar_string_list_free(&context->artifact_names);
+	qstar_string_list_free(&context->compile_options);
+	qstar_string_list_free(&context->include_dirs);
+	qstar_string_list_free(&context->lib_dirs);
+	qstar_string_list_free(&context->link_options);
+	qstar_string_list_free(&context->path_tools);
+	qstar_string_list_free(&context->tool_overrides);
 }
 
 /** cached lowered action entry가 소유한 문자열과 list를 해제한다. */
@@ -320,7 +320,7 @@ qstar_graph_free(struct qstar_graph *graph)
 	free(graph->generator);
 	free(graph->requested_generator);
 	free(graph->build_dir_override);
-	free_profile_input(&graph->profile);
+	free_build_context(&graph->build_context);
 	free(graph->targets);
 	free(graph->configs);
 	free(graph->toolsets);
@@ -760,15 +760,15 @@ replace_string(char **slot, const char *value)
 	return 0;
 }
 
-/** QStar explain profile 입력을 graph에 기록한다. */
+/** QStar explain build context 입력을 graph에 기록한다. */
 int
-qstar_graph_set_profile_input(struct qstar_graph *graph, const char *name,
+qstar_graph_set_build_context_input(struct qstar_graph *graph, const char *name,
     const char *target, const char *toolchain, const char *stdlib_policy)
 {
-	if (replace_string(&graph->profile.name, name) < 0 ||
-	    replace_string(&graph->profile.target, target) < 0 ||
-	    replace_string(&graph->profile.toolchain, toolchain) < 0 ||
-	    replace_string(&graph->profile.stdlib_policy, stdlib_policy) < 0)
+	if (replace_string(&graph->build_context.name, name) < 0 ||
+	    replace_string(&graph->build_context.target, target) < 0 ||
+	    replace_string(&graph->build_context.toolchain, toolchain) < 0 ||
+	    replace_string(&graph->build_context.stdlib_policy, stdlib_policy) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
 	return 0;
 }
@@ -1420,7 +1420,7 @@ qstar_graph_find_output_owner(const struct qstar_graph *graph, const char *path)
 }
 
 static const char *
-profile_or_default(const char *s, const char *fallback)
+context_or_default(const char *s, const char *fallback)
 {
 	return s && *s ? s : fallback;
 }
@@ -1830,34 +1830,34 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 	    qstar_graph_build_dir(graph), qstar_graph_generated_dir(graph),
 	    qstar_graph_compile_commands_policy(graph), qstar_graph_generator(graph),
 	    qstar_graph_requested_generator(graph));
-	fprintf(out, "profile name=%s target=%s toolchain=%s stdlib=%s\n",
-	    profile_or_default(graph->profile.name, "default"),
-	    profile_or_default(graph->profile.target, "host"),
-	    profile_or_default(graph->profile.toolchain, "default"),
-	    profile_or_default(graph->profile.stdlib_policy, "default"));
-	fprintf(out, "profile_tools cc=%s cxx=%s ar=%s linker=%s sysroot=%s resource_dir=%s\n",
-	    graph->profile.cc ? graph->profile.cc : "<default>",
-	    graph->profile.cxx ? graph->profile.cxx : "<default>",
-	    graph->profile.ar ? graph->profile.ar : "<default>",
-	    graph->profile.linker ? graph->profile.linker : "<default>",
-	    graph->profile.sysroot ? graph->profile.sysroot : "<none>",
-	    graph->profile.resource_dir ? graph->profile.resource_dir : "<none>");
-	fprintf(out, "profile_response response_files=%s response_style=%s\n",
-	    graph->profile.response_files ? graph->profile.response_files : "auto",
-	    graph->profile.response_style ? graph->profile.response_style : "auto");
-	fputs("profile_link link_options=", out);
-	dump_list(out, &graph->profile.link_options);
+	fprintf(out, "build_context name=%s target=%s toolchain=%s stdlib=%s\n",
+	    context_or_default(graph->build_context.name, "default"),
+	    context_or_default(graph->build_context.target, "host"),
+	    context_or_default(graph->build_context.toolchain, "default"),
+	    context_or_default(graph->build_context.stdlib_policy, "default"));
+	fprintf(out, "build_context_tools cc=%s cxx=%s ar=%s linker=%s sysroot=%s resource_dir=%s\n",
+	    graph->build_context.cc ? graph->build_context.cc : "<default>",
+	    graph->build_context.cxx ? graph->build_context.cxx : "<default>",
+	    graph->build_context.ar ? graph->build_context.ar : "<default>",
+	    graph->build_context.linker ? graph->build_context.linker : "<default>",
+	    graph->build_context.sysroot ? graph->build_context.sysroot : "<none>",
+	    graph->build_context.resource_dir ? graph->build_context.resource_dir : "<none>");
+	fprintf(out, "build_context_response response_files=%s response_style=%s\n",
+	    graph->build_context.response_files ? graph->build_context.response_files : "auto",
+	    graph->build_context.response_style ? graph->build_context.response_style : "auto");
+	fputs("build_context_link link_options=", out);
+	dump_list(out, &graph->build_context.link_options);
 	fputc('\n', out);
-	fputs("profile_compile compile_options=", out);
-	dump_list(out, &graph->profile.compile_options);
+	fputs("build_context_compile compile_options=", out);
+	dump_list(out, &graph->build_context.compile_options);
 	fputs(" include_dirs=", out);
-	dump_list(out, &graph->profile.include_dirs);
+	dump_list(out, &graph->build_context.include_dirs);
 	fputc('\n', out);
-	fprintf(out, "profile_external_tools allow_absolute=%s path_tools=",
-	    graph->profile.allow_absolute_tools ? graph->profile.allow_absolute_tools : "false");
-	dump_list(out, &graph->profile.path_tools);
+	fprintf(out, "external_tool_policy allow_absolute=%s path_tools=",
+	    graph->build_context.allow_absolute_tools ? graph->build_context.allow_absolute_tools : "false");
+	dump_list(out, &graph->build_context.path_tools);
 	fputs(" tool_overrides=", out);
-	dump_list(out, &graph->profile.tool_overrides);
+	dump_list(out, &graph->build_context.tool_overrides);
 	fputc('\n', out);
 	dump_package_aliases(out, graph);
 	for (i = 0; i < graph->toolset_len; i++)

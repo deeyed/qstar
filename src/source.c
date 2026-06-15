@@ -483,7 +483,7 @@ validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 		return qstar_set_error(graph, "qstar: generated action '%s' has empty tool",
 		    genrule->label);
 	if (!genrule->config_header &&
-	    qstar_profile_resolve_command_tool(graph, genrule->tool, resolved_tool,
+	    qstar_external_tool_resolve_command_tool(graph, genrule->tool, resolved_tool,
 	    sizeof(resolved_tool), tool_mode, sizeof(tool_mode), tool_error,
 	    sizeof(tool_error)) < 0)
 		return qstar_set_error_origin(graph, genrule->origin_file,

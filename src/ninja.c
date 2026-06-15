@@ -1557,13 +1557,13 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		if (ninja_argv_push(graph, &argv, target->asm_compile_options.items[i]) < 0)
 			goto fail;
 	}
-	for (i = 0; i < graph->profile.compile_options.len; i++) {
-		if (ninja_argv_push(graph, &argv, graph->profile.compile_options.items[i]) < 0)
+	for (i = 0; i < graph->build_context.compile_options.len; i++) {
+		if (ninja_argv_push(graph, &argv, graph->build_context.compile_options.items[i]) < 0)
 			goto fail;
 	}
-	for (i = 0; i < graph->profile.include_dirs.len; i++) {
+	for (i = 0; i < graph->build_context.include_dirs.len; i++) {
 		if (ninja_argv_push(graph, &argv, "-I") < 0 ||
-		    ninja_argv_push(graph, &argv, graph->profile.include_dirs.items[i]) < 0)
+		    ninja_argv_push(graph, &argv, graph->build_context.include_dirs.items[i]) < 0)
 			goto fail;
 	}
 	for (i = 0; !is_asm && i < includes.len; i++) {
@@ -1705,7 +1705,7 @@ validate_sharedlib_platform(struct qstar_graph *graph, const struct qstar_target
 		return 0;
 	return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 	    "kind", target->label,
-	    "qstar: sharedlib target '%s' is not supported for Windows-like profiles yet; Windows shared libraries require a runtime .dll, import .lib, and optional PDB/debug artifact policy. Use custom_target/object bridge for now or see docs/windows-artifact-policy.md",
+	    "qstar: sharedlib target '%s' is not supported for Windows-like build contexts yet; Windows shared libraries require a runtime .dll, import .lib, and optional PDB/debug artifact policy. Use custom_target/object bridge for now or see docs/windows-artifact-policy.md",
 	    target->label);
 }
 
@@ -1769,15 +1769,15 @@ toolchain_uses_msvc_out_arg(const struct qstar_resolved_toolchain *toolchain,
 	return strstr(tool, "lld-link") != NULL || strstr(tool, "link.exe") != NULL;
 }
 
-/** target/profile link_options를 argv에 추가한다. */
+/** target/build context link_options를 argv에 추가한다. */
 static int
 append_link_policy_flags(struct qstar_graph *graph, const struct qstar_target *target,
     struct ninja_argv *argv)
 {
 	size_t i;
 
-	for (i = 0; i < graph->profile.link_options.len; i++) {
-		if (ninja_argv_push(graph, argv, graph->profile.link_options.items[i]) < 0)
+	for (i = 0; i < graph->build_context.link_options.len; i++) {
+		if (ninja_argv_push(graph, argv, graph->build_context.link_options.items[i]) < 0)
 			return -1;
 	}
 	for (i = 0; i < target->link_options.len; i++) {
@@ -1787,7 +1787,7 @@ append_link_policy_flags(struct qstar_graph *graph, const struct qstar_target *t
 	return 0;
 }
 
-/** system lib/lib_dir/framework link flags를 target profile별 spelling으로 추가한다. */
+/** system lib/lib_dir/framework link flags를 target context별 spelling으로 추가한다. */
 static int
 append_system_link_flags(struct qstar_graph *graph, const struct qstar_target *target,
     const struct qstar_resolved_toolchain *toolchain, struct ninja_argv *argv)
@@ -1797,11 +1797,11 @@ append_system_link_flags(struct qstar_graph *graph, const struct qstar_target *t
 	int windows;
 
 	windows = target_is_windows(toolchain->target);
-	for (i = 0; i < graph->profile.lib_dirs.len; i++) {
+	for (i = 0; i < graph->build_context.lib_dirs.len; i++) {
 		if (windows)
-			snprintf(flag, sizeof(flag), "/LIBPATH:%s", graph->profile.lib_dirs.items[i]);
+			snprintf(flag, sizeof(flag), "/LIBPATH:%s", graph->build_context.lib_dirs.items[i]);
 		else
-			snprintf(flag, sizeof(flag), "-L%s", graph->profile.lib_dirs.items[i]);
+			snprintf(flag, sizeof(flag), "-L%s", graph->build_context.lib_dirs.items[i]);
 		if (ninja_argv_push(graph, argv, flag) < 0)
 			return -1;
 	}

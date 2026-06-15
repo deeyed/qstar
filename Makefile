@@ -26,7 +26,9 @@ QSTAR_SRCS = \
 	src/lua_runtime.c \
 	src/ninja.c \
 	src/plan.c \
-	src/profile.c \
+	src/tool_context.c \
+	src/tool_resolution.c \
+	src/external_tool_policy.c \
 	src/rule.c \
 	src/source.c \
 	src/stella_cache.c \
