@@ -3067,15 +3067,27 @@ qstar.executable "app" {
 EOF
 "$qstar" --file "$tmp/generated-root/qstar.lua" build //:app > "$tmp/generated-root-build.out" 2> "$tmp/generated-root-build.err"
 contains "$tmp/generated-root-build.out" "status ok"
+
+step "generated root output layout" "generated-root-layout"
 test -f "$tmp/generated-root/build/qstar/generated/config.h" || fail "configured generated_dir missing config header"
 test -f "$tmp/generated-root/build/qstar/generated/value.c" || fail "configured generated_dir missing source"
 test ! -e "$tmp/generated-root/generated" || fail "configured generated_dir polluted package root generated/"
-"$tmp/generated-root/build/qstar/out/___app/app"
+
+step "generated root executable run" "generated-root-run"
+"$tmp/generated-root/build/qstar/out/___app/app" > "$tmp/generated-root-run.out" 2> "$tmp/generated-root-run.err"
+
+step "generated root compile database" "generated-root-compdb"
 contains "$tmp/generated-root/build/qstar/compile_commands.json" "build/qstar/generated/value.c"
+
+step "generated root debug state" "generated-root-debug-state"
 QSTAR_DEBUG_STATE_DUMPS=1 "$qstar" --file "$tmp/generated-root/qstar.lua" build //:app --progress off > "$tmp/generated-root-debug-state.out" 2> "$tmp/generated-root-debug-state.err"
 contains "$tmp/generated-root/build/qstar/state/graph.json" "\"generated_dir\":\"build/qstar/generated\""
+
+step "generated root list metadata" "generated-root-list"
 "$qstar" --file "$tmp/generated-root/qstar.lua" list-targets --format json > "$tmp/generated-root-list.json" 2> "$tmp/generated-root-list.err"
 contains "$tmp/generated-root-list.json" "\"generated_dir\":\"build/qstar/generated\""
+
+step "generated root graph metadata" "generated-root-graph"
 "$qstar" --file "$tmp/generated-root/qstar.lua" --dump-graph > "$tmp/generated-root-graph.out" 2> "$tmp/generated-root-graph.err"
 contains "$tmp/generated-root-graph.out" "generated_dir=build/qstar/generated"
 
