@@ -8,10 +8,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v2"
+#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v3"
 #define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v1"
 #define QSTAR_STELLA_ACTION_MAGIC "qstar-stella-actions-cache-v1"
-#define QSTAR_STELLA_PLAN_ABI 3
+#define QSTAR_STELLA_PLAN_ABI 4
 #define QSTAR_STELLA_HASH_INIT 1469598103934665603ULL
 #define QSTAR_STELLA_HASH_PRIME 1099511628211ULL
 #define QSTAR_STELLA_MAX_STRING (16U * 1024U * 1024U)
@@ -270,10 +270,6 @@ write_profile(FILE *f, const struct qstar_profile_input *p)
 	WSTR(target);
 	WSTR(toolchain);
 	WSTR(stdlib_policy);
-	WSTR(freestanding);
-	WSTR(arch);
-	WSTR(cpu);
-	WSTR(abi);
 	WSTR(cc);
 	WSTR(cxx);
 	WSTR(cale);
@@ -307,10 +303,6 @@ read_profile(FILE *f, struct qstar_profile_input *p)
 	RSTR(target);
 	RSTR(toolchain);
 	RSTR(stdlib_policy);
-	RSTR(freestanding);
-	RSTR(arch);
-	RSTR(cpu);
-	RSTR(abi);
 	RSTR(cc);
 	RSTR(cxx);
 	RSTR(cale);

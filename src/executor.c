@@ -1801,10 +1801,6 @@ compute_profile_key(struct qstar_graph *graph,
 
 	hash_str(&h, graph->profile.name ? graph->profile.name : "default");
 	hash_str(&h, graph->profile.target ? graph->profile.target : "host");
-	hash_str(&h, graph->profile.freestanding ? graph->profile.freestanding : "false");
-	hash_str(&h, graph->profile.arch ? graph->profile.arch : "");
-	hash_str(&h, graph->profile.cpu ? graph->profile.cpu : "");
-	hash_str(&h, graph->profile.abi ? graph->profile.abi : "");
 	hash_str(&h, graph->profile.allow_absolute_tools ?
 	    graph->profile.allow_absolute_tools : "false");
 	for (i = 0; i < graph->profile.compile_options.len; i++)
@@ -1914,10 +1910,6 @@ compute_action_key(struct qstar_build_ctx *ctx, struct qstar_graph *graph,
 	hash_str(&h, output);
 	hash_str(&h, graph->profile.name ? graph->profile.name : "default");
 	hash_str(&h, graph->profile.target ? graph->profile.target : "host");
-	hash_str(&h, graph->profile.freestanding ? graph->profile.freestanding : "false");
-	hash_str(&h, graph->profile.arch ? graph->profile.arch : "");
-	hash_str(&h, graph->profile.cpu ? graph->profile.cpu : "");
-	hash_str(&h, graph->profile.abi ? graph->profile.abi : "");
 	hash_str(&h, graph->profile.allow_absolute_tools ?
 	    graph->profile.allow_absolute_tools : "false");
 	for (i = 0; i < graph->profile.compile_options.len; i++)
@@ -4484,81 +4476,6 @@ collect_compile_include_dirs(const struct qstar_graph *graph, const struct qstar
 	return 0;
 }
 
-/** profile freestanding 값을 boolean으로 해석한다. */
-static int
-profile_is_freestanding(const struct qstar_graph *graph)
-{
-	const char *v;
-
-	v = graph->profile.freestanding;
-	return v && *v && strcmp(v, "false") != 0 && strcmp(v, "0") != 0 &&
-	    strcmp(v, "no") != 0 && strcmp(v, "off") != 0;
-}
-
-/** profile arch가 없을 때 target triple에서 arch 판단에 쓸 문자열을 고른다. */
-static const char *
-profile_arch_hint(const struct qstar_graph *graph)
-{
-	return graph->profile.arch && *graph->profile.arch ? graph->profile.arch :
-	    graph->profile.target && *graph->profile.target ? graph->profile.target : "";
-}
-
-/** freestanding/cpu/abi profile에서 자동 compile option 개수를 계산한다. */
-static size_t
-profile_compile_option_count(const struct qstar_graph *graph)
-{
-	size_t n;
-	const char *arch;
-
-	n = 0;
-	if (profile_is_freestanding(graph)) {
-		n += 3;
-		arch = profile_arch_hint(graph);
-		if (strstr(arch, "x86_64") || strstr(arch, "amd64"))
-			n++;
-		if (strstr(arch, "aarch64") || strstr(arch, "arm64"))
-			n++;
-	}
-	if (graph->profile.cpu && *graph->profile.cpu)
-		n++;
-	if (graph->profile.abi && *graph->profile.abi)
-		n++;
-	return n;
-}
-
-/** freestanding/cpu/abi profile에서 자동 compile option을 argv에 추가한다. */
-static int
-append_profile_compile_options(struct qstar_graph *graph, struct qstar_prepared_action *action)
-{
-	char arg[QSTAR_PATH_MAX];
-	const char *arch;
-
-	if (profile_is_freestanding(graph)) {
-		if (prepared_action_push_argv(graph, action, "-ffreestanding") < 0 ||
-		    prepared_action_push_argv(graph, action, "-fno-builtin") < 0 ||
-		    prepared_action_push_argv(graph, action, "-fno-stack-protector") < 0)
-			return -1;
-		arch = profile_arch_hint(graph);
-		if ((strstr(arch, "x86_64") || strstr(arch, "amd64")) &&
-		    prepared_action_push_argv(graph, action, "-mno-red-zone") < 0)
-			return -1;
-		if ((strstr(arch, "aarch64") || strstr(arch, "arm64")) &&
-		    prepared_action_push_argv(graph, action, "-mgeneral-regs-only") < 0)
-			return -1;
-	}
-	if (graph->profile.cpu && *graph->profile.cpu) {
-		snprintf(arg, sizeof(arg), "-mcpu=%s", graph->profile.cpu);
-		if (prepared_action_push_argv(graph, action, arg) < 0)
-			return -1;
-	}
-	if (graph->profile.abi && *graph->profile.abi) {
-		snprintf(arg, sizeof(arg), "-mabi=%s", graph->profile.abi);
-		if (prepared_action_push_argv(graph, action, arg) < 0)
-			return -1;
-	}
-	return 0;
-}
-
 /** source language가 assembler 계열인지 확인한다. */
 static int
 source_is_asm(const struct qstar_source_info *source)
@@ -5961,7 +5878,6 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	    (is_asm ? 0 : target->system_include_dirs.len * 2) +
 	    (is_asm ? target->asm_compile_options.len :
 	    is_cxx ? target->cxxflags.len : is_cale ? 0 : target->cflags.len) +
-	    profile_compile_option_count(graph) +
 	    18 > QSTAR_EXEC_MAX_ARGV) {
 		qstar_string_list_free(&includes);
 		return qstar_set_error(graph, "qstar: compile argv too long");
@@ -6032,8 +5948,6 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    target->asm_compile_options.items[i]) < 0)
 			goto fail;
 	}
-	if (!is_cale && append_profile_compile_options(graph, action) < 0)
-		goto fail;
 	for (i = 0; !is_cale && i < graph->profile.compile_options.len; i++) {
 		if (prepared_action_push_argv(graph, action,
 		    graph->profile.compile_options.items[i]) < 0)

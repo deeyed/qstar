@@ -367,53 +367,6 @@ collect_compile_include_dirs(const struct qstar_graph *graph, const struct qstar
 	return 0;
 }
 
-/** profile freestanding 값을 boolean으로 해석한다. */
-static int
-profile_is_freestanding(const struct qstar_graph *graph)
-{
-	const char *v;
-
-	v = graph->profile.freestanding;
-	return v && *v && strcmp(v, "false") != 0 && strcmp(v, "0") != 0 &&
-	    strcmp(v, "no") != 0 && strcmp(v, "off") != 0;
-}
-
-/** profile arch가 없을 때 target triple에서 arch 판단에 쓸 문자열을 고른다. */
-static const char *
-profile_arch_hint(const struct qstar_graph *graph)
-{
-	return graph->profile.arch && *graph->profile.arch ? graph->profile.arch :
-	    graph->profile.target && *graph->profile.target ? graph->profile.target : "";
-}
-
-/** freestanding/cpu/abi profile에서 자동 compile option을 argv에 추가한다. */
-static int
-append_profile_compile_options(struct qstar_graph *graph, struct ninja_argv *argv)
-{
-	const char *arch;
-
-	if (profile_is_freestanding(graph)) {
-		if (ninja_argv_push(graph, argv, "-ffreestanding") < 0 ||
-		    ninja_argv_push(graph, argv, "-fno-builtin") < 0 ||
-		    ninja_argv_push(graph, argv, "-fno-stack-protector") < 0)
-			return -1;
-		arch = profile_arch_hint(graph);
-		if ((strstr(arch, "x86_64") || strstr(arch, "amd64")) &&
-		    ninja_argv_push(graph, argv, "-mno-red-zone") < 0)
-			return -1;
-		if ((strstr(arch, "aarch64") || strstr(arch, "arm64")) &&
-		    ninja_argv_push(graph, argv, "-mgeneral-regs-only") < 0)
-			return -1;
-	}
-	if (graph->profile.cpu && *graph->profile.cpu &&
-	    ninja_argv_pushf(graph, argv, "-mcpu=%s", graph->profile.cpu) < 0)
-		return -1;
-	if (graph->profile.abi && *graph->profile.abi &&
-	    ninja_argv_pushf(graph, argv, "-mabi=%s", graph->profile.abi) < 0)
-		return -1;
-	return 0;
-}
-
 /** source language가 assembler 계열인지 확인한다. */
 static int
 source_is_asm(const struct qstar_source_info *source)
@@ -1565,8 +1518,6 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		if (ninja_argv_push(graph, &argv, target->asm_compile_options.items[i]) < 0)
 			goto fail;
 	}
-	if (append_profile_compile_options(graph, &argv) < 0)
-		goto fail;
 	for (i = 0; i < graph->profile.compile_options.len; i++) {
 		if (ninja_argv_push(graph, &argv, graph->profile.compile_options.items[i]) < 0)
 			goto fail;

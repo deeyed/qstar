@@ -46,21 +46,6 @@ valid_profile_bool(const char *value)
 	    strcmp(value, "off") == 0;
 }
 
-/** arch/cpu/abi profile token을 command-line flag에 안전한 문자로 제한한다. */
-static int
-valid_profile_token(const char *value)
-{
-	const unsigned char *p;
-
-	if (!value || !*value)
-		return 1;
-	for (p = (const unsigned char *)value; *p; p++) {
-		if (!(isalnum(*p) || *p == '_' || *p == '-' || *p == '.' || *p == '+'))
-			return 0;
-	}
-	return 1;
-}
-
 /** defsym entry를 NAME=VALUE 형태로 제한한다. */
 static int
 valid_defsym(const char *value)
@@ -445,18 +430,9 @@ qstar_graph_validate_profile(struct qstar_graph *graph)
 		return qstar_set_error(graph,
 		    "qstar: profile linker_script '%s' does not exist",
 		    graph->profile.linker_script);
-	if (!valid_profile_bool(graph->profile.freestanding))
-		return qstar_set_error(graph,
-		    "qstar: profile freestanding must be true, false, 1, 0, yes, no, on, or off");
 	if (!valid_profile_bool(graph->profile.allow_absolute_tools))
 		return qstar_set_error(graph,
 		    "qstar: profile allow_absolute_tools must be true, false, 1, 0, yes, no, on, or off");
-	if (!valid_profile_token(graph->profile.arch))
-		return qstar_set_error(graph, "qstar: profile arch contains unsupported characters");
-	if (!valid_profile_token(graph->profile.cpu))
-		return qstar_set_error(graph, "qstar: profile cpu contains unsupported characters");
-	if (!valid_profile_token(graph->profile.abi))
-		return qstar_set_error(graph, "qstar: profile abi contains unsupported characters");
 	for (i = 0; i < graph->profile.include_dirs.len; i++) {
 		if (!valid_profile_path(graph->profile.include_dirs.items[i]))
 			return qstar_set_error(graph,
@@ -597,7 +573,7 @@ qstar_toolchain_target_supports_sharedlib(const char *target)
 
 /** target triple에서 MSVC command-line 계열 여부를 판정한다. */
 static int
-profile_target_is_msvc(const char *target)
+target_is_msvc(const char *target)
 {
 	return target && strstr(target, "msvc");
 }
@@ -681,7 +657,7 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 	if (graph->profile.response_style && *graph->profile.response_style)
 		snprintf(resolved->response_style, sizeof(resolved->response_style), "%s",
 		    graph->profile.response_style);
-	else if (profile_target_is_msvc(resolved->target))
+	else if (target_is_msvc(resolved->target))
 		snprintf(resolved->response_style, sizeof(resolved->response_style), "msvc");
 	else if (qstar_toolchain_target_is_windows(resolved->target))
 		snprintf(resolved->response_style, sizeof(resolved->response_style),

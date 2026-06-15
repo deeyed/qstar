@@ -250,10 +250,6 @@ free_profile_input(struct qstar_profile_input *profile)
 	free(profile->target);
 	free(profile->toolchain);
 	free(profile->stdlib_policy);
-	free(profile->freestanding);
-	free(profile->arch);
-	free(profile->cpu);
-	free(profile->abi);
 	free(profile->cc);
 	free(profile->cxx);
 	free(profile->cale);
@@ -1889,11 +1885,6 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 	    profile_or_default(graph->profile.target, "host"),
 	    profile_or_default(graph->profile.toolchain, "default"),
 	    profile_or_default(graph->profile.stdlib_policy, "default"));
-	fprintf(out, "profile_target arch=%s cpu=%s abi=%s freestanding=%s\n",
-	    graph->profile.arch ? graph->profile.arch : "<auto>",
-	    graph->profile.cpu ? graph->profile.cpu : "<none>",
-	    graph->profile.abi ? graph->profile.abi : "<none>",
-	    graph->profile.freestanding ? graph->profile.freestanding : "false");
 	fprintf(out, "profile_tools cc=%s cxx=%s cale=%s ar=%s linker=%s sysroot=%s resource_dir=%s\n",
 	    graph->profile.cc ? graph->profile.cc : "<default>",
 	    graph->profile.cxx ? graph->profile.cxx : "<default>",

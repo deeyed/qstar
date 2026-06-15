@@ -348,11 +348,6 @@ dump_plan_inputs(FILE *out, const struct qstar_graph *graph)
 	    profile_or_default(graph->profile.target, "host"),
 	    profile_or_default(graph->profile.toolchain, "default"),
 	    profile_or_default(graph->profile.stdlib_policy, "default"));
-	fprintf(out, "profile_target arch=%s cpu=%s abi=%s freestanding=%s\n",
-	    profile_or_default(graph->profile.arch, "<auto>"),
-	    profile_or_default(graph->profile.cpu, "<none>"),
-	    profile_or_default(graph->profile.abi, "<none>"),
-	    profile_or_default(graph->profile.freestanding, "false"));
 	fprintf(out, "profile_tools cc=%s cxx=%s cale=%s ar=%s linker=%s sysroot=%s resource_dir=%s\n",
 	    profile_or_default(graph->profile.cc, "<default>"),
 	    profile_or_default(graph->profile.cxx, "<default>"),
@@ -673,127 +668,16 @@ collect_compile_include_dirs(const struct qstar_graph *graph, const struct qstar
 	return 0;
 }
 
-/** profile freestanding 값을 boolean으로 해석한다. */
-static int
-profile_is_freestanding(const struct qstar_graph *graph)
-{
-	const char *v;
-
-	v = graph->profile.freestanding;
-	return v && *v && strcmp(v, "false") != 0 && strcmp(v, "0") != 0 &&
-	    strcmp(v, "no") != 0 && strcmp(v, "off") != 0;
-}
-
-/** profile arch가 없을 때 target triple에서 arch 판단에 쓸 문자열을 고른다. */
-static const char *
-profile_arch_hint(const struct qstar_graph *graph)
-{
-	return graph->profile.arch && *graph->profile.arch ? graph->profile.arch :
-	    graph->profile.target && *graph->profile.target ? graph->profile.target : "";
-}
-
-/** freestanding/cpu/abi profile에서 자동 compile option 개수를 계산한다. */
-static size_t
-profile_compile_option_count(const struct qstar_graph *graph)
-{
-	size_t n;
-	const char *arch;
-
-	n = 0;
-	if (profile_is_freestanding(graph)) {
-		n += 3;
-		arch = profile_arch_hint(graph);
-		if (strstr(arch, "x86_64") || strstr(arch, "amd64"))
-			n++;
-		if (strstr(arch, "aarch64") || strstr(arch, "arm64"))
-			n++;
-	}
-	if (graph->profile.cpu && *graph->profile.cpu)
-		n++;
-	if (graph->profile.abi && *graph->profile.abi)
-		n++;
-	return n;
-}
-
-/** freestanding/cpu/abi profile에서 자동 compile option을 argv dump에 추가한다. */
-static void
-dump_profile_compile_options(FILE *out, struct qstar_argv_dump *dump,
-    const struct qstar_graph *graph)
-{
-	char arg[QSTAR_PATH_MAX];
-	const char *arch;
-
-	if (profile_is_freestanding(graph)) {
-		argv_item(out, dump, "-ffreestanding");
-		argv_item(out, dump, "-fno-builtin");
-		argv_item(out, dump, "-fno-stack-protector");
-		arch = profile_arch_hint(graph);
-		if (strstr(arch, "x86_64") || strstr(arch, "amd64"))
-			argv_item(out, dump, "-mno-red-zone");
-		if (strstr(arch, "aarch64") || strstr(arch, "arm64"))
-			argv_item(out, dump, "-mgeneral-regs-only");
-	}
-	if (graph->profile.cpu && *graph->profile.cpu) {
-		snprintf(arg, sizeof(arg), "-mcpu=%s", graph->profile.cpu);
-		argv_item(out, dump, arg);
-	}
-	if (graph->profile.abi && *graph->profile.abi) {
-		snprintf(arg, sizeof(arg), "-mabi=%s", graph->profile.abi);
-		argv_item(out, dump, arg);
-	}
-}
-
-/** freestanding/cpu/abi profile이 자동 추가하는 compile option list를 출력한다. */
-static void
-dump_profile_auto_compile_options(FILE *out, const struct qstar_graph *graph)
-{
-	char arg[QSTAR_PATH_MAX];
-	const char *arch;
-	int first;
-
-	first = 1;
-	fputc('[', out);
-#define AUTO_OPT(value) \
-	do { \
-		if (!first) \
-			fputs(", ", out); \
-		fputs((value), out); \
-		first = 0; \
-	} while (0)
-	if (profile_is_freestanding(graph)) {
-		AUTO_OPT("-ffreestanding");
-		AUTO_OPT("-fno-builtin");
-		AUTO_OPT("-fno-stack-protector");
-		arch = profile_arch_hint(graph);
-		if (strstr(arch, "x86_64") || strstr(arch, "amd64"))
-			AUTO_OPT("-mno-red-zone");
-		if (strstr(arch, "aarch64") || strstr(arch, "arm64"))
-			AUTO_OPT("-mgeneral-regs-only");
-	}
-	if (graph->profile.cpu && *graph->profile.cpu) {
-		snprintf(arg, sizeof(arg), "-mcpu=%s", graph->profile.cpu);
-		AUTO_OPT(arg);
-	}
-	if (graph->profile.abi && *graph->profile.abi) {
-		snprintf(arg, sizeof(arg), "-mabi=%s", graph->profile.abi);
-		AUTO_OPT(arg);
-	}
-#undef AUTO_OPT
-	fputc(']', out);
-}
-
 /** target compile option이 profile/config/local merge 뒤 어떻게 보이는지 설명한다. */
 static void
 dump_effective_compile_merge(FILE *out, const struct qstar_graph *graph,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain)
 {
 	fprintf(out,
-	    "  effective_compile_merge owner=%s profile=%s target=%s response_files=%s response_style=%s order=auto,profile,target auto_options=",
+	    "  effective_compile_merge owner=%s profile=%s target=%s response_files=%s response_style=%s order=profile,target profile_compile_options=",
 	    target->label, profile_or_default(graph->profile.name, "default"),
 	    profile_or_default(graph->profile.target, "host"),
 	    toolchain->response_files ? "on" : "off", toolchain->response_style);
-	dump_profile_auto_compile_options(out, graph);
-	fputs(" profile_compile_options=", out);
 	dump_list(out, &graph->profile.compile_options);
 	fputs(" profile_include_dirs=", out);
 	dump_list(out, &graph->profile.include_dirs);
@@ -923,7 +807,6 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	    !qstar_toolchain_target_is_windows(toolchain->target) && !is_asm &&
 	    !is_cale ? 1 : 0) +
 	    (is_cxx && target->cxx_standard[0] ? 1 : 0) +
-	    profile_compile_option_count(graph) +
 	    (is_asm ? target->asm_compile_options.len :
 	    is_cxx ? target->cxxflags.len : is_cale ? 0 : target->cflags.len);
 	snprintf(target_arg, sizeof(target_arg), "--target=%s", toolchain->target);
@@ -969,8 +852,6 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 		argv_item(out, &dump, target->cxxflags.items[i]);
 	for (i = 0; is_asm && i < target->asm_compile_options.len; i++)
 		argv_item(out, &dump, target->asm_compile_options.items[i]);
-	if (!is_cale)
-		dump_profile_compile_options(out, &dump, graph);
 	for (i = 0; !is_cale && i < graph->profile.compile_options.len; i++)
 		argv_item(out, &dump, graph->profile.compile_options.items[i]);
 	for (i = 0; i < graph->profile.include_dirs.len; i++) {

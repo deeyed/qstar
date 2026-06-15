@@ -169,10 +169,6 @@ struct qstar_profile_input {
 	char *target;
 	char *toolchain;
 	char *stdlib_policy;
-	char *freestanding;
-	char *arch;
-	char *cpu;
-	char *abi;
 	char *cc;
 	char *cxx;
 	char *cale;

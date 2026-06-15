@@ -2943,8 +2943,7 @@ qstar_lua_select(lua_State *L)
 	ctx = get_context(L);
 	target = ctx->graph->profile.target && *ctx->graph->profile.target ?
 	    ctx->graph->profile.target : "host";
-	arch = ctx->graph->profile.arch && *ctx->graph->profile.arch ?
-	    ctx->graph->profile.arch : target;
+	arch = target;
 	luaL_checktype(L, 1, LUA_TTABLE);
 	matched = 0;
 	selected = NULL;
