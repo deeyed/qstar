@@ -160,6 +160,7 @@ struct qstar_package_alias {
 struct qstar_build_context {
 	char *name;
 	char *target;
+	char *platform;
 	char *toolchain;
 	char *stdlib_policy;
 	char *cc;
@@ -373,6 +374,8 @@ int qstar_graph_add_package_alias(struct qstar_graph *graph, const char *alias, 
 /** CLI/internal target/toolchain override를 graph의 임시 build context에 기록한다. */
 int qstar_graph_set_build_context_input(struct qstar_graph *graph, const char *name,
     const char *target, const char *toolchain, const char *stdlib_policy);
+int qstar_graph_set_platform_context(struct qstar_graph *graph, const char *platform);
+const char *qstar_graph_platform(const struct qstar_graph *graph);
 
 /** QStar package alias map에서 alias를 찾는다. */
 const struct qstar_package_alias *qstar_graph_find_package_alias(const struct qstar_graph *graph,

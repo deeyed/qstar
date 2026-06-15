@@ -41,9 +41,9 @@ qstar_daemon_parse_mode(const char *s, int *mode)
 int
 qstar_daemon_build_client(const char *socket_path, int mode, const char *file,
     const char *label, const char *cli_build_dir, const char *cli_build_context,
-    const char *cli_target, const char *cli_toolchain, const char *cli_stdlib,
-    const struct qstar_build_options *options, FILE *out, int *build_status,
-    char *error, size_t error_len)
+    const char *cli_target, const char *cli_platform, const char *cli_toolchain,
+    const char *cli_stdlib, const struct qstar_build_options *options, FILE *out,
+    int *build_status, char *error, size_t error_len)
 {
 	(void)socket_path;
 	(void)mode;
@@ -52,6 +52,7 @@ qstar_daemon_build_client(const char *socket_path, int mode, const char *file,
 	(void)cli_build_dir;
 	(void)cli_build_context;
 	(void)cli_target;
+	(void)cli_platform;
 	(void)cli_toolchain;
 	(void)cli_stdlib;
 	(void)options;
@@ -66,7 +67,8 @@ qstar_daemon_build_client(const char *socket_path, int mode, const char *file,
 int
 qstar_daemon_command(int argc, char **argv, const char *file,
     const char *cli_build_dir, const char *cli_build_context, const char *cli_target,
-    const char *cli_toolchain, const char *cli_stdlib, FILE *out)
+    const char *cli_platform, const char *cli_toolchain, const char *cli_stdlib,
+    FILE *out)
 {
 	int i;
 
@@ -74,6 +76,7 @@ qstar_daemon_command(int argc, char **argv, const char *file,
 	(void)cli_build_dir;
 	(void)cli_build_context;
 	(void)cli_target;
+	(void)cli_platform;
 	(void)cli_toolchain;
 	(void)cli_stdlib;
 	for (i = 0; i < argc; i++) {
@@ -126,6 +129,7 @@ struct qstar_daemon_request {
 	char build_dir[QSTAR_PATH_MAX];
 	char build_context[128];
 	char target[128];
+	char platform[128];
 	char toolchain[128];
 	char stdlib_policy[128];
 	struct qstar_build_options options;
@@ -174,6 +178,7 @@ struct qstar_daemon_server {
 	char build_dir[QSTAR_PATH_MAX];
 	char build_context[128];
 	char target[128];
+	char platform[128];
 	char toolchain[128];
 	char stdlib_policy[128];
 	char graph_reason[128];
@@ -959,6 +964,7 @@ send_request_body(int fd, const struct qstar_daemon_request *req)
 	    send_request_line(fd, req->build_dir) < 0 ||
 	    send_request_line(fd, req->build_context) < 0 ||
 	    send_request_line(fd, req->target) < 0 ||
+	    send_request_line(fd, req->platform) < 0 ||
 	    send_request_line(fd, req->toolchain) < 0 ||
 	    send_request_line(fd, req->stdlib_policy) < 0)
 		return -1;
@@ -1024,6 +1030,7 @@ read_request(int fd, struct qstar_daemon_request *req)
 	    read_line(fd, req->build_dir, sizeof(req->build_dir)) < 0 ||
 	    read_line(fd, req->build_context, sizeof(req->build_context)) < 0 ||
 	    read_line(fd, req->target, sizeof(req->target)) < 0 ||
+	    read_line(fd, req->platform, sizeof(req->platform)) < 0 ||
 	    read_line(fd, req->toolchain, sizeof(req->toolchain)) < 0 ||
 	    read_line(fd, req->stdlib_policy, sizeof(req->stdlib_policy)) < 0)
 		return -1;
@@ -1221,9 +1228,9 @@ daemon_hello(const char *socket_path, char *body, size_t body_len, int *status_o
 int
 qstar_daemon_build_client(const char *socket_path, int mode, const char *file,
     const char *label, const char *cli_build_dir, const char *cli_build_context,
-    const char *cli_target, const char *cli_toolchain, const char *cli_stdlib,
-    const struct qstar_build_options *options, FILE *out, int *build_status,
-    char *error, size_t error_len)
+    const char *cli_target, const char *cli_platform, const char *cli_toolchain,
+    const char *cli_stdlib, const struct qstar_build_options *options, FILE *out,
+    int *build_status, char *error, size_t error_len)
 {
 	struct qstar_daemon_request req;
 	char socket_buf[QSTAR_PATH_MAX];
@@ -1252,6 +1259,7 @@ qstar_daemon_build_client(const char *socket_path, int mode, const char *file,
 	    copy_string(req.build_dir, sizeof(req.build_dir), cli_build_dir) < 0 ||
 	    copy_string(req.build_context, sizeof(req.build_context), cli_build_context) < 0 ||
 	    copy_string(req.target, sizeof(req.target), cli_target) < 0 ||
+	    copy_string(req.platform, sizeof(req.platform), cli_platform) < 0 ||
 	    copy_string(req.toolchain, sizeof(req.toolchain), cli_toolchain) < 0 ||
 	    copy_string(req.stdlib_policy, sizeof(req.stdlib_policy), cli_stdlib) < 0) {
 		set_error(error, error_len, "daemon request field is too long");
@@ -1277,7 +1285,8 @@ qstar_daemon_build_client(const char *socket_path, int mode, const char *file,
 static int
 daemon_query_client(const char *socket_path, const char *method, const char *file,
     const char *cli_build_dir, const char *cli_build_context, const char *cli_target,
-    const char *cli_toolchain, const char *cli_stdlib, FILE *out)
+    const char *cli_platform, const char *cli_toolchain, const char *cli_stdlib,
+    FILE *out)
 {
 	struct qstar_daemon_request req;
 	char socket_buf[QSTAR_PATH_MAX], error[256];
@@ -1315,6 +1324,7 @@ daemon_query_client(const char *socket_path, const char *method, const char *fil
 	    copy_string(req.build_dir, sizeof(req.build_dir), cli_build_dir) < 0 ||
 	    copy_string(req.build_context, sizeof(req.build_context), cli_build_context) < 0 ||
 	    copy_string(req.target, sizeof(req.target), cli_target) < 0 ||
+	    copy_string(req.platform, sizeof(req.platform), cli_platform) < 0 ||
 	    copy_string(req.toolchain, sizeof(req.toolchain), cli_toolchain) < 0 ||
 	    copy_string(req.stdlib_policy, sizeof(req.stdlib_policy), cli_stdlib) < 0) {
 		fprintf(stderr, "qstar: daemon query field is too long\n");
@@ -2009,6 +2019,7 @@ same_identity(const struct qstar_daemon_server *server,
 	    strcmp(server->build_dir, req->build_dir) == 0 &&
 	    strcmp(server->build_context, req->build_context) == 0 &&
 	    strcmp(server->target, req->target) == 0 &&
+	    strcmp(server->platform, req->platform) == 0 &&
 	    strcmp(server->toolchain, req->toolchain) == 0 &&
 	    strcmp(server->stdlib_policy, req->stdlib_policy) == 0;
 }
@@ -2023,6 +2034,7 @@ same_graph_identity(const struct qstar_daemon_server *server,
 	    strcmp(server->build_dir, req->build_dir) == 0 &&
 	    strcmp(server->build_context, req->build_context) == 0 &&
 	    strcmp(server->target, req->target) == 0 &&
+	    strcmp(server->platform, req->platform) == 0 &&
 	    strcmp(server->toolchain, req->toolchain) == 0 &&
 	    strcmp(server->stdlib_policy, req->stdlib_policy) == 0;
 }
@@ -2082,6 +2094,9 @@ load_graph(struct qstar_daemon_server *server, const struct qstar_daemon_request
 	rc = qstar_graph_set_build_context_input(&server->graph,
 	    req->build_context[0] ? req->build_context : NULL, NULL, NULL, NULL);
 	if (rc == 0)
+		rc = qstar_graph_set_platform_context(&server->graph,
+		    req->platform[0] ? req->platform : NULL);
+	if (rc == 0)
 		rc = qstar_graph_set_cli_overrides(&server->graph, "stella",
 		    req->build_dir[0] ? req->build_dir : NULL);
 	cache_reason[0] = '\0';
@@ -2091,6 +2106,7 @@ load_graph(struct qstar_daemon_server *server, const struct qstar_daemon_request
 		    "build", req->label[0] ? req->label : NULL,
 		    req->build_context[0] ? req->build_context : NULL,
 		    req->target[0] ? req->target : NULL,
+		    req->platform[0] ? req->platform : NULL,
 		    req->toolchain[0] ? req->toolchain : NULL,
 		    req->stdlib_policy[0] ? req->stdlib_policy : NULL,
 		    cache_reason, sizeof(cache_reason));
@@ -2106,6 +2122,9 @@ load_graph(struct qstar_daemon_server *server, const struct qstar_daemon_request
 		    req->target[0] ? req->target : NULL,
 		    req->toolchain[0] ? req->toolchain : NULL,
 		    req->stdlib_policy[0] ? req->stdlib_policy : NULL);
+	if (rc == 0 && !plan_loaded)
+		rc = qstar_graph_set_platform_context(&server->graph,
+		    req->platform[0] ? req->platform : NULL);
 	if (rc == 0 && !plan_loaded)
 		rc = qstar_graph_validate_build_context(&server->graph);
 	if (rc == 0 && !plan_loaded)
@@ -2126,6 +2145,7 @@ load_graph(struct qstar_daemon_server *server, const struct qstar_daemon_request
 		    req->label[0] ? req->label : NULL,
 		    req->build_context[0] ? req->build_context : NULL,
 		    req->target[0] ? req->target : NULL,
+		    req->platform[0] ? req->platform : NULL,
 		    req->toolchain[0] ? req->toolchain : NULL,
 		    req->stdlib_policy[0] ? req->stdlib_policy : NULL,
 		    store_reason, sizeof(store_reason)) < 0) {
@@ -2151,6 +2171,7 @@ load_graph(struct qstar_daemon_server *server, const struct qstar_daemon_request
 	copy_string(server->build_dir, sizeof(server->build_dir), req->build_dir);
 	copy_string(server->build_context, sizeof(server->build_context), req->build_context);
 	copy_string(server->target, sizeof(server->target), req->target);
+	copy_string(server->platform, sizeof(server->platform), req->platform);
 	copy_string(server->toolchain, sizeof(server->toolchain), req->toolchain);
 	copy_string(server->stdlib_policy, sizeof(server->stdlib_policy), req->stdlib_policy);
 	server->graph_loaded = 1;
@@ -3010,7 +3031,8 @@ daemon_usage(FILE *out)
 int
 qstar_daemon_command(int argc, char **argv, const char *file,
     const char *cli_build_dir, const char *cli_build_context, const char *cli_target,
-    const char *cli_toolchain, const char *cli_stdlib, FILE *out)
+    const char *cli_platform, const char *cli_toolchain, const char *cli_stdlib,
+    FILE *out)
 {
 	const char *socket_path, *query_method;
 	char socket_buf[QSTAR_PATH_MAX];
@@ -3076,7 +3098,8 @@ qstar_daemon_command(int argc, char **argv, const char *file,
 		return serve_socket(socket_path, out);
 	if (query_method)
 		return daemon_query_client(socket_path, query_method, file, cli_build_dir,
-		    cli_build_context, cli_target, cli_toolchain, cli_stdlib, out);
+		    cli_build_context, cli_target, cli_platform, cli_toolchain, cli_stdlib,
+		    out);
 	return daemon_status(socket_path, out);
 }
 

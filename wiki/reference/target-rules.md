@@ -27,12 +27,12 @@ qstar.stage "bundle" { root = "stage/bundle", files = {} }
 qstar.target_family "module_variants" { variants = {"fast", "portable"} }
 ```
 
-`sharedlib`는 macOS host policy에서 `lib<name>.dylib`, Linux host policy에서
+`sharedlib`는 macOS platform context에서 `lib<name>.dylib`, Linux platform context에서
 `lib<name>.so`를 생성한다. Stella와 Ninja backend 모두 C/C++/ASM source를 compile하고
 `link-shared` final action을 실행한다. sharedlib에 의존하는 executable/test/sharedlib는
 build-tree 실행을 위해 macOS에서는 `@loader_path`, Linux에서는 `$ORIGIN` 기반 rpath를
 자동으로 받는다. Windows runtime `.dll`, import `.lib`, PDB/debug artifact 정책은 아직
-deferred이며 Windows host에서는 `docs/windows-artifact-policy.md`를 가리키는
+deferred이며 Windows platform context에서는 `docs/windows-artifact-policy.md`를 가리키는
 명확한 diagnostic을 낸다.
 
 Artifact target은 `configs = {"//:common_c"}`로 reusable option bundle을 참조할 수

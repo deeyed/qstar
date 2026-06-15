@@ -2,9 +2,9 @@
 
 #include <string.h>
 
-/** host target이 현재 build host에서 Windows 계열인지 반환한다. */
+/** host platform이 현재 build host에서 Windows 계열인지 반환한다. */
 static int
-host_target_is_windows(void)
+host_platform_is_windows(void)
 {
 #ifdef _WIN32
 	return 1;
@@ -13,9 +13,9 @@ host_target_is_windows(void)
 #endif
 }
 
-/** host target이 현재 build host에서 Darwin/macOS 계열인지 반환한다. */
+/** host platform이 현재 build host에서 Darwin/macOS 계열인지 반환한다. */
 static int
-host_target_is_darwin(void)
+host_platform_is_darwin(void)
 {
 #ifdef __APPLE__
 	return 1;
@@ -24,9 +24,9 @@ host_target_is_darwin(void)
 #endif
 }
 
-/** host target이 현재 build host에서 Linux 계열인지 반환한다. */
+/** host platform이 현재 build host에서 Linux 계열인지 반환한다. */
 static int
-host_target_is_linux(void)
+host_platform_is_linux(void)
 {
 #if defined(__linux__)
 	return 1;
@@ -35,51 +35,76 @@ host_target_is_linux(void)
 #endif
 }
 
-/** target triple에서 Windows 계열 여부를 보수적으로 판정한다. */
-int
-qstar_toolchain_target_is_windows(const char *target)
+/** host platform context를 반환한다. */
+const char *
+qstar_host_platform(void)
 {
-	if (!target || !*target || strcmp(target, "host") == 0 ||
-	    strcmp(target, "default") == 0)
-		return host_target_is_windows();
-	return target && (strstr(target, "windows") || strstr(target, "mingw") ||
-	    strstr(target, "msvc"));
+	if (host_platform_is_windows())
+		return "windows";
+	if (host_platform_is_darwin())
+		return "darwin";
+	if (host_platform_is_linux())
+		return "linux";
+	return "generic";
 }
 
-/** target triple에서 Darwin/macOS 계열 여부를 보수적으로 판정한다. */
+/** platform context가 Windows 계열인지 확인한다. */
 int
-qstar_toolchain_target_is_darwin(const char *target)
+qstar_platform_is_windows(const char *platform)
 {
-	if (!target || !*target || strcmp(target, "host") == 0 ||
-	    strcmp(target, "default") == 0)
-		return host_target_is_darwin();
-	return strstr(target, "apple") || strstr(target, "darwin") ||
-	    strstr(target, "macos");
+	if (!platform || !*platform || strcmp(platform, "host") == 0 ||
+	    strcmp(platform, "default") == 0)
+		return host_platform_is_windows();
+	return strcmp(platform, "windows") == 0;
 }
 
-/** target triple에서 Linux 계열 여부를 보수적으로 판정한다. */
+/** platform context가 Darwin/macOS 계열인지 확인한다. */
 int
-qstar_toolchain_target_is_linux(const char *target)
+qstar_platform_is_darwin(const char *platform)
 {
-	if (!target || !*target || strcmp(target, "host") == 0 ||
-	    strcmp(target, "default") == 0)
-		return host_target_is_linux();
-	return strstr(target, "linux") || strstr(target, "musl");
+	if (!platform || !*platform || strcmp(platform, "host") == 0 ||
+	    strcmp(platform, "default") == 0)
+		return host_platform_is_darwin();
+	return strcmp(platform, "darwin") == 0;
 }
 
-/** 이번 sharedlib backend가 지원하는 target triple인지 확인한다. */
+/** platform context가 Linux 계열인지 확인한다. */
 int
-qstar_toolchain_target_supports_sharedlib(const char *target)
+qstar_platform_is_linux(const char *platform)
 {
-	return qstar_toolchain_target_is_darwin(target) ||
-	    qstar_toolchain_target_is_linux(target);
+	if (!platform || !*platform || strcmp(platform, "host") == 0 ||
+	    strcmp(platform, "default") == 0)
+		return host_platform_is_linux();
+	return strcmp(platform, "linux") == 0;
 }
 
-/** target triple에서 MSVC command-line 계열 여부를 판정한다. */
+/** 이번 sharedlib backend가 지원하는 platform context인지 확인한다. */
+int
+qstar_platform_supports_sharedlib(const char *platform)
+{
+	return qstar_platform_is_darwin(platform) || qstar_platform_is_linux(platform);
+}
+
 static int
-target_is_msvc(const char *target)
+tool_name_uses_msvc_link_style(const char *tool)
 {
-	return target && strstr(target, "msvc");
+	if (!tool)
+		return 0;
+	return strstr(tool, "clang-cl") || strstr(tool, "cl.exe") ||
+	    strstr(tool, "lld-link") || strstr(tool, "link.exe");
+}
+
+static const char *
+resolved_link_style(const struct qstar_resolved_toolchain *resolved)
+{
+	if (resolved->response_style[0] &&
+	    strcmp(resolved->response_style, "msvc") == 0)
+		return "msvc";
+	if (tool_name_uses_msvc_link_style(resolved->cc) ||
+	    tool_name_uses_msvc_link_style(resolved->cxx) ||
+	    tool_name_uses_msvc_link_style(resolved->linker))
+		return "msvc";
+	return "posix";
 }
 
 /** response_files 값을 boolean capability로 낮춘다. */
@@ -117,6 +142,8 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 	    graph->build_context.target : "host";
 	snprintf(resolved->name, sizeof(resolved->name), "%s", name);
 	snprintf(resolved->target, sizeof(resolved->target), "%s", triple);
+	snprintf(resolved->platform, sizeof(resolved->platform), "%s",
+	    qstar_graph_platform(graph));
 	snprintf(resolved->stdlib_policy, sizeof(resolved->stdlib_policy), "%s",
 	    stdlib_policy);
 	snprintf(resolved->resolver, sizeof(resolved->resolver), "builtin-v1");
@@ -149,9 +176,7 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 	if (graph->build_context.response_style && *graph->build_context.response_style)
 		snprintf(resolved->response_style, sizeof(resolved->response_style), "%s",
 		    graph->build_context.response_style);
-	else if (target_is_msvc(resolved->target))
-		snprintf(resolved->response_style, sizeof(resolved->response_style), "msvc");
-	else if (qstar_toolchain_target_is_windows(resolved->target))
+	else if (qstar_platform_is_windows(resolved->platform))
 		snprintf(resolved->response_style, sizeof(resolved->response_style),
 		    "windows");
 	else
@@ -187,5 +212,7 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 			    "%s", toolset->response_style);
 		snprintf(resolved->resolver, sizeof(resolved->resolver), "toolset-schema-v1");
 	}
+	snprintf(resolved->link_style, sizeof(resolved->link_style), "%s",
+	    resolved_link_style(resolved));
 	return 0;
 }

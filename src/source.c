@@ -438,7 +438,7 @@ validate_link_lists(struct qstar_graph *graph, const struct qstar_target *target
 	if (target->frameworks.len) {
 		if (qstar_resolve_toolchain(graph, target, &toolchain) < 0)
 			return -1;
-		if (!qstar_toolchain_target_is_darwin(toolchain.target))
+		if (!qstar_platform_is_darwin(toolchain.platform))
 			return qstar_set_error_origin(graph, target->origin_file,
 			    target->origin_line, "link.frameworks", target->label,
 			    "qstar: link.frameworks is supported only for Darwin-like targets");

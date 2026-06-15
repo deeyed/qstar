@@ -11,7 +11,7 @@
 #define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v7"
 #define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v1"
 #define QSTAR_STELLA_ACTION_MAGIC "qstar-stella-actions-cache-v1"
-#define QSTAR_STELLA_PLAN_ABI 7
+#define QSTAR_STELLA_PLAN_ABI 8
 #define QSTAR_STELLA_HASH_INIT 1469598103934665603ULL
 #define QSTAR_STELLA_HASH_PRIME 1099511628211ULL
 #define QSTAR_STELLA_MAX_STRING (16U * 1024U * 1024U)
@@ -268,6 +268,7 @@ write_build_context(FILE *f, const struct qstar_build_context *p)
 #define WLIST(field) do { if (write_list(f, &p->field) < 0) return -1; } while (0)
 	WSTR(name);
 	WSTR(target);
+	WSTR(platform);
 	WSTR(toolchain);
 	WSTR(stdlib_policy);
 	WSTR(cc);
@@ -298,6 +299,7 @@ read_build_context(FILE *f, struct qstar_build_context *p)
 #define RLIST(field) do { if (read_list(f, &p->field) < 0) return -1; } while (0)
 	RSTR(name);
 	RSTR(target);
+	RSTR(platform);
 	RSTR(toolchain);
 	RSTR(stdlib_policy);
 	RSTR(cc);
@@ -1318,8 +1320,8 @@ read_actions_file(const char *path, struct qstar_graph *graph, const char *label
 static int
 write_manifest(const struct qstar_graph *graph, const char *path, const char *file,
     const char *cmd, const char *label, const char *cli_build_context, const char *cli_target,
-    const char *cli_toolchain, const char *cli_stdlib, unsigned long long input_hash,
-    size_t action_count)
+    const char *cli_platform, const char *cli_toolchain, const char *cli_stdlib,
+    unsigned long long input_hash, size_t action_count)
 {
 	FILE *f;
 
@@ -1352,6 +1354,8 @@ write_manifest(const struct qstar_graph *graph, const char *path, const char *fi
 	json_string(f, cli_build_context);
 	fputs(",\n  \"cli_target\":", f);
 	json_string(f, cli_target);
+	fputs(",\n  \"cli_platform\":", f);
+	json_string(f, cli_platform);
 	fputs(",\n  \"cli_toolchain\":", f);
 	json_string(f, cli_toolchain);
 	fputs(",\n  \"cli_stdlib\":", f);
@@ -1382,7 +1386,8 @@ same_package_alias_hash(const char *manifest, const struct qstar_graph *graph)
 static int
 manifest_matches(const char *manifest, const struct qstar_graph *graph, const char *file,
     const char *cmd, const char *label, const char *cli_build_context, const char *cli_target,
-    const char *cli_toolchain, const char *cli_stdlib, char *reason, size_t reason_len)
+    const char *cli_platform, const char *cli_toolchain, const char *cli_stdlib,
+    char *reason, size_t reason_len)
 {
 	unsigned long long abi;
 
@@ -1422,6 +1427,7 @@ manifest_matches(const char *manifest, const struct qstar_graph *graph, const ch
 	    json_string_equals(manifest, "cli_profile",
 	    string_or_empty(cli_build_context))) ||
 	    !json_string_equals(manifest, "cli_target", string_or_empty(cli_target)) ||
+	    !json_string_equals(manifest, "cli_platform", string_or_empty(cli_platform)) ||
 	    !json_string_equals(manifest, "cli_toolchain", string_or_empty(cli_toolchain)) ||
 	    !json_string_equals(manifest, "cli_stdlib", string_or_empty(cli_stdlib))) {
 		set_reason(reason, reason_len, "build-context-input-mismatch");
@@ -1446,7 +1452,8 @@ rename_atomic(const char *tmp, const char *dst)
 int
 qstar_stella_plan_cache_try_load(struct qstar_graph *graph, const char *file,
     const char *cmd, const char *label, const char *cli_build_context, const char *cli_target,
-    const char *cli_toolchain, const char *cli_stdlib, char *reason, size_t reason_len)
+    const char *cli_platform, const char *cli_toolchain, const char *cli_stdlib,
+    char *reason, size_t reason_len)
 {
 	struct qstar_graph loaded;
 	char root[QSTAR_PATH_MAX], manifest_path[QSTAR_PATH_MAX], inputs_path[QSTAR_PATH_MAX];
@@ -1482,7 +1489,7 @@ qstar_stella_plan_cache_try_load(struct qstar_graph *graph, const char *file,
 		return 0;
 	}
 	ok = manifest_matches(manifest, graph, file, cmd, label, cli_build_context, cli_target,
-	    cli_toolchain, cli_stdlib, reason, reason_len);
+	    cli_platform, cli_toolchain, cli_stdlib, reason, reason_len);
 	free(manifest);
 	if (!ok)
 		return 0;
@@ -1511,7 +1518,8 @@ qstar_stella_plan_cache_try_load(struct qstar_graph *graph, const char *file,
 int
 qstar_stella_plan_cache_store(struct qstar_graph *graph, const char *file,
     const char *cmd, const char *label, const char *cli_build_context, const char *cli_target,
-    const char *cli_toolchain, const char *cli_stdlib, char *reason, size_t reason_len)
+    const char *cli_platform, const char *cli_toolchain, const char *cli_stdlib,
+    char *reason, size_t reason_len)
 {
 	char cache_dir[QSTAR_PATH_MAX], tmp_dir[QSTAR_PATH_MAX];
 	char manifest_path[QSTAR_PATH_MAX], manifest_tmp[QSTAR_PATH_MAX];
@@ -1567,7 +1575,7 @@ qstar_stella_plan_cache_store(struct qstar_graph *graph, const char *file,
 		return -1;
 	}
 	if (write_manifest(graph, manifest_tmp, file, cmd, label, cli_build_context, cli_target,
-	    cli_toolchain, cli_stdlib, input_hash, action_count) < 0 ||
+	    cli_platform, cli_toolchain, cli_stdlib, input_hash, action_count) < 0 ||
 	    rename_atomic(manifest_tmp, manifest_path) < 0) {
 		set_reason(reason, reason_len, "manifest-write-failed");
 		return -1;

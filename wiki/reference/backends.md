@@ -26,7 +26,7 @@ candidate이며,
 - `qstar.custom_target`
 - `qstar.run_target`
 - `qstar.group`
-- `qstar.sharedlib` on macOS and Linux host policies
+- `qstar.sharedlib` on macOS and Linux platform contexts
 
 `compile_commands.json`는 `qstar.project.compile_commands` policy를 따른다.
 `build.ninja`는 `build_dir/ninja/build.ninja`에 생성된다.
@@ -51,7 +51,7 @@ qstar --file qstar.lua replay //:app:link:0
 
 ## Platform Policy
 
-`qstar.sharedlib`는 macOS host policy에서 `.dylib`와 `install_name`, Linux host policy에서
+`qstar.sharedlib`는 macOS platform context에서 `.dylib`와 `install_name`, Linux platform context에서
 `.so`와 `soname`을 생성한다. sharedlib dependency를 link하는 executable/test/sharedlib
 edge에는 build-tree 실행용 rpath가 자동으로 추가된다. Stella는 실제 argv에
 `$ORIGIN`/`@loader_path` rpath를 넣고, Ninja lowering도 같은 의미의 `description`/command
@@ -116,4 +116,4 @@ qstar --file qstar.lua -G ninja install //:app --prefix /tmp/qstar-install
 
 ## 관련 diagnostic
 
-- `qstar: sharedlib target '//:plugin' is not supported for Windows yet; Windows shared libraries require a runtime .dll, import .lib, and optional PDB/debug artifact policy. Use custom_target/object bridge for now or see docs/windows-artifact-policy.md`
+- `qstar: sharedlib target '//:plugin' is not supported for Windows-like platform contexts yet; Windows shared libraries require a runtime .dll, import .lib, and optional PDB/debug artifact policy. Use custom_target/object bridge for now or see docs/windows-artifact-policy.md`

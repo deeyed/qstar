@@ -51,7 +51,7 @@ QStar가 하지 않는 일:
   `qstar.custom_target`, staticlib, sharedlib, executable/test link, `qstar.run_target`,
   `qstar.group` phony graph를 Ninja로 실행한다. `stage`와 `install`은 copy와 manifest를
   QStar가 처리하지만, 참조 target artifact는 effective generator로 먼저 build한다.
-  `sharedlib`는 macOS host policy에서 `.dylib`, Linux host policy에서 `.so`를 만들며,
+  `sharedlib`는 macOS platform context에서 `.dylib`, Linux platform context에서 `.so`를 만들며,
   sharedlib dependency를 link하는 executable/test/sharedlib에는 build-tree 실행용
   `@loader_path`/`$ORIGIN` rpath를 자동 추가한다. Windows sharedlib는 runtime `.dll`,
   import `.lib`, PDB/debug artifact 정책이 아직 없으므로 deferred diagnostic으로 거부한다.

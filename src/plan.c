@@ -330,9 +330,10 @@ dump_closure_order(FILE *out, const struct qstar_plan *plan)
 static void
 dump_plan_inputs(FILE *out, const struct qstar_graph *graph)
 {
-	fprintf(out, "build_context name=%s target=%s toolchain=%s stdlib=%s\n",
+	fprintf(out, "build_context name=%s target=%s platform=%s toolchain=%s stdlib=%s\n",
 	    context_or_default(graph->build_context.name, "default"),
 	    context_or_default(graph->build_context.target, "host"),
+	    qstar_graph_platform(graph),
 	    context_or_default(graph->build_context.toolchain, "default"),
 	    context_or_default(graph->build_context.stdlib_policy, "default"));
 	fprintf(out, "build_context_tools cc=%s cxx=%s ar=%s linker=%s sysroot=%s resource_dir=%s\n",
@@ -777,8 +778,8 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	    (wants_depfile ? 3 : 0) +
 	    (is_asm ? 2 : 0) +
 	    (strcmp(target->kind, "sharedlib") == 0 &&
-	    qstar_toolchain_target_supports_sharedlib(toolchain->target) &&
-	    !qstar_toolchain_target_is_windows(toolchain->target) && !is_asm ? 1 : 0) +
+	    qstar_platform_supports_sharedlib(toolchain->platform) &&
+	    !qstar_platform_is_windows(toolchain->platform) && !is_asm ? 1 : 0) +
 	    (is_cxx && target->cxx_standard[0] ? 1 : 0) +
 	    (is_asm ? target->asm_compile_options.len :
 	    is_cxx ? target->cxxflags.len : target->cflags.len);
@@ -786,8 +787,8 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	begin_argv(out, &dump, id, argc, toolchain);
 	plan_argv_tool_role(out, &dump, graph, target, role, tool);
 	if (strcmp(target->kind, "sharedlib") == 0 &&
-	    qstar_toolchain_target_supports_sharedlib(toolchain->target) &&
-	    !qstar_toolchain_target_is_windows(toolchain->target) && !is_asm)
+	    qstar_platform_supports_sharedlib(toolchain->platform) &&
+	    !qstar_platform_is_windows(toolchain->platform) && !is_asm)
 		argv_item(out, &dump, "-fPIC");
 	if (is_asm) {
 		argv_item(out, &dump, "-x");
@@ -855,7 +856,7 @@ toolchain_needs_msvc_link_boundary(const struct qstar_resolved_toolchain *toolch
 {
 	const char *tool;
 
-	if (!strstr(toolchain->target, "msvc"))
+	if (strcmp(toolchain->link_style, "msvc") != 0)
 		return 0;
 	tool = target_has_cxx_source(target) ? toolchain->cxx : toolchain->linker;
 	return strstr(tool, "clang-cl") != NULL || strstr(tool, "cl.exe") != NULL;
@@ -979,19 +980,19 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 	char install_name[QSTAR_PATH_MAX], soname[QSTAR_PATH_MAX];
 	size_t argc, i;
 	struct qstar_argv_dump dump;
-	int windows;
 	int darwin;
+	int msvc;
 	int msvc_out;
 
 	snprintf(id, sizeof(id), "%s:%s:0", target->label, action);
-	windows = qstar_toolchain_target_is_windows(toolchain->target);
-	darwin = qstar_toolchain_target_is_darwin(toolchain->target);
+	msvc = strcmp(toolchain->link_style, "msvc") == 0;
+	darwin = qstar_platform_is_darwin(toolchain->platform);
 	msvc_out = strcmp(action, "archive") != 0 &&
 	    toolchain_uses_msvc_out_arg(toolchain, target);
 	argc = strcmp(action, "archive") == 0 ?
 	    3 + plan_tool_role_argc(graph, target, "archive") :
 	    strcmp(action, "link-shared") == 0 ?
-	    (qstar_toolchain_target_is_darwin(toolchain->target) ? 6 : 5) +
+	    (qstar_platform_is_darwin(toolchain->platform) ? 6 : 5) +
 	    plan_tool_role_argc(graph, target, "link") :
 	    3 + plan_tool_role_argc(graph, target, "link");
 	if (strcmp(action, "archive") != 0)
@@ -1021,7 +1022,7 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 			argv_item(out, &dump, output);
 		}
 		if (strcmp(action, "link-shared") == 0) {
-			if (qstar_toolchain_target_is_darwin(toolchain->target)) {
+			if (qstar_platform_is_darwin(toolchain->platform)) {
 				snprintf(install_name, sizeof(install_name), "@rpath/%s",
 				    artifact_basename(output));
 				argv_item(out, &dump, "-dynamiclib");
@@ -1039,7 +1040,7 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 		if (toolchain_needs_msvc_link_boundary(toolchain, target))
 			argv_item(out, &dump, "/link");
 		for (i = 0; i < graph->build_context.lib_dirs.len; i++) {
-			if (windows) {
+			if (msvc) {
 				snprintf(buf, sizeof(buf), "/LIBPATH:%s",
 				    graph->build_context.lib_dirs.items[i]);
 				argv_item(out, &dump, buf);
@@ -1050,7 +1051,7 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 			}
 		}
 		for (i = 0; i < target->lib_dirs.len; i++) {
-			if (windows) {
+			if (msvc) {
 				snprintf(buf, sizeof(buf), "/LIBPATH:%s", target->lib_dirs.items[i]);
 				argv_item(out, &dump, buf);
 			} else {
@@ -1059,7 +1060,7 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 			}
 		}
 		for (i = 0; i < target->libs.len; i++) {
-			if (windows) {
+			if (msvc) {
 				snprintf(buf, sizeof(buf), "%s.lib", target->libs.items[i]);
 				argv_item(out, &dump, buf);
 			} else {
@@ -1287,11 +1288,12 @@ dump_resolved_toolchain(FILE *out, const struct qstar_plan *plan,
 		return -1;
 	fprintf(out,
 	    "  resolved_toolchain owner=%s toolchain=%s build_context=%s target=%s "
-	    "stdlib=%s resolver=%s toolset=%s cc=%s cxx=%s asm=%s ar=%s "
+	    "platform=%s link_style=%s stdlib=%s resolver=%s toolset=%s cc=%s cxx=%s asm=%s ar=%s "
 	    "linker=%s sysroot=%s resource_dir=%s response_files=%s response_style=%s\n",
 	    target->label, resolved->name,
 	    context_or_default(plan->graph->build_context.name, "default"),
-	    resolved->target, resolved->stdlib_policy, resolved->resolver,
+	    resolved->target, resolved->platform, resolved->link_style,
+	    resolved->stdlib_policy, resolved->resolver,
 	    resolved->toolset[0] ? resolved->toolset : "<none>",
 	    resolved->cc, resolved->cxx, resolved->asm_, resolved->ar,
 	    resolved->linker,
@@ -2088,10 +2090,10 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 			collect_doctor_tool_requirements(&plan, &tool_req);
 			fprintf(out,
 			    "toolchain-sanity name=%s cc=%s cxx=%s ar=%s linker=%s "
-			    "sysroot=%s resource_dir=%s response_files=%s response_style=%s "
+			    "platform=%s link_style=%s sysroot=%s resource_dir=%s response_files=%s response_style=%s "
 			    "status=resolved\n",
 			    toolchain.name, toolchain.cc, toolchain.cxx, toolchain.ar,
-			    toolchain.linker,
+			    toolchain.linker, toolchain.platform, toolchain.link_style,
 		    toolchain.sysroot[0] ? toolchain.sysroot : "<none>",
 		    toolchain.resource_dir[0] ? toolchain.resource_dir : "<none>",
 		    toolchain.response_files ? "on" : "off", toolchain.response_style);

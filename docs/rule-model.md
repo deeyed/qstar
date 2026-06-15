@@ -22,9 +22,9 @@ Link policy:
 
 - `link_options` are appended to the link argv exactly as authored.
 - `link_inputs` are tracked as rebuild inputs without being appended to argv.
-- macOS frameworks are written under `link.frameworks` in a host branch.
+- macOS frameworks are written under `link.frameworks` in a platform context branch.
 - Shared library consumers receive build-tree runtime search paths on macOS and
-  Linux host policies.
+  Linux platform contexts.
 
 Generated object bridge:
 

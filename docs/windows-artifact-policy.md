@@ -97,8 +97,8 @@ Windows sharedlib diagnostic parity stays part of the gate while runtime .dll
 plus import .lib implementation is deferred:
 
 ```txt
-qstar: sharedlib target '//:plugin' is not supported for Windows host policies
-yet; Windows shared libraries require a runtime .dll, import .lib, and optional
+qstar: sharedlib target '//:plugin' is not supported for Windows-like platform
+contexts yet; Windows shared libraries require a runtime .dll, import .lib, and optional
 PDB/debug artifact policy. Use custom_target/object bridge for now or see
 docs/windows-artifact-policy.md
 ```

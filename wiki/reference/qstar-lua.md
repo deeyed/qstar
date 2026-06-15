@@ -57,7 +57,7 @@ qstar.staticlib "core" {
 - `qstar.target_family`: shared-source lint grouping.
 - `qstar.subdir`, `qstar.import_file`, `qstar.import_module`: explicit graph/module loading.
 
-`qstar.sharedlib`는 macOS host policy에서는 `.dylib`, Linux host policy에서는 `.so`를
+`qstar.sharedlib`는 macOS platform context에서는 `.dylib`, Linux platform context에서는 `.so`를
 생성한다. sharedlib dependency를 link하는 artifact target은 build-tree 실행을 위해
 macOS `@loader_path`, Linux `$ORIGIN` 기반 rpath를 자동으로 받는다. Windows
 runtime `.dll`, import `.lib`, PDB/debug artifact 정책은 deferred diagnostic이다.

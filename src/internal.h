@@ -43,6 +43,8 @@ qstar_platform_lstat(const char *path, struct stat *st)
 struct qstar_resolved_toolchain {
 	char name[64];
 	char target[128];
+	char platform[32];
+	char link_style[32];
 	char stdlib_policy[64];
 	char cc[QSTAR_PATH_MAX];
 	char cxx[QSTAR_PATH_MAX];
@@ -125,17 +127,20 @@ const struct qstar_string_list *qstar_toolset_role_argv(const struct qstar_tools
 const struct qstar_string_list *qstar_target_tool_role_argv(const struct qstar_graph *graph,
     const struct qstar_target *target, const char *role);
 
-/** target triple이 Windows 계열인지 보수적으로 판정한다. */
-int qstar_toolchain_target_is_windows(const char *target);
+/** host platform context를 반환한다. */
+const char *qstar_host_platform(void);
 
-/** target triple이 Darwin/macOS 계열인지 보수적으로 판정한다. */
-int qstar_toolchain_target_is_darwin(const char *target);
+/** platform context가 Windows 계열인지 확인한다. */
+int qstar_platform_is_windows(const char *platform);
 
-/** target triple이 Linux 계열인지 보수적으로 판정한다. */
-int qstar_toolchain_target_is_linux(const char *target);
+/** platform context가 Darwin/macOS 계열인지 확인한다. */
+int qstar_platform_is_darwin(const char *platform);
 
-/** target triple이 이번 sharedlib 구현에서 지원되는지 확인한다. */
-int qstar_toolchain_target_supports_sharedlib(const char *target);
+/** platform context가 Linux 계열인지 확인한다. */
+int qstar_platform_is_linux(const char *platform);
+
+/** platform context가 이번 sharedlib 구현에서 지원되는지 확인한다. */
+int qstar_platform_supports_sharedlib(const char *platform);
 
 /** build context external tool policy로 custom_target 첫 argv를 실행 path로 해석한다. */
 int qstar_external_tool_resolve_command_tool(const struct qstar_graph *graph, const char *tool,
@@ -254,12 +259,14 @@ int qstar_graph_visit_closure(struct qstar_graph *graph, const char *label,
 /** Stella lowered plan cache를 읽어 Lua eval 없이 Graph IR를 복원한다. */
 int qstar_stella_plan_cache_try_load(struct qstar_graph *graph, const char *file,
     const char *cmd, const char *label, const char *cli_build_context, const char *cli_target,
-    const char *cli_toolchain, const char *cli_stdlib, char *reason, size_t reason_len);
+    const char *cli_platform, const char *cli_toolchain, const char *cli_stdlib,
+    char *reason, size_t reason_len);
 
 /** 검증된 Graph IR와 lowered action summary를 Stella plan cache로 저장한다. */
 int qstar_stella_plan_cache_store(struct qstar_graph *graph, const char *file,
     const char *cmd, const char *label, const char *cli_build_context, const char *cli_target,
-    const char *cli_toolchain, const char *cli_stdlib, char *reason, size_t reason_len);
+    const char *cli_platform, const char *cli_toolchain, const char *cli_stdlib,
+    char *reason, size_t reason_len);
 
 /** 현재 Graph에서 실행 가능한 lowered action plan을 준비한다. */
 int qstar_graph_prepare_lowered_action_cache(struct qstar_graph *graph, const char *label);
@@ -289,13 +296,13 @@ int qstar_daemon_parse_mode(const char *s, int *mode);
 /** experimental persistent Stella daemon command를 실행한다. */
 int qstar_daemon_command(int argc, char **argv, const char *file,
     const char *cli_build_dir, const char *cli_build_context, const char *cli_target,
-    const char *cli_toolchain, const char *cli_stdlib, FILE *out);
+    const char *cli_platform, const char *cli_toolchain, const char *cli_stdlib, FILE *out);
 
 /** build request를 experimental daemon으로 보내고 응답 output을 out에 복사한다. */
 int qstar_daemon_build_client(const char *socket_path, int mode, const char *file,
     const char *label, const char *cli_build_dir, const char *cli_build_context,
-    const char *cli_target, const char *cli_toolchain, const char *cli_stdlib,
-    const struct qstar_build_options *options, FILE *out, int *build_status,
+    const char *cli_target, const char *cli_platform, const char *cli_toolchain,
+    const char *cli_stdlib, const struct qstar_build_options *options, FILE *out, int *build_status,
     char *error, size_t error_len);
 
 #endif

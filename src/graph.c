@@ -243,6 +243,7 @@ free_build_context(struct qstar_build_context *context)
 {
 	free(context->name);
 	free(context->target);
+	free(context->platform);
 	free(context->toolchain);
 	free(context->stdlib_policy);
 	free(context->cc);
@@ -758,6 +759,51 @@ replace_string(char **slot, const char *value)
 	free(*slot);
 	*slot = copy;
 	return 0;
+}
+
+static const char *
+canonical_platform_context(const char *platform)
+{
+	if (!platform || !*platform || strcmp(platform, "default") == 0)
+		return NULL;
+	if (strcmp(platform, "host") == 0)
+		return "host";
+	if (strcmp(platform, "windows") == 0 || strcmp(platform, "win32") == 0)
+		return "windows";
+	if (strcmp(platform, "darwin") == 0 || strcmp(platform, "macos") == 0)
+		return "darwin";
+	if (strcmp(platform, "linux") == 0)
+		return "linux";
+	if (strcmp(platform, "generic") == 0)
+		return "generic";
+	return NULL;
+}
+
+/** explicit platform context를 graph에 기록한다. */
+int
+qstar_graph_set_platform_context(struct qstar_graph *graph, const char *platform)
+{
+	const char *canonical;
+
+	if (!platform)
+		return 0;
+	canonical = canonical_platform_context(platform);
+	if (!canonical)
+		return qstar_set_error(graph,
+		    "qstar: invalid platform context '%s'; expected host, windows, darwin, linux, or generic",
+		    platform);
+	if (replace_string(&graph->build_context.platform, canonical) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	return 0;
+}
+
+/** graph의 explicit platform context를 반환한다. */
+const char *
+qstar_graph_platform(const struct qstar_graph *graph)
+{
+	if (graph && graph->build_context.platform && *graph->build_context.platform)
+		return graph->build_context.platform;
+	return qstar_host_platform();
 }
 
 /** QStar explain build context 입력을 graph에 기록한다. */
@@ -1830,9 +1876,10 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 	    qstar_graph_build_dir(graph), qstar_graph_generated_dir(graph),
 	    qstar_graph_compile_commands_policy(graph), qstar_graph_generator(graph),
 	    qstar_graph_requested_generator(graph));
-	fprintf(out, "build_context name=%s target=%s toolchain=%s stdlib=%s\n",
+	fprintf(out, "build_context name=%s target=%s platform=%s toolchain=%s stdlib=%s\n",
 	    context_or_default(graph->build_context.name, "default"),
 	    context_or_default(graph->build_context.target, "host"),
+	    qstar_graph_platform(graph),
 	    context_or_default(graph->build_context.toolchain, "default"),
 	    context_or_default(graph->build_context.stdlib_policy, "default"));
 	fprintf(out, "build_context_tools cc=%s cxx=%s ar=%s linker=%s sysroot=%s resource_dir=%s\n",

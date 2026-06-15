@@ -321,11 +321,9 @@ qstar_graph_artifact_output_path(const struct qstar_graph *graph,
 	prefix = rule ? rule->artifact_prefix : "";
 	suffix = rule ? rule->artifact_suffix : "";
 	if (strcmp(target->kind, "sharedlib") == 0) {
-		if (qstar_toolchain_target_is_darwin(graph && graph->build_context.target ?
-		    graph->build_context.target : "host"))
+		if (qstar_platform_is_darwin(qstar_graph_platform(graph)))
 			suffix = ".dylib";
-		else if (qstar_toolchain_target_is_windows(graph && graph->build_context.target ?
-		    graph->build_context.target : "host")) {
+		else if (qstar_platform_is_windows(qstar_graph_platform(graph))) {
 			prefix = "";
 			suffix = ".dll";
 		} else {

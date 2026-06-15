@@ -23,6 +23,6 @@ can build a real `windows_static.lib` fixture on non-Windows hosts. This proves
 QStar artifact naming, archive action construction, action logs, and Ninja
 lowering without claiming native `lib.exe` or `llvm-lib` compatibility.
 
-`windows_plugin` is intentionally unsupported for Windows-like target triples. Stella
+`windows_plugin` is intentionally unsupported for Windows platform contexts. Stella
 and Ninja must reject it with the same diagnostic that names the deferred
 runtime `.dll`, import `.lib`, and PDB/debug artifact policy.

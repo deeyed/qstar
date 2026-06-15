@@ -195,7 +195,7 @@ The detailed artifact contract is `docs/windows-artifact-policy.md`. Summary:
   support lands, use `artifact_name = "name.lib"` explicitly. Automatic `.lib` output is
   deferred until native `lib.exe`/`llvm-lib` validation.
 - `qstar.sharedlib` is supported for macOS `.dylib` and Linux `.so`
-  host policies, but Windows runtime `.dll`, import `.lib`, PDB/debug artifact,
+  platform contexts, but Windows runtime `.dll`, import `.lib`, PDB/debug artifact,
   runtime search path, and install layout are deferred.
 
 Do not claim Windows packaging support until `.exe`, static `.lib`, runtime

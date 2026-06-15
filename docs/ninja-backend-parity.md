@@ -16,13 +16,13 @@ The Ninja backend lowers:
 - `qstar.custom_target`
 - `qstar.run_target` wrapper actions
 - `qstar.group` phony aliases
-- `qstar.sharedlib` for macOS and Linux host policies
+- `qstar.sharedlib` for macOS and Linux platform contexts
 - `compile_commands.json` according to project policy
 
 When an executable, test, or shared library links against a QStar `sharedlib`
 dependency, Ninja lowering emits the same build-tree runtime search path policy
-as Stella: macOS host policies use `@loader_path` relative rpaths and Linux
-host policies use `$ORIGIN` relative rpaths. This allows the freshly built artifact
+as Stella: macOS platform contexts use `@loader_path` relative rpaths and Linux
+platform contexts use `$ORIGIN` relative rpaths. This allows the freshly built artifact
 to run from `build/qstar/out/...` without requiring a prefix install first.
 
 Ninja action ids are written into `build.ninja` as `qstar_action_id` variables

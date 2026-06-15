@@ -1802,6 +1802,7 @@ compute_build_context_key(struct qstar_graph *graph,
 
 	hash_str(&h, graph->build_context.name ? graph->build_context.name : "default");
 	hash_str(&h, graph->build_context.target ? graph->build_context.target : "host");
+	hash_str(&h, qstar_graph_platform(graph));
 	hash_str(&h, graph->build_context.allow_absolute_tools ?
 	    graph->build_context.allow_absolute_tools : "false");
 	for (i = 0; i < graph->build_context.compile_options.len; i++)
@@ -1814,6 +1815,8 @@ compute_build_context_key(struct qstar_graph *graph,
 	if (toolchain) {
 		hash_str(&h, toolchain->name);
 		hash_str(&h, toolchain->target);
+		hash_str(&h, toolchain->platform);
+		hash_str(&h, toolchain->link_style);
 		hash_str(&h, toolchain->stdlib_policy);
 		hash_str(&h, toolchain->toolset);
 		hash_str(&h, toolchain->cc);
@@ -1910,6 +1913,7 @@ compute_action_key(struct qstar_build_ctx *ctx, struct qstar_graph *graph,
 	hash_str(&h, output);
 	hash_str(&h, graph->build_context.name ? graph->build_context.name : "default");
 	hash_str(&h, graph->build_context.target ? graph->build_context.target : "host");
+	hash_str(&h, qstar_graph_platform(graph));
 	hash_str(&h, graph->build_context.allow_absolute_tools ?
 	    graph->build_context.allow_absolute_tools : "false");
 	for (i = 0; i < graph->build_context.compile_options.len; i++)
@@ -1922,6 +1926,8 @@ compute_action_key(struct qstar_build_ctx *ctx, struct qstar_graph *graph,
 	if (toolchain) {
 		hash_str(&h, toolchain->name);
 		hash_str(&h, toolchain->target);
+		hash_str(&h, toolchain->platform);
+		hash_str(&h, toolchain->link_style);
 		hash_str(&h, toolchain->stdlib_policy);
 		hash_str(&h, toolchain->toolset);
 		hash_str(&h, toolchain->cc);
@@ -3710,6 +3716,8 @@ graph_snapshot_write(struct qstar_graph *graph, const struct qstar_build_ctx *ct
 	json_string(f, graph->build_context.name ? graph->build_context.name : "default");
 	fputs(",\"target\":", f);
 	json_string(f, graph->build_context.target ? graph->build_context.target : "host");
+	fputs(",\"platform\":", f);
+	json_string(f, qstar_graph_platform(graph));
 	fputs(",\"toolchain\":", f);
 	json_string(f, graph->build_context.toolchain ? graph->build_context.toolchain : "default");
 	fputs("},\"targets\":[\n", f);
@@ -6503,7 +6511,7 @@ collect_sharedlib_rpath_rec(struct qstar_graph *graph, const struct qstar_target
 		    sizeof(rel)) < 0)
 			return qstar_set_error(graph,
 			    "qstar: sharedlib runtime path is too long");
-		base = qstar_toolchain_target_is_darwin(toolchain->target) ?
+		base = qstar_platform_is_darwin(toolchain->platform) ?
 		    "@loader_path" : "$ORIGIN";
 		if (strcmp(rel, ".") == 0)
 			snprintf(rpath, sizeof(rpath), "%s", base);
@@ -6548,7 +6556,7 @@ append_sharedlib_runtime_rpaths(struct qstar_graph *graph,
 	int rc;
 
 	if (strcmp(target->kind, "staticlib") == 0 ||
-	    !qstar_toolchain_target_supports_sharedlib(toolchain->target))
+	    !qstar_platform_supports_sharedlib(toolchain->platform))
 		return 0;
 	if (qstar_dirname(artifact, consumer_dir, sizeof(consumer_dir)) < 0)
 		return qstar_set_error(graph, "qstar: artifact directory path too long");
@@ -6584,18 +6592,6 @@ append_sharedlib_runtime_rpaths(struct qstar_graph *graph,
 	return rc;
 }
 
-static int
-target_is_darwin(const char *target)
-{
-	return qstar_toolchain_target_is_darwin(target);
-}
-
-static int
-target_is_windows(const char *target)
-{
-	return qstar_toolchain_target_is_windows(target);
-}
-
 /** target source list에 C++ compile input이 있는지 확인한다. */
 static int
 target_has_cxx_source(const struct qstar_target *target)
@@ -6628,11 +6624,11 @@ validate_sharedlib_platform(struct qstar_graph *graph, const struct qstar_target
 {
 	if (strcmp(target->kind, "sharedlib") != 0)
 		return 0;
-	if (qstar_toolchain_target_supports_sharedlib(toolchain->target))
+	if (qstar_platform_supports_sharedlib(toolchain->platform))
 		return 0;
 	return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 	    "kind", target->label,
-	    "qstar: sharedlib target '%s' is not supported for Windows-like build contexts yet; Windows shared libraries require a runtime .dll, import .lib, and optional PDB/debug artifact policy. Use custom_target/object bridge for now or see docs/windows-artifact-policy.md",
+	    "qstar: sharedlib target '%s' is not supported for Windows-like platform contexts yet; Windows shared libraries require a runtime .dll, import .lib, and optional PDB/debug artifact policy. Use custom_target/object bridge for now or see docs/windows-artifact-policy.md",
 	    target->label);
 }
 
@@ -6648,7 +6644,7 @@ append_sharedlib_link_flags(struct qstar_graph *graph, const struct qstar_target
 		return 0;
 	if (validate_sharedlib_platform(graph, target, toolchain) < 0)
 		return -1;
-	if (qstar_toolchain_target_is_darwin(toolchain->target)) {
+	if (qstar_platform_is_darwin(toolchain->platform)) {
 		snprintf(install_name, sizeof(install_name), "@rpath/%s",
 		    artifact_basename(artifact));
 		return append_owned_argv(graph, argv, argc, "-dynamiclib") < 0 ||
@@ -6666,8 +6662,8 @@ target_compile_needs_pic(const struct qstar_target *target,
     const struct qstar_resolved_toolchain *toolchain, int is_asm)
 {
 	return strcmp(target->kind, "sharedlib") == 0 &&
-	    qstar_toolchain_target_supports_sharedlib(toolchain->target) &&
-	    !qstar_toolchain_target_is_windows(toolchain->target) && !is_asm;
+	    qstar_platform_supports_sharedlib(toolchain->platform) &&
+	    !qstar_platform_is_windows(toolchain->platform) && !is_asm;
 }
 
 /** target toolset role argv-vector 또는 fallback tool 하나를 raw argv에 추가한다. */
@@ -6700,7 +6696,7 @@ toolchain_needs_msvc_link_boundary(const struct qstar_resolved_toolchain *toolch
 {
 	const char *tool;
 
-	if (!toolchain || !target || !strstr(toolchain->target, "msvc"))
+	if (!toolchain || !target || strcmp(toolchain->link_style, "msvc") != 0)
 		return 0;
 	tool = target_has_cxx_source(target) ? toolchain->cxx : toolchain->linker;
 	return strstr(tool, "clang-cl") != NULL || strstr(tool, "cl.exe") != NULL;
@@ -6780,11 +6776,11 @@ append_system_link_flags(struct qstar_graph *graph, const struct qstar_target *t
 {
 	char flag[QSTAR_PATH_MAX];
 	size_t i;
-	int windows;
+	int msvc;
 
-	windows = target_is_windows(toolchain->target);
+	msvc = strcmp(toolchain->link_style, "msvc") == 0;
 	for (i = 0; i < graph->build_context.lib_dirs.len; i++) {
-		if (windows)
+		if (msvc)
 			snprintf(flag, sizeof(flag), "/LIBPATH:%s", graph->build_context.lib_dirs.items[i]);
 		else
 			snprintf(flag, sizeof(flag), "-L%s", graph->build_context.lib_dirs.items[i]);
@@ -6792,7 +6788,7 @@ append_system_link_flags(struct qstar_graph *graph, const struct qstar_target *t
 			return -1;
 	}
 	for (i = 0; i < target->lib_dirs.len; i++) {
-		if (windows)
+		if (msvc)
 			snprintf(flag, sizeof(flag), "/LIBPATH:%s", target->lib_dirs.items[i]);
 		else
 			snprintf(flag, sizeof(flag), "-L%s", target->lib_dirs.items[i]);
@@ -6800,14 +6796,14 @@ append_system_link_flags(struct qstar_graph *graph, const struct qstar_target *t
 			return -1;
 	}
 	for (i = 0; i < target->libs.len; i++) {
-		if (windows)
+		if (msvc)
 			snprintf(flag, sizeof(flag), "%s.lib", target->libs.items[i]);
 		else
 			snprintf(flag, sizeof(flag), "-l%s", target->libs.items[i]);
 		if (append_owned_argv(graph, argv, argc, flag) < 0)
 			return -1;
 	}
-	if (target->frameworks.len && !target_is_darwin(toolchain->target))
+	if (target->frameworks.len && !qstar_platform_is_darwin(toolchain->platform))
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "link.frameworks", target->label,
 		    "qstar: link.frameworks is supported only for Darwin-like targets");

@@ -162,5 +162,5 @@ formatter, subcommand help, wiki/CLI drift guard를 함께
 generated action, staticlib, sharedlib, executable/test link, `qstar.run_target` wrapper,
 `qstar.group` phony lowering/execution을 지원한다. `stage`/`install`은 copy와 manifest를
 QStar가 맡고, 참조 artifact build는 effective generator를 따른다. `sharedlib`는
-macOS host policy에서 `.dylib`, Linux host policy에서 `.so`를 만들며 Windows
+macOS platform context에서 `.dylib`, Linux platform context에서 `.so`를 만들며 Windows
 runtime `.dll`, import `.lib`, PDB/debug artifact 정책은 아직 deferred다.
