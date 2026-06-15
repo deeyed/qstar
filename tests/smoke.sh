@@ -2193,49 +2193,59 @@ if find "$vscode_ext" -path "$vscode_ext/dist" -prune -o -type f -name '*.vsix' 
 	fail "VSIX artifacts must not be committed under QStar VSCode extension"
 fi
 if command -v node >/dev/null 2>&1; then
-	node --check "$vscode_ext/extension.js"
-	node --check "$vscode_ext/scripts/check-package.js"
-	node "$vscode_ext/scripts/check-package.js" "$vscode_ext"
+	node --check "$vscode_ext/extension.js" > "$tmp/vscode-package.out" 2> "$tmp/vscode-package.err"
+	node --check "$vscode_ext/scripts/check-package.js" >> "$tmp/vscode-package.out" 2>> "$tmp/vscode-package.err"
+	node "$vscode_ext/scripts/check-package.js" "$vscode_ext" >> "$tmp/vscode-package.out" 2>> "$tmp/vscode-package.err"
 	node -e 'const fs=require("fs"); for (const p of process.argv.slice(1)) JSON.parse(fs.readFileSync(p,"utf8"));' \
 		"$vscode_ext/package.json" \
 		"$vscode_ext/language-configuration.json" \
 		"$vscode_ext/syntaxes/qstar.tmLanguage.json" \
-		"$vscode_ext/snippets/qstar.json"
+		"$vscode_ext/snippets/qstar.json" >> "$tmp/vscode-package.out" 2>> "$tmp/vscode-package.err"
 fi
 
+step "VSCode extension sample lint" "vscode-sample-lint"
 "$qstar" --file "$vscode_ext/samples/workspace/qstar.lua" lint > "$tmp/vscode-sample-lint.out" 2> "$tmp/vscode-sample-lint.err"
 contains "$tmp/vscode-sample-lint.out" "qstar lint v1"
 contains "$tmp/vscode-sample-lint.out" "status ok"
+step "VSCode extension sample targets" "vscode-sample-targets"
 "$qstar" --file "$vscode_ext/samples/workspace/qstar.lua" list-targets --format json > "$tmp/vscode-sample-targets.out" 2> "$tmp/vscode-sample-targets.err"
 contains "$tmp/vscode-sample-targets.out" "\"schema\":\"qstar-targets-v1\""
 contains "$tmp/vscode-sample-targets.out" "\"label\":\"//app:app\""
 contains "$tmp/vscode-sample-targets.out" "\"label\":\"//lib:core\""
+step "VSCode extension sample explain" "vscode-sample-explain"
 "$qstar" --file "$vscode_ext/samples/workspace/qstar.lua" explain //app:app > "$tmp/vscode-sample-explain.out" 2> "$tmp/vscode-sample-explain.err"
 contains "$tmp/vscode-sample-explain.out" "target //app:app"
 contains "$tmp/vscode-sample-explain.out" "closure-order [//lib:core, //app:app]"
+step "VSCode extension sample formatting" "vscode-sample-app-fmt"
 "$qstar" fmt --check "$vscode_ext/samples/workspace/app/app.qst" > "$tmp/vscode-sample-app-fmt.out" 2> "$tmp/vscode-sample-app-fmt.err"
 contains "$tmp/vscode-sample-app-fmt.out" "status ok"
+step "VSCode extension sample formatting" "vscode-sample-lib-fmt"
 "$qstar" fmt --check "$vscode_ext/samples/workspace/lib/lib.qst" > "$tmp/vscode-sample-lib-fmt.out" 2> "$tmp/vscode-sample-lib-fmt.err"
 contains "$tmp/vscode-sample-lib-fmt.out" "status ok"
 
+step "initial build smoke: compile action log" "action-log"
 "$qstar" --file "$tmp/qstar.lua" action-log //:app:compile:0 > "$tmp/action-log.out" 2> "$tmp/action-log.err"
 contains "$tmp/action-log.out" "qstar action-log v1"
 contains "$tmp/action-log.out" "action //:app:compile:0"
 contains "$tmp/action-log.out" "qstar-action-log v2"
 contains "$tmp/action-log.out" "argv[0]=cc"
+step "initial build smoke: compile replay" "action-replay"
 "$qstar" --file "$tmp/qstar.lua" replay //:app:compile:0 > "$tmp/action-replay.out" 2> "$tmp/action-replay.err"
 contains "$tmp/action-replay.out" "qstar replay v1"
 contains "$tmp/action-replay.out" "action //:app:compile:0"
 contains "$tmp/action-replay.out" "cc -c src/main.c"
 
+step "initial build smoke: second verbose build" "second"
 "$qstar" --file "$tmp/qstar.lua" build //:app --verbose > "$tmp/second.out" 2> "$tmp/second.err"
 contains "$tmp/second.out" "status=skip"
 
+step "initial build smoke: why rebuild" "why"
 "$qstar" --file "$tmp/qstar.lua" why-rebuild //:app > "$tmp/why.out" 2> "$tmp/why.err"
 contains "$tmp/why.out" "qstar why-rebuild v1"
 contains "$tmp/why.out" "reason=output-check"
 contains "$tmp/why.out" "status=skip"
 rm -f "$tmp/build/qstar/out/___app/obj0.o"
+step "initial build smoke: why rebuild missing output" "why-output"
 "$qstar" --file "$tmp/qstar.lua" why-rebuild //:app > "$tmp/why-output.out" 2> "$tmp/why-output.err"
 contains "$tmp/why-output.out" "reason=output-missing"
 
