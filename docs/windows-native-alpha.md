@@ -47,8 +47,16 @@ baseline Makefile bootstrap and failed in `src/executor.c` because MSYS2 UCRT64
 gcc does not provide POSIX `<poll.h>`. The artifact correctly recorded
 `status=fail step=make-all cc=gcc rc=2 log=make-all.log`, so the next Windows
 round had a concrete executor portability boundary to fix. Q179 addresses that
-boundary locally; the manual alpha workflow still needs to be rerun to discover
-the next hosted failure class.
+boundary locally.
+
+The Q179 hosted run was
+`https://github.com/deeyed/qstar/actions/runs/27527243941`. It passed the
+Makefile bootstrap, `qstar --version`, and `make qstar-windows-native-alpha-tests
+CC=gcc`. It then failed at `make qstar-windows-execution-corpus-tests CC=gcc`,
+which is the expected next alpha boundary until Stella and the Ninja launcher
+gain a real CreateProcess runner. The execution corpus artifact currently records
+the failing step but not the inner temporary stderr files, so the next Windows
+execution round should also improve failure dumps for that script.
 
 ## Toolchain Choice
 
@@ -214,15 +222,17 @@ Current known gaps:
   discover the next real native failure class.
 - Q172's hosted `msys2-ucrt64-gcc` run failed at `src/executor.c` because the
   Stella process/event runner included POSIX `<poll.h>`. Q179 splits that
-  process runner boundary in local compile checks. The manual alpha workflow
-  still needs a hosted rerun to confirm the next native failure class.
+  process runner boundary and the hosted Q179 run passed `make all`,
+  `qstar --version`, and the native alpha smoke.
 - Stella and QStar's Ninja launcher on Windows are compile-time stubs only. They
   report that the CreateProcess runner has not landed yet, so the Q178 execution
   corpus is expected to remain blocked at execution until that implementation
   round.
 - Windows filesystem helpers are now split enough for local `_WIN32` object
-  compile checks, but the manual alpha workflow still owns the hosted truth for
-  any remaining C library portability failures.
+  compile checks and the Q179 hosted run reached past the previous
+  `mkdir`/`lstat` compile failures.
+- `tests/windows-execution-corpus.sh` should dump the failing inner `.out`/`.err`
+  files into the uploaded artifact before deeper Windows execution work.
 - Q172 has not promoted Windows to official support. It only makes
   `msys2-ucrt64-gcc` the baseline lane and ensures failed runs leave structured
   status and known-issue artifacts.
