@@ -3351,39 +3351,51 @@ qstar.stage "shared_bundle" {
 
 EOF
 
+step "staticlib dependency link build" "linkapp"
 "$qstar" --file "$tmp/qstar.lua" build //:linkapp > "$tmp/linkapp.out" 2> "$tmp/linkapp.err"
 contains "$tmp/linkapp.out" "status ok"
 not_contains "$tmp/linkapp.out" "ranlib: warning"
 not_contains "$tmp/linkapp.out" "archive member"
 not_contains "$tmp/linkapp.err" "ranlib: warning"
 not_contains "$tmp/linkapp.err" "archive member"
+
+step "staticlib dependency link order log" "linkapp-log"
 "$qstar" --file "$tmp/qstar.lua" action-log //:linkapp:link:0 > "$tmp/linkapp-log.out" 2> "$tmp/linkapp-log.err"
 case "$(cat "$tmp/linkapp-log.out")" in
   *libutil.a*libcore.a*) ;;
   *) fail "link order did not include util before core" ;;
 esac
+
+step "staticlib archive argv log" "util-archive-log"
 "$qstar" --file "$tmp/qstar.lua" action-log //:util:archive:0 > "$tmp/util-archive-log.out" 2> "$tmp/util-archive-log.err"
 contains "$tmp/util-archive-log.out" "argv[0]=ar"
 contains "$tmp/util-archive-log.out" "libutil.a"
 contains "$tmp/util-archive-log.out" "obj0.o"
 not_contains "$tmp/util-archive-log.out" "libcore.a"
+
+step "staticlib archive replay" "util-archive-replay"
 "$qstar" --file "$tmp/qstar.lua" replay //:util:archive:0 > "$tmp/util-archive-replay.out" 2> "$tmp/util-archive-replay.err"
 contains "$tmp/util-archive-replay.out" "qstar replay v1"
 contains "$tmp/util-archive-replay.out" "ar rcs"
 contains "$tmp/util-archive-replay.out" "libutil.a"
+
+step "staticlib ninja archive lowering" "util-emit-ninja"
 "$qstar" --file "$tmp/qstar.lua" emit-ninja //:util > "$tmp/util-emit-ninja.out" 2> "$tmp/util-emit-ninja.err"
 contains "$tmp/build/qstar/ninja/build.ninja" "build build/qstar/out/___util/libutil.a: qstar_archive build/qstar/out/___util/obj0.o ||"
 not_contains "$tmp/build/qstar/ninja/build.ninja" "libutil.a: qstar_archive build/qstar/out/___util/obj0.o build/qstar/out/___core/libcore.a"
 
+step "private include isolation diagnostic" "bad-private"
 if "$qstar" --file "$tmp/qstar.lua" build //:bad_private > "$tmp/bad-private.out" 2> "$tmp/bad-private.err"; then
 	fail "private include propagation unexpectedly succeeded"
 fi
 contains "$tmp/bad-private.err" "action '//:bad_private:compile:0' failed"
 
+step "generic linker flags dry run" "sysflags"
 "$qstar" --file "$tmp/qstar.lua" dry-run //:sysflags > "$tmp/sysflags.out" 2> "$tmp/sysflags.err"
 contains "$tmp/sysflags.out" "-Llib"
 contains "$tmp/sysflags.out" "-lm"
 
+step "macos framework corpus setup" "macos-framework-graph"
 mkdir -p "$tmp/macos-framework/src"
 cat > "$tmp/macos-framework/src/main.c" <<'EOF'
 int main(void) { return 0; }
@@ -3412,17 +3424,23 @@ qstar.executable "direct" {
 EOF
 "$qstar" --file "$tmp/macos-framework/qstar.lua" --dump-graph > "$tmp/macos-framework-graph.out" 2> "$tmp/macos-framework-graph.err"
 contains "$tmp/macos-framework-graph.out" "link.frameworks [Foundation]"
+
+step "macos framework linux diagnostic" "macos-framework-linux"
 if "$qstar" --file "$tmp/macos-framework/qstar.lua" --target x86_64-unknown-linux-gnu check > "$tmp/macos-framework-linux.out" 2> "$tmp/macos-framework-linux.err"; then
 	fail "link.frameworks unexpectedly succeeded for linux-like target"
 fi
 contains "$tmp/macos-framework-linux.err" "link.frameworks is supported only for Darwin-like targets"
 if [ "$(uname -s)" = Darwin ]; then
+	step "macos framework darwin build" "macos-framework-build"
 	"$qstar" --file "$tmp/macos-framework/qstar.lua" build //:app --progress off > "$tmp/macos-framework-build.out" 2> "$tmp/macos-framework-build.err"
 	contains "$tmp/macos-framework-build.out" "status ok"
+	step "macos framework darwin action log" "macos-framework-log"
 	"$qstar" --file "$tmp/macos-framework/qstar.lua" action-log //:app:link:0 > "$tmp/macos-framework-log.out" 2> "$tmp/macos-framework-log.err"
 	contains "$tmp/macos-framework-log.out" "-framework"
 	contains "$tmp/macos-framework-log.out" "Foundation"
 fi
+
+step "framework linux validation drift guard" "linux-validation-frameworks"
 not_contains "tests/linux-validation.sh" "frameworks"
 
 case "$(uname -s)" in
@@ -3449,37 +3467,56 @@ case "$(uname -s)" in
 		;;
 esac
 
+step "sharedlib dry run" "shared-dry"
 "$qstar" --file "$tmp/qstar.lua" dry-run //:plugin > "$tmp/shared-dry.out" 2> "$tmp/shared-dry.err"
 contains "$tmp/shared-dry.out" "final_action=link-shared"
 contains "$tmp/shared-dry.out" "$shared_artifact"
 contains "$tmp/shared-dry.out" "-fPIC"
 contains "$tmp/shared-dry.out" "$shared_flag"
 contains "$tmp/shared-dry.out" "$shared_name_flag"
+
+step "sharedlib stella build" "shared"
 "$qstar" --file "$tmp/qstar.lua" build //:plugin --progress off > "$tmp/shared.out" 2> "$tmp/shared.err"
 contains "$tmp/shared.out" "status ok"
 test -f "$tmp/$shared_artifact" || fail "sharedlib artifact missing"
+
+step "sharedlib action log" "shared-log"
 "$qstar" --file "$tmp/qstar.lua" action-log //:plugin:link-shared:0 > "$tmp/shared-log.out" 2> "$tmp/shared-log.err"
 contains "$tmp/shared-log.out" "description='Linking C shared library $shared_artifact'"
 contains "$tmp/shared-log.out" "$shared_flag"
 contains "$tmp/shared-log.out" "status ok"
+
+step "sharedlib executable consumer build" "shared-app"
 "$qstar" --file "$tmp/qstar.lua" build //:plugin_app --progress off > "$tmp/shared-app.out" 2> "$tmp/shared-app.err"
 contains "$tmp/shared-app.out" "status ok"
-"$tmp/build/qstar/out/___plugin_app/plugin_app"
+
+step "sharedlib executable consumer run" "shared-app-run"
+"$tmp/build/qstar/out/___plugin_app/plugin_app" > "$tmp/shared-app-run.out" 2> "$tmp/shared-app-run.err"
+
+step "sharedlib test consumer" "shared-test"
 "$qstar" --file "$tmp/qstar.lua" test //:plugin_test > "$tmp/shared-test.out" 2> "$tmp/shared-test.err"
 contains "$tmp/shared-test.out" "test_result label=//:plugin_test status=pass"
+
+step "sharedlib executable action log" "shared-app-log"
 "$qstar" --file "$tmp/qstar.lua" action-log //:plugin_app:link:0 > "$tmp/shared-app-log.out" 2> "$tmp/shared-app-log.err"
 contains "$tmp/shared-app-log.out" "$shared_artifact"
 contains "$tmp/shared-app-log.out" "$shared_rpath_flag"
+
+step "sharedlib stage" "shared-stage"
 "$qstar" --file "$tmp/qstar.lua" stage //:shared_bundle > "$tmp/shared-stage.out" 2> "$tmp/shared-stage.err"
 contains "$tmp/shared-stage.out" "status ok"
 contains "$tmp/shared-stage.out" "stage_file src=$shared_artifact dst=stage/shared/lib/plugin.shared mode=copy kind=target producer=//:plugin"
 test -f "$tmp/stage/shared/lib/plugin.shared" || fail "sharedlib stage artifact missing"
 contains "$tmp/build/qstar/stage/___shared_bundle/manifest.json" "\"producer\":\"//:plugin\""
+
+step "sharedlib install" "shared-install"
 "$qstar" --file "$tmp/qstar.lua" install //:plugin --prefix "$tmp/shared-prefix" > "$tmp/shared-install.out" 2> "$tmp/shared-install.err"
 contains "$tmp/shared-install.out" "status ok"
 test -f "$tmp/shared-prefix/lib/$(basename "$shared_artifact")" || fail "sharedlib install artifact missing"
 test -f "$tmp/shared-prefix/include/core.h" || fail "sharedlib install header missing"
 contains "$tmp/build/qstar/install/manifest.json" "\"role\":\"sharedlib\""
+
+step "sharedlib ninja lowering" "shared-ninja-emit"
 "$qstar" --file "$tmp/qstar.lua" emit-ninja //:plugin_app > "$tmp/shared-ninja-emit.out" 2> "$tmp/shared-ninja-emit.err"
 contains "$tmp/build/qstar/ninja/build.ninja" "qstar_action_id = //:plugin:link-shared:0"
 contains "$tmp/build/qstar/ninja/build.ninja" "qstar_action_id = //:plugin_app:link:0"
@@ -3488,26 +3525,33 @@ contains "$tmp/build/qstar/ninja/build.ninja" "$shared_flag"
 contains "$tmp/build/qstar/ninja/build.ninja" "$shared_name_flag"
 contains "$tmp/build/qstar/ninja/build.ninja" "$shared_ninja_rpath_flag"
 if command -v ninja >/dev/null 2>&1; then
+	step "sharedlib ninja build" "shared-ninja"
 	"$qstar" --file "$tmp/qstar.lua" -G ninja build //:plugin_app --progress off > "$tmp/shared-ninja.out" 2> "$tmp/shared-ninja.err"
 	contains "$tmp/shared-ninja.out" "backend ninja"
 	contains "$tmp/shared-ninja.out" "status ok"
 	test -f "$tmp/$shared_artifact" || fail "sharedlib ninja artifact missing"
 	test -f "$tmp/build/qstar/out/___plugin_app/plugin_app" || fail "sharedlib ninja app missing"
-	"$tmp/build/qstar/out/___plugin_app/plugin_app"
+	step "sharedlib ninja executable run" "shared-ninja-run"
+	"$tmp/build/qstar/out/___plugin_app/plugin_app" > "$tmp/shared-ninja-run.out" 2> "$tmp/shared-ninja-run.err"
 	test ! -f "$tmp/.ninja_log" || fail "sharedlib ninja wrote package root .ninja_log"
 	test ! -f "$tmp/.ninja_deps" || fail "sharedlib ninja wrote package root .ninja_deps"
 fi
+
+step "windows sharedlib stella diagnostic" "shared-windows"
 if "$qstar" --file "$tmp/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang build //:plugin > "$tmp/shared-windows.out" 2> "$tmp/shared-windows.err"; then
 	fail "windows sharedlib unexpectedly succeeded"
 fi
 contains "$tmp/shared-windows.err" "Windows shared libraries require a runtime .dll"
 contains "$tmp/shared-windows.err" "docs/windows-artifact-policy.md"
+
+step "windows sharedlib ninja diagnostic" "shared-windows-ninja"
 if "$qstar" --file "$tmp/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang -G ninja build //:plugin > "$tmp/shared-windows-ninja.out" 2> "$tmp/shared-windows-ninja.err"; then
 	fail "windows sharedlib ninja unexpectedly succeeded"
 fi
 contains "$tmp/shared-windows-ninja.err" "Windows shared libraries require a runtime .dll"
 contains "$tmp/shared-windows-ninja.err" "docs/windows-artifact-policy.md"
 
+step "test and install corpus setup" "test-install-setup"
 cat > "$tmp/src/test_pass.c" <<'EOF'
 int main(void) { return 0; }
 EOF
