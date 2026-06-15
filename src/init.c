@@ -209,12 +209,12 @@ mkdir_p(const char *path, char *error, size_t error_len)
 		if (buf[i] != '/')
 			continue;
 		buf[i] = '\0';
-		if (buf[0] && mkdir(buf, 0777) < 0 && errno != EEXIST)
+		if (buf[0] && qstar_platform_mkdir(buf, 0777) < 0 && errno != EEXIST)
 			return init_error(error, error_len,
 			    "qstar: init could not create directory '%s'", buf);
 		buf[i] = '/';
 	}
-	if (mkdir(buf, 0777) < 0 && errno != EEXIST)
+	if (qstar_platform_mkdir(buf, 0777) < 0 && errno != EEXIST)
 		return init_error(error, error_len,
 		    "qstar: init could not create directory '%s'", buf);
 	return 0;

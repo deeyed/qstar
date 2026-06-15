@@ -37,7 +37,9 @@ Round Q179 splits the POSIX Stella/Ninja process runner boundary. `src/executor.
 and `src/ninja.c` no longer expose `<poll.h>`, POSIX pipe/wait, or Unix process
 launch headers to `_WIN32` compilation. Windows builds can compile the runner
 boundary as a clear unsupported/fallback path, while actual process execution is
-still deferred until the CreateProcess runner lands.
+still deferred until the CreateProcess runner lands. The same round also adds
+small `qstar_platform_mkdir` and `qstar_platform_lstat` helpers so the Windows
+bootstrap does not stop at POSIX `mkdir(path, mode)` and `lstat` signatures.
 
 The first Q172 hosted run was
 `https://github.com/deeyed/qstar/actions/runs/27508325529`. It reached the
@@ -103,7 +105,10 @@ Round Q179 adds the same kind of boundary to process execution. `_WIN32` builds
 compile `src/executor.c` and `src/ninja.c` without POSIX `<poll.h>`, `fork`,
 `waitpid`, or Unix socket assumptions. Stella build/test execution and QStar's
 Ninja launcher return explicit deferred diagnostics on Windows until a
-CreateProcess-based runner is implemented.
+CreateProcess-based runner is implemented. Q179 also moves directory creation
+and symlink-aware stat calls behind `qstar_platform_mkdir` and
+`qstar_platform_lstat` to keep the baseline Makefile bootstrap moving across
+the next Windows C library differences.
 
 The optional `run_ninja_parity=true` input also runs:
 
@@ -215,6 +220,9 @@ Current known gaps:
   report that the CreateProcess runner has not landed yet, so the Q178 execution
   corpus is expected to remain blocked at execution until that implementation
   round.
+- Windows filesystem helpers are now split enough for local `_WIN32` object
+  compile checks, but the manual alpha workflow still owns the hosted truth for
+  any remaining C library portability failures.
 - Q172 has not promoted Windows to official support. It only makes
   `msys2-ucrt64-gcc` the baseline lane and ensures failed runs leave structured
   status and known-issue artifacts.

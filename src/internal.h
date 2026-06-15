@@ -9,6 +9,36 @@
 
 #include <stddef.h>
 #include <stdio.h>
+#include <sys/stat.h>
+#if defined(_MSC_VER)
+#include <direct.h>
+#endif
+
+/** platform별 mkdir signature 차이를 숨긴다. */
+static inline int
+qstar_platform_mkdir(const char *path, int mode)
+{
+#if defined(_MSC_VER)
+	(void)mode;
+	return _mkdir(path);
+#elif defined(_WIN32) && (defined(__MINGW32__) || defined(__MINGW64__))
+	(void)mode;
+	return mkdir(path);
+#else
+	return mkdir(path, mode);
+#endif
+}
+
+/** platform별 lstat availability 차이를 숨긴다. POSIX에서는 symlink-aware lstat을 유지한다. */
+static inline int
+qstar_platform_lstat(const char *path, struct stat *st)
+{
+#if defined(_WIN32)
+	return stat(path, st);
+#else
+	return lstat(path, st);
+#endif
+}
 
 struct qstar_resolved_toolchain {
 	char name[64];

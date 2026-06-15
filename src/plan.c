@@ -1497,14 +1497,14 @@ doctor_mkdir_p(const char *path)
 		if (*p != '/')
 			continue;
 		*p = '\0';
-		if (mkdir(tmp, 0777) < 0 &&
+		if (qstar_platform_mkdir(tmp, 0777) < 0 &&
 		    (stat(tmp, &st) < 0 || !S_ISDIR(st.st_mode))) {
 			*p = '/';
 			return -1;
 		}
 		*p = '/';
 	}
-	if (mkdir(tmp, 0777) < 0 &&
+	if (qstar_platform_mkdir(tmp, 0777) < 0 &&
 	    (stat(tmp, &st) < 0 || !S_ISDIR(st.st_mode)))
 		return -1;
 	return 0;

@@ -129,11 +129,11 @@ mkdir_p(const char *path)
 		if (tmp[i] != '/')
 			continue;
 		tmp[i] = '\0';
-		if (mkdir(tmp, 0777) < 0 && errno != EEXIST)
+		if (qstar_platform_mkdir(tmp, 0777) < 0 && errno != EEXIST)
 			return -1;
 		tmp[i] = '/';
 	}
-	if (mkdir(tmp, 0777) < 0 && errno != EEXIST)
+	if (qstar_platform_mkdir(tmp, 0777) < 0 && errno != EEXIST)
 		return -1;
 	return 0;
 }

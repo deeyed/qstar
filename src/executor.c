@@ -1311,11 +1311,11 @@ mkdir_p(const char *path)
 		if (*p != '/')
 			continue;
 		*p = '\0';
-		if (mkdir(tmp, 0777) < 0 && errno != EEXIST)
+		if (qstar_platform_mkdir(tmp, 0777) < 0 && errno != EEXIST)
 			return -1;
 		*p = '/';
 	}
-	if (mkdir(tmp, 0777) < 0 && errno != EEXIST)
+	if (qstar_platform_mkdir(tmp, 0777) < 0 && errno != EEXIST)
 		return -1;
 	return 0;
 }
@@ -8604,7 +8604,7 @@ remove_tree(const char *path)
 	struct dirent *ent;
 	char child[QSTAR_PATH_MAX];
 
-	if (lstat(path, &st) < 0)
+	if (qstar_platform_lstat(path, &st) < 0)
 		return errno == ENOENT ? 0 : -1;
 	if (!S_ISDIR(st.st_mode))
 		return qstar_remove_file(path);

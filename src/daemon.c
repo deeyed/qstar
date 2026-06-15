@@ -522,12 +522,12 @@ mkdir_p(const char *path)
 	for (p = tmp + 1; *p; p++) {
 		if (*p == '/') {
 			*p = '\0';
-			if (mkdir(tmp, 0777) < 0 && errno != EEXIST)
+			if (qstar_platform_mkdir(tmp, 0777) < 0 && errno != EEXIST)
 				return -1;
 			*p = '/';
 		}
 	}
-	if (mkdir(tmp, 0777) < 0 && errno != EEXIST)
+	if (qstar_platform_mkdir(tmp, 0777) < 0 && errno != EEXIST)
 		return -1;
 	return 0;
 }
@@ -599,7 +599,7 @@ daemon_check_socket_directory(const char *socket_path, int create,
 		    dir, strerror(errno));
 		return -1;
 	}
-	if (lstat(dir, &st) < 0) {
+	if (qstar_platform_lstat(dir, &st) < 0) {
 		set_error(error, error_len, "daemon socket directory missing: %s", dir);
 		return -1;
 	}
@@ -615,7 +615,7 @@ daemon_check_socket_directory(const char *socket_path, int create,
 		return -1;
 	}
 	if ((st.st_mode & 077) != 0) {
-		if (!create || chmod(dir, 0700) < 0 || lstat(dir, &st) < 0 ||
+		if (!create || chmod(dir, 0700) < 0 || qstar_platform_lstat(dir, &st) < 0 ||
 		    (st.st_mode & 077) != 0) {
 			set_error(error, error_len,
 			    "daemon socket directory must be owner-only: %s", dir);
@@ -632,7 +632,7 @@ daemon_check_socket_file(const char *socket_path, char *error, size_t error_len)
 	struct stat st;
 	uid_t uid;
 
-	if (lstat(socket_path, &st) < 0) {
+	if (qstar_platform_lstat(socket_path, &st) < 0) {
 		set_error(error, error_len, errno == ENOENT ? "socket-missing" :
 		    "stat %s: %s", socket_path, strerror(errno));
 		return -1;
@@ -693,7 +693,7 @@ daemon_prepare_server_socket_path(const char *socket_path, char *error,
 	if (daemon_validate_socket_path(socket_path, error, error_len) < 0 ||
 	    daemon_check_socket_directory(socket_path, 1, error, error_len) < 0)
 		return -1;
-	if (lstat(socket_path, &st) < 0) {
+	if (qstar_platform_lstat(socket_path, &st) < 0) {
 		if (errno == ENOENT)
 			return 0;
 		set_error(error, error_len, "stat %s: %s", socket_path, strerror(errno));
@@ -841,7 +841,7 @@ daemon_unlink_socket_if_safe(const char *socket_path)
 {
 	struct stat st;
 
-	if (lstat(socket_path, &st) < 0)
+	if (qstar_platform_lstat(socket_path, &st) < 0)
 		return errno == ENOENT ? 0 : -1;
 	if (!S_ISSOCK(st.st_mode) || st.st_uid != geteuid())
 		return -1;
