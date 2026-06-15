@@ -124,10 +124,6 @@ Map a source artifact or source file into a
 tree.
 .It Ic qstar.files
 Declare a literal file list.
-.It Ic qstar.select
-Select values by profile, target, host, or default branch.
-.It Ic qstar.incompatible
-Mark a selected value as intentionally unsupported.
 .It Ic qstar.join
 Join path segments as a slash-separated string. The legacy table form flattens
 one list level.
@@ -226,6 +222,15 @@ Namespace forms include
 .Ic qstar.host.arch ,
 and
 .Ic qstar.project.root .
+.Ic qstar.host
+is read-only.
+Host-specific authoring uses ordinary Lua
+.Ic if
+statements over
+.Ic qstar.host.os
+and
+.Ic qstar.host.arch ;
+QStar does not expose a built-in OS or architecture condition-object grammar.
 .Sh SEE ALSO
 .Xr qstar 1 ,
 .Pa share/doc/qstar/wiki/reference/qstar-lua.md ,

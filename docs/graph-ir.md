@@ -55,13 +55,13 @@ Graph IR는 다음을 위해 필요하다.
 | target node | `qstar.target`, `qstar.executable`, `qstar.staticlib` 등 산출물 |
 | config node | `qstar.config` reusable target option bundle |
 | module-set node | `qstar.modules { root, include, exclude }` |
-| source-set node | explicit source, glob result, select result |
+| source-set node | explicit source, glob result, Lua helper result |
 | header-set node | public/private headers와 include dirs |
 | generated-action node | `qstar.custom_target` action |
 | stage node | `qstar.stage` copy-only package/boot staging rule |
 | toolchain reference | selected toolchain/profile reference |
 | dependency edge | label-to-label dependency |
-| condition/select node | platform/profile/feature condition과 branch |
+| host constants | `qstar.host.os`, `qstar.host.arch` values consumed during Lua evaluation |
 | option node | `qstar.option` declaration |
 | tool node | `qstar.tool` capability declaration |
 
@@ -82,25 +82,19 @@ Local label은 canonicalization 단계에서 full label로 바뀐다.
   -> //current/path:local
 ```
 
-## Condition Canonicalization
+## Host Branch Canonicalization
 
-`qstar.select` condition은 Graph IR condition node로 저장한다.
+Host-specific authoring uses ordinary Lua `if` over `qstar.host.os` and
+`qstar.host.arch`. Graph IR records only the selected concrete list; it does not
+preserve a QStar-specific condition node.
 
 ```lua
-qstar.select {
-    [qstar.os.macos] = {"src/platform/darwin.foreign"},
-    [qstar.os.linux] = {"src/platform/linux.foreign"},
-    default = qstar.incompatible("unsupported platform"),
-}
-```
-
-Canonical dump는 condition을 deterministic order로 출력해야 한다.
-
-```txt
-select:
-  when os=linux -> src/platform/linux.foreign
-  when os=macos -> src/platform/darwin.foreign
-  default -> incompatible("unsupported platform")
+local sources = {"src/platform/portable.c"}
+if qstar.host.os == "macos" then
+    sources = {"src/platform/darwin.c"}
+elseif qstar.host.os == "linux" then
+    sources = {"src/platform/linux.c"}
+end
 ```
 
 ## Deterministic Text Dump
@@ -352,9 +346,9 @@ Machine-readable diagnostics are intentionally a skeleton:
 qstar-diagnostic-v1 severity=error file=qstar.lua line=12 field=sources label=//:app message=qstar: source file 'src/missing.c' in '//:app' does not exist under package root
 ```
 
-Round 11 keeps Graph IR source lists canonical after `qstar.files` and
-`qstar.select` evaluation. The graph does not remember the original glob
-pattern as a stable public API yet; it records the resolved source path list.
+Graph IR source lists are canonical after `qstar.files` expansion and Lua helper
+evaluation. The graph does not remember the original glob pattern or helper
+branch as a stable public API yet; it records the resolved source path list.
 
 With Round 3 package alias input, external dependencies stay outside the local
 closure but become explainable:

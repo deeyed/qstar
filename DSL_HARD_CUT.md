@@ -66,10 +66,7 @@ allowlisted external tool policy를 대체한다. Toolset은 build graph의 tool
 
 ```lua
 qstar.profile
-qstar.os
-qstar.arch
-qstar.select
-qstar.incompatible
+condition-object APIs
 lang.cale
 qstar init mixed-cale
 ```
@@ -294,8 +291,8 @@ description, custom command argv 안에서 직접 관리한다.
 
 ## Platform And Conditions
 
-`qstar.os.*`, `qstar.arch.*`, `qstar.select`, `qstar.incompatible`은 삭제한다. OS/arch 조건은
-grammar가 아니라 실행 시점에 주입되는 read-only host table과 일반 Lua 조건문으로 표현한다.
+Condition-object API는 삭제한다. OS/arch 조건은 grammar가 아니라 실행 시점에 주입되는
+read-only host table과 일반 Lua 조건문으로 표현한다.
 
 ```lua
 local platform_configs = {}
@@ -453,7 +450,7 @@ default vocabulary가 되어서는 안 된다.
 3. `qstar.profile` registration 제거.
 4. profile data structures, resolver, auto flags 제거.
 5. Cale language provider surface 제거.
-6. `qstar.os`, `qstar.arch`, `qstar.select`, `qstar.incompatible` 제거.
+6. Condition-object API 제거.
 7. `frameworks`를 macOS-scoped link config로만 노출.
 8. Dedicated linker-script/symbol fields, `address`, `layout`, `marker_log` 제거.
 9. docs/wiki/manpage/snippets/test corpus 정리.

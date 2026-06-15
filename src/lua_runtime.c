@@ -416,12 +416,7 @@ push_table_strings(lua_State *L, int idx, struct qstar_string_list *list, struct
 			lua_getfield(L, -1, "__qstar_kind");
 			kind = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
 			lua_pop(L, 1);
-			if (kind && strcmp(kind, "select") == 0) {
-				if (qstar_string_list_push(list, "<select>") < 0) {
-					lua_pop(L, 1);
-					return qstar_set_error(graph, "qstar: out of memory");
-				}
-			} else if (kind && strcmp(kind, "output_path") == 0) {
+			if (kind && strcmp(kind, "output_path") == 0) {
 				s = output_path_table_path(L, -1);
 				if (!s || qstar_string_list_push(list, s) < 0) {
 					lua_pop(L, 1);
@@ -2870,62 +2865,6 @@ qstar_lua_status(lua_State *L)
 	return 1;
 }
 
-static int
-qstar_lua_select(lua_State *L)
-{
-	struct qstar_lua_context *ctx;
-	const char *arch, *target, *key, *selected;
-	int matched, has_default;
-
-	ctx = get_context(L);
-	target = ctx->graph->profile.target && *ctx->graph->profile.target ?
-	    ctx->graph->profile.target : "host";
-	arch = target;
-	luaL_checktype(L, 1, LUA_TTABLE);
-	matched = 0;
-	selected = NULL;
-	lua_pushnil(L);
-	while (lua_next(L, 1) != 0) {
-		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
-		if (key && ((strcmp(key, "os=macos") == 0 &&
-		    (strstr(target, "apple") || strstr(target, "macos") || strstr(target, "darwin"))) ||
-		    (strcmp(key, "os=linux") == 0 && strstr(target, "linux")) ||
-		    (strcmp(key, "os=windows") == 0 && (strstr(target, "windows") || strstr(target, "win"))) ||
-		    (strcmp(key, "arch=x86_64") == 0 && (strstr(arch, "x86_64") || strstr(arch, "amd64"))) ||
-		    (strcmp(key, "arch=aarch64") == 0 && (strstr(arch, "aarch64") || strstr(arch, "arm64"))) ||
-		    (strcmp(key, "arch=riscv64") == 0 && (strstr(arch, "riscv64") || strstr(arch, "rv64"))))) {
-			matched = 1;
-			lua_remove(L, -2);
-			break;
-		}
-		lua_pop(L, 1);
-	}
-	if (!matched) {
-		lua_getfield(L, 1, "default");
-		has_default = !lua_isnil(L, -1);
-		if (!has_default)
-			return luaL_error(L, "qstar: select has no branch for target '%s'", target);
-	}
-	if (lua_isstring(L, -1)) {
-		selected = lua_tostring(L, -1);
-		if (strncmp(selected, "incompatible(", 13) == 0)
-			return luaL_error(L, "qstar: selected incompatible branch %s", selected);
-	}
-	return 1;
-}
-
-static int
-qstar_lua_incompatible(lua_State *L)
-{
-	const char *reason;
-	char buf[256];
-
-	reason = luaL_checkstring(L, 1);
-	snprintf(buf, sizeof(buf), "incompatible(\"%s\")", reason);
-	lua_pushstring(L, buf);
-	return 1;
-}
-
 /** qstar.project metadata를 graph에 등록하고 v1 root contract를 검증한다. */
 static int
 qstar_lua_project(lua_State *L)
@@ -3191,6 +3130,16 @@ global_assignment_forbidden(lua_State *L)
 	return luaL_error(L, "qstar: global assignment is not allowed: %s", name);
 }
 
+static int
+readonly_table_assignment_forbidden(lua_State *L)
+{
+	const char *table, *key;
+
+	table = lua_tostring(L, lua_upvalueindex(1));
+	key = lua_isstring(L, 2) ? lua_tostring(L, 2) : "<non-string>";
+	return luaL_error(L, "qstar: %s is read-only: %s", table, key);
+}
+
 static void
 set_forbidden_function(lua_State *L, const char *name)
 {
@@ -3300,25 +3249,23 @@ register_global_constants(lua_State *L, const struct qstar_lua_context *ctx)
 }
 
 static void
-register_conditions(lua_State *L)
+set_readonly_host_table(lua_State *L)
 {
 	lua_newtable(L);
 	lua_newtable(L);
-	lua_pushstring(L, "os=macos");
-	lua_setfield(L, -2, "macos");
-	lua_pushstring(L, "os=linux");
-	lua_setfield(L, -2, "linux");
-	lua_pushstring(L, "os=windows");
-	lua_setfield(L, -2, "windows");
-	lua_setfield(L, -2, "os");
+	set_table_string(L, -1, "os", qstar_host_os());
+	set_table_string(L, -1, "arch", qstar_host_arch());
 	lua_newtable(L);
-	lua_pushstring(L, "arch=x86_64");
-	lua_setfield(L, -2, "x86_64");
-	lua_pushstring(L, "arch=aarch64");
-	lua_setfield(L, -2, "aarch64");
-	lua_pushstring(L, "arch=riscv64");
-	lua_setfield(L, -2, "riscv64");
-	lua_setfield(L, -2, "arch");
+	lua_pushvalue(L, -2);
+	lua_setfield(L, -2, "__index");
+	lua_pushstring(L, "qstar.host");
+	lua_pushcclosure(L, readonly_table_assignment_forbidden, 1);
+	lua_setfield(L, -2, "__newindex");
+	lua_pushboolean(L, 0);
+	lua_setfield(L, -2, "__metatable");
+	lua_setmetatable(L, -3);
+	lua_pop(L, 1);
+	lua_setfield(L, -2, "host");
 }
 
 static void
@@ -3326,13 +3273,10 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 {
 	lua_pushlightuserdata(L, ctx);
 	lua_setfield(L, LUA_REGISTRYINDEX, "qstar.context");
-	register_conditions(L);
+	lua_newtable(L);
 	lua_pushstring(L, QSTAR_VERSION);
 	lua_setfield(L, -2, "version");
-	lua_newtable(L);
-	set_table_string(L, -1, "os", qstar_host_os());
-	set_table_string(L, -1, "arch", qstar_host_arch());
-	lua_setfield(L, -2, "host");
+	set_readonly_host_table(L);
 	lua_newtable(L);
 	set_table_string(L, -1, "root", ctx->root_dir);
 	lua_newtable(L);
@@ -3411,10 +3355,6 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "merge");
 	lua_pushcfunction(L, qstar_lua_extend);
 	lua_setfield(L, -2, "extend");
-	lua_pushcfunction(L, qstar_lua_select);
-	lua_setfield(L, -2, "select");
-	lua_pushcfunction(L, qstar_lua_incompatible);
-	lua_setfield(L, -2, "incompatible");
 	lua_pushcfunction(L, qstar_lua_import_file);
 	lua_setfield(L, -2, "import_file");
 	lua_pushcfunction(L, qstar_lua_import_module);

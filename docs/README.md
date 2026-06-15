@@ -240,9 +240,10 @@ action은 Lua source file/line을 보존하고, validation diagnostic은 가능�
 diagnostic skeleton을 출력한다. `list-targets`, `query`, `doctor`는 지금은 human-facing
 command이고, 나중에는 LSP/query-server source가 될 수 있다.
 
-Round 11은 실제 source selection skeleton을 추가했다. `qstar.files`는 package-root glob
+Round 11은 실제 source expansion skeleton을 추가했다. `qstar.files`는 package-root glob
 pattern을 deterministic sorting과 `exclude` filtering으로 확장한다. 중복 source entry는
-diagnostic으로 막고, `qstar.select`는 CLI/profile target input에서 실제 branch를 고른다.
+diagnostic으로 막고, host branch는 `qstar.host.os`/`qstar.host.arch`를 읽는 일반 Lua `if`로
+작성한다.
 아직 directory scanner나 일반 executor는 아니다.
 
 Round 66은 read-only external profile input을 제거하고 `qstar.profile` DSL을 profile
@@ -275,7 +276,7 @@ protocol은 아니다.
 작은 `qstar.lua`와 subdir `<dirname>.qst`를 직접 써보는 시점은 지금부터 가능하다.
 Round 14/15에서는 `qstar list-targets`, `qstar query`, `qstar doctor`, `qstar check`,
 `qstar explain`, `qstar dry-run`으로 graph shape, package-root file existence,
-generated output edge, source classification, glob expansion, profile select,
+generated output edge, source classification, glob expansion, host branching,
 dependency order, Build Plan IR/action key, command skeleton, dry-run step ordering이
 기대대로 나오는지 볼 수 있다. C-only local fixture는 `qstar build`로 실제
 compile/archive/link를 실행하고, 두 번째 빌드부터 cache-hit skip과

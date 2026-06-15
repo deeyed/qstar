@@ -258,7 +258,7 @@ Lua source file과 line 중심이며, `qstar query`와 diagnostic 출력에 쓰�
 검증 단계는 field 이름을 diagnostic metadata로 남긴다.
 
 Round 11부터 명시 source model은 literal source path, generated output path,
-`qstar.files` glob 결과, `qstar.select` 결과를 같은 `sources` list로 정규화한다.
+`qstar.files` glob 결과, Lua helper 결과를 같은 `sources` list로 정규화한다.
 이 단계 이후 QStar는 source path를 하나의 canonical list로 보고 duplicate source와
 unsupported extension을 검증한다.
 

@@ -62,14 +62,14 @@ qstar/build/bin/qstar
   -> deterministic check summary
 ```
 
-Round 10/11 add query and real source selection:
+Round 10/11 add query and deterministic source expansion:
 
 ```txt
 qstar/build/bin/qstar
   -> origin-aware diagnostics
   -> list-targets/query/doctor
   -> qstar.files glob/exclude expansion
-  -> qstar.select target/profile branch selection
+  -> Lua helper host branching over qstar.host
 ```
 
 Round 12/13 add the first executable edge while keeping QStar standalone:
@@ -219,7 +219,7 @@ header-language grammar와 C declaration import/export 모델은 external compil
 3. Package manager가 resolved package root map을 제공한 경우 label resolver input으로 소비한다.
 4. Internal canonical Graph IR를 생성한다.
 5. Graph validation을 수행한다.
-6. `qstar.files`와 `qstar.select`로 명시 source selection을 확정한다.
+6. `qstar.files`와 일반 Lua helper 결과로 명시 source selection을 확정한다.
 7. Target closure, module set, header set, source selection을 계산한다.
 8. `qstar check`/`doctor`/`build`/`why-rebuild`이면 package-root 기준 authoring file existence를 확인한다.
 9. Command plan과 argv plan을 생성한다.
@@ -430,8 +430,8 @@ Round 11 source-selection invariant:
 - `qstar.files { ..., exclude = {...} }` filters literals or wildcard patterns.
 - glob expansion is deterministic and unmatched globs are stable diagnostics.
 - duplicate sources inside one target are stable diagnostics.
-- `qstar.select` resolves against CLI/profile target input and returns one real
-  branch; incompatible selected branches are stable diagnostics.
+- Host-specific source branching uses ordinary Lua `if` over `qstar.host.os` and
+  `qstar.host.arch`; Graph IR stores only the selected concrete list.
 
 Round 12 profile/toolchain resolver invariant:
 

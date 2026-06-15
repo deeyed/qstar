@@ -37,8 +37,7 @@ QStar를 독립 빌드시스템으로 시험할 수 있게 하는 최소 계약�
 - Target rules: `qstar.executable`, `qstar.staticlib`, `qstar.test`, `qstar.custom_target`,
   `qstar.run_target`, `qstar.configure_file`, `qstar.output`, `qstar.cli`.
 - Plan-only or gated rules: `qstar.sharedlib` local build/install은 stable unsupported.
-- Helpers: `qstar.modules`, `qstar.files`, `qstar.join`, `qstar.select`,
-  `qstar.incompatible`, `qstar.subdir`.
+- Helpers: `qstar.modules`, `qstar.files`, `qstar.join`, `qstar.subdir`.
 - Labels: `:local`, `//:name`, `//path:name`, `@pkg//path:name`.
 - Dependency fields: `deps`, `public_deps`, `private_deps`, `visibility`.
 - Source/header fields: `sources`, `lang`; `public_headers`/`private_headers`는

@@ -75,6 +75,32 @@ end
 return M
 ```
 
+Host별 authoring 분기도 `.qsm` helper와 일반 Lua `if`로 표현한다. `qstar.host` namespace는
+read-only이며, QStar grammar에 OS/arch condition object를 만들지 않는다.
+
+```lua
+local M = {}
+
+function M.platform_sources()
+  if qstar.host.os == "macos" then
+    return {"src/platform/darwin.c"}
+  elseif qstar.host.os == "linux" then
+    return {"src/platform/linux.c"}
+  end
+  return {"src/platform/portable.c"}
+end
+
+return M
+```
+
+```lua
+local platform = qstar.import_module("qstar/modules/platform")
+
+qstar.staticlib "platform" {
+  sources = platform.platform_sources(),
+}
+```
+
 대표 diagnostic:
 
 ```txt

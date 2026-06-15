@@ -30,7 +30,7 @@ generated header는 path/dependency/install surface이며, QStar가 C/header-lan
   `qstar.custom_target`, `qstar.run_target`, `qstar.configure_file`, `qstar.stage`.
 - Lint grouping: `qstar.target_family` for multi-arch shared-source policy.
 - Helpers: `qstar.cli`, `qstar.input`, `qstar.output`, `qstar.target_file`,
-  `qstar.files`, `qstar.subdir`, `qstar.select`, `qstar.join`.
+  `qstar.files`, `qstar.subdir`, `qstar.join`.
 - Language namespaces: `lang.c`, `lang.cxx`, `lang.asm`, `lang.cxx`.
 - Toolchain/profile input: `qstar.profile`, `--profile`, compiler path override,
   sysroot/resource-dir/include/linker settings.

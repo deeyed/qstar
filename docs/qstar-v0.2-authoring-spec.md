@@ -575,7 +575,7 @@ Current authoring keywords are intentionally small and language-neutral.
 | Target/rule API | `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`, `qstar.test`, `qstar.custom_target`, `qstar.run_target`, `qstar.configure_file`, `qstar.stage` |
 | Lint grouping API | `qstar.target_family` |
 | Command helpers | `qstar.cli`, `qstar.input`, `qstar.output`, `qstar.target_file`, `qstar.stage_file` |
-| Graph helpers | `qstar.subdir`, `qstar.files`, `qstar.modules`, `qstar.join`, `qstar.select`, `qstar.incompatible` |
+| Graph helpers | `qstar.subdir`, `qstar.files`, `qstar.modules`, `qstar.join`, `qstar.copy`, `qstar.append`, `qstar.merge`, `qstar.extend` |
 | Constants | `QSTAR_VERSION`, `QSTAR_HOST_OS`, `QSTAR_HOST_ARCH`, `QSTAR_PACKAGE_ROOT`, `QSTAR_PROJECT_ROOT`, `QSTAR_PROFILE`, `QSTAR_TARGET`, `qstar.version`, `qstar.host.os`, `qstar.host.arch`, `qstar.project.root` |
 | Link policy | `link_options`, `link_inputs` |
 | Language namespaces | `lang.c`, `lang.cxx`, `lang.asm`, `lang.cxx` |

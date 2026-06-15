@@ -32,7 +32,7 @@ stable public protocol은 아니다.
 - `qstar.custom_target`, `qstar.run_target`, `qstar.configure_file`, `qstar.output`,
   `qstar.cli`.
 - `qstar init c-app|c-lib|generated|generated-extra`.
-- `qstar.modules`, `qstar.files`, `qstar.join`, `qstar.select`, `qstar.incompatible`,
+- `qstar.modules`, `qstar.files`, `qstar.join`,
   `qstar.subdir`.
 - labels: `:local`, `//:name`, `//path:name`, `@pkg//path:name`.
 - fields: `sources`, `lang`, `deps`, `public_deps`, `private_deps`,

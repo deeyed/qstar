@@ -1263,6 +1263,42 @@ contains "$tmp/lua-authoring.out" "-DQSTAR_PROJECT_NS_ROOT="
 contains "$tmp/lua-authoring.out" "-DQSTAR_TARGET=host"
 contains "$tmp/lua-authoring.out" "-DQSTAR_PAIR_COUNT=2"
 
+mkdir -p "$tmp/host-branch/src"
+cat > "$tmp/host-branch/src/macos.c" <<'EOF'
+int host_branch(void) { return 1; }
+EOF
+cat > "$tmp/host-branch/src/linux.c" <<'EOF'
+int host_branch(void) { return 2; }
+EOF
+cat > "$tmp/host-branch/src/other.c" <<'EOF'
+int host_branch(void) { return 3; }
+EOF
+cat > "$tmp/host-branch/qstar.lua" <<'EOF'
+local host_sources = {"src/other.c"}
+if qstar.host.os == "macos" then
+  host_sources = {"src/macos.c"}
+elseif qstar.host.os == "linux" then
+  host_sources = {"src/linux.c"}
+end
+
+qstar.staticlib "host_branch" {
+  sources = host_sources,
+}
+EOF
+"$qstar" --file "$tmp/host-branch/qstar.lua" --dump-graph > "$tmp/host-branch.out" 2> "$tmp/host-branch.err"
+case "$(uname -s)" in
+	Darwin) contains "$tmp/host-branch.out" "sources [src/macos.c]" ;;
+	Linux) contains "$tmp/host-branch.out" "sources [src/linux.c]" ;;
+	*) contains "$tmp/host-branch.out" "sources [src/other.c]" ;;
+esac
+cat > "$tmp/host-branch/qstar.lua" <<'EOF'
+qstar.host.os = "override"
+EOF
+if "$qstar" --file "$tmp/host-branch/qstar.lua" check > "$tmp/host-readonly.out" 2> "$tmp/host-readonly.err"; then
+	fail "qstar.host mutation unexpectedly succeeded"
+fi
+contains "$tmp/host-readonly.err" "qstar.host is read-only: os"
+
 step "import_file and import_module happy path" "imports-graph"
 mkdir -p "$tmp/imports/qstar/policies" "$tmp/imports/qstar/modules/kernel" \
 	"$tmp/imports/include" "$tmp/imports/sys/include" "$tmp/imports/src"

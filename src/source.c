@@ -351,7 +351,7 @@ validate_dependency_boundary(struct qstar_graph *graph, const struct qstar_targe
 	size_t i, j;
 
 	for (i = 0; i < deps->len; i++) {
-		if (deps->items[i][0] == '@' || strcmp(deps->items[i], "<select>") == 0)
+		if (deps->items[i][0] == '@')
 			continue;
 		dep = find_target(graph, deps->items[i]);
 		if (!dep)

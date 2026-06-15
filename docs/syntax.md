@@ -45,16 +45,17 @@ manager/profile responsibilities, not arbitrary Lua logic.
 
 ```lua
 local function platform_sources()
-    return qstar.select {
-        [qstar.os.macos] = {"src/platform/darwin.foreign"},
-        [qstar.os.linux] = {"src/platform/linux.foreign"},
-        [qstar.os.windows] = {"src/platform/windows.foreign"},
-        default = qstar.incompatible("unsupported platform"),
-    }
+    if qstar.host.os == "macos" then
+        return {"src/platform/darwin.c"}
+    elseif qstar.host.os == "linux" then
+        return {"src/platform/linux.c"}
+    end
+    return {"src/platform/portable.c"}
 end
 ```
 
-함수는 허용하지만 pure helper여야 한다. Target 선언, table 조립, 조건 객체 조합, label list 생성 같은 build graph 계산만 수행한다.
+함수는 허용하지만 pure helper여야 한다. Target 선언, table 조립, host constant 분기, label list
+생성 같은 build graph 계산만 수행한다.
 
 ## QStar Constants
 
@@ -263,15 +264,18 @@ qstar.staticlib "core" {
 }
 ```
 
-Round 11부터 `qstar.select`는 placeholder가 아니라 실제 branch를 반환한다.
+Host condition은 별도 condition grammar가 아니라 일반 Lua `if`로 작성한다.
 
 ```lua
+local sources = {"src/portable.c"}
+if qstar.host.os == "macos" then
+    sources = {"src/darwin.c"}
+elseif qstar.host.os == "linux" then
+    sources = {"src/linux.c"}
+end
+
 qstar.executable "app" {
-    sources = qstar.select {
-        [qstar.os.macos] = {"src/darwin.c"},
-        [qstar.os.linux] = {"src/linux.c"},
-        default = {"src/portable.c"},
-    },
+    sources = sources,
 }
 ```
 
@@ -663,57 +667,23 @@ sources = qstar.files {
 }
 ```
 
-## qstar.select
+## Host Condition Branching
 
-Target/platform condition에 따라 값을 선택한다.
-
-```lua
-sources = qstar.select {
-    [qstar.os.macos] = {"src/platform/darwin.foreign"},
-    [qstar.os.linux] = {"src/platform/linux.foreign"},
-    [qstar.os.windows] = {"src/platform/windows.foreign"},
-    default = qstar.incompatible("unsupported platform"),
-}
-```
-
-복합 조건:
+`qstar.host.os`와 `qstar.host.arch`는 evaluator가 주입하는 read-only host strings다.
+QStar grammar에 OS/arch condition object를 넣지 않는다.
 
 ```lua
-sources = qstar.select {
-    [qstar.all { qstar.os.linux, qstar.arch.x86_64 }] = {
-        "src/platform/linux_x64.foreign",
-    },
-    default = qstar.incompatible("unsupported target"),
-}
+local platform_sources = {"src/platform/portable.c"}
+
+if qstar.host.os == "macos" then
+    platform_sources = {"src/platform/darwin.c"}
+elseif qstar.host.os == "linux" then
+    platform_sources = {"src/platform/linux.c"}
+end
 ```
 
-`qstar.select`는 source-level `#if`를 줄이기 위한 핵심 API다.
-
-Round 1 records `qstar.select` as a placeholder in the explain dump. Target
-condition evaluation is a later command-plan step.
-
-## Condition Objects
-
-조건은 graph condition object다.
-
-```lua
-qstar.os.macos
-qstar.os.linux
-qstar.os.windows
-
-qstar.arch.x86_64
-qstar.arch.aarch64
-qstar.arch.riscv64
-
-qstar.feature "gui"
-qstar.profile "freestanding-external-tool"
-
-qstar.all { ... }
-qstar.any { ... }
-qstar.not_(...)
-```
-
-Lua `not`은 keyword이므로 API 이름은 `not_`로 둔다.
+Cross target, feature option, board selection 같은 project-specific 조건은 project-owned Lua
+local 값과 helper function으로 조립한다. QStar core는 조건 언어를 해석하지 않는다.
 
 ## qstar.join
 
@@ -743,16 +713,6 @@ local common_c = qstar.merge({
     compile_options = qstar.append({"-Wextra"}, "-Werror"),
 })
 ```
-
-## qstar.incompatible
-
-현재 target/profile에서 사용할 수 없는 branch를 나타낸다.
-
-```lua
-default = qstar.incompatible("unsupported graphics backend")
-```
-
-QStar는 incompatible target을 graph에서 skip하거나, 사용자가 직접 빌드할 때 명확한 diagnostic으로 실패시킬 수 있다.
 
 ## Labels
 
@@ -892,10 +852,10 @@ qstar.option "with_gui" {
 사용:
 
 ```lua
-deps = qstar.select {
-    [qstar.feature "with_gui"] = {":gui"},
-    default = {},
-}
+local deps = {}
+if with_gui then
+    deps = {":gui"}
+end
 ```
 
 CLI 방향:

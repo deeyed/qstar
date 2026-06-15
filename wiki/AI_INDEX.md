@@ -284,8 +284,6 @@ Command/path helper:
 - `qstar.append`
 - `qstar.merge`
 - `qstar.extend`
-- `qstar.select`
-- `qstar.incompatible`
 
 Profile/toolchain:
 

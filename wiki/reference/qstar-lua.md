@@ -42,6 +42,8 @@ qstar.staticlib "core" {
 공식 상수는 `QSTAR_VERSION`, `QSTAR_HOST_OS`, `QSTAR_HOST_ARCH`,
 `QSTAR_PACKAGE_ROOT`, `QSTAR_PROJECT_ROOT`, `QSTAR_PROFILE`, `QSTAR_TARGET`,
 `qstar.version`, `qstar.host.os`, `qstar.host.arch`, `qstar.project.root`다.
+`qstar.host`는 read-only namespace다. Host별 분기는 별도 condition DSL이 아니라 일반 Lua
+`if qstar.host.os == "macos" then ... end` 형태로 작성한다.
 
 ## Graph entrypoints
 

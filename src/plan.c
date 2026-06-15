@@ -181,11 +181,6 @@ visit_target(struct qstar_graph *graph, struct qstar_plan *plan, size_t index)
 	target = &graph->targets[index];
 	for (i = 0; i < target->deps.len; i++) {
 		dep = target->deps.items[i];
-		if (strcmp(dep, "<select>") == 0)
-			return qstar_set_error_origin(graph, target->origin_file,
-			    target->origin_line, "deps", target->label,
-			    "qstar: unresolved select dependency in '%s'",
-			    target->label);
 		dep_index = target_index(graph, dep);
 		if (dep_index < 0) {
 			if (dep[0] == '@') {
@@ -206,11 +201,6 @@ visit_target(struct qstar_graph *graph, struct qstar_plan *plan, size_t index)
 	}
 	for (i = 0; i < target->private_deps.len; i++) {
 		dep = target->private_deps.items[i];
-		if (strcmp(dep, "<select>") == 0)
-			return qstar_set_error_origin(graph, target->origin_file,
-			    target->origin_line, "private_deps", target->label,
-			    "qstar: unresolved select dependency in '%s'",
-			    target->label);
 		dep_index = target_index(graph, dep);
 		if (dep_index < 0) {
 			if (dep[0] == '@') {
