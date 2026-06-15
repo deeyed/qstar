@@ -4727,6 +4727,7 @@ contains "man/man1/qstar.1" "CMake-style action descriptions"
 contains "man/man1/qstar.1" "[ 75%] Linking CXX executable app"
 contains "man/man1/qstar.1" "compile_commands.path"
 contains "man/man1/qstar.1" "beta opt-in"
+contains "man/man1/qstar.1" "macOS and Linux platform contexts"
 contains "man/man1/qstar.1" "warning:"
 contains "man/man1/qstar.1" "description="
 contains "man/man5/qstar-lua.5" "Ic qstar.group"
@@ -4737,6 +4738,10 @@ contains "man/man5/qstar-lua.5" "CMake-style"
 contains "man/man5/qstar-lua.5" "Ic qstar.target_file"
 contains "man/man5/qstar-lua.5" "object artifact"
 contains "man/man5/qstar-lua.5" "Objective-C"
+contains "man/man5/qstar-lua.5" "platform context"
+contains "docs/syntax.md" "current generic DSL"
+contains "wiki/reference/qstar-lua.md" "platform context"
+contains "wiki/AI_INDEX.md" "platform context"
 contains "editors/vscode/qstar/snippets/qstar.json" "\"prefix\": \"qdesc\""
 contains "editors/vscode/qstar/snippets/qstar.json" "CMake-style progress and replay logs"
 contains "Makefile" "qstar-v0.2-rc-tests"
@@ -4926,8 +4931,17 @@ done
 if grep -R -n --include='*.md' -E '\.qs\b' wiki >/dev/null; then
 	fail "QStar wiki contains stale authoring surface"
 fi
+for removed_generic_doc in DSL_HARD_CUT.md temp_refactor_info.md; do
+	if test -e "$removed_generic_doc"; then
+		fail "QStar repository contains removed generic-DSL refactor note: $removed_generic_doc"
+	fi
+done
 if grep -R -n -E 'qstar\.profile|--profile|--toolchain|--stdlib|QSTAR_PROFILE|QSTAR_TARGET|lang\.cale|mixed-cale|Cale|HCL|freestanding|firmware|UEFI|RPi|Raspberry|QEMU|BOOTX64|BOOTAA64|kernel8|qemu_smoke|kernel_img|kernel_c|freestanding_c|//:kernel|kernel\.bin|kernel\.elf|reference/profiles|tutorials/freestanding-image|cookbook/qemu-smoke' README.md README.ko.md wiki docs man editors/vscode/qstar/snippets editors/vscode/qstar/syntaxes tools/sync-github-wiki.sh >/dev/null; then
 	fail "QStar public docs/editor surface contains old generic-DSL syntax"
+fi
+if awk 'BEGIN { scan = 0 } $0 == "step \"stage diagnostics\"" { scan = 0 } scan { print } $0 == "step \"artifact metadata\"" { scan = 1 }' tests/smoke.sh |
+    grep -n -E 'freestanding|firmware|UEFI|RPi|Raspberry|QEMU|BOOTX64|BOOTAA64|kernel8|kernel_img|//:kernel|kernel\.bin|kernel\.elf' >/dev/null; then
+	fail "QStar smoke fixture corpus contains old low-level generic-DSL vocabulary"
 fi
 if sed -n '/qstar_lsp_symbols\[\]/,/^};/p; /qstar_lsp_fields\[\]/,/^};/p' src/lsp.c |
     grep -n -E 'qstar\.profile|QSTAR_PROFILE|QSTAR_TARGET|freestanding|firmware|UEFI|RPi|Raspberry|QEMU|BOOTX64|kernel_img|kernel_c|freestanding_c|profile' >/dev/null; then
@@ -5210,14 +5224,14 @@ fi
 contains "$tmp/cxx-module.err" "C++ modules are not supported"
 
 step "language namespace surface"
-mkdir -p "$tmp/lang-surface/boot/include" "$tmp/lang-surface/src" "$tmp/lang-surface/include"
+mkdir -p "$tmp/lang-surface/asm/include" "$tmp/lang-surface/src" "$tmp/lang-surface/include"
 cat > "$tmp/lang-surface/qstar.lua" <<'EOF'
-qstar.staticlib "boot" {
-  sources = {"boot/start.S"},
+qstar.staticlib "asm_core" {
+  sources = {"asm/start.S"},
   lang = {
     asm = {
-      include_dirs = {"boot/include"},
-      compile_options = {"-ffreestanding"},
+      include_dirs = {"asm/include"},
+      compile_options = {"-DASM_SURFACE=1"},
       preprocess = true,
     },
   },
@@ -5243,7 +5257,7 @@ qstar.staticlib "cxx_mod_shell" {
   },
 }
 EOF
-cat > "$tmp/lang-surface/boot/start.S" <<'EOF'
+cat > "$tmp/lang-surface/asm/start.S" <<'EOF'
 .globl _start
 _start:
 EOF
@@ -5257,8 +5271,8 @@ cat > "$tmp/lang-surface/src/mod.cpp" <<'EOF'
 int mod_shell(void) { return 0; }
 EOF
 "$qstar" --file "$tmp/lang-surface/qstar.lua" --dump-graph > "$tmp/lang-surface.out" 2> "$tmp/lang-surface.err"
-contains "$tmp/lang-surface.out" "lang.asm.include_dirs [boot/include]"
-contains "$tmp/lang-surface.out" "lang.asm.compile_options [-ffreestanding]"
+contains "$tmp/lang-surface.out" "lang.asm.include_dirs [asm/include]"
+contains "$tmp/lang-surface.out" "lang.asm.compile_options [-DASM_SURFACE=1]"
 contains "$tmp/lang-surface.out" "lang.asm.preprocess true"
 contains "$tmp/lang-surface.out" "public_headers [include/core.h]"
 contains "$tmp/lang-surface.out" "cflags [-DCORE=1]"
@@ -5960,15 +5974,15 @@ mkdir -p "$(dirname "$out")"
 cp "$in" "$out"
 EOF
 chmod +x "$tmp/artifact/tools/fake-objcopy.sh"
-cat > "$tmp/artifact/fixtures/kernel.elf" <<'EOF'
+cat > "$tmp/artifact/fixtures/payload.elf" <<'EOF'
 ELF-STUB
 payload
 EOF
 cat > "$tmp/artifact/qstar.lua" <<'EOF'
-qstar.custom_target "kernel_img" {
-  inputs = {"fixtures/kernel.elf"},
+qstar.custom_target "payload_image" {
+  inputs = {"fixtures/payload.elf"},
   outputs = {
-    qstar.output("generated/kernel8.img", {
+    qstar.output("generated/payload.img", {
       group = "images",
     }),
   },
@@ -5982,32 +5996,32 @@ qstar.custom_target "kernel_img" {
 }
 
 qstar.run_target "smoke" {
-  command = qstar.cli {"tools/fake-objcopy.sh", "-O", "binary", qstar.target_file("//:kernel_img"), "generated/copy.img"},
+  command = qstar.cli {"tools/fake-objcopy.sh", "-O", "binary", qstar.target_file("//:payload_image"), "generated/copy.img"},
 }
 EOF
-"$qstar" --file "$tmp/artifact/qstar.lua" check //:kernel_img > "$tmp/artifact-check.out" 2> "$tmp/artifact-check.err"
+"$qstar" --file "$tmp/artifact/qstar.lua" check //:payload_image > "$tmp/artifact-check.out" 2> "$tmp/artifact-check.err"
 contains "$tmp/artifact-check.out" "generated-action-count 1"
-"$qstar" --file "$tmp/artifact/qstar.lua" explain //:kernel_img > "$tmp/artifact-explain.out" 2> "$tmp/artifact-explain.err"
-contains "$tmp/artifact-explain.out" "plan_generated_action //:kernel_img"
-contains "$tmp/artifact-explain.out" "generated_artifact output=generated/kernel8.img group=images format=file"
-contains "$tmp/artifact-explain.out" "identity=generated/kernel8.img|group=images|format=file"
-"$qstar" --file "$tmp/artifact/qstar.lua" dry-run //:kernel_img > "$tmp/artifact-dry.out" 2> "$tmp/artifact-dry.err"
-contains "$tmp/artifact-dry.out" "dry_run_generated_action //:kernel_img"
+"$qstar" --file "$tmp/artifact/qstar.lua" explain //:payload_image > "$tmp/artifact-explain.out" 2> "$tmp/artifact-explain.err"
+contains "$tmp/artifact-explain.out" "plan_generated_action //:payload_image"
+contains "$tmp/artifact-explain.out" "generated_artifact output=generated/payload.img group=images format=file"
+contains "$tmp/artifact-explain.out" "identity=generated/payload.img|group=images|format=file"
+"$qstar" --file "$tmp/artifact/qstar.lua" dry-run //:payload_image > "$tmp/artifact-dry.out" 2> "$tmp/artifact-dry.err"
+contains "$tmp/artifact-dry.out" "dry_run_generated_action //:payload_image"
 contains "$tmp/artifact-dry.out" "tool=tools/fake-objcopy.sh tool_mode=package resolved_tool=tools/fake-objcopy.sh"
-contains "$tmp/artifact-dry.out" "argv=[tools/fake-objcopy.sh, -O, binary, fixtures/kernel.elf, generated/kernel8.img]"
-"$qstar" --file "$tmp/artifact/qstar.lua" build //:kernel_img --verbose > "$tmp/artifact-build.out" 2> "$tmp/artifact-build.err"
-contains "$tmp/artifact-build.out" "build_generated_action //:kernel_img"
-contains "$tmp/artifact-build.out" "output_identity=[generated/kernel8.img|group=images|format=file]"
+contains "$tmp/artifact-dry.out" "argv=[tools/fake-objcopy.sh, -O, binary, fixtures/payload.elf, generated/payload.img]"
+"$qstar" --file "$tmp/artifact/qstar.lua" build //:payload_image --verbose > "$tmp/artifact-build.out" 2> "$tmp/artifact-build.err"
+contains "$tmp/artifact-build.out" "build_generated_action //:payload_image"
+contains "$tmp/artifact-build.out" "output_identity=[generated/payload.img|group=images|format=file]"
 contains "$tmp/artifact-build.out" "status ok"
-test -f "$tmp/artifact/generated/kernel8.img" || fail "missing generated raw image artifact"
-cmp "$tmp/artifact/fixtures/kernel.elf" "$tmp/artifact/generated/kernel8.img" >/dev/null || fail "raw image artifact content drifted"
+test -f "$tmp/artifact/generated/payload.img" || fail "missing generated raw image artifact"
+cmp "$tmp/artifact/fixtures/payload.elf" "$tmp/artifact/generated/payload.img" >/dev/null || fail "raw image artifact content drifted"
 test ! -e "$tmp/artifact/build/qstar/state/graph.json" || fail "artifact graph snapshot should be debug opt-in"
 test ! -e "$tmp/artifact/build/qstar/state/actions.json" || fail "artifact debug action state dump should be opt-in"
-QSTAR_DEBUG_STATE_DUMPS=1 "$qstar" --file "$tmp/artifact/qstar.lua" build //:kernel_img --progress off > "$tmp/artifact-debug-state.out" 2> "$tmp/artifact-debug-state.err"
+QSTAR_DEBUG_STATE_DUMPS=1 "$qstar" --file "$tmp/artifact/qstar.lua" build //:payload_image --progress off > "$tmp/artifact-debug-state.out" 2> "$tmp/artifact-debug-state.err"
 contains "$tmp/artifact/build/qstar/state/graph.json" "\"output_artifacts\""
 contains "$tmp/artifact/build/qstar/state/graph.json" "\"format\":\"file\""
-contains "$tmp/artifact/build/qstar/state/actions.json" "\"output\":\"generated/kernel8.img\""
-"$qstar" --file "$tmp/artifact/qstar.lua" action-log //:kernel_img:generate:0 > "$tmp/artifact-img-log.out" 2> "$tmp/artifact-img-log.err"
+contains "$tmp/artifact/build/qstar/state/actions.json" "\"output\":\"generated/payload.img\""
+"$qstar" --file "$tmp/artifact/qstar.lua" action-log //:payload_image:generate:0 > "$tmp/artifact-img-log.out" 2> "$tmp/artifact-img-log.err"
 contains "$tmp/artifact-img-log.out" "argv[0]=tools/fake-objcopy.sh"
 "$qstar" --file "$tmp/artifact/qstar.lua" build //:smoke > "$tmp/artifact-smoke.out" 2> "$tmp/artifact-smoke.err"
 contains "$tmp/artifact-smoke.out" "run_target label=//:smoke"
@@ -6054,23 +6068,23 @@ mkdir -p "$(dirname "$2")"
 cp "$1" "$2"
 EOF
 chmod +x "$tmp/artifact-dep/tools/fake-objcopy.sh" "$tmp/artifact-dep/tools/copy.sh"
-cat > "$tmp/artifact-dep/src/kernel.c" <<'EOF'
+cat > "$tmp/artifact-dep/src/producer.c" <<'EOF'
 int main(void) { return 0; }
 EOF
 cat > "$tmp/artifact-dep/fixtures/blob.bin" <<'EOF'
 BLOB-V1
 EOF
 cat > "$tmp/artifact-dep/qstar.lua" <<'EOF'
-qstar.executable "kernel" {
-  sources = {"src/kernel.c"},
+qstar.executable "producer" {
+  sources = {"src/producer.c"},
 }
 
-qstar.custom_target "kernel_img" {
+qstar.custom_target "payload_image" {
   inputs = {
-    qstar.target_file("//:kernel"),
+    qstar.target_file("//:producer"),
   },
   outputs = {
-    qstar.output("generated/kernel.img", {
+    qstar.output("generated/app.img", {
       group = "images",
     }),
   },
@@ -6091,16 +6105,16 @@ qstar.custom_target "blob_image" {
   command = qstar.cli {"tools/copy.sh", qstar.input(0), qstar.output(0)},
 }
 EOF
-"$qstar" --file "$tmp/artifact-dep/qstar.lua" explain //:kernel_img > "$tmp/artifact-dep-explain.out" 2> "$tmp/artifact-dep-explain.err"
-contains "$tmp/artifact-dep-explain.out" "artifact_input_edge input=<qstar-target-file://:kernel> producer=//:kernel path="
-"$qstar" --file "$tmp/artifact-dep/qstar.lua" dry-run //:kernel_img > "$tmp/artifact-dep-dry.out" 2> "$tmp/artifact-dep-dry.err"
-contains "$tmp/artifact-dep-dry.out" "artifact_input_edge input=<qstar-target-file://:kernel> producer=//:kernel path="
+"$qstar" --file "$tmp/artifact-dep/qstar.lua" explain //:payload_image > "$tmp/artifact-dep-explain.out" 2> "$tmp/artifact-dep-explain.err"
+contains "$tmp/artifact-dep-explain.out" "artifact_input_edge input=<qstar-target-file://:producer> producer=//:producer path="
+"$qstar" --file "$tmp/artifact-dep/qstar.lua" dry-run //:payload_image > "$tmp/artifact-dep-dry.out" 2> "$tmp/artifact-dep-dry.err"
+contains "$tmp/artifact-dep-dry.out" "artifact_input_edge input=<qstar-target-file://:producer> producer=//:producer path="
 contains "$tmp/artifact-dep-dry.out" "argv=[tools/fake-objcopy.sh, -O, binary, build/qstar/out/"
-"$qstar" --file "$tmp/artifact-dep/qstar.lua" build //:kernel_img --schedule-trace > "$tmp/artifact-dep-build.out" 2> "$tmp/artifact-dep-build.err"
-contains "$tmp/artifact-dep-build.out" "build_target //:kernel"
-contains "$tmp/artifact-dep-build.out" "build_generated_action //:kernel_img"
+"$qstar" --file "$tmp/artifact-dep/qstar.lua" build //:payload_image --schedule-trace > "$tmp/artifact-dep-build.out" 2> "$tmp/artifact-dep-build.err"
+contains "$tmp/artifact-dep-build.out" "build_target //:producer"
+contains "$tmp/artifact-dep-build.out" "build_generated_action //:payload_image"
 contains "$tmp/artifact-dep-build.out" "status ok"
-test -s "$tmp/artifact-dep/generated/kernel.img" || fail "target_file compile artifact input did not produce image"
+test -s "$tmp/artifact-dep/generated/app.img" || fail "target_file compile artifact input did not produce image"
 "$qstar" --file "$tmp/artifact-dep/qstar.lua" build //:blob_image --verbose > "$tmp/artifact-dep-blob.out" 2> "$tmp/artifact-dep-blob.err"
 contains "$tmp/artifact-dep-blob.out" "generated_sandbox id=//:raw_blob"
 contains "$tmp/artifact-dep-blob.out" "build_generated_action //:blob_image"
@@ -6265,9 +6279,9 @@ printf 'payload-v2\n' >> "$tmp/blob-object/fixtures/payload.elf"
 contains "$tmp/blob-object-third.out" "cache_miss id=//:embed_object:generate:0 reason=input-changed"
 contains "$tmp/blob-object-third.out" "cache_miss id=//:objapp:link:0 reason=input-changed"
 
-step "uefi artifact naming"
-mkdir -p "$tmp/uefi/src" "$tmp/uefi/tools"
-cat > "$tmp/uefi/tools/fake-clang.sh" <<'EOF'
+step "portable executable artifact naming"
+mkdir -p "$tmp/pe-name/src" "$tmp/pe-name/tools"
+cat > "$tmp/pe-name/tools/fake-clang.sh" <<'EOF'
 #!/bin/sh
 set -eu
 out=
@@ -6298,7 +6312,7 @@ if [ -n "$dep" ]; then
 	printf "%s: %s\n" "$out" "$src" > "$dep"
 fi
 EOF
-cat > "$tmp/uefi/tools/fake-lld-link.sh" <<'EOF'
+cat > "$tmp/pe-name/tools/fake-lld-link.sh" <<'EOF'
 #!/bin/sh
 set -eu
 out=
@@ -6310,10 +6324,10 @@ for arg in "$@"; do
 		/out:*)
 			out=${arg#/out:}
 			;;
-		/subsystem:efi_application)
+		/subsystem:console)
 			subsystem=1
 			;;
-		/entry:efi_main)
+		/entry:app_main)
 			entry=1
 			;;
 		/nodefaultlib)
@@ -6326,18 +6340,18 @@ test "$subsystem" = 1
 test "$entry" = 1
 test "$nodefault" = 1
 mkdir -p "$(dirname "$out")"
-printf "MZ\nUEFI\n" > "$out"
+printf "MZ\nPE\n" > "$out"
 EOF
-chmod +x "$tmp/uefi/tools/fake-clang.sh" "$tmp/uefi/tools/fake-lld-link.sh"
-cat > "$tmp/uefi/src/efi_main.c" <<'EOF'
-int efi_main(void *image, void *system_table) {
+chmod +x "$tmp/pe-name/tools/fake-clang.sh" "$tmp/pe-name/tools/fake-lld-link.sh"
+cat > "$tmp/pe-name/src/app_main.c" <<'EOF'
+int app_main(void *image, void *system_table) {
 	(void)image;
 	(void)system_table;
 	return 0;
 }
 EOF
-cat > "$tmp/uefi/qstar.lua" <<'EOF'
-qstar.toolset "uefi" {
+cat > "$tmp/pe-name/qstar.lua" <<'EOF'
+qstar.toolset "pe" {
   tools = {
     c = qstar.cli {"tools/fake-clang.sh"},
     archive = qstar.cli {"ar"},
@@ -6346,43 +6360,43 @@ qstar.toolset "uefi" {
   response_style = "msvc",
 }
 
-qstar.config "uefi_tools" {
-  toolset = "//:uefi",
+qstar.config "pe_tools" {
+  toolset = "//:pe",
 }
 
-qstar.executable "boot" {
-  configs = {"//:uefi_tools"},
-  sources = {"src/efi_main.c"},
-  artifact_name = "BOOTX64.EFI",
+qstar.executable "launcher" {
+  configs = {"//:pe_tools"},
+  sources = {"src/app_main.c"},
+  artifact_name = "app-x64.pe",
   lang = {
     c = {
-      compile_options = {"-ffreestanding"},
+      compile_options = {"-DASM_SURFACE=1"},
     },
   },
   link_options = {
-    "/subsystem:efi_application",
-    "/entry:efi_main",
+    "/subsystem:console",
+    "/entry:app_main",
     "/nodefaultlib",
   },
 }
 EOF
-"$qstar" --file "$tmp/uefi/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang dry-run //:boot > "$tmp/uefi-x64-dry.out" 2> "$tmp/uefi-x64-dry.err"
-contains "$tmp/uefi-x64-dry.out" "response_style=msvc"
-contains "$tmp/uefi-x64-dry.out" "/out:build/qstar/out/___boot/BOOTX64.EFI"
-contains "$tmp/uefi-x64-dry.out" "/subsystem:efi_application"
-contains "$tmp/uefi-x64-dry.out" "/entry:efi_main"
-contains "$tmp/uefi-x64-dry.out" "/nodefaultlib"
-"$qstar" --file "$tmp/uefi/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang build //:boot > "$tmp/uefi-x64-build.out" 2> "$tmp/uefi-x64-build.err"
-contains "$tmp/uefi-x64-build.out" "status ok"
-test -f "$tmp/uefi/build/qstar/out/___boot/BOOTX64.EFI" || fail "missing UEFI x64 artifact"
-"$qstar" --file "$tmp/uefi/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang action-log //:boot:link:0 > "$tmp/uefi-x64-link-log.out" 2> "$tmp/uefi-x64-link-log.err"
-contains "$tmp/uefi-x64-link-log.out" "argv[0]=tools/fake-lld-link.sh"
-contains "$tmp/uefi-x64-link-log.out" "argv[1]=/out:build/qstar/out/___boot/BOOTX64.EFI"
-contains "$tmp/uefi-x64-link-log.out" "argv[2]=/subsystem:efi_application"
-QSTAR_DEBUG_STATE_DUMPS=1 "$qstar" --file "$tmp/uefi/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang build //:boot --progress off > "$tmp/uefi-x64-debug-state.out" 2> "$tmp/uefi-x64-debug-state.err"
-contains "$tmp/uefi/build/qstar/state/graph.json" "\"artifact_name\":\"BOOTX64.EFI\""
-cat > "$tmp/uefi/qstar.lua" <<'EOF'
-qstar.toolset "uefi" {
+"$qstar" --file "$tmp/pe-name/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang dry-run //:launcher > "$tmp/pe-name-x64-dry.out" 2> "$tmp/pe-name-x64-dry.err"
+contains "$tmp/pe-name-x64-dry.out" "response_style=msvc"
+contains "$tmp/pe-name-x64-dry.out" "/out:build/qstar/out/___launcher/app-x64.pe"
+contains "$tmp/pe-name-x64-dry.out" "/subsystem:console"
+contains "$tmp/pe-name-x64-dry.out" "/entry:app_main"
+contains "$tmp/pe-name-x64-dry.out" "/nodefaultlib"
+"$qstar" --file "$tmp/pe-name/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang build //:launcher > "$tmp/pe-name-x64-build.out" 2> "$tmp/pe-name-x64-build.err"
+contains "$tmp/pe-name-x64-build.out" "status ok"
+test -f "$tmp/pe-name/build/qstar/out/___launcher/app-x64.pe" || fail "missing PE x64 artifact"
+"$qstar" --file "$tmp/pe-name/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang action-log //:launcher:link:0 > "$tmp/pe-name-x64-link-log.out" 2> "$tmp/pe-name-x64-link-log.err"
+contains "$tmp/pe-name-x64-link-log.out" "argv[0]=tools/fake-lld-link.sh"
+contains "$tmp/pe-name-x64-link-log.out" "argv[1]=/out:build/qstar/out/___launcher/app-x64.pe"
+contains "$tmp/pe-name-x64-link-log.out" "argv[2]=/subsystem:console"
+QSTAR_DEBUG_STATE_DUMPS=1 "$qstar" --file "$tmp/pe-name/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang build //:launcher --progress off > "$tmp/pe-name-x64-debug-state.out" 2> "$tmp/pe-name-x64-debug-state.err"
+contains "$tmp/pe-name/build/qstar/state/graph.json" "\"artifact_name\":\"app-x64.pe\""
+cat > "$tmp/pe-name/qstar.lua" <<'EOF'
+qstar.toolset "pe" {
   tools = {
     c = qstar.cli {"tools/fake-clang.sh"},
     archive = qstar.cli {"ar"},
@@ -6391,58 +6405,58 @@ qstar.toolset "uefi" {
   response_style = "msvc",
 }
 
-qstar.config "uefi_tools" {
-  toolset = "//:uefi",
+qstar.config "pe_tools" {
+  toolset = "//:pe",
 }
 
-qstar.executable "boot" {
-  configs = {"//:uefi_tools"},
-  sources = {"src/efi_main.c"},
-  artifact_name = "BOOTAA64.EFI",
+qstar.executable "launcher" {
+  configs = {"//:pe_tools"},
+  sources = {"src/app_main.c"},
+  artifact_name = "app-arm64.pe",
   lang = {
     c = {
-      compile_options = {"-ffreestanding"},
+      compile_options = {"-DASM_SURFACE=1"},
     },
   },
   link_options = {
-    "/subsystem:efi_application",
-    "/entry:efi_main",
+    "/subsystem:console",
+    "/entry:app_main",
     "/nodefaultlib",
   },
 }
 EOF
-"$qstar" --file "$tmp/uefi/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang dry-run //:boot > "$tmp/uefi-aa64-dry.out" 2> "$tmp/uefi-aa64-dry.err"
-contains "$tmp/uefi-aa64-dry.out" "/out:build/qstar/out/___boot/BOOTAA64.EFI"
-"$qstar" --file "$tmp/uefi/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang build //:boot > "$tmp/uefi-aa64-build.out" 2> "$tmp/uefi-aa64-build.err"
-contains "$tmp/uefi-aa64-build.out" "status ok"
-test -f "$tmp/uefi/build/qstar/out/___boot/BOOTAA64.EFI" || fail "missing UEFI AArch64 artifact"
-cat > "$tmp/uefi/qstar.lua" <<'EOF'
-qstar.executable "boot" {
-  artifact_name = "BOOTLOCAL.EFI",
-  sources = {"src/efi_main.c"},
+"$qstar" --file "$tmp/pe-name/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang dry-run //:launcher > "$tmp/pe-name-aa64-dry.out" 2> "$tmp/pe-name-aa64-dry.err"
+contains "$tmp/pe-name-aa64-dry.out" "/out:build/qstar/out/___launcher/app-arm64.pe"
+"$qstar" --file "$tmp/pe-name/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang build //:launcher > "$tmp/pe-name-aa64-build.out" 2> "$tmp/pe-name-aa64-build.err"
+contains "$tmp/pe-name-aa64-build.out" "status ok"
+test -f "$tmp/pe-name/build/qstar/out/___launcher/app-arm64.pe" || fail "missing PE AArch64 artifact"
+cat > "$tmp/pe-name/qstar.lua" <<'EOF'
+qstar.executable "launcher" {
+  artifact_name = "app-local.pe",
+  sources = {"src/app_main.c"},
   link_options = {
-    "/subsystem:efi_application",
-    "/entry:efi_main",
+    "/subsystem:console",
+    "/entry:app_main",
     "/nodefaultlib",
   },
 }
 EOF
-"$qstar" --file "$tmp/uefi/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang dry-run //:boot > "$tmp/uefi-local-dry.out" 2> "$tmp/uefi-local-dry.err"
-contains "$tmp/uefi-local-dry.out" "output=build/qstar/out/___boot/BOOTLOCAL.EFI"
-"$qstar" --file "$tmp/uefi/qstar.lua" list-targets --format json > "$tmp/uefi-targets-json.out" 2> "$tmp/uefi-targets-json.err"
-contains "$tmp/uefi-targets-json.out" "\"artifact_name\":\"BOOTLOCAL.EFI\""
-cat > "$tmp/uefi/qstar.lua" <<'EOF'
-qstar.executable "boot" {
-  artifact_name = "EFI/BOOT/BOOTX64.EFI",
-  sources = {"src/efi_main.c"},
+"$qstar" --file "$tmp/pe-name/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang dry-run //:launcher > "$tmp/pe-name-local-dry.out" 2> "$tmp/pe-name-local-dry.err"
+contains "$tmp/pe-name-local-dry.out" "output=build/qstar/out/___launcher/app-local.pe"
+"$qstar" --file "$tmp/pe-name/qstar.lua" list-targets --format json > "$tmp/pe-name-targets-json.out" 2> "$tmp/pe-name-targets-json.err"
+contains "$tmp/pe-name-targets-json.out" "\"artifact_name\":\"app-local.pe\""
+cat > "$tmp/pe-name/qstar.lua" <<'EOF'
+qstar.executable "launcher" {
+  artifact_name = "bundle/app-x64.pe",
+  sources = {"src/app_main.c"},
 }
 EOF
-if "$qstar" --file "$tmp/uefi/qstar.lua" check //:boot > "$tmp/uefi-bad-target-name.out" 2> "$tmp/uefi-bad-target-name.err"; then
+if "$qstar" --file "$tmp/pe-name/qstar.lua" check //:launcher > "$tmp/pe-name-bad-target-name.out" 2> "$tmp/pe-name-bad-target-name.err"; then
 	fail "path-like artifact_name unexpectedly succeeded"
 fi
-contains "$tmp/uefi-bad-target-name.err" "artifact_name 'EFI/BOOT/BOOTX64.EFI' must be a filename, not a path"
+contains "$tmp/pe-name-bad-target-name.err" "artifact_name 'bundle/app-x64.pe' must be a filename, not a path"
 step "stage package"
-mkdir -p "$tmp/stagepkg/src" "$tmp/stagepkg/tools" "$tmp/stagepkg/fixtures" "$tmp/stagepkg/boot"
+mkdir -p "$tmp/stagepkg/src" "$tmp/stagepkg/tools" "$tmp/stagepkg/fixtures" "$tmp/stagepkg/assets"
 cat > "$tmp/stagepkg/tools/fake-clang.sh" <<'EOF'
 #!/bin/sh
 set -eu
@@ -6492,7 +6506,7 @@ while [ "$#" -gt 0 ]; do
 done
 test -n "$out"
 mkdir -p "$(dirname "$out")"
-printf "MZ\nBOOT\n" > "$out"
+printf "MZ\nAPP\n" > "$out"
 EOF
 cat > "$tmp/stagepkg/tools/fake-objcopy.sh" <<'EOF'
 #!/bin/sh
@@ -6523,21 +6537,21 @@ mkdir -p "$(dirname "$output")"
 cp "$input" "$output"
 EOF
 chmod +x "$tmp/stagepkg/tools/fake-clang.sh" "$tmp/stagepkg/tools/fake-link.sh" "$tmp/stagepkg/tools/fake-objcopy.sh"
-cat > "$tmp/stagepkg/src/efi_main.c" <<'EOF'
-int efi_main(void *image, void *system_table) {
+cat > "$tmp/stagepkg/src/app_main.c" <<'EOF'
+int app_main(void *image, void *system_table) {
 	(void)image;
 	(void)system_table;
 	return 0;
 }
 EOF
-cat > "$tmp/stagepkg/fixtures/kernel.elf" <<'EOF'
-ELF-RPI
+cat > "$tmp/stagepkg/fixtures/payload.elf" <<'EOF'
+ELF-PAYLOAD
 payload
 EOF
-cat > "$tmp/stagepkg/boot/config.txt" <<'EOF'
-kernel=kernel8.img
+cat > "$tmp/stagepkg/assets/config.txt" <<'EOF'
+entry=payload.img
 EOF
-cat > "$tmp/stagepkg/boot/payload.bin" <<'EOF'
+cat > "$tmp/stagepkg/assets/payload.bin" <<'EOF'
 payload
 EOF
 cat > "$tmp/stagepkg/qstar.lua" <<'EOF'
@@ -6554,21 +6568,21 @@ qstar.config "stagepkg_tools" {
   toolset = "//:stagepkg",
 }
 
-qstar.executable "boot" {
+qstar.executable "launcher" {
   configs = {"//:stagepkg_tools"},
-  sources = {"src/efi_main.c"},
-  artifact_name = "BOOTX64.EFI",
+  sources = {"src/app_main.c"},
+  artifact_name = "app-x64.pe",
   link_options = {
-    "/subsystem:efi_application",
-    "/entry:efi_main",
+    "/subsystem:console",
+    "/entry:app_main",
     "/nodefaultlib",
   },
 }
 
-qstar.custom_target "kernel_img" {
-  inputs = {"fixtures/kernel.elf"},
+qstar.custom_target "payload_image" {
+  inputs = {"fixtures/payload.elf"},
   outputs = {
-    qstar.output("generated/kernel8.img", {
+    qstar.output("generated/payload.img", {
       group = "images",
     }),
   },
@@ -6581,23 +6595,23 @@ qstar.custom_target "kernel_img" {
   },
 }
 
-qstar.stage "esp" {
-  root = "stage/esp",
+qstar.stage "package" {
+  root = "stage/package",
   files = {
-    qstar.stage_file(qstar.target_file("//:boot"), "EFI/BOOT/BOOTX64.EFI"),
+    qstar.stage_file(qstar.target_file("//:launcher"), "bundle/app-x64.pe"),
   },
 }
 
-qstar.stage "rpi" {
-  root = "stage/rpi",
+qstar.stage "assets" {
+  root = "stage/assets",
   files = {
-    qstar.stage_file("boot/config.txt", "config.txt"),
-    qstar.stage_file(qstar.target_file("//:kernel_img"), "kernel8.img"),
-    qstar.stage_file("boot/payload.bin", "payload.bin"),
+    qstar.stage_file("assets/config.txt", "config.txt"),
+    qstar.stage_file(qstar.target_file("//:payload_image"), "payload.img"),
+    qstar.stage_file("assets/payload.bin", "payload.bin"),
   },
 }
 EOF
-if ! "$qstar" --file "$tmp/stagepkg/qstar.lua" check //:boot > "$tmp/stagepkg-check.out" 2> "$tmp/stagepkg-check.err"; then
+if ! "$qstar" --file "$tmp/stagepkg/qstar.lua" check //:launcher > "$tmp/stagepkg-check.out" 2> "$tmp/stagepkg-check.err"; then
 	cat "$tmp/stagepkg-check.out" >&2
 	cat "$tmp/stagepkg-check.err" >&2
 	fail "stage package check failed"
@@ -6609,65 +6623,65 @@ if ! "$qstar" --file "$tmp/stagepkg/qstar.lua" list-targets --format json > "$tm
 	fail "stage package list-targets failed"
 fi
 contains "$tmp/stagepkg-targets-json.out" "\"stage_count\":2"
-contains "$tmp/stagepkg-targets-json.out" "\"label\":\"//:esp\""
-contains "$tmp/stagepkg-targets-json.out" "\"root\":\"stage/esp\""
-if ! "$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:esp --dry-run > "$tmp/stagepkg-esp-dry.out" 2> "$tmp/stagepkg-esp-dry.err"; then
-	cat "$tmp/stagepkg-esp-dry.out" >&2
-	cat "$tmp/stagepkg-esp-dry.err" >&2
-	fail "stage package esp dry-run failed"
+contains "$tmp/stagepkg-targets-json.out" "\"label\":\"//:package\""
+contains "$tmp/stagepkg-targets-json.out" "\"root\":\"stage/package\""
+if ! "$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:package --dry-run > "$tmp/stagepkg-package-dry.out" 2> "$tmp/stagepkg-package-dry.err"; then
+	cat "$tmp/stagepkg-package-dry.out" >&2
+	cat "$tmp/stagepkg-package-dry.err" >&2
+	fail "stage package dry-run failed"
 fi
-contains "$tmp/stagepkg-esp-dry.out" "qstar stage v2"
-contains "$tmp/stagepkg-esp-dry.out" "mode dry-run"
-contains "$tmp/stagepkg-esp-dry.out" "stage_layout label=//:esp root=stage/esp files=1 status=ok"
-contains "$tmp/stagepkg-esp-dry.out" "stage_file src=build/qstar/out/___boot/BOOTX64.EFI dst=stage/esp/EFI/BOOT/BOOTX64.EFI mode=dry-run"
-contains "$tmp/stagepkg-esp-dry.out" "stage_diff dst=stage/esp/EFI/BOOT/BOOTX64.EFI action=would-create"
-contains "$tmp/stagepkg/build/qstar/stage/___esp/manifest.json" "\"schema\":\"qstar-stage-manifest-v2\""
-contains "$tmp/stagepkg/build/qstar/stage/___esp/manifest.json" "\"layout\":{\"status\":\"ok\",\"file_count\":1}"
-contains "$tmp/stagepkg/build/qstar/stage/___esp/manifest.json" "\"mode\":\"dry-run\""
-contains "$tmp/stagepkg/build/qstar/stage/___esp/manifest.json" "\"kind\":\"target\""
-contains "$tmp/stagepkg/build/qstar/stage/___esp/manifest.json" "\"producer\":\"//:boot\""
-if [ -f "$tmp/stagepkg/stage/esp/EFI/BOOT/BOOTX64.EFI" ]; then
-	fail "stage dry-run unexpectedly copied ESP artifact"
+contains "$tmp/stagepkg-package-dry.out" "qstar stage v2"
+contains "$tmp/stagepkg-package-dry.out" "mode dry-run"
+contains "$tmp/stagepkg-package-dry.out" "stage_layout label=//:package root=stage/package files=1 status=ok"
+contains "$tmp/stagepkg-package-dry.out" "stage_file src=build/qstar/out/___launcher/app-x64.pe dst=stage/package/bundle/app-x64.pe mode=dry-run"
+contains "$tmp/stagepkg-package-dry.out" "stage_diff dst=stage/package/bundle/app-x64.pe action=would-create"
+contains "$tmp/stagepkg/build/qstar/stage/___package/manifest.json" "\"schema\":\"qstar-stage-manifest-v2\""
+contains "$tmp/stagepkg/build/qstar/stage/___package/manifest.json" "\"layout\":{\"status\":\"ok\",\"file_count\":1}"
+contains "$tmp/stagepkg/build/qstar/stage/___package/manifest.json" "\"mode\":\"dry-run\""
+contains "$tmp/stagepkg/build/qstar/stage/___package/manifest.json" "\"kind\":\"target\""
+contains "$tmp/stagepkg/build/qstar/stage/___package/manifest.json" "\"producer\":\"//:launcher\""
+if [ -f "$tmp/stagepkg/stage/package/bundle/app-x64.pe" ]; then
+	fail "stage dry-run unexpectedly copied package artifact"
 fi
-if ! "$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:esp > "$tmp/stagepkg-esp-stage.out" 2> "$tmp/stagepkg-esp-stage.err"; then
-	cat "$tmp/stagepkg-esp-stage.out" >&2
-	cat "$tmp/stagepkg-esp-stage.err" >&2
-	fail "stage package esp copy failed"
+if ! "$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:package > "$tmp/stagepkg-package-stage.out" 2> "$tmp/stagepkg-package-stage.err"; then
+	cat "$tmp/stagepkg-package-stage.out" >&2
+	cat "$tmp/stagepkg-package-stage.err" >&2
+	fail "stage package copy failed"
 fi
-contains "$tmp/stagepkg-esp-stage.out" "stage_diff dst=stage/esp/EFI/BOOT/BOOTX64.EFI action=would-create"
-contains "$tmp/stagepkg-esp-stage.out" "status ok"
-test -f "$tmp/stagepkg/stage/esp/EFI/BOOT/BOOTX64.EFI" || fail "missing staged ESP BOOTX64.EFI"
-contains "$tmp/stagepkg/build/qstar/stage/___esp/manifest.json" "\"mode\":\"copy\""
-if ! "$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:esp --dry-run > "$tmp/stagepkg-esp-dry2.out" 2> "$tmp/stagepkg-esp-dry2.err"; then
-	cat "$tmp/stagepkg-esp-dry2.out" >&2
-	cat "$tmp/stagepkg-esp-dry2.err" >&2
-	fail "stage package esp second dry-run failed"
+contains "$tmp/stagepkg-package-stage.out" "stage_diff dst=stage/package/bundle/app-x64.pe action=would-create"
+contains "$tmp/stagepkg-package-stage.out" "status ok"
+test -f "$tmp/stagepkg/stage/package/bundle/app-x64.pe" || fail "missing staged package app-x64.pe"
+contains "$tmp/stagepkg/build/qstar/stage/___package/manifest.json" "\"mode\":\"copy\""
+if ! "$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:package --dry-run > "$tmp/stagepkg-package-dry2.out" 2> "$tmp/stagepkg-package-dry2.err"; then
+	cat "$tmp/stagepkg-package-dry2.out" >&2
+	cat "$tmp/stagepkg-package-dry2.err" >&2
+	fail "stage package second dry-run failed"
 fi
-contains "$tmp/stagepkg-esp-dry2.out" "stage_diff dst=stage/esp/EFI/BOOT/BOOTX64.EFI action=unchanged"
-if ! "$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:rpi > "$tmp/stagepkg-rpi-stage.out" 2> "$tmp/stagepkg-rpi-stage.err"; then
-	cat "$tmp/stagepkg-rpi-stage.out" >&2
-	cat "$tmp/stagepkg-rpi-stage.err" >&2
-	fail "stage package rpi copy failed"
+contains "$tmp/stagepkg-package-dry2.out" "stage_diff dst=stage/package/bundle/app-x64.pe action=unchanged"
+if ! "$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:assets > "$tmp/stagepkg-assets-stage.out" 2> "$tmp/stagepkg-assets-stage.err"; then
+	cat "$tmp/stagepkg-assets-stage.out" >&2
+	cat "$tmp/stagepkg-assets-stage.err" >&2
+	fail "stage package assets copy failed"
 fi
-contains "$tmp/stagepkg-rpi-stage.out" "stage_file src=boot/config.txt dst=stage/rpi/config.txt mode=copy"
-contains "$tmp/stagepkg-rpi-stage.out" "stage_file src=generated/kernel8.img dst=stage/rpi/kernel8.img mode=copy"
-contains "$tmp/stagepkg-rpi-stage.out" "stage_file src=boot/payload.bin dst=stage/rpi/payload.bin mode=copy"
-test -f "$tmp/stagepkg/stage/rpi/config.txt" || fail "missing staged RPi config.txt"
-test -f "$tmp/stagepkg/stage/rpi/kernel8.img" || fail "missing staged RPi kernel8.img"
-test -f "$tmp/stagepkg/stage/rpi/payload.bin" || fail "missing staged RPi payload.bin"
-cmp "$tmp/stagepkg/fixtures/kernel.elf" "$tmp/stagepkg/stage/rpi/kernel8.img" >/dev/null || fail "staged RPi image content drifted"
-contains "$tmp/stagepkg/build/qstar/stage/___rpi/manifest.json" "\"label\":\"//:rpi\""
-contains "$tmp/stagepkg/build/qstar/stage/___rpi/manifest.json" "\"dst\":\"stage/rpi/kernel8.img\""
-contains "$tmp/stagepkg/build/qstar/stage/___rpi/manifest.json" "\"kind\":\"custom_target\""
-contains "$tmp/stagepkg/build/qstar/stage/___rpi/manifest.json" "\"producer\":\"//:kernel_img\""
-contains "$tmp/stagepkg/build/qstar/stage/___rpi/manifest.json" "\"kind\":\"file\""
-if ! "$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:esp --root stage/custom-esp --dry-run > "$tmp/stagepkg-esp-root.out" 2> "$tmp/stagepkg-esp-root.err"; then
-	cat "$tmp/stagepkg-esp-root.out" >&2
-	cat "$tmp/stagepkg-esp-root.err" >&2
-	fail "stage package esp custom root failed"
+contains "$tmp/stagepkg-assets-stage.out" "stage_file src=assets/config.txt dst=stage/assets/config.txt mode=copy"
+contains "$tmp/stagepkg-assets-stage.out" "stage_file src=generated/payload.img dst=stage/assets/payload.img mode=copy"
+contains "$tmp/stagepkg-assets-stage.out" "stage_file src=assets/payload.bin dst=stage/assets/payload.bin mode=copy"
+test -f "$tmp/stagepkg/stage/assets/config.txt" || fail "missing staged assets config.txt"
+test -f "$tmp/stagepkg/stage/assets/payload.img" || fail "missing staged assets payload.img"
+test -f "$tmp/stagepkg/stage/assets/payload.bin" || fail "missing staged assets payload.bin"
+cmp "$tmp/stagepkg/fixtures/payload.elf" "$tmp/stagepkg/stage/assets/payload.img" >/dev/null || fail "staged assets image content drifted"
+contains "$tmp/stagepkg/build/qstar/stage/___assets/manifest.json" "\"label\":\"//:assets\""
+contains "$tmp/stagepkg/build/qstar/stage/___assets/manifest.json" "\"dst\":\"stage/assets/payload.img\""
+contains "$tmp/stagepkg/build/qstar/stage/___assets/manifest.json" "\"kind\":\"custom_target\""
+contains "$tmp/stagepkg/build/qstar/stage/___assets/manifest.json" "\"producer\":\"//:payload_image\""
+contains "$tmp/stagepkg/build/qstar/stage/___assets/manifest.json" "\"kind\":\"file\""
+if ! "$qstar" --file "$tmp/stagepkg/qstar.lua" stage //:package --root stage/custom-package --dry-run > "$tmp/stagepkg-package-root.out" 2> "$tmp/stagepkg-package-root.err"; then
+	cat "$tmp/stagepkg-package-root.out" >&2
+	cat "$tmp/stagepkg-package-root.err" >&2
+	fail "stage package custom root failed"
 fi
-contains "$tmp/stagepkg-esp-root.out" "stage-root stage/custom-esp"
-contains "$tmp/stagepkg-esp-root.out" "dst=stage/custom-esp/EFI/BOOT/BOOTX64.EFI"
+contains "$tmp/stagepkg-package-root.out" "stage-root stage/custom-package"
+contains "$tmp/stagepkg-package-root.out" "dst=stage/custom-package/bundle/app-x64.pe"
 
 step "stage diagnostics"
 mkdir -p "$tmp/stage-bad/src"
@@ -6727,15 +6741,15 @@ cat > "$tmp/stage-bad/qstar.lua" <<'EOF'
 qstar.stage "bad" {
   root = "stage/bad",
   files = {
-    qstar.stage_file("src/main.c", "EFI/BOOT"),
-    qstar.stage_file("src/main.c", "EFI/BOOT/BOOTX64.EFI"),
+    qstar.stage_file("src/main.c", "bundle/app"),
+    qstar.stage_file("src/main.c", "bundle/app/payload.pe"),
   },
 }
 EOF
 if "$qstar" --file "$tmp/stage-bad/qstar.lua" check > "$tmp/stage-bad-layout.out" 2> "$tmp/stage-bad-layout.err"; then
 	fail "stage destination layout conflict unexpectedly succeeded"
 fi
-contains "$tmp/stage-bad-layout.err" "stage destination layout conflict 'EFI/BOOT' and 'EFI/BOOT/BOOTX64.EFI' in '//:bad'"
+contains "$tmp/stage-bad-layout.err" "stage destination layout conflict 'bundle/app' and 'bundle/app/payload.pe' in '//:bad'"
 cat > "$tmp/stage-bad/qstar.lua" <<'EOF'
 qstar.stage "bad" {
   root = "stage/bad",

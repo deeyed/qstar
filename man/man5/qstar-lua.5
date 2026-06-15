@@ -36,11 +36,11 @@ Executable target.
 .It Ic qstar.staticlib
 Static library target.
 .It Ic qstar.sharedlib
-Shared library target. macOS host policy produces
+Shared library target. macOS platform context produces
 .Pa lib<name>.dylib
 with an
 .Ar @rpath
-install name, and Linux host policy produces
+install name, and Linux platform context produces
 .Pa lib<name>.so
 with a soname. Consumers that link a QStar shared library receive a build-tree
 runtime search path based on
