@@ -29,11 +29,7 @@ schema stabilization 같은 항목이다.
 
 ## 실패 예제
 
-```lua
-qstar.genrule "generated" { }
-```
-
-Removed API는 v0.3에서도 되살리지 않는다.
+Legacy API alias와 top-level language shortcut은 v0.3에서도 되살리지 않는다.
 
 ## 관련 CLI
 
@@ -45,6 +41,5 @@ qstar --file qstar.lua build //:app
 
 ## 관련 diagnostic
 
-- `qstar.genrule removed; use qstar.custom_target`
 - `unknown target field`
 - `experimental surface is not enabled`

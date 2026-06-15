@@ -35,7 +35,7 @@ release gate: make -C qstar qstar-v0.3-rc-tests
 - Header/include/compile/module option은 target top-level이 아니라
   `lang.c`, `lang.cxx`, `lang.asm`, `lang.cxx` 아래에만 둔다.
 - `sources`, `deps`, `visibility`, `libs`, `link.frameworks`, `link_options`,
-  `link_inputs`, `toolchain`, `stdlib`, `artifact_name`은
+  `link_inputs`, `toolset`, `artifact_name`은
   language-agnostic target/link surface로 유지한다.
 - C, C++, assembler, external source는 process invocation 기반 build input으로 다룬다.
   QStar는 external compiler 내부 API나 header-language semantic checker에 연결되지 않는다.
@@ -97,14 +97,12 @@ harness. `vscode-extension-tests` is now a narrower package metadata and payload
 smoke for the VSCode extension. These names exist so release scripts and editor
 packaging can depend on stable target names.
 
-## Removed Surface Lockdown
+## Surface Lockdown
 
-The following removed surface must stay rejected:
+The public DSL surface is the canonical QStar API only. Legacy aliases and
+compatibility shims are not registered. Removed fragment suffixes and top-level
+language option shortcuts must stay rejected:
 
-- `qstar.exe`: use `qstar.executable`
-- `qstar.genrule`: use `qstar.custom_target`
-- `qstar.config_header` and `qstar.write_config_header`: use
-  `qstar.configure_file`
 - `.qs` fragments: use `.qst`
 - `qstar.workspace`: use nearest ancestor `qstar.lua`
 - top-level `include_dirs`, `public_include_dirs`, `private_include_dirs`,

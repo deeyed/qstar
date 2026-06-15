@@ -16,12 +16,7 @@ Useful current commands:
 
 ```sh
 qstar --file tests/corpus/windows-artifacts/qstar.lua check
-qstar --file tests/corpus/windows-artifacts/qstar.lua --target x86_64-pc-windows-msvc --toolchain clang dry-run //:tool
-qstar --file tests/corpus/windows-artifacts/qstar.lua --target x86_64-pc-windows-msvc --toolchain clang dry-run //:core
-qstar --file tests/corpus/windows-artifacts/qstar.lua --target x86_64-pc-windows-msvc --toolchain clang build //:all
-qstar --file tests/corpus/windows-artifacts/qstar.lua --target x86_64-pc-windows-msvc --toolchain clang stage //:layout
-qstar --file tests/corpus/windows-artifacts/qstar.lua --target x86_64-pc-windows-msvc --toolchain clang install //:tool --prefix /tmp/qstar-windows-artifacts
-qstar --file tests/corpus/windows-artifacts/qstar.lua --target x86_64-pc-windows-msvc --toolchain clang install //:core --prefix /tmp/qstar-windows-artifacts
+make qstar-windows-prep-tests
 ```
 
 Current expected behavior:

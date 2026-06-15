@@ -1507,7 +1507,7 @@ validate_config_fields(lua_State *L, int table, struct qstar_graph *graph)
 {
 	static const char *const allowed[] = {
 		"lang", "libs", "lib_dirs", "link", "link_options", "link_inputs",
-		"toolset", "toolchain", "stdlib", "artifact_name", NULL
+		"toolset", "artifact_name", NULL
 	};
 	const char *key;
 
@@ -1533,7 +1533,7 @@ add_config(lua_State *L, const char *name, int table_index, const char *fragment
 	struct qstar_lua_context *ctx;
 	struct qstar_config *config;
 	struct qstar_graph *graph;
-	const char *artifact_name, *toolchain, *stdlib_policy;
+	const char *artifact_name;
 	char label[QSTAR_PATH_MAX], rawlabel[QSTAR_PATH_MAX];
 	char origin_file[QSTAR_PATH_MAX];
 	int origin_line, has_toolset;
@@ -1605,8 +1605,6 @@ add_config(lua_State *L, const char *name, int table_index, const char *fragment
 	config->has_cxx_modules = nested_lang_field_present(L, table_index, "cxx",
 	    "modules");
 	artifact_name = check_string_field(L, table_index, "artifact_name");
-	toolchain = check_string_field(L, table_index, "toolchain");
-	stdlib_policy = check_string_field(L, table_index, "stdlib");
 	if (read_label_scalar_field(L, table_index, "toolset", &config->options.toolset,
 	    graph, config->fragment_dir, &has_toolset) < 0)
 		return luaL_error(L, "%s", graph->error);
@@ -1619,17 +1617,6 @@ add_config(lua_State *L, const char *name, int table_index, const char *fragment
 			    artifact_name);
 		config->has_artifact_name = 1;
 		if (replace_lua_string(&config->options.artifact_name, artifact_name,
-		    graph) < 0)
-			return luaL_error(L, "%s", graph->error);
-	}
-	if (toolchain) {
-		config->has_toolchain = 1;
-		if (replace_lua_string(&config->options.toolchain, toolchain, graph) < 0)
-			return luaL_error(L, "%s", graph->error);
-	}
-	if (stdlib_policy) {
-		config->has_stdlib_policy = 1;
-		if (replace_lua_string(&config->options.stdlib_policy, stdlib_policy,
 		    graph) < 0)
 			return luaL_error(L, "%s", graph->error);
 	}
@@ -1673,7 +1660,7 @@ validate_target_fields(lua_State *L, int table, struct qstar_graph *graph)
 	static const char *const allowed[] = {
 		"kind", "configs", "sources", "deps", "public_deps", "private_deps",
 		"visibility", "libs", "lib_dirs", "link", "link_options",
-		"link_inputs", "lang", "toolset", "toolchain", "stdlib",
+		"link_inputs", "lang", "toolset",
 		"artifact_name", "command", "description", "timeout", "expect", NULL
 	};
 	const char *key;
@@ -1783,7 +1770,7 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	struct qstar_lua_context *ctx;
 	struct qstar_target *target;
 	struct qstar_graph *graph;
-	const char *kind, *toolchain, *stdlib_policy, *artifact_name;
+	const char *kind, *artifact_name;
 	char label[QSTAR_PATH_MAX], rawlabel[QSTAR_PATH_MAX];
 	char origin_file[QSTAR_PATH_MAX];
 	int origin_line;
@@ -1861,8 +1848,6 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	    &target->link_inputs, graph) < 0 ||
 	    read_lang_options(L, table_index, target, graph) < 0)
 		return luaL_error(L, "%s", graph->error);
-	toolchain = check_string_field(L, table_index, "toolchain");
-	stdlib_policy = check_string_field(L, table_index, "stdlib");
 	artifact_name = check_string_field(L, table_index, "artifact_name");
 	if (read_label_scalar_field(L, table_index, "toolset", &target->toolset, graph,
 	    target->fragment_dir, NULL) < 0)
@@ -1874,14 +1859,6 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 			    artifact_name);
 		free(target->artifact_name);
 		target->artifact_name = qstar_strdup(artifact_name);
-	}
-	if (toolchain) {
-		free(target->toolchain);
-		target->toolchain = qstar_strdup(toolchain);
-	}
-	if (stdlib_policy) {
-		free(target->stdlib_policy);
-		target->stdlib_policy = qstar_strdup(stdlib_policy);
 	}
 	if (strcmp(target->kind, "run_target") == 0) {
 		struct qstar_string_list empty;
@@ -1942,15 +1919,6 @@ qstar_lua_target(lua_State *L)
 		return 1;
 	}
 	return add_target(L, name, 2, default_kind, ctx->current_dir);
-}
-
-static int
-qstar_lua_removed_api(lua_State *L)
-{
-	const char *message;
-
-	message = lua_tostring(L, lua_upvalueindex(1));
-	return luaL_error(L, "%s", message ? message : "qstar: removed API");
 }
 
 static int
@@ -3448,9 +3416,6 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_pushstring(L, "exe");
 	lua_pushcclosure(L, qstar_lua_target, 1);
 	lua_setfield(L, -2, "executable");
-	lua_pushstring(L, "qstar.exe removed; use qstar.executable");
-	lua_pushcclosure(L, qstar_lua_removed_api, 1);
-	lua_setfield(L, -2, "exe");
 	lua_pushstring(L, "run_target");
 	lua_pushcclosure(L, qstar_lua_target, 1);
 	lua_setfield(L, -2, "run_target");
@@ -3474,15 +3439,6 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "stage");
 	lua_pushcfunction(L, qstar_lua_target_family);
 	lua_setfield(L, -2, "target_family");
-	lua_pushstring(L, "qstar.genrule removed; use qstar.custom_target");
-	lua_pushcclosure(L, qstar_lua_removed_api, 1);
-	lua_setfield(L, -2, "genrule");
-	lua_pushstring(L, "qstar.config_header removed; use qstar.configure_file");
-	lua_pushcclosure(L, qstar_lua_removed_api, 1);
-	lua_setfield(L, -2, "config_header");
-	lua_pushstring(L, "qstar.write_config_header removed; use qstar.configure_file");
-	lua_pushcclosure(L, qstar_lua_removed_api, 1);
-	lua_setfield(L, -2, "write_config_header");
 	lua_pushcfunction(L, qstar_lua_output);
 	lua_setfield(L, -2, "output");
 	lua_pushcfunction(L, qstar_lua_input);

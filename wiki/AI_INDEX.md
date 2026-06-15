@@ -563,10 +563,7 @@ qstar lsp --stdio
 - `qstar.toml`
 - `qstar.workspace`
 - legacy qs fragment suffix
-- `qstar.exe`
-- `qstar.genrule`
-- `qstar.config_header`
-- `qstar.write_config_header`
+- legacy API aliases
 - top-level `include_dirs`, `public_headers`, `cflags`, `cxxflags`, `modules`
 - `qstar.target_file("//:group")`
 - domain-specific target/rule builtin

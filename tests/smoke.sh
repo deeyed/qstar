@@ -858,6 +858,24 @@ if "$qstar" --file "$tmp/cli-overrides/qstar.lua" -B /tmp/qstar-build list-targe
 fi
 contains "$tmp/cli-overrides-bad-builddir.err" "CLI build directory override must be package-relative"
 
+step "profile-era CLI hard cut" "cli-hard-cut"
+"$qstar" --help > "$tmp/cli-hard-cut-help.out" 2> "$tmp/cli-hard-cut-help.err"
+not_contains "$tmp/cli-hard-cut-help.out" "--target triple"
+not_contains "$tmp/cli-hard-cut-help.out" "--toolchain"
+not_contains "$tmp/cli-hard-cut-help.out" "--stdlib"
+if "$qstar" --file "$tmp/cli-overrides/qstar.lua" --target x86_64-pc-windows-msvc check > "$tmp/cli-target.out" 2> "$tmp/cli-target.err"; then
+	fail "public --target unexpectedly succeeded"
+fi
+contains "$tmp/cli-target.err" "usage: qstar"
+if "$qstar" --file "$tmp/cli-overrides/qstar.lua" --toolchain clang check > "$tmp/cli-toolchain.out" 2> "$tmp/cli-toolchain.err"; then
+	fail "public --toolchain unexpectedly succeeded"
+fi
+contains "$tmp/cli-toolchain.err" "usage: qstar"
+if "$qstar" --file "$tmp/cli-overrides/qstar.lua" --stdlib none check > "$tmp/cli-stdlib.out" 2> "$tmp/cli-stdlib.err"; then
+	fail "public --stdlib unexpectedly succeeded"
+fi
+contains "$tmp/cli-stdlib.err" "usage: qstar"
+
 step "Ninja MVP lowering" "ninja-mvp-emit"
 mkdir -p "$tmp/ninja-mvp/src" "$tmp/ninja-mvp/include"
 cat > "$tmp/ninja-mvp/qstar.lua" <<'EOF'
@@ -1592,8 +1610,6 @@ contains "$tmp/configs-json.out" "\"configs\":[\"//qstar/policies:module_c23\",\
 mkdir -p "$tmp/config-scalar/src"
 cat > "$tmp/config-scalar/qstar.lua" <<'EOF'
 qstar.config "base" {
-  toolchain = "clang",
-  stdlib = "custom",
   lang = {
     cxx = {
       standard = "c++20",
@@ -1607,8 +1623,6 @@ qstar.config "base" {
 
 qstar.staticlib "core" {
   configs = {"//:base"},
-  toolchain = "host",
-  stdlib = "system",
   lang = {
     cxx = {
       standard = "c++23",
@@ -1620,8 +1634,24 @@ EOF
 contains "$tmp/config-scalar.out" "configs [//:base]"
 contains "$tmp/config-scalar.out" "cxx_standard c++23"
 contains "$tmp/config-scalar.out" "lang.asm.preprocess true"
-contains "$tmp/config-scalar.out" "toolchain host"
-contains "$tmp/config-scalar.out" "stdlib system"
+cat > "$tmp/config-scalar/qstar.lua" <<'EOF'
+qstar.config "bad" {
+  toolchain = "clang",
+}
+EOF
+if "$qstar" --file "$tmp/config-scalar/qstar.lua" check > "$tmp/config-toolchain.out" 2> "$tmp/config-toolchain.err"; then
+	fail "config toolchain field unexpectedly succeeded"
+fi
+contains "$tmp/config-toolchain.err" "unknown config field 'toolchain'"
+cat > "$tmp/config-scalar/qstar.lua" <<'EOF'
+qstar.staticlib "bad" {
+  stdlib = "system",
+}
+EOF
+if "$qstar" --file "$tmp/config-scalar/qstar.lua" check > "$tmp/target-stdlib.out" 2> "$tmp/target-stdlib.err"; then
+	fail "target stdlib field unexpectedly succeeded"
+fi
+contains "$tmp/target-stdlib.err" "unknown target field 'stdlib'"
 
 mkdir -p "$tmp/toolset/src"
 cat > "$tmp/toolset/src/main.c" <<'EOF'
@@ -2402,29 +2432,36 @@ fi
 contains "$tmp/lint-badlabel.out" "QSTAR010"
 contains "$tmp/lint-badlabel.out" "invalid target name"
 
-step "removed API diagnostics corpus" "old-api"
+step "removed API shims absent corpus" "old-api"
 mkdir -p "$tmp/old-api"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.exe "app" {}
 EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-api.out" 2> "$tmp/old-api.err"; then
-	fail "removed qstar.exe unexpectedly succeeded"
+	fail "absent qstar.exe unexpectedly succeeded"
 fi
-contains "$tmp/old-api.err" "qstar.exe removed; use qstar.executable"
+contains "$tmp/old-api.err" "field 'exe'"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.genrule "g" {}
 EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-genrule.out" 2> "$tmp/old-genrule.err"; then
-	fail "removed qstar.genrule unexpectedly succeeded"
+	fail "absent qstar.genrule unexpectedly succeeded"
 fi
-contains "$tmp/old-genrule.err" "qstar.genrule removed; use qstar.custom_target"
+contains "$tmp/old-genrule.err" "field 'genrule'"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.config_header "cfg" {}
 EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-config.out" 2> "$tmp/old-config.err"; then
-	fail "removed qstar.config_header unexpectedly succeeded"
+	fail "absent qstar.config_header unexpectedly succeeded"
 fi
-contains "$tmp/old-config.err" "qstar.config_header removed; use qstar.configure_file"
+contains "$tmp/old-config.err" "field 'config_header'"
+cat > "$tmp/old-api/qstar.lua" <<'EOF'
+qstar.write_config_header "cfg" {}
+EOF
+if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-write-config.out" 2> "$tmp/old-write-config.err"; then
+	fail "absent qstar.write_config_header unexpectedly succeeded"
+fi
+contains "$tmp/old-write-config.err" "field 'write_config_header'"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.run_target "smoke" {
   command = qstar.cli {"true"},
@@ -3433,7 +3470,7 @@ else
 fi
 
 step "macos framework linux diagnostic" "macos-framework-linux"
-if "$qstar" --file "$tmp/macos-framework/qstar.lua" --target x86_64-unknown-linux-gnu check > "$tmp/macos-framework-linux.out" 2> "$tmp/macos-framework-linux.err"; then
+if "$qstar" --file "$tmp/macos-framework/qstar.lua" --qstar-internal-target x86_64-unknown-linux-gnu check > "$tmp/macos-framework-linux.out" 2> "$tmp/macos-framework-linux.err"; then
 	fail "link.frameworks unexpectedly succeeded for linux-like target"
 fi
 contains "$tmp/macos-framework-linux.err" "link.frameworks is supported only for Darwin-like targets"
@@ -3545,14 +3582,14 @@ if command -v ninja >/dev/null 2>&1; then
 fi
 
 step "windows sharedlib stella diagnostic" "shared-windows"
-if "$qstar" --file "$tmp/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang build //:plugin > "$tmp/shared-windows.out" 2> "$tmp/shared-windows.err"; then
+if "$qstar" --file "$tmp/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang build //:plugin > "$tmp/shared-windows.out" 2> "$tmp/shared-windows.err"; then
 	fail "windows sharedlib unexpectedly succeeded"
 fi
 contains "$tmp/shared-windows.err" "Windows shared libraries require a runtime .dll"
 contains "$tmp/shared-windows.err" "docs/windows-artifact-policy.md"
 
 step "windows sharedlib ninja diagnostic" "shared-windows-ninja"
-if "$qstar" --file "$tmp/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang -G ninja build //:plugin > "$tmp/shared-windows-ninja.out" 2> "$tmp/shared-windows-ninja.err"; then
+if "$qstar" --file "$tmp/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang -G ninja build //:plugin > "$tmp/shared-windows-ninja.out" 2> "$tmp/shared-windows-ninja.err"; then
 	fail "windows sharedlib ninja unexpectedly succeeded"
 fi
 contains "$tmp/shared-windows-ninja.err" "Windows shared libraries require a runtime .dll"
@@ -4049,20 +4086,20 @@ contains "$tmp/project-package/build/qstar/stage/___bundle/manifest.json" "\"dst
 contains "$tmp/project-package-smoke.out" "run_target label=//:package_smoke"
 contains "$tmp/project-package-smoke.out" "run_expect label=//:package_smoke status=matched contains=QSTAR-SMOKE-DONE source=file path=smoke.log"
 contains "$tmp/project-package/smoke.log" "QSTAR-SMOKE-DONE"
-"$qstar" --file "$tmp/project-package/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang dry-run //:msvc_payload > "$tmp/project-package-msvc-dry.out" 2> "$tmp/project-package-msvc-dry.err"
+"$qstar" --file "$tmp/project-package/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang dry-run //:msvc_payload > "$tmp/project-package-msvc-dry.out" 2> "$tmp/project-package-msvc-dry.err"
 contains "$tmp/project-package-msvc-dry.out" "response_style=msvc"
 contains "$tmp/project-package-msvc-dry.out" "/out:build/qstar/out/___msvc_payload/payload-x64.pe"
 contains "$tmp/project-package-msvc-dry.out" "/subsystem:console"
-"$qstar" --file "$tmp/project-package/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang build //:msvc_payload > "$tmp/project-package-msvc-build.out" 2> "$tmp/project-package-msvc-build.err"
+"$qstar" --file "$tmp/project-package/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang build //:msvc_payload > "$tmp/project-package-msvc-build.out" 2> "$tmp/project-package-msvc-build.err"
 contains "$tmp/project-package-msvc-build.out" "status ok"
 test -f "$tmp/project-package/build/qstar/out/___msvc_payload/payload-x64.pe" || fail "package flow msvc artifact missing"
-"$qstar" --file "$tmp/project-package/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang action-log //:msvc_payload:link:0 > "$tmp/project-package-msvc-link-log.out" 2> "$tmp/project-package-msvc-link-log.err"
+"$qstar" --file "$tmp/project-package/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang action-log //:msvc_payload:link:0 > "$tmp/project-package-msvc-link-log.out" 2> "$tmp/project-package-msvc-link-log.err"
 contains "$tmp/project-package-msvc-link-log.out" "/entry:payload_main"
-"$qstar" --file "$tmp/project-package/qstar.lua" --target aarch64-pc-windows-msvc --toolchain clang dry-run //:msvc_payload_alt > "$tmp/project-package-msvc-alt-dry.out" 2> "$tmp/project-package-msvc-alt-dry.err"
+"$qstar" --file "$tmp/project-package/qstar.lua" --qstar-internal-target aarch64-pc-windows-msvc --qstar-internal-toolchain clang dry-run //:msvc_payload_alt > "$tmp/project-package-msvc-alt-dry.out" 2> "$tmp/project-package-msvc-alt-dry.err"
 contains "$tmp/project-package-msvc-alt-dry.out" "/out:build/qstar/out/___msvc_payload_alt/payload-alt.pe"
-"$qstar" --file "$tmp/project-package/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang stage //:runtime --dry-run > "$tmp/project-package-runtime-dry.out" 2> "$tmp/project-package-runtime-dry.err"
+"$qstar" --file "$tmp/project-package/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang stage //:runtime --dry-run > "$tmp/project-package-runtime-dry.out" 2> "$tmp/project-package-runtime-dry.err"
 contains "$tmp/project-package-runtime-dry.out" "stage_file src=build/qstar/out/___msvc_payload/payload-x64.pe dst=stage/runtime/bin/payload-x64.pe mode=dry-run"
-"$qstar" --file "$tmp/project-package/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang stage //:runtime > "$tmp/project-package-runtime-stage.out" 2> "$tmp/project-package-runtime-stage.err"
+"$qstar" --file "$tmp/project-package/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang stage //:runtime > "$tmp/project-package-runtime-stage.out" 2> "$tmp/project-package-runtime-stage.err"
 contains "$tmp/project-package-runtime-stage.out" "status ok"
 test -f "$tmp/project-package/stage/runtime/bin/payload-x64.pe" || fail "package flow runtime payload missing"
 
@@ -4471,7 +4508,7 @@ contains ".github/workflows/windows-validation.yml" "make qstar-windows-prep-tes
 contains ".github/workflows/windows-validation.yml" "qstar-windows-native-alpha"
 contains ".github/workflows/windows-validation.yml" "run_ninja_parity"
 contains "tests/windows-prep.sh" "windows-artifacts-prefix/bin/named_tool.exe"
-contains "tests/windows-prep.sh" "--toolchain clang dry-run"
+contains "tests/windows-prep.sh" "--qstar-internal-toolchain clang dry-run"
 contains "tests/windows-prep.sh" "___windows_rsp_compile_0.rsp"
 contains "tests/windows-prep.sh" "/DTRAIL=tail"
 contains "tests/windows-prep.sh" "/DWINPATH=C:"
@@ -4889,7 +4926,7 @@ done
 if grep -R -n --include='*.md' -E '\.qs\b' wiki >/dev/null; then
 	fail "QStar wiki contains stale authoring surface"
 fi
-if grep -R -n -E 'qstar\.profile|--profile|QSTAR_PROFILE|QSTAR_TARGET|lang\.cale|mixed-cale|Cale|HCL|freestanding|firmware|UEFI|RPi|Raspberry|QEMU|BOOTX64|BOOTAA64|kernel8|qemu_smoke|kernel_img|kernel_c|freestanding_c|//:kernel|kernel\.bin|kernel\.elf|reference/profiles|tutorials/freestanding-image|cookbook/qemu-smoke' README.md README.ko.md wiki docs man editors/vscode/qstar/snippets editors/vscode/qstar/syntaxes tools/sync-github-wiki.sh >/dev/null; then
+if grep -R -n -E 'qstar\.profile|--profile|--toolchain|--stdlib|QSTAR_PROFILE|QSTAR_TARGET|lang\.cale|mixed-cale|Cale|HCL|freestanding|firmware|UEFI|RPi|Raspberry|QEMU|BOOTX64|BOOTAA64|kernel8|qemu_smoke|kernel_img|kernel_c|freestanding_c|//:kernel|kernel\.bin|kernel\.elf|reference/profiles|tutorials/freestanding-image|cookbook/qemu-smoke' README.md README.ko.md wiki docs man editors/vscode/qstar/snippets editors/vscode/qstar/syntaxes tools/sync-github-wiki.sh >/dev/null; then
 	fail "QStar public docs/editor surface contains old generic-DSL syntax"
 fi
 if sed -n '/qstar_lsp_symbols\[\]/,/^};/p; /qstar_lsp_fields\[\]/,/^};/p' src/lsp.c |
@@ -5372,7 +5409,7 @@ qstar.executable "app" {
   libs = {"m"},
 }
 EOF
-"$qstar" --file "$tmp/toolset-diagnostics/qstar.lua" --target x86_64-unknown-none-elf --toolchain clang --stdlib none dry-run //:app > "$tmp/toolset-dry.out" 2> "$tmp/toolset-dry.err"
+"$qstar" --file "$tmp/toolset-diagnostics/qstar.lua" --qstar-internal-target x86_64-unknown-none-elf --qstar-internal-toolchain clang --qstar-internal-stdlib none dry-run //:app > "$tmp/toolset-dry.out" 2> "$tmp/toolset-dry.err"
 contains "$tmp/toolset-dry.out" "resolved_toolchain owner=//:app toolchain=clang profile=default target=x86_64-unknown-none-elf stdlib=none resolver=toolset-schema-v1 toolset=//:custom cc=clang-custom"
 contains "$tmp/toolset-dry.out" "\"toolset include\""
 contains "$tmp/toolset-dry.out" "\"-Ltoolset lib\""
@@ -5853,7 +5890,7 @@ qstar.executable "app" {
   libs = {"user32"},
 }
 EOF
-"$qstar" --file "$tmp/windows/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang dry-run //:app > "$tmp/windows-dry.out" 2> "$tmp/windows-dry.err"
+"$qstar" --file "$tmp/windows/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang dry-run //:app > "$tmp/windows-dry.out" 2> "$tmp/windows-dry.err"
 contains "$tmp/windows-dry.out" "response_style=msvc"
 contains "$tmp/windows-dry.out" "response_digest="
 contains "$tmp/windows-dry.out" "/link"
@@ -6297,20 +6334,20 @@ qstar.executable "boot" {
   },
 }
 EOF
-"$qstar" --file "$tmp/uefi/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang dry-run //:boot > "$tmp/uefi-x64-dry.out" 2> "$tmp/uefi-x64-dry.err"
+"$qstar" --file "$tmp/uefi/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang dry-run //:boot > "$tmp/uefi-x64-dry.out" 2> "$tmp/uefi-x64-dry.err"
 contains "$tmp/uefi-x64-dry.out" "response_style=msvc"
 contains "$tmp/uefi-x64-dry.out" "/out:build/qstar/out/___boot/BOOTX64.EFI"
 contains "$tmp/uefi-x64-dry.out" "/subsystem:efi_application"
 contains "$tmp/uefi-x64-dry.out" "/entry:efi_main"
 contains "$tmp/uefi-x64-dry.out" "/nodefaultlib"
-"$qstar" --file "$tmp/uefi/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang build //:boot > "$tmp/uefi-x64-build.out" 2> "$tmp/uefi-x64-build.err"
+"$qstar" --file "$tmp/uefi/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang build //:boot > "$tmp/uefi-x64-build.out" 2> "$tmp/uefi-x64-build.err"
 contains "$tmp/uefi-x64-build.out" "status ok"
 test -f "$tmp/uefi/build/qstar/out/___boot/BOOTX64.EFI" || fail "missing UEFI x64 artifact"
-"$qstar" --file "$tmp/uefi/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang action-log //:boot:link:0 > "$tmp/uefi-x64-link-log.out" 2> "$tmp/uefi-x64-link-log.err"
+"$qstar" --file "$tmp/uefi/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang action-log //:boot:link:0 > "$tmp/uefi-x64-link-log.out" 2> "$tmp/uefi-x64-link-log.err"
 contains "$tmp/uefi-x64-link-log.out" "argv[0]=tools/fake-lld-link.sh"
 contains "$tmp/uefi-x64-link-log.out" "argv[1]=/out:build/qstar/out/___boot/BOOTX64.EFI"
 contains "$tmp/uefi-x64-link-log.out" "argv[2]=/subsystem:efi_application"
-QSTAR_DEBUG_STATE_DUMPS=1 "$qstar" --file "$tmp/uefi/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang build //:boot --progress off > "$tmp/uefi-x64-debug-state.out" 2> "$tmp/uefi-x64-debug-state.err"
+QSTAR_DEBUG_STATE_DUMPS=1 "$qstar" --file "$tmp/uefi/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang build //:boot --progress off > "$tmp/uefi-x64-debug-state.out" 2> "$tmp/uefi-x64-debug-state.err"
 contains "$tmp/uefi/build/qstar/state/graph.json" "\"artifact_name\":\"BOOTX64.EFI\""
 cat > "$tmp/uefi/qstar.lua" <<'EOF'
 qstar.toolset "uefi" {
@@ -6342,9 +6379,9 @@ qstar.executable "boot" {
   },
 }
 EOF
-"$qstar" --file "$tmp/uefi/qstar.lua" --target aarch64-pc-windows-msvc --toolchain clang dry-run //:boot > "$tmp/uefi-aa64-dry.out" 2> "$tmp/uefi-aa64-dry.err"
+"$qstar" --file "$tmp/uefi/qstar.lua" --qstar-internal-target aarch64-pc-windows-msvc --qstar-internal-toolchain clang dry-run //:boot > "$tmp/uefi-aa64-dry.out" 2> "$tmp/uefi-aa64-dry.err"
 contains "$tmp/uefi-aa64-dry.out" "/out:build/qstar/out/___boot/BOOTAA64.EFI"
-"$qstar" --file "$tmp/uefi/qstar.lua" --target aarch64-pc-windows-msvc --toolchain clang build //:boot > "$tmp/uefi-aa64-build.out" 2> "$tmp/uefi-aa64-build.err"
+"$qstar" --file "$tmp/uefi/qstar.lua" --qstar-internal-target aarch64-pc-windows-msvc --qstar-internal-toolchain clang build //:boot > "$tmp/uefi-aa64-build.out" 2> "$tmp/uefi-aa64-build.err"
 contains "$tmp/uefi-aa64-build.out" "status ok"
 test -f "$tmp/uefi/build/qstar/out/___boot/BOOTAA64.EFI" || fail "missing UEFI AArch64 artifact"
 cat > "$tmp/uefi/qstar.lua" <<'EOF'
@@ -6358,7 +6395,7 @@ qstar.executable "boot" {
   },
 }
 EOF
-"$qstar" --file "$tmp/uefi/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang dry-run //:boot > "$tmp/uefi-local-dry.out" 2> "$tmp/uefi-local-dry.err"
+"$qstar" --file "$tmp/uefi/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang dry-run //:boot > "$tmp/uefi-local-dry.out" 2> "$tmp/uefi-local-dry.err"
 contains "$tmp/uefi-local-dry.out" "output=build/qstar/out/___boot/BOOTLOCAL.EFI"
 "$qstar" --file "$tmp/uefi/qstar.lua" list-targets --format json > "$tmp/uefi-targets-json.out" 2> "$tmp/uefi-targets-json.err"
 contains "$tmp/uefi-targets-json.out" "\"artifact_name\":\"BOOTLOCAL.EFI\""

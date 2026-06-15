@@ -21,8 +21,8 @@ Useful commands:
 qstar --file qstar.lua dry-run //:module
 qstar --file qstar.lua stage //:bundle
 qstar --file qstar.lua build //:package_smoke
-qstar --file qstar.lua --target x86_64-pc-windows-msvc --toolchain clang dry-run //:msvc_payload
-qstar --file qstar.lua --target x86_64-pc-windows-msvc --toolchain clang stage //:runtime
+# From the repository root:
+make qstar-tests
 ```
 
 The smoke wrapper writes a deterministic log that includes `QSTAR-SMOKE-DONE`

@@ -39,6 +39,4 @@ qstar.executable "app" {
             },
         },
     },
-    toolchain = "host",
-    stdlib = "system",
 }

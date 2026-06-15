@@ -63,7 +63,7 @@ contains "$tmp/action-log.out" "qstar action-log v1"
 contains "$tmp/action-log.out" "argc=50"
 contains "$tmp/action-log.out" "argv[2]=src/main.c"
 
-"$qstar" --file "$corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang dry-run \
+"$qstar" --file "$corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang dry-run \
 	//:windows_app > "$tmp/windows-dry.out" 2> "$tmp/windows-dry.err"
 contains "$tmp/windows-dry.out" "response_style=msvc"
 contains "$tmp/windows-dry.out" "response=skeleton"
@@ -72,23 +72,23 @@ contains "$tmp/windows-dry.out" "/link"
 contains "$tmp/windows-dry.out" "/LIBPATH:sdk/lib/um/x64"
 contains "$tmp/windows-dry.out" "kernel32.lib"
 contains "$tmp/windows-dry.out" "output=build/qstar/out/___windows_app/windows_app.exe"
-"$qstar" --file "$corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang explain \
+"$qstar" --file "$corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang explain \
 	//:windows_app > "$tmp/windows-explain.out" 2> "$tmp/windows-explain.err"
 contains "$tmp/windows-explain.out" "Linking C executable build/qstar/out/___windows_app/windows_app.exe"
-"$qstar" --file "$corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang list-targets \
+"$qstar" --file "$corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang list-targets \
 	--format json > "$tmp/windows-list.json" 2> "$tmp/windows-list.err"
 contains "$tmp/windows-list.json" "\"artifact_name\":\"windows_app.exe\""
 
-"$qstar" --file "$corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang dry-run \
+"$qstar" --file "$corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang dry-run \
 	//:windows_mapped > "$tmp/windows-mapped-dry.out" 2> "$tmp/windows-mapped-dry.err"
 contains "$tmp/windows-mapped-dry.out" "response_style=msvc"
 contains "$tmp/windows-mapped-dry.out" "output=build/qstar/out/___windows_mapped/mapped_named.exe"
 
-"$qstar" --file "$corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang dry-run \
+"$qstar" --file "$corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang dry-run \
 	//:windows_static > "$tmp/windows-static-dry.out" 2> "$tmp/windows-static-dry.err"
 contains "$tmp/windows-static-dry.out" "final_action=archive"
 contains "$tmp/windows-static-dry.out" "output=build/qstar/out/___windows_static/windows_static.lib"
-"$qstar" --file "$corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang \
+"$qstar" --file "$corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang \
 	--progress off build //:windows_static > "$tmp/windows-static-build.out" \
 	2> "$tmp/windows-static-build.err"
 contains "$tmp/windows-static-build.out" "response_file id=//:windows_static:compile:0"
@@ -96,14 +96,14 @@ contains "$tmp/windows-static-build.out" "status ok"
 test -f "$corpus/$build_dir/out/___windows_static/windows_static.lib" ||
 	fail "fake Windows static .lib artifact missing"
 contains "$corpus/$build_dir/out/___windows_static/windows_static.lib" "fake static library"
-"$qstar" --file "$corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang \
+"$qstar" --file "$corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang \
 	action-log //:windows_static:archive:0 > "$tmp/windows-static-log.out" \
 	2> "$tmp/windows-static-log.err"
 contains "$tmp/windows-static-log.out" "argv[0]=tools/fake-lib"
 contains "$tmp/windows-static-log.out" "windows_static.lib"
 contains "$tmp/windows-static-log.out" "description='Linking C static library build/qstar/out/___windows_static/windows_static.lib'"
 
-if "$qstar" --file "$corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang \
+if "$qstar" --file "$corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang \
 	build //:windows_plugin > "$tmp/windows-shared.out" \
 	2> "$tmp/windows-shared.err"; then
 	fail "Windows sharedlib unexpectedly succeeded"
@@ -112,7 +112,7 @@ contains "$tmp/windows-shared.err" "Windows shared libraries require a runtime .
 contains "$tmp/windows-shared.err" "import .lib"
 contains "$tmp/windows-shared.err" "docs/windows-artifact-policy.md"
 
-"$qstar" --file "$corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang \
+"$qstar" --file "$corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang \
 	--progress off build //:windows_rsp > "$tmp/windows-rsp.out" \
 	2> "$tmp/windows-rsp.err"
 contains "$tmp/windows-rsp.out" "response_file id=//:windows_rsp:compile:0"
@@ -141,7 +141,7 @@ contains "$link_rsp" "uuid.lib"
 
 if command -v ninja >/dev/null 2>&1; then
 	rm -rf "$corpus/$build_dir" "$corpus/.ninja_log" "$corpus/.ninja_deps"
-	"$qstar" --file "$corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang -G ninja \
+	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang -G ninja \
 		--progress off build //:windows_rsp > "$tmp/windows-rsp-ninja.out" \
 		2> "$tmp/windows-rsp-ninja.err"
 	contains "$tmp/windows-rsp-ninja.out" "backend ninja"
@@ -160,7 +160,7 @@ if command -v ninja >/dev/null 2>&1; then
 	contains "$link_rsp" '"/LIBPATH:sdk/lib with space/um/x64"'
 
 	rm -rf "$corpus/$build_dir" "$corpus/.ninja_log" "$corpus/.ninja_deps"
-	"$qstar" --file "$corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang \
+	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang \
 		-G ninja --progress off build //:windows_static \
 		> "$tmp/windows-static-ninja.out" 2> "$tmp/windows-static-ninja.err"
 	contains "$tmp/windows-static-ninja.out" "backend ninja"
@@ -173,7 +173,7 @@ if command -v ninja >/dev/null 2>&1; then
 	test ! -f "$corpus/.ninja_log" || fail "ninja static .lib root .ninja_log pollution"
 	test ! -f "$corpus/.ninja_deps" || fail "ninja static .lib root .ninja_deps pollution"
 
-	if "$qstar" --file "$corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang -G ninja \
+	if "$qstar" --file "$corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang -G ninja \
 		build //:windows_plugin > "$tmp/windows-shared-ninja.out" \
 		2> "$tmp/windows-shared-ninja.err"; then
 		fail "Windows sharedlib Ninja unexpectedly succeeded"
@@ -186,7 +186,7 @@ fi
 "$qstar" --file "$artifact_corpus/qstar.lua" check \
 	> "$tmp/windows-artifacts-check.out" 2> "$tmp/windows-artifacts-check.err"
 contains "$tmp/windows-artifacts-check.out" "status ok"
-"$qstar" --file "$artifact_corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang \
+"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang \
 	dry-run //:all > "$tmp/windows-artifacts-dry.out" \
 	2> "$tmp/windows-artifacts-dry.err"
 contains "$tmp/windows-artifacts-dry.out" "output=build/qstar/out/___tool/tool.exe"
@@ -199,7 +199,7 @@ contains "$tmp/windows-artifacts-dry.out" \
 	'"/DQSTAR_WINDOWS_PATH=C:\\Program Files\\QStar\\Include"'
 contains "$tmp/windows-artifacts-dry.out" '"/DQSTAR_WINDOWS_QUOTE=\"artifact\""'
 
-"$qstar" --file "$artifact_corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang \
+"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang \
 	--progress off build //:all > "$tmp/windows-artifacts-build.out" \
 	2> "$tmp/windows-artifacts-build.err"
 contains "$tmp/windows-artifacts-build.out" "status ok"
@@ -215,7 +215,7 @@ contains "$artifact_corpus/$build_dir/out/___core/core.lib" "fake static library
 contains "$artifact_corpus/$build_dir/out/___named_core/named_core.lib" \
 	"fake static library"
 
-"$qstar" --file "$artifact_corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang \
+"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang \
 	stage //:layout > "$tmp/windows-artifacts-stage.out" \
 	2> "$tmp/windows-artifacts-stage.err"
 contains "$tmp/windows-artifacts-stage.out" "stage_file src=build/qstar/out/___tool/tool.exe"
@@ -229,32 +229,32 @@ test -f "$artifact_corpus/$build_dir/stage/windows-layout/lib/core.lib" ||
 test -f "$artifact_corpus/$build_dir/stage/windows-layout/lib/named_core.lib" ||
 	fail "Windows artifact corpus staged named_core.lib missing"
 
-"$qstar" --file "$artifact_corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang \
+"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang \
 	install //:tool --prefix "$tmp/windows-artifacts-prefix" \
 	> "$tmp/windows-artifacts-install-tool.out" \
 	2> "$tmp/windows-artifacts-install-tool.err"
 test -f "$tmp/windows-artifacts-prefix/bin/tool.exe" ||
 	fail "Windows artifact corpus installed tool.exe missing"
-"$qstar" --file "$artifact_corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang \
+"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang \
 	install //:core --prefix "$tmp/windows-artifacts-prefix" \
 	> "$tmp/windows-artifacts-install-core.out" \
 	2> "$tmp/windows-artifacts-install-core.err"
 test -f "$tmp/windows-artifacts-prefix/lib/core.lib" ||
 	fail "Windows artifact corpus installed core.lib missing"
-"$qstar" --file "$artifact_corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang \
+"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang \
 	install //:named_tool --prefix "$tmp/windows-artifacts-prefix" \
 	> "$tmp/windows-artifacts-install-named-tool.out" \
 	2> "$tmp/windows-artifacts-install-named-tool.err"
 test -f "$tmp/windows-artifacts-prefix/bin/named_tool.exe" ||
 	fail "Windows artifact corpus installed named_tool.exe missing"
-"$qstar" --file "$artifact_corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang \
+"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang \
 	install //:named_core --prefix "$tmp/windows-artifacts-prefix" \
 	> "$tmp/windows-artifacts-install-named-core.out" \
 	2> "$tmp/windows-artifacts-install-named-core.err"
 test -f "$tmp/windows-artifacts-prefix/lib/named_core.lib" ||
 	fail "Windows artifact corpus installed named_core.lib missing"
 
-if "$qstar" --file "$artifact_corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang \
+if "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang \
 	build //:plugin > "$tmp/windows-artifacts-shared.out" \
 	2> "$tmp/windows-artifacts-shared.err"; then
 	fail "Windows artifact corpus sharedlib unexpectedly succeeded"
@@ -266,7 +266,7 @@ contains "$tmp/windows-artifacts-shared.err" "docs/windows-artifact-policy.md"
 if command -v ninja >/dev/null 2>&1; then
 	rm -rf "$artifact_corpus/$build_dir" "$artifact_corpus/.ninja_log" \
 		"$artifact_corpus/.ninja_deps"
-	"$qstar" --file "$artifact_corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang \
+	"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang \
 		-G ninja --progress off build //:all \
 		> "$tmp/windows-artifacts-ninja-build.out" \
 		2> "$tmp/windows-artifacts-ninja-build.err"
@@ -289,7 +289,7 @@ if command -v ninja >/dev/null 2>&1; then
 	test ! -f "$artifact_corpus/.ninja_deps" ||
 		fail "Windows artifact corpus root .ninja_deps pollution"
 
-	"$qstar" --file "$artifact_corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang \
+	"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang \
 		-G ninja stage //:layout > "$tmp/windows-artifacts-ninja-stage.out" \
 		2> "$tmp/windows-artifacts-ninja-stage.err"
 	contains "$tmp/windows-artifacts-ninja-stage.out" "backend ninja"
@@ -298,20 +298,20 @@ if command -v ninja >/dev/null 2>&1; then
 	test -f "$artifact_corpus/$build_dir/stage/windows-layout/lib/core.lib" ||
 		fail "Ninja Windows artifact corpus staged core.lib missing"
 
-	"$qstar" --file "$artifact_corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang \
+	"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang \
 		-G ninja install //:tool --prefix "$tmp/windows-artifacts-ninja-prefix" \
 		> "$tmp/windows-artifacts-ninja-install-tool.out" \
 		2> "$tmp/windows-artifacts-ninja-install-tool.err"
 	test -f "$tmp/windows-artifacts-ninja-prefix/bin/tool.exe" ||
 		fail "Ninja Windows artifact corpus installed tool.exe missing"
-	"$qstar" --file "$artifact_corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang \
+	"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang \
 		-G ninja install //:core --prefix "$tmp/windows-artifacts-ninja-prefix" \
 		> "$tmp/windows-artifacts-ninja-install-core.out" \
 		2> "$tmp/windows-artifacts-ninja-install-core.err"
 	test -f "$tmp/windows-artifacts-ninja-prefix/lib/core.lib" ||
 		fail "Ninja Windows artifact corpus installed core.lib missing"
 
-	if "$qstar" --file "$artifact_corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang \
+	if "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc --qstar-internal-toolchain clang \
 		-G ninja build //:plugin > "$tmp/windows-artifacts-shared-ninja.out" \
 		2> "$tmp/windows-artifacts-shared-ninja.err"; then
 		fail "Windows artifact corpus Ninja sharedlib unexpectedly succeeded"

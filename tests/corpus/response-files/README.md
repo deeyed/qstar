@@ -7,9 +7,7 @@ Useful commands:
 
 ```sh
 qstar --file tests/corpus/response-files/qstar.lua build //:all
-qstar --file tests/corpus/response-files/qstar.lua --target x86_64-pc-windows-msvc --toolchain clang dry-run //:windows_app
-qstar --file tests/corpus/response-files/qstar.lua --target x86_64-pc-windows-msvc --toolchain clang build //:windows_rsp
-qstar --file tests/corpus/response-files/qstar.lua --target x86_64-pc-windows-msvc --toolchain clang build //:windows_static
+make qstar-windows-prep-tests
 ```
 
 The Windows fake toolset uses a package-local fake `clang-cl` script so non-Windows

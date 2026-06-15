@@ -164,10 +164,6 @@ Windows release asset은 아직 없다. 현재 QStar는 Windows 이식 전에 �
 ```sh
 make qstar-windows-prep-tests
 ./build/bin/qstar --file tests/corpus/response-files/qstar.lua build //:all
-./build/bin/qstar --file tests/corpus/response-files/qstar.lua \
-  --target x86_64-pc-windows-msvc --toolchain clang dry-run //:windows_app
-./build/bin/qstar --file tests/corpus/response-files/qstar.lua \
-  --target x86_64-pc-windows-msvc --toolchain clang build //:windows_rsp
 ```
 
 `.github/workflows/windows-validation.yml`은 `workflow_dispatch` 전용 alpha workflow다.

@@ -9,6 +9,4 @@ qstar.staticlib "foo" {
             },
         },
     },
-    toolchain = "host",
-    stdlib = "system",
 }

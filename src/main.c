@@ -41,7 +41,6 @@ usage(FILE *out)
 	fputs("       --generator stella|ninja|auto\n", out);
 	fputs("       -B path\n", out);
 	fputs("       --package-alias @name=/path\n", out);
-	fputs("       --target triple --toolchain name --stdlib policy\n", out);
 	fputs("       --diagnostics text|json\n", out);
 	fputs("       --diagnostic-format text|line  # compatibility alias\n", out);
 	fputs("       --color auto|always|never  # warning/error color for text output\n", out);
@@ -573,17 +572,17 @@ main(int argc, char **argv)
 		} else if (strcmp(argv[arg], "--quiet") == 0) {
 			build_options.quiet = 1;
 			arg++;
-		} else if (strcmp(argv[arg], "--target") == 0 ||
-		    strcmp(argv[arg], "--toolchain") == 0 ||
-		    strcmp(argv[arg], "--stdlib") == 0) {
+		} else if (strcmp(argv[arg], "--qstar-internal-target") == 0 ||
+		    strcmp(argv[arg], "--qstar-internal-toolchain") == 0 ||
+		    strcmp(argv[arg], "--qstar-internal-stdlib") == 0) {
 			if (arg + 1 >= argc) {
 				usage(stderr);
 				qstar_graph_free(&graph);
 				return 2;
 			}
-			if (strcmp(argv[arg], "--target") == 0)
+			if (strcmp(argv[arg], "--qstar-internal-target") == 0)
 				cli_target = argv[arg + 1];
-			else if (strcmp(argv[arg], "--toolchain") == 0)
+			else if (strcmp(argv[arg], "--qstar-internal-toolchain") == 0)
 				cli_toolchain = argv[arg + 1];
 			else
 				cli_stdlib = argv[arg + 1];

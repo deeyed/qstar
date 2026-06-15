@@ -35,9 +35,10 @@ stable public protocol은 아니다.
 - `qstar.modules`, `qstar.files`, `qstar.join`,
   `qstar.subdir`.
 - labels: `:local`, `//:name`, `//path:name`, `@pkg//path:name`.
-- fields: `sources`, `lang`, `deps`, `public_deps`, `private_deps`,
-  `toolchain`, `stdlib`, `libs`, `lib_dirs`, `link.frameworks`. Header/include
-  surface는 `lang.c`, `lang.cxx`, `lang.cxx` 아래에 둔다.
+- fields: `sources`, `lang`, `configs`, `deps`, `public_deps`, `private_deps`,
+  `toolset`, `libs`, `lib_dirs`, `link.frameworks`, `link_options`,
+  `link_inputs`. Header/include surface는 `lang.c`, `lang.cxx`, `lang.asm`
+  아래에 둔다.
 - commands: `list-targets`, `query`, `doctor`, `check`, `explain`, `dry-run`, `build`,
   `test`, `install`, `why-rebuild`, `log`, `last-failure`, `clean`, `--dump-graph`.
 - diagnostics: default text and `--diagnostics json` skeleton.

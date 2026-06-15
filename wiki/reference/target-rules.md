@@ -66,12 +66,13 @@ qstar.staticlib "module_portable" {
 ## 실패 예제
 
 ```lua
-qstar.exe "app" {
-  sources = {"src/main.c"},
+qstar.executable "bad" {
+  include_dirs = {"include"},
 }
 ```
 
-Removed API alias는 compatibility layer가 아니라 stable diagnostic이다.
+Top-level language shortcut은 target field가 아니다. Include path와 compile option은
+`lang.c`, `lang.cxx`, `lang.asm` namespace 아래에 둔다.
 
 ## 관련 CLI
 
@@ -83,6 +84,4 @@ qstar --file qstar.lua explain //:app
 
 ## 관련 diagnostic
 
-- `qstar.exe removed; use qstar.executable`
-- `qstar.genrule removed; use qstar.custom_target`
-- `qstar.config_header removed; use qstar.configure_file`
+- `top-level include_dirs is not allowed`

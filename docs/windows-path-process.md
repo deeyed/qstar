@@ -258,10 +258,7 @@ Manual corpus commands:
 
 ```sh
 ./build/bin/qstar --file tests/corpus/response-files/qstar.lua build //:all
-./build/bin/qstar --file tests/corpus/response-files/qstar.lua \
-  --target x86_64-pc-windows-msvc --toolchain clang dry-run //:windows_app
-./build/bin/qstar --file tests/corpus/response-files/qstar.lua \
-  --target x86_64-pc-windows-msvc --toolchain clang build //:windows_rsp
+make qstar-windows-prep-tests
 ```
 
 These commands prepare the port; they do not replace the manual native Windows

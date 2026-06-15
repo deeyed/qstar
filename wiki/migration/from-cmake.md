@@ -64,4 +64,3 @@ qstar --file qstar.lua build //:app
 ## 관련 diagnostic
 
 - `top-level cflags is not allowed; use lang.c.compile_options`
-- `qstar.exe removed; use qstar.executable`
