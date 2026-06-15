@@ -52,9 +52,11 @@ struct ninja_ctx {
 static int emit_target(struct qstar_graph *graph, const struct qstar_target *target,
     size_t order, void *user);
 static int emit_genrule_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
-    const struct qstar_genrule *genrule);
+    const struct qstar_target *target, const struct qstar_genrule *genrule);
 static int target_compile_needs_pic(const struct qstar_target *target,
     const struct qstar_resolved_toolchain *toolchain, int is_asm);
+static int ninja_argv_push_tool_role(struct qstar_graph *graph, struct ninja_argv *argv,
+    const struct qstar_target *target, const char *role, const char *fallback);
 
 /** graph에서 canonical label target을 찾는다. */
 static const struct qstar_target *
@@ -1270,12 +1272,12 @@ emit_genrule_item_producer(struct qstar_graph *graph, struct ninja_ctx *ctx,
 			return emit_target_closure(graph, ctx, label);
 		owner = qstar_graph_find_genrule(graph, label);
 		if (owner)
-			return emit_genrule_edge(graph, ctx, owner);
+			return emit_genrule_edge(graph, ctx, NULL, owner);
 		return 0;
 	}
 	owner = qstar_graph_find_output_owner(graph, item);
 	if (owner && owner != genrule)
-		return emit_genrule_edge(graph, ctx, owner);
+		return emit_genrule_edge(graph, ctx, NULL, owner);
 	return 0;
 }
 
@@ -1344,7 +1346,7 @@ write_genrule_deps(struct qstar_graph *graph, FILE *f, const struct qstar_genrul
 /** custom_target 또는 configure_file을 Ninja generate edge로 lower한다. */
 static int
 emit_genrule_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
-    const struct qstar_genrule *genrule)
+    const struct qstar_target *target, const struct qstar_genrule *genrule)
 {
 	struct ninja_argv argv;
 	char action_id[QSTAR_PATH_MAX], resolved_tool[QSTAR_PATH_MAX];
@@ -1384,9 +1386,9 @@ emit_genrule_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		    ninja_argv_push(graph, &argv, script_rel) < 0)
 			goto fail;
 	} else {
-		if (qstar_profile_resolve_command_tool(graph, genrule->tool,
-		    resolved_tool, sizeof(resolved_tool), tool_mode, sizeof(tool_mode),
-		    tool_error, sizeof(tool_error)) < 0)
+		if (qstar_resolve_command_tool_for_target(graph, target,
+		    genrule->tool, resolved_tool, sizeof(resolved_tool), tool_mode,
+		    sizeof(tool_mode), tool_error, sizeof(tool_error)) < 0)
 			return qstar_set_error_origin(graph, genrule->origin_file,
 			    genrule->origin_line, "command", genrule->label, "%s",
 			    tool_error);
@@ -1472,7 +1474,7 @@ emit_consumed_genrules(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	for (i = 0; i < graph->genrule_len; i++) {
 		if (!target_consumes_genrule(target, &graph->genrules[i]))
 			continue;
-		if (emit_genrule_edge(graph, ctx, &graph->genrules[i]) < 0)
+		if (emit_genrule_edge(graph, ctx, target, &graph->genrules[i]) < 0)
 			return -1;
 	}
 	return 0;
@@ -1516,9 +1518,10 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	snprintf(sysroot_arg, sizeof(sysroot_arg), "--sysroot=%s", toolchain->sysroot);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s",
 	    target->cxx_standard ? target->cxx_standard : "");
-	compiler = is_cxx ? toolchain->cxx : toolchain->cc;
+	compiler = is_asm ? toolchain->asm_ : is_cxx ? toolchain->cxx : toolchain->cc;
 	cross = strcmp(toolchain->name, "clang") == 0 && strcmp(toolchain->target, "host") != 0;
-	if (ninja_argv_push(graph, &argv, compiler) < 0)
+	if (ninja_argv_push_tool_role(graph, &argv, target,
+	    is_asm ? "asm" : is_cxx ? "cxx" : "c", compiler) < 0)
 		goto fail;
 	if (cross && ninja_argv_push(graph, &argv, target_arg) < 0)
 		goto fail;
@@ -1681,6 +1684,24 @@ artifact_basename(const char *path)
 
 	slash = strrchr(path ? path : "", '/');
 	return slash ? slash + 1 : path;
+}
+
+/** target toolset role argv-vector 또는 fallback tool 하나를 Ninja argv에 추가한다. */
+static int
+ninja_argv_push_tool_role(struct qstar_graph *graph, struct ninja_argv *argv,
+    const struct qstar_target *target, const char *role, const char *fallback)
+{
+	const struct qstar_string_list *role_argv;
+	size_t i;
+
+	role_argv = qstar_target_tool_role_argv(graph, target, role);
+	if (!role_argv)
+		return ninja_argv_push(graph, argv, fallback);
+	for (i = 0; i < role_argv->len; i++) {
+		if (ninja_argv_push(graph, argv, role_argv->items[i]) < 0)
+			return -1;
+	}
+	return 0;
 }
 
 /** sharedlib target이 현재 toolchain target에서 Ninja lowering 가능한지 검증한다. */
@@ -2061,7 +2082,8 @@ emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	    path_dirname(artifact, out_dir, sizeof(out_dir)) < 0)
 		return qstar_set_error(graph, "qstar: ninja artifact path too long");
 	snprintf(action_id, sizeof(action_id), "%s:archive:0", target->label);
-	if (ninja_argv_push(graph, &argv, toolchain->ar) < 0 ||
+	if (ninja_argv_push_tool_role(graph, &argv, target, "archive",
+	    toolchain->ar) < 0 ||
 	    ninja_argv_push(graph, &argv, "rcs") < 0 ||
 	    ninja_argv_push(graph, &argv, artifact) < 0)
 		goto fail;
@@ -2149,7 +2171,7 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		return -1;
 	final_action = qstar_target_final_action(target);
 	snprintf(action_id, sizeof(action_id), "%s:%s:0", target->label, final_action);
-	if (ninja_argv_push(graph, &argv,
+	if (ninja_argv_push_tool_role(graph, &argv, target, "link",
 	    target_has_cxx_source(target) ? toolchain->cxx : toolchain->linker) < 0)
 		goto fail;
 	if (toolchain->sysroot[0] &&
@@ -2319,7 +2341,7 @@ emit_run_item_producer(struct qstar_graph *graph, struct ninja_ctx *ctx, const c
 		return emit_target_closure(graph, ctx, label);
 	genrule = qstar_graph_find_genrule(graph, label);
 	if (genrule)
-		return emit_genrule_edge(graph, ctx, genrule);
+		return emit_genrule_edge(graph, ctx, NULL, genrule);
 	return qstar_set_error(graph, "qstar: target_file references unknown target '%s'",
 	    label);
 }
@@ -2586,7 +2608,7 @@ qstar_graph_emit_ninja(struct qstar_graph *graph, const char *label, FILE *out)
 	write_ninja_header(ctx.ninja, ctx.ninja_dir_rel);
 	root_genrule = label && *label ? qstar_graph_find_genrule(graph, label) : NULL;
 	if (root_genrule) {
-		if (emit_genrule_edge(graph, &ctx, root_genrule) < 0)
+		if (emit_genrule_edge(graph, &ctx, NULL, root_genrule) < 0)
 			goto fail;
 	} else if (qstar_graph_visit_closure(graph, label, emit_target, &ctx) < 0) {
 		goto fail;

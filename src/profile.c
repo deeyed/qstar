@@ -451,13 +451,55 @@ qstar_profile_tool_mode_is_package_input(const char *mode)
 	    strcmp(mode, "override-package") == 0);
 }
 
-/** profile external tool policy로 custom_target 첫 argv를 실행 path로 해석한다. */
+/** target/toolset 문맥에서 custom command PATH tool이 허용되는지 확인한다. */
+static int
+toolset_allows_path_tool(const struct qstar_graph *graph, const struct qstar_target *target,
+    const char *tool)
+{
+	const struct qstar_toolset *toolset;
+	size_t i;
+
+	if (target && target->toolset && *target->toolset) {
+		toolset = qstar_graph_find_toolset(graph, target->toolset);
+		return toolset && profile_list_contains(&toolset->path_tools, tool);
+	}
+	for (i = 0; graph && i < graph->toolset_len; i++) {
+		if (profile_list_contains(&graph->toolsets[i].path_tools, tool))
+			return 1;
+	}
+	return 0;
+}
+
+/** target/toolset 문맥에서 absolute custom command가 허용되는지 확인한다. */
+static int
+toolset_allows_absolute_tool(const struct qstar_graph *graph,
+    const struct qstar_target *target)
+{
+	const struct qstar_toolset *toolset;
+	size_t i;
+
+	if (target && target->toolset && *target->toolset) {
+		toolset = qstar_graph_find_toolset(graph, target->toolset);
+		return toolset && profile_bool_enabled(toolset->allow_absolute_tools, 0);
+	}
+	for (i = 0; graph && i < graph->toolset_len; i++) {
+		if (profile_bool_enabled(graph->toolsets[i].allow_absolute_tools, 0))
+			return 1;
+	}
+	return 0;
+}
+
+/** profile/toolset external tool policy로 custom_target 첫 argv를 실행 path로 해석한다. */
 int
-qstar_profile_resolve_command_tool(const struct qstar_graph *graph, const char *tool,
-    char *resolved, size_t resolved_len, char *mode, size_t mode_len, char *error,
-    size_t error_len)
+qstar_resolve_command_tool_for_target(const struct qstar_graph *graph,
+    const struct qstar_target *target, const char *tool, char *resolved, size_t resolved_len,
+    char *mode, size_t mode_len, char *error, size_t error_len)
 {
 	char override[QSTAR_PATH_MAX];
+	int allow_absolute;
+
+	allow_absolute = profile_bool_enabled(graph->profile.allow_absolute_tools, 0) ||
+	    toolset_allows_absolute_tool(graph, target);
 
 	if (!tool || !*tool) {
 		snprintf(error, error_len, "qstar: generated action tool is empty");
@@ -466,7 +508,7 @@ qstar_profile_resolve_command_tool(const struct qstar_graph *graph, const char *
 	if (valid_tool_name(tool) && find_tool_override(graph, tool, override,
 	    sizeof(override))) {
 		if (tool_is_absolute_path(override)) {
-			if (!profile_bool_enabled(graph->profile.allow_absolute_tools, 0)) {
+			if (!allow_absolute) {
 				snprintf(error, error_len,
 				    "qstar: tool override for '%s' resolves to absolute path '%s' but allow_absolute_tools is not enabled",
 				    tool, override);
@@ -495,7 +537,7 @@ qstar_profile_resolve_command_tool(const struct qstar_graph *graph, const char *
 		    override, "override-path");
 	}
 	if (tool_is_absolute_path(tool)) {
-		if (!profile_bool_enabled(graph->profile.allow_absolute_tools, 0)) {
+		if (!allow_absolute) {
 			snprintf(error, error_len,
 			    "qstar: absolute generated action tool '%s' requires allow_absolute_tools=true",
 			    tool);
@@ -519,13 +561,24 @@ qstar_profile_resolve_command_tool(const struct qstar_graph *graph, const char *
 		    tool);
 		return -1;
 	}
-	if (!profile_list_contains(&graph->profile.path_tools, tool)) {
+	if (!profile_list_contains(&graph->profile.path_tools, tool) &&
+	    !toolset_allows_path_tool(graph, target, tool)) {
 		snprintf(error, error_len,
-		    "qstar: generated action PATH tool '%s' is not allowed by profile path_tools",
+		    "qstar: generated action PATH tool '%s' is not allowed by profile/toolset path_tools",
 		    tool);
 		return -1;
 	}
 	return set_tool_resolution(resolved, resolved_len, mode, mode_len, tool, "path");
+}
+
+/** profile external tool policy로 custom_target 첫 argv를 실행 path로 해석한다. */
+int
+qstar_profile_resolve_command_tool(const struct qstar_graph *graph, const char *tool,
+    char *resolved, size_t resolved_len, char *mode, size_t mode_len, char *error,
+    size_t error_len)
+{
+	return qstar_resolve_command_tool_for_target(graph, NULL, tool, resolved,
+	    resolved_len, mode, mode_len, error, error_len);
 }
 
 /** response_files profile 값이 QStar v1 policy 안에 있는지 검사한다. */
@@ -741,6 +794,8 @@ int
 qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *target,
     struct qstar_resolved_toolchain *resolved)
 {
+	const struct qstar_toolset *toolset;
+	const struct qstar_string_list *role;
 	const char *name, *stdlib_policy, *triple;
 
 	memset(resolved, 0, sizeof(*resolved));
@@ -779,6 +834,7 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 	} else {
 		return qstar_set_error(graph, "qstar: unknown toolchain profile '%s'", name);
 	}
+	snprintf(resolved->asm_, sizeof(resolved->asm_), "%s", resolved->cc);
 	if (graph->profile.cc && *graph->profile.cc)
 		snprintf(resolved->cc, sizeof(resolved->cc), "%s", graph->profile.cc);
 	if (graph->profile.cxx && *graph->profile.cxx)
@@ -789,6 +845,7 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 		snprintf(resolved->ar, sizeof(resolved->ar), "%s", graph->profile.ar);
 	if (graph->profile.linker && *graph->profile.linker)
 		snprintf(resolved->linker, sizeof(resolved->linker), "%s", graph->profile.linker);
+	snprintf(resolved->asm_, sizeof(resolved->asm_), "%s", resolved->cc);
 	if (graph->profile.sysroot && *graph->profile.sysroot)
 		snprintf(resolved->sysroot, sizeof(resolved->sysroot), "%s", graph->profile.sysroot);
 	if (graph->profile.resource_dir && *graph->profile.resource_dir)
@@ -807,6 +864,36 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 	else
 		snprintf(resolved->response_style, sizeof(resolved->response_style), "posix");
 	snprintf(resolved->resolver, sizeof(resolved->resolver), "profile-schema-v2");
+	toolset = target && target->toolset && *target->toolset ?
+	    qstar_graph_find_toolset(graph, target->toolset) : NULL;
+	if (toolset) {
+		snprintf(resolved->toolset, sizeof(resolved->toolset), "%s", toolset->label);
+		role = qstar_toolset_role_argv(toolset, "c");
+		if (role)
+			snprintf(resolved->cc, sizeof(resolved->cc), "%s", role->items[0]);
+		role = qstar_toolset_role_argv(toolset, "cxx");
+		if (role)
+			snprintf(resolved->cxx, sizeof(resolved->cxx), "%s", role->items[0]);
+		role = qstar_toolset_role_argv(toolset, "asm");
+		if (role)
+			snprintf(resolved->asm_, sizeof(resolved->asm_), "%s", role->items[0]);
+		else
+			snprintf(resolved->asm_, sizeof(resolved->asm_), "%s", resolved->cc);
+		role = qstar_toolset_role_argv(toolset, "archive");
+		if (role)
+			snprintf(resolved->ar, sizeof(resolved->ar), "%s", role->items[0]);
+		role = qstar_toolset_role_argv(toolset, "link");
+		if (role)
+			snprintf(resolved->linker, sizeof(resolved->linker), "%s",
+			    role->items[0]);
+		resolved->response_files = profile_response_files_enabled(
+		    toolset->response_files, resolved->response_files);
+		if (toolset->response_style && *toolset->response_style &&
+		    strcmp(toolset->response_style, "auto") != 0)
+			snprintf(resolved->response_style, sizeof(resolved->response_style),
+			    "%s", toolset->response_style);
+		snprintf(resolved->resolver, sizeof(resolved->resolver), "toolset-schema-v1");
+	}
 	return 0;
 }
 

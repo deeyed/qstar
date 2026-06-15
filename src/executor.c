@@ -1696,6 +1696,38 @@ hash_argv(unsigned long long *h, char *const argv[])
 		hash_str(h, argv[i]);
 }
 
+/** 문자열 list를 action key material에 섞는다. */
+static void
+hash_string_list(unsigned long long *h, const struct qstar_string_list *list)
+{
+	size_t i;
+
+	for (i = 0; list && i < list->len; i++)
+		hash_str(h, list->items[i]);
+}
+
+/** qstar.toolset 선언을 action key material에 섞는다. */
+static void
+hash_toolsets(unsigned long long *h, const struct qstar_graph *graph)
+{
+	const struct qstar_toolset *toolset;
+	size_t i;
+
+	for (i = 0; graph && i < graph->toolset_len; i++) {
+		toolset = &graph->toolsets[i];
+		hash_str(h, toolset->label);
+		hash_str(h, toolset->response_files);
+		hash_str(h, toolset->response_style);
+		hash_str(h, toolset->allow_absolute_tools);
+		hash_string_list(h, &toolset->c);
+		hash_string_list(h, &toolset->cxx);
+		hash_string_list(h, &toolset->asm_);
+		hash_string_list(h, &toolset->archive);
+		hash_string_list(h, &toolset->link);
+		hash_string_list(h, &toolset->path_tools);
+	}
+}
+
 /** whitelisted environment를 action key에 섞는다. */
 static void
 hash_env_whitelist(unsigned long long *h)
@@ -1781,12 +1813,15 @@ compute_profile_key(struct qstar_graph *graph,
 		hash_str(&h, graph->profile.path_tools.items[i]);
 	for (i = 0; i < graph->profile.tool_overrides.len; i++)
 		hash_str(&h, graph->profile.tool_overrides.items[i]);
+	hash_toolsets(&h, graph);
 	if (toolchain) {
 		hash_str(&h, toolchain->name);
 		hash_str(&h, toolchain->target);
 		hash_str(&h, toolchain->stdlib_policy);
+		hash_str(&h, toolchain->toolset);
 		hash_str(&h, toolchain->cc);
 		hash_str(&h, toolchain->cxx);
+		hash_str(&h, toolchain->asm_);
 		hash_str(&h, toolchain->ar);
 		hash_str(&h, toolchain->linker);
 		hash_str(&h, toolchain->sysroot);
@@ -1821,12 +1856,15 @@ compute_external_tool_key(struct qstar_graph *graph,
 		hash_str(&h, graph->profile.path_tools.items[i]);
 	for (i = 0; i < graph->profile.tool_overrides.len; i++)
 		hash_str(&h, graph->profile.tool_overrides.items[i]);
+	hash_toolsets(&h, graph);
 	if (toolchain) {
 		hash_str(&h, toolchain->cc);
 		hash_str(&h, toolchain->cxx);
 		hash_str(&h, toolchain->cale);
+		hash_str(&h, toolchain->asm_);
 		hash_str(&h, toolchain->ar);
 		hash_str(&h, toolchain->linker);
+		hash_str(&h, toolchain->toolset);
 	}
 	format_key(h, dst, dstlen);
 }
@@ -1888,12 +1926,15 @@ compute_action_key(struct qstar_build_ctx *ctx, struct qstar_graph *graph,
 		hash_str(&h, graph->profile.path_tools.items[i]);
 	for (i = 0; i < graph->profile.tool_overrides.len; i++)
 		hash_str(&h, graph->profile.tool_overrides.items[i]);
+	hash_toolsets(&h, graph);
 	if (toolchain) {
 		hash_str(&h, toolchain->name);
 		hash_str(&h, toolchain->target);
 		hash_str(&h, toolchain->stdlib_policy);
+		hash_str(&h, toolchain->toolset);
 		hash_str(&h, toolchain->cc);
 		hash_str(&h, toolchain->cxx);
+		hash_str(&h, toolchain->asm_);
 		hash_str(&h, toolchain->ar);
 		hash_str(&h, toolchain->linker);
 		hash_str(&h, toolchain->sysroot);
@@ -5015,9 +5056,9 @@ prepare_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    genrule->origin_line, "command", genrule->label,
 		    "qstar: configure_file '%s' is not an external process action",
 		    genrule->label);
-	if (qstar_profile_resolve_command_tool(graph, genrule->tool, resolved_tool,
-	    sizeof(resolved_tool), tool_mode, sizeof(tool_mode), tool_error,
-	    sizeof(tool_error)) < 0)
+	if (qstar_resolve_command_tool_for_target(graph, target, genrule->tool,
+	    resolved_tool, sizeof(resolved_tool), tool_mode, sizeof(tool_mode),
+	    tool_error, sizeof(tool_error)) < 0)
 		return qstar_set_error_origin(graph, genrule->origin_file,
 		    genrule->origin_line, "command", genrule->label, "%s",
 		    tool_error);
@@ -5744,11 +5785,11 @@ validate_compile_source(struct qstar_graph *graph, const struct qstar_target *ta
 		    "sources", target->label,
 		    "qstar: C++ compiler '%s' not found for source '%s'",
 		    toolchain->cxx, target->sources.items[index]);
-	if (source_is_asm(source) && !command_exists_in_graph(graph, toolchain->cc))
+	if (source_is_asm(source) && !command_exists_in_graph(graph, toolchain->asm_))
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "sources", target->label,
 		    "qstar: assembler compiler driver '%s' not found for source '%s'",
-		    toolchain->cc, target->sources.items[index]);
+		    toolchain->asm_, target->sources.items[index]);
 	return 0;
 }
 
@@ -5856,6 +5897,24 @@ depfile_refresh_queue_flush(struct qstar_graph *graph, struct qstar_build_ctx *c
 	return 0;
 }
 
+/** target toolset role argv-vector 또는 fallback tool 하나를 prepared action에 추가한다. */
+static int
+prepared_action_push_tool_role(struct qstar_graph *graph, struct qstar_prepared_action *action,
+    const struct qstar_target *target, const char *role, const char *fallback)
+{
+	const struct qstar_string_list *argv;
+	size_t i;
+
+	argv = qstar_target_tool_role_argv(graph, target, role);
+	if (!argv)
+		return prepared_action_push_argv(graph, action, fallback);
+	for (i = 0; i < argv->len; i++) {
+		if (prepared_action_push_argv(graph, action, argv->items[i]) < 0)
+			return -1;
+	}
+	return 0;
+}
+
 /** C/C++/Cale/ASM source 하나를 compile action으로 준비한다. */
 static int
 prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
@@ -5865,6 +5924,7 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	struct qstar_source_info source;
 	char object[QSTAR_PATH_MAX], target_arg[QSTAR_PATH_MAX], std_arg[128];
 	char sysroot_arg[QSTAR_PATH_MAX];
+	const char *role;
 	const char *compiler;
 	struct qstar_string_list inputs, dep_inputs, outputs, includes;
 	int cross, wants_depfile, is_asm, is_cale, is_cxx;
@@ -5915,13 +5975,15 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	snprintf(target_arg, sizeof(target_arg), "--target=%s", toolchain->target);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
 	snprintf(sysroot_arg, sizeof(sysroot_arg), "--sysroot=%s", toolchain->sysroot);
+	role = is_cale ? NULL : is_asm ? "asm" : is_cxx ? "cxx" : "c";
 	compiler = is_cale ? toolchain->cale :
-	    is_cxx ? toolchain->cxx : toolchain->cc;
+	    is_asm ? toolchain->asm_ : is_cxx ? toolchain->cxx : toolchain->cc;
 	cross = (strcmp(toolchain->name, "clang") == 0 ||
 	    strcmp(toolchain->name, "cale") == 0 ||
 	    strcmp(toolchain->name, "cale-sol") == 0) &&
 	    strcmp(toolchain->target, "host") != 0;
-	if (prepared_action_push_argv(graph, action, compiler) < 0)
+	if (role ? prepared_action_push_tool_role(graph, action, target, role, compiler) < 0 :
+	    prepared_action_push_argv(graph, action, compiler) < 0)
 		goto fail;
 	if (cross && prepared_action_push_argv(graph, action, target_arg) < 0)
 		goto fail;
@@ -6750,6 +6812,29 @@ target_compile_needs_pic(const struct qstar_target *target,
 	    !qstar_toolchain_target_is_windows(toolchain->target) && !is_asm && !is_cale;
 }
 
+/** target toolset role argv-vector 또는 fallback tool 하나를 raw argv에 추가한다. */
+static int
+append_raw_tool_role(struct qstar_graph *graph, char **argv, size_t *argc,
+    const struct qstar_target *target, const char *role, const char *fallback)
+{
+	const struct qstar_string_list *role_argv;
+	size_t i;
+
+	role_argv = qstar_target_tool_role_argv(graph, target, role);
+	if (!role_argv) {
+		if (*argc >= QSTAR_EXEC_MAX_ARGV)
+			return qstar_set_error(graph, "qstar: action argv too long");
+		argv[(*argc)++] = (char *)fallback;
+		return 0;
+	}
+	for (i = 0; i < role_argv->len; i++) {
+		if (*argc >= QSTAR_EXEC_MAX_ARGV)
+			return qstar_set_error(graph, "qstar: action argv too long");
+		argv[(*argc)++] = role_argv->items[i];
+	}
+	return 0;
+}
+
 /** MSVC target에서 clang-cl style driver가 link flag boundary를 필요로 하는지 본다. */
 static int
 toolchain_needs_msvc_link_boundary(const struct qstar_resolved_toolchain *toolchain,
@@ -6911,15 +6996,19 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	argc = 0;
 	if (strcmp(target->kind, "staticlib") == 0) {
 		snprintf(id, sizeof(id), "%s:%s:0", target->label, final_action);
-		argv[argc++] = (char *)toolchain->ar;
+		if (append_raw_tool_role(graph, argv, &argc, target, "archive",
+		    toolchain->ar) < 0)
+			return -1;
 		argv[argc++] = "rcs";
 		argv[argc++] = artifact;
 	} else {
 		if (validate_sharedlib_platform(graph, target, toolchain) < 0)
 			return -1;
 		snprintf(id, sizeof(id), "%s:%s:0", target->label, final_action);
-		argv[argc++] = (char *)(target_has_cxx_source(target) ?
-		    toolchain->cxx : toolchain->linker);
+		if (append_raw_tool_role(graph, argv, &argc, target, "link",
+		    target_has_cxx_source(target) ? toolchain->cxx :
+		    toolchain->linker) < 0)
+			return -1;
 		if (toolchain->sysroot[0]) {
 			snprintf(sysroot_arg, sizeof(sysroot_arg), "--sysroot=%s",
 			    toolchain->sysroot);
@@ -7326,9 +7415,10 @@ build_target(struct qstar_graph *graph, const struct qstar_target *target, size_
 	if (qstar_resolve_toolchain(graph, target, &toolchain) < 0)
 		return -1;
 	fprintf(ctx->out,
-	    "resolved_toolchain owner=%s toolchain=%s target=%s cc=%s cxx=%s ar=%s linker=%s\n",
-	    target->label, toolchain.name, toolchain.target, toolchain.cc, toolchain.cxx,
-	    toolchain.ar, toolchain.linker);
+	    "resolved_toolchain owner=%s toolchain=%s target=%s toolset=%s cc=%s cxx=%s asm=%s ar=%s linker=%s\n",
+	    target->label, toolchain.name, toolchain.target,
+	    toolchain.toolset[0] ? toolchain.toolset : "<none>", toolchain.cc,
+	    toolchain.cxx, toolchain.asm_, toolchain.ar, toolchain.linker);
 	if (validate_noncompile_sources(graph, target, &toolchain) < 0)
 		return -1;
 	if (run_generated_actions(graph, ctx, target) < 0)
@@ -7773,9 +7863,10 @@ scheduler_create_target_nodes(struct qstar_scheduler *sched, const struct qstar_
 	if (validate_sharedlib_platform(graph, target, toolchain) < 0)
 		return -1;
 	build_tracef(ctx,
-	    "resolved_toolchain owner=%s toolchain=%s target=%s cc=%s cxx=%s ar=%s linker=%s\n",
-	    target->label, toolchain->name, toolchain->target, toolchain->cc,
-	    toolchain->cxx, toolchain->ar, toolchain->linker);
+	    "resolved_toolchain owner=%s toolchain=%s target=%s toolset=%s cc=%s cxx=%s asm=%s ar=%s linker=%s\n",
+	    target->label, toolchain->name, toolchain->target,
+	    toolchain->toolset[0] ? toolchain->toolset : "<none>", toolchain->cc,
+	    toolchain->cxx, toolchain->asm_, toolchain->ar, toolchain->linker);
 	if (validate_noncompile_sources(graph, target, toolchain) < 0)
 		return -1;
 	compile_ordinal = 0;

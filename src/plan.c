@@ -848,6 +848,35 @@ artifact_basename(const char *path)
 	return slash ? slash + 1 : path;
 }
 
+/** toolset role argv-vector가 있으면 argc 계산에 반영한다. */
+static size_t
+plan_tool_role_argc(const struct qstar_graph *graph, const struct qstar_target *target,
+    const char *role)
+{
+	const struct qstar_string_list *argv;
+
+	argv = qstar_target_tool_role_argv(graph, target, role);
+	return argv ? argv->len : 1;
+}
+
+/** toolset role argv-vector 또는 fallback tool 하나를 command plan에 쓴다. */
+static void
+plan_argv_tool_role(FILE *out, struct qstar_argv_dump *dump,
+    const struct qstar_graph *graph, const struct qstar_target *target, const char *role,
+    const char *fallback)
+{
+	const struct qstar_string_list *argv;
+	size_t i;
+
+	argv = qstar_target_tool_role_argv(graph, target, role);
+	if (!argv) {
+		argv_item(out, dump, fallback);
+		return;
+	}
+	for (i = 0; i < argv->len; i++)
+		argv_item(out, dump, argv->items[i]);
+}
+
 /** compile action의 실제 argv plan을 출력한다. */
 static void
 dump_compile_argv(FILE *out, const struct qstar_target *target,
@@ -857,6 +886,7 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 {
 	char id[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], target_arg[QSTAR_PATH_MAX];
 	char std_arg[128], sysroot_arg[QSTAR_PATH_MAX];
+	const char *role;
 	const char *tool;
 	struct qstar_string_list includes;
 	struct qstar_argv_dump dump;
@@ -873,13 +903,15 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	wants_depfile = (strcmp(source->language, "c") == 0 || is_cxx ||
 	    source_uses_asm_preprocessor(target, source)) &&
 	    strcmp(toolchain->name, "cale") != 0 && strcmp(toolchain->name, "cale-sol") != 0;
+	role = is_cale ? NULL : is_asm ? "asm" : is_cxx ? "cxx" : "c";
 	tool = is_cale ? toolchain->cale :
-	    is_cxx ? toolchain->cxx : toolchain->cc;
+	    is_asm ? toolchain->asm_ : is_cxx ? toolchain->cxx : toolchain->cc;
 	cross = (strcmp(toolchain->name, "clang") == 0 ||
 	    strcmp(toolchain->name, "cale") == 0 ||
 	    strcmp(toolchain->name, "cale-sol") == 0) &&
 	    strcmp(toolchain->target, "host") != 0;
-	argc = 5 + graph->profile.compile_options.len +
+	argc = 5 + (role ? plan_tool_role_argc(graph, target, role) - 1 : 0) +
+	    graph->profile.compile_options.len +
 	    graph->profile.include_dirs.len * 2 +
 	    (is_asm ? target->asm_include_dirs.len * 2 : includes.len * 2) +
 	    (is_asm ? 0 : target->system_include_dirs.len * 2) +
@@ -898,7 +930,10 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
 	snprintf(sysroot_arg, sizeof(sysroot_arg), "--sysroot=%s", toolchain->sysroot);
 	begin_argv(out, &dump, id, argc, toolchain);
-	argv_item(out, &dump, tool);
+	if (role)
+		plan_argv_tool_role(out, &dump, graph, target, role, tool);
+	else
+		argv_item(out, &dump, tool);
 	if (cross)
 		argv_item(out, &dump, target_arg);
 	if (toolchain->sysroot[0])
@@ -1076,7 +1111,7 @@ plan_resolve_target_file_arg(const struct qstar_graph *graph, const char *arg,
 /** generated action의 실제 argv plan을 출력한다. */
 static void
 dump_genrule_argv(FILE *out, const struct qstar_graph *graph,
-    const struct qstar_genrule *genrule)
+    const struct qstar_target *target, const struct qstar_genrule *genrule)
 {
 	size_t i;
 	struct qstar_argv_dump dump;
@@ -1090,9 +1125,9 @@ dump_genrule_argv(FILE *out, const struct qstar_graph *graph,
 		snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
 		snprintf(tool_mode, sizeof(tool_mode), "builtin");
 		argv_item(out, &dump, resolved_tool);
-	} else if (qstar_profile_resolve_command_tool(graph, genrule->tool, resolved_tool,
-	    sizeof(resolved_tool), tool_mode, sizeof(tool_mode), tool_error,
-	    sizeof(tool_error)) == 0)
+	} else if (qstar_resolve_command_tool_for_target(graph, target, genrule->tool,
+	    resolved_tool, sizeof(resolved_tool), tool_mode, sizeof(tool_mode),
+	    tool_error, sizeof(tool_error)) == 0)
 		argv_item(out, &dump, resolved_tool);
 	else {
 		snprintf(tool_mode, sizeof(tool_mode), "invalid");
@@ -1137,9 +1172,12 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 	windows = qstar_toolchain_target_is_windows(toolchain->target);
 	msvc_out = strcmp(action, "archive") != 0 &&
 	    toolchain_uses_msvc_out_arg(toolchain, target);
-	argc = strcmp(action, "archive") == 0 ? 4 :
+	argc = strcmp(action, "archive") == 0 ?
+	    3 + plan_tool_role_argc(graph, target, "archive") :
 	    strcmp(action, "link-shared") == 0 ?
-	    (qstar_toolchain_target_is_darwin(toolchain->target) ? 7 : 6) : 4;
+	    (qstar_toolchain_target_is_darwin(toolchain->target) ? 6 : 5) +
+	    plan_tool_role_argc(graph, target, "link") :
+	    3 + plan_tool_role_argc(graph, target, "link");
 	if (strcmp(action, "archive") != 0)
 		argc += target->lib_dirs.len + (toolchain->sysroot[0] ? 1 : 0) +
 		    graph->profile.lib_dirs.len + target->libs.len +
@@ -1150,13 +1188,15 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 		argc--;
 	begin_argv(out, &dump, id, argc, toolchain);
 	if (strcmp(action, "archive") == 0) {
-		argv_item(out, &dump, toolchain->ar);
+		plan_argv_tool_role(out, &dump, graph, target, "archive",
+		    toolchain->ar);
 		argv_item(out, &dump, "rcs");
 		argv_item(out, &dump, output);
 		argv_item(out, &dump, "<target-objects>");
 	} else {
-		argv_item(out, &dump, target_has_cxx_source(target) ?
-		    toolchain->cxx : toolchain->linker);
+		plan_argv_tool_role(out, &dump, graph, target, "link",
+		    target_has_cxx_source(target) ? toolchain->cxx :
+		    toolchain->linker);
 		if (toolchain->sysroot[0]) {
 			snprintf(buf, sizeof(buf), "--sysroot=%s", toolchain->sysroot);
 			argv_item(out, &dump, buf);
@@ -1337,9 +1377,9 @@ dump_consumed_genrules(FILE *out, const struct qstar_plan *plan,
 		if (genrule->config_header) {
 			snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
 			snprintf(tool_mode, sizeof(tool_mode), "builtin");
-		} else if (qstar_profile_resolve_command_tool(plan->graph, genrule->tool,
-		    resolved_tool, sizeof(resolved_tool), tool_mode, sizeof(tool_mode),
-		    tool_error, sizeof(tool_error)) < 0) {
+		} else if (qstar_resolve_command_tool_for_target(plan->graph, target,
+		    genrule->tool, resolved_tool, sizeof(resolved_tool), tool_mode,
+		    sizeof(tool_mode), tool_error, sizeof(tool_error)) < 0) {
 			snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
 			snprintf(tool_mode, sizeof(tool_mode), "invalid");
 		}
@@ -1373,7 +1413,7 @@ dump_consumed_genrules(FILE *out, const struct qstar_plan *plan,
 		    genrule->label, genrule->tool, resolved_tool, tool_mode,
 		    target->toolchain, profile_or_default(plan->graph->profile.target, "host"),
 		    target->stdlib_policy, inputs, identities, target->label);
-		dump_genrule_argv(out, plan->graph, genrule);
+		dump_genrule_argv(out, plan->graph, target, genrule);
 	}
 }
 
@@ -1423,7 +1463,7 @@ dump_direct_genrule_plan(FILE *out, const struct qstar_graph *graph,
 	    "tool=%s resolved_tool=%s tool_mode=%s toolchain=custom target=%s stdlib=none input=%s output=%s consumer=<direct> execute=no\n",
 	    genrule->label, genrule->tool, resolved_tool, tool_mode,
 	    profile_or_default(graph->profile.target, "host"), inputs, identities);
-	dump_genrule_argv(out, graph, genrule);
+	dump_genrule_argv(out, graph, NULL, genrule);
 }
 
 /** target-local toolchain/profile resolver skeleton을 출력한다. */
@@ -1435,12 +1475,14 @@ dump_resolved_toolchain(FILE *out, const struct qstar_plan *plan,
 		return -1;
 	fprintf(out,
 	    "  resolved_toolchain owner=%s toolchain=%s profile=%s target=%s "
-	    "stdlib=%s resolver=%s cc=%s cxx=%s cale=%s ar=%s linker=%s "
-	    "sysroot=%s resource_dir=%s response_files=%s response_style=%s\n",
+	    "stdlib=%s resolver=%s toolset=%s cc=%s cxx=%s asm=%s cale=%s ar=%s "
+	    "linker=%s sysroot=%s resource_dir=%s response_files=%s response_style=%s\n",
 	    target->label, resolved->name,
 	    profile_or_default(plan->graph->profile.name, "default"),
 	    resolved->target, resolved->stdlib_policy, resolved->resolver,
-	    resolved->cc, resolved->cxx, resolved->cale, resolved->ar, resolved->linker,
+	    resolved->toolset[0] ? resolved->toolset : "<none>",
+	    resolved->cc, resolved->cxx, resolved->asm_, resolved->cale, resolved->ar,
+	    resolved->linker,
 	    resolved->sysroot[0] ? resolved->sysroot : "<none>",
 	    resolved->resource_dir[0] ? resolved->resource_dir : "<none>",
 	    resolved->response_files ? "on" : "off", resolved->response_style);
@@ -1965,9 +2007,9 @@ dump_dry_run_genrules(FILE *out, const struct qstar_plan *plan,
 		if (genrule->config_header) {
 			snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
 			snprintf(tool_mode, sizeof(tool_mode), "builtin");
-		} else if (qstar_profile_resolve_command_tool(plan->graph, genrule->tool,
-		    resolved_tool, sizeof(resolved_tool), tool_mode, sizeof(tool_mode),
-		    tool_error, sizeof(tool_error)) < 0) {
+		} else if (qstar_resolve_command_tool_for_target(plan->graph, target,
+		    genrule->tool, resolved_tool, sizeof(resolved_tool), tool_mode,
+		    sizeof(tool_mode), tool_error, sizeof(tool_error)) < 0) {
 			snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
 			snprintf(tool_mode, sizeof(tool_mode), "invalid");
 		}
@@ -1984,7 +2026,7 @@ dump_dry_run_genrules(FILE *out, const struct qstar_plan *plan,
 		dump_list(out, &genrule->args);
 		fputs(" execute=no\n", out);
 		dump_genrule_artifacts(out, genrule, "");
-		dump_genrule_argv(out, plan->graph, genrule);
+		dump_genrule_argv(out, plan->graph, target, genrule);
 	}
 }
 

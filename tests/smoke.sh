@@ -1609,6 +1609,130 @@ contains "$tmp/toolset-json.out" "\"toolsets\":["
 contains "$tmp/toolset-json.out" "\"tools\":{\"c\":[\"clang\"]"
 contains "$tmp/toolset-json.out" "\"toolset\":\"//:host_like\""
 
+mkdir -p "$tmp/toolset-wire/src" "$tmp/toolset-wire/tools"
+cat > "$tmp/toolset-wire/tools/toolset-cc.sh" <<'EOF'
+#!/bin/sh
+printf 'cc\n' >> "$QSTAR_TOOLSET_WIRE_LOG"
+exec cc "$@"
+EOF
+cat > "$tmp/toolset-wire/tools/toolset-ar.sh" <<'EOF'
+#!/bin/sh
+printf 'ar\n' >> "$QSTAR_TOOLSET_WIRE_LOG"
+exec ar "$@"
+EOF
+cat > "$tmp/toolset-wire/tools/toolset-link.sh" <<'EOF'
+#!/bin/sh
+printf 'link\n' >> "$QSTAR_TOOLSET_WIRE_LOG"
+exec cc "$@"
+EOF
+cat > "$tmp/toolset-wire/tools/toolset-gen" <<'EOF'
+#!/bin/sh
+printf 'gen\n' >> "$QSTAR_TOOLSET_WIRE_LOG"
+cat > "$1" <<'GENEOF'
+int generated_value(void) { return 7; }
+GENEOF
+EOF
+chmod +x "$tmp/toolset-wire/tools/toolset-cc.sh" \
+  "$tmp/toolset-wire/tools/toolset-ar.sh" \
+  "$tmp/toolset-wire/tools/toolset-link.sh" \
+  "$tmp/toolset-wire/tools/toolset-gen"
+cat > "$tmp/toolset-wire/src/main.c" <<'EOF'
+int generated_value(void);
+int main(void) { return generated_value() == 7 ? 0 : 1; }
+EOF
+cat > "$tmp/toolset-wire/qstar.lua" <<'EOF'
+qstar.project {
+  name = "toolset-wire",
+  version = "0.1.0",
+  build_dir = "build/qstar",
+}
+
+qstar.toolset "local" {
+  tools = {
+    c = qstar.cli {"tools/toolset-cc.sh"},
+    archive = qstar.cli {"tools/toolset-ar.sh"},
+    link = qstar.cli {"tools/toolset-link.sh"},
+  },
+  response_files = "on",
+  response_style = "posix",
+  path_tools = {"toolset-gen"},
+}
+
+qstar.custom_target "generated" {
+  outputs = {
+    qstar.output("generated/value.c"),
+  },
+  command = qstar.cli {
+    "toolset-gen",
+    qstar.output(0),
+  },
+  description = qstar.status("Generating value.c"),
+}
+
+qstar.staticlib "core" {
+  toolset = "//:local",
+  sources = {
+    "generated/value.c",
+  },
+  lang = {
+    c = {
+      compile_options = {
+        "-DQSTAR_TOOLSET_RESPONSE_000=0",
+        "-DQSTAR_TOOLSET_RESPONSE_001=1",
+        "-DQSTAR_TOOLSET_RESPONSE_002=2",
+        "-DQSTAR_TOOLSET_RESPONSE_003=3",
+        "-DQSTAR_TOOLSET_RESPONSE_004=4",
+        "-DQSTAR_TOOLSET_RESPONSE_005=5",
+        "-DQSTAR_TOOLSET_RESPONSE_006=6",
+        "-DQSTAR_TOOLSET_RESPONSE_007=7",
+        "-DQSTAR_TOOLSET_RESPONSE_008=8",
+        "-DQSTAR_TOOLSET_RESPONSE_009=9",
+        "-DQSTAR_TOOLSET_RESPONSE_010=10",
+        "-DQSTAR_TOOLSET_RESPONSE_011=11",
+        "-DQSTAR_TOOLSET_RESPONSE_012=12",
+        "-DQSTAR_TOOLSET_RESPONSE_013=13",
+        "-DQSTAR_TOOLSET_RESPONSE_014=14",
+      },
+    },
+  },
+}
+
+qstar.executable "app" {
+  toolset = "//:local",
+  sources = {
+    "src/main.c",
+  },
+  deps = {
+    "//:core",
+  },
+}
+EOF
+PATH="$tmp/toolset-wire/tools:$PATH" "$qstar" --file "$tmp/toolset-wire/qstar.lua" dry-run //:app > "$tmp/toolset-wire-dry.out" 2> "$tmp/toolset-wire-dry.err"
+contains "$tmp/toolset-wire-dry.out" "resolver=toolset-schema-v1 toolset=//:local"
+contains "$tmp/toolset-wire-dry.out" "response_file="
+contains "$tmp/toolset-wire-dry.out" "response_style=posix"
+contains "$tmp/toolset-wire-dry.out" "resolved_tool=toolset-gen"
+QSTAR_TOOLSET_WIRE_LOG="$tmp/toolset-wire/stella.log" PATH="$tmp/toolset-wire/tools:$PATH" "$qstar" --file "$tmp/toolset-wire/qstar.lua" build //:app --progress off > "$tmp/toolset-wire-build.out" 2> "$tmp/toolset-wire-build.err"
+contains "$tmp/toolset-wire-build.out" "status ok"
+contains "$tmp/toolset-wire/stella.log" "gen"
+contains "$tmp/toolset-wire/stella.log" "cc"
+contains "$tmp/toolset-wire/stella.log" "ar"
+contains "$tmp/toolset-wire/stella.log" "link"
+"$qstar" --file "$tmp/toolset-wire/qstar.lua" action-log //:app:link:0 > "$tmp/toolset-wire-link-log.out" 2> "$tmp/toolset-wire-link-log.err"
+contains "$tmp/toolset-wire-link-log.out" "argv[0]=tools/toolset-link.sh"
+if command -v ninja >/dev/null 2>&1; then
+  QSTAR_TOOLSET_WIRE_LOG="$tmp/toolset-wire/ninja.log" PATH="$tmp/toolset-wire/tools:$PATH" "$qstar" --file "$tmp/toolset-wire/qstar.lua" -B build/ninja-qstar -G ninja build //:app --progress off > "$tmp/toolset-wire-ninja-build.out" 2> "$tmp/toolset-wire-ninja-build.err"
+  contains "$tmp/toolset-wire-ninja-build.out" "backend ninja"
+  contains "$tmp/toolset-wire-ninja-build.out" "status ok"
+  contains "$tmp/toolset-wire/build/ninja-qstar/ninja/build.ninja" "tools/toolset-cc.sh"
+  contains "$tmp/toolset-wire/build/ninja-qstar/ninja/build.ninja" "tools/toolset-ar.sh"
+  contains "$tmp/toolset-wire/build/ninja-qstar/ninja/build.ninja" "tools/toolset-link.sh"
+  contains "$tmp/toolset-wire/ninja.log" "gen"
+  contains "$tmp/toolset-wire/ninja.log" "cc"
+  contains "$tmp/toolset-wire/ninja.log" "ar"
+  contains "$tmp/toolset-wire/ninja.log" "link"
+fi
+
 mkdir -p "$tmp/toolset-bad-role"
 cat > "$tmp/toolset-bad-role/qstar.lua" <<'EOF'
 qstar.toolset "bad" {
@@ -5034,7 +5158,7 @@ qstar.executable "app" {
 }
 EOF
 "$qstar" --file "$tmp/profile/qstar.lua" --profile custom dry-run //:app > "$tmp/profile-dry.out" 2> "$tmp/profile-dry.err"
-contains "$tmp/profile-dry.out" "resolved_toolchain owner=//:app toolchain=clang profile=custom target=x86_64-unknown-none-elf stdlib=none resolver=profile-schema-v2 cc=clang-custom"
+contains "$tmp/profile-dry.out" "resolved_toolchain owner=//:app toolchain=clang profile=custom target=x86_64-unknown-none-elf stdlib=none resolver=profile-schema-v2 toolset=<none> cc=clang-custom"
 contains "$tmp/profile-dry.out" "\"--sysroot=sdk root\""
 contains "$tmp/profile-dry.out" "-resource-dir"
 contains "$tmp/profile-dry.out" "\"resource dir\""
@@ -5299,7 +5423,7 @@ EOF
 if "$qstar" --file "$tmp/exttool-deny/qstar.lua" check //:app > "$tmp/exttool-deny.out" 2> "$tmp/exttool-deny.err"; then
 	fail "unallowlisted PATH tool unexpectedly succeeded"
 fi
-contains "$tmp/exttool-deny.err" "generated action PATH tool 'qstar-extgen' is not allowed by profile path_tools"
+contains "$tmp/exttool-deny.err" "generated action PATH tool 'qstar-extgen' is not allowed by profile/toolset path_tools"
 
 mkdir -p "$tmp/tool-override/src" "$tmp/tool-override/tools"
 cat > "$tmp/tool-override/tools/fake-objcopy.sh" <<'EOF'

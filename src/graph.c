@@ -658,13 +658,58 @@ has_config(const struct qstar_graph *graph, const char *label)
 static int
 has_toolset(const struct qstar_graph *graph, const char *label)
 {
+	return qstar_graph_find_toolset(graph, label) != NULL;
+}
+
+/** Graph에서 canonical toolset label을 찾는다. */
+const struct qstar_toolset *
+qstar_graph_find_toolset(const struct qstar_graph *graph, const char *label)
+{
 	size_t i;
 
+	if (!graph || !label || !*label)
+		return NULL;
 	for (i = 0; i < graph->toolset_len; i++) {
-		if (strcmp(graph->toolsets[i].label, label) == 0)
-			return 1;
+		if (graph->toolsets[i].label && strcmp(graph->toolsets[i].label, label) == 0)
+			return &graph->toolsets[i];
 	}
-	return 0;
+	return NULL;
+}
+
+/** toolset에서 compile/archive/link role argv-vector를 찾는다. */
+const struct qstar_string_list *
+qstar_toolset_role_argv(const struct qstar_toolset *toolset, const char *role)
+{
+	const struct qstar_string_list *list;
+
+	if (!toolset || !role)
+		return NULL;
+	if (strcmp(role, "c") == 0)
+		list = &toolset->c;
+	else if (strcmp(role, "cxx") == 0)
+		list = &toolset->cxx;
+	else if (strcmp(role, "asm") == 0)
+		list = &toolset->asm_;
+	else if (strcmp(role, "archive") == 0)
+		list = &toolset->archive;
+	else if (strcmp(role, "link") == 0)
+		list = &toolset->link;
+	else
+		return NULL;
+	return list->len ? list : NULL;
+}
+
+/** target에 연결된 toolset role argv-vector를 찾는다. */
+const struct qstar_string_list *
+qstar_target_tool_role_argv(const struct qstar_graph *graph,
+    const struct qstar_target *target, const char *role)
+{
+	const struct qstar_toolset *toolset;
+
+	if (!target || !target->toolset || !*target->toolset)
+		return NULL;
+	toolset = qstar_graph_find_toolset(graph, target->toolset);
+	return qstar_toolset_role_argv(toolset, role);
 }
 
 static int

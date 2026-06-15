@@ -48,10 +48,12 @@ struct qstar_resolved_toolchain {
 	char cxx[QSTAR_PATH_MAX];
 	char cale[QSTAR_PATH_MAX];
 	char ar[QSTAR_PATH_MAX];
+	char asm_[QSTAR_PATH_MAX];
 	char linker[QSTAR_PATH_MAX];
 	char sysroot[QSTAR_PATH_MAX];
 	char resource_dir[QSTAR_PATH_MAX];
 	char resolver[64];
+	char toolset[QSTAR_PATH_MAX];
 	int response_files;
 	char response_style[32];
 };
@@ -112,6 +114,18 @@ int qstar_label_package_path(const char *label, char *dst, size_t dstlen);
 int qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *target,
     struct qstar_resolved_toolchain *resolved);
 
+/** Graph에서 canonical toolset label을 찾는다. */
+const struct qstar_toolset *qstar_graph_find_toolset(const struct qstar_graph *graph,
+    const char *label);
+
+/** toolset에서 compile/archive/link role argv-vector를 찾는다. */
+const struct qstar_string_list *qstar_toolset_role_argv(const struct qstar_toolset *toolset,
+    const char *role);
+
+/** target에 연결된 toolset role argv-vector를 찾는다. */
+const struct qstar_string_list *qstar_target_tool_role_argv(const struct qstar_graph *graph,
+    const struct qstar_target *target, const char *role);
+
 /** target triple이 Windows 계열인지 보수적으로 판정한다. */
 int qstar_toolchain_target_is_windows(const char *target);
 
@@ -128,6 +142,11 @@ int qstar_toolchain_target_supports_sharedlib(const char *target);
 int qstar_profile_resolve_command_tool(const struct qstar_graph *graph, const char *tool,
     char *resolved, size_t resolved_len, char *mode, size_t mode_len, char *error,
     size_t error_len);
+
+/** profile/toolset external tool policy로 custom_target 첫 argv를 실행 path로 해석한다. */
+int qstar_resolve_command_tool_for_target(const struct qstar_graph *graph,
+    const struct qstar_target *target, const char *tool, char *resolved, size_t resolved_len,
+    char *mode, size_t mode_len, char *error, size_t error_len);
 
 /** resolved tool mode가 package-local file input으로 action key에 들어가야 하는지 본다. */
 int qstar_profile_tool_mode_is_package_input(const char *mode);
