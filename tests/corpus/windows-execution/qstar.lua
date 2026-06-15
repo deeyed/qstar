@@ -7,16 +7,20 @@ qstar.project {
   compile_commands = "build",
 }
 
-qstar.profile "msys2-ucrt64-gcc" {
-  target = "x86_64-w64-mingw32",
-  cc = "gcc",
-  ar = "ar",
-  linker = "gcc",
+qstar.toolset "msys2_ucrt64_gcc" {
+  tools = {
+    c = qstar.cli {"gcc"},
+    cxx = qstar.cli {"g++"},
+    asm = qstar.cli {"gcc"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"gcc"},
+  },
   response_files = "on",
   response_style = "posix",
 }
 
 qstar.config "c_baseline" {
+  toolset = "//:msys2_ucrt64_gcc",
   lang = {
     c = {
       public_include_dirs = {

@@ -6,181 +6,6 @@
 #include <string.h>
 #include <unistd.h>
 
-/** profile slot을 새 문자열로 교체한다. */
-static int
-profile_set(char **slot, const char *value)
-{
-	char *copy;
-
-	copy = qstar_strdup(value);
-	if (!copy)
-		return -1;
-	free(*slot);
-	*slot = copy;
-	return 0;
-}
-
-/** profile list를 다른 list 뒤에 복사해 추가한다. */
-static int
-append_profile_list(struct qstar_graph *graph, struct qstar_string_list *dst,
-    const struct qstar_string_list *src)
-{
-	size_t i;
-
-	for (i = 0; i < src->len; i++) {
-		if (qstar_string_list_push(dst, src->items[i]) < 0)
-			return qstar_set_error(graph, "qstar: out of memory");
-	}
-	return 0;
-}
-
-/** profile input의 non-empty field를 active profile에 병합한다. */
-static int
-merge_profile_input(struct qstar_graph *graph, const struct qstar_profile_input *src)
-{
-#define MERGE_PROFILE_STRING(field) \
-	do { \
-		if (src->field && *src->field && profile_set(&graph->profile.field, \
-		    src->field) < 0) \
-			return qstar_set_error(graph, "qstar: out of memory"); \
-	} while (0)
-
-	MERGE_PROFILE_STRING(target);
-	MERGE_PROFILE_STRING(toolchain);
-	MERGE_PROFILE_STRING(stdlib_policy);
-	MERGE_PROFILE_STRING(freestanding);
-	MERGE_PROFILE_STRING(arch);
-	MERGE_PROFILE_STRING(cpu);
-	MERGE_PROFILE_STRING(abi);
-	MERGE_PROFILE_STRING(cc);
-	MERGE_PROFILE_STRING(cxx);
-	MERGE_PROFILE_STRING(cale);
-	MERGE_PROFILE_STRING(ar);
-	MERGE_PROFILE_STRING(linker);
-	MERGE_PROFILE_STRING(sysroot);
-	MERGE_PROFILE_STRING(resource_dir);
-	MERGE_PROFILE_STRING(response_files);
-	MERGE_PROFILE_STRING(response_style);
-	MERGE_PROFILE_STRING(linker_script);
-	MERGE_PROFILE_STRING(allow_absolute_tools);
-#undef MERGE_PROFILE_STRING
-	if (append_profile_list(graph, &graph->profile.artifact_names,
-	    &src->artifact_names) < 0 ||
-	    append_profile_list(graph, &graph->profile.compile_options,
-	    &src->compile_options) < 0 ||
-	    append_profile_list(graph, &graph->profile.include_dirs,
-	    &src->include_dirs) < 0 ||
-	    append_profile_list(graph, &graph->profile.lib_dirs, &src->lib_dirs) < 0 ||
-	    append_profile_list(graph, &graph->profile.link_options,
-	    &src->link_options) < 0 ||
-	    append_profile_list(graph, &graph->profile.defsyms, &src->defsyms) < 0 ||
-	    append_profile_list(graph, &graph->profile.path_tools,
-	    &src->path_tools) < 0 ||
-	    append_profile_list(graph, &graph->profile.tool_overrides,
-	    &src->tool_overrides) < 0)
-		return -1;
-	return 0;
-}
-
-/** Active profile 적용 시 이름으로 declaration을 찾는다. */
-static const struct qstar_profile_decl *
-find_profile_decl(const struct qstar_graph *graph, const char *name)
-{
-	size_t i;
-
-	for (i = 0; i < graph->profile_decl_len; i++) {
-		if (strcmp(graph->profile_decls[i].name, name) == 0)
-			return &graph->profile_decls[i];
-	}
-	return NULL;
-}
-
-/** CLI가 고른 profile 이름은 보존하고 나머지 active profile detail을 비운다. */
-static void
-clear_profile_details(struct qstar_profile_input *profile)
-{
-	char *name;
-
-	name = profile->name;
-	profile->name = NULL;
-	free(profile->target);
-	free(profile->toolchain);
-	free(profile->stdlib_policy);
-	free(profile->freestanding);
-	free(profile->arch);
-	free(profile->cpu);
-	free(profile->abi);
-	free(profile->cc);
-	free(profile->cxx);
-	free(profile->cale);
-	free(profile->ar);
-	free(profile->linker);
-	free(profile->sysroot);
-	free(profile->resource_dir);
-	free(profile->response_files);
-	free(profile->response_style);
-	free(profile->linker_script);
-	free(profile->allow_absolute_tools);
-	qstar_string_list_free(&profile->artifact_names);
-	qstar_string_list_free(&profile->compile_options);
-	qstar_string_list_free(&profile->include_dirs);
-	qstar_string_list_free(&profile->lib_dirs);
-	qstar_string_list_free(&profile->link_options);
-	qstar_string_list_free(&profile->defsyms);
-	qstar_string_list_free(&profile->path_tools);
-	qstar_string_list_free(&profile->tool_overrides);
-	memset(profile, 0, sizeof(*profile));
-	profile->name = name;
-}
-
-/** base profile을 먼저 적용한 뒤 현재 declaration field를 덮어쓴다. */
-static int
-apply_profile_decl(struct qstar_graph *graph, const struct qstar_profile_decl *decl,
-    int depth)
-{
-	const struct qstar_profile_decl *base;
-
-	if (depth > 16)
-		return qstar_set_error(graph, "qstar: profile extends chain is too deep");
-	if (decl->extends && *decl->extends) {
-		base = find_profile_decl(graph, decl->extends);
-		if (!base)
-			return qstar_set_error_origin(graph, decl->origin_file,
-			    decl->origin_line, "profile", decl->name,
-			    "qstar: profile '%s' extends unknown profile '%s'",
-			    decl->name, decl->extends);
-		if (apply_profile_decl(graph, base, depth + 1) < 0)
-			return -1;
-	}
-	return merge_profile_input(graph, &decl->input);
-}
-
-/** 선택된 qstar.profile 선언과 extends chain을 active profile에 적용한다. */
-int
-qstar_graph_apply_selected_profile(struct qstar_graph *graph)
-{
-	const struct qstar_profile_decl *decl;
-	const char *selected;
-	char *selected_copy;
-
-	selected = graph->profile.name && *graph->profile.name ?
-	    graph->profile.name : "default";
-	decl = find_profile_decl(graph, selected);
-	if (!decl) {
-		if (strcmp(selected, "default") == 0)
-			return 0;
-		return qstar_set_error(graph, "qstar: selected profile '%s' is not declared",
-		    selected);
-	}
-	selected_copy = qstar_strdup(selected);
-	if (!selected_copy)
-		return qstar_set_error(graph, "qstar: out of memory");
-	clear_profile_details(&graph->profile);
-	free(graph->profile.name);
-	graph->profile.name = selected_copy;
-	return apply_profile_decl(graph, decl, 0);
-}
-
 static int
 valid_profile_path(const char *path)
 {
@@ -564,7 +389,7 @@ qstar_resolve_command_tool_for_target(const struct qstar_graph *graph,
 	if (!profile_list_contains(&graph->profile.path_tools, tool) &&
 	    !toolset_allows_path_tool(graph, target, tool)) {
 		snprintf(error, error_len,
-		    "qstar: generated action PATH tool '%s' is not allowed by profile/toolset path_tools",
+		    "qstar: generated action PATH tool '%s' is not allowed by toolset path_tools",
 		    tool);
 		return -1;
 	}
@@ -863,7 +688,7 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 		    "windows");
 	else
 		snprintf(resolved->response_style, sizeof(resolved->response_style), "posix");
-	snprintf(resolved->resolver, sizeof(resolved->resolver), "profile-schema-v2");
+	snprintf(resolved->resolver, sizeof(resolved->resolver), "builtin-toolchain-v1");
 	toolset = target && target->toolset && *target->toolset ?
 	    qstar_graph_find_toolset(graph, target->toolset) : NULL;
 	if (toolset) {

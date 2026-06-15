@@ -41,7 +41,7 @@ usage(FILE *out)
 	fputs("       --generator stella|ninja|auto\n", out);
 	fputs("       -B path\n", out);
 	fputs("       --package-alias @name=/path\n", out);
-	fputs("       --profile name --target triple --toolchain name --stdlib policy\n", out);
+	fputs("       --target triple --toolchain name --stdlib policy\n", out);
 	fputs("       --diagnostics text|json\n", out);
 	fputs("       --diagnostic-format text|line  # compatibility alias\n", out);
 	fputs("       --color auto|always|never  # warning/error color for text output\n", out);
@@ -573,8 +573,7 @@ main(int argc, char **argv)
 		} else if (strcmp(argv[arg], "--quiet") == 0) {
 			build_options.quiet = 1;
 			arg++;
-		} else if (strcmp(argv[arg], "--profile") == 0 ||
-		    strcmp(argv[arg], "--target") == 0 ||
+		} else if (strcmp(argv[arg], "--target") == 0 ||
 		    strcmp(argv[arg], "--toolchain") == 0 ||
 		    strcmp(argv[arg], "--stdlib") == 0) {
 			if (arg + 1 >= argc) {
@@ -582,9 +581,7 @@ main(int argc, char **argv)
 				qstar_graph_free(&graph);
 				return 2;
 			}
-			if (strcmp(argv[arg], "--profile") == 0)
-				cli_profile = argv[arg + 1];
-			else if (strcmp(argv[arg], "--target") == 0)
+			if (strcmp(argv[arg], "--target") == 0)
 				cli_target = argv[arg + 1];
 			else if (strcmp(argv[arg], "--toolchain") == 0)
 				cli_toolchain = argv[arg + 1];
@@ -1010,8 +1007,6 @@ main(int argc, char **argv)
 		rc = qstar_lua_eval_file(&graph, file);
 	if (rc == 0 && !cli_overrides_applied)
 		rc = qstar_graph_set_cli_overrides(&graph, cli_generator, cli_build_dir);
-	if (rc == 0 && !plan_cache_loaded)
-		rc = qstar_graph_apply_selected_profile(&graph);
 	if (rc == 0 && !plan_cache_loaded)
 		rc = qstar_graph_set_profile_input(&graph, cli_profile, cli_target,
 		    cli_toolchain, cli_stdlib);

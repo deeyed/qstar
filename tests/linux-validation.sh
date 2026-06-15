@@ -97,11 +97,18 @@ qstar.project {
   compile_commands = "build",
 }
 
-qstar.profile "default" {
-  cc = "$validation_cc",
-  tool_overrides = {
-    "qstar-port-gen=tools/write-generated-header.sh",
+qstar.toolset "validation" {
+  tools = {
+    c = qstar.cli {"$validation_cc"},
+    cxx = qstar.cli {"c++"},
+    asm = qstar.cli {"$validation_cc"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"$validation_cc"},
   },
+}
+
+qstar.config "validation_tools" {
+  toolset = "//:validation",
 }
 
 qstar.custom_target "generated_header" {
@@ -109,12 +116,15 @@ qstar.custom_target "generated_header" {
     qstar.output(qstar.join(generated_dir, "generated.h")),
   },
   command = qstar.cli {
-    "qstar-port-gen",
+    "tools/write-generated-header.sh",
     qstar.output(0),
   },
 }
 
 qstar.executable "app" {
+  configs = {
+    "//:validation_tools",
+  },
   sources = {
     "src/main.c",
   },

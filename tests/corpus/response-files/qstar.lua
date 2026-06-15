@@ -7,87 +7,38 @@ qstar.project {
   compile_commands = "build",
 }
 
-qstar.profile "default" {
+qstar.toolset "host_rsp" {
+  tools = {
+    c = qstar.cli {"cc"},
+    cxx = qstar.cli {"c++"},
+    asm = qstar.cli {"cc"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
   response_files = "on",
   response_style = "posix",
-  tool_overrides = {
-    "qstar-argv-probe=tools/argv-probe.sh",
-  },
+  path_tools = {"qstar-argv-probe"},
 }
 
-qstar.profile "windows-msvc" {
-  toolchain = "clang",
-  target = "x86_64-pc-windows-msvc",
-  cc = "clang-cl",
-  cxx = "clang-cl",
-  linker = "clang-cl",
+qstar.toolset "windows_fake" {
+  tools = {
+    c = qstar.cli {"tools/fake-clang-cl"},
+    cxx = qstar.cli {"tools/fake-clang-cl"},
+    asm = qstar.cli {"tools/fake-clang-cl"},
+    archive = qstar.cli {"tools/fake-lib"},
+    link = qstar.cli {"tools/fake-clang-cl"},
+  },
   response_files = "on",
   response_style = "msvc",
-  tool_overrides = {
-    "qstar-argv-probe=tools/argv-probe.sh",
-  },
+  path_tools = {"qstar-argv-probe"},
 }
 
-qstar.profile "windows-msvc-fake" {
-  toolchain = "clang",
-  target = "x86_64-pc-windows-msvc",
-  cc = "tools/fake-clang-cl",
-  cxx = "tools/fake-clang-cl",
-  linker = "tools/fake-clang-cl",
-  response_files = "on",
-  response_style = "msvc",
-  tool_overrides = {
-    "qstar-argv-probe=tools/argv-probe.sh",
-  },
+qstar.config "host_rsp_tools" {
+  toolset = "//:host_rsp",
 }
 
-qstar.profile "windows-msvc-artifact-map" {
-  toolchain = "clang",
-  target = "x86_64-pc-windows-msvc",
-  cc = "clang-cl",
-  cxx = "clang-cl",
-  linker = "clang-cl",
-  response_files = "on",
-  response_style = "msvc",
-  tool_overrides = {
-    "qstar-argv-probe=tools/argv-probe.sh",
-  },
-  artifact_names = {
-    "//:windows_mapped=profile_named.exe",
-  },
-}
-
-qstar.profile "windows-msvc-static-artifact-map" {
-  toolchain = "clang",
-  target = "x86_64-pc-windows-msvc",
-  cc = "clang-cl",
-  cxx = "clang-cl",
-  linker = "clang-cl",
-  response_files = "on",
-  response_style = "msvc",
-  tool_overrides = {
-    "qstar-argv-probe=tools/argv-probe.sh",
-  },
-  artifact_names = {
-    "//:windows_static=windows_static.lib",
-  },
-}
-
-qstar.profile "windows-msvc-static-fake" {
-  toolchain = "clang",
-  target = "x86_64-pc-windows-msvc",
-  cc = "tools/fake-clang-cl",
-  cxx = "tools/fake-clang-cl",
-  ar = "tools/fake-lib",
-  linker = "tools/fake-clang-cl",
-  response_files = "on",
-  response_style = "msvc",
-  tool_overrides = {
-    "qstar-argv-probe=tools/argv-probe.sh",
-  },
-  artifact_names = {
-    "//:windows_static=windows_static.lib",
-  },
+qstar.config "windows_fake_tools" {
+  toolset = "//:windows_fake",
 }
 
 qstar.config "long_c_command" {
@@ -141,7 +92,7 @@ qstar.config "msvc_response_escape_args" {
 }
 
 qstar.executable "app" {
-  configs = {"//:long_c_command"},
+  configs = {"//:host_rsp_tools", "//:long_c_command"},
   sources = {
     "src/main.c",
   },
@@ -152,7 +103,7 @@ qstar.custom_target "argv_probe" {
     qstar.output("build/qstar/generated/argv.txt"),
   },
   command = qstar.cli {
-    "qstar-argv-probe",
+    "tools/argv-probe.sh",
     qstar.output(0),
     "alpha beta",
     "quote ' value",
@@ -162,7 +113,7 @@ qstar.custom_target "argv_probe" {
 }
 
 qstar.executable "windows_app" {
-  configs = {"//:long_c_command"},
+  configs = {"//:windows_fake_tools", "//:long_c_command"},
   sources = {
     "src/main.c",
   },
@@ -177,6 +128,7 @@ qstar.executable "windows_app" {
 
 qstar.executable "windows_rsp" {
   configs = {
+    "//:windows_fake_tools",
     "//:long_c_command",
     "//:msvc_response_escape_args",
   },
@@ -220,20 +172,23 @@ qstar.executable "windows_rsp" {
 }
 
 qstar.executable "windows_mapped" {
-  configs = {"//:long_c_command"},
+  configs = {"//:windows_fake_tools", "//:long_c_command"},
   sources = {
     "src/main.c",
   },
+  artifact_name = "mapped_named.exe",
 }
 
 qstar.staticlib "windows_static" {
-  configs = {"//:long_c_command"},
+  configs = {"//:windows_fake_tools", "//:long_c_command"},
   sources = {
     "src/main.c",
   },
+  artifact_name = "windows_static.lib",
 }
 
 qstar.sharedlib "windows_plugin" {
+  configs = {"//:windows_fake_tools"},
   sources = {
     "src/main.c",
   },

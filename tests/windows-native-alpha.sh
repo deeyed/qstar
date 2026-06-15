@@ -67,7 +67,7 @@ contains "$tmp/help.out" "qstar docs"
 "$qstar" --file "$corpus/qstar.lua" check > "$tmp/check.out" 2> "$tmp/check.err"
 contains "$tmp/check.out" "status ok"
 
-"$qstar" --file "$corpus/qstar.lua" --profile windows-msvc dry-run \
+"$qstar" --file "$corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang dry-run \
 	//:windows_app > "$tmp/windows-app-dry.out" 2> "$tmp/windows-app-dry.err"
 contains "$tmp/windows-app-dry.out" "response_style=msvc"
 contains "$tmp/windows-app-dry.out" "/link"
@@ -75,9 +75,9 @@ contains "$tmp/windows-app-dry.out" "/LIBPATH:sdk/lib/um/x64"
 contains "$tmp/windows-app-dry.out" "kernel32.lib"
 contains "$tmp/windows-app-dry.out" "output=build/qstar/out/___windows_app/windows_app.exe"
 
-"$qstar" --file "$corpus/qstar.lua" --profile windows-msvc-artifact-map dry-run \
+"$qstar" --file "$corpus/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang dry-run \
 	//:windows_mapped > "$tmp/windows-mapped-dry.out" 2> "$tmp/windows-mapped-dry.err"
 contains "$tmp/windows-mapped-dry.out" "response_style=msvc"
-contains "$tmp/windows-mapped-dry.out" "output=build/qstar/out/___windows_mapped/profile_named.exe"
+contains "$tmp/windows-mapped-dry.out" "output=build/qstar/out/___windows_mapped/mapped_named.exe"
 
 printf 'qstar-windows-native-alpha: passed\n'

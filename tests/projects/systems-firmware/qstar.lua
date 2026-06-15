@@ -4,56 +4,65 @@ qstar.project {
   root = ".",
 }
 
-qstar.profile "default" {
-  toolchain = "clang",
-  target = "aarch64-none-elf",
-  arch = "aarch64",
-  cpu = "cortex-a76",
-  abi = "lp64",
-  freestanding = true,
-  cc = "tools/fake-clang.sh",
-  linker = "tools/fake-link.sh",
-  link_options = {"-nostdlib", "-Wl,-Map=kernel.map"},
-  defsyms = {"__rpi_load_addr=0x80000"},
-  tool_overrides = {"llvm-objcopy=tools/fake-objcopy.sh"},
-  artifact_names = {"//:kernel=kernel.elf"},
+qstar.toolset "firmware_fake" {
+  tools = {
+    c = qstar.cli {"tools/fake-clang.sh"},
+    cxx = qstar.cli {"tools/fake-clang.sh"},
+    asm = qstar.cli {"tools/fake-clang.sh"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"tools/fake-link.sh"},
+  },
+  response_files = "on",
+  response_style = "posix",
 }
 
-qstar.profile "uefi-base" {
-  toolchain = "clang",
-  arch = "x86_64",
-  abi = "msvc",
-  cc = "tools/fake-clang.sh",
-  linker = "tools/fake-lld-link.sh",
+qstar.toolset "uefi_fake" {
+  tools = {
+    c = qstar.cli {"tools/fake-clang.sh"},
+    cxx = qstar.cli {"tools/fake-clang.sh"},
+    asm = qstar.cli {"tools/fake-clang.sh"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"tools/fake-lld-link.sh"},
+  },
+  response_files = "on",
   response_style = "msvc",
-  tool_overrides = {"llvm-objcopy=tools/fake-objcopy.sh"},
 }
 
-qstar.profile "uefi-x64" {
-  extends = "uefi-base",
-  target = "x86_64-pc-windows-msvc",
-  artifact_names = {"//:uefi_boot=BOOTX64.EFI"},
+qstar.config "firmware_tools" {
+  toolset = "//:firmware_fake",
 }
 
-qstar.profile "uefi-aa64" {
-  extends = "uefi-base",
-  target = "aarch64-pc-windows-msvc",
-  arch = "aarch64",
-  artifact_names = {"//:uefi_boot=BOOTAA64.EFI"},
+qstar.config "uefi_tools" {
+  toolset = "//:uefi_fake",
 }
 
 qstar.executable "kernel" {
+  configs = {
+    "//:firmware_tools",
+  },
   sources = {
     "boot/start.S",
     "src/kernel.c",
   },
   linker_script = "linker/rpi5-aarch64.ld",
+  artifact_name = "kernel.elf",
   defsyms = {
     "__stack_top=0x810000",
+    "__rpi_load_addr=0x80000",
+  },
+  link_options = {
+    "-nostdlib",
+    "-Wl,-Map=kernel.map",
   },
   lang = {
     c = {
       compile_options = {
+        "-ffreestanding",
+        "-fno-builtin",
+        "-fno-stack-protector",
+        "-mgeneral-regs-only",
+        "-mcpu=cortex-a76",
+        "-mabi=lp64",
         "-fno-pic",
       },
     },
@@ -82,7 +91,7 @@ qstar.custom_target "kernel_img" {
     }),
   },
   command = qstar.cli {
-    "llvm-objcopy",
+    "tools/fake-objcopy.sh",
     "-O",
     "binary",
     qstar.input(0),
@@ -105,9 +114,35 @@ qstar.run_target "qemu_smoke" {
 }
 
 qstar.executable "uefi_boot" {
+  configs = {
+    "//:uefi_tools",
+  },
   sources = {
     "src/efi_main.c",
   },
+  artifact_name = "BOOTX64.EFI",
+  link_options = {
+    "/subsystem:efi_application",
+    "/entry:efi_main",
+    "/nodefaultlib",
+  },
+  lang = {
+    c = {
+      compile_options = {
+        "-ffreestanding",
+      },
+    },
+  },
+}
+
+qstar.executable "uefi_boot_aa64" {
+  configs = {
+    "//:uefi_tools",
+  },
+  sources = {
+    "src/efi_main.c",
+  },
+  artifact_name = "BOOTAA64.EFI",
   link_options = {
     "/subsystem:efi_application",
     "/entry:efi_main",

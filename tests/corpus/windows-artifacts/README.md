@@ -16,21 +16,21 @@ Useful current commands:
 
 ```sh
 qstar --file tests/corpus/windows-artifacts/qstar.lua check
-qstar --file tests/corpus/windows-artifacts/qstar.lua --profile windows-msvc dry-run //:tool
-qstar --file tests/corpus/windows-artifacts/qstar.lua --profile windows-msvc dry-run //:core
-qstar --file tests/corpus/windows-artifacts/qstar.lua --profile windows-msvc-fake build //:all
-qstar --file tests/corpus/windows-artifacts/qstar.lua --profile windows-msvc-fake stage //:layout
-qstar --file tests/corpus/windows-artifacts/qstar.lua --profile windows-msvc-fake install //:tool --prefix /tmp/qstar-windows-artifacts
-qstar --file tests/corpus/windows-artifacts/qstar.lua --profile windows-msvc-fake install //:core --prefix /tmp/qstar-windows-artifacts
+qstar --file tests/corpus/windows-artifacts/qstar.lua --target x86_64-pc-windows-msvc --toolchain clang dry-run //:tool
+qstar --file tests/corpus/windows-artifacts/qstar.lua --target x86_64-pc-windows-msvc --toolchain clang dry-run //:core
+qstar --file tests/corpus/windows-artifacts/qstar.lua --target x86_64-pc-windows-msvc --toolchain clang build //:all
+qstar --file tests/corpus/windows-artifacts/qstar.lua --target x86_64-pc-windows-msvc --toolchain clang stage //:layout
+qstar --file tests/corpus/windows-artifacts/qstar.lua --target x86_64-pc-windows-msvc --toolchain clang install //:tool --prefix /tmp/qstar-windows-artifacts
+qstar --file tests/corpus/windows-artifacts/qstar.lua --target x86_64-pc-windows-msvc --toolchain clang install //:core --prefix /tmp/qstar-windows-artifacts
 ```
 
 Current expected behavior:
 
 - `//:tool` plans an explicit `.exe` primary artifact.
 - `//:core` plans an explicit static `.lib` primary artifact.
-- `//:profile_tool` and `//:profile_core` prove profile-level
-  `artifact_names` for `.exe` and static `.lib`.
-- `windows-msvc-fake` builds those artifacts on non-Windows hosts with
+- `//:named_tool` and `//:named_core` prove target-local
+  `artifact_name` for `.exe` and static `.lib`.
+- The `windows_fake` toolset builds those artifacts on non-Windows hosts with
   package-local fake tools; this validates QStar naming, Stella/Ninja lowering,
   stage, and install layout without claiming native Windows tool support.
 - `//:plugin` is a Windows `sharedlib` contract target. Current dry-run output

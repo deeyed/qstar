@@ -2100,8 +2100,6 @@ load_graph(struct qstar_daemon_server *server, const struct qstar_daemon_request
 		rc = qstar_graph_set_cli_overrides(&server->graph, "stella",
 		    req->build_dir[0] ? req->build_dir : NULL);
 	if (rc == 0 && !plan_loaded)
-		rc = qstar_graph_apply_selected_profile(&server->graph);
-	if (rc == 0 && !plan_loaded)
 		rc = qstar_graph_set_profile_input(&server->graph,
 		    req->profile[0] ? req->profile : NULL,
 		    req->target[0] ? req->target : NULL,

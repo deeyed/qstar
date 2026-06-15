@@ -117,10 +117,6 @@ qstar.stage "shared_bundle" {
   },
 }
 
-qstar.profile "windows-shared" {
-  target = "x86_64-pc-windows-msvc",
-  toolchain = "clang",
-}
 QSTAR
 cat > "$tmp/shared/src/plugin.c" <<'SRC'
 int plugin_value(void) { return 9; }
@@ -156,7 +152,7 @@ contains "$tmp/shared/build/qstar/ninja/build.ninja" "description = Linking C sh
 contains "$tmp/shared/build/qstar/ninja/build.ninja" "$shared_flag"
 contains "$tmp/shared/build/qstar/ninja/build.ninja" "$shared_name_flag"
 contains "$tmp/shared/build/qstar/ninja/build.ninja" "$shared_ninja_rpath_flag"
-if "$qstar" --file "$tmp/shared/qstar.lua" --profile windows-shared emit-ninja //:plugin > "$tmp/shared-windows.out" 2> "$tmp/shared-windows.err"; then
+if "$qstar" --file "$tmp/shared/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang emit-ninja //:plugin > "$tmp/shared-windows.out" 2> "$tmp/shared-windows.err"; then
 	fail "windows sharedlib Ninja lowering unexpectedly succeeded"
 fi
 contains "$tmp/shared-windows.err" "Windows shared libraries require a runtime .dll"

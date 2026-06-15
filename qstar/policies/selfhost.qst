@@ -1,4 +1,5 @@
 qstar.config "qstar_c" {
+  toolset = "//:host",
   lang = {
     c = {
       public_include_dirs = {
@@ -19,6 +20,7 @@ qstar.config "qstar_c" {
 }
 
 qstar.config "lua_vendor_c" {
+  toolset = "//:host",
   lang = {
     c = {
       public_include_dirs = {

@@ -1662,28 +1662,43 @@ dump_toolchain_tool_doctor(FILE *out, const struct qstar_graph *graph,
 	    role, tool, required ? "true" : "false", required ? "warning" : "info");
 }
 
-/** profile external tool discovery 상태를 doctor output에 출력한다. */
 static void
-dump_external_tool_doctor(FILE *out, const struct qstar_graph *graph)
+dump_path_tool_doctor(FILE *out, const char *tool)
 {
+	char found[QSTAR_PATH_MAX];
+
+	if (qstar_profile_find_path_tool(tool, found, sizeof(found)))
+		fprintf(out, "external-tool name=%s mode=path status=found path=%s\n",
+		    tool, found);
+	else
+		fprintf(out, "external-tool name=%s mode=path status=missing path=<none>\n",
+		    tool);
+}
+
+/** profile/toolset external tool discovery 상태를 doctor output에 출력한다. */
+static void
+dump_external_tool_doctor(FILE *out, const struct qstar_plan *plan)
+{
+	const struct qstar_graph *graph;
 	char found[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], value[QSTAR_PATH_MAX];
 	char full[QSTAR_PATH_MAX];
 	const char *mode, *status;
-	size_t i;
+	size_t i, j, path_tool_count;
 	int exists, executable, is_dir;
 
+	graph = plan->graph;
+	path_tool_count = graph->profile.path_tools.len;
+	(void)plan;
+	for (i = 0; i < graph->toolset_len; i++)
+		path_tool_count += graph->toolsets[i].path_tools.len;
 	fprintf(out, "external-tool-policy path_tools=%zu tool_overrides=%zu allow_absolute=%s\n",
-	    graph->profile.path_tools.len, graph->profile.tool_overrides.len,
+	    path_tool_count, graph->profile.tool_overrides.len,
 	    profile_or_default(graph->profile.allow_absolute_tools, "false"));
-	for (i = 0; i < graph->profile.path_tools.len; i++) {
-		if (qstar_profile_find_path_tool(graph->profile.path_tools.items[i], found,
-		    sizeof(found)))
-			fprintf(out, "external-tool name=%s mode=path status=found path=%s\n",
-			    graph->profile.path_tools.items[i], found);
-		else
-			fprintf(out, "external-tool name=%s mode=path status=missing path=<none>\n",
-			    graph->profile.path_tools.items[i]);
-	}
+	for (i = 0; i < graph->profile.path_tools.len; i++)
+		dump_path_tool_doctor(out, graph->profile.path_tools.items[i]);
+	for (i = 0; i < graph->toolset_len; i++)
+		for (j = 0; j < graph->toolsets[i].path_tools.len; j++)
+			dump_path_tool_doctor(out, graph->toolsets[i].path_tools.items[j]);
 	for (i = 0; i < graph->profile.tool_overrides.len; i++) {
 		if (!split_tool_override_for_doctor(graph->profile.tool_overrides.items[i],
 		    name, sizeof(name), value, sizeof(value))) {
@@ -2299,14 +2314,14 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 			fprintf(out, "writable-build-dir no path=%s\n",
 			    qstar_graph_build_dir(graph));
 	}
-	fprintf(out, "profile-dsl-input name=%s target=%s toolchain=%s stdlib=%s\n",
+	fprintf(out, "build-context name=%s target=%s toolchain=%s stdlib=%s\n",
 	    graph->profile.name ? graph->profile.name : "default",
 	    graph->profile.target ? graph->profile.target : "host",
 	    graph->profile.toolchain ? graph->profile.toolchain : "host",
 	    graph->profile.stdlib_policy ? graph->profile.stdlib_policy : "system");
-	fprintf(out, "profile-schema in-dsl-v1 include_dirs=%zu lib_dirs=%zu\n",
+	fprintf(out, "build-context-options include_dirs=%zu lib_dirs=%zu\n",
 	    graph->profile.include_dirs.len, graph->profile.lib_dirs.len);
-	dump_external_tool_doctor(out, graph);
+		dump_external_tool_doctor(out, &plan);
 	fputs("diagnostics ok\n", out);
 	fputs("file-inputs ok\n", out);
 	fputs("status ok\n", out);

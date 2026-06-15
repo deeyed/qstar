@@ -7,7 +7,14 @@ qstar.project {
   compile_commands = "build",
 }
 
-qstar.profile "default" {
+qstar.toolset "host" {
+  tools = {
+    c = qstar.cli {"cc"},
+    cxx = qstar.cli {"c++"},
+    asm = qstar.cli {"cc"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
   response_files = "off",
 }
 

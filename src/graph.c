@@ -275,16 +275,6 @@ free_profile_input(struct qstar_profile_input *profile)
 	qstar_string_list_free(&profile->tool_overrides);
 }
 
-/** qstar.profile 선언이 소유한 문자열과 list를 해제한다. */
-static void
-free_profile_decl(struct qstar_profile_decl *decl)
-{
-	free(decl->name);
-	free(decl->extends);
-	free(decl->origin_file);
-	free_profile_input(&decl->input);
-}
-
 /** cached lowered action entry가 소유한 문자열과 list를 해제한다. */
 static void
 free_cached_action(struct qstar_cached_action *action)
@@ -336,8 +326,6 @@ qstar_graph_free(struct qstar_graph *graph)
 		free_lint_diagnostic(&graph->lint_diagnostics[i]);
 	for (i = 0; i < graph->package_len; i++)
 		free_package_alias(&graph->packages[i]);
-	for (i = 0; i < graph->profile_decl_len; i++)
-		free_profile_decl(&graph->profile_decls[i]);
 	for (i = 0; i < graph->cached_action_len; i++)
 		free_cached_action(&graph->cached_actions[i]);
 	free_project(&graph->project);
@@ -353,7 +341,6 @@ qstar_graph_free(struct qstar_graph *graph)
 	free(graph->stages);
 	free(graph->families);
 	free(graph->lint_diagnostics);
-	free(graph->profile_decls);
 	free(graph->cached_actions);
 	qstar_string_list_free(&graph->evaluated_fragments);
 	memset(graph, 0, sizeof(*graph));
@@ -798,7 +785,7 @@ qstar_graph_set_profile_input(struct qstar_graph *graph, const char *name,
 	return 0;
 }
 
-/** Profile list field를 graph-owned deep copy로 복사한다. */
+/** 문자열 list field를 graph-owned deep copy로 복사한다. */
 static int
 copy_string_list(struct qstar_string_list *dst, const struct qstar_string_list *src)
 {
@@ -808,95 +795,6 @@ copy_string_list(struct qstar_string_list *dst, const struct qstar_string_list *
 		if (qstar_string_list_push(dst, src->items[i]) < 0)
 			return -1;
 	}
-	return 0;
-}
-
-/** qstar.profile 입력 전체를 profile declaration table로 deep copy한다. */
-static int
-copy_profile_input(struct qstar_profile_input *dst, const struct qstar_profile_input *src)
-{
-#define COPY_PROFILE_STRING(field) \
-	do { \
-		if (src->field) { \
-			dst->field = qstar_strdup(src->field); \
-			if (!dst->field) \
-				return -1; \
-		} \
-	} while (0)
-
-	COPY_PROFILE_STRING(name);
-	COPY_PROFILE_STRING(target);
-	COPY_PROFILE_STRING(toolchain);
-	COPY_PROFILE_STRING(stdlib_policy);
-	COPY_PROFILE_STRING(freestanding);
-	COPY_PROFILE_STRING(arch);
-	COPY_PROFILE_STRING(cpu);
-	COPY_PROFILE_STRING(abi);
-	COPY_PROFILE_STRING(cc);
-	COPY_PROFILE_STRING(cxx);
-	COPY_PROFILE_STRING(cale);
-	COPY_PROFILE_STRING(ar);
-	COPY_PROFILE_STRING(linker);
-	COPY_PROFILE_STRING(sysroot);
-	COPY_PROFILE_STRING(resource_dir);
-	COPY_PROFILE_STRING(response_files);
-	COPY_PROFILE_STRING(response_style);
-	COPY_PROFILE_STRING(linker_script);
-	COPY_PROFILE_STRING(allow_absolute_tools);
-#undef COPY_PROFILE_STRING
-	return copy_string_list(&dst->artifact_names, &src->artifact_names) < 0 ||
-	    copy_string_list(&dst->compile_options, &src->compile_options) < 0 ||
-	    copy_string_list(&dst->include_dirs, &src->include_dirs) < 0 ||
-	    copy_string_list(&dst->lib_dirs, &src->lib_dirs) < 0 ||
-	    copy_string_list(&dst->link_options, &src->link_options) < 0 ||
-	    copy_string_list(&dst->defsyms, &src->defsyms) < 0 ||
-	    copy_string_list(&dst->path_tools, &src->path_tools) < 0 ||
-	    copy_string_list(&dst->tool_overrides, &src->tool_overrides) < 0 ? -1 : 0;
-}
-
-/** 이름으로 qstar.profile declaration을 찾는다. */
-static const struct qstar_profile_decl *
-find_profile_decl(const struct qstar_graph *graph, const char *name)
-{
-	size_t i;
-
-	for (i = 0; i < graph->profile_decl_len; i++) {
-		if (strcmp(graph->profile_decls[i].name, name) == 0)
-			return &graph->profile_decls[i];
-	}
-	return NULL;
-}
-
-/** qstar.profile DSL 선언을 graph에 저장한다. */
-int
-qstar_graph_add_profile_decl(struct qstar_graph *graph, const char *name,
-    const char *extends, const char *origin_file, int origin_line,
-    const struct qstar_profile_input *input)
-{
-	struct qstar_profile_decl *profiles, *decl;
-	size_t cap;
-
-	if (!name || !*name)
-		return qstar_set_error(graph, "qstar: profile name is empty");
-	if (find_profile_decl(graph, name))
-		return qstar_set_error(graph, "qstar: duplicate profile '%s'", name);
-	if (graph->profile_decl_len == graph->profile_decl_cap) {
-		cap = graph->profile_decl_cap ? graph->profile_decl_cap * 2 : 4;
-		profiles = realloc(graph->profile_decls, cap * sizeof(graph->profile_decls[0]));
-		if (!profiles)
-			return qstar_set_error(graph, "qstar: out of memory");
-		graph->profile_decls = profiles;
-		graph->profile_decl_cap = cap;
-	}
-	decl = &graph->profile_decls[graph->profile_decl_len++];
-	memset(decl, 0, sizeof(*decl));
-	decl->name = qstar_strdup(name);
-	decl->extends = qstar_strdup(extends ? extends : "");
-	decl->origin_file = qstar_strdup(origin_file ? origin_file : "");
-	decl->origin_line = origin_line;
-	if (!decl->name || !decl->extends || !decl->origin_file ||
-	    copy_profile_input(&decl->input, input) < 0)
-		return qstar_set_error(graph, "qstar: out of memory");
 	return 0;
 }
 
@@ -2915,7 +2813,7 @@ qstar_path_package_relative_reason(const char *path)
 	if (path[0] == '/')
 		return "absolute paths are not allowed";
 	if (isalpha((unsigned char)path[0]) && path[1] == ':')
-		return "drive-letter paths are not allowed in package paths; write project files as slash-normalized paths like 'src/main.c' and keep absolute tool locations in profiles";
+		return "drive-letter paths are not allowed in package paths; write project files as slash-normalized paths like 'src/main.c' and keep absolute tool locations in toolsets";
 	if (strchr(path, '\\'))
 		return "backslash paths are not normalized; use '/' separators like 'src/main.c'";
 	if (strchr(path, ':'))

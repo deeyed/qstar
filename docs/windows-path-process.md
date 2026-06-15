@@ -182,7 +182,7 @@ The detailed artifact contract is `docs/windows-artifact-policy.md`. Summary:
 - Executable targets may use `artifact_name = "tool.exe"` or profile
   `artifact_names = {"//:tool=tool.exe"}`. This `.exe` spelling is the current
   Windows executable naming contract. The local prep gate verifies both target
-  local `artifact_name` and profile-level `artifact_names` mapping.
+  local `artifact_name` mapping.
 - External Windows libraries in `libs = {"kernel32"}` render as `kernel32.lib`
   for Windows/MSVC-like targets. This external library spelling is sealed for
   the pre-port contract.
@@ -232,10 +232,10 @@ The gate checks:
 - Windows/MSVC dry-run renders `/link`, `/LIBPATH:...`, and `kernel32.lib`
 - `artifact_name = "windows_app.exe"` is reflected in the planned output path
   and target metadata.
-- `profile artifact_names = {"//:windows_mapped=profile_named.exe"}` is
-  reflected in the planned output path
-- `profile artifact_names = {"//:windows_static=windows_static.lib"}` is
-  reflected in explicit static archive planning
+- target-local `artifact_name = "mapped_named.exe"` is reflected in the planned
+  output path
+- target-local `artifact_name = "windows_static.lib"` is reflected in explicit
+  static archive planning
 - fake static `.lib` artifacts are built through Stella and Ninja on non-Windows
   hosts without claiming native `lib.exe`/`llvm-lib` support
 - the Windows artifact corpus stages and installs explicit `.exe` files under
@@ -257,9 +257,9 @@ Manual corpus commands:
 ```sh
 ./build/bin/qstar --file tests/corpus/response-files/qstar.lua build //:all
 ./build/bin/qstar --file tests/corpus/response-files/qstar.lua \
-  --profile windows-msvc dry-run //:windows_app
+  --target x86_64-pc-windows-msvc --toolchain clang dry-run //:windows_app
 ./build/bin/qstar --file tests/corpus/response-files/qstar.lua \
-  --profile windows-msvc-fake build //:windows_rsp
+  --target x86_64-pc-windows-msvc --toolchain clang build //:windows_rsp
 ```
 
 These commands prepare the port; they do not replace the manual native Windows

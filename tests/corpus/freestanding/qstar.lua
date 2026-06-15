@@ -7,29 +7,20 @@ qstar.project {
   compile_commands = "build",
 }
 
-qstar.profile "default" {
-  toolchain = "clang",
-  target = "aarch64-unknown-none-elf",
-  arch = "aarch64",
-  cpu = "cortex-a76",
-  abi = "lp64",
-  freestanding = true,
-  cc = "tools/fake-clang.sh",
-  linker = "tools/fake-link.sh",
-  ar = "ar",
-  sysroot = "sysroot",
-  resource_dir = "resource",
+qstar.toolset "fake_clang" {
+  tools = {
+    c = qstar.cli {"tools/fake-clang.sh"},
+    cxx = qstar.cli {"tools/fake-clang.sh"},
+    asm = qstar.cli {"tools/fake-clang.sh"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"tools/fake-link.sh"},
+  },
   response_files = "on",
   response_style = "posix",
-  link_options = {
-    "-nostdlib",
-  },
-  tool_overrides = {
-    "llvm-objcopy=tools/fake-objcopy.sh",
-  },
 }
 
 qstar.config "kernel_c" {
+  toolset = "//:fake_clang",
   lang = {
     c = {
       public_include_dirs = {
@@ -40,6 +31,12 @@ qstar.config "kernel_c" {
       },
       compile_options = {
         "-std=c23",
+        "-ffreestanding",
+        "-fno-builtin",
+        "-fno-stack-protector",
+        "-mgeneral-regs-only",
+        "-mcpu=cortex-a76",
+        "-mabi=lp64",
         "-Wall",
         "-Wextra",
         "-Werror",
@@ -59,6 +56,9 @@ qstar.executable "kernel" {
   linker_script = "linker/kernel.ld",
   defsyms = {
     "__stack_top=0x810000",
+  },
+  link_options = {
+    "-nostdlib",
   },
   lang = {
     asm = {
@@ -86,7 +86,7 @@ qstar.custom_target "kernel_img" {
     }),
   },
   command = qstar.cli {
-    "llvm-objcopy",
+    "tools/fake-objcopy.sh",
     "-O",
     "binary",
     qstar.input(0),

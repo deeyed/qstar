@@ -31,12 +31,11 @@ struct qstar_lsp_hover_entry {
 
 static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 	{ "qstar.project", "Declare package-root project metadata, build_dir, generated_dir, and compile database policy." },
-	{ "qstar.profile", "Declare an in-DSL toolchain/profile policy for qstar.lua." },
 	{ "qstar.toolset", "Declare an allowlisted tool role bundle with tools.c/cxx/asm/archive/link argv vectors." },
 	{ "qstar.config", "Declare a reusable target option bundle for configs = { ... }." },
 	{ "qstar.executable", "Create an executable target." },
 	{ "qstar.staticlib", "Create a static library target." },
-	{ "qstar.sharedlib", "Create a shared library target, if the profile supports it." },
+	{ "qstar.sharedlib", "Create a shared library target when the selected platform policy supports it." },
 	{ "qstar.test", "Create a test executable target." },
 	{ "qstar.custom_target", "Create a package-local generated action." },
 	{ "qstar.run_target", "Declare a named external run action." },
@@ -71,7 +70,6 @@ static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 	{ "QSTAR_HOST_ARCH", "Host architecture identifier." },
 	{ "QSTAR_PACKAGE_ROOT", "Resolved package root path." },
 	{ "QSTAR_PROJECT_ROOT", "Resolved project root path." },
-	{ "QSTAR_PROFILE", "Active profile name." },
 	{ "QSTAR_TARGET", "Active target triple or host." },
 };
 
@@ -560,8 +558,6 @@ load_lint_graph(const char *root_file, struct qstar_graph *graph)
 	rc = qstar_graph_set_profile_input(graph, NULL, NULL, NULL, NULL);
 	if (rc == 0)
 		rc = qstar_lua_eval_file(graph, root_file);
-	if (rc == 0)
-		rc = qstar_graph_apply_selected_profile(graph);
 	if (rc == 0)
 		rc = qstar_graph_set_profile_input(graph, NULL, NULL, NULL, NULL);
 	if (rc == 0)

@@ -222,7 +222,7 @@ test -f "$tmp/build/qstar/stella/manifest.json" || fail "missing Stella plan cac
 test -f "$tmp/build/qstar/stella/inputs.json" || fail "missing Stella plan cache inputs"
 test -f "$tmp/build/qstar/stella/graph.qsg" || fail "missing Stella graph cache"
 test -f "$tmp/build/qstar/stella/actions.qsa" || fail "missing Stella action plan cache"
-contains "$tmp/build/qstar/stella/manifest.json" "\"schema\":\"qstar-stella-plan-cache-v1\""
+contains "$tmp/build/qstar/stella/manifest.json" "\"schema\":\"qstar-stella-plan-cache-v2\""
 contains "$tmp/build/qstar/stella/actions.qsa" "qstar-stella-actions-cache-v1"
 test -f "$tmp/build/qstar/compile_commands.json" || fail "missing compile_commands.json"
 contains "$tmp/build/qstar/compile_commands.json" "src/main.c"
@@ -493,11 +493,20 @@ qstar.project {
   root = ".",
 }
 
-qstar.profile "default" {
-  cc = "tools/warn-cc.sh",
+qstar.toolset "warn" {
+  tools = {
+    c = qstar.cli {"tools/warn-cc.sh"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
+}
+
+qstar.config "warn_tools" {
+  toolset = "//:warn",
 }
 
 qstar.staticlib "core" {
+  configs = {"//:warn_tools"},
   sources = {"src/core.c"},
 }
 EOF
@@ -559,11 +568,20 @@ qstar.project {
   root = ".",
 }
 
-qstar.profile "default" {
-  cc = "tools/error-cc.sh",
+qstar.toolset "error" {
+  tools = {
+    c = qstar.cli {"tools/error-cc.sh"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
+}
+
+qstar.config "error_tools" {
+  toolset = "//:error",
 }
 
 qstar.staticlib "core" {
+  configs = {"//:error_tools"},
   sources = {"src/core.c"},
 }
 EOF
@@ -952,11 +970,25 @@ qstar.project {
   compile_commands = "build",
 }
 
-qstar.profile "ninja-parity" {
+qstar.toolset "ninja_parity" {
+  tools = {
+    c = qstar.cli {"cc"},
+    cxx = qstar.cli {"c++"},
+    asm = qstar.cli {"cc"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
   response_files = "on",
   response_style = "posix",
-  tool_overrides = {"qstar-gen-value=tools/gen-value.sh"},
-  compile_options = long_flags,
+}
+
+qstar.config "ninja_parity_c" {
+  toolset = "//:ninja_parity",
+  lang = {
+    c = {
+      compile_options = long_flags,
+    },
+  },
 }
 
 qstar.configure_file "cfg" {
@@ -967,10 +999,11 @@ qstar.configure_file "cfg" {
 qstar.custom_target "make_value" {
   inputs = {qstar.target_file("//:cfg")},
   outputs = {qstar.output("generated/value.c")},
-  command = qstar.cli {"qstar-gen-value", qstar.target_file("//:cfg"), qstar.output(0)},
+  command = qstar.cli {"tools/gen-value.sh", qstar.target_file("//:cfg"), qstar.output(0)},
 }
 
 qstar.staticlib "core" {
+  configs = {"//:ninja_parity_c"},
   sources = {qstar.output("generated/value.c")},
   lang = {
     c = {
@@ -981,6 +1014,7 @@ qstar.staticlib "core" {
 }
 
 qstar.executable "app" {
+  configs = {"//:ninja_parity_c"},
   sources = {"src/main.c"},
   deps = {"//:core"},
   lang = {
@@ -991,6 +1025,7 @@ qstar.executable "app" {
 }
 
 qstar.test "unit" {
+  configs = {"//:ninja_parity_c"},
   sources = {"src/test.c"},
   deps = {"//:core"},
   lang = {
@@ -1033,7 +1068,7 @@ cat > "$tmp/ninja-parity/src/test.c" <<'EOF'
 int generated_value(void);
 int main(void) { return generated_value() == 42 ? 0 : 1; }
 EOF
-"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity emit-ninja //:app > "$tmp/ninja-parity-emit.out" 2> "$tmp/ninja-parity-emit.err"
+"$qstar" --file "$tmp/ninja-parity/qstar.lua" emit-ninja //:app > "$tmp/ninja-parity-emit.out" 2> "$tmp/ninja-parity-emit.err"
 contains "$tmp/ninja-parity/build/qstar/ninja/build.ninja" "rule qstar_generate"
 contains "$tmp/ninja-parity/build/qstar/ninja/build.ninja" "rule qstar_link"
 contains "$tmp/ninja-parity/build/qstar/ninja/build.ninja" "qstar_action_id = //:cfg:generate:0"
@@ -1041,50 +1076,50 @@ contains "$tmp/ninja-parity/build/qstar/ninja/build.ninja" "qstar_action_id = //
 contains "$tmp/ninja-parity/build/qstar/ninja/build.ninja" "qstar_action_id = //:app:link:0"
 contains "$tmp/ninja-parity/build/qstar/logs/___app_link_0.log" "backend=ninja"
 contains "$tmp/ninja-parity/build/qstar/logs/___app_compile_0.log" "response_file=build/qstar/rsp/"
-"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity action-log //:app:link:0 > "$tmp/ninja-parity-action-log.out" 2> "$tmp/ninja-parity-action-log.err"
+"$qstar" --file "$tmp/ninja-parity/qstar.lua" action-log //:app:link:0 > "$tmp/ninja-parity-action-log.out" 2> "$tmp/ninja-parity-action-log.err"
 contains "$tmp/ninja-parity-action-log.out" "qstar action-log v1"
 contains "$tmp/ninja-parity-action-log.out" "backend=ninja"
-"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity action-log //:make_value:generate:0 > "$tmp/ninja-parity-generate-log.out" 2> "$tmp/ninja-parity-generate-log.err"
+"$qstar" --file "$tmp/ninja-parity/qstar.lua" action-log //:make_value:generate:0 > "$tmp/ninja-parity-generate-log.out" 2> "$tmp/ninja-parity-generate-log.err"
 contains "$tmp/ninja-parity-generate-log.out" "qstar action-log v1"
 contains "$tmp/ninja-parity-generate-log.out" "backend=ninja"
 contains "$tmp/ninja-parity-generate-log.out" "tools/gen-value.sh"
 contains "$tmp/ninja-parity-generate-log.out" "generated/value.c"
-"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity replay //:app:link:0 > "$tmp/ninja-parity-replay.out" 2> "$tmp/ninja-parity-replay.err"
+"$qstar" --file "$tmp/ninja-parity/qstar.lua" replay //:app:link:0 > "$tmp/ninja-parity-replay.out" 2> "$tmp/ninja-parity-replay.err"
 contains "$tmp/ninja-parity-replay.out" "qstar replay v1"
 contains "$tmp/ninja-parity-replay.out" "build/qstar/out/___app/app"
 if command -v ninja >/dev/null 2>&1; then
-	"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity -G ninja build //:app > "$tmp/ninja-parity-build.out" 2> "$tmp/ninja-parity-build.err"
+	"$qstar" --file "$tmp/ninja-parity/qstar.lua" -G ninja build //:app > "$tmp/ninja-parity-build.out" 2> "$tmp/ninja-parity-build.err"
 	contains "$tmp/ninja-parity-build.out" "backend ninja"
 	contains "$tmp/ninja-parity-build.out" "status ok"
 	test -f "$tmp/ninja-parity/build/qstar/out/___app/app" || fail "ninja parity executable artifact missing"
-	"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity -G ninja test //:unit > "$tmp/ninja-parity-test.out" 2> "$tmp/ninja-parity-test.err"
+	"$qstar" --file "$tmp/ninja-parity/qstar.lua" -G ninja test //:unit > "$tmp/ninja-parity-test.out" 2> "$tmp/ninja-parity-test.err"
 	contains "$tmp/ninja-parity-test.out" "backend ninja"
 	contains "$tmp/ninja-parity-test.out" "test_result label=//:unit status=pass"
-	"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity -G ninja build //:smoke > "$tmp/ninja-parity-run.out" 2> "$tmp/ninja-parity-run.err"
+	"$qstar" --file "$tmp/ninja-parity/qstar.lua" -G ninja build //:smoke > "$tmp/ninja-parity-run.out" 2> "$tmp/ninja-parity-run.err"
 	contains "$tmp/ninja-parity-run.out" "run_target label=//:smoke"
 	contains "$tmp/ninja-parity-run.out" "run_marker label=//:smoke status=matched"
 	contains "$tmp/ninja-parity-run.out" "run_target_result label=//:smoke status=pass"
-	"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity action-log //:smoke:run:0 > "$tmp/ninja-parity-run-log.out" 2> "$tmp/ninja-parity-run-log.err"
+	"$qstar" --file "$tmp/ninja-parity/qstar.lua" action-log //:smoke:run:0 > "$tmp/ninja-parity-run-log.out" 2> "$tmp/ninja-parity-run-log.err"
 	contains "$tmp/ninja-parity-run-log.out" "qstar action-log v1"
 	contains "$tmp/ninja-parity-run-log.out" "backend=ninja"
 	contains "$tmp/ninja-parity-run-log.out" "build/qstar/out/___app/app"
-	if "$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity -G ninja build //:missing_marker > "$tmp/ninja-parity-run-missing.out" 2> "$tmp/ninja-parity-run-missing.err"; then
+	if "$qstar" --file "$tmp/ninja-parity/qstar.lua" -G ninja build //:missing_marker > "$tmp/ninja-parity-run-missing.out" 2> "$tmp/ninja-parity-run-missing.err"; then
 		fail "ninja marker-missing run_target unexpectedly succeeded"
 	fi
 	cat "$tmp/ninja-parity-run-missing.out" "$tmp/ninja-parity-run-missing.err" > "$tmp/ninja-parity-run-missing.combined"
 	contains "$tmp/ninja-parity-run-missing.combined" "run_target_result label=//:missing_marker status=marker-missing"
 	contains "$tmp/ninja-parity/build/qstar/logs/last-failure.replay" "failure_kind=marker-missing"
-	"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity last-failure > "$tmp/ninja-parity-last-failure.out" 2> "$tmp/ninja-parity-last-failure.err"
+	"$qstar" --file "$tmp/ninja-parity/qstar.lua" last-failure > "$tmp/ninja-parity-last-failure.out" 2> "$tmp/ninja-parity-last-failure.err"
 	contains "$tmp/ninja-parity-last-failure.out" "qstar last-failure v1"
 	contains "$tmp/ninja-parity-last-failure.out" "label=//:missing_marker"
 	contains "$tmp/ninja-parity-last-failure.out" "failure_kind=marker-missing"
-	"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity -G ninja stage //:bundle > "$tmp/ninja-parity-stage.out" 2> "$tmp/ninja-parity-stage.err"
+	"$qstar" --file "$tmp/ninja-parity/qstar.lua" -G ninja stage //:bundle > "$tmp/ninja-parity-stage.out" 2> "$tmp/ninja-parity-stage.err"
 	contains "$tmp/ninja-parity-stage.out" "backend ninja"
 	contains "$tmp/ninja-parity-stage.out" "stage_file src=build/qstar/out/___app/app dst=stage/bundle/bin/app mode=copy"
 	test -f "$tmp/ninja-parity/stage/bundle/bin/app" || fail "ninja stage output missing"
 	contains "$tmp/ninja-parity/build/qstar/stage/___bundle/manifest.json" "\"schema\":\"qstar-stage-manifest-v2\""
 	contains "$tmp/ninja-parity/build/qstar/stage/___bundle/manifest.json" "\"producer\":\"//:app\""
-	"$qstar" --file "$tmp/ninja-parity/qstar.lua" --profile ninja-parity -G ninja install //:app --prefix "$tmp/ninja-parity-prefix" > "$tmp/ninja-parity-install.out" 2> "$tmp/ninja-parity-install.err"
+	"$qstar" --file "$tmp/ninja-parity/qstar.lua" -G ninja install //:app --prefix "$tmp/ninja-parity-prefix" > "$tmp/ninja-parity-install.out" 2> "$tmp/ninja-parity-install.err"
 	contains "$tmp/ninja-parity-install.out" "backend ninja"
 	contains "$tmp/ninja-parity-install.out" "install_file src=build/qstar/out/___app/app"
 	test -f "$tmp/ninja-parity-prefix/bin/app" || fail "ninja install output missing"
@@ -1192,7 +1227,7 @@ local function common_c()
   for _ in pairs({one = 1, two = 2}) do
     count = count + 1
   end
-  table.insert(opts, string.upper("-dqstar_profile=" .. QSTAR_PROFILE))
+  table.insert(opts, string.upper("-dqstar_target=" .. QSTAR_TARGET))
   table.insert(opts, "-DQSTAR_VERSION=" .. qstar.version)
   table.insert(opts, "-DQSTAR_VERSION_MINOR=" .. QSTAR_VERSION_MINOR)
   table.insert(opts, "-DQSTAR_HOST_OS=" .. qstar.host.os)
@@ -1217,7 +1252,7 @@ qstar.staticlib "core" {
 EOF
 "$qstar" --file "$tmp/lua-authoring/qstar.lua" --dump-graph > "$tmp/lua-authoring.out" 2> "$tmp/lua-authoring.err"
 contains "$tmp/lua-authoring.out" "cflags [-Wall, -Wextra"
-contains "$tmp/lua-authoring.out" "-DQSTAR_PROFILE=DEFAULT"
+contains "$tmp/lua-authoring.out" "-DQSTAR_TARGET=HOST"
 contains "$tmp/lua-authoring.out" "-DQSTAR_VERSION=0.7.0-beta"
 contains "$tmp/lua-authoring.out" "-DQSTAR_VERSION_MINOR=7"
 contains "$tmp/lua-authoring.out" "-DQSTAR_HOST_OS="
@@ -3256,10 +3291,6 @@ qstar.stage "shared_bundle" {
   },
 }
 
-qstar.profile "windows-shared" {
-  target = "x86_64-pc-windows-msvc",
-  toolchain = "clang",
-}
 EOF
 
 "$qstar" --file "$tmp/qstar.lua" build //:linkapp > "$tmp/linkapp.out" 2> "$tmp/linkapp.err"
@@ -3367,12 +3398,12 @@ if command -v ninja >/dev/null 2>&1; then
 	test ! -f "$tmp/.ninja_log" || fail "sharedlib ninja wrote package root .ninja_log"
 	test ! -f "$tmp/.ninja_deps" || fail "sharedlib ninja wrote package root .ninja_deps"
 fi
-if "$qstar" --file "$tmp/qstar.lua" --profile windows-shared build //:plugin > "$tmp/shared-windows.out" 2> "$tmp/shared-windows.err"; then
+if "$qstar" --file "$tmp/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang build //:plugin > "$tmp/shared-windows.out" 2> "$tmp/shared-windows.err"; then
 	fail "windows sharedlib unexpectedly succeeded"
 fi
 contains "$tmp/shared-windows.err" "Windows shared libraries require a runtime .dll"
 contains "$tmp/shared-windows.err" "docs/windows-artifact-policy.md"
-if "$qstar" --file "$tmp/qstar.lua" --profile windows-shared -G ninja build //:plugin > "$tmp/shared-windows-ninja.out" 2> "$tmp/shared-windows-ninja.err"; then
+if "$qstar" --file "$tmp/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang -G ninja build //:plugin > "$tmp/shared-windows-ninja.out" 2> "$tmp/shared-windows-ninja.err"; then
 	fail "windows sharedlib ninja unexpectedly succeeded"
 fi
 contains "$tmp/shared-windows-ninja.err" "Windows shared libraries require a runtime .dll"
@@ -3602,15 +3633,25 @@ cat > "$tmp/cross-target/src/b.c" <<'EOF'
 int b_value(void) { return 2; }
 EOF
 cat > "$tmp/cross-target/qstar.lua" <<'EOF'
-qstar.profile "default" {
-  cc = "tools/fake-cc.sh",
+qstar.toolset "fake" {
+  tools = {
+    c = qstar.cli {"tools/fake-cc.sh"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
+}
+
+qstar.config "fake_tools" {
+  toolset = "//:fake",
 }
 
 qstar.staticlib "liba" {
+  configs = {"//:fake_tools"},
   sources = {"src/a.c"},
 }
 
 qstar.staticlib "libb" {
+  configs = {"//:fake_tools"},
   sources = {"src/b.c"},
 }
 
@@ -3666,11 +3707,20 @@ cat > "$tmp/parallel-fail/src/ok.c" <<'EOF'
 int ok_value(void) { return 3; }
 EOF
 cat > "$tmp/parallel-fail/qstar.lua" <<'EOF'
-qstar.profile "default" {
-  cc = "tools/fake-cc.sh",
+qstar.toolset "fake" {
+  tools = {
+    c = qstar.cli {"tools/fake-cc.sh"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
+}
+
+qstar.config "fake_tools" {
+  toolset = "//:fake",
 }
 
 qstar.executable "race" {
+  configs = {"//:fake_tools"},
   sources = {"src/slow.c", "src/fail.c", "src/ok.c"},
 }
 EOF
@@ -3703,11 +3753,20 @@ cat > "$tmp/parallel-timeout/src/other.c" <<'EOF'
 int other_value(void) { return 2; }
 EOF
 cat > "$tmp/parallel-timeout/qstar.lua" <<'EOF'
-qstar.profile "default" {
-  cc = "tools/fake-cc.sh",
+qstar.toolset "fake" {
+  tools = {
+    c = qstar.cli {"tools/fake-cc.sh"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
+}
+
+qstar.config "fake_tools" {
+  toolset = "//:fake",
 }
 
 qstar.executable "timeout" {
+  configs = {"//:fake_tools"},
   sources = {"src/timeout.c", "src/other.c"},
 }
 EOF
@@ -3802,9 +3861,10 @@ contains "$tmp/project-firmware-check.out" "target-count 1"
 contains "$tmp/project-firmware-check.out" "generated-action-count 1"
 contains "$tmp/project-firmware-check.out" "stage-count 2"
 "$qstar" --file "$tmp/project-firmware/qstar.lua" dry-run //:kernel > "$tmp/project-firmware-kernel-dry.out" 2> "$tmp/project-firmware-kernel-dry.err"
-contains "$tmp/project-firmware-kernel-dry.out" "profile_target arch=aarch64 cpu=cortex-a76 abi=lp64 freestanding=true"
 contains "$tmp/project-firmware-kernel-dry.out" "-ffreestanding"
 contains "$tmp/project-firmware-kernel-dry.out" "-mgeneral-regs-only"
+contains "$tmp/project-firmware-kernel-dry.out" "-mcpu=cortex-a76"
+contains "$tmp/project-firmware-kernel-dry.out" "-mabi=lp64"
 contains "$tmp/project-firmware-kernel-dry.out" "-D__QSTAR_FIRMWARE__=1"
 contains "$tmp/project-firmware-kernel-dry.out" "-T"
 contains "$tmp/project-firmware-kernel-dry.out" "linker/rpi5-aarch64.ld"
@@ -3846,20 +3906,20 @@ contains "$tmp/project-firmware/build/qstar/stage/___rpi/manifest.json" "\"dst\"
 contains "$tmp/project-firmware-qemu.out" "run_target label=//:qemu_smoke"
 contains "$tmp/project-firmware-qemu.out" "run_marker label=//:qemu_smoke status=matched marker=QSTAR-SMOKE-DONE source=marker_log path=serial.log"
 contains "$tmp/project-firmware/serial.log" "QSTAR-SMOKE-DONE"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" --profile uefi-x64 dry-run //:uefi_boot > "$tmp/project-firmware-uefi-dry.out" 2> "$tmp/project-firmware-uefi-dry.err"
+"$qstar" --file "$tmp/project-firmware/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang dry-run //:uefi_boot > "$tmp/project-firmware-uefi-dry.out" 2> "$tmp/project-firmware-uefi-dry.err"
 contains "$tmp/project-firmware-uefi-dry.out" "response_style=msvc"
 contains "$tmp/project-firmware-uefi-dry.out" "/out:build/qstar/out/___uefi_boot/BOOTX64.EFI"
 contains "$tmp/project-firmware-uefi-dry.out" "/subsystem:efi_application"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" --profile uefi-x64 build //:uefi_boot > "$tmp/project-firmware-uefi-build.out" 2> "$tmp/project-firmware-uefi-build.err"
+"$qstar" --file "$tmp/project-firmware/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang build //:uefi_boot > "$tmp/project-firmware-uefi-build.out" 2> "$tmp/project-firmware-uefi-build.err"
 contains "$tmp/project-firmware-uefi-build.out" "status ok"
 test -f "$tmp/project-firmware/build/qstar/out/___uefi_boot/BOOTX64.EFI" || fail "systems firmware UEFI artifact missing"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" --profile uefi-x64 action-log //:uefi_boot:link:0 > "$tmp/project-firmware-uefi-link-log.out" 2> "$tmp/project-firmware-uefi-link-log.err"
+"$qstar" --file "$tmp/project-firmware/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang action-log //:uefi_boot:link:0 > "$tmp/project-firmware-uefi-link-log.out" 2> "$tmp/project-firmware-uefi-link-log.err"
 contains "$tmp/project-firmware-uefi-link-log.out" "/entry:efi_main"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" --profile uefi-aa64 dry-run //:uefi_boot > "$tmp/project-firmware-uefi-aa64-dry.out" 2> "$tmp/project-firmware-uefi-aa64-dry.err"
-contains "$tmp/project-firmware-uefi-aa64-dry.out" "/out:build/qstar/out/___uefi_boot/BOOTAA64.EFI"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" --profile uefi-x64 stage //:esp --dry-run > "$tmp/project-firmware-esp-dry.out" 2> "$tmp/project-firmware-esp-dry.err"
+"$qstar" --file "$tmp/project-firmware/qstar.lua" --target aarch64-pc-windows-msvc --toolchain clang dry-run //:uefi_boot_aa64 > "$tmp/project-firmware-uefi-aa64-dry.out" 2> "$tmp/project-firmware-uefi-aa64-dry.err"
+contains "$tmp/project-firmware-uefi-aa64-dry.out" "/out:build/qstar/out/___uefi_boot_aa64/BOOTAA64.EFI"
+"$qstar" --file "$tmp/project-firmware/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang stage //:esp --dry-run > "$tmp/project-firmware-esp-dry.out" 2> "$tmp/project-firmware-esp-dry.err"
 contains "$tmp/project-firmware-esp-dry.out" "stage_file src=build/qstar/out/___uefi_boot/BOOTX64.EFI dst=stage/esp/EFI/BOOT/BOOTX64.EFI mode=dry-run"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" --profile uefi-x64 stage //:esp > "$tmp/project-firmware-esp-stage.out" 2> "$tmp/project-firmware-esp-stage.err"
+"$qstar" --file "$tmp/project-firmware/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang stage //:esp > "$tmp/project-firmware-esp-stage.out" 2> "$tmp/project-firmware-esp-stage.err"
 contains "$tmp/project-firmware-esp-stage.out" "status ok"
 test -f "$tmp/project-firmware/stage/esp/EFI/BOOT/BOOTX64.EFI" || fail "systems firmware ESP BOOTX64.EFI missing"
 
@@ -3935,7 +3995,7 @@ cp -R "$project_root/systems-firmware" "$tmp/project-firmware-cache-tool"
 "$qstar" --file "$tmp/project-firmware-cache-tool/qstar.lua" build //:kernel_img > "$tmp/project-firmware-cache-tool-first.out" 2> "$tmp/project-firmware-cache-tool-first.err"
 cp "$tmp/project-firmware-cache-tool/tools/fake-objcopy.sh" "$tmp/project-firmware-cache-tool/tools/fake-objcopy-v2.sh"
 chmod +x "$tmp/project-firmware-cache-tool/tools/fake-objcopy-v2.sh"
-awk '{ gsub("llvm-objcopy=tools/fake-objcopy.sh", "llvm-objcopy=tools/fake-objcopy-v2.sh"); print }' "$tmp/project-firmware-cache-tool/qstar.lua" > "$tmp/project-firmware-cache-tool/qstar.lua.new"
+awk '{ gsub("tools/fake-objcopy.sh", "tools/fake-objcopy-v2.sh"); print }' "$tmp/project-firmware-cache-tool/qstar.lua" > "$tmp/project-firmware-cache-tool/qstar.lua.new"
 mv "$tmp/project-firmware-cache-tool/qstar.lua.new" "$tmp/project-firmware-cache-tool/qstar.lua"
 "$qstar" --file "$tmp/project-firmware-cache-tool/qstar.lua" build //:kernel_img --explain-cache > "$tmp/project-firmware-cache-tool-second.out" 2> "$tmp/project-firmware-cache-tool-second.err"
 contains "$tmp/project-firmware-cache-tool-second.out" "cache_miss id=//:kernel_img:generate:0 reason=external-tool-changed"
@@ -4233,10 +4293,10 @@ contains "docs/windows-artifact-graph-ir.md" "target_file(\"//:plugin\", { artif
 contains "docs/windows-artifact-graph-ir.md" "Stella And Ninja Parity"
 contains "tests/corpus/windows-artifacts/README.md" "Windows Artifacts Corpus"
 contains "tests/corpus/windows-artifacts/README.md" "Q174 executable/static-library regression gate"
-contains "tests/corpus/windows-artifacts/README.md" "windows-msvc-fake"
+contains "tests/corpus/windows-artifacts/README.md" "windows_fake"
 contains "tests/corpus/windows-artifacts/README.md" 'runtime `.dll`, import `.lib`'
-contains "tests/corpus/windows-artifacts/qstar.lua" "qstar.profile \"windows-msvc\""
-contains "tests/corpus/windows-artifacts/qstar.lua" "qstar.profile \"windows-msvc-fake\""
+contains "tests/corpus/windows-artifacts/qstar.lua" "qstar.toolset \"windows_fake\""
+contains "tests/corpus/windows-artifacts/qstar.lua" "artifact_name = \"named_tool.exe\""
 contains "tests/corpus/windows-artifacts/qstar.lua" "artifact_name = \"tool.exe\""
 contains "tests/corpus/windows-artifacts/qstar.lua" "artifact_name = \"core.lib\""
 contains "tests/corpus/windows-artifacts/qstar.lua" "artifact_name = \"plugin.dll\""
@@ -4247,7 +4307,7 @@ contains "docs/windows-path-process.md" "workflow_dispatch"
 contains "docs/windows-path-process.md" "MSVC response-file escaping"
 contains "docs/windows-path-process.md" "drive-letter paths are not allowed"
 contains "docs/windows-path-process.md" "backslash paths are not normalized"
-contains "docs/windows-path-process.md" "profile_named.exe"
+contains "docs/windows-path-process.md" "mapped_named.exe"
 contains "docs/windows-path-process.md" "/DWINPATH=C:"
 contains ".github/workflows/windows-validation.yml" "workflow_dispatch"
 contains ".github/workflows/windows-validation.yml" "Windows Native CI Alpha"
@@ -4262,13 +4322,12 @@ contains ".github/workflows/windows-validation.yml" "make qstar-windows-native-a
 contains ".github/workflows/windows-validation.yml" "make qstar-windows-prep-tests"
 contains ".github/workflows/windows-validation.yml" "qstar-windows-native-alpha"
 contains ".github/workflows/windows-validation.yml" "run_ninja_parity"
-contains "tests/windows-prep.sh" "windows-msvc-fake"
-contains "tests/windows-prep.sh" "windows-msvc-artifact-map"
-contains "tests/windows-prep.sh" "windows-msvc-static-fake"
+contains "tests/windows-prep.sh" "windows-artifacts-prefix/bin/named_tool.exe"
+contains "tests/windows-prep.sh" "--toolchain clang dry-run"
 contains "tests/windows-prep.sh" "___windows_rsp_compile_0.rsp"
 contains "tests/windows-prep.sh" "/DTRAIL=tail"
 contains "tests/windows-prep.sh" "/DWINPATH=C:"
-contains "tests/windows-prep.sh" "profile_named.exe"
+contains "tests/windows-prep.sh" "mapped_named.exe"
 contains "tests/windows-prep.sh" "windows_static.lib"
 contains "tests/windows-prep.sh" "windows-list.json"
 contains "tests/windows-prep.sh" "artifact_name"
@@ -4277,16 +4336,16 @@ contains "tests/windows-prep.sh" "windows-artifacts-ninja-prefix/lib/core.lib"
 contains "tests/windows-prep.sh" "Windows sharedlib Ninja unexpectedly succeeded"
 contains "tests/windows-prep.sh" "Windows artifact corpus Ninja sharedlib unexpectedly succeeded"
 contains "tests/corpus/response-files/qstar.lua" "msvc_response_escape_args"
-contains "tests/corpus/response-files/qstar.lua" "windows-msvc-artifact-map"
-contains "tests/corpus/response-files/qstar.lua" "windows-msvc-static-artifact-map"
-contains "tests/corpus/response-files/qstar.lua" "windows-msvc-static-fake"
+contains "tests/corpus/response-files/qstar.lua" "qstar.toolset \"windows_fake\""
+contains "tests/corpus/response-files/qstar.lua" "mapped_named.exe"
+contains "tests/corpus/response-files/qstar.lua" "windows_fake_tools"
 contains "tests/corpus/response-files/qstar.lua" "windows_static.lib"
 contains "tests/corpus/response-files/qstar.lua" "qstar.sharedlib \"windows_plugin\""
 contains "tests/corpus/response-files/qstar.lua" "/DSLASHQUOTE="
 contains "tests/corpus/response-files/tools/fake-lib" "fake static library"
 contains "tests/corpus/response-files/tools/fake-clang-cl" "fake-clang-cl: output path not found"
 contains "wiki/AI_INDEX.md" "Q174"
-contains "wiki/AI_INDEX.md" "windows-msvc-fake"
+contains "wiki/AI_INDEX.md" "windows_fake"
 contains "wiki/AI_INDEX.md" "stage/install layout"
 contains "docs/qstar-pilot-readiness-seal.md" "status: pilot-readiness seal"
 contains "docs/qstar-pilot-readiness-seal.md" "qstar-pilot-readiness-tests"
@@ -4794,12 +4853,20 @@ cat > "$tmp/depfile-fallback/src/core.c" <<'EOF'
 int core(void) { return 1; }
 EOF
 cat > "$tmp/depfile-fallback/qstar.lua" <<'EOF'
-qstar.profile "default" {
-  toolchain = "clang",
-  cc = "tools/no-dep-cc.sh",
+qstar.toolset "nodep" {
+  tools = {
+    c = qstar.cli {"tools/no-dep-cc.sh"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
+}
+
+qstar.config "nodep_tools" {
+  toolset = "//:nodep",
 }
 
 qstar.staticlib "core" {
+  configs = {"//:nodep_tools"},
   sources = {"src/core.c"},
 }
 EOF
@@ -4984,7 +5051,7 @@ qstar.staticlib "cale_core" {
   lang = {
     cale = {
       profile = "safe",
-      compile_options = {"--profile=safe"},
+      compile_options = {"--mode=safe"},
       public_headers = {"include/core.hcl"},
       public_include_dirs = {"include"},
     },
@@ -5015,7 +5082,7 @@ contains "$tmp/lang-surface.out" "lang.asm.include_dirs [boot/include]"
 contains "$tmp/lang-surface.out" "lang.asm.compile_options [-ffreestanding]"
 contains "$tmp/lang-surface.out" "lang.asm.preprocess true"
 contains "$tmp/lang-surface.out" "public_headers [include/core.hcl]"
-contains "$tmp/lang-surface.out" "lang.cale.compile_options [--profile=safe]"
+contains "$tmp/lang-surface.out" "lang.cale.compile_options [--mode=safe]"
 contains "$tmp/lang-surface.out" "lang.cale.profile safe"
 contains "$tmp/lang-surface.out" "lang.cxx.modules enabled=false"
 
@@ -5131,45 +5198,48 @@ if "$qstar" --file "$tmp/workspace/app/app.qst" check //app:outside > "$tmp/outs
 fi
 contains "$tmp/outside-source.err" "must be package-relative"
 
-step "profile diagnostics"
-mkdir -p "$tmp/profile/src"
-cat > "$tmp/profile/src/main.c" <<'EOF'
+step "toolset diagnostics"
+mkdir -p "$tmp/toolset-diagnostics/src"
+cat > "$tmp/toolset-diagnostics/src/main.c" <<'EOF'
 int main(void) { return 0; }
 EOF
-cat > "$tmp/profile/qstar.lua" <<'EOF'
-qstar.profile "custom" {
-  toolchain = "clang",
-  target = "x86_64-unknown-none-elf",
-  stdlib = "none",
-  cc = "clang-custom",
-  cxx = "clang++-custom",
-  cale = "cale-custom",
-  ar = "llvm-ar-custom",
-  linker = "ld-custom",
-  sysroot = "sdk root",
-  resource_dir = "resource dir",
-  include_dirs = {"profile include", "profinc"},
-  lib_dirs = {"profile lib"},
+cat > "$tmp/toolset-diagnostics/qstar.lua" <<'EOF'
+qstar.toolset "custom" {
+  tools = {
+    c = qstar.cli {"clang-custom"},
+    cxx = qstar.cli {"clang++-custom"},
+    archive = qstar.cli {"llvm-ar-custom"},
+    link = qstar.cli {"ld-custom"},
+  },
+  response_files = "on",
+  response_style = "posix",
+}
+
+qstar.config "custom_options" {
+  toolset = "//:custom",
+  lib_dirs = {"toolset lib"},
+  lang = {
+    c = {
+      include_dirs = {"toolset include", "toolinc"},
+    },
+  },
 }
 
 qstar.executable "app" {
+  configs = {"//:custom_options"},
   sources = {"src/main.c"},
   libs = {"m"},
 }
 EOF
-"$qstar" --file "$tmp/profile/qstar.lua" --profile custom dry-run //:app > "$tmp/profile-dry.out" 2> "$tmp/profile-dry.err"
-contains "$tmp/profile-dry.out" "resolved_toolchain owner=//:app toolchain=clang profile=custom target=x86_64-unknown-none-elf stdlib=none resolver=profile-schema-v2 toolset=<none> cc=clang-custom"
-contains "$tmp/profile-dry.out" "\"--sysroot=sdk root\""
-contains "$tmp/profile-dry.out" "-resource-dir"
-contains "$tmp/profile-dry.out" "\"resource dir\""
-contains "$tmp/profile-dry.out" "\"profile include\""
-contains "$tmp/profile-dry.out" "\"-Lprofile lib\""
-contains "$tmp/profile-dry.out" "digest="
-"$qstar" --file "$tmp/profile/qstar.lua" --profile custom doctor > "$tmp/profile-doctor.out" 2> "$tmp/profile-doctor.err"
-contains "$tmp/profile-doctor.out" "profile-schema in-dsl-v1 include_dirs=2 lib_dirs=1"
-contains "$tmp/profile-doctor.out" "toolchain-sanity name=clang cc=clang-custom cxx=clang++-custom cale=cale-custom ar=llvm-ar-custom linker=ld-custom"
+"$qstar" --file "$tmp/toolset-diagnostics/qstar.lua" --target x86_64-unknown-none-elf --toolchain clang --stdlib none dry-run //:app > "$tmp/toolset-dry.out" 2> "$tmp/toolset-dry.err"
+contains "$tmp/toolset-dry.out" "resolved_toolchain owner=//:app toolchain=clang profile=default target=x86_64-unknown-none-elf stdlib=none resolver=toolset-schema-v1 toolset=//:custom cc=clang-custom"
+contains "$tmp/toolset-dry.out" "\"toolset include\""
+contains "$tmp/toolset-dry.out" "\"-Ltoolset lib\""
+contains "$tmp/toolset-dry.out" "digest="
+"$qstar" --file "$tmp/toolset-diagnostics/qstar.lua" doctor > "$tmp/toolset-doctor.out" 2> "$tmp/toolset-doctor.err"
+contains "$tmp/toolset-doctor.out" "toolchain-sanity name=host cc=clang-custom cxx=clang++-custom cale=cale ar=llvm-ar-custom linker=ld-custom"
 
-step "freestanding profile"
+step "freestanding toolset"
 mkdir -p "$tmp/freestanding/src" "$tmp/freestanding/tools" "$tmp/freestanding/linker"
 cat > "$tmp/freestanding/tools/fake-cc.sh" <<'EOF'
 #!/bin/sh
@@ -5226,30 +5296,39 @@ cat > "$tmp/freestanding/linker/kernel.ld" <<'EOF'
 SECTIONS { . = 0x80000; }
 EOF
 cat > "$tmp/freestanding/qstar.lua" <<'EOF'
-qstar.profile "default" {
-  toolchain = "clang",
-  target = "aarch64-none-elf",
-  arch = "aarch64",
-  cpu = "cortex-a76",
-  abi = "lp64",
-  freestanding = true,
-  cc = "tools/fake-cc.sh",
-  linker = "tools/fake-link.sh",
-  linker_script = "linker/profile.ld",
-  link_options = {"-nostdlib"},
-  defsyms = {"__profile_base=0x1000"},
+qstar.toolset "fake" {
+  tools = {
+    c = qstar.cli {"tools/fake-cc.sh"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"tools/fake-link.sh"},
+  },
+}
+
+qstar.config "kernel_tools" {
+  toolset = "//:fake",
+  lang = {
+    c = {
+      compile_options = {
+        "-ffreestanding",
+        "-fno-builtin",
+        "-fno-stack-protector",
+        "-mgeneral-regs-only",
+        "-mcpu=cortex-a76",
+        "-mabi=lp64",
+      },
+    },
+  },
 }
 
 qstar.executable "kernel" {
+  configs = {"//:kernel_tools"},
   sources = {"src/kernel.c"},
-  link_options = {"-Wl,-Map=kernel.map"},
+  link_options = {"-nostdlib", "-Wl,-Map=kernel.map"},
   linker_script = "linker/kernel.ld",
-  defsyms = {"__stack_top=0x80000"},
+  defsyms = {"__profile_base=0x1000", "__stack_top=0x80000"},
 }
 EOF
 "$qstar" --file "$tmp/freestanding/qstar.lua" dry-run //:kernel > "$tmp/freestanding-dry.out" 2> "$tmp/freestanding-dry.err"
-contains "$tmp/freestanding-dry.out" "profile_target arch=aarch64 cpu=cortex-a76 abi=lp64 freestanding=true"
-contains "$tmp/freestanding-dry.out" "profile_link linker_script=linker/profile.ld link_options=[-nostdlib] defsyms=[__profile_base=0x1000]"
 contains "$tmp/freestanding-dry.out" "-ffreestanding"
 contains "$tmp/freestanding-dry.out" "-fno-builtin"
 contains "$tmp/freestanding-dry.out" "-fno-stack-protector"
@@ -5298,35 +5377,24 @@ if "$qstar" --file "$tmp/freestanding/qstar.lua" check //:bad_defsym > "$tmp/fre
 fi
 contains "$tmp/freestanding-bad-defsym.err" "defsym 'BROKEN' in '//:bad_defsym' must be NAME=VALUE"
 cat > "$tmp/freestanding/qstar.lua" <<'EOF'
-qstar.profile "default" {
-  toolchain = "clang",
-  target = "aarch64-none-elf",
+qstar.executable "missing_script" {
+  sources = {"src/kernel.c"},
   linker_script = "linker/missing.ld",
 }
-
-qstar.executable "missing_profile_script" {
-  sources = {"src/kernel.c"},
-}
 EOF
-if "$qstar" --file "$tmp/freestanding/qstar.lua" check //:missing_profile_script > "$tmp/freestanding-missing-profile.out" 2> "$tmp/freestanding-missing-profile.err"; then
-	fail "missing profile linker script unexpectedly succeeded"
+if "$qstar" --file "$tmp/freestanding/qstar.lua" check //:missing_script > "$tmp/freestanding-missing-script.out" 2> "$tmp/freestanding-missing-script.err"; then
+	fail "missing linker script unexpectedly succeeded"
 fi
-contains "$tmp/freestanding-missing-profile.err" "profile linker_script 'linker/missing.ld' does not exist"
+contains "$tmp/freestanding-missing-script.err" "linker script 'linker/missing.ld' in '//:missing_script' does not exist"
 
 "$qstar" --file tests/corpus/freestanding/qstar.lua doctor > "$tmp/freestanding-corpus-doctor.out" 2> "$tmp/freestanding-corpus-doctor.err"
-contains "$tmp/freestanding-corpus-doctor.out" "profile_response response_files=on response_style=posix"
-contains "$tmp/freestanding-corpus-doctor.out" "response-policy configured_files=on configured_style=posix effective_files=on effective_style=posix"
+contains "$tmp/freestanding-corpus-doctor.out" "response-policy configured_files=auto configured_style=auto effective_files=on effective_style=posix"
 contains "$tmp/freestanding-corpus-doctor.out" "toolchain-tool role=cc name=tools/fake-clang.sh required=true mode=package status=found"
 contains "$tmp/freestanding-corpus-doctor.out" "toolchain-tool role=linker name=tools/fake-link.sh required=true mode=package status=found"
-contains "$tmp/freestanding-corpus-doctor.out" "profile-path name=sysroot path=sysroot mode=package status=found type=directory"
-contains "$tmp/freestanding-corpus-doctor.out" "profile-path name=resource_dir path=resource mode=package status=found type=directory"
-contains "$tmp/freestanding-corpus-doctor.out" "external-tool-override name=llvm-objcopy value=tools/fake-objcopy.sh mode=package status=found"
 contains "$tmp/freestanding-corpus-doctor.out" "depfile-behavior compiler=tools/fake-clang.sh"
 "$qstar" --file tests/corpus/freestanding/qstar.lua explain //:kernel > "$tmp/freestanding-corpus-explain.out" 2> "$tmp/freestanding-corpus-explain.err"
-contains "$tmp/freestanding-corpus-explain.out" "profile_response response_files=on response_style=posix"
 contains "$tmp/freestanding-corpus-explain.out" "effective_compile_merge owner=//:kernel"
-contains "$tmp/freestanding-corpus-explain.out" "auto_options=[-ffreestanding, -fno-builtin, -fno-stack-protector, -mgeneral-regs-only, -mcpu=cortex-a76, -mabi=lp64]"
-contains "$tmp/freestanding-corpus-explain.out" "target_c_compile_options=[-std=c23, -Wall, -Wextra, -Werror]"
+contains "$tmp/freestanding-corpus-explain.out" "target_c_compile_options=[-std=c23, -ffreestanding, -fno-builtin, -fno-stack-protector, -mgeneral-regs-only, -mcpu=cortex-a76, -mabi=lp64, -Wall, -Wextra, -Werror]"
 contains "$tmp/freestanding-corpus-explain.out" "target_system_include_dirs=[sysroot/include]"
 
 step "doctor missing tools"
@@ -5335,23 +5403,27 @@ cat > "$tmp/profile-doctor-missing/src/main.c" <<'EOF'
 int main(void) { return 0; }
 EOF
 cat > "$tmp/profile-doctor-missing/qstar.lua" <<'EOF'
-qstar.profile "default" {
-  cc = "qstar-missing-cc",
-  linker = "qstar-missing-ld",
-  sysroot = "missing-sysroot",
-  resource_dir = "missing-resource",
+qstar.toolset "missing" {
+  tools = {
+    c = qstar.cli {"qstar-missing-cc"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"qstar-missing-ld"},
+  },
   path_tools = {"qstar-missing-objcopy"},
 }
 
+qstar.config "missing_tools" {
+  toolset = "//:missing",
+}
+
 qstar.executable "app" {
+  configs = {"//:missing_tools"},
   sources = {"src/main.c"},
 }
 EOF
 "$qstar" --file "$tmp/profile-doctor-missing/qstar.lua" doctor > "$tmp/profile-doctor-missing.out" 2> "$tmp/profile-doctor-missing.err"
 contains "$tmp/profile-doctor-missing.out" "toolchain-tool role=cc name=qstar-missing-cc required=true mode=path status=missing severity=warning"
 contains "$tmp/profile-doctor-missing.out" "toolchain-tool role=linker name=qstar-missing-ld required=true mode=path status=missing severity=warning"
-contains "$tmp/profile-doctor-missing.out" "profile-path name=sysroot path=missing-sysroot mode=package status=missing"
-contains "$tmp/profile-doctor-missing.out" "profile-path name=resource_dir path=missing-resource mode=package status=missing"
 contains "$tmp/profile-doctor-missing.out" "external-tool name=qstar-missing-objcopy mode=path status=missing"
 
 step "external tool policy"
@@ -5369,7 +5441,10 @@ int ext_value(void);
 int main(void) { return ext_value() - 3; }
 EOF
 cat > "$tmp/exttool/qstar.lua" <<'EOF'
-qstar.profile "default" {
+qstar.toolset "external" {
+  tools = {
+    c = qstar.cli {"cc"},
+  },
   path_tools = {"qstar-extgen"},
 }
 
@@ -5386,7 +5461,6 @@ qstar.executable "app" {
 }
 EOF
 PATH="$tmp/exttool/bin:$PATH" "$qstar" --file "$tmp/exttool/qstar.lua" doctor > "$tmp/exttool-doctor.out" 2> "$tmp/exttool-doctor.err"
-contains "$tmp/exttool-doctor.out" "profile_external_tools allow_absolute=false path_tools=[qstar-extgen] tool_overrides=[]"
 contains "$tmp/exttool-doctor.out" "external-tool-policy path_tools=1 tool_overrides=0 allow_absolute=false"
 contains "$tmp/exttool-doctor.out" "external-tool name=qstar-extgen mode=path status=found"
 PATH="$tmp/exttool/bin:$PATH" "$qstar" --file "$tmp/exttool/qstar.lua" dry-run //:app > "$tmp/exttool-dry.out" 2> "$tmp/exttool-dry.err"
@@ -5423,7 +5497,7 @@ EOF
 if "$qstar" --file "$tmp/exttool-deny/qstar.lua" check //:app > "$tmp/exttool-deny.out" 2> "$tmp/exttool-deny.err"; then
 	fail "unallowlisted PATH tool unexpectedly succeeded"
 fi
-contains "$tmp/exttool-deny.err" "generated action PATH tool 'qstar-extgen' is not allowed by profile/toolset path_tools"
+contains "$tmp/exttool-deny.err" "generated action PATH tool 'qstar-extgen' is not allowed by toolset path_tools"
 
 mkdir -p "$tmp/tool-override/src" "$tmp/tool-override/tools"
 cat > "$tmp/tool-override/tools/fake-objcopy.sh" <<'EOF'
@@ -5439,13 +5513,9 @@ int override_value(void);
 int main(void) { return override_value() - 4; }
 EOF
 cat > "$tmp/tool-override/qstar.lua" <<'EOF'
-qstar.profile "default" {
-  tool_overrides = {"llvm-objcopy=tools/fake-objcopy.sh"},
-}
-
 qstar.custom_target "generated_ext" {
   outputs = {qstar.output("generated/override.c")},
-  command = qstar.cli {"llvm-objcopy", qstar.output(0)},
+  command = qstar.cli {"tools/fake-objcopy.sh", qstar.output(0)},
 }
 
 qstar.executable "app" {
@@ -5456,13 +5526,12 @@ qstar.executable "app" {
 }
 EOF
 "$qstar" --file "$tmp/tool-override/qstar.lua" doctor > "$tmp/tool-override-doctor.out" 2> "$tmp/tool-override-doctor.err"
-contains "$tmp/tool-override-doctor.out" "external-tool-policy path_tools=0 tool_overrides=1 allow_absolute=false"
-contains "$tmp/tool-override-doctor.out" "external-tool-override name=llvm-objcopy value=tools/fake-objcopy.sh mode=package status=found"
+contains "$tmp/tool-override-doctor.out" "external-tool-policy path_tools=0 tool_overrides=0 allow_absolute=false"
 "$qstar" --file "$tmp/tool-override/qstar.lua" dry-run //:app > "$tmp/tool-override-dry.out" 2> "$tmp/tool-override-dry.err"
-contains "$tmp/tool-override-dry.out" "tool=llvm-objcopy tool_mode=override-package resolved_tool=tools/fake-objcopy.sh"
+contains "$tmp/tool-override-dry.out" "tool=tools/fake-objcopy.sh tool_mode=package resolved_tool=tools/fake-objcopy.sh"
 contains "$tmp/tool-override-dry.out" "argv=[tools/fake-objcopy.sh"
 "$qstar" --file "$tmp/tool-override/qstar.lua" build //:app --verbose > "$tmp/tool-override-build.out" 2> "$tmp/tool-override-build.err"
-contains "$tmp/tool-override-build.out" "tool=llvm-objcopy tool_mode=override-package resolved_tool=tools/fake-objcopy.sh"
+contains "$tmp/tool-override-build.out" "tool=tools/fake-objcopy.sh tool_mode=package resolved_tool=tools/fake-objcopy.sh"
 "$qstar" --file "$tmp/tool-override/qstar.lua" action-log //:generated_ext:generate:0 > "$tmp/tool-override-generated-log.out" 2> "$tmp/tool-override-generated-log.err"
 contains "$tmp/tool-override-generated-log.out" "argv[0]=tools/fake-objcopy.sh"
 "$tmp/tool-override/build/qstar/out/___app/app"
@@ -5489,7 +5558,10 @@ if "$qstar" --file "$tmp/absolute-tool/qstar.lua" check //:app > "$tmp/absolute-
 fi
 contains "$tmp/absolute-tool-deny.err" "requires allow_absolute_tools=true"
 cat > "$tmp/absolute-tool/qstar.lua" <<EOF
-qstar.profile "default" {
+qstar.toolset "absolute" {
+  tools = {
+    c = qstar.cli {"cc"},
+  },
   allow_absolute_tools = true,
 }
 
@@ -5572,13 +5644,21 @@ cat > "$tmp/rsppolicy/src/main.c" <<'EOF'
 int main(void) { return 0; }
 EOF
 cat > "$tmp/rsppolicy/qstar.lua" <<'EOF'
-qstar.profile "default" {
-  toolchain = "clang",
-  target = "x86_64-unknown-none-elf",
+qstar.toolset "no_rsp" {
+  tools = {
+    c = qstar.cli {"cc"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
   response_files = "off",
 }
 
+qstar.config "no_rsp_tools" {
+  toolset = "//:no_rsp",
+}
+
 qstar.executable "app" {
+  configs = {"//:no_rsp_tools"},
   sources = {"src/main.c"},
   lang = {
     c = {
@@ -5609,16 +5689,23 @@ cat > "$tmp/windows/src/main.c" <<'EOF'
 int main(void) { return 0; }
 EOF
 cat > "$tmp/windows/qstar.lua" <<'EOF'
-qstar.profile "default" {
-  toolchain = "clang",
-  target = "x86_64-pc-windows-msvc",
-  cc = "clang-cl",
-  cxx = "clang-cl",
-  linker = "clang-cl",
+qstar.toolset "msvc" {
+  tools = {
+    c = qstar.cli {"clang-cl"},
+    cxx = qstar.cli {"clang-cl"},
+    asm = qstar.cli {"clang-cl"},
+    archive = qstar.cli {"llvm-lib"},
+    link = qstar.cli {"clang-cl"},
+  },
   response_style = "msvc",
 }
 
+qstar.config "msvc_tools" {
+  toolset = "//:msvc",
+}
+
 qstar.executable "app" {
+  configs = {"//:msvc_tools"},
   sources = {"src/main.c"},
   lang = {
     c = {
@@ -5642,7 +5729,7 @@ qstar.executable "app" {
   libs = {"user32"},
 }
 EOF
-"$qstar" --file "$tmp/windows/qstar.lua" dry-run //:app > "$tmp/windows-dry.out" 2> "$tmp/windows-dry.err"
+"$qstar" --file "$tmp/windows/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang dry-run //:app > "$tmp/windows-dry.out" 2> "$tmp/windows-dry.err"
 contains "$tmp/windows-dry.out" "response_style=msvc"
 contains "$tmp/windows-dry.out" "response_digest="
 contains "$tmp/windows-dry.out" "/link"
@@ -5685,10 +5772,6 @@ ELF-STUB
 payload
 EOF
 cat > "$tmp/artifact/qstar.lua" <<'EOF'
-qstar.profile "default" {
-  tool_overrides = {"llvm-objcopy=tools/fake-objcopy.sh"},
-}
-
 qstar.custom_target "kernel_img" {
   inputs = {"fixtures/kernel.elf"},
   outputs = {
@@ -5700,7 +5783,7 @@ qstar.custom_target "kernel_img" {
     }),
   },
   command = qstar.cli {
-    "llvm-objcopy",
+    "tools/fake-objcopy.sh",
     "-O",
     "binary",
     qstar.input(0),
@@ -5720,7 +5803,7 @@ contains "$tmp/artifact-explain.out" "generated_artifact output=generated/kernel
 contains "$tmp/artifact-explain.out" "identity=generated/kernel8.img|group=images|format=raw-binary|address=0x80000|layout=rpi5-kernel8"
 "$qstar" --file "$tmp/artifact/qstar.lua" dry-run //:kernel_img > "$tmp/artifact-dry.out" 2> "$tmp/artifact-dry.err"
 contains "$tmp/artifact-dry.out" "dry_run_generated_action //:kernel_img"
-contains "$tmp/artifact-dry.out" "tool=llvm-objcopy tool_mode=override-package resolved_tool=tools/fake-objcopy.sh"
+contains "$tmp/artifact-dry.out" "tool=tools/fake-objcopy.sh tool_mode=package resolved_tool=tools/fake-objcopy.sh"
 contains "$tmp/artifact-dry.out" "argv=[tools/fake-objcopy.sh, -O, binary, fixtures/kernel.elf, generated/kernel8.img]"
 "$qstar" --file "$tmp/artifact/qstar.lua" build //:kernel_img --verbose > "$tmp/artifact-build.out" 2> "$tmp/artifact-build.err"
 contains "$tmp/artifact-build.out" "build_generated_action //:kernel_img"
@@ -5788,10 +5871,6 @@ cat > "$tmp/artifact-dep/fixtures/blob.bin" <<'EOF'
 BLOB-V1
 EOF
 cat > "$tmp/artifact-dep/qstar.lua" <<'EOF'
-qstar.profile "default" {
-  tool_overrides = {"llvm-objcopy=tools/fake-objcopy.sh"},
-}
-
 qstar.executable "kernel" {
   sources = {"src/kernel.c"},
 }
@@ -5807,7 +5886,7 @@ qstar.custom_target "kernel_img" {
       layout = "host-kernel-image",
     }),
   },
-  command = qstar.cli {"llvm-objcopy", "-O", "binary", qstar.input(0), qstar.output(0)},
+  command = qstar.cli {"tools/fake-objcopy.sh", "-O", "binary", qstar.input(0), qstar.output(0)},
 }
 
 qstar.custom_target "raw_blob" {
@@ -5858,20 +5937,16 @@ mkdir -p "$tmp/artifact-collision/tools" "$tmp/artifact-collision/fixtures"
 cp "$tmp/artifact/tools/fake-objcopy.sh" "$tmp/artifact-collision/tools/fake-objcopy.sh"
 cp "$tmp/artifact/fixtures/kernel.elf" "$tmp/artifact-collision/fixtures/kernel.elf"
 cat > "$tmp/artifact-collision/qstar.lua" <<'EOF'
-qstar.profile "default" {
-  tool_overrides = {"llvm-objcopy=tools/fake-objcopy.sh"},
-}
-
 qstar.custom_target "one" {
   inputs = {"fixtures/kernel.elf"},
   outputs = {qstar.output("generated/one.img", {format = "raw-binary", address = "0x80000", layout = "rpi5-kernel8"})},
-  command = qstar.cli {"llvm-objcopy", "-O", "binary", qstar.input(0), qstar.output(0)},
+  command = qstar.cli {"tools/fake-objcopy.sh", "-O", "binary", qstar.input(0), qstar.output(0)},
 }
 
 qstar.custom_target "two" {
   inputs = {"fixtures/kernel.elf"},
   outputs = {qstar.output("generated/two.img", {group = "images", format = "raw-binary", address = "0x80000", layout = "rpi5-kernel8"})},
-  command = qstar.cli {"llvm-objcopy", "-O", "binary", qstar.input(0), qstar.output(0)},
+  command = qstar.cli {"tools/fake-objcopy.sh", "-O", "binary", qstar.input(0), qstar.output(0)},
 }
 EOF
 if "$qstar" --file "$tmp/artifact-collision/qstar.lua" check > "$tmp/artifact-collision.out" 2> "$tmp/artifact-collision.err"; then
@@ -6092,17 +6167,23 @@ int efi_main(void *image, void *system_table) {
 }
 EOF
 cat > "$tmp/uefi/qstar.lua" <<'EOF'
-qstar.profile "default" {
-  toolchain = "clang",
-  target = "x86_64-pc-windows-msvc",
-  cc = "tools/fake-clang.sh",
-  linker = "tools/fake-lld-link.sh",
+qstar.toolset "uefi" {
+  tools = {
+    c = qstar.cli {"tools/fake-clang.sh"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"tools/fake-lld-link.sh"},
+  },
   response_style = "msvc",
-  artifact_names = {"//:boot=BOOTX64.EFI"},
+}
+
+qstar.config "uefi_tools" {
+  toolset = "//:uefi",
 }
 
 qstar.executable "boot" {
+  configs = {"//:uefi_tools"},
   sources = {"src/efi_main.c"},
+  artifact_name = "BOOTX64.EFI",
   lang = {
     c = {
       compile_options = {"-ffreestanding"},
@@ -6115,33 +6196,39 @@ qstar.executable "boot" {
   },
 }
 EOF
-"$qstar" --file "$tmp/uefi/qstar.lua" dry-run //:boot > "$tmp/uefi-x64-dry.out" 2> "$tmp/uefi-x64-dry.err"
+"$qstar" --file "$tmp/uefi/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang dry-run //:boot > "$tmp/uefi-x64-dry.out" 2> "$tmp/uefi-x64-dry.err"
 contains "$tmp/uefi-x64-dry.out" "response_style=msvc"
 contains "$tmp/uefi-x64-dry.out" "/out:build/qstar/out/___boot/BOOTX64.EFI"
 contains "$tmp/uefi-x64-dry.out" "/subsystem:efi_application"
 contains "$tmp/uefi-x64-dry.out" "/entry:efi_main"
 contains "$tmp/uefi-x64-dry.out" "/nodefaultlib"
-"$qstar" --file "$tmp/uefi/qstar.lua" build //:boot > "$tmp/uefi-x64-build.out" 2> "$tmp/uefi-x64-build.err"
+"$qstar" --file "$tmp/uefi/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang build //:boot > "$tmp/uefi-x64-build.out" 2> "$tmp/uefi-x64-build.err"
 contains "$tmp/uefi-x64-build.out" "status ok"
 test -f "$tmp/uefi/build/qstar/out/___boot/BOOTX64.EFI" || fail "missing UEFI x64 artifact"
-"$qstar" --file "$tmp/uefi/qstar.lua" action-log //:boot:link:0 > "$tmp/uefi-x64-link-log.out" 2> "$tmp/uefi-x64-link-log.err"
+"$qstar" --file "$tmp/uefi/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang action-log //:boot:link:0 > "$tmp/uefi-x64-link-log.out" 2> "$tmp/uefi-x64-link-log.err"
 contains "$tmp/uefi-x64-link-log.out" "argv[0]=tools/fake-lld-link.sh"
 contains "$tmp/uefi-x64-link-log.out" "argv[1]=/out:build/qstar/out/___boot/BOOTX64.EFI"
 contains "$tmp/uefi-x64-link-log.out" "argv[2]=/subsystem:efi_application"
-QSTAR_DEBUG_STATE_DUMPS=1 "$qstar" --file "$tmp/uefi/qstar.lua" build //:boot --progress off > "$tmp/uefi-x64-debug-state.out" 2> "$tmp/uefi-x64-debug-state.err"
-contains "$tmp/uefi/build/qstar/state/graph.json" "\"artifact_name\":\"\""
+QSTAR_DEBUG_STATE_DUMPS=1 "$qstar" --file "$tmp/uefi/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang build //:boot --progress off > "$tmp/uefi-x64-debug-state.out" 2> "$tmp/uefi-x64-debug-state.err"
+contains "$tmp/uefi/build/qstar/state/graph.json" "\"artifact_name\":\"BOOTX64.EFI\""
 cat > "$tmp/uefi/qstar.lua" <<'EOF'
-qstar.profile "default" {
-  toolchain = "clang",
-  target = "aarch64-pc-windows-msvc",
-  cc = "tools/fake-clang.sh",
-  linker = "tools/fake-lld-link.sh",
+qstar.toolset "uefi" {
+  tools = {
+    c = qstar.cli {"tools/fake-clang.sh"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"tools/fake-lld-link.sh"},
+  },
   response_style = "msvc",
-  artifact_names = {"//:boot=BOOTAA64.EFI"},
+}
+
+qstar.config "uefi_tools" {
+  toolset = "//:uefi",
 }
 
 qstar.executable "boot" {
+  configs = {"//:uefi_tools"},
   sources = {"src/efi_main.c"},
+  artifact_name = "BOOTAA64.EFI",
   lang = {
     c = {
       compile_options = {"-ffreestanding"},
@@ -6154,21 +6241,12 @@ qstar.executable "boot" {
   },
 }
 EOF
-"$qstar" --file "$tmp/uefi/qstar.lua" dry-run //:boot > "$tmp/uefi-aa64-dry.out" 2> "$tmp/uefi-aa64-dry.err"
+"$qstar" --file "$tmp/uefi/qstar.lua" --target aarch64-pc-windows-msvc --toolchain clang dry-run //:boot > "$tmp/uefi-aa64-dry.out" 2> "$tmp/uefi-aa64-dry.err"
 contains "$tmp/uefi-aa64-dry.out" "/out:build/qstar/out/___boot/BOOTAA64.EFI"
-"$qstar" --file "$tmp/uefi/qstar.lua" build //:boot > "$tmp/uefi-aa64-build.out" 2> "$tmp/uefi-aa64-build.err"
+"$qstar" --file "$tmp/uefi/qstar.lua" --target aarch64-pc-windows-msvc --toolchain clang build //:boot > "$tmp/uefi-aa64-build.out" 2> "$tmp/uefi-aa64-build.err"
 contains "$tmp/uefi-aa64-build.out" "status ok"
 test -f "$tmp/uefi/build/qstar/out/___boot/BOOTAA64.EFI" || fail "missing UEFI AArch64 artifact"
 cat > "$tmp/uefi/qstar.lua" <<'EOF'
-qstar.profile "default" {
-  toolchain = "clang",
-  target = "x86_64-pc-windows-msvc",
-  cc = "tools/fake-clang.sh",
-  linker = "tools/fake-lld-link.sh",
-  response_style = "msvc",
-  artifact_names = {"//:boot=BOOTX64.EFI"},
-}
-
 qstar.executable "boot" {
   artifact_name = "BOOTLOCAL.EFI",
   sources = {"src/efi_main.c"},
@@ -6179,18 +6257,11 @@ qstar.executable "boot" {
   },
 }
 EOF
-"$qstar" --file "$tmp/uefi/qstar.lua" dry-run //:boot > "$tmp/uefi-local-dry.out" 2> "$tmp/uefi-local-dry.err"
-contains "$tmp/uefi-local-dry.out" "/out:build/qstar/out/___boot/BOOTLOCAL.EFI"
+"$qstar" --file "$tmp/uefi/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang dry-run //:boot > "$tmp/uefi-local-dry.out" 2> "$tmp/uefi-local-dry.err"
+contains "$tmp/uefi-local-dry.out" "output=build/qstar/out/___boot/BOOTLOCAL.EFI"
 "$qstar" --file "$tmp/uefi/qstar.lua" list-targets --format json > "$tmp/uefi-targets-json.out" 2> "$tmp/uefi-targets-json.err"
 contains "$tmp/uefi-targets-json.out" "\"artifact_name\":\"BOOTLOCAL.EFI\""
 cat > "$tmp/uefi/qstar.lua" <<'EOF'
-qstar.profile "default" {
-  toolchain = "clang",
-  target = "x86_64-pc-windows-msvc",
-  cc = "tools/fake-clang.sh",
-  linker = "tools/fake-lld-link.sh",
-}
-
 qstar.executable "boot" {
   artifact_name = "EFI/BOOT/BOOTX64.EFI",
   sources = {"src/efi_main.c"},
@@ -6200,24 +6271,6 @@ if "$qstar" --file "$tmp/uefi/qstar.lua" check //:boot > "$tmp/uefi-bad-target-n
 	fail "path-like artifact_name unexpectedly succeeded"
 fi
 contains "$tmp/uefi-bad-target-name.err" "artifact_name 'EFI/BOOT/BOOTX64.EFI' must be a filename, not a path"
-cat > "$tmp/uefi/qstar.lua" <<'EOF'
-qstar.profile "default" {
-  toolchain = "clang",
-  target = "x86_64-pc-windows-msvc",
-  cc = "tools/fake-clang.sh",
-  linker = "tools/fake-lld-link.sh",
-  artifact_names = {"//:boot=EFI/BOOT/BOOTX64.EFI"},
-}
-
-qstar.executable "boot" {
-  sources = {"src/efi_main.c"},
-}
-EOF
-if "$qstar" --file "$tmp/uefi/qstar.lua" check //:boot > "$tmp/uefi-bad-profile-name.out" 2> "$tmp/uefi-bad-profile-name.err"; then
-	fail "path-like profile artifact_names unexpectedly succeeded"
-fi
-contains "$tmp/uefi-bad-profile-name.err" "profile artifact_names entry '//:boot=EFI/BOOT/BOOTX64.EFI' must be LABEL=FILENAME"
-
 step "stage package"
 mkdir -p "$tmp/stagepkg/src" "$tmp/stagepkg/tools" "$tmp/stagepkg/fixtures" "$tmp/stagepkg/boot"
 cat > "$tmp/stagepkg/tools/fake-clang.sh" <<'EOF'
@@ -6318,18 +6371,23 @@ cat > "$tmp/stagepkg/boot/payload.bin" <<'EOF'
 payload
 EOF
 cat > "$tmp/stagepkg/qstar.lua" <<'EOF'
-qstar.profile "default" {
-  toolchain = "clang",
-  target = "x86_64-pc-windows-msvc",
-  cc = "tools/fake-clang.sh",
-  linker = "tools/fake-link.sh",
+qstar.toolset "stagepkg" {
+  tools = {
+    c = qstar.cli {"tools/fake-clang.sh"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"tools/fake-link.sh"},
+  },
   response_style = "msvc",
-  tool_overrides = {"llvm-objcopy=tools/fake-objcopy.sh"},
-  artifact_names = {"//:boot=BOOTX64.EFI"},
+}
+
+qstar.config "stagepkg_tools" {
+  toolset = "//:stagepkg",
 }
 
 qstar.executable "boot" {
+  configs = {"//:stagepkg_tools"},
   sources = {"src/efi_main.c"},
+  artifact_name = "BOOTX64.EFI",
   link_options = {
     "/subsystem:efi_application",
     "/entry:efi_main",
@@ -6348,7 +6406,7 @@ qstar.custom_target "kernel_img" {
     }),
   },
   command = qstar.cli {
-    "llvm-objcopy",
+    "tools/fake-objcopy.sh",
     "-O",
     "binary",
     qstar.input(0),

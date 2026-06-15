@@ -8,11 +8,11 @@ dedicated QStar keywords:
 - ELF to raw image conversion through `qstar.custom_target` + `qstar.cli`.
 - RPi-style copy-only staging with `qstar.stage`.
 - QEMU/serial smoke through `qstar.run_target` and `marker_log`.
-- UEFI PE/COFF output naming and ESP staging through profile/link policy.
+- UEFI PE/COFF output naming and ESP staging through target-local artifact and link policy.
 
 The tools in `tools/` are deterministic fake tools. A real package can replace
-them through `qstar.profile` declarations in `qstar.lua` without changing the
-target model.
+them through `qstar.toolset` and `qstar.config` declarations in `qstar.lua`
+without changing the target model.
 
 Useful commands:
 
@@ -20,8 +20,8 @@ Useful commands:
 qstar --file qstar.lua dry-run //:kernel
 qstar --file qstar.lua stage //:rpi
 qstar --file qstar.lua build //:qemu_smoke
-qstar --file qstar.lua dry-run //:uefi_boot --profile uefi-x64
-qstar --file qstar.lua stage //:esp --profile uefi-x64
+qstar --file qstar.lua --target x86_64-pc-windows-msvc --toolchain clang dry-run //:uefi_boot
+qstar --file qstar.lua --target x86_64-pc-windows-msvc --toolchain clang stage //:esp
 ```
 
 The QEMU wrapper invokes `qemu-system-aarch64 --version` when the tool exists and

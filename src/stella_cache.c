@@ -8,10 +8,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v1"
+#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v2"
 #define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v1"
 #define QSTAR_STELLA_ACTION_MAGIC "qstar-stella-actions-cache-v1"
-#define QSTAR_STELLA_PLAN_ABI 2
+#define QSTAR_STELLA_PLAN_ABI 3
 #define QSTAR_STELLA_HASH_INIT 1469598103934665603ULL
 #define QSTAR_STELLA_HASH_PRIME 1099511628211ULL
 #define QSTAR_STELLA_MAX_STRING (16U * 1024U * 1024U)
@@ -336,6 +336,44 @@ read_profile(FILE *f, struct qstar_profile_input *p)
 }
 
 static int
+write_toolset(FILE *f, const struct qstar_toolset *toolset)
+{
+	return write_str(f, toolset->label) < 0 ||
+	    write_str(f, toolset->name) < 0 ||
+	    write_str(f, toolset->fragment_dir) < 0 ||
+	    write_str(f, toolset->origin_file) < 0 ||
+	    write_i32(f, toolset->origin_line) < 0 ||
+	    write_list(f, &toolset->c) < 0 ||
+	    write_list(f, &toolset->cxx) < 0 ||
+	    write_list(f, &toolset->asm_) < 0 ||
+	    write_list(f, &toolset->archive) < 0 ||
+	    write_list(f, &toolset->link) < 0 ||
+	    write_list(f, &toolset->path_tools) < 0 ||
+	    write_str(f, toolset->response_files) < 0 ||
+	    write_str(f, toolset->response_style) < 0 ||
+	    write_str(f, toolset->allow_absolute_tools) < 0 ? -1 : 0;
+}
+
+static int
+read_toolset(FILE *f, struct qstar_toolset *toolset)
+{
+	return read_str(f, &toolset->label) < 0 ||
+	    read_str(f, &toolset->name) < 0 ||
+	    read_str(f, &toolset->fragment_dir) < 0 ||
+	    read_str(f, &toolset->origin_file) < 0 ||
+	    read_i32(f, &toolset->origin_line) < 0 ||
+	    read_list(f, &toolset->c) < 0 ||
+	    read_list(f, &toolset->cxx) < 0 ||
+	    read_list(f, &toolset->asm_) < 0 ||
+	    read_list(f, &toolset->archive) < 0 ||
+	    read_list(f, &toolset->link) < 0 ||
+	    read_list(f, &toolset->path_tools) < 0 ||
+	    read_str(f, &toolset->response_files) < 0 ||
+	    read_str(f, &toolset->response_style) < 0 ||
+	    read_str(f, &toolset->allow_absolute_tools) < 0 ? -1 : 0;
+}
+
+static int
 write_target(FILE *f, const struct qstar_target *t)
 {
 #define WSTR(field) do { if (write_str(f, t->field) < 0) return -1; } while (0)
@@ -386,6 +424,7 @@ write_target(FILE *f, const struct qstar_target *t)
 	    write_i32(f, t->cxx_modules_present) < 0 ||
 	    write_i32(f, t->cxx_modules_enabled) < 0)
 		return -1;
+	WSTR(toolset);
 	WSTR(toolchain);
 	WSTR(stdlib_policy);
 #undef WSTR
@@ -445,6 +484,7 @@ read_target(FILE *f, struct qstar_target *t)
 	    read_i32(f, &t->cxx_modules_present) < 0 ||
 	    read_i32(f, &t->cxx_modules_enabled) < 0)
 		return -1;
+	RSTR(toolset);
 	RSTR(toolchain);
 	RSTR(stdlib_policy);
 #undef RSTR
@@ -586,6 +626,16 @@ write_graph_cache_file(struct qstar_graph *graph, const char *path)
 			return -1;
 		}
 	}
+	if (write_u64(f, (unsigned long long)graph->toolset_len) < 0) {
+		fclose(f);
+		return -1;
+	}
+	for (i = 0; i < graph->toolset_len; i++) {
+		if (write_toolset(f, &graph->toolsets[i]) < 0) {
+			fclose(f);
+			return -1;
+		}
+	}
 	if (write_u64(f, (unsigned long long)graph->len) < 0) {
 		fclose(f);
 		return -1;
@@ -682,6 +732,25 @@ read_graph_cache_file(const char *path, struct qstar_graph *out)
 	for (i = 0; i < n; i++) {
 		if (read_str(f, &out->packages[i].alias) < 0 ||
 		    read_str(f, &out->packages[i].root) < 0) {
+			fclose(f);
+			qstar_graph_free(out);
+			return -1;
+		}
+	}
+	if (read_u64(f, &n) < 0 || n > 1000000ULL) {
+		fclose(f);
+		qstar_graph_free(out);
+		return -1;
+	}
+	out->toolsets = calloc((size_t)n ? (size_t)n : 1, sizeof(out->toolsets[0]));
+	if (!out->toolsets) {
+		fclose(f);
+		qstar_graph_free(out);
+		return -1;
+	}
+	out->toolset_len = out->toolset_cap = (size_t)n;
+	for (i = 0; i < n; i++) {
+		if (read_toolset(f, &out->toolsets[i]) < 0) {
 			fclose(f);
 			qstar_graph_free(out);
 			return -1;

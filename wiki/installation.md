@@ -153,11 +153,11 @@ Windows release asset은 아직 없다. 현재 QStar는 Windows 이식 전에 �
   `compile_options`/`link_options` argv item으로 두고 `response_style = "msvc"`로 escape한다.
 - process 실행은 shell string이 아니라 `qstar.cli { ... }` argv-vector다.
 - MSVC 계열 response file은 `response_style = "msvc"`로 dry-run과 log에서 확인한다.
-- `.exe`는 `artifact_name = "tool.exe"` 또는 profile `artifact_names`로 명시한다.
+- `.exe`는 `artifact_name = "tool.exe"`로 명시한다.
 - 외부 system library `libs = {"kernel32"}`는 MSVC-like target에서 `kernel32.lib`로
   렌더링한다.
-- QStar가 직접 만드는 static `.lib`는 `artifact_name` 또는 profile `artifact_names`로
-  명시할 때만 pre-support planning contract다.
+- QStar가 직접 만드는 static `.lib`는 `artifact_name`으로 명시할 때만
+  pre-support planning contract다.
 - Windows `.dll`, import `.lib`, PDB/debug, Windows install layout은 아직 official
   contract가 아니다. 상세 정책은 `docs/windows-artifact-policy.md`에 둔다.
 
@@ -165,9 +165,9 @@ Windows release asset은 아직 없다. 현재 QStar는 Windows 이식 전에 �
 make qstar-windows-prep-tests
 ./build/bin/qstar --file tests/corpus/response-files/qstar.lua build //:all
 ./build/bin/qstar --file tests/corpus/response-files/qstar.lua \
-  --profile windows-msvc dry-run //:windows_app
+  --target x86_64-pc-windows-msvc --toolchain clang dry-run //:windows_app
 ./build/bin/qstar --file tests/corpus/response-files/qstar.lua \
-  --profile windows-msvc-fake build //:windows_rsp
+  --target x86_64-pc-windows-msvc --toolchain clang build //:windows_rsp
 ```
 
 `.github/workflows/windows-validation.yml`은 `workflow_dispatch` 전용 alpha workflow다.
