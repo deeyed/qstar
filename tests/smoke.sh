@@ -2311,6 +2311,7 @@ EOF
 cat > "$tmp/lint-canonical/foo/foo.qst" <<'EOF'
 qstar.staticlib "core" {}
 EOF
+step "lint canonical fragment corpus" "lint-canonical"
 "$qstar" --file "$tmp/lint-canonical/qstar.lua" lint //... > "$tmp/lint-canonical.out" 2> "$tmp/lint-canonical.err"
 contains "$tmp/lint-canonical.out" "status ok"
 
