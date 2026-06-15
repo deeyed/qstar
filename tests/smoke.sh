@@ -3140,6 +3140,7 @@ if "$qstar" --file "$tmp/generated-root-bad-project/qstar.lua" check //... > "$t
 fi
 contains "$tmp/generated-root-bad-project.err" "generated_dir must name a directory without a trailing slash"
 
+step "generated duplicate output diagnostic" "collision"
 cat > "$tmp/qstar.lua" <<'EOF'
 qstar.custom_target "one" {
   outputs = {qstar.output("generated/collision.c")},
@@ -3157,6 +3158,7 @@ if "$qstar" --file "$tmp/qstar.lua" check > "$tmp/collision.out" 2> "$tmp/collis
 fi
 contains "$tmp/collision.err" "multiple producers"
 
+step "generated outside output diagnostic" "outside"
 cat > "$tmp/qstar.lua" <<'EOF'
 qstar.custom_target "bad_out" {
   outputs = {qstar.output("../bad.c")},
@@ -3169,6 +3171,7 @@ if "$qstar" --file "$tmp/qstar.lua" check > "$tmp/outside.out" 2> "$tmp/outside.
 fi
 contains "$tmp/outside.err" "must be package-relative"
 
+step "generated owner metadata corpus" "generated-owner"
 cat > "$tmp/qstar.lua" <<'EOF'
 qstar.project {
   name = "generated-root",
