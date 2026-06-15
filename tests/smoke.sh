@@ -2899,6 +2899,7 @@ EOF
 contains "$tmp/qemu-ok.out" "run_target label=//:qemu_ok command=argv timeout_sec=2 expect_contains=SMOKE-READY expect_file=smoke.log"
 contains "$tmp/qemu-ok.out" "run_expect label=//:qemu_ok status=matched contains=SMOKE-READY source=file path=smoke.log"
 contains "$tmp/qemu-ok.out" "status ok"
+step "run target expect missing corpus" "qemu-missing"
 if "$qstar" --file "$tmp/qemu/qstar.lua" build //:qemu_expect_missing > "$tmp/qemu-missing.out" 2> "$tmp/qemu-missing.err"; then
 	fail "qemu expect missing unexpectedly succeeded"
 fi
@@ -2907,19 +2908,23 @@ contains "$tmp/qemu-missing.out" "expect_file=smoke.log"
 contains "$tmp/qemu-missing.err" "expected text 'SMOKE-READY' was not found"
 contains "$tmp/qemu/build/qstar/logs/last-failure.replay" "failure_kind=expect-missing"
 contains "$tmp/qemu/build/qstar/logs/last-failure.replay" "expect_file=smoke.log"
+step "run target expect last failure" "qemu-last-failure"
 "$qstar" --file "$tmp/qemu/qstar.lua" last-failure > "$tmp/qemu-last-failure.out" 2> "$tmp/qemu-last-failure.err"
 contains "$tmp/qemu-last-failure.out" "qstar last-failure v1"
 contains "$tmp/qemu-last-failure.out" "failure_kind=expect-missing"
 contains "$tmp/qemu-last-failure.out" "tools/fake-qemu.sh missing smoke.log"
+step "run target expect replay" "qemu-replay"
 "$qstar" --file "$tmp/qemu/qstar.lua" replay //:qemu_expect_missing:run:0 > "$tmp/qemu-replay.out" 2> "$tmp/qemu-replay.err"
 contains "$tmp/qemu-replay.out" "qstar replay v1"
 contains "$tmp/qemu-replay.out" "tools/fake-qemu.sh missing smoke.log"
+step "run target exit failure corpus" "qemu-exit"
 if "$qstar" --file "$tmp/qemu/qstar.lua" build //:qemu_exit > "$tmp/qemu-exit.out" 2> "$tmp/qemu-exit.err"; then
 	fail "qemu exit failure unexpectedly succeeded"
 fi
 contains "$tmp/qemu-exit.out" "run_target_result label=//:qemu_exit status=exit-code exit=7"
 contains "$tmp/qemu-exit.err" "failed with exit code 7"
 contains "$tmp/qemu/build/qstar/logs/last-failure.replay" "failure_kind=exit-code"
+step "run target timeout corpus" "qemu-timeout"
 if "$qstar" --file "$tmp/qemu/qstar.lua" build //:qemu_timeout > "$tmp/qemu-timeout.out" 2> "$tmp/qemu-timeout.err"; then
 	fail "qemu timeout unexpectedly succeeded"
 fi
@@ -2929,6 +2934,7 @@ contains "$tmp/qemu-timeout.out" "\"failure_kind\":\"timeout\""
 contains "$tmp/qemu-timeout.err" "timed out after 1 seconds"
 contains "$tmp/qemu/build/qstar/logs/last-failure.replay" "failure_kind=timeout"
 
+step "generated status description corpus" "generated-description-dry"
 mkdir -p "$tmp/qstar/status"
 cat > "$tmp/qstar/status/status.qsm" <<'EOF'
 local M = {}
