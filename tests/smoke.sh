@@ -2975,11 +2975,13 @@ EOF
 "$qstar" --file "$tmp/qstar.lua" dry-run //:genapp > "$tmp/generated-description-dry.out" 2> "$tmp/generated-description-dry.err"
 contains "$tmp/generated-description-dry.out" "action_description id=//:cfg:generate:0 text=\"Configuring generated config.h\""
 contains "$tmp/generated-description-dry.out" "action_description id=//:make_value:generate:0 text=\"Generating generated/value.c\""
+step "generated status description build" "generated-second"
 "$qstar" --file "$tmp/qstar.lua" build //:genapp --explain-cache > "$tmp/generated-second.out" 2> "$tmp/generated-second.err"
 contains "$tmp/generated-second.out" "cache_miss id=//:cfg:generate:0"
 contains "$tmp/generated-second.out" "cache_miss id=//:genapp:compile:0"
 contains "$tmp/generated/config.h" "#define APP_VALUE 42"
 
+step "status description diagnostics corpus" "bad-status-raw"
 mkdir -p "$tmp/bad-status-raw" "$tmp/bad-status-empty" "$tmp/bad-status-newline" "$tmp/bad-status-long"
 cat > "$tmp/bad-status-raw/qstar.lua" <<'EOF'
 qstar.custom_target "bad" {
@@ -3026,6 +3028,7 @@ if "$qstar" --file "$tmp/bad-status-long/qstar.lua" check > "$tmp/bad-status-lon
 fi
 contains "$tmp/bad-status-long.err" "qstar.status description must be <= 240 bytes"
 
+step "generated root corpus" "generated-root-build"
 mkdir -p "$tmp/generated-root/src" "$tmp/generated-root/tools"
 cp "$tmp/tools/gen-value.sh" "$tmp/generated-root/tools/gen-value.sh"
 cat > "$tmp/generated-root/src/main.c" <<'EOF'
