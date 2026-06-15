@@ -113,6 +113,24 @@ jobs:
           fi
           exit "$rc"
 
+      - name: Run Windows execution corpus
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          set +e
+          make qstar-windows-execution-corpus-tests CC=gcc \
+            2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/windows-execution.log"
+          rc=$?
+          set -e
+          if test "$rc" -eq 0; then
+            printf 'status=ok step=windows-execution cc=gcc corpus=windows-execution\n' \
+              > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/windows-execution.status"
+          else
+            printf 'status=fail step=windows-execution cc=gcc rc=%s log=windows-execution.log\n' "$rc" \
+              > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/windows-execution.status"
+          fi
+          exit "$rc"
+
       - name: Run Windows path/process prep gate
         shell: msys2 {0}
         run: |
@@ -185,7 +203,7 @@ jobs:
           known="$QSTAR_WINDOWS_ALPHA_DIR/KNOWN_ISSUES.md"
           {
             printf 'baseline=%s\n' "$QSTAR_WINDOWS_ALPHA_BASELINE"
-            for step in environment make-all version native-alpha windows-prep ninja-backend-parity install; do
+            for step in environment make-all version native-alpha windows-execution windows-prep ninja-backend-parity install; do
               file="$QSTAR_WINDOWS_ALPHA_STATUS_DIR/$step.status"
               if test -f "$file"; then
                 cat "$file"
@@ -213,6 +231,7 @@ jobs:
             printf '%s\n' "- Visual Studio, nmake, and direct MSVC bootstrap"
             printf '%s\n' "- Windows public release asset"
             printf '%s\n' "- runtime .dll, import .lib, and PDB/debug artifact policy"
+            printf '%s\n' "- MSVC/clang-cl execution corpus"
           } > "$known"
           {
             printf '# Windows Native CI Alpha\n\n'

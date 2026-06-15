@@ -85,6 +85,7 @@ Windows는 아직 official support가 아니다.
 | Current known native blocker | `src/executor.c` POSIX `<poll.h>` boundary |
 | Daemon transport | Windows named pipe deferred |
 | `.exe`/static `.lib` | contract and local fake-tool regression sealed |
+| Execution corpus | MSYS2 UCRT64 GCC build/run/install baseline added in Q178 |
 | `.dll`/import `.lib` | implementation deferred |
 
 0.8의 첫 번째 목표는 Windows를 "manual alpha"에서 "validation-backed beta candidate"로
@@ -92,7 +93,8 @@ Windows는 아직 official support가 아니다.
 
 - `_WIN32` process/event runner boundary를 분리해 native `make all CC=gcc`를 더 멀리 진행
 - MSYS2 UCRT64 lane이 반복 green이거나, 실패하더라도 structured known issue만 남기는 상태
-- `.exe`와 explicit static `.lib` smoke를 real Windows host에서 통과
+- `.exe`, static archive, response-file, generated object bridge, install smoke를 real Windows
+  host에서 통과
 - install/stage layout이 Windows host에서 실제로 동작
 - Windows sharedlib diagnostic에서 실제 `.dll`/import `.lib` implementation으로 이동
 
@@ -215,7 +217,7 @@ v1.0 blocker를 0.8 기준으로 다시 정렬한다.
 
 | Round band | Focus | Exit gate |
 | --- | --- | --- |
-| Q178-Q181 | Windows process/event portability | MSYS2 alpha reaches past executor `<poll.h>` boundary |
+| Q178-Q181 | Windows execution corpus and process/event portability | MSYS2 alpha runs executable/staticlib/response/object/install corpus and reaches past executor `<poll.h>` boundary |
 | Q182-Q185 | Windows `.dll`/import `.lib` implementation | Stella/Ninja sharedlib parity fixture green |
 | Q186-Q188 | Windows install/stage and native smoke | `.exe`, static `.lib`, runtime `.dll`, import `.lib` layout smoke green |
 | Q189-Q190 | Daemon default-prep hardening | daemon remains opt-in; security/lifecycle report refreshed |
@@ -253,6 +255,7 @@ Windows alpha/beta candidate:
 make all CC=gcc
 build/bin/qstar --version
 make qstar-windows-native-alpha-tests CC=gcc
+make qstar-windows-execution-corpus-tests CC=gcc
 make qstar-windows-prep-tests CC=gcc
 ```
 

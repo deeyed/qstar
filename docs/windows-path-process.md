@@ -26,6 +26,10 @@ Windows until a named-pipe transport and ACL policy are implemented. Round Q174
 adds a dedicated Windows artifact corpus that builds target-local and
 profile-mapped `.exe`/static `.lib` artifacts through Stella and Ninja, then
 checks stage/install layout while keeping Windows sharedlib deferred.
+Round Q178 adds `tests/corpus/windows-execution` and the
+`qstar-windows-execution-corpus-tests` target. This is the first Windows alpha
+gate that builds and runs real executables in the MSYS2 UCRT64 GCC lane instead
+of only proving Windows-like graph contracts.
 
 ## Status
 
@@ -35,13 +39,15 @@ official release artifact: none
 purpose of this document: pre-port contract
 gate: make -C qstar qstar-windows-prep-tests
 alpha smoke: make -C qstar qstar-windows-native-alpha-tests
+execution corpus: make -C qstar qstar-windows-execution-corpus-tests
 alpha workflow: .github/workflows/windows-validation.yml
 ```
 
 Linux has validation and release-candidate packaging dry-run coverage. Windows
 has a manual alpha lane, but remains unofficial until QStar has a green regular
 Windows CI lane, source build, install smoke, response-file execution with real
-Windows tools, and artifact packaging story.
+Windows tools, and artifact packaging story. Q178 starts that execution path for
+MSYS2 UCRT64 GCC; MSVC/clang-cl execution is still deferred.
 
 ## Path Normalization Rule
 
@@ -188,6 +194,16 @@ Run the local prep gate:
 make qstar-windows-prep-tests
 ```
 
+Run the native execution corpus:
+
+```sh
+make qstar-windows-execution-corpus-tests
+```
+
+On Windows this corpus is run by the manual `windows-latest` workflow under
+MSYS2 UCRT64 GCC. On non-Windows hosts it still provides a contract-execution
+smoke against the same QStar graph.
+
 The gate checks:
 
 - response-file corpus build through Stella
@@ -213,6 +229,14 @@ The gate checks:
 - Windows-like `qstar.sharedlib` targets fail with the same deferred
   runtime `.dll`, import `.lib`, and PDB/debug diagnostic for Stella and Ninja
 - drive-letter and backslash package paths are rejected with specific reason text
+
+The execution corpus checks:
+
+- C executable build and run
+- static archive plus executable link and run
+- forced response-file compile/link and executable run
+- generated object artifact bridge dry-run, build, and run
+- install prefix smoke for executable and static archive artifacts
 
 Manual corpus commands:
 
