@@ -33,7 +33,7 @@ medium_project_gate backend=stella-daemon phase=clean elapsed_ms=110 cli_clean_m
 medium_project_gate backend=stella-daemon phase=noop elapsed_ms=21 cli_noop_ms=42
 medium_project_gate backend=stella-daemon phase=incremental elapsed_ms=36 cli_incremental_ms=51
 medium_project_gate backend=stella-jobs jobs=10 phase=clean elapsed_ms=118
-medium_project_gate staticlib_argv_parity=ok target=//sys/kern/mm:kernel_mm
+medium_project_gate staticlib_argv_parity=ok target=//modules/core/cache:module_cache
 medium_project_gate backend=ninja phase=clean elapsed_ms=100
 medium_project_gate backend=ninja phase=noop elapsed_ms=30
 medium_project_gate backend=ninja phase=incremental elapsed_ms=36
@@ -68,7 +68,7 @@ medium_project_gate backend=stella phase=incremental elapsed_ms=89
 medium_project_gate backend=stella-jobs jobs=10 phase=clean elapsed_ms=237
 medium_project_gate backend=stella-jobs jobs=10 phase=noop elapsed_ms=68
 medium_project_gate backend=stella-jobs jobs=10 phase=incremental elapsed_ms=88
-medium_project_gate staticlib_argv_parity=ok target=//sys/kern/mm:kernel_mm
+medium_project_gate staticlib_argv_parity=ok target=//modules/core/cache:module_cache
 medium_project_gate backend=ninja phase=clean elapsed_ms=251
 medium_project_gate backend=ninja phase=noop elapsed_ms=73
 medium_project_gate backend=ninja phase=incremental elapsed_ms=97

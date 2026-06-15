@@ -1,20 +1,21 @@
 extern int medium_core(void);
-extern int medium_arch(void);
-extern int medium_board(void);
-extern int medium_kernel_boot(void);
-extern int medium_kernel_mm(void);
-extern int medium_kernel_sched(void);
-extern int medium_driver_serial(void);
-extern int medium_driver_timer(void);
-extern int medium_driver_storage(void);
-extern int medium_platform_clock(void);
-extern int medium_platform_power(void);
-extern int medium_network_stack(void);
+extern int medium_variant(void);
+extern int medium_product(void);
+extern int medium_module_start(void);
+extern int medium_module_cache(void);
+extern int medium_module_runner(void);
+extern int medium_plugin_stream(void);
+extern int medium_plugin_timer(void);
+extern int medium_plugin_storage(void);
+extern int medium_runtime_clock(void);
+extern int medium_runtime_power(void);
+extern int medium_service_network(void);
 
 int main(void) {
-  return medium_core() + medium_arch() + medium_board() + medium_kernel_boot() +
-         medium_kernel_mm() + medium_kernel_sched() + medium_driver_serial() +
-         medium_driver_timer() + medium_driver_storage() +
-         medium_platform_clock() + medium_platform_power() +
-         medium_network_stack();
+  return medium_core() + medium_variant() + medium_product() +
+         medium_module_start() + medium_module_cache() +
+         medium_module_runner() + medium_plugin_stream() +
+         medium_plugin_timer() + medium_plugin_storage() +
+         medium_runtime_clock() + medium_runtime_power() +
+         medium_service_network();
 }

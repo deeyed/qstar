@@ -98,15 +98,15 @@ qstar/tests/projects/c-app-lib-test
 qstar/tests/projects/cxx-mixed
 qstar/tests/projects/generated-config
 qstar/tests/projects/multipkg
-qstar/tests/projects/systems-firmware
+qstar/tests/projects/package-flow
 ```
 
 Manual samples are for direct user experimentation. `tests/projects` is the
 release corpus and must stay self-contained inside the QStar tree.
-`systems-firmware` is the central systems-grade corpus: it combines
-AArch64 freestanding C/ASM, linker script policy, raw image transform, ESP/RPi
-staging, UEFI PE/COFF profile output, and QEMU wrapper smoke without adding
-board-specific QStar keywords.
+`package-flow` is the central package-flow corpus: it combines C/ASM compile
+actions, explicit linker inputs, generated artifact transforms, copy-only
+staging, alternate artifact naming, MSVC-style response handling, and generic
+run-target expectation checks without adding domain-specific QStar keywords.
 
 Round 59 release hardening adds failure diagnostics over this corpus. Link
 failure, objcopy/image transform failure, package/stage failure, and run timeout

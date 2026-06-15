@@ -943,11 +943,11 @@ output을 final archive/link input으로 연결하는 bridge다. Raw binary 변�
 platform layout 같은 의미는 QStar metadata가 아니라 `qstar.custom_target`의 command argv,
 input file, stage rule 또는 project-owned config가 담당한다.
 
-Round 68부터 `custom_target.inputs = { qstar.target_file("//:kernel") }`가 generated
+Round 68부터 `custom_target.inputs = { qstar.target_file("//:module") }`가 generated
 action의 artifact dependency edge로 추적된다. `qstar.input(0)`은 command argv에서 실제
 artifact path로 해석되고, action key는 token이 아니라 resolved artifact file을 입력으로
-hash한다. Direct generated build도 이 edge를 따라 kernel을 먼저 빌드한 뒤 image
-transform을 실행한다. `qstar/tests/projects/systems-firmware`가 이 패턴의 canonical
+hash한다. Direct generated build도 이 edge를 따라 module을 먼저 빌드한 뒤 artifact
+transform을 실행한다. `qstar/tests/projects/package-flow`가 이 패턴의 canonical
 corpus다.
 
 ## qstar.stage

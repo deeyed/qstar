@@ -2,8 +2,8 @@
 
 Round 57 corpus for the QStar binary blob flow.
 
-This project models an operating-system style fixture embed without hardcoding
-UEFI, Raspberry Pi, or QEMU into QStar:
+This project models a binary-like fixture embed without hardcoding a domain
+specific packager into QStar:
 
 - `fixtures/payload.elf` is a binary-like input.
 - `qstar.custom_target "embed_object"` turns it into `generated/payload.o`.

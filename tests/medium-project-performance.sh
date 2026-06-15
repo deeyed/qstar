@@ -111,7 +111,7 @@ bump_source() {
 	path=$1
 	value=$2
 	sleep 1
-	printf 'int kernel_mm(void) { return %s; }\n' "$value" > "$root/$path"
+	printf 'int module_cache(void) { return %s; }\n' "$value" > "$root/$path"
 }
 
 write_staticlib() {
@@ -124,7 +124,7 @@ write_staticlib() {
 	mkdir -p "$root/$dir"
 	{
 		printf 'qstar.staticlib "%s" {\n' "$target"
-		printf '  configs = {"//:low_level_c"},\n'
+		printf '  configs = {"//:module_c"},\n'
 		printf '  sources = {"%s/%s.c"},\n' "$dir" "$base"
 		if [ -n "$deps" ]; then
 			printf '  deps = {%s},\n' "$deps"
@@ -148,19 +148,17 @@ trap cleanup EXIT HUP INT TERM
 
 cat > "$root/qstar.lua" <<'EOF'
 qstar.project {
-  name = "medium-firmware-corpus",
+  name = "medium-package-corpus",
   root = ".",
   build_dir = "build/qstar",
   compile_commands = "build",
 }
 
-qstar.config "low_level_c" {
+qstar.config "module_c" {
   lang = {
     c = {
       compile_options = {
         "-std=c99",
-        "-ffreestanding",
-        "-fno-builtin",
         "-Wall",
         "-Wextra",
       },
@@ -168,207 +166,207 @@ qstar.config "low_level_c" {
   },
 }
 
-qstar.subdir("lib/libk")
-qstar.subdir("sys/arch")
-qstar.subdir("sys/board")
-qstar.subdir("sys/kern")
-qstar.subdir("sys/dev")
-qstar.subdir("sys/platform")
-qstar.subdir("sys/net")
+qstar.subdir("lib/base")
+qstar.subdir("modules/variant")
+qstar.subdir("modules/product")
+qstar.subdir("modules/core")
+qstar.subdir("plugins/io")
+qstar.subdir("runtime/env")
+qstar.subdir("services/network")
 
-qstar.group "firmware_image" {
+qstar.group "package_bundle" {
   deps = {
-    "//lib/libk:libk_core",
-    "//sys/arch:arch_variants",
-    "//sys/board:board_variants",
-    "//sys/kern:kernel_subsystems",
-    "//sys/dev:device_stack",
-    "//sys/platform:platform_stack",
-    "//sys/net:network_stack",
+    "//lib/base:base_core",
+    "//modules/variant:variant_modules",
+    "//modules/product:product_modules",
+    "//modules/core:core_modules",
+    "//plugins/io:plugin_stack",
+    "//runtime/env:runtime_stack",
+    "//services/network:service_stack",
   },
 }
 EOF
 
 cat > "$root/sys_arch.qst.tmp" <<'EOF'
-qstar.subdir("arm64")
-qstar.subdir("amd64")
+qstar.subdir("alpha")
+qstar.subdir("beta")
 
-qstar.group "arch_variants" {
+qstar.group "variant_modules" {
   deps = {
-    "//sys/arch/arm64:arch_arm64",
-    "//sys/arch/amd64:arch_amd64",
+    "//modules/variant/alpha:variant_alpha",
+    "//modules/variant/beta:variant_beta",
   },
 }
 EOF
-mkdir -p "$root/sys/arch"
-mv "$root/sys_arch.qst.tmp" "$root/sys/arch/arch.qst"
+mkdir -p "$root/modules/variant"
+mv "$root/sys_arch.qst.tmp" "$root/modules/variant/variant.qst"
 
 cat > "$root/sys_board.qst.tmp" <<'EOF'
-qstar.subdir("devkit/a64")
-qstar.subdir("sim/virt-aarch64")
+qstar.subdir("line/a")
+qstar.subdir("line/b")
 
-qstar.group "board_variants" {
+qstar.group "product_modules" {
   deps = {
-    "//sys/board/devkit/a64:board_devkit_a",
-    "//sys/board/sim/virt-aarch64:board_sim_virt_aarch64",
+    "//modules/product/line/a:product_alpha",
+    "//modules/product/line/b:product_beta",
   },
 }
 EOF
-mkdir -p "$root/sys/board"
-mv "$root/sys_board.qst.tmp" "$root/sys/board/board.qst"
+mkdir -p "$root/modules/product"
+mv "$root/sys_board.qst.tmp" "$root/modules/product/product.qst"
 
 cat > "$root/sys_kern.qst.tmp" <<'EOF'
-qstar.subdir("boot")
-qstar.subdir("mm")
-qstar.subdir("irq")
+qstar.subdir("start")
+qstar.subdir("cache")
+qstar.subdir("signal")
 qstar.subdir("time")
-qstar.subdir("sched")
-qstar.subdir("executor")
-qstar.subdir("device")
-qstar.subdir("vm")
-qstar.subdir("syscall")
-qstar.subdir("object")
-qstar.subdir("sync")
+qstar.subdir("runner")
+qstar.subdir("worker")
+qstar.subdir("adapter")
+qstar.subdir("store")
+qstar.subdir("gateway")
+qstar.subdir("model")
+qstar.subdir("lock")
 
-qstar.group "kernel_subsystems" {
+qstar.group "core_modules" {
   deps = {
-    "//sys/kern/boot:kernel_boot",
-    "//sys/kern/mm:kernel_mm",
-    "//sys/kern/irq:kernel_irq",
-    "//sys/kern/time:kernel_time",
-    "//sys/kern/sched:kernel_sched",
-    "//sys/kern/executor:kernel_executor",
-    "//sys/kern/device:kernel_device",
-    "//sys/kern/vm:kernel_vm",
-    "//sys/kern/syscall:kernel_syscall",
-    "//sys/kern/object:kernel_object",
-    "//sys/kern/sync:kernel_sync",
+    "//modules/core/start:module_start",
+    "//modules/core/cache:module_cache",
+    "//modules/core/signal:module_signal",
+    "//modules/core/time:module_clock",
+    "//modules/core/runner:module_runner",
+    "//modules/core/worker:module_worker",
+    "//modules/core/adapter:module_adapter",
+    "//modules/core/store:module_store",
+    "//modules/core/gateway:module_gateway",
+    "//modules/core/model:module_model",
+    "//modules/core/lock:module_lock",
   },
 }
 EOF
-mkdir -p "$root/sys/kern"
-mv "$root/sys_kern.qst.tmp" "$root/sys/kern/kern.qst"
+mkdir -p "$root/modules/core"
+mv "$root/sys_kern.qst.tmp" "$root/modules/core/core.qst"
 
-cat > "$root/sys_dev.qst.tmp" <<'EOF'
-qstar.subdir("serial")
+cat > "$root/plugins_io.qst.tmp" <<'EOF'
+qstar.subdir("stream")
 qstar.subdir("timer")
-qstar.subdir("gpio")
-qstar.subdir("pwm")
-qstar.subdir("i2c")
-qstar.subdir("spi")
-qstar.subdir("storage")
-qstar.subdir("watchdog")
-qstar.subdir("rtc")
-qstar.subdir("dma")
-qstar.subdir("mailbox")
+qstar.subdir("input")
+qstar.subdir("output")
+qstar.subdir("bus-a")
+qstar.subdir("bus-b")
+qstar.subdir("store")
+qstar.subdir("monitor")
+qstar.subdir("clock")
+qstar.subdir("transfer")
+qstar.subdir("message")
 qstar.subdir("random")
 
-qstar.group "device_stack" {
+qstar.group "plugin_stack" {
   deps = {
-    "//sys/dev/serial:driver_serial",
-    "//sys/dev/timer:driver_timer",
-    "//sys/dev/gpio:driver_gpio",
-    "//sys/dev/pwm:driver_pwm",
-    "//sys/dev/i2c:driver_i2c",
-    "//sys/dev/spi:driver_spi",
-    "//sys/dev/storage:driver_storage",
-    "//sys/dev/watchdog:driver_watchdog",
-    "//sys/dev/rtc:driver_rtc",
-    "//sys/dev/dma:driver_dma",
-    "//sys/dev/mailbox:driver_mailbox",
-    "//sys/dev/random:driver_random",
+    "//plugins/io/stream:plugin_stream",
+    "//plugins/io/timer:plugin_timer",
+    "//plugins/io/input:plugin_input",
+    "//plugins/io/output:plugin_output",
+    "//plugins/io/bus-a:plugin_bus_a",
+    "//plugins/io/bus-b:plugin_bus_b",
+    "//plugins/io/store:plugin_store",
+    "//plugins/io/monitor:plugin_monitor",
+    "//plugins/io/clock:plugin_clock",
+    "//plugins/io/transfer:plugin_transfer",
+    "//plugins/io/message:plugin_message",
+    "//plugins/io/random:plugin_random",
   },
 }
 EOF
-mkdir -p "$root/sys/dev"
-mv "$root/sys_dev.qst.tmp" "$root/sys/dev/dev.qst"
+mkdir -p "$root/plugins/io"
+mv "$root/plugins_io.qst.tmp" "$root/plugins/io/io.qst"
 
 cat > "$root/sys_platform.qst.tmp" <<'EOF'
 qstar.subdir("clock")
 qstar.subdir("power")
 qstar.subdir("memory")
-qstar.subdir("interrupt")
-qstar.subdir("bootflow")
-qstar.subdir("firmware")
+qstar.subdir("signal")
+qstar.subdir("flow")
+qstar.subdir("manifest")
 
-qstar.group "platform_stack" {
+qstar.group "runtime_stack" {
   deps = {
-    "//sys/platform/clock:platform_clock",
-    "//sys/platform/power:platform_power",
-    "//sys/platform/memory:platform_memory",
-    "//sys/platform/interrupt:platform_interrupt",
-    "//sys/platform/bootflow:platform_bootflow",
-    "//sys/platform/firmware:platform_firmware",
+    "//runtime/env/clock:runtime_clock",
+    "//runtime/env/power:runtime_power",
+    "//runtime/env/memory:runtime_memory",
+    "//runtime/env/signal:runtime_signal",
+    "//runtime/env/flow:runtime_flow",
+    "//runtime/env/manifest:runtime_manifest",
   },
 }
 EOF
-mkdir -p "$root/sys/platform"
-mv "$root/sys_platform.qst.tmp" "$root/sys/platform/platform.qst"
+mkdir -p "$root/runtime/env"
+mv "$root/sys_platform.qst.tmp" "$root/runtime/env/env.qst"
 
 cat > "$root/sys_net.qst.tmp" <<'EOF'
-qstar.subdir("eth")
-qstar.subdir("ipv4")
-qstar.subdir("udp")
-qstar.subdir("bootp")
+qstar.subdir("link")
+qstar.subdir("route")
+qstar.subdir("packet")
+qstar.subdir("discovery")
 qstar.subdir("console")
 qstar.subdir("telemetry")
 
-qstar.group "network_stack" {
+qstar.group "service_stack" {
   deps = {
-    "//sys/net/eth:net_eth",
-    "//sys/net/ipv4:net_ipv4",
-    "//sys/net/udp:net_udp",
-    "//sys/net/bootp:net_bootp",
-    "//sys/net/console:net_console",
-    "//sys/net/telemetry:net_telemetry",
+    "//services/network/link:service_link",
+    "//services/network/route:service_route",
+    "//services/network/packet:service_packet",
+    "//services/network/discovery:service_discovery",
+    "//services/network/console:service_console",
+    "//services/network/telemetry:service_telemetry",
   },
 }
 EOF
-mkdir -p "$root/sys/net"
-mv "$root/sys_net.qst.tmp" "$root/sys/net/net.qst"
+mkdir -p "$root/services/network"
+mv "$root/sys_net.qst.tmp" "$root/services/network/network.qst"
 
-write_staticlib "lib/libk" "libk_core" "libk_core" 1 ""
-write_staticlib "sys/arch/arm64" "arch_arm64" "arch_arm64" 2 '"//lib/libk:libk_core"'
-write_staticlib "sys/arch/amd64" "arch_amd64" "arch_amd64" 3 '"//lib/libk:libk_core"'
-write_staticlib "sys/board/devkit/a64" "board_devkit_a" "board_devkit_a" 4 '"//lib/libk:libk_core"'
-write_staticlib "sys/board/sim/virt-aarch64" "board_sim_virt_aarch64" "board_sim_virt_aarch64" 5 '"//lib/libk:libk_core"'
-write_staticlib "sys/kern/boot" "kernel_boot" "kernel_boot" 6 '"//lib/libk:libk_core"'
-write_staticlib "sys/kern/mm" "kernel_mm" "kernel_mm" 7 '"//lib/libk:libk_core"'
-write_staticlib "sys/kern/irq" "kernel_irq" "kernel_irq" 8 '"//lib/libk:libk_core"'
-write_staticlib "sys/kern/time" "kernel_time" "kernel_time" 9 '"//lib/libk:libk_core"'
-write_staticlib "sys/kern/sched" "kernel_sched" "kernel_sched" 10 '"//lib/libk:libk_core"'
-write_staticlib "sys/kern/executor" "kernel_executor" "kernel_executor" 11 '"//lib/libk:libk_core"'
-write_staticlib "sys/kern/device" "kernel_device" "kernel_device" 12 '"//lib/libk:libk_core"'
-write_staticlib "sys/kern/vm" "kernel_vm" "kernel_vm" 13 '"//lib/libk:libk_core"'
-write_staticlib "sys/kern/syscall" "kernel_syscall" "kernel_syscall" 14 '"//lib/libk:libk_core"'
-write_staticlib "sys/kern/object" "kernel_object" "kernel_object" 15 '"//lib/libk:libk_core"'
-write_staticlib "sys/kern/sync" "kernel_sync" "kernel_sync" 16 '"//lib/libk:libk_core"'
-write_staticlib "sys/dev/serial" "driver_serial" "driver_serial" 17 '"//lib/libk:libk_core"'
-write_staticlib "sys/dev/timer" "driver_timer" "driver_timer" 18 '"//lib/libk:libk_core"'
-write_staticlib "sys/dev/gpio" "driver_gpio" "driver_gpio" 19 '"//lib/libk:libk_core"'
-write_staticlib "sys/dev/pwm" "driver_pwm" "driver_pwm" 20 '"//lib/libk:libk_core"'
-write_staticlib "sys/dev/i2c" "driver_i2c" "driver_i2c" 21 '"//lib/libk:libk_core"'
-write_staticlib "sys/dev/spi" "driver_spi" "driver_spi" 22 '"//lib/libk:libk_core"'
-write_staticlib "sys/dev/storage" "driver_storage" "driver_storage" 23 '"//lib/libk:libk_core"'
-write_staticlib "sys/dev/watchdog" "driver_watchdog" "driver_watchdog" 24 '"//lib/libk:libk_core"'
-write_staticlib "sys/dev/rtc" "driver_rtc" "driver_rtc" 25 '"//lib/libk:libk_core"'
-write_staticlib "sys/dev/dma" "driver_dma" "driver_dma" 26 '"//lib/libk:libk_core"'
-write_staticlib "sys/dev/mailbox" "driver_mailbox" "driver_mailbox" 27 '"//lib/libk:libk_core"'
-write_staticlib "sys/dev/random" "driver_random" "driver_random" 28 '"//lib/libk:libk_core"'
-write_staticlib "sys/platform/clock" "platform_clock" "platform_clock" 29 '"//lib/libk:libk_core"'
-write_staticlib "sys/platform/power" "platform_power" "platform_power" 30 '"//lib/libk:libk_core"'
-write_staticlib "sys/platform/memory" "platform_memory" "platform_memory" 31 '"//lib/libk:libk_core"'
-write_staticlib "sys/platform/interrupt" "platform_interrupt" "platform_interrupt" 32 '"//lib/libk:libk_core"'
-write_staticlib "sys/platform/bootflow" "platform_bootflow" "platform_bootflow" 33 '"//lib/libk:libk_core"'
-write_staticlib "sys/platform/firmware" "platform_firmware" "platform_firmware" 34 '"//lib/libk:libk_core"'
-write_staticlib "sys/net/eth" "net_eth" "net_eth" 35 '"//lib/libk:libk_core"'
-write_staticlib "sys/net/ipv4" "net_ipv4" "net_ipv4" 36 '"//lib/libk:libk_core"'
-write_staticlib "sys/net/udp" "net_udp" "net_udp" 37 '"//lib/libk:libk_core"'
-write_staticlib "sys/net/bootp" "net_bootp" "net_bootp" 38 '"//lib/libk:libk_core"'
-write_staticlib "sys/net/console" "net_console" "net_console" 39 '"//lib/libk:libk_core"'
-write_staticlib "sys/net/telemetry" "net_telemetry" "net_telemetry" 40 '"//lib/libk:libk_core"'
+write_staticlib "lib/base" "base_core" "base_core" 1 ""
+write_staticlib "modules/variant/alpha" "variant_alpha" "variant_alpha" 2 '"//lib/base:base_core"'
+write_staticlib "modules/variant/beta" "variant_beta" "variant_beta" 3 '"//lib/base:base_core"'
+write_staticlib "modules/product/line/a" "product_alpha" "product_alpha" 4 '"//lib/base:base_core"'
+write_staticlib "modules/product/line/b" "product_beta" "product_beta" 5 '"//lib/base:base_core"'
+write_staticlib "modules/core/start" "module_start" "module_start" 6 '"//lib/base:base_core"'
+write_staticlib "modules/core/cache" "module_cache" "module_cache" 7 '"//lib/base:base_core"'
+write_staticlib "modules/core/signal" "module_signal" "module_signal" 8 '"//lib/base:base_core"'
+write_staticlib "modules/core/time" "module_clock" "module_clock" 9 '"//lib/base:base_core"'
+write_staticlib "modules/core/runner" "module_runner" "module_runner" 10 '"//lib/base:base_core"'
+write_staticlib "modules/core/worker" "module_worker" "module_worker" 11 '"//lib/base:base_core"'
+write_staticlib "modules/core/adapter" "module_adapter" "module_adapter" 12 '"//lib/base:base_core"'
+write_staticlib "modules/core/store" "module_store" "module_store" 13 '"//lib/base:base_core"'
+write_staticlib "modules/core/gateway" "module_gateway" "module_gateway" 14 '"//lib/base:base_core"'
+write_staticlib "modules/core/model" "module_model" "module_model" 15 '"//lib/base:base_core"'
+write_staticlib "modules/core/lock" "module_lock" "module_lock" 16 '"//lib/base:base_core"'
+write_staticlib "plugins/io/stream" "plugin_stream" "plugin_stream" 17 '"//lib/base:base_core"'
+write_staticlib "plugins/io/timer" "plugin_timer" "plugin_timer" 18 '"//lib/base:base_core"'
+write_staticlib "plugins/io/input" "plugin_input" "plugin_input" 19 '"//lib/base:base_core"'
+write_staticlib "plugins/io/output" "plugin_output" "plugin_output" 20 '"//lib/base:base_core"'
+write_staticlib "plugins/io/bus-a" "plugin_bus_a" "plugin_bus_a" 21 '"//lib/base:base_core"'
+write_staticlib "plugins/io/bus-b" "plugin_bus_b" "plugin_bus_b" 22 '"//lib/base:base_core"'
+write_staticlib "plugins/io/store" "plugin_store" "plugin_store" 23 '"//lib/base:base_core"'
+write_staticlib "plugins/io/monitor" "plugin_monitor" "plugin_monitor" 24 '"//lib/base:base_core"'
+write_staticlib "plugins/io/clock" "plugin_clock" "plugin_clock" 25 '"//lib/base:base_core"'
+write_staticlib "plugins/io/transfer" "plugin_transfer" "plugin_transfer" 26 '"//lib/base:base_core"'
+write_staticlib "plugins/io/message" "plugin_message" "plugin_message" 27 '"//lib/base:base_core"'
+write_staticlib "plugins/io/random" "plugin_random" "plugin_random" 28 '"//lib/base:base_core"'
+write_staticlib "runtime/env/clock" "runtime_clock" "runtime_clock" 29 '"//lib/base:base_core"'
+write_staticlib "runtime/env/power" "runtime_power" "runtime_power" 30 '"//lib/base:base_core"'
+write_staticlib "runtime/env/memory" "runtime_memory" "runtime_memory" 31 '"//lib/base:base_core"'
+write_staticlib "runtime/env/signal" "runtime_signal" "runtime_signal" 32 '"//lib/base:base_core"'
+write_staticlib "runtime/env/flow" "runtime_flow" "runtime_flow" 33 '"//lib/base:base_core"'
+write_staticlib "runtime/env/manifest" "runtime_manifest" "runtime_manifest" 34 '"//lib/base:base_core"'
+write_staticlib "services/network/link" "service_link" "service_link" 35 '"//lib/base:base_core"'
+write_staticlib "services/network/route" "service_route" "service_route" 36 '"//lib/base:base_core"'
+write_staticlib "services/network/packet" "service_packet" "service_packet" 37 '"//lib/base:base_core"'
+write_staticlib "services/network/discovery" "service_discovery" "service_discovery" 38 '"//lib/base:base_core"'
+write_staticlib "services/network/console" "service_console" "service_console" 39 '"//lib/base:base_core"'
+write_staticlib "services/network/telemetry" "service_telemetry" "service_telemetry" 40 '"//lib/base:base_core"'
 
-"$qstar" --file "$root/qstar.lua" check //:firmware_image > "$tmp/check.out" 2> "$tmp/check.err"
+"$qstar" --file "$root/qstar.lua" check //:package_bundle > "$tmp/check.out" 2> "$tmp/check.err"
 contains "$tmp/check.out" "status ok"
 target_count=$(awk '/^target-count / {print $2}' "$tmp/check.out")
 if [ -z "$target_count" ] || [ "$target_count" -lt "$min_targets" ]; then
@@ -381,7 +379,7 @@ printf 'medium_project_gate target_count=%s min_targets=%s\n' "$target_count" "$
 host_jobs=$(detect_host_jobs)
 printf 'medium_project_gate scheduler host_jobs=%s\n' "$host_jobs"
 
-run_timed stella_trace "$qstar" --file "$root/qstar.lua" -B build/stella-trace -G stella build //:firmware_image --schedule-trace --progress off --color never
+run_timed stella_trace "$qstar" --file "$root/qstar.lua" -B build/stella-trace -G stella build //:package_bundle --schedule-trace --progress off --color never
 contains "$tmp/stella_trace.out" "executor-policy version=v4"
 contains "$tmp/stella_trace.out" "action_scheduler version=v1"
 contains "$tmp/stella_trace.out" "status ok"
@@ -422,20 +420,20 @@ fi
 printf 'medium_project_gate scheduler default_jobs=%s ready_width=%s async_final_actions=%s trace_elapsed_ms=%s\n' "$default_jobs" "$initial_ready" "$async_final_count" "$stella_trace_ms"
 printf 'medium_project_gate scheduler runner=%s event_wait=%s\n' "$runner" "$event_wait"
 
-run_timed stella_clean "$qstar" --file "$root/qstar.lua" -B build/stella -G stella build //:firmware_image
-contains "$tmp/stella_clean.out" "group_target label=//:firmware_image"
+run_timed stella_clean "$qstar" --file "$root/qstar.lua" -B build/stella -G stella build //:package_bundle
+contains "$tmp/stella_clean.out" "group_target label=//:package_bundle"
 contains "$tmp/stella_clean.out" "status ok"
 test -f "$root/build/stella/compile_commands.json" || fail "stella compile_commands missing"
 check_elapsed_max "stella clean build" "$stella_clean_ms" "$clean_max_ms"
 printf 'medium_project_gate backend=stella phase=clean elapsed_ms=%s\n' "$stella_clean_ms"
 
-run_timed stella_noop "$qstar" --file "$root/qstar.lua" -B build/stella -G stella build //:firmware_image
+run_timed stella_noop "$qstar" --file "$root/qstar.lua" -B build/stella -G stella build //:package_bundle
 contains "$tmp/stella_noop.out" "status ok"
 check_elapsed_max "stella no-op build" "$stella_noop_ms" "$noop_max_ms"
 printf 'medium_project_gate backend=stella phase=noop elapsed_ms=%s\n' "$stella_noop_ms"
 
-bump_source "sys/kern/mm/mm.c" 7001
-run_timed stella_incremental "$qstar" --file "$root/qstar.lua" -B build/stella -G stella build //:firmware_image
+bump_source "modules/core/cache/cache.c" 7001
+run_timed stella_incremental "$qstar" --file "$root/qstar.lua" -B build/stella -G stella build //:package_bundle
 contains "$tmp/stella_incremental.out" "status ok"
 check_elapsed_max "stella incremental build" "$stella_incremental_ms" "$incremental_max_ms"
 printf 'medium_project_gate backend=stella phase=incremental elapsed_ms=%s\n' "$stella_incremental_ms"
@@ -452,13 +450,13 @@ while [ ! -S "$daemon_sock" ] && kill -0 "$daemon_pid" 2>/dev/null && [ "$i" -lt
 	i=$((i + 1))
 done
 if [ -S "$daemon_sock" ]; then
-	run_timed stella_daemon_clean "$qstar" --file "$root/qstar.lua" -B build/stella-daemon -G stella build //:firmware_image --use-daemon=always --daemon-socket "$daemon_sock" --progress off --color never
+	run_timed stella_daemon_clean "$qstar" --file "$root/qstar.lua" -B build/stella-daemon -G stella build //:package_bundle --use-daemon=always --daemon-socket "$daemon_sock" --progress off --color never
 	contains "$tmp/stella_daemon_clean.out" "status ok"
 	test -f "$root/build/stella-daemon/compile_commands.json" || fail "stella daemon compile_commands missing"
-	run_timed stella_daemon_noop "$qstar" --file "$root/qstar.lua" -B build/stella-daemon -G stella build //:firmware_image --use-daemon=always --daemon-socket "$daemon_sock" --progress off --color never
+	run_timed stella_daemon_noop "$qstar" --file "$root/qstar.lua" -B build/stella-daemon -G stella build //:package_bundle --use-daemon=always --daemon-socket "$daemon_sock" --progress off --color never
 	contains "$tmp/stella_daemon_noop.out" "status ok"
-	bump_source "sys/kern/mm/mm.c" 7004
-	run_timed stella_daemon_incremental "$qstar" --file "$root/qstar.lua" -B build/stella-daemon -G stella build //:firmware_image --use-daemon=always --daemon-socket "$daemon_sock" --progress off --color never
+	bump_source "modules/core/cache/cache.c" 7004
+	run_timed stella_daemon_incremental "$qstar" --file "$root/qstar.lua" -B build/stella-daemon -G stella build //:package_bundle --use-daemon=always --daemon-socket "$daemon_sock" --progress off --color never
 	contains "$tmp/stella_daemon_incremental.out" "status ok"
 	printf 'medium_project_gate backend=stella-daemon phase=clean elapsed_ms=%s cli_clean_ms=%s\n' "$stella_daemon_clean_ms" "$stella_clean_ms"
 	printf 'medium_project_gate backend=stella-daemon phase=noop elapsed_ms=%s cli_noop_ms=%s\n' "$stella_daemon_noop_ms" "$stella_noop_ms"
@@ -481,44 +479,44 @@ else
 	fi
 fi
 
-run_timed stella_jobs_clean "$qstar" --file "$root/qstar.lua" -B build/stella-jobs -G stella build //:firmware_image --jobs "$host_jobs"
-contains "$tmp/stella_jobs_clean.out" "group_target label=//:firmware_image"
+run_timed stella_jobs_clean "$qstar" --file "$root/qstar.lua" -B build/stella-jobs -G stella build //:package_bundle --jobs "$host_jobs"
+contains "$tmp/stella_jobs_clean.out" "group_target label=//:package_bundle"
 contains "$tmp/stella_jobs_clean.out" "status ok"
 test -f "$root/build/stella-jobs/compile_commands.json" || fail "stella --jobs compile_commands missing"
 check_elapsed_max "stella --jobs clean build" "$stella_jobs_clean_ms" "$clean_max_ms"
 printf 'medium_project_gate backend=stella-jobs jobs=%s phase=clean elapsed_ms=%s\n' "$host_jobs" "$stella_jobs_clean_ms"
 
-run_timed stella_jobs_noop "$qstar" --file "$root/qstar.lua" -B build/stella-jobs -G stella build //:firmware_image --jobs "$host_jobs"
+run_timed stella_jobs_noop "$qstar" --file "$root/qstar.lua" -B build/stella-jobs -G stella build //:package_bundle --jobs "$host_jobs"
 contains "$tmp/stella_jobs_noop.out" "status ok"
 check_elapsed_max "stella --jobs no-op build" "$stella_jobs_noop_ms" "$noop_max_ms"
 printf 'medium_project_gate backend=stella-jobs jobs=%s phase=noop elapsed_ms=%s\n' "$host_jobs" "$stella_jobs_noop_ms"
 
-bump_source "sys/kern/mm/mm.c" 7002
-run_timed stella_jobs_incremental "$qstar" --file "$root/qstar.lua" -B build/stella-jobs -G stella build //:firmware_image --jobs "$host_jobs"
+bump_source "modules/core/cache/cache.c" 7002
+run_timed stella_jobs_incremental "$qstar" --file "$root/qstar.lua" -B build/stella-jobs -G stella build //:package_bundle --jobs "$host_jobs"
 contains "$tmp/stella_jobs_incremental.out" "status ok"
 check_elapsed_max "stella --jobs incremental build" "$stella_jobs_incremental_ms" "$incremental_max_ms"
 printf 'medium_project_gate backend=stella-jobs jobs=%s phase=incremental elapsed_ms=%s\n' "$host_jobs" "$stella_jobs_incremental_ms"
 
-"$qstar" --file "$root/qstar.lua" -B build/stella action-log //sys/kern/mm:kernel_mm:archive:0 > "$tmp/kernel-mm-archive-log.out" 2> "$tmp/kernel-mm-archive-log.err"
-contains "$tmp/kernel-mm-archive-log.out" "argv[0]=ar"
-contains "$tmp/kernel-mm-archive-log.out" "libkernel_mm.a"
-not_contains "$tmp/kernel-mm-archive-log.out" "liblibk_core.a"
-printf 'medium_project_gate staticlib_argv_parity=ok target=//sys/kern/mm:kernel_mm\n'
+"$qstar" --file "$root/qstar.lua" -B build/stella action-log //modules/core/cache:module_cache:archive:0 > "$tmp/module-cache-archive-log.out" 2> "$tmp/module-cache-archive-log.err"
+contains "$tmp/module-cache-archive-log.out" "argv[0]=ar"
+contains "$tmp/module-cache-archive-log.out" "libmodule_cache.a"
+not_contains "$tmp/module-cache-archive-log.out" "libbase_core.a"
+printf 'medium_project_gate staticlib_argv_parity=ok target=//modules/core/cache:module_cache\n'
 
 if command -v ninja >/dev/null 2>&1; then
-	run_timed ninja_clean "$qstar" --file "$root/qstar.lua" -B build/qstar-ninja -G ninja build //:firmware_image
+	run_timed ninja_clean "$qstar" --file "$root/qstar.lua" -B build/qstar-ninja -G ninja build //:package_bundle
 	contains "$tmp/ninja_clean.out" "backend ninja"
 	contains "$tmp/ninja_clean.out" "status ok"
 	test -f "$root/build/qstar-ninja/compile_commands.json" || fail "ninja compile_commands missing"
 	check_elapsed_max "ninja clean build" "$ninja_clean_ms" "$clean_max_ms"
 	printf 'medium_project_gate backend=ninja phase=clean elapsed_ms=%s\n' "$ninja_clean_ms"
-	run_timed ninja_noop "$qstar" --file "$root/qstar.lua" -B build/qstar-ninja -G ninja build //:firmware_image
+	run_timed ninja_noop "$qstar" --file "$root/qstar.lua" -B build/qstar-ninja -G ninja build //:package_bundle
 	contains "$tmp/ninja_noop.out" "backend ninja"
 	contains "$tmp/ninja_noop.out" "status ok"
 	check_elapsed_max "ninja no-op build" "$ninja_noop_ms" "$noop_max_ms"
 	printf 'medium_project_gate backend=ninja phase=noop elapsed_ms=%s\n' "$ninja_noop_ms"
-	bump_source "sys/kern/mm/mm.c" 7003
-	run_timed ninja_incremental "$qstar" --file "$root/qstar.lua" -B build/qstar-ninja -G ninja build //:firmware_image
+	bump_source "modules/core/cache/cache.c" 7003
+	run_timed ninja_incremental "$qstar" --file "$root/qstar.lua" -B build/qstar-ninja -G ninja build //:package_bundle
 	contains "$tmp/ninja_incremental.out" "backend ninja"
 	contains "$tmp/ninja_incremental.out" "status ok"
 	check_elapsed_max "ninja incremental build" "$ninja_incremental_ms" "$incremental_max_ms"

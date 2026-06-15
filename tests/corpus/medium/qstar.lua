@@ -23,59 +23,59 @@ qstar.staticlib "core" {
   sources = {"src/core.c"},
 }
 
-qstar.staticlib "arch" {
+qstar.staticlib "variant" {
   configs = {"//:medium_c"},
-  sources = {"src/arch.c"},
+  sources = {"src/variant.c"},
 }
 
-qstar.staticlib "board" {
+qstar.staticlib "product" {
   configs = {"//:medium_c"},
-  sources = {"src/board.c"},
+  sources = {"src/product.c"},
 }
 
-qstar.staticlib "kernel_boot" {
+qstar.staticlib "module_start" {
   configs = {"//:medium_c"},
-  sources = {"src/kernel_boot.c"},
+  sources = {"src/module_start.c"},
 }
 
-qstar.staticlib "kernel_mm" {
+qstar.staticlib "module_cache" {
   configs = {"//:medium_c"},
-  sources = {"src/kernel_mm.c"},
+  sources = {"src/module_cache.c"},
 }
 
-qstar.staticlib "kernel_sched" {
+qstar.staticlib "module_runner" {
   configs = {"//:medium_c"},
-  sources = {"src/kernel_sched.c"},
+  sources = {"src/module_runner.c"},
 }
 
-qstar.staticlib "driver_serial" {
+qstar.staticlib "plugin_stream" {
   configs = {"//:medium_c"},
-  sources = {"src/driver_serial.c"},
+  sources = {"src/plugin_stream.c"},
 }
 
-qstar.staticlib "driver_timer" {
+qstar.staticlib "plugin_timer" {
   configs = {"//:medium_c"},
-  sources = {"src/driver_timer.c"},
+  sources = {"src/plugin_timer.c"},
 }
 
-qstar.staticlib "driver_storage" {
+qstar.staticlib "plugin_storage" {
   configs = {"//:medium_c"},
-  sources = {"src/driver_storage.c"},
+  sources = {"src/plugin_storage.c"},
 }
 
-qstar.staticlib "platform_clock" {
+qstar.staticlib "runtime_clock" {
   configs = {"//:medium_c"},
-  sources = {"src/platform_clock.c"},
+  sources = {"src/runtime_clock.c"},
 }
 
-qstar.staticlib "platform_power" {
+qstar.staticlib "runtime_power" {
   configs = {"//:medium_c"},
-  sources = {"src/platform_power.c"},
+  sources = {"src/runtime_power.c"},
 }
 
-qstar.staticlib "network_stack" {
+qstar.staticlib "service_network" {
   configs = {"//:medium_c"},
-  sources = {"src/network_stack.c"},
+  sources = {"src/service_network.c"},
 }
 
 qstar.executable "medium_app" {
@@ -83,17 +83,17 @@ qstar.executable "medium_app" {
   sources = {"src/main.c"},
   deps = {
     "//:core",
-    "//:arch",
-    "//:board",
-    "//:kernel_boot",
-    "//:kernel_mm",
-    "//:kernel_sched",
-    "//:driver_serial",
-    "//:driver_timer",
-    "//:driver_storage",
-    "//:platform_clock",
-    "//:platform_power",
-    "//:network_stack",
+    "//:variant",
+    "//:product",
+    "//:module_start",
+    "//:module_cache",
+    "//:module_runner",
+    "//:plugin_stream",
+    "//:plugin_timer",
+    "//:plugin_storage",
+    "//:runtime_clock",
+    "//:runtime_power",
+    "//:service_network",
   },
 }
 

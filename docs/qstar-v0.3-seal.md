@@ -2,7 +2,7 @@
 
 QStar v0.3은 compiler frontend/backend와 독립적으로 동작하는 standalone build
 system release candidate다. 이 문서는 v0.2 hard-cut authoring surface 위에
-systems/firmware-style project corpus, editor UX, replay/diagnostic UX를 더해
+generic package-flow project corpus, editor UX, replay/diagnostic UX를 더해
 `v0.3`으로 봉인할 수 있는 범위를 고정한다.
 
 ```txt
@@ -76,7 +76,7 @@ v0.3 release gate는 QStar-local corpus가 모두 새 surface로 유지되는지
 - Generated config corpus: `qstar/tests/projects/generated-config`
 - Local multi-package corpus: `qstar/tests/projects/multipkg`
 - Source-dir style corpus: `qstar/tests/projects/source-dir-style`
-- Systems firmware corpus: `qstar/tests/projects/systems-firmware`
+- Package flow corpus: `qstar/tests/projects/package-flow`
 - Stage/package smoke: `qstar.stage`, dry-run diff, staged manifest
 - Run target smoke: timeout, expect checks, stdout/stderr log, replay
 - VSCode/LSP/lint/formatter/package corpus:

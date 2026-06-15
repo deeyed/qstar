@@ -284,7 +284,7 @@ action이 `input-changed`로 rebuild된다. `format = "object"`는
 group 기본값이 `objects`이고, `.o`/`.obj` source는 compile action 없이 final
 archive/link input으로 직접 소비된다.
 
-Round 58부터 `qstar/tests/projects/systems-firmware`가 이 흐름의 canonical release
+Round 58부터 `qstar/tests/projects/package-flow`가 이 흐름의 canonical release
 corpus다. Kernel ELF는 ordinary `qstar.executable` target으로 만들고,
 `qstar.custom_target "kernel_img"`는 `inputs = { qstar.target_file("//:kernel") }`와
 `qstar.input(0)`을 통해 `llvm-objcopy -O binary` 형태의 raw image를 만든다. 이
@@ -408,7 +408,7 @@ and smoke wrappers are ordinary argv-vector actions, not built-in target kinds.
 `qstar doctor` reports PATH tool discovery and override status. The resolved
 tool path is used in dry-run/build argv and action key material.
 
-The systems firmware corpus follows the same rule. UEFI is not a dedicated
+The package-flow corpus follows the same rule. UEFI is not a dedicated
 UEFI builtin; it is `qstar.executable` plus profile-selected artifact name
 (`BOOTX64.EFI` or `BOOTAA64.EFI`), MSVC response style, and
 `/subsystem:efi_application` link options. RPi packaging is not a dedicated

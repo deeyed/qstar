@@ -423,15 +423,15 @@ default vocabulary가 되어서는 안 된다.
 
 다음 corpus는 이름과 예제를 일반화하거나 legacy/internal corpus로 격리한다.
 
-- `tests/corpus/freestanding`
-- `tests/projects/systems-firmware`
+- `tests/corpus/toolchain-app`
+- `tests/projects/package-flow`
 - `tests/medium-project-performance.sh`
 - `tests/large-project-performance.sh`
 - `tests/projects/binary-blob-embed`
 - Windows artifact tests that rely on profile-level artifact maps
 - response-file tests that rely on `qstar.profile`
 
-성능 corpus는 다음처럼 generic project shape로 바꾼다.
+성능 corpus는 다음처럼 generic project shape로 둔다.
 
 - `app_core`
 - `platform_adapter`

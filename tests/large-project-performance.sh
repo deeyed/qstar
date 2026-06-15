@@ -171,8 +171,6 @@ qstar.config "large_c" {
     c = {
       compile_options = {
         "-std=c99",
-        "-ffreestanding",
-        "-fno-builtin",
         "-Wall",
         "-Wextra",
       },

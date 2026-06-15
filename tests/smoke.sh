@@ -606,7 +606,7 @@ contains "$tmp/error-stream/build/qstar/logs/___core_compile_0.stderr" "error: f
 not_contains "$tmp/error-stream/build/qstar/logs/___core_compile_0.stderr" "$esc"
 
 step "group target corpus" "group-build"
-mkdir -p "$group_tmp/group/lib/libk" "$group_tmp/group/sys/kern" "$group_tmp/group/sys/kern/mm" "$group_tmp/group/sys/kern/irq"
+mkdir -p "$group_tmp/group/lib/base" "$group_tmp/group/modules/core" "$group_tmp/group/modules/core/cache" "$group_tmp/group/modules/core/signal"
 cat > "$group_tmp/group/qstar.lua" <<'EOF'
 qstar.project {
   name = "group-corpus",
@@ -614,82 +614,82 @@ qstar.project {
   root = ".",
 }
 
-qstar.subdir("lib/libk")
-qstar.subdir("sys/kern/mm")
-qstar.subdir("sys/kern/irq")
-qstar.subdir("sys/kern")
+qstar.subdir("lib/base")
+qstar.subdir("modules/core/cache")
+qstar.subdir("modules/core/signal")
+qstar.subdir("modules/core")
 
-qstar.group "firmware_image" {
+qstar.group "package_bundle" {
   deps = {
-    "//sys/kern:kernel_subsystems",
+    "//modules/core:core_modules",
   },
 }
 EOF
-cat > "$group_tmp/group/lib/libk/libk.qst" <<'EOF'
-qstar.staticlib "libk_core" {
+cat > "$group_tmp/group/lib/base/base.qst" <<'EOF'
+qstar.staticlib "base_core" {
   sources = {
-    "lib/libk/libk.c",
+    "lib/base/base.c",
   },
 }
 EOF
-cat > "$group_tmp/group/sys/kern/mm/mm.qst" <<'EOF'
-qstar.staticlib "kernel_mm" {
+cat > "$group_tmp/group/modules/core/cache/cache.qst" <<'EOF'
+qstar.staticlib "module_cache" {
   sources = {
-    "sys/kern/mm/mm.c",
+    "modules/core/cache/cache.c",
   },
   deps = {
-    "//lib/libk:libk_core",
+    "//lib/base:base_core",
   },
 }
 EOF
-cat > "$group_tmp/group/sys/kern/irq/irq.qst" <<'EOF'
-qstar.staticlib "kernel_irq" {
+cat > "$group_tmp/group/modules/core/signal/signal.qst" <<'EOF'
+qstar.staticlib "module_signal" {
   sources = {
-    "sys/kern/irq/irq.c",
+    "modules/core/signal/signal.c",
   },
   deps = {
-    "//lib/libk:libk_core",
+    "//lib/base:base_core",
   },
 }
 EOF
-cat > "$group_tmp/group/sys/kern/kern.qst" <<'EOF'
-qstar.group "kernel_subsystems" {
+cat > "$group_tmp/group/modules/core/core.qst" <<'EOF'
+qstar.group "core_modules" {
   deps = {
-    "//sys/kern/mm:kernel_mm",
-    "//sys/kern/irq:kernel_irq",
+    "//modules/core/cache:module_cache",
+    "//modules/core/signal:module_signal",
   },
 }
 EOF
-cat > "$group_tmp/group/lib/libk/libk.c" <<'EOF'
-int libk_core(void) { return 1; }
+cat > "$group_tmp/group/lib/base/base.c" <<'EOF'
+int base_core(void) { return 1; }
 EOF
-cat > "$group_tmp/group/sys/kern/mm/mm.c" <<'EOF'
-int kernel_mm_value(void) { return 2; }
+cat > "$group_tmp/group/modules/core/cache/cache.c" <<'EOF'
+int module_cache_value(void) { return 2; }
 EOF
-cat > "$group_tmp/group/sys/kern/irq/irq.c" <<'EOF'
-int kernel_irq_value(void) { return 3; }
+cat > "$group_tmp/group/modules/core/signal/signal.c" <<'EOF'
+int module_signal_value(void) { return 3; }
 EOF
-"$qstar" --file "$group_tmp/group/qstar.lua" check //:firmware_image > "$tmp/group-check.out" 2> "$tmp/group-check.err"
+"$qstar" --file "$group_tmp/group/qstar.lua" check //:package_bundle > "$tmp/group-check.out" 2> "$tmp/group-check.err"
 contains "$tmp/group-check.out" "status ok"
-"$qstar" --file "$group_tmp/group/qstar.lua" dry-run //:firmware_image > "$tmp/group-dry.out" 2> "$tmp/group-dry.err"
-contains "$tmp/group-dry.out" "dry_run_target //sys/kern:kernel_subsystems"
+"$qstar" --file "$group_tmp/group/qstar.lua" dry-run //:package_bundle > "$tmp/group-dry.out" 2> "$tmp/group-dry.err"
+contains "$tmp/group-dry.out" "dry_run_target //modules/core:core_modules"
 contains "$tmp/group-dry.out" "kind=group tool=none input=<deps> output=<none>"
-contains "$tmp/group-dry.out" "progress_action label=//sys/kern:kernel_subsystems include=no reason=group"
-contains "$tmp/group-dry.out" "progress_action label=//:firmware_image include=no reason=group"
-"$qstar" --file "$group_tmp/group/qstar.lua" build //:firmware_image --schedule-trace --progress off > "$tmp/group-trace.out" 2> "$tmp/group-trace.err"
+contains "$tmp/group-dry.out" "progress_action label=//modules/core:core_modules include=no reason=group"
+contains "$tmp/group-dry.out" "progress_action label=//:package_bundle include=no reason=group"
+"$qstar" --file "$group_tmp/group/qstar.lua" build //:package_bundle --schedule-trace --progress off > "$tmp/group-trace.out" 2> "$tmp/group-trace.err"
 contains "$tmp/group-trace.out" "action_scheduler version=v1"
 contains "$tmp/group-trace.out" "ready=3 jobs="
 not_contains "$tmp/group-trace.out" "ready=1 jobs="
-contains "$tmp/group-trace.out" "schedule_action id=//lib/libk:libk_core:compile:0"
-contains "$tmp/group-trace.out" "schedule_action id=//sys/kern/mm:kernel_mm:compile:0"
-contains "$tmp/group-trace.out" "schedule_action id=//sys/kern/irq:kernel_irq:compile:0"
-contains "$tmp/group-trace.out" "schedule_action id=//lib/libk:libk_core:archive:0 kind=archive slot="
-contains "$tmp/group-trace.out" "schedule_action id=//sys/kern/mm:kernel_mm:archive:0 kind=archive slot="
-contains "$tmp/group-trace.out" "schedule_action id=//sys/kern/irq:kernel_irq:archive:0 kind=archive slot="
+contains "$tmp/group-trace.out" "schedule_action id=//lib/base:base_core:compile:0"
+contains "$tmp/group-trace.out" "schedule_action id=//modules/core/cache:module_cache:compile:0"
+contains "$tmp/group-trace.out" "schedule_action id=//modules/core/signal:module_signal:compile:0"
+contains "$tmp/group-trace.out" "schedule_action id=//lib/base:base_core:archive:0 kind=archive slot="
+contains "$tmp/group-trace.out" "schedule_action id=//modules/core/cache:module_cache:archive:0 kind=archive slot="
+contains "$tmp/group-trace.out" "schedule_action id=//modules/core/signal:module_signal:archive:0 kind=archive slot="
 not_contains "$tmp/group-trace.out" "kind=final state=ready"
-"$qstar" --file "$group_tmp/group/qstar.lua" build //:firmware_image > "$tmp/group-build.out" 2> "$tmp/group-build.err"
-contains "$tmp/group-build.out" "group_target label=//sys/kern:kernel_subsystems"
-contains "$tmp/group-build.out" "group_target label=//:firmware_image"
+"$qstar" --file "$group_tmp/group/qstar.lua" build //:package_bundle > "$tmp/group-build.out" 2> "$tmp/group-build.err"
+contains "$tmp/group-build.out" "group_target label=//modules/core:core_modules"
+contains "$tmp/group-build.out" "group_target label=//:package_bundle"
 contains "$tmp/group-build.out" "artifact=<none>"
 contains "$tmp/group-build.out" "status ok"
 "$qstar" --file "$group_tmp/group/qstar.lua" list-targets --format json > "$tmp/group-targets-json.out" 2> "$tmp/group-targets-json.err"
@@ -1304,8 +1304,8 @@ fi
 contains "$tmp/host-readonly.err" "qstar.host is read-only: os"
 
 step "import_file and import_module happy path" "imports-graph"
-mkdir -p "$tmp/imports/qstar/policies" "$tmp/imports/qstar/modules/kernel" \
-	"$tmp/imports/include" "$tmp/imports/sys/include" "$tmp/imports/src"
+mkdir -p "$tmp/imports/qstar/policies" "$tmp/imports/qstar/modules/common" \
+	"$tmp/imports/include" "$tmp/imports/project/include" "$tmp/imports/src"
 cat > "$tmp/imports/src/app.c" <<'EOF'
 int app(void) { return 0; }
 EOF
@@ -1319,7 +1319,7 @@ qstar.project {
 }
 
 qstar.import_file("qstar/policies/common.qst")
-local kernel = qstar.import_module("qstar/modules/kernel")
+local common = qstar.import_module("qstar/modules/common")
 
 qstar.staticlib "app" {
   sources = qstar.join {
@@ -1327,7 +1327,7 @@ qstar.staticlib "app" {
   },
   deps = {"//qstar/policies:policy_core"},
   lang = {
-    c = kernel.common_c(),
+    c = common.common_c(),
   },
 }
 EOF
@@ -1336,7 +1336,7 @@ qstar.staticlib "policy_core" {
   sources = {"src/policy.c"},
 }
 EOF
-cat > "$tmp/imports/qstar/modules/kernel/kernel.qsm" <<'EOF'
+cat > "$tmp/imports/qstar/modules/common/common.qsm" <<'EOF'
 local M = {}
 
 local base_c = {
@@ -1344,16 +1344,16 @@ local base_c = {
   compile_options = {"-Wall"},
 }
 
-local freestanding_c = {
-  public_include_dirs = {qstar.join("sys", "include")},
+local project_c = {
+  public_include_dirs = {qstar.join("project", "include")},
   compile_options = {"-Wextra"},
 }
 
 function M.common_c()
-  local opts = qstar.merge(base_c, freestanding_c)
+  local opts = qstar.merge(base_c, project_c)
   qstar.extend(opts, {
     compile_options = qstar.append({"-Werror"}),
-    defines = {"KERNEL_HELPER=1"},
+    defines = {"COMMON_HELPER=1"},
   })
   local copied = qstar.copy(opts)
   qstar.extend(opts, {
@@ -1368,12 +1368,12 @@ EOF
 contains "$tmp/imports-graph.out" "target //qstar/policies:policy_core"
 contains "$tmp/imports-graph.out" "target //:app"
 contains "$tmp/imports-graph.out" "sources [src/app.c]"
-contains "$tmp/imports-graph.out" "public_include_dirs [include, sys/include]"
-contains "$tmp/imports-graph.out" "cflags [-Wall, -Wextra, -Werror, -DKERNEL_HELPER=1]"
+contains "$tmp/imports-graph.out" "public_include_dirs [include, project/include]"
+contains "$tmp/imports-graph.out" "cflags [-Wall, -Wextra, -Werror, -DCOMMON_HELPER=1]"
 not_contains "$tmp/imports-graph.out" "ORIGINAL_ONLY"
 "$qstar" --file "$tmp/imports/qstar.lua" lint //... > "$tmp/imports-lint.out" 2> "$tmp/imports-lint.err"
 contains "$tmp/imports-lint.out" "status ok"
-"$qstar" fmt --check "$tmp/imports/qstar/modules/kernel/kernel.qsm" > "$tmp/imports-qsm-fmt.out" 2> "$tmp/imports-qsm-fmt.err"
+"$qstar" fmt --check "$tmp/imports/qstar/modules/common/common.qsm" > "$tmp/imports-qsm-fmt.out" 2> "$tmp/imports-qsm-fmt.err"
 contains "$tmp/imports-qsm-fmt.out" "status ok"
 
 step "import duplicate file diagnostic" "import-duplicate-file"
@@ -1498,31 +1498,29 @@ contains "$tmp/bad-import-corpus.err" "use qstar.import_module(\"modules/common\
 
 step "config merge corpus" "configs-graph"
 mkdir -p "$tmp/configs/qstar/policies" \
-	"$tmp/configs/sys/kern/mm" \
-	"$tmp/configs/sys/kern/irq" \
-	"$tmp/configs/sys/include" \
-	"$tmp/configs/lib/libc/aarch64-unknown-none-elf/include"
+	"$tmp/configs/modules/core/cache" \
+	"$tmp/configs/modules/core/signal" \
+	"$tmp/configs/project/include" \
+	"$tmp/configs/vendor/runtime/include"
 cat > "$tmp/configs/qstar.lua" <<'EOF'
 qstar.project {
   name = "configs",
   root = ".",
 }
 
-qstar.import_file("qstar/policies/kernel.qst")
-qstar.subdir("sys/kern/mm")
-qstar.subdir("sys/kern/irq")
+qstar.import_file("qstar/policies/module.qst")
+qstar.subdir("modules/core/cache")
+qstar.subdir("modules/core/signal")
 EOF
-cat > "$tmp/configs/qstar/policies/kernel.qst" <<'EOF'
-qstar.config "kernel_c23" {
+cat > "$tmp/configs/qstar/policies/module.qst" <<'EOF'
+qstar.config "module_c23" {
   lang = {
     c = {
-      public_include_dirs = {"sys/include"},
-      system_include_dirs = {"lib/libc/aarch64-unknown-none-elf/include"},
+      public_include_dirs = {"project/include"},
+      system_include_dirs = {"vendor/runtime/include"},
       compile_options = {
         "-std=c23",
-        "-ffreestanding",
-        "-fno-builtin",
-        "-nostdinc",
+        "-DPROJECT_MODE=1",
       },
     },
   },
@@ -1540,62 +1538,62 @@ qstar.config "strict_warnings" {
   },
 }
 EOF
-cat > "$tmp/configs/sys/kern/mm/mm.qst" <<'EOF'
-qstar.staticlib "kernel_mm" {
+cat > "$tmp/configs/modules/core/cache/cache.qst" <<'EOF'
+qstar.staticlib "module_cache" {
   configs = {
-    "//qstar/policies:kernel_c23",
+    "//qstar/policies:module_c23",
     "//qstar/policies:strict_warnings",
   },
   sources = {
-    "sys/kern/mm/mm.c",
+    "modules/core/cache/cache.c",
   },
   lang = {
     c = {
       compile_options = {
-        "-DMM_LOCAL=1",
+        "-DCACHE_LOCAL=1",
       },
     },
   },
 }
 EOF
-cat > "$tmp/configs/sys/kern/irq/irq.qst" <<'EOF'
-qstar.staticlib "kernel_irq" {
+cat > "$tmp/configs/modules/core/signal/signal.qst" <<'EOF'
+qstar.staticlib "module_signal" {
   configs = {
-    "//qstar/policies:kernel_c23",
+    "//qstar/policies:module_c23",
     "//qstar/policies:strict_warnings",
   },
   sources = {
-    "sys/kern/irq/irq.c",
+    "modules/core/signal/signal.c",
   },
 }
 EOF
-cat > "$tmp/configs/sys/kern/mm/mm.c" <<'EOF'
-int kernel_mm_value(void) { return 0; }
+cat > "$tmp/configs/modules/core/cache/cache.c" <<'EOF'
+int module_cache_value(void) { return 0; }
 EOF
-cat > "$tmp/configs/sys/kern/irq/irq.c" <<'EOF'
-int kernel_irq_value(void) { return 0; }
+cat > "$tmp/configs/modules/core/signal/signal.c" <<'EOF'
+int module_signal_value(void) { return 0; }
 EOF
 "$qstar" --file "$tmp/configs/qstar.lua" --dump-graph > "$tmp/configs-graph.out" 2> "$tmp/configs-graph.err"
-contains "$tmp/configs-graph.out" "config //qstar/policies:kernel_c23"
+contains "$tmp/configs-graph.out" "config //qstar/policies:module_c23"
 contains "$tmp/configs-graph.out" "config //qstar/policies:strict_warnings"
-contains "$tmp/configs-graph.out" "configs [//qstar/policies:kernel_c23, //qstar/policies:strict_warnings]"
-contains "$tmp/configs-graph.out" "public_include_dirs [sys/include]"
-contains "$tmp/configs-graph.out" "system_include_dirs [lib/libc/aarch64-unknown-none-elf/include]"
-contains "$tmp/configs-graph.out" "cflags [-std=c23, -ffreestanding, -fno-builtin, -nostdinc, -Wall, -Wextra, -Werror, -DMM_LOCAL=1]"
-"$qstar" --file "$tmp/configs/qstar.lua" dry-run //sys/kern/mm:kernel_mm > "$tmp/configs-dry.out" 2> "$tmp/configs-dry.err"
-contains "$tmp/configs-dry.out" "configs [//qstar/policies:kernel_c23, //qstar/policies:strict_warnings]"
-contains "$tmp/configs-dry.out" "-DMM_LOCAL=1"
+contains "$tmp/configs-graph.out" "configs [//qstar/policies:module_c23, //qstar/policies:strict_warnings]"
+contains "$tmp/configs-graph.out" "public_include_dirs [project/include]"
+contains "$tmp/configs-graph.out" "system_include_dirs [vendor/runtime/include]"
+contains "$tmp/configs-graph.out" "cflags [-std=c23, -DPROJECT_MODE=1, -Wall, -Wextra, -Werror, -DCACHE_LOCAL=1]"
+"$qstar" --file "$tmp/configs/qstar.lua" dry-run //modules/core/cache:module_cache > "$tmp/configs-dry.out" 2> "$tmp/configs-dry.err"
+contains "$tmp/configs-dry.out" "configs [//qstar/policies:module_c23, //qstar/policies:strict_warnings]"
+contains "$tmp/configs-dry.out" "-DCACHE_LOCAL=1"
 contains "$tmp/configs-dry.out" "-isystem"
-contains "$tmp/configs-dry.out" "lib/libc/aarch64-unknown-none-elf/include"
+contains "$tmp/configs-dry.out" "vendor/runtime/include"
 "$qstar" --file "$tmp/configs/qstar.lua" list-targets --format json > "$tmp/configs-json.out" 2> "$tmp/configs-json.err"
 contains "$tmp/configs-json.out" "\"config_count\":2"
-contains "$tmp/configs-json.out" "\"configs\":[\"//qstar/policies:kernel_c23\",\"//qstar/policies:strict_warnings\"]"
+contains "$tmp/configs-json.out" "\"configs\":[\"//qstar/policies:module_c23\",\"//qstar/policies:strict_warnings\"]"
 
 mkdir -p "$tmp/config-scalar/src"
 cat > "$tmp/config-scalar/qstar.lua" <<'EOF'
 qstar.config "base" {
   toolchain = "clang",
-  stdlib = "freestanding",
+  stdlib = "custom",
   lang = {
     cxx = {
       standard = "c++20",
@@ -2059,7 +2057,7 @@ contains "$tmp/lsp-missing.out" "QSTAR002"
 contains "$tmp/lsp-missing.out" "missing fragment"
 
 mkdir -p "$tmp/lsp-nav/lib" "$tmp/lsp-nav/app" \
-	"$tmp/lsp-nav/qstar/policies" "$tmp/lsp-nav/qstar/modules/kernel"
+	"$tmp/lsp-nav/qstar/policies" "$tmp/lsp-nav/qstar/modules/common"
 cat > "$tmp/lsp-nav/qstar.lua" <<'EOF'
 qstar.configure_file "cfg" {
   output = qstar.output("generated/cfg.h"),
@@ -2074,7 +2072,7 @@ qstar.custom_target "gen" {
 qstar.subdir("lib")
 qstar.subdir("app")
 qstar.import_file("qstar/policies/common.qst")
-local kernel = qstar.import_module("qstar/modules/kernel")
+local common = qstar.import_module("qstar/modules/common")
 EOF
 cat > "$tmp/lsp-nav/lib/lib.qst" <<'EOF'
 qstar.staticlib "core" {}
@@ -2087,17 +2085,17 @@ EOF
 cat > "$tmp/lsp-nav/qstar/policies/common.qst" <<'EOF'
 local policy = true
 EOF
-cat > "$tmp/lsp-nav/qstar/modules/kernel/kernel.qsm" <<'EOF'
+cat > "$tmp/lsp-nav/qstar/modules/common/common.qsm" <<'EOF'
 return {}
 EOF
 lsp_nav_root_uri="file://$tmp/lsp-nav/qstar.lua"
 lsp_nav_lib_uri="file://$tmp/lsp-nav/lib/lib.qst"
 lsp_nav_app_uri="file://$tmp/lsp-nav/app/app.qst"
 lsp_nav_policy_uri="file://$tmp/lsp-nav/qstar/policies/common.qst"
-lsp_nav_module_uri="file://$tmp/lsp-nav/qstar/modules/kernel/kernel.qsm"
+lsp_nav_module_uri="file://$tmp/lsp-nav/qstar/modules/common/common.qsm"
 {
 	send_lsp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
-	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_nav_root_uri"'","languageId":"qstar","version":1,"text":"qstar.configure_file \"cfg\" {\n  output = qstar.output(\"generated/cfg.h\"),\n  defines = {\"HAVE_CFG\"},\n}\n\nqstar.custom_target \"gen\" {\n  outputs = {qstar.output(\"generated/gen.c\")},\n  command = qstar.cli {\"tools/gen.sh\", qstar.output(0)},\n}\n\nqstar.subdir(\"lib\")\nqstar.subdir(\"app\")\nqstar.import_file(\"qstar/policies/common.qst\")\nlocal kernel = qstar.import_module(\"qstar/modules/kernel\")\n"}}}'
+	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_nav_root_uri"'","languageId":"qstar","version":1,"text":"qstar.configure_file \"cfg\" {\n  output = qstar.output(\"generated/cfg.h\"),\n  defines = {\"HAVE_CFG\"},\n}\n\nqstar.custom_target \"gen\" {\n  outputs = {qstar.output(\"generated/gen.c\")},\n  command = qstar.cli {\"tools/gen.sh\", qstar.output(0)},\n}\n\nqstar.subdir(\"lib\")\nqstar.subdir(\"app\")\nqstar.import_file(\"qstar/policies/common.qst\")\nlocal common = qstar.import_module(\"qstar/modules/common\")\n"}}}'
 	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_nav_lib_uri"'","languageId":"qstar","version":1,"text":"qstar.staticlib \"core\" {}\n"}}}'
 	send_lsp '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"'"$lsp_nav_app_uri"'","languageId":"qstar","version":1,"text":"qstar.executable \"app\" {\n  deps = {\"//lib:core\"},\n}\n"}}}'
 	send_lsp '{"jsonrpc":"2.0","id":2,"method":"textDocument/definition","params":{"textDocument":{"uri":"'"$lsp_nav_app_uri"'"},"position":{"line":1,"character":14}}}'
@@ -3871,158 +3869,157 @@ contains "$tmp/project-source-dir-build.out" "status ok"
 contains "$tmp/project-source-dir/build/qstar/compile_commands.json" "lib/src/core.c"
 contains "$tmp/project-source-dir/build/qstar/compile_commands.json" "app/src/main.c"
 
-cp -R "$project_root/systems-firmware" "$tmp/project-firmware"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" check //:kernel > "$tmp/project-firmware-check.out" 2> "$tmp/project-firmware-check.err"
-contains "$tmp/project-firmware-check.out" "target-count 1"
-contains "$tmp/project-firmware-check.out" "generated-action-count 1"
-contains "$tmp/project-firmware-check.out" "stage-count 2"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" dry-run //:kernel > "$tmp/project-firmware-kernel-dry.out" 2> "$tmp/project-firmware-kernel-dry.err"
-contains "$tmp/project-firmware-kernel-dry.out" "-ffreestanding"
-contains "$tmp/project-firmware-kernel-dry.out" "-mgeneral-regs-only"
-contains "$tmp/project-firmware-kernel-dry.out" "-mcpu=cortex-a76"
-contains "$tmp/project-firmware-kernel-dry.out" "-mabi=lp64"
-contains "$tmp/project-firmware-kernel-dry.out" "-D__QSTAR_FIRMWARE__=1"
-contains "$tmp/project-firmware-kernel-dry.out" "-T"
-contains "$tmp/project-firmware-kernel-dry.out" "linker/rpi5-aarch64.ld"
-contains "$tmp/project-firmware-kernel-dry.out" "--defsym=__stack_top=0x810000"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" build //:kernel --explain-cache > "$tmp/project-firmware-kernel-build.out" 2> "$tmp/project-firmware-kernel-build.err"
-contains "$tmp/project-firmware-kernel-build.out" "status ok"
-test -f "$tmp/project-firmware/build/qstar/out/___kernel/kernel.elf" || fail "systems firmware kernel artifact missing"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" action-log //:kernel:compile:0 > "$tmp/project-firmware-kernel-compile0-log.out" 2> "$tmp/project-firmware-kernel-compile0-log.err"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" action-log //:kernel:compile:1 > "$tmp/project-firmware-kernel-compile1-log.out" 2> "$tmp/project-firmware-kernel-compile1-log.err"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" action-log //:kernel:link:0 > "$tmp/project-firmware-kernel-link-log.out" 2> "$tmp/project-firmware-kernel-link-log.err"
-contains "$tmp/project-firmware-kernel-compile0-log.out" "boot/start.S"
-contains "$tmp/project-firmware-kernel-compile1-log.out" "src/kernel.c"
-contains "$tmp/project-firmware-kernel-link-log.out" "-T linker/rpi5-aarch64.ld"
-contains "$tmp/project-firmware-kernel-link-log.out" "--defsym=__rpi_load_addr=0x80000"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" build //:kernel_img --explain-cache --verbose > "$tmp/project-firmware-img-build.out" 2> "$tmp/project-firmware-img-build.err"
-contains "$tmp/project-firmware-img-build.out" "build_generated_action //:kernel_img"
-contains "$tmp/project-firmware-img-build.out" "output_identity=[generated/kernel8.img|group=images|format=file]"
-contains "$tmp/project-firmware-img-build.out" "status ok"
-test -f "$tmp/project-firmware/generated/kernel8.img" || fail "systems firmware raw image missing"
-contains "$tmp/project-firmware/generated/kernel8.img" "RAW-BINARY"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" build //:kernel_img --explain-cache --verbose > "$tmp/project-firmware-img-skip.out" 2> "$tmp/project-firmware-img-skip.err"
-contains "$tmp/project-firmware-img-skip.out" "build_action id=//:kernel_img:generate:0 status=skip"
-printf "kernel-drift\n" >> "$tmp/project-firmware/build/qstar/out/___kernel/kernel.elf"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" build //:kernel_img --explain-cache > "$tmp/project-firmware-img-rebuild.out" 2> "$tmp/project-firmware-img-rebuild.err"
-contains "$tmp/project-firmware-img-rebuild.out" "cache_miss id=//:kernel_img:generate:0 reason=input-changed"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" stage //:rpi --dry-run > "$tmp/project-firmware-rpi-dry.out" 2> "$tmp/project-firmware-rpi-dry.err"
-contains "$tmp/project-firmware-rpi-dry.out" "stage_file src=build/qstar/out/___kernel/kernel.elf dst=stage/rpi/kernel.elf mode=dry-run"
-contains "$tmp/project-firmware-rpi-dry.out" "stage_file src=generated/kernel8.img dst=stage/rpi/kernel8.img mode=dry-run"
-contains "$tmp/project-firmware-rpi-dry.out" "description=\"Staging //:rpi\""
-"$qstar" --file "$tmp/project-firmware/qstar.lua" stage //:rpi > "$tmp/project-firmware-rpi-stage.out" 2> "$tmp/project-firmware-rpi-stage.err"
-contains "$tmp/project-firmware-rpi-stage.out" "stage_file src=boot/config.txt dst=stage/rpi/config.txt mode=copy"
-contains "$tmp/project-firmware-rpi-stage.out" "stage_file src=build/qstar/out/___kernel/kernel.elf dst=stage/rpi/kernel.elf mode=copy"
-contains "$tmp/project-firmware-rpi-stage.out" "stage_file src=generated/kernel8.img dst=stage/rpi/kernel8.img mode=copy"
-test -f "$tmp/project-firmware/stage/rpi/config.txt" || fail "systems firmware staged config missing"
-test -f "$tmp/project-firmware/stage/rpi/kernel.elf" || fail "systems firmware staged kernel elf missing"
-test -f "$tmp/project-firmware/stage/rpi/kernel8.img" || fail "systems firmware staged kernel image missing"
-contains "$tmp/project-firmware/build/qstar/stage/___rpi/manifest.json" "\"dst\":\"stage/rpi/kernel8.img\""
-"$qstar" --file "$tmp/project-firmware/qstar.lua" build //:qemu_smoke > "$tmp/project-firmware-qemu.out" 2> "$tmp/project-firmware-qemu.err"
-contains "$tmp/project-firmware-qemu.out" "run_target label=//:qemu_smoke"
-contains "$tmp/project-firmware-qemu.out" "run_expect label=//:qemu_smoke status=matched contains=QSTAR-SMOKE-DONE source=file path=smoke.log"
-contains "$tmp/project-firmware/smoke.log" "QSTAR-SMOKE-DONE"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang dry-run //:uefi_boot > "$tmp/project-firmware-uefi-dry.out" 2> "$tmp/project-firmware-uefi-dry.err"
-contains "$tmp/project-firmware-uefi-dry.out" "response_style=msvc"
-contains "$tmp/project-firmware-uefi-dry.out" "/out:build/qstar/out/___uefi_boot/BOOTX64.EFI"
-contains "$tmp/project-firmware-uefi-dry.out" "/subsystem:efi_application"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang build //:uefi_boot > "$tmp/project-firmware-uefi-build.out" 2> "$tmp/project-firmware-uefi-build.err"
-contains "$tmp/project-firmware-uefi-build.out" "status ok"
-test -f "$tmp/project-firmware/build/qstar/out/___uefi_boot/BOOTX64.EFI" || fail "systems firmware UEFI artifact missing"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang action-log //:uefi_boot:link:0 > "$tmp/project-firmware-uefi-link-log.out" 2> "$tmp/project-firmware-uefi-link-log.err"
-contains "$tmp/project-firmware-uefi-link-log.out" "/entry:efi_main"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" --target aarch64-pc-windows-msvc --toolchain clang dry-run //:uefi_boot_aa64 > "$tmp/project-firmware-uefi-aa64-dry.out" 2> "$tmp/project-firmware-uefi-aa64-dry.err"
-contains "$tmp/project-firmware-uefi-aa64-dry.out" "/out:build/qstar/out/___uefi_boot_aa64/BOOTAA64.EFI"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang stage //:esp --dry-run > "$tmp/project-firmware-esp-dry.out" 2> "$tmp/project-firmware-esp-dry.err"
-contains "$tmp/project-firmware-esp-dry.out" "stage_file src=build/qstar/out/___uefi_boot/BOOTX64.EFI dst=stage/esp/EFI/BOOT/BOOTX64.EFI mode=dry-run"
-"$qstar" --file "$tmp/project-firmware/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang stage //:esp > "$tmp/project-firmware-esp-stage.out" 2> "$tmp/project-firmware-esp-stage.err"
-contains "$tmp/project-firmware-esp-stage.out" "status ok"
-test -f "$tmp/project-firmware/stage/esp/EFI/BOOT/BOOTX64.EFI" || fail "systems firmware ESP BOOTX64.EFI missing"
+cp -R "$project_root/package-flow" "$tmp/project-package"
+"$qstar" --file "$tmp/project-package/qstar.lua" check //:module > "$tmp/project-package-check.out" 2> "$tmp/project-package-check.err"
+contains "$tmp/project-package-check.out" "target-count 1"
+contains "$tmp/project-package-check.out" "generated-action-count 1"
+contains "$tmp/project-package-check.out" "stage-count 2"
+"$qstar" --file "$tmp/project-package/qstar.lua" dry-run //:module > "$tmp/project-package-module-dry.out" 2> "$tmp/project-package-module-dry.err"
+contains "$tmp/project-package-module-dry.out" "-std=c99"
+contains "$tmp/project-package-module-dry.out" "-Wall"
+contains "$tmp/project-package-module-dry.out" "-Wextra"
+contains "$tmp/project-package-module-dry.out" "-D__QSTAR_PACKAGE_FLOW__=1"
+contains "$tmp/project-package-module-dry.out" "-T"
+contains "$tmp/project-package-module-dry.out" "linker/package.ld"
+contains "$tmp/project-package-module-dry.out" "--defsym=__module_base=0x1000"
+"$qstar" --file "$tmp/project-package/qstar.lua" build //:module --explain-cache > "$tmp/project-package-module-build.out" 2> "$tmp/project-package-module-build.err"
+contains "$tmp/project-package-module-build.out" "status ok"
+test -f "$tmp/project-package/build/qstar/out/___module/module.out" || fail "package flow module artifact missing"
+"$qstar" --file "$tmp/project-package/qstar.lua" action-log //:module:compile:0 > "$tmp/project-package-module-compile0-log.out" 2> "$tmp/project-package-module-compile0-log.err"
+"$qstar" --file "$tmp/project-package/qstar.lua" action-log //:module:compile:1 > "$tmp/project-package-module-compile1-log.out" 2> "$tmp/project-package-module-compile1-log.err"
+"$qstar" --file "$tmp/project-package/qstar.lua" action-log //:module:link:0 > "$tmp/project-package-module-link-log.out" 2> "$tmp/project-package-module-link-log.err"
+contains "$tmp/project-package-module-compile0-log.out" "startup/start.S"
+contains "$tmp/project-package-module-compile1-log.out" "src/module.c"
+contains "$tmp/project-package-module-link-log.out" "-T linker/package.ld"
+contains "$tmp/project-package-module-link-log.out" "--defsym=__module_base=0x1000"
+"$qstar" --file "$tmp/project-package/qstar.lua" build //:package_blob --explain-cache --verbose > "$tmp/project-package-blob-build.out" 2> "$tmp/project-package-blob-build.err"
+contains "$tmp/project-package-blob-build.out" "build_generated_action //:package_blob"
+contains "$tmp/project-package-blob-build.out" "output_identity=[generated/package.bin|group=packages|format=file]"
+contains "$tmp/project-package-blob-build.out" "status ok"
+test -f "$tmp/project-package/generated/package.bin" || fail "package flow generated blob missing"
+contains "$tmp/project-package/generated/package.bin" "RAW-BINARY"
+"$qstar" --file "$tmp/project-package/qstar.lua" build //:package_blob --explain-cache --verbose > "$tmp/project-package-blob-skip.out" 2> "$tmp/project-package-blob-skip.err"
+contains "$tmp/project-package-blob-skip.out" "build_action id=//:package_blob:generate:0 status=skip"
+printf "module-drift\n" >> "$tmp/project-package/build/qstar/out/___module/module.out"
+"$qstar" --file "$tmp/project-package/qstar.lua" build //:package_blob --explain-cache > "$tmp/project-package-blob-rebuild.out" 2> "$tmp/project-package-blob-rebuild.err"
+contains "$tmp/project-package-blob-rebuild.out" "cache_miss id=//:package_blob:generate:0 reason=input-changed"
+"$qstar" --file "$tmp/project-package/qstar.lua" stage //:bundle --dry-run > "$tmp/project-package-bundle-dry.out" 2> "$tmp/project-package-bundle-dry.err"
+contains "$tmp/project-package-bundle-dry.out" "stage_file src=build/qstar/out/___module/module.out dst=stage/bundle/module.out mode=dry-run"
+contains "$tmp/project-package-bundle-dry.out" "stage_file src=generated/package.bin dst=stage/bundle/package.bin mode=dry-run"
+contains "$tmp/project-package-bundle-dry.out" "description=\"Staging //:bundle\""
+"$qstar" --file "$tmp/project-package/qstar.lua" stage //:bundle > "$tmp/project-package-bundle-stage.out" 2> "$tmp/project-package-bundle-stage.err"
+contains "$tmp/project-package-bundle-stage.out" "stage_file src=assets/config.txt dst=stage/bundle/config.txt mode=copy"
+contains "$tmp/project-package-bundle-stage.out" "stage_file src=build/qstar/out/___module/module.out dst=stage/bundle/module.out mode=copy"
+contains "$tmp/project-package-bundle-stage.out" "stage_file src=generated/package.bin dst=stage/bundle/package.bin mode=copy"
+test -f "$tmp/project-package/stage/bundle/config.txt" || fail "package flow staged config missing"
+test -f "$tmp/project-package/stage/bundle/module.out" || fail "package flow staged module missing"
+test -f "$tmp/project-package/stage/bundle/package.bin" || fail "package flow staged package missing"
+contains "$tmp/project-package/build/qstar/stage/___bundle/manifest.json" "\"dst\":\"stage/bundle/package.bin\""
+"$qstar" --file "$tmp/project-package/qstar.lua" build //:package_smoke > "$tmp/project-package-smoke.out" 2> "$tmp/project-package-smoke.err"
+contains "$tmp/project-package-smoke.out" "run_target label=//:package_smoke"
+contains "$tmp/project-package-smoke.out" "run_expect label=//:package_smoke status=matched contains=QSTAR-SMOKE-DONE source=file path=smoke.log"
+contains "$tmp/project-package/smoke.log" "QSTAR-SMOKE-DONE"
+"$qstar" --file "$tmp/project-package/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang dry-run //:msvc_payload > "$tmp/project-package-msvc-dry.out" 2> "$tmp/project-package-msvc-dry.err"
+contains "$tmp/project-package-msvc-dry.out" "response_style=msvc"
+contains "$tmp/project-package-msvc-dry.out" "/out:build/qstar/out/___msvc_payload/payload-x64.pe"
+contains "$tmp/project-package-msvc-dry.out" "/subsystem:console"
+"$qstar" --file "$tmp/project-package/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang build //:msvc_payload > "$tmp/project-package-msvc-build.out" 2> "$tmp/project-package-msvc-build.err"
+contains "$tmp/project-package-msvc-build.out" "status ok"
+test -f "$tmp/project-package/build/qstar/out/___msvc_payload/payload-x64.pe" || fail "package flow msvc artifact missing"
+"$qstar" --file "$tmp/project-package/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang action-log //:msvc_payload:link:0 > "$tmp/project-package-msvc-link-log.out" 2> "$tmp/project-package-msvc-link-log.err"
+contains "$tmp/project-package-msvc-link-log.out" "/entry:payload_main"
+"$qstar" --file "$tmp/project-package/qstar.lua" --target aarch64-pc-windows-msvc --toolchain clang dry-run //:msvc_payload_alt > "$tmp/project-package-msvc-alt-dry.out" 2> "$tmp/project-package-msvc-alt-dry.err"
+contains "$tmp/project-package-msvc-alt-dry.out" "/out:build/qstar/out/___msvc_payload_alt/payload-alt.pe"
+"$qstar" --file "$tmp/project-package/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang stage //:runtime --dry-run > "$tmp/project-package-runtime-dry.out" 2> "$tmp/project-package-runtime-dry.err"
+contains "$tmp/project-package-runtime-dry.out" "stage_file src=build/qstar/out/___msvc_payload/payload-x64.pe dst=stage/runtime/bin/payload-x64.pe mode=dry-run"
+"$qstar" --file "$tmp/project-package/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang stage //:runtime > "$tmp/project-package-runtime-stage.out" 2> "$tmp/project-package-runtime-stage.err"
+contains "$tmp/project-package-runtime-stage.out" "status ok"
+test -f "$tmp/project-package/stage/runtime/bin/payload-x64.pe" || fail "package flow runtime payload missing"
 
-cp -R "$project_root/systems-firmware" "$tmp/project-firmware-link-fail"
-cat > "$tmp/project-firmware-link-fail/tools/fake-link.sh" <<'EOF'
+cp -R "$project_root/package-flow" "$tmp/project-package-link-fail"
+cat > "$tmp/project-package-link-fail/tools/fake-link.sh" <<'EOF'
 #!/bin/sh
 exit 23
 EOF
-chmod +x "$tmp/project-firmware-link-fail/tools/fake-link.sh"
-if "$qstar" --file "$tmp/project-firmware-link-fail/qstar.lua" --diagnostics json build //:kernel > "$tmp/project-firmware-link-fail.out" 2> "$tmp/project-firmware-link-fail.err"; then
-	fail "systems firmware link failure unexpectedly succeeded"
+chmod +x "$tmp/project-package-link-fail/tools/fake-link.sh"
+if "$qstar" --file "$tmp/project-package-link-fail/qstar.lua" --diagnostics json build //:module > "$tmp/project-package-link-fail.out" 2> "$tmp/project-package-link-fail.err"; then
+	fail "package flow link failure unexpectedly succeeded"
 fi
-contains "$tmp/project-firmware-link-fail.out" "action_diagnostic_json"
-contains "$tmp/project-firmware-link-fail.out" "\"failure_kind\":\"link-failure\""
-contains "$tmp/project-firmware-link-fail.err" "\"field\":\"link-failure\""
-contains "$tmp/project-firmware-link-fail/build/qstar/logs/last-failure.replay" "failure_kind=link-failure"
-contains "$tmp/project-firmware-link-fail/build/qstar/logs/last-failure.replay" "tools/fake-link.sh"
-"$qstar" --file "$tmp/project-firmware-link-fail/qstar.lua" last-failure > "$tmp/project-firmware-link-last.out" 2> "$tmp/project-firmware-link-last.err"
-contains "$tmp/project-firmware-link-last.out" "failure_kind=link-failure"
-"$qstar" --file "$tmp/project-firmware-link-fail/qstar.lua" replay //:kernel:link:0 > "$tmp/project-firmware-link-replay.out" 2> "$tmp/project-firmware-link-replay.err"
-contains "$tmp/project-firmware-link-replay.out" "tools/fake-link.sh"
+contains "$tmp/project-package-link-fail.out" "action_diagnostic_json"
+contains "$tmp/project-package-link-fail.out" "\"failure_kind\":\"link-failure\""
+contains "$tmp/project-package-link-fail.err" "\"field\":\"link-failure\""
+contains "$tmp/project-package-link-fail/build/qstar/logs/last-failure.replay" "failure_kind=link-failure"
+contains "$tmp/project-package-link-fail/build/qstar/logs/last-failure.replay" "tools/fake-link.sh"
+"$qstar" --file "$tmp/project-package-link-fail/qstar.lua" last-failure > "$tmp/project-package-link-last.out" 2> "$tmp/project-package-link-last.err"
+contains "$tmp/project-package-link-last.out" "failure_kind=link-failure"
+"$qstar" --file "$tmp/project-package-link-fail/qstar.lua" replay //:module:link:0 > "$tmp/project-package-link-replay.out" 2> "$tmp/project-package-link-replay.err"
+contains "$tmp/project-package-link-replay.out" "tools/fake-link.sh"
 
-cp -R "$project_root/systems-firmware" "$tmp/project-firmware-objcopy-fail"
-"$qstar" --file "$tmp/project-firmware-objcopy-fail/qstar.lua" build //:kernel > "$tmp/project-firmware-objcopy-kernel.out" 2> "$tmp/project-firmware-objcopy-kernel.err"
-cat > "$tmp/project-firmware-objcopy-fail/tools/fake-objcopy.sh" <<'EOF'
+cp -R "$project_root/package-flow" "$tmp/project-package-objcopy-fail"
+"$qstar" --file "$tmp/project-package-objcopy-fail/qstar.lua" build //:module > "$tmp/project-package-objcopy-module.out" 2> "$tmp/project-package-objcopy-module.err"
+cat > "$tmp/project-package-objcopy-fail/tools/fake-objcopy.sh" <<'EOF'
 #!/bin/sh
 exit 42
 EOF
-chmod +x "$tmp/project-firmware-objcopy-fail/tools/fake-objcopy.sh"
-if "$qstar" --file "$tmp/project-firmware-objcopy-fail/qstar.lua" --diagnostics json build //:kernel_img > "$tmp/project-firmware-objcopy-fail.out" 2> "$tmp/project-firmware-objcopy-fail.err"; then
-	fail "systems firmware objcopy failure unexpectedly succeeded"
+chmod +x "$tmp/project-package-objcopy-fail/tools/fake-objcopy.sh"
+if "$qstar" --file "$tmp/project-package-objcopy-fail/qstar.lua" --diagnostics json build //:package_blob > "$tmp/project-package-objcopy-fail.out" 2> "$tmp/project-package-objcopy-fail.err"; then
+	fail "package flow objcopy failure unexpectedly succeeded"
 fi
-contains "$tmp/project-firmware-objcopy-fail.out" "action_diagnostic_json"
-contains "$tmp/project-firmware-objcopy-fail.out" "\"label\":\"//:kernel_img\""
-contains "$tmp/project-firmware-objcopy-fail.out" "\"failure_kind\":\"objcopy-failure\""
-contains "$tmp/project-firmware-objcopy-fail.err" "\"field\":\"objcopy-failure\""
-contains "$tmp/project-firmware-objcopy-fail/build/qstar/logs/last-failure.replay" "failure_kind=objcopy-failure"
-"$qstar" --file "$tmp/project-firmware-objcopy-fail/qstar.lua" replay //:kernel_img:generate:0 > "$tmp/project-firmware-objcopy-replay.out" 2> "$tmp/project-firmware-objcopy-replay.err"
-contains "$tmp/project-firmware-objcopy-replay.out" "tools/fake-objcopy.sh"
+contains "$tmp/project-package-objcopy-fail.out" "action_diagnostic_json"
+contains "$tmp/project-package-objcopy-fail.out" "\"label\":\"//:package_blob\""
+contains "$tmp/project-package-objcopy-fail.out" "\"failure_kind\":\"objcopy-failure\""
+contains "$tmp/project-package-objcopy-fail.err" "\"field\":\"objcopy-failure\""
+contains "$tmp/project-package-objcopy-fail/build/qstar/logs/last-failure.replay" "failure_kind=objcopy-failure"
+"$qstar" --file "$tmp/project-package-objcopy-fail/qstar.lua" replay //:package_blob:generate:0 > "$tmp/project-package-objcopy-replay.out" 2> "$tmp/project-package-objcopy-replay.err"
+contains "$tmp/project-package-objcopy-replay.out" "tools/fake-objcopy.sh"
 
-cp -R "$project_root/systems-firmware" "$tmp/project-firmware-package-fail"
-"$qstar" --file "$tmp/project-firmware-package-fail/qstar.lua" build //:kernel > "$tmp/project-firmware-package-kernel.out" 2> "$tmp/project-firmware-package-kernel.err"
-"$qstar" --file "$tmp/project-firmware-package-fail/qstar.lua" build //:kernel_img > "$tmp/project-firmware-package-img.out" 2> "$tmp/project-firmware-package-img.err"
-printf "not-a-directory\n" > "$tmp/project-firmware-package-fail/stage"
-if "$qstar" --file "$tmp/project-firmware-package-fail/qstar.lua" --diagnostics json stage //:rpi > "$tmp/project-firmware-package-fail.out" 2> "$tmp/project-firmware-package-fail.err"; then
-	fail "systems firmware package failure unexpectedly succeeded"
+cp -R "$project_root/package-flow" "$tmp/project-package-stage-fail"
+"$qstar" --file "$tmp/project-package-stage-fail/qstar.lua" build //:module > "$tmp/project-package-stage-module.out" 2> "$tmp/project-package-stage-module.err"
+"$qstar" --file "$tmp/project-package-stage-fail/qstar.lua" build //:package_blob > "$tmp/project-package-stage-blob.out" 2> "$tmp/project-package-stage-blob.err"
+printf "not-a-directory\n" > "$tmp/project-package-stage-fail/stage"
+if "$qstar" --file "$tmp/project-package-stage-fail/qstar.lua" --diagnostics json stage //:bundle > "$tmp/project-package-stage-fail.out" 2> "$tmp/project-package-stage-fail.err"; then
+	fail "package flow stage failure unexpectedly succeeded"
 fi
-contains "$tmp/project-firmware-package-fail.out" "stage_result label=//:rpi status=fail failure_kind=package-failure"
-contains "$tmp/project-firmware-package-fail.err" "\"field\":\"package-failure\""
-contains "$tmp/project-firmware-package-fail/build/qstar/logs/last-failure.replay" "failure_kind=package-failure"
-contains "$tmp/project-firmware-package-fail/build/qstar/logs/last-failure.replay" "qstar stage //:rpi"
-"$qstar" --file "$tmp/project-firmware-package-fail/qstar.lua" last-failure > "$tmp/project-firmware-package-last.out" 2> "$tmp/project-firmware-package-last.err"
-contains "$tmp/project-firmware-package-last.out" "failure_kind=package-failure"
+contains "$tmp/project-package-stage-fail.out" "stage_result label=//:bundle status=fail failure_kind=package-failure"
+contains "$tmp/project-package-stage-fail.err" "\"field\":\"package-failure\""
+contains "$tmp/project-package-stage-fail/build/qstar/logs/last-failure.replay" "failure_kind=package-failure"
+contains "$tmp/project-package-stage-fail/build/qstar/logs/last-failure.replay" "qstar stage //:bundle"
+"$qstar" --file "$tmp/project-package-stage-fail/qstar.lua" last-failure > "$tmp/project-package-stage-last.out" 2> "$tmp/project-package-stage-last.err"
+contains "$tmp/project-package-stage-last.out" "failure_kind=package-failure"
 
-cp -R "$project_root/systems-firmware" "$tmp/project-firmware-qemu-timeout"
-cat > "$tmp/project-firmware-qemu-timeout/tools/qemu-smoke.sh" <<'EOF'
+cp -R "$project_root/package-flow" "$tmp/project-package-smoke-timeout"
+cat > "$tmp/project-package-smoke-timeout/tools/package-smoke.sh" <<'EOF'
 #!/bin/sh
 sleep 5
 EOF
-chmod +x "$tmp/project-firmware-qemu-timeout/tools/qemu-smoke.sh"
-if "$qstar" --file "$tmp/project-firmware-qemu-timeout/qstar.lua" --diagnostics json build //:qemu_smoke > "$tmp/project-firmware-qemu-timeout.out" 2> "$tmp/project-firmware-qemu-timeout.err"; then
-	fail "systems firmware qemu timeout unexpectedly succeeded"
+chmod +x "$tmp/project-package-smoke-timeout/tools/package-smoke.sh"
+if "$qstar" --file "$tmp/project-package-smoke-timeout/qstar.lua" --diagnostics json build //:package_smoke > "$tmp/project-package-smoke-timeout.out" 2> "$tmp/project-package-smoke-timeout.err"; then
+	fail "package flow smoke timeout unexpectedly succeeded"
 fi
-contains "$tmp/project-firmware-qemu-timeout.out" "run_target_result label=//:qemu_smoke status=timeout timeout_sec=3"
-contains "$tmp/project-firmware-qemu-timeout.out" "\"failure_kind\":\"timeout\""
-contains "$tmp/project-firmware-qemu-timeout.err" "\"field\":\"timeout\""
-contains "$tmp/project-firmware-qemu-timeout/build/qstar/logs/last-failure.replay" "failure_kind=timeout"
-"$qstar" --file "$tmp/project-firmware-qemu-timeout/qstar.lua" last-failure > "$tmp/project-firmware-qemu-last.out" 2> "$tmp/project-firmware-qemu-last.err"
-contains "$tmp/project-firmware-qemu-last.out" "failure_kind=timeout"
+contains "$tmp/project-package-smoke-timeout.out" "run_target_result label=//:package_smoke status=timeout timeout_sec=3"
+contains "$tmp/project-package-smoke-timeout.out" "\"failure_kind\":\"timeout\""
+contains "$tmp/project-package-smoke-timeout.err" "\"field\":\"timeout\""
+contains "$tmp/project-package-smoke-timeout/build/qstar/logs/last-failure.replay" "failure_kind=timeout"
+"$qstar" --file "$tmp/project-package-smoke-timeout/qstar.lua" last-failure > "$tmp/project-package-smoke-last.out" 2> "$tmp/project-package-smoke-last.err"
+contains "$tmp/project-package-smoke-last.out" "failure_kind=timeout"
 
-cp -R "$project_root/systems-firmware" "$tmp/project-firmware-cache-tool"
-"$qstar" --file "$tmp/project-firmware-cache-tool/qstar.lua" build //:kernel > "$tmp/project-firmware-cache-tool-kernel.out" 2> "$tmp/project-firmware-cache-tool-kernel.err"
-"$qstar" --file "$tmp/project-firmware-cache-tool/qstar.lua" build //:kernel_img > "$tmp/project-firmware-cache-tool-first.out" 2> "$tmp/project-firmware-cache-tool-first.err"
-cp "$tmp/project-firmware-cache-tool/tools/fake-objcopy.sh" "$tmp/project-firmware-cache-tool/tools/fake-objcopy-v2.sh"
-chmod +x "$tmp/project-firmware-cache-tool/tools/fake-objcopy-v2.sh"
-awk '{ gsub("tools/fake-objcopy.sh", "tools/fake-objcopy-v2.sh"); print }' "$tmp/project-firmware-cache-tool/qstar.lua" > "$tmp/project-firmware-cache-tool/qstar.lua.new"
-mv "$tmp/project-firmware-cache-tool/qstar.lua.new" "$tmp/project-firmware-cache-tool/qstar.lua"
-"$qstar" --file "$tmp/project-firmware-cache-tool/qstar.lua" build //:kernel_img --explain-cache > "$tmp/project-firmware-cache-tool-second.out" 2> "$tmp/project-firmware-cache-tool-second.err"
-contains "$tmp/project-firmware-cache-tool-second.out" "cache_miss id=//:kernel_img:generate:0 reason=external-tool-changed"
+cp -R "$project_root/package-flow" "$tmp/project-package-cache-tool"
+"$qstar" --file "$tmp/project-package-cache-tool/qstar.lua" build //:module > "$tmp/project-package-cache-tool-module.out" 2> "$tmp/project-package-cache-tool-module.err"
+"$qstar" --file "$tmp/project-package-cache-tool/qstar.lua" build //:package_blob > "$tmp/project-package-cache-tool-first.out" 2> "$tmp/project-package-cache-tool-first.err"
+cp "$tmp/project-package-cache-tool/tools/fake-objcopy.sh" "$tmp/project-package-cache-tool/tools/fake-objcopy-v2.sh"
+chmod +x "$tmp/project-package-cache-tool/tools/fake-objcopy-v2.sh"
+awk '{ gsub("tools/fake-objcopy.sh", "tools/fake-objcopy-v2.sh"); print }' "$tmp/project-package-cache-tool/qstar.lua" > "$tmp/project-package-cache-tool/qstar.lua.new"
+mv "$tmp/project-package-cache-tool/qstar.lua.new" "$tmp/project-package-cache-tool/qstar.lua"
+"$qstar" --file "$tmp/project-package-cache-tool/qstar.lua" build //:package_blob --explain-cache > "$tmp/project-package-cache-tool-second.out" 2> "$tmp/project-package-cache-tool-second.err"
+contains "$tmp/project-package-cache-tool-second.out" "cache_miss id=//:package_blob:generate:0 reason=external-tool-changed"
 
-cp -R "$project_root/systems-firmware" "$tmp/project-firmware-cache-output"
-"$qstar" --file "$tmp/project-firmware-cache-output/qstar.lua" build //:kernel > "$tmp/project-firmware-cache-output-kernel.out" 2> "$tmp/project-firmware-cache-output-kernel.err"
-"$qstar" --file "$tmp/project-firmware-cache-output/qstar.lua" build //:kernel_img > "$tmp/project-firmware-cache-output-first.out" 2> "$tmp/project-firmware-cache-output-first.err"
-awk '{ gsub("generated/kernel8.img", "generated/kernel9.img"); print }' "$tmp/project-firmware-cache-output/qstar.lua" > "$tmp/project-firmware-cache-output/qstar.lua.new"
-mv "$tmp/project-firmware-cache-output/qstar.lua.new" "$tmp/project-firmware-cache-output/qstar.lua"
-"$qstar" --file "$tmp/project-firmware-cache-output/qstar.lua" build //:kernel_img --explain-cache > "$tmp/project-firmware-cache-output-second.out" 2> "$tmp/project-firmware-cache-output-second.err"
-contains "$tmp/project-firmware-cache-output-second.out" "cache_miss id=//:kernel_img:generate:0 reason=output-changed"
+cp -R "$project_root/package-flow" "$tmp/project-package-cache-output"
+"$qstar" --file "$tmp/project-package-cache-output/qstar.lua" build //:module > "$tmp/project-package-cache-output-module.out" 2> "$tmp/project-package-cache-output-module.err"
+"$qstar" --file "$tmp/project-package-cache-output/qstar.lua" build //:package_blob > "$tmp/project-package-cache-output-first.out" 2> "$tmp/project-package-cache-output-first.err"
+awk '{ gsub("generated/package.bin", "generated/package-v2.bin"); print }' "$tmp/project-package-cache-output/qstar.lua" > "$tmp/project-package-cache-output/qstar.lua.new"
+mv "$tmp/project-package-cache-output/qstar.lua.new" "$tmp/project-package-cache-output/qstar.lua"
+"$qstar" --file "$tmp/project-package-cache-output/qstar.lua" build //:package_blob --explain-cache > "$tmp/project-package-cache-output-second.out" 2> "$tmp/project-package-cache-output-second.err"
+contains "$tmp/project-package-cache-output-second.out" "cache_miss id=//:package_blob:generate:0 reason=output-changed"
 
 contains "docs/qstar-v0-seal.md" "qstar/tests/manual/c-only"
 contains "docs/qstar-v0-seal.md" "qstar/tests/manual/generated"
@@ -4035,7 +4032,7 @@ contains "docs/qstar-v0.1-hardening-seal.md" "qstar/tests/projects/c-app-lib-tes
 contains "docs/qstar-v0.1-hardening-seal.md" "qstar/tests/projects/cxx-mixed"
 contains "docs/qstar-v0.1-hardening-seal.md" "qstar/tests/projects/generated-config"
 contains "docs/qstar-v0.1-hardening-seal.md" "qstar/tests/projects/multipkg"
-contains "docs/qstar-v0.1-hardening-seal.md" "qstar/tests/projects/systems-firmware"
+contains "docs/qstar-v0.1-hardening-seal.md" "qstar/tests/projects/package-flow"
 contains "docs/qstar-v0.1-hardening-seal.md" "qstar action-log <action-id>"
 contains "docs/qstar-v0.1-hardening-seal.md" "qstar replay <action-id>"
 contains "README.md" "QStar is a standalone build system"
@@ -4703,7 +4700,7 @@ contains "$tmp/perf-summary-repeat.out" "perf_summary sample gate=medium mode=me
 if grep -R -n --include='*.md' -E 'timeout_sec[[:space:]]*=' docs wiki >/dev/null; then
 	fail "QStar docs/wiki contain stale timeout_sec authoring examples"
 fi
-if grep -R -n -E 'qstar\.(uefi_app|rpi_image|embed_binary)' tests/projects/systems-firmware docs wiki >/dev/null; then
+if grep -R -n -E 'qstar\.(uefi_app|rpi_image|embed_binary)' tests/projects/package-flow docs wiki >/dev/null; then
 	fail "QStar systems corpus/docs contain board-specific builtin"
 fi
 if grep -R -n -i -E 'ribon|신Ribon|parus|kairon' wiki >/dev/null; then
@@ -5237,9 +5234,9 @@ contains "$tmp/toolset-dry.out" "digest="
 "$qstar" --file "$tmp/toolset-diagnostics/qstar.lua" doctor > "$tmp/toolset-doctor.out" 2> "$tmp/toolset-doctor.err"
 contains "$tmp/toolset-doctor.out" "toolchain-sanity name=host cc=clang-custom cxx=clang++-custom ar=llvm-ar-custom linker=ld-custom"
 
-step "freestanding toolset"
-mkdir -p "$tmp/freestanding/src" "$tmp/freestanding/tools" "$tmp/freestanding/linker"
-cat > "$tmp/freestanding/tools/fake-cc.sh" <<'EOF'
+step "toolchain app corpus"
+mkdir -p "$tmp/toolchain-app/src" "$tmp/toolchain-app/tools" "$tmp/toolchain-app/linker"
+cat > "$tmp/toolchain-app/tools/fake-cc.sh" <<'EOF'
 #!/bin/sh
 set -eu
 out=
@@ -5269,7 +5266,7 @@ if [ -n "$dep" ]; then
 	printf "%s: %s\n" "$out" "$src" > "$dep"
 fi
 EOF
-cat > "$tmp/freestanding/tools/fake-link.sh" <<'EOF'
+cat > "$tmp/toolchain-app/tools/fake-link.sh" <<'EOF'
 #!/bin/sh
 set -eu
 out=
@@ -5283,17 +5280,17 @@ done
 mkdir -p "$(dirname "$out")"
 printf "fake link\n" > "$out"
 EOF
-chmod +x "$tmp/freestanding/tools/fake-cc.sh" "$tmp/freestanding/tools/fake-link.sh"
-cat > "$tmp/freestanding/src/kernel.c" <<'EOF'
-int kernel_main(void) { return 0; }
+chmod +x "$tmp/toolchain-app/tools/fake-cc.sh" "$tmp/toolchain-app/tools/fake-link.sh"
+cat > "$tmp/toolchain-app/src/module.c" <<'EOF'
+int module_main(void) { return 0; }
 EOF
-cat > "$tmp/freestanding/linker/profile.ld" <<'EOF'
+cat > "$tmp/toolchain-app/linker/profile.ld" <<'EOF'
 SECTIONS { . = 0x1000; }
 EOF
-cat > "$tmp/freestanding/linker/kernel.ld" <<'EOF'
-SECTIONS { . = 0x80000; }
+cat > "$tmp/toolchain-app/linker/module.ld" <<'EOF'
+SECTIONS { . = 0x2000; }
 EOF
-cat > "$tmp/freestanding/qstar.lua" <<'EOF'
+cat > "$tmp/toolchain-app/qstar.lua" <<'EOF'
 qstar.toolset "fake" {
   tools = {
     c = qstar.cli {"tools/fake-cc.sh"},
@@ -5302,94 +5299,81 @@ qstar.toolset "fake" {
   },
 }
 
-qstar.config "kernel_tools" {
+qstar.config "module_tools" {
   toolset = "//:fake",
   lang = {
     c = {
       compile_options = {
-        "-ffreestanding",
-        "-fno-builtin",
-        "-fno-stack-protector",
-        "-mgeneral-regs-only",
-        "-mcpu=cortex-a76",
-        "-mabi=lp64",
+        "-std=c99",
+        "-Wall",
       },
     },
   },
 }
 
-qstar.executable "kernel" {
-  configs = {"//:kernel_tools"},
-  sources = {"src/kernel.c"},
+qstar.executable "module_app" {
+  configs = {"//:module_tools"},
+  sources = {"src/module.c"},
   link_options = {
-    "-nostdlib",
-    "-Wl,-Map=kernel.map",
+    "-Wl,-Map=module.map",
     "-T",
-    "linker/kernel.ld",
-    "--defsym=__profile_base=0x1000",
-    "--defsym=__stack_top=0x80000",
+    "linker/module.ld",
+    "--defsym=__module_base=0x2000",
   },
-  link_inputs = {"linker/kernel.ld"},
+  link_inputs = {"linker/module.ld"},
 }
 EOF
-"$qstar" --file "$tmp/freestanding/qstar.lua" dry-run //:kernel > "$tmp/freestanding-dry.out" 2> "$tmp/freestanding-dry.err"
-contains "$tmp/freestanding-dry.out" "-ffreestanding"
-contains "$tmp/freestanding-dry.out" "-fno-builtin"
-contains "$tmp/freestanding-dry.out" "-fno-stack-protector"
-contains "$tmp/freestanding-dry.out" "-mgeneral-regs-only"
-contains "$tmp/freestanding-dry.out" "-mcpu=cortex-a76"
-contains "$tmp/freestanding-dry.out" "-mabi=lp64"
-contains "$tmp/freestanding-dry.out" "-nostdlib"
-contains "$tmp/freestanding-dry.out" "-Wl,-Map=kernel.map"
-contains "$tmp/freestanding-dry.out" "-T"
-contains "$tmp/freestanding-dry.out" "linker/kernel.ld"
-contains "$tmp/freestanding-dry.out" "--defsym=__profile_base=0x1000"
-contains "$tmp/freestanding-dry.out" "--defsym=__stack_top=0x80000"
-"$qstar" --file "$tmp/freestanding/qstar.lua" build //:kernel > "$tmp/freestanding-build.out" 2> "$tmp/freestanding-build.err"
-contains "$tmp/freestanding-build.out" "status ok"
-"$qstar" --file "$tmp/freestanding/qstar.lua" action-log //:kernel:compile:0 > "$tmp/freestanding-compile-log.out" 2> "$tmp/freestanding-compile-log.err"
-"$qstar" --file "$tmp/freestanding/qstar.lua" action-log //:kernel:link:0 > "$tmp/freestanding-link-log.out" 2> "$tmp/freestanding-link-log.err"
-contains "$tmp/freestanding-compile-log.out" "-ffreestanding"
-contains "$tmp/freestanding-compile-log.out" "-mgeneral-regs-only"
-contains "$tmp/freestanding-link-log.out" "-T linker/kernel.ld"
-contains "$tmp/freestanding-link-log.out" "--defsym=__stack_top=0x80000"
-cat > "$tmp/freestanding/linker/kernel.ld" <<'EOF'
-SECTIONS { . = 0x90000; }
+"$qstar" --file "$tmp/toolchain-app/qstar.lua" dry-run //:module_app > "$tmp/toolchain-app-dry.out" 2> "$tmp/toolchain-app-dry.err"
+contains "$tmp/toolchain-app-dry.out" "-std=c99"
+contains "$tmp/toolchain-app-dry.out" "-Wall"
+contains "$tmp/toolchain-app-dry.out" "-Wl,-Map=module.map"
+contains "$tmp/toolchain-app-dry.out" "-T"
+contains "$tmp/toolchain-app-dry.out" "linker/module.ld"
+contains "$tmp/toolchain-app-dry.out" "--defsym=__module_base=0x2000"
+"$qstar" --file "$tmp/toolchain-app/qstar.lua" build //:module_app > "$tmp/toolchain-app-build.out" 2> "$tmp/toolchain-app-build.err"
+contains "$tmp/toolchain-app-build.out" "status ok"
+"$qstar" --file "$tmp/toolchain-app/qstar.lua" action-log //:module_app:compile:0 > "$tmp/toolchain-app-compile-log.out" 2> "$tmp/toolchain-app-compile-log.err"
+"$qstar" --file "$tmp/toolchain-app/qstar.lua" action-log //:module_app:link:0 > "$tmp/toolchain-app-link-log.out" 2> "$tmp/toolchain-app-link-log.err"
+contains "$tmp/toolchain-app-compile-log.out" "-std=c99"
+contains "$tmp/toolchain-app-link-log.out" "-T linker/module.ld"
+contains "$tmp/toolchain-app-link-log.out" "--defsym=__module_base=0x2000"
+cat > "$tmp/toolchain-app/linker/module.ld" <<'EOF'
+SECTIONS { . = 0x3000; }
 EOF
-"$qstar" --file "$tmp/freestanding/qstar.lua" build //:kernel --explain-cache --verbose > "$tmp/freestanding-rebuild.out" 2> "$tmp/freestanding-rebuild.err"
-contains "$tmp/freestanding-rebuild.out" "cache_miss id=//:kernel:link:0"
-contains "$tmp/freestanding-rebuild.out" "reason=input-changed"
-contains "$tmp/freestanding-rebuild.out" "status=skip"
-cat > "$tmp/freestanding/qstar.lua" <<'EOF'
+"$qstar" --file "$tmp/toolchain-app/qstar.lua" build //:module_app --explain-cache --verbose > "$tmp/toolchain-app-rebuild.out" 2> "$tmp/toolchain-app-rebuild.err"
+contains "$tmp/toolchain-app-rebuild.out" "cache_miss id=//:module_app:link:0"
+contains "$tmp/toolchain-app-rebuild.out" "reason=input-changed"
+contains "$tmp/toolchain-app-rebuild.out" "status=skip"
+cat > "$tmp/toolchain-app/qstar.lua" <<'EOF'
 qstar.executable "bad_script" {
-  sources = {"src/kernel.c"},
+  sources = {"src/module.c"},
   link_inputs = {"../escape.ld"},
 }
 EOF
-if "$qstar" --file "$tmp/freestanding/qstar.lua" check //:bad_script > "$tmp/freestanding-bad-script.out" 2> "$tmp/freestanding-bad-script.err"; then
+if "$qstar" --file "$tmp/toolchain-app/qstar.lua" check //:bad_script > "$tmp/toolchain-app-bad-script.out" 2> "$tmp/toolchain-app-bad-script.err"; then
 	fail "package-escaping link_inputs unexpectedly succeeded"
 fi
-contains "$tmp/freestanding-bad-script.err" "link input '../escape.ld' in '//:bad_script' must be package-relative"
-cat > "$tmp/freestanding/qstar.lua" <<'EOF'
+contains "$tmp/toolchain-app-bad-script.err" "link input '../escape.ld' in '//:bad_script' must be package-relative"
+cat > "$tmp/toolchain-app/qstar.lua" <<'EOF'
 qstar.executable "missing_script" {
-  sources = {"src/kernel.c"},
+  sources = {"src/module.c"},
   link_inputs = {"linker/missing.ld"},
 }
 EOF
-if "$qstar" --file "$tmp/freestanding/qstar.lua" check //:missing_script > "$tmp/freestanding-missing-script.out" 2> "$tmp/freestanding-missing-script.err"; then
+if "$qstar" --file "$tmp/toolchain-app/qstar.lua" check //:missing_script > "$tmp/toolchain-app-missing-script.out" 2> "$tmp/toolchain-app-missing-script.err"; then
 	fail "missing link input unexpectedly succeeded"
 fi
-contains "$tmp/freestanding-missing-script.err" "link input file 'linker/missing.ld' in '//:missing_script' does not exist"
+contains "$tmp/toolchain-app-missing-script.err" "link input file 'linker/missing.ld' in '//:missing_script' does not exist"
 
-"$qstar" --file tests/corpus/freestanding/qstar.lua doctor > "$tmp/freestanding-corpus-doctor.out" 2> "$tmp/freestanding-corpus-doctor.err"
-contains "$tmp/freestanding-corpus-doctor.out" "response-policy configured_files=auto configured_style=auto effective_files=on effective_style=posix"
-contains "$tmp/freestanding-corpus-doctor.out" "toolchain-tool role=cc name=tools/fake-clang.sh required=true mode=package status=found"
-contains "$tmp/freestanding-corpus-doctor.out" "toolchain-tool role=linker name=tools/fake-link.sh required=true mode=package status=found"
-contains "$tmp/freestanding-corpus-doctor.out" "depfile-behavior compiler=tools/fake-clang.sh"
-"$qstar" --file tests/corpus/freestanding/qstar.lua explain //:kernel > "$tmp/freestanding-corpus-explain.out" 2> "$tmp/freestanding-corpus-explain.err"
-contains "$tmp/freestanding-corpus-explain.out" "effective_compile_merge owner=//:kernel"
-contains "$tmp/freestanding-corpus-explain.out" "target_c_compile_options=[-std=c23, -ffreestanding, -fno-builtin, -fno-stack-protector, -mgeneral-regs-only, -mcpu=cortex-a76, -mabi=lp64, -Wall, -Wextra, -Werror]"
-contains "$tmp/freestanding-corpus-explain.out" "target_system_include_dirs=[sysroot/include]"
+"$qstar" --file tests/corpus/toolchain-app/qstar.lua doctor > "$tmp/toolchain-corpus-doctor.out" 2> "$tmp/toolchain-corpus-doctor.err"
+contains "$tmp/toolchain-corpus-doctor.out" "response-policy configured_files=auto configured_style=auto effective_files=on effective_style=posix"
+contains "$tmp/toolchain-corpus-doctor.out" "toolchain-tool role=cc name=tools/fake-clang.sh required=true mode=package status=found"
+contains "$tmp/toolchain-corpus-doctor.out" "toolchain-tool role=linker name=tools/fake-link.sh required=true mode=package status=found"
+contains "$tmp/toolchain-corpus-doctor.out" "depfile-behavior compiler=tools/fake-clang.sh"
+"$qstar" --file tests/corpus/toolchain-app/qstar.lua explain //:module_app > "$tmp/toolchain-corpus-explain.out" 2> "$tmp/toolchain-corpus-explain.err"
+contains "$tmp/toolchain-corpus-explain.out" "effective_compile_merge owner=//:module_app"
+contains "$tmp/toolchain-corpus-explain.out" "target_c_compile_options=[-std=c23, -Wall, -Wextra, -Werror]"
+contains "$tmp/toolchain-corpus-explain.out" "target_system_include_dirs=[sysroot/include]"
 
 step "doctor missing tools"
 mkdir -p "$tmp/profile-doctor-missing/src"

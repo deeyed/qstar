@@ -86,7 +86,7 @@ medium_project_gate backend=stella-daemon phase=incremental elapsed_ms=104 cli_i
 medium_project_gate backend=stella-jobs jobs=10 phase=clean elapsed_ms=294
 medium_project_gate backend=stella-jobs jobs=10 phase=noop elapsed_ms=79
 medium_project_gate backend=stella-jobs jobs=10 phase=incremental elapsed_ms=112
-medium_project_gate staticlib_argv_parity=ok target=//sys/kern/mm:kernel_mm
+medium_project_gate staticlib_argv_parity=ok target=//modules/core/cache:module_cache
 medium_project_gate backend=ninja phase=clean elapsed_ms=300
 medium_project_gate backend=ninja phase=noop elapsed_ms=79
 medium_project_gate backend=ninja phase=incremental elapsed_ms=107

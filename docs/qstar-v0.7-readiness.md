@@ -110,7 +110,7 @@ medium_project_gate backend=stella phase=incremental elapsed_ms=91
 medium_project_gate backend=ninja phase=clean elapsed_ms=269
 medium_project_gate backend=ninja phase=noop elapsed_ms=74
 medium_project_gate backend=ninja phase=incremental elapsed_ms=103
-medium_project_gate staticlib_argv_parity=ok target=//sys/kern/mm:kernel_mm
+medium_project_gate staticlib_argv_parity=ok target=//modules/core/cache:module_cache
 medium_project_gate status=ok perf_issue_count=0 report_only=1
 ```
 
