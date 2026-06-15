@@ -50,7 +50,7 @@ CLI profile input
 ```
 
 Round 8 keeps the binary standalone but allows `install-user` to install it
-is installed only by `make -C qstar install`. `cale build` does not call it yet.
+is installed only by `make -C qstar install`. `downstream build` does not call it yet.
 
 Round 9 adds authoring checks:
 
@@ -77,12 +77,12 @@ Round 12/13 add the first executable edge while keeping QStar standalone:
 ```txt
 qstar/build/bin/qstar
   -> qstar.profile in-DSL profile input
-  -> builtin host/clang/cale toolchain resolver
+  -> builtin host/clang/external-tool toolchain resolver
   -> real argv command plan
   -> restricted local executor v1 for qstar build
 ```
 
-Round 14/15 keep QStar independent from the root Cale Makefile and add repeated
+Round 14/15 keep QStar independent from the root external language Makefile and add repeated
 build UX:
 
 ```txt
@@ -95,14 +95,14 @@ qstar/build/bin/qstar
   -> text or JSON diagnostics
 ```
 
-Round 16/17 add C/Cale source command integration and generated-output chaining
-without touching the Cale frontend/backend internals:
+Round 16/17 add C/external source command integration and generated-output chaining
+without touching the compiler frontend/backend internals:
 
 ```txt
 qstar/build/bin/qstar
-  -> source kind: .c, .h, .cale, generated .c, generated header
-  -> host/clang/cale argv rendering for C source
-  -> cale process invocation for .cale object compile
+  -> source kind: .c, .h, .foreign, generated .c, generated header
+  -> host/clang/external-tool argv rendering for C source
+  -> external-tool process invocation for .foreign object compile
   -> generated source/header producer ordering
   -> qstar.configure_file
   -> generated header cache-key participation
@@ -140,7 +140,7 @@ qstar/build/bin/qstar
   -> full manual and project sample corpus release gate
   -> persistent graph snapshot and action replay UX
   -> qstar-v0.1-release-tests aggregate
-  -> Cale build integration remains deferred
+  -> downstream build integration remains deferred
 ```
 
 Round 55 adds boot/package staging without making UEFI or RPi a hardcoded target
@@ -165,11 +165,11 @@ qstar.run_target
   -> last-failure and replay command for failed smoke actions
 ```
 
-Round 21/22 make that v0 surface easier to author and less C/Cale-specific:
+Round 21/22 make that v0 surface easier to author and less C/external-specific:
 
 ```txt
 qstar/build/bin/qstar
-  -> qstar init c-app|c-lib|generated|mixed-cale
+  -> qstar init c-app|c-lib|generated|generated-extra
   -> sample/init drift checks
   -> source kind registry
   -> target rule registry
@@ -191,7 +191,7 @@ qstar/build/bin/qstar
 
 ## Implementation Staging
 
-QStar는 C compiler, frontend driver, backend, package manager와 접점이 많다. 따라서 C lane이나 libc/target compatibility 작업이 진행 중인 동안에는 QStar를 Cale frontend/backend와 분리해 독립 바이너리로 유지한다. Round 14/15 이후에는 작은 C-only local build까지 실행할 수 있지만, `cale build` 통합은 여전히 보류한다.
+QStar는 C compiler, frontend driver, backend, package manager와 접점이 많다. 따라서 C lane이나 libc/target compatibility 작업이 진행 중인 동안에는 QStar를 compiler frontend/backend와 분리해 독립 바이너리로 유지한다. Round 14/15 이후에는 작은 C-only local build까지 실행할 수 있지만, `downstream build` 통합은 여전히 보류한다.
 
 초기 구현 순서는 다음을 권장한다.
 
@@ -199,13 +199,13 @@ QStar는 C compiler, frontend driver, backend, package manager와 접점이 많�
 2. Build Plan IR와 action key material을 고정한다.
 3. `qstar explain`/`dry-run` 형태의 non-executing standalone surface를 안정화한다.
 4. 제한 local executor, incremental state, diagnostic/log UX를 QStar 내부에서만 연다.
-5. C/Cale source process invocation을 QStar 독립 binary 안에서 먼저 검증한다.
+5. C/external source process invocation을 QStar 독립 binary 안에서 먼저 검증한다.
 6. QStar v0 sample corpus와 release gate를 봉인한다.
 7. `qstar init`과 language-agnostic rule registry를 추가한다.
-8. C lane이 안정화된 뒤 `cale build` 연결을 별도 라운드에서 검토한다.
+8. C lane이 안정화된 뒤 `downstream build` 연결을 별도 라운드에서 검토한다.
 
-HCL grammar와 C declaration import/export 모델은 Cale compiler/HCL checker 쪽
-설계다. QStar는 `.hcl`을 특별히 읽지 않고 build graph의 header file path로만
+header-language grammar와 C declaration import/export 모델은 external compiler/header-language checker 쪽
+설계다. QStar는 `.h`을 특별히 읽지 않고 build graph의 header file path로만
 취급한다.
 
 이 staging은 QStar를 늦추기 위한 것이 아니라, C11/C17/C23 compatibility 작업과 build-system 변경이 같은 파일을 동시에 건드리는 충돌을 줄이기 위한 경계다.
@@ -298,8 +298,8 @@ Round 4/5 header graph invariant:
 
 - public headers are package-relative file paths under `include/`.
 - private headers are package-relative file paths.
-- QStar does not parse or classify HCL, C, C++, or Cale header contents.
-- `.hcl` is opaque to QStar; HCL semantics belong to the compiler/HCL checker.
+- QStar does not parse or classify header-language, C, C++, or external language header contents.
+- `.h` is opaque to QStar; header-language semantics belong to the compiler/header-language checker.
 
 Round 5 Build Plan IR invariant:
 
@@ -312,7 +312,7 @@ Round 5 Build Plan IR invariant:
 Round 6 source/toolchain skeleton invariant:
 
 - explicit `sources` entries must be package-relative paths.
-- accepted source suffixes are `.c`, `.cale`, `.s`, and `.S`.
+- accepted source suffixes are `.c`, `.foreign`, `.s`, and `.S`.
 - QStar prints `source_discovery`, `source_file`, and `command_skeleton`
   records for explainability.
 - `command_skeleton` records are not shell commands and must not execute tools.
@@ -344,13 +344,13 @@ Round 16/17 generated-output invariant:
 - `qstar.configure_file` is an internal generated action that does not spawn a
   process.
 
-Round 16 C/Cale source invariant:
+External object bridge invariant:
 
-- `.c` source is compiled by the selected `host`, `clang`, or `cale` toolchain
-  profile.
-- `.cale` source is accepted only by `toolchain = "cale"` or `cale-sol`.
-- `.cale` source lowering is process invocation only: `cale -c input -o object`.
-- QStar does not call Cale frontend/backend internal APIs.
+- `.c` source is compiled by the selected C tool role.
+- External language source is not a QStar compile provider.
+- External compiler invocation is expressed with `qstar.custom_target`.
+- Generated object output is marked with `qstar.output(path, {format = "object"})`.
+- QStar does not call compiler frontend/backend internal APIs.
 - `.h` paths are header inputs, not compile sources; listing `.h` in `sources`
   is a stable diagnostic.
 - unsupported suffixes remain stable diagnostics.
@@ -439,7 +439,7 @@ Round 12 profile/toolchain resolver invariant:
 - supported keys include target/toolchain/stdlib plus compiler, linker, sysroot,
   response-file, external-tool, freestanding, and artifact policy.
 - CLI profile/target/toolchain/stdlib input overrides QStar DSL input.
-- builtin toolchain profiles are `host`, `clang`, and `cale`.
+- builtin toolchain profiles are `host`, `clang`, and `external-tool`.
 - command rendering emits `command_argv` records with deterministic `build/qstar/out`
   paths; this is argv data, not shell text.
 
@@ -450,12 +450,12 @@ Round 13 local executor invariant:
 - generated action tools must be package-relative paths.
 - stdout, stderr, and action logs are stored under `build/qstar/logs`.
 - build artifacts are stored under `build/qstar/out`.
-- `.cale`, assembly, remote packages, cache, and Ninja execution remain out of
+- `.foreign`, assembly, remote packages, cache, and Ninja execution remain out of
   scope for v1.
 
 Round 14 incremental-state invariant:
 
-- QStar is built and checked from `qstar/`; the root Cale `Makefile` does not
+- QStar is built and checked from `qstar/`; the root external language `Makefile` does not
   own QStar targets.
 - `build/qstar/state/state.db` is the canonical compact internal dirty-check state
   loaded first by Stella.

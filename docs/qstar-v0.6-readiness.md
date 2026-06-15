@@ -94,7 +94,7 @@ make qstar-public-beta-release-tests
 - Linux daemon socket/watcher CI lane.
 - Windows named pipe daemon.
 - Remote daemon access.
-- Cale source Ninja wrapper lowering.
+- external source Ninja wrapper lowering.
 - Remote package resolution, registry, and lockfile management.
 
 ## Version Policy

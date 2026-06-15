@@ -67,7 +67,7 @@ qstar.staticlib "driver" {
 
 Config는 target option만 담는다.
 
-- `lang.c`, `lang.cxx`, `lang.asm`, `lang.cale`
+- `lang.c`, `lang.cxx`, `lang.asm`
 - `libs`, `lib_dirs`, `frameworks`
 - `link_options`, `defsyms`, `linker_script`
 - `toolchain`, `stdlib`, `artifact_name`

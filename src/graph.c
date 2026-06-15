@@ -132,12 +132,10 @@ free_target(struct qstar_target *target)
 	qstar_string_list_free(&target->cxxflags);
 	qstar_string_list_free(&target->asm_include_dirs);
 	qstar_string_list_free(&target->asm_compile_options);
-	qstar_string_list_free(&target->cale_compile_options);
 	qstar_string_list_free(&target->run_command);
 	free(target->description);
 	free(target->artifact_name);
 	free(target->cxx_standard);
-	free(target->cale_profile);
 	free(target->linker_script);
 	free(target->run_marker);
 	free(target->run_marker_log);
@@ -252,7 +250,6 @@ free_profile_input(struct qstar_profile_input *profile)
 	free(profile->stdlib_policy);
 	free(profile->cc);
 	free(profile->cxx);
-	free(profile->cale);
 	free(profile->ar);
 	free(profile->linker);
 	free(profile->sysroot);
@@ -844,7 +841,6 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	target->stdlib_policy = qstar_strdup("system");
 	target->artifact_name = qstar_strdup("");
 	target->cxx_standard = qstar_strdup("");
-	target->cale_profile = qstar_strdup("");
 	target->linker_script = qstar_strdup("");
 	target->run_marker = qstar_strdup("");
 	target->run_marker_log = qstar_strdup("");
@@ -852,8 +848,8 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	target->toolset = qstar_strdup("");
 	if (!target->label || !target->name || !target->kind || !target->fragment_dir ||
 	    !target->origin_file || !target->toolchain || !target->stdlib_policy ||
-	    !target->artifact_name || !target->cxx_standard || !target->cale_profile ||
-	    !target->linker_script || !target->run_marker || !target->run_marker_log ||
+	    !target->artifact_name || !target->cxx_standard || !target->linker_script ||
+	    !target->run_marker || !target->run_marker_log ||
 	    !target->description || !target->toolset) {
 		qstar_set_error(graph, "qstar: out of memory");
 		return NULL;
@@ -996,7 +992,7 @@ find_config(const struct qstar_graph *graph, const char *label)
 	return NULL;
 }
 
-/** config의 lang.cale.modules option을 target modules에 병합한다. */
+/** config의 lang.cxx.modules option을 target modules에 병합한다. */
 static int
 merge_modules(struct qstar_graph *graph, struct qstar_target *target,
     const struct qstar_target *options)
@@ -1041,7 +1037,6 @@ merge_config_lists(struct qstar_graph *graph, struct qstar_target *target,
 	MERGE_LIST(cxxflags);
 	MERGE_LIST(asm_include_dirs);
 	MERGE_LIST(asm_compile_options);
-	MERGE_LIST(cale_compile_options);
 #undef MERGE_LIST
 	return 0;
 }
@@ -1059,9 +1054,6 @@ merge_config_scalars(struct qstar_graph *graph, struct qstar_target *target,
 		return qstar_set_error(graph, "qstar: out of memory");
 	if (config->has_cxx_standard &&
 	    replace_string(&target->cxx_standard, options->cxx_standard) < 0)
-		return qstar_set_error(graph, "qstar: out of memory");
-	if (config->has_cale_profile &&
-	    replace_string(&target->cale_profile, options->cale_profile) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
 	if (config->has_linker_script &&
 	    replace_string(&target->linker_script, options->linker_script) < 0)
@@ -1548,7 +1540,7 @@ dump_target(const struct qstar_target *target, FILE *out)
 	dump_list(out, &target->configs);
 	fputc('\n', out);
 	if (target->modules.present) {
-		fprintf(out, "  lang.cale.modules root=%s include=",
+		fprintf(out, "  lang.cxx.modules root=%s include=",
 		    target->modules.root ? target->modules.root : "");
 		dump_list(out, &target->modules.include);
 		fputs(" exclude=", out);
@@ -1621,10 +1613,6 @@ dump_target(const struct qstar_target *target, FILE *out)
 	fprintf(out, "  lang.asm.preprocess %s\n", target->asm_preprocess ? "true" : "false");
 	fprintf(out, "  lang.cxx.modules enabled=%s\n",
 	    target->cxx_modules_enabled ? "true" : "false");
-	fputs("  lang.cale.compile_options ", out);
-	dump_list(out, &target->cale_compile_options);
-	fputc('\n', out);
-	fprintf(out, "  lang.cale.profile %s\n", target->cale_profile);
 	fputs("  run.command ", out);
 	dump_list(out, &target->run_command);
 	fputc('\n', out);
@@ -1713,19 +1701,13 @@ dump_config(const struct qstar_config *config, FILE *out)
 	    config->has_cxx_modules ? (options->cxx_modules_enabled ? "true" : "false") :
 	    "<unset>");
 	if (options->modules.present) {
-		fprintf(out, "  lang.cale.modules root=%s include=",
+		fprintf(out, "  lang.cxx.modules root=%s include=",
 		    options->modules.root ? options->modules.root : "");
 		dump_list(out, &options->modules.include);
 		fputs(" exclude=", out);
 		dump_list(out, &options->modules.exclude);
 		fputc('\n', out);
 	}
-	fputs("  lang.cale.compile_options ", out);
-	dump_list(out, &options->cale_compile_options);
-	fputc('\n', out);
-	fprintf(out, "  lang.cale.profile %s\n",
-	    config->has_cale_profile && options->cale_profile ? options->cale_profile :
-	    "<unset>");
 	fprintf(out, "  artifact_name %s\n",
 	    config->has_artifact_name && options->artifact_name && *options->artifact_name ?
 	    options->artifact_name : "<unset>");
@@ -1885,10 +1867,9 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 	    profile_or_default(graph->profile.target, "host"),
 	    profile_or_default(graph->profile.toolchain, "default"),
 	    profile_or_default(graph->profile.stdlib_policy, "default"));
-	fprintf(out, "profile_tools cc=%s cxx=%s cale=%s ar=%s linker=%s sysroot=%s resource_dir=%s\n",
+	fprintf(out, "profile_tools cc=%s cxx=%s ar=%s linker=%s sysroot=%s resource_dir=%s\n",
 	    graph->profile.cc ? graph->profile.cc : "<default>",
 	    graph->profile.cxx ? graph->profile.cxx : "<default>",
-	    graph->profile.cale ? graph->profile.cale : "<default>",
 	    graph->profile.ar ? graph->profile.ar : "<default>",
 	    graph->profile.linker ? graph->profile.linker : "<default>",
 	    graph->profile.sysroot ? graph->profile.sysroot : "<none>",
@@ -2177,8 +2158,6 @@ dump_target_json(FILE *out, const struct qstar_target *target)
 	dump_json_string(out, target->cxx_standard);
 	fputs(",\"lang_asm_preprocess\":", out);
 	fprintf(out, "%s", target->asm_preprocess ? "true" : "false");
-	fputs(",\"lang_cale_profile\":", out);
-	dump_json_string(out, target->cale_profile);
 	fputs(",\"description\":", out);
 	dump_json_string(out, target->description && *target->description ?
 	    target->description : "");
@@ -2231,8 +2210,6 @@ dump_config_json(FILE *out, const struct qstar_config *config)
 	dump_json_list(out, &options->asm_include_dirs);
 	fputs(",\"asm_compile_options\":", out);
 	dump_json_list(out, &options->asm_compile_options);
-	fputs(",\"cale_compile_options\":", out);
-	dump_json_list(out, &options->cale_compile_options);
 	fputs(",\"libs\":", out);
 	dump_json_list(out, &options->libs);
 	fputs(",\"lib_dirs\":", out);
@@ -2267,11 +2244,6 @@ dump_config_json(FILE *out, const struct qstar_config *config)
 	fputs(",\"cxx_standard\":", out);
 	dump_json_string(out, config->has_cxx_standard && options->cxx_standard ?
 	    options->cxx_standard : "");
-	fputs(",\"has_cale_profile\":", out);
-	fprintf(out, "%s", config->has_cale_profile ? "true" : "false");
-	fputs(",\"cale_profile\":", out);
-	dump_json_string(out, config->has_cale_profile && options->cale_profile ?
-	    options->cale_profile : "");
 	fputs(",\"has_linker_script\":", out);
 	fprintf(out, "%s", config->has_linker_script ? "true" : "false");
 	fputs(",\"linker_script\":", out);
@@ -2623,10 +2595,6 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	fprintf(out, "  lang.asm.preprocess %s\n", target->asm_preprocess ? "true" : "false");
 	fprintf(out, "  lang.cxx.modules enabled=%s\n",
 	    target->cxx_modules_enabled ? "true" : "false");
-	fputs("  lang.cale.compile_options ", out);
-	dump_list(out, &target->cale_compile_options);
-	fputc('\n', out);
-	fprintf(out, "  lang.cale.profile %s\n", target->cale_profile);
 	fputs("  run.command ", out);
 	dump_list(out, &target->run_command);
 	fputc('\n', out);

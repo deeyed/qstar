@@ -3,8 +3,7 @@
 이 폴더는 QStar의 상세 사양을 둔다. QStar는 독립 build graph manager이며 특정
 downstream 언어나 project에 종속되지 않는다. 언어별 의미 해석은 compiler와 language
 provider가 맡고, QStar는 source/header/output path, target graph, command plan,
-build/test/install/stage 실행 정책만 관리한다. HCL 파일도 QStar 관점에서는 header-like
-file path일 뿐이며, 내용 해석은 해당 language provider가 맡는다.
+build/test/install/stage 실행 정책만 관리한다.
 
 ## Core Rule
 
@@ -55,7 +54,7 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 - `qstar-v0.4-stella-seal.md`: Stella 기본 backend, Ninja backend 후보, install/editor packaging seal.
 - `qstar-self-host.md`: Makefile 유지와 QStar self-host graph/release gate 후보 계약.
 - `ninja-backend-parity.md`: Ninja lowering parity, sharedlib policy, action-log/replay 계약.
-- `language-provider-backend-contract.md`: Cale/Stella/Ninja/HCL language provider 경계 계약.
+- `language-provider-backend-contract.md`: external language provider와 object artifact bridge 경계 계약.
 - `performance-gates.md`: Stella/Ninja clean, no-op, incremental timing gate 계약.
 - `daemon-beta-readiness.md`: Stella daemon을 beta opt-in으로 올릴지 판단하는 Q151 gate.
 - `daemon/stella-daemon.md`: Experimental persistent Stella daemon command namespace, Unix socket MVP, fallback, watcher, security, IDE/AI integration design.
@@ -95,9 +94,9 @@ dependency resolver나 lock data는 QStar 밖의 package manager가 맡는다.
 
 QStar의 상세 문법과 pipeline 사양은 이 `docs/` 폴더를 canonical 위치로 본다.
 
-Round 47부터 authoring syntax의 정본은 QStar v0.2다. Target top-level C/C++/Cale
+Round 47부터 authoring syntax의 정본은 QStar v0.2다. Target top-level C/C++/ASM
 language option은 제거됐고, header/include/compile/module option은 반드시
-`lang.c`, `lang.cxx`, `lang.asm`, `lang.cale` 아래에 둔다. `qstar.exe`,
+`lang.c`, `lang.cxx`, `lang.asm` 아래에 둔다. `qstar.exe`,
 `qstar.genrule`, `qstar.config_header`,
 `qstar.write_config_header`는 compatibility alias가 아니라 stable diagnostic을 내는
 removed API다.
@@ -146,9 +145,8 @@ Round Q161부터 다음 feature line 판단은 `qstar-v0.7-readiness.md`에 둔�
 line을 열지 판단하고, v1.0 blocker를 macOS/Linux/Windows official support와 release matrix
 중심으로 재정리한다.
 
-Round 116부터 Cale source는 Stella-only language-provider action으로 봉인한다. Ninja wrapper
-lowering은 Cale provider의 argv/depfile/response-file/replay 계약이 별도 라운드로 정리될
-때까지 deferred이며, HCL은 QStar가 해석하지 않는 header-like path다.
+Round 126부터 QStar가 직접 지원하지 않는 source language는 object artifact bridge로
+연결한다. QStar core는 외부 compiler 의미론을 해석하지 않는다.
 
 Round 101부터 progress output 계약은 `progress-output.md`에 둔다. QStar 0.5 UI line은
 일반 build output에서 legacy scheduler stage wording, scheduler state, action id를 숨기고
@@ -158,8 +156,8 @@ Round 101부터 progress output 계약은 `progress-output.md`에 둔다. QStar 
 
 QStar Round 14/15 기준으로 QStar는 독립 build-system binary다. 빌드는
 `make -C qstar`로 수행하고, 기본 binary path는 `qstar/build/bin/qstar`다. 루트
-Cale `Makefile`은 더 이상 QStar build/test/install target을 직접 소유하지 않는다.
-또한 QStar는 아직 `cale build`에 연결되어 있지 않다.
+external language `Makefile`은 더 이상 QStar build/test/install target을 직접 소유하지 않는다.
+또한 QStar는 아직 `downstream build`에 연결되어 있지 않다.
 
 Evaluator는 공식 Lua repository를 `vendor/lua` git submodule로 사용하며,
 tag `v5.4.8`에 고정한다. Lua license 전문은 `LICENSE/lua.txt`에 보존한다.
@@ -201,15 +199,14 @@ input으로 주어지며 package resolver가 아니다. `--package-alias @core=/
 
 Round 4는 header-file graph policy validation을 추가했다. Public header는 `include/`
 아래 package-relative path여야 하고, private header도 package-relative path여야 한다.
-Round 5부터는 QStar가 HCL을 해석한다는 암시를 제거했다. `qstar explain`은 header file을
-opaque build-system entry로만 보고한다.
+Round 5부터는 `qstar explain`이 header file을 opaque build-system entry로만 보고한다.
 
 Round 5는 action key skeleton line도 추가했다. 이 line은 future cache key, Ninja
 generation, internal executor에 필요한 deterministic material을 보여주지만 action을
 실행하지는 않는다.
 
 Round 6은 source discovery skeleton을 추가했다. 명시된 `sources` entry는
-package-relative path인지 검증하고, suffix에 따라 C, Cale, assembler, preprocessed
+package-relative path인지 검증하고, suffix에 따라 C, external language, assembler, preprocessed
 assembler로 분류한다. `qstar explain`은 `source_file`과 `command_skeleton` line을
 출력하지만 directory scan, glob expansion, tool 실행, object 생성은 하지 않는다.
 
@@ -228,7 +225,7 @@ executor는 package-local generated action을 실행할 수 있다.
 
 Round 8은 dry-run executor skeleton과 QStar-local sample project
 `qstar/tests/manual/hello`를 추가했다. 이 sample은 root `qstar.lua`, subdir
-`src/foo/foo.qst`, C source, public header, generated-source edge를 가진다. Cale
+`src/foo/foo.qst`, C source, public header, generated-source edge를 가진다. external language
 frontend/backend code를 건드리지 않고 `qstar --dump-graph`, `qstar explain`,
 `qstar dry-run`을 시도하기 위한 첫 hand-authored fixture다.
 
@@ -249,14 +246,14 @@ diagnostic으로 막고, `qstar.select`는 CLI/profile target input에서 실제
 아직 directory scanner나 일반 executor는 아니다.
 
 Round 66은 read-only external profile input을 제거하고 `qstar.profile` DSL을 profile
-authoring surface로 고정했다. `host`, `clang`, `cale` toolchain profile은
-deterministic `build/qstar/out` path를 가진 real `command_argv` record를 만든다.
+authoring surface로 고정했다. `host`와 `clang` toolchain profile은 deterministic
+`build/qstar/out` path를 가진 real `command_argv` record를 만든다.
 
 Round 13은 제한된 local executor로서 `qstar build`를 추가했다. Package-local generated
 tool 실행, C source compile, static library archive, executable link를 수행할 수 있다.
 stdout/stderr/action log는 `build/qstar/logs`에 저장하고 artifact는 `build/qstar/out` 아래에 쓴다.
-Full Cale source build, assembly, remote package, cache, Ninja generation, 일반 process
-execution은 아직 범위 밖이다.
+Assembly, remote package, cache, Ninja generation, 일반 process execution은 아직
+초기 범위 밖이다.
 
 Round 14/15는 incremental state와 diagnostic UX를 추가했다. Q121 이후 Stella는
 `build/qstar/state/state.db` compact state를 먼저 읽고, `state.db`가 dirty-check의
@@ -282,6 +279,5 @@ generated output edge, source classification, glob expansion, profile select,
 dependency order, Build Plan IR/action key, command skeleton, dry-run step ordering이
 기대대로 나오는지 볼 수 있다. C-only local fixture는 `qstar build`로 실제
 compile/archive/link를 실행하고, 두 번째 빌드부터 cache-hit skip과
-`compile_commands.json`까지 확인할 수 있다. Full Cale compiler integration, remote
-package graph loading, distributed cache, Ninja generation은 아직 고정된 authoring
-contract가 아니다.
+`compile_commands.json`까지 확인할 수 있다. Remote package graph loading, distributed
+cache, Ninja generation은 아직 고정된 authoring contract가 아니다.

@@ -32,7 +32,7 @@ QStar는 0.5 beta line으로 이동할 수 있는 기반은 갖췄다. 단, 0.5�
 | Linux | validation + binary release candidate dry-run | 0.5 release note에 보수적으로 표기 |
 | Windows | native validation candidate prep | 0.5 official support로 표기 금지 |
 | Docs/CLI drift | smoke guard로 관리 | 0.5 전에 한 번 더 sync 필요 |
-| Cale backend | Stella-only language-provider contract | Ninja wrapper lowering deferred |
+| external language backend | Stella-only language-provider contract | Ninja wrapper lowering deferred |
 | Stella daemon | documented beta opt-in candidate | default-on 금지, Q151 gate 참고 |
 
 0.5의 목표는 "QStar를 medium-size C/C++/systems-style project에 실험적으로 적용할 수
@@ -40,7 +40,7 @@ QStar는 0.5 beta line으로 이동할 수 있는 기반은 갖췄다. 단, 0.5�
 장기 안정 API는 아직 충족하지 않는다.
 
 Q117 판단은 `0.5.0-beta.2`가 아니라 `0.6.0-beta`을 추천한다. Q115의 shared library
-policy와 Q116의 Cale backend contract는 기존 beta line의 단순 재포장이 아니라
+policy와 Q116의 external language backend contract는 기존 beta line의 단순 재포장이 아니라
 user-facing surface를 보강한 patch-level 변화이기 때문이다.
 
 Q151 판단은 다음 daemon-focused beta patch 후보로 `0.6.0-beta`을 추천한다.
@@ -181,7 +181,7 @@ QStar-owned으로 남기는 surface:
 0.5에서도 deferred로 남길 것:
 
 - Windows runtime `.dll`, import `.lib`, PDB/debug sharedlib policy
-- Cale source Ninja wrapper lowering; Q116 fixes Cale source as Stella-only for now
+- external source Ninja wrapper lowering; Q116 fixes external source as Stella-only for now
 - C++ modules execution policy
 - advanced platform-specific dynamic library rpath/install layout policy
 
@@ -268,7 +268,7 @@ historical version record는 보존한다.
 - Docs/man/wiki/AI index sync: old generator name, old version string, removed API 잔재 제거.
 - VSCode extension version policy: runtime과 별도로 `0.3.0` 유지. 이번 runtime tarball에는
   VSIX를 포함하지 않는다.
-- Release line decision: Q115/Q116의 sharedlib/Cale backend 계약을 포함하므로
+- Release line decision: Q115/Q116의 sharedlib/external language backend 계약을 포함하므로
   `0.5.0-beta.2`가 아니라 `0.6.0-beta`로 낸다.
 
 ## Deferred After 0.5
@@ -284,7 +284,7 @@ historical version record는 보존한다.
   lifecycle and permission hardening remain post-0.5 work. Q150 adds read-only daemon queries
   for IDE/AI integration. Q151 allows documenting daemon as beta opt-in, but not as default-on.
 - Windows runtime `.dll`, import `.lib`, PDB/debug sharedlib support.
-- Cale source Ninja wrapper lowering.
+- external source Ninja wrapper lowering.
 - C++ modules execution policy.
 - Remote package resolution, lockfile, registry, fetch policy.
 - Stable public Graph IR/cache protocol.
@@ -295,7 +295,7 @@ historical version record는 보존한다.
 
 - `0.4.x-beta.*`: public beta packaging, Stella/Ninja/self-host hardening line.
 - `0.5.0-beta.1`: medium project readiness, self-host regular gate, refreshed docs/release line.
-- `0.6.0-beta`: sharedlib policy, Cale backend contract, platform readiness, beta patch gate.
+- `0.6.0-beta`: sharedlib policy, external language backend contract, platform readiness, beta patch gate.
 - `0.6.0-beta`: Stella daemon beta opt-in readiness, read API release note, security gap report.
 - `0.5.x-beta.*`: platform validation and backend parity patch line.
 - `1.0.0`: macOS, Linux, Windows official release artifacts and CI matrix are required.
@@ -312,7 +312,7 @@ release notes.
   not yet official host support.
 - `qstar.sharedlib` supports Darwin-like `.dylib` and Linux-like `.so` builds, but
   Windows runtime `.dll`, import `.lib`, PDB/debug policy is deferred.
-- Cale source is a Stella-only language-provider action in this release; Ninja
+- external source is a Stella-only language-provider action in this release; Ninja
   wrapper lowering is deferred by contract.
 - Package/dependency resolution is intentionally outside QStar.
 - Editor extension packaging is separate from runtime release packaging.

@@ -1,7 +1,7 @@
 # QStar Rule Model
 
 QStar Round 22부터 build graph 정책과 언어/toolchain 세부 사항을 분리한다.
-목표는 QStar를 C, C++, Cale 의미론을 직접 아는 도구가 아니라, 언어에 독립적인
+목표는 QStar를 C, C++, external language 의미론을 직접 아는 도구가 아니라, 언어에 독립적인
 build system으로 유지하는 것이다.
 
 ```txt
@@ -20,7 +20,7 @@ Rule/provider layer:
   local executor support gate
 ```
 
-QStar는 `.c`가 C compile input이고 `.cale`이 Cale compile input이라는 정도는
+QStar는 `.c`가 C compile input이고 `.foreign`이 external language compile input이라는 정도는
 알 수 있다. 하지만 두 언어를 직접 파싱하지 않는다. AST, semantic checking,
 module/header 해석, target-specific code generation은 compiler가 소유한다.
 
@@ -35,7 +35,7 @@ Round 22의 source kind registry는 다음 형태다.
 | `.cppm`/`.ixx` | `cxx-module` | `cxx` | `cxx-module-scanner` | `modules` | no, stable gate |
 | `.h` | `header` | `c` | `header-input` | `headers` | metadata only |
 | `.hpp`/`.hh` | `cxx-header` | `cxx` | `header-input` | `headers` | metadata only |
-| `.cl`/`.cale` | `cale` | `cale` | `cale-compiler` | `objects` | yes with `toolchain=cale`; Ninja wrapper deferred |
+| `.foreign`/`.foreign` | `external-tool` | `external-tool` | `external-tool-compiler` | `objects` | yes with `object bridge`; Ninja wrapper deferred |
 | `.s` | `asm` | `asm` | `assembler` | `objects` | yes with host/clang compiler driver |
 | `.S` | `asm-cpp` | `asm` | `preprocessed-assembler` | `objects` | yes with host/clang compiler driver |
 | `.o`/`.obj` | `object` | `native` | `link-object` | `objects` | consumed by final archive/link |
@@ -91,7 +91,7 @@ Round 22의 target rule registry는 다음 형태다.
 위해 target artifact directory 기준 상대 rpath를 자동으로 받는다. Darwin-like profile은
 `@loader_path`, Linux-like profile은 `$ORIGIN` 기반이다.
 
-이렇게 두면 C/Cale-specific 결정이 graph core 안으로 들어오지 않는다. C++를
+이렇게 두면 C/external-specific 결정이 graph core 안으로 들어오지 않는다. C++를
 추가할 때도 label/dependency/cache logic을 다시 쓰지 않고, registry와 command
 renderer를 확장하면 된다.
 
@@ -109,14 +109,14 @@ QStar가 compiler-facing contract로 받아도 되는 정보는 다음이다.
 
 QStar가 직접 소비하면 안 되는 언어 내부 정보는 다음이다.
 
-- C/Cale AST
+- C/external AST
 - C preprocessing token semantics
-- HCL export/import semantics
+- header-language export/import semantics
 - SIR/FIR/BCIR internals
 - backend private lowering APIs
 
-Q116 기준 Cale source는 Stella-only language-provider action이다. Ninja wrapper lowering은
-Cale provider의 argv, depfile, response-file, replay 계약이 별도 라운드로 봉인되기 전까지
+Q116 기준 external source는 Stella-only language-provider action이다. Ninja wrapper lowering은
+external provider의 argv, depfile, response-file, replay 계약이 별도 라운드로 봉인되기 전까지
 deferred다.
 
 ## Depfile Tracking

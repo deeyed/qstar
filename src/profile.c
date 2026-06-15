@@ -590,7 +590,7 @@ profile_response_files_enabled(const char *value, int default_value)
 	return 1;
 }
 
-/** target/profile 입력을 합쳐 host/clang/cale toolchain v1을 결정한다. */
+/** target/profile 입력을 합쳐 host/clang toolchain v1을 결정한다. */
 int
 qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *target,
     struct qstar_resolved_toolchain *resolved)
@@ -617,21 +617,13 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 	if (strcmp(name, "host") == 0 || strcmp(name, "default") == 0) {
 		snprintf(resolved->cc, sizeof(resolved->cc), "cc");
 		snprintf(resolved->cxx, sizeof(resolved->cxx), "c++");
-		snprintf(resolved->cale, sizeof(resolved->cale), "cale");
 		snprintf(resolved->ar, sizeof(resolved->ar), "ar");
 		snprintf(resolved->linker, sizeof(resolved->linker), "cc");
 	} else if (strcmp(name, "clang") == 0) {
 		snprintf(resolved->cc, sizeof(resolved->cc), "clang");
 		snprintf(resolved->cxx, sizeof(resolved->cxx), "clang++");
-		snprintf(resolved->cale, sizeof(resolved->cale), "cale");
 		snprintf(resolved->ar, sizeof(resolved->ar), "ar");
 		snprintf(resolved->linker, sizeof(resolved->linker), "clang");
-	} else if (strcmp(name, "cale") == 0 || strcmp(name, "cale-sol") == 0) {
-		snprintf(resolved->cc, sizeof(resolved->cc), "cale");
-		snprintf(resolved->cxx, sizeof(resolved->cxx), "c++");
-		snprintf(resolved->cale, sizeof(resolved->cale), "cale");
-		snprintf(resolved->ar, sizeof(resolved->ar), "ar");
-		snprintf(resolved->linker, sizeof(resolved->linker), "cale");
 	} else {
 		return qstar_set_error(graph, "qstar: unknown toolchain profile '%s'", name);
 	}
@@ -640,8 +632,6 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 		snprintf(resolved->cc, sizeof(resolved->cc), "%s", graph->profile.cc);
 	if (graph->profile.cxx && *graph->profile.cxx)
 		snprintf(resolved->cxx, sizeof(resolved->cxx), "%s", graph->profile.cxx);
-	if (graph->profile.cale && *graph->profile.cale)
-		snprintf(resolved->cale, sizeof(resolved->cale), "%s", graph->profile.cale);
 	if (graph->profile.ar && *graph->profile.ar)
 		snprintf(resolved->ar, sizeof(resolved->ar), "%s", graph->profile.ar);
 	if (graph->profile.linker && *graph->profile.linker)

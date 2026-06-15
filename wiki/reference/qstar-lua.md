@@ -1,6 +1,6 @@
 # QStar Lua
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. Authoring
+QStar는 C/C++/ASM을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. Authoring
 language는 sandboxed Lua 5.4 subset이며, deterministic graph evaluation을 위해 일부 API는
 금지된다.
 

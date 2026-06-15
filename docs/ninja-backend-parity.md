@@ -44,9 +44,9 @@ Windows shared library policy remains deferred. QStar emits a stable diagnostic
 for Windows-like `qstar.sharedlib` profiles until `.dll`, import library, PDB,
 runtime search path, and install layout behavior are validated on Windows.
 
-Cale source lowering through Ninja is also deferred by contract. Cale source is a
-Stella-only language-provider action in this release. Use `-G stella` for Cale
-process compilation; QStar does not interpret Cale or HCL semantics itself.
+external source lowering through Ninja is also deferred by contract. external source is a
+Stella-only language-provider action in this release. Use `-G stella` for external language
+process compilation; QStar does not interpret external language or header-language semantics itself.
 
 ## Regression Gate
 

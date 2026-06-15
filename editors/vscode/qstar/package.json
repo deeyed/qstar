@@ -3,7 +3,7 @@
   "displayName": "QStar",
   "description": "Language support for QStar qstar.lua, .qst build files, and .qsm modules.",
   "version": "0.3.0",
-  "publisher": "cale",
+  "publisher": "deeyed",
   "license": "Apache-2.0",
   "icon": "media/qstar_logo.png",
   "repository": {

@@ -39,11 +39,11 @@ QStar build action도 v0에서는 네트워크를 직접 요구할 수 없다.
 네트워크는 명시 package-manager 단계에서만 조건부로 허용한다.
 
 ```txt
-cale fetch
-cale add
-cale update
-cale vendor
-cale publish  # future
+external-tool fetch
+external-tool add
+external-tool update
+external-tool vendor
+external-tool publish  # future
 ```
 
 QStar는 resolved package root map만 소비한다.
@@ -75,7 +75,7 @@ QStar는 resolved package root map만 소비한다.
 qstar build:
   --allow-network=none
 
-cale fetch/add/update:
+external-tool fetch/add/update:
   --allow-network=fetch
 
 CI:

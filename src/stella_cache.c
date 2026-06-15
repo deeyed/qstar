@@ -8,10 +8,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v3"
+#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v4"
 #define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v1"
 #define QSTAR_STELLA_ACTION_MAGIC "qstar-stella-actions-cache-v1"
-#define QSTAR_STELLA_PLAN_ABI 4
+#define QSTAR_STELLA_PLAN_ABI 5
 #define QSTAR_STELLA_HASH_INIT 1469598103934665603ULL
 #define QSTAR_STELLA_HASH_PRIME 1099511628211ULL
 #define QSTAR_STELLA_MAX_STRING (16U * 1024U * 1024U)
@@ -272,7 +272,6 @@ write_profile(FILE *f, const struct qstar_profile_input *p)
 	WSTR(stdlib_policy);
 	WSTR(cc);
 	WSTR(cxx);
-	WSTR(cale);
 	WSTR(ar);
 	WSTR(linker);
 	WSTR(sysroot);
@@ -305,7 +304,6 @@ read_profile(FILE *f, struct qstar_profile_input *p)
 	RSTR(stdlib_policy);
 	RSTR(cc);
 	RSTR(cxx);
-	RSTR(cale);
 	RSTR(ar);
 	RSTR(linker);
 	RSTR(sysroot);
@@ -402,12 +400,10 @@ write_target(FILE *f, const struct qstar_target *t)
 	WLIST(cxxflags);
 	WLIST(asm_include_dirs);
 	WLIST(asm_compile_options);
-	WLIST(cale_compile_options);
 	WLIST(run_command);
 	WSTR(description);
 	WSTR(artifact_name);
 	WSTR(cxx_standard);
-	WSTR(cale_profile);
 	WSTR(linker_script);
 	WSTR(run_marker);
 	WSTR(run_marker_log);
@@ -462,12 +458,10 @@ read_target(FILE *f, struct qstar_target *t)
 	RLIST(cxxflags);
 	RLIST(asm_include_dirs);
 	RLIST(asm_compile_options);
-	RLIST(cale_compile_options);
 	RLIST(run_command);
 	RSTR(description);
 	RSTR(artifact_name);
 	RSTR(cxx_standard);
-	RSTR(cale_profile);
 	RSTR(linker_script);
 	RSTR(run_marker);
 	RSTR(run_marker_log);

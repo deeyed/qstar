@@ -1187,99 +1187,11 @@ append_list(struct qstar_graph *graph, struct qstar_string_list *dst,
 }
 
 static int
-read_modules_field(lua_State *L, int table, const char *field,
-    struct qstar_target *target, struct qstar_graph *graph)
-{
-	const char *root;
-	int rc;
-
-	lua_getfield(L, table, field);
-	if (lua_isnil(L, -1)) {
-		lua_pop(L, 1);
-		return 0;
-	}
-	if (!lua_istable(L, -1)) {
-		lua_pop(L, 1);
-		return qstar_set_error(graph, "qstar: field '%s' must be a table", field);
-	}
-	target->modules.present = 1;
-	root = check_string_field(L, -1, "root");
-	free(target->modules.root);
-	target->modules.root = qstar_strdup(root ? root : "");
-	if (!target->modules.root) {
-		lua_pop(L, 1);
-		return qstar_set_error(graph, "qstar: out of memory");
-	}
-	rc = read_list_field(L, -1, "include", &target->modules.include, graph, 0, target->fragment_dir);
-	if (rc == 0)
-		rc = read_list_field(L, -1, "exclude", &target->modules.exclude, graph, 0, target->fragment_dir);
-	lua_pop(L, 1);
-	return rc;
-}
-
-static int
-read_lang_cale(lua_State *L, int lang, struct qstar_target *target, struct qstar_graph *graph)
-{
-	static const char *const allowed[] = {
-		"public_headers", "private_headers", "include_dirs", "public_include_dirs",
-		"private_include_dirs", "profile", "compile_options", "modules", NULL
-	};
-	const char *profile;
-	int rc;
-
-	lua_getfield(L, lang, "cale");
-	if (lua_isnil(L, -1)) {
-		lua_pop(L, 1);
-		return 0;
-	}
-	if (!lua_istable(L, -1)) {
-		lua_pop(L, 1);
-		return qstar_set_error(graph, "qstar: lang.cale must be a table");
-	}
-	rc = validate_lang_fields(L, -1, "cale", allowed, graph);
-	if (rc == 0)
-		rc = read_list_field(L, -1, "public_headers", &target->public_headers, graph, 0,
-	    target->fragment_dir);
-	if (rc == 0)
-		rc = read_list_field(L, -1, "private_headers", &target->private_headers, graph, 0,
-		    target->fragment_dir);
-	if (rc == 0)
-		rc = read_list_field(L, -1, "include_dirs", &target->include_dirs, graph, 0,
-		    target->fragment_dir);
-	if (rc == 0)
-		rc = read_list_field(L, -1, "public_include_dirs", &target->public_include_dirs,
-		    graph, 0, target->fragment_dir);
-	if (rc == 0)
-		rc = read_list_field(L, -1, "private_include_dirs", &target->private_include_dirs,
-		    graph, 0, target->fragment_dir);
-	if (rc == 0)
-		rc = read_list_field(L, -1, "compile_options", &target->cale_compile_options,
-		    graph, 0, target->fragment_dir);
-	if (rc == 0)
-		rc = append_lang_include_self(graph, &target->include_dirs,
-		    &target->private_include_dirs);
-	if (rc == 0)
-		rc = append_lang_include_self(graph, &target->include_dirs,
-		    &target->public_include_dirs);
-	if (rc == 0)
-		rc = read_modules_field(L, -1, "modules", target, graph);
-	profile = check_string_field(L, -1, "profile");
-	if (profile) {
-		free(target->cale_profile);
-		target->cale_profile = qstar_strdup(profile);
-		if (!target->cale_profile)
-			rc = qstar_set_error(graph, "qstar: out of memory");
-	}
-	lua_pop(L, 1);
-	return rc;
-}
-
-static int
 read_lang_options(lua_State *L, int table, struct qstar_target *target,
     struct qstar_graph *graph)
 {
 	static const char *const allowed_langs[] = {
-		"c", "cxx", "asm", "cale", NULL
+		"c", "cxx", "asm", NULL
 	};
 	const char *key;
 	int rc;
@@ -1310,8 +1222,6 @@ read_lang_options(lua_State *L, int table, struct qstar_target *target,
 		rc = read_lang_cxx(L, -1, target, graph);
 	if (rc == 0)
 		rc = read_lang_asm(L, -1, target, graph);
-	if (rc == 0)
-		rc = read_lang_cale(L, -1, target, graph);
 	lua_pop(L, 1);
 	return rc;
 }
@@ -1552,11 +1462,11 @@ add_config(lua_State *L, const char *name, int table_index, const char *fragment
 	if (!config)
 		return luaL_error(L, "%s", graph->error);
 	if (reject_top_level_field(L, table_index, graph, "include_dirs",
-	    "top-level include_dirs is not allowed; move it under lang.c.include_dirs, lang.cxx.include_dirs, lang.asm.include_dirs, or lang.cale.include_dirs") < 0 ||
+	    "top-level include_dirs is not allowed; move it under lang.c.include_dirs, lang.cxx.include_dirs, or lang.asm.include_dirs") < 0 ||
 	    reject_top_level_field(L, table_index, graph, "public_include_dirs",
-	    "top-level public_include_dirs is not allowed; move it under lang.c.public_include_dirs, lang.cxx.public_include_dirs, or lang.cale.public_include_dirs") < 0 ||
+	    "top-level public_include_dirs is not allowed; move it under lang.c.public_include_dirs or lang.cxx.public_include_dirs") < 0 ||
 	    reject_top_level_field(L, table_index, graph, "private_include_dirs",
-	    "top-level private_include_dirs is not allowed; move it under lang.c.private_include_dirs, lang.cxx.private_include_dirs, or lang.cale.private_include_dirs") < 0 ||
+	    "top-level private_include_dirs is not allowed; move it under lang.c.private_include_dirs or lang.cxx.private_include_dirs") < 0 ||
 	    reject_top_level_field(L, table_index, graph, "system_include_dirs",
 	    "top-level system_include_dirs is not allowed; move it under lang.c.system_include_dirs or lang.cxx.system_include_dirs") < 0 ||
 	    reject_top_level_field(L, table_index, graph, "interface_include_dirs",
@@ -1568,13 +1478,11 @@ add_config(lua_State *L, const char *name, int table_index, const char *fragment
 	    reject_top_level_field(L, table_index, graph, "cxx_standard",
 	    "top-level cxx_standard is not allowed; move it to lang.cxx.standard") < 0 ||
 	    reject_top_level_field(L, table_index, graph, "public_headers",
-	    "top-level public_headers is not allowed; move it under lang.c.public_headers, lang.cxx.public_headers, or lang.cale.public_headers") < 0 ||
+	    "top-level public_headers is not allowed; move it under lang.c.public_headers or lang.cxx.public_headers") < 0 ||
 	    reject_top_level_field(L, table_index, graph, "private_headers",
-	    "top-level private_headers is not allowed; move it under lang.c.private_headers, lang.cxx.private_headers, or lang.cale.private_headers") < 0 ||
+	    "top-level private_headers is not allowed; move it under lang.c.private_headers or lang.cxx.private_headers") < 0 ||
 	    reject_top_level_field(L, table_index, graph, "modules",
-	    "top-level modules is not allowed; move it under lang.cale.modules or lang.cxx.modules") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "hcl_include_dirs",
-	    "hcl_include_dirs is removed; use lang.cale.public_include_dirs or lang.cale.private_include_dirs") < 0)
+	    "top-level modules is not allowed; move it under lang.cxx.modules") < 0)
 		return luaL_error(L, "%s", graph->error);
 	if (validate_config_fields(L, table_index, graph) < 0)
 		return luaL_error(L, "%s", graph->error);
@@ -1596,8 +1504,6 @@ add_config(lua_State *L, const char *name, int table_index, const char *fragment
 	    "preprocess");
 	config->has_cxx_modules = nested_lang_field_present(L, table_index, "cxx",
 	    "modules");
-	config->has_cale_profile = nested_lang_field_present(L, table_index, "cale",
-	    "profile");
 	artifact_name = check_string_field(L, table_index, "artifact_name");
 	linker_script = check_string_field(L, table_index, "linker_script");
 	toolchain = check_string_field(L, table_index, "toolchain");
@@ -1710,11 +1616,11 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	if (!target)
 		return luaL_error(L, "%s", graph->error);
 	if (reject_top_level_field(L, table_index, graph, "include_dirs",
-	    "top-level include_dirs is not allowed; move it under lang.c.include_dirs, lang.cxx.include_dirs, lang.asm.include_dirs, or lang.cale.include_dirs") < 0 ||
+	    "top-level include_dirs is not allowed; move it under lang.c.include_dirs, lang.cxx.include_dirs, or lang.asm.include_dirs") < 0 ||
 	    reject_top_level_field(L, table_index, graph, "public_include_dirs",
-	    "top-level public_include_dirs is not allowed; move it under lang.c.public_include_dirs, lang.cxx.public_include_dirs, or lang.cale.public_include_dirs") < 0 ||
+	    "top-level public_include_dirs is not allowed; move it under lang.c.public_include_dirs or lang.cxx.public_include_dirs") < 0 ||
 	    reject_top_level_field(L, table_index, graph, "private_include_dirs",
-	    "top-level private_include_dirs is not allowed; move it under lang.c.private_include_dirs, lang.cxx.private_include_dirs, or lang.cale.private_include_dirs") < 0 ||
+	    "top-level private_include_dirs is not allowed; move it under lang.c.private_include_dirs or lang.cxx.private_include_dirs") < 0 ||
 	    reject_top_level_field(L, table_index, graph, "system_include_dirs",
 	    "top-level system_include_dirs is not allowed; move it under lang.c.system_include_dirs or lang.cxx.system_include_dirs") < 0 ||
 	    reject_top_level_field(L, table_index, graph, "interface_include_dirs",
@@ -1726,13 +1632,11 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	    reject_top_level_field(L, table_index, graph, "cxx_standard",
 	    "top-level cxx_standard is not allowed; move it to lang.cxx.standard") < 0 ||
 	    reject_top_level_field(L, table_index, graph, "public_headers",
-	    "top-level public_headers is not allowed; move it under lang.c.public_headers, lang.cxx.public_headers, or lang.cale.public_headers") < 0 ||
+	    "top-level public_headers is not allowed; move it under lang.c.public_headers or lang.cxx.public_headers") < 0 ||
 	    reject_top_level_field(L, table_index, graph, "private_headers",
-	    "top-level private_headers is not allowed; move it under lang.c.private_headers, lang.cxx.private_headers, or lang.cale.private_headers") < 0 ||
+	    "top-level private_headers is not allowed; move it under lang.c.private_headers or lang.cxx.private_headers") < 0 ||
 	    reject_top_level_field(L, table_index, graph, "modules",
-	    "top-level modules is not allowed; move it under lang.cale.modules or lang.cxx.modules") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "hcl_include_dirs",
-	    "hcl_include_dirs is removed; use lang.cale.public_include_dirs or lang.cale.private_include_dirs") < 0)
+	    "top-level modules is not allowed; move it under lang.cxx.modules") < 0)
 		return luaL_error(L, "%s", graph->error);
 	if (strcmp(target->kind, "group") == 0 &&
 	    reject_group_action_fields(L, table_index, graph, target->label) < 0)

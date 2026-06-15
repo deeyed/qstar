@@ -222,7 +222,7 @@ test -f "$tmp/build/qstar/stella/manifest.json" || fail "missing Stella plan cac
 test -f "$tmp/build/qstar/stella/inputs.json" || fail "missing Stella plan cache inputs"
 test -f "$tmp/build/qstar/stella/graph.qsg" || fail "missing Stella graph cache"
 test -f "$tmp/build/qstar/stella/actions.qsa" || fail "missing Stella action plan cache"
-contains "$tmp/build/qstar/stella/manifest.json" "\"schema\":\"qstar-stella-plan-cache-v3\""
+contains "$tmp/build/qstar/stella/manifest.json" "\"schema\":\"qstar-stella-plan-cache-v4\""
 contains "$tmp/build/qstar/stella/actions.qsa" "qstar-stella-actions-cache-v1"
 test -f "$tmp/build/qstar/compile_commands.json" || fail "missing compile_commands.json"
 contains "$tmp/build/qstar/compile_commands.json" "src/main.c"
@@ -1564,9 +1564,6 @@ qstar.config "base" {
     asm = {
       preprocess = true,
     },
-    cale = {
-      profile = "safe",
-    },
   },
 }
 
@@ -1585,7 +1582,6 @@ EOF
 contains "$tmp/config-scalar.out" "configs [//:base]"
 contains "$tmp/config-scalar.out" "cxx_standard c++23"
 contains "$tmp/config-scalar.out" "lang.asm.preprocess true"
-contains "$tmp/config-scalar.out" "lang.cale.profile safe"
 contains "$tmp/config-scalar.out" "toolchain host"
 contains "$tmp/config-scalar.out" "stdlib system"
 
@@ -2387,29 +2383,7 @@ EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-modules.out" 2> "$tmp/old-modules.err"; then
 	fail "top-level modules unexpectedly succeeded"
 fi
-contains "$tmp/old-modules.err" "top-level modules is not allowed; move it under lang.cale.modules or lang.cxx.modules"
-cat > "$tmp/old-api/qstar.lua" <<'EOF'
-qstar.staticlib "core" {
-  hcl_include_dirs = {"include"},
-}
-EOF
-if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-top-hcl-include.out" 2> "$tmp/old-top-hcl-include.err"; then
-	fail "top-level hcl_include_dirs unexpectedly succeeded"
-fi
-contains "$tmp/old-top-hcl-include.err" "hcl_include_dirs is removed; use lang.cale.public_include_dirs or lang.cale.private_include_dirs"
-cat > "$tmp/old-api/qstar.lua" <<'EOF'
-qstar.staticlib "core" {
-  lang = {
-    cale = {
-      hcl_include_dirs = {"include"},
-    },
-  },
-}
-EOF
-if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-hcl-include.out" 2> "$tmp/old-hcl-include.err"; then
-	fail "lang.cale.hcl_include_dirs unexpectedly succeeded"
-fi
-contains "$tmp/old-hcl-include.err" "unknown field lang.cale.hcl_include_dirs"
+contains "$tmp/old-modules.err" "top-level modules is not allowed; move it under lang.cxx.modules"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.staticlib "core" {
   lang = {
@@ -2617,19 +2591,6 @@ EOF
 contains "$tmp/lint-cxx-info.out" "\"code\":\"QSTAR044\""
 contains "$tmp/lint-cxx-info.out" "\"severity\":\"info\""
 contains "$tmp/lint-cxx-info.out" "\"status\":\"ok\""
-
-mkdir -p "$tmp/lint-cale-toolchain/src"
-cat > "$tmp/lint-cale-toolchain/src/plugin.cale" <<'EOF'
-fn plugin() -> int { return 0; }
-EOF
-cat > "$tmp/lint-cale-toolchain/qstar.lua" <<'EOF'
-qstar.staticlib "plugin" {
-  sources = {"src/plugin.cale"},
-}
-EOF
-"$qstar" --file "$tmp/lint-cale-toolchain/qstar.lua" lint > "$tmp/lint-cale-toolchain.out" 2> "$tmp/lint-cale-toolchain.err"
-contains "$tmp/lint-cale-toolchain.out" "QSTAR045"
-contains "$tmp/lint-cale-toolchain.out" "toolchain=\"cale\""
 
 mkdir -p "$tmp/lint-visibility"
 cat > "$tmp/lint-visibility/qstar.lua" <<'EOF'
@@ -3123,85 +3084,6 @@ done
 contains "$tmp/unsupported-mm.err" "Objective-C++ provider is not available"
 contains "$tmp/unsupported-rs.err" "this language is not a QStar compile provider"
 
-cat > "$tmp/tools/cale" <<'EOF'
-#!/bin/sh
-set -eu
-mode=link
-out=
-src=
-prev=
-for arg in "$@"; do
-  if [ "$prev" = "-o" ]; then
-    out=$arg
-    prev=
-    continue
-  fi
-  case "$arg" in
-    -c) mode=compile ;;
-    -o) prev="-o" ;;
-    --target=*) ;;
-    -*) ;;
-    *) src=$arg ;;
-  esac
-done
-if [ "$mode" = "compile" ]; then
-  case "$src" in
-    *.cale)
-      tmp=${TMPDIR:-/tmp}/qstar-fake-cale.$$.c
-      printf '%s\n' 'int cale_unit(void) { return 7; }' > "$tmp"
-      cc -c "$tmp" -o "$out"
-      rm -f "$tmp"
-      ;;
-    *)
-      cc -c "$src" -o "$out"
-      ;;
-  esac
-else
-  cc "$@"
-fi
-EOF
-chmod +x "$tmp/tools/cale"
-
-cat > "$tmp/qstar.lua" <<'EOF'
-qstar.executable "mixed" {
-  toolchain = "cale",
-  sources = {"src/main.c", "src/unit.cale"},
-}
-
-qstar.staticlib "calelib" {
-  toolchain = "cale",
-  sources = {"src/unit.cale"},
-}
-EOF
-cat > "$tmp/src/main.c" <<'EOF'
-int cale_unit(void);
-int main(void) { return cale_unit() - 7; }
-EOF
-cat > "$tmp/src/unit.cale" <<'EOF'
-fn cale_unit() -> int { return 7; }
-EOF
-
-PATH="$tmp/tools:$PATH" "$qstar" --file "$tmp/qstar.lua" dry-run //:mixed > "$tmp/mixed-dry.out" 2> "$tmp/mixed-dry.err"
-contains "$tmp/mixed-dry.out" "argv=[cale, -c, src/main.c"
-contains "$tmp/mixed-dry.out" "argv=[cale, -c, src/unit.cale"
-PATH="$tmp/tools:$PATH" "$qstar" --file "$tmp/qstar.lua" build //:mixed > "$tmp/mixed-build.out" 2> "$tmp/mixed-build.err"
-contains "$tmp/mixed-build.out" "status ok"
-PATH="$tmp/tools:$PATH" "$qstar" --file "$tmp/qstar.lua" build //:calelib > "$tmp/cale-only.out" 2> "$tmp/cale-only.err"
-contains "$tmp/cale-only.out" "status ok"
-contains "$tmp/build/qstar/compile_commands.json" "src/unit.cale"
-
-if PATH="$tmp/tools:$PATH" "$qstar" --file "$tmp/qstar.lua" -G ninja build //:calelib > "$tmp/cale-ninja.out" 2> "$tmp/cale-ninja.err"; then
-	fail "Cale source Ninja lowering unexpectedly succeeded"
-fi
-contains "$tmp/cale-ninja.err" "Cale source 'src/unit.cale' is a Stella-only language-provider action"
-contains "$tmp/cale-ninja.err" "Ninja wrapper lowering is deferred"
-contains "$tmp/cale-ninja.err" "use -G stella"
-
-if PATH=/nonexistent "$qstar" --file "$tmp/qstar.lua" build //:mixed > "$tmp/no-cale.out" 2> "$tmp/no-cale.err"; then
-	fail "missing cale compiler unexpectedly succeeded"
-fi
-contains "$tmp/no-cale.err" "Cale compiler 'cale' not found"
-
 mkdir -p "$tmp/include" "$tmp/src/core_private" "$tmp/lib"
 cat > "$tmp/include/core.h" <<'EOF'
 int core_value(void);
@@ -3533,12 +3415,6 @@ contains "$tmp/generated-sample-targets.out" "\"label\":\"//:generated_value\""
 "$qstar" --file "$tmp/generated-sample/qstar.lua" clean > "$tmp/generated-sample-clean.out" 2> "$tmp/generated-sample-clean.err"
 "$qstar" --file "$tmp/generated-sample/qstar.lua" build //:app > "$tmp/generated-sample-rebuild.out" 2> "$tmp/generated-sample-rebuild.err"
 contains "$tmp/generated-sample-rebuild.out" "status ok"
-
-cp -R "$manual_root/mixed-cale" "$tmp/mixed-sample"
-"$qstar" --file "$tmp/mixed-sample/qstar.lua" dry-run //:mixed > "$tmp/mixed-sample-dry.out" 2> "$tmp/mixed-sample-dry.err"
-contains "$tmp/mixed-sample-dry.out" "argv=[cale, -c, src/main.c"
-contains "$tmp/mixed-sample-dry.out" "argv=[cale, -c, src/plugin.cale"
-contains "$tmp/mixed-sample-dry.out" "rule provider=native final_action=link output_group=exe"
 
 cp -R "$project_root/c-app-lib-test" "$tmp/project-c"
 "$qstar" --file "$tmp/project-c/qstar.lua" build //:app > "$tmp/project-c-build.out" 2> "$tmp/project-c-build.err"
@@ -4010,7 +3886,6 @@ contains "$tmp/project-firmware-cache-output-second.out" "cache_miss id=//:kerne
 
 contains "docs/qstar-v0-seal.md" "qstar/tests/manual/c-only"
 contains "docs/qstar-v0-seal.md" "qstar/tests/manual/generated"
-contains "docs/qstar-v0-seal.md" "qstar/tests/manual/mixed-cale"
 contains "docs/qstar-v0-seal.md" "make -C qstar qstar-v0-release-tests"
 contains "docs/qstar-v0-seal.md" "qstar-v0.1-release-tests"
 contains "docs/qstar-v0-seal.md" "qstar-v0.2-release-candidate-seal.md"
@@ -4021,7 +3896,6 @@ contains "docs/qstar-v0.1-hardening-seal.md" "qstar/tests/projects/cxx-mixed"
 contains "docs/qstar-v0.1-hardening-seal.md" "qstar/tests/projects/generated-config"
 contains "docs/qstar-v0.1-hardening-seal.md" "qstar/tests/projects/multipkg"
 contains "docs/qstar-v0.1-hardening-seal.md" "qstar/tests/projects/systems-firmware"
-contains "docs/qstar-v0.1-hardening-seal.md" "Cale build integration: deferred"
 contains "docs/qstar-v0.1-hardening-seal.md" "qstar action-log <action-id>"
 contains "docs/qstar-v0.1-hardening-seal.md" "qstar replay <action-id>"
 contains "README.md" "QStar is a standalone build system"
@@ -4441,7 +4315,7 @@ contains "docs/releases/v0.6.0-beta.md" "qstar-public-beta-release-tests"
 contains "docs/releases/v0.6.0-beta.md" "qstar-public-beta-download-smoke"
 contains "docs/releases/v0.6.0-beta.md" "qstar 0.6.0-beta"
 contains "docs/releases/v0.6.0-beta.md" "sharedlib"
-contains "docs/releases/v0.6.0-beta.md" "Cale backend"
+contains "docs/releases/v0.6.0-beta.md" "external language backend"
 contains "docs/releases/v0.6.0-beta.md" "Stella/Ninja medium performance artifacts"
 contains "docs/releases/v0.6.0-beta.md" "runner=posix_spawn event_wait=poll"
 contains "docs/releases/v0.6.0-beta.md" "backend=stella-daemon"
@@ -4708,7 +4582,6 @@ wiki/reference/qstar-lua.md
 wiki/reference/target-rules.md
 wiki/reference/lang-c.md
 wiki/reference/lang-cxx.md
-wiki/reference/lang-cale.md
 wiki/reference/language-providers.md
 wiki/reference/object-artifacts.md
 wiki/reference/custom-target.md
@@ -4755,8 +4628,7 @@ contains "docs/ninja-backend-parity.md" "object artifact bridge"
 contains "docs/ninja-backend-parity.md" "tests/projects/object-artifact-bridge"
 contains "wiki/reference/lang-c.md" "lang.c.public_headers"
 contains "wiki/reference/lang-cxx.md" "lang.cxx.modules"
-contains "wiki/reference/lang-cale.md" "HCL도 header surface"
-contains "wiki/reference/language-providers.md" "Cale source는 Stella-only"
+contains "wiki/reference/language-providers.md" "object artifact bridge"
 contains "wiki/reference/custom-target.md" "qstar.cli"
 contains "wiki/tutorials/freestanding-image.md" "linker_script"
 contains "wiki/cookbook/qemu-smoke.md" "qstar.run_target"
@@ -4783,11 +4655,6 @@ contains "$tmp/init-generated.out" "template generated"
 contains "$tmp/init-generated-build.out" "status ok"
 test -f "$tmp/init-generated/generated/config.h" || fail "init generated missing config header"
 "$tmp/init-generated/build/qstar/out/___app/app" || fail "init generated binary failed"
-
-"$qstar" init mixed-cale "$tmp/init-mixed" > "$tmp/init-mixed.out" 2> "$tmp/init-mixed.err"
-contains "$tmp/init-mixed.out" "template mixed-cale"
-"$qstar" --file "$tmp/init-mixed/qstar.lua" dry-run //:mixed > "$tmp/init-mixed-dry.out" 2> "$tmp/init-mixed-dry.err"
-contains "$tmp/init-mixed-dry.out" "argv=[cale, -c, src/plugin.cale"
 
 if "$qstar" init c-app "$tmp/init-c-app" > "$tmp/init-overwrite.out" 2> "$tmp/init-overwrite.err"; then
 	fail "qstar init unexpectedly overwrote existing files"
@@ -4982,10 +4849,6 @@ qstar.executable "asmapp" {
   },
 }
 
-qstar.executable "bad_asm_toolchain" {
-  toolchain = "cale",
-  sources = {"asm/value.S"},
-}
 EOF
 if ! "$qstar" --file "$tmp/asm/qstar.lua" dry-run //:asmapp > "$tmp/asm-dry.out" 2> "$tmp/asm-dry.err"; then
 	cat "$tmp/asm-dry.out" >&2
@@ -5011,11 +4874,6 @@ contains "$tmp/asm-build.out" "status ok"
 "$tmp/asm/build/qstar/out/___asmapp/asmapp" || fail "asm smoke binary failed"
 contains "$tmp/asm/build/qstar/compile_commands.json" "asm/value.S"
 contains "$tmp/asm/build/qstar/compile_commands.json" "-x assembler-with-cpp"
-if "$qstar" --file "$tmp/asm/qstar.lua" build //:bad_asm_toolchain > "$tmp/asm-bad-toolchain.out" 2> "$tmp/asm-bad-toolchain.err"; then
-	fail "assembler with Cale toolchain unexpectedly succeeded"
-fi
-contains "$tmp/asm-bad-toolchain.err" "assembler source 'asm/value.S' requires host or clang toolchain"
-
 step "cxx module diagnostics"
 mkdir -p "$tmp/cxx-module/src"
 cat > "$tmp/cxx-module/qstar.lua" <<'EOF'
@@ -5045,14 +4903,12 @@ qstar.staticlib "boot" {
   },
 }
 
-qstar.staticlib "cale_core" {
-  toolchain = "cale",
-  sources = {"src/core.cl"},
+qstar.staticlib "c_core" {
+  sources = {"src/core.c"},
   lang = {
-    cale = {
-      profile = "safe",
-      compile_options = {"--mode=safe"},
-      public_headers = {"include/core.hcl"},
+    c = {
+      compile_options = {"-DCORE=1"},
+      public_headers = {"include/core.h"},
       public_include_dirs = {"include"},
     },
   },
@@ -5071,8 +4927,11 @@ cat > "$tmp/lang-surface/boot/start.S" <<'EOF'
 .globl _start
 _start:
 EOF
-cat > "$tmp/lang-surface/src/core.cl" <<'EOF'
-fn core() -> int { return 0; }
+cat > "$tmp/lang-surface/src/core.c" <<'EOF'
+int core(void) { return 0; }
+EOF
+cat > "$tmp/lang-surface/include/core.h" <<'EOF'
+int core(void);
 EOF
 cat > "$tmp/lang-surface/src/mod.cpp" <<'EOF'
 int mod_shell(void) { return 0; }
@@ -5081,9 +4940,8 @@ EOF
 contains "$tmp/lang-surface.out" "lang.asm.include_dirs [boot/include]"
 contains "$tmp/lang-surface.out" "lang.asm.compile_options [-ffreestanding]"
 contains "$tmp/lang-surface.out" "lang.asm.preprocess true"
-contains "$tmp/lang-surface.out" "public_headers [include/core.hcl]"
-contains "$tmp/lang-surface.out" "lang.cale.compile_options [--mode=safe]"
-contains "$tmp/lang-surface.out" "lang.cale.profile safe"
+contains "$tmp/lang-surface.out" "public_headers [include/core.h]"
+contains "$tmp/lang-surface.out" "cflags [-DCORE=1]"
 contains "$tmp/lang-surface.out" "lang.cxx.modules enabled=false"
 
 step "workspace fragments"
@@ -5237,7 +5095,7 @@ contains "$tmp/toolset-dry.out" "\"toolset include\""
 contains "$tmp/toolset-dry.out" "\"-Ltoolset lib\""
 contains "$tmp/toolset-dry.out" "digest="
 "$qstar" --file "$tmp/toolset-diagnostics/qstar.lua" doctor > "$tmp/toolset-doctor.out" 2> "$tmp/toolset-doctor.err"
-contains "$tmp/toolset-doctor.out" "toolchain-sanity name=host cc=clang-custom cxx=clang++-custom cale=cale ar=llvm-ar-custom linker=ld-custom"
+contains "$tmp/toolset-doctor.out" "toolchain-sanity name=host cc=clang-custom cxx=clang++-custom ar=llvm-ar-custom linker=ld-custom"
 
 step "freestanding toolset"
 mkdir -p "$tmp/freestanding/src" "$tmp/freestanding/tools" "$tmp/freestanding/linker"

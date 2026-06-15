@@ -29,9 +29,6 @@ classify_error_code(const char *message)
 	if (contains_text(message, "public header") &&
 	    contains_text(message, "must be under"))
 		return "QSTAR041";
-	if (contains_text(message, "Cale source") &&
-	    contains_text(message, "requires toolchain=cale"))
-		return "QSTAR045";
 	if (contains_text(message, "invalid visibility pattern"))
 		return "QSTAR050";
 	if (contains_text(message, "generated output") &&
@@ -488,18 +485,7 @@ lint_target_shape(struct qstar_graph *graph, const struct qstar_target *target,
 			    target->label) < 0)
 				return -1;
 		}
-		if (strcmp(info.language, "cale") == 0 &&
-		    (!target->toolchain ||
-		    (strcmp(target->toolchain, "cale") != 0 &&
-		    strcmp(target->toolchain, "cale-sol") != 0))) {
-			if (qstar_graph_add_lint(graph, "QSTAR045", "warning",
-			    target->origin_file, target->origin_line, "toolchain",
-			    target->label,
-			    "Cale source '%s' should use toolchain=\"cale\"",
-			    target->sources.items[i]) < 0)
-				return -1;
 		}
-	}
 	for (i = 0; i < target->public_headers.len; i++) {
 		if (!is_public_header_root(target, target->public_headers.items[i]) &&
 		    qstar_graph_find_output_owner(graph, target->public_headers.items[i]) &&

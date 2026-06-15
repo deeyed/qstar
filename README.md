@@ -31,7 +31,6 @@ hotfixes.
 - Stella native executor with compact progress output
 - Stella daemon beta opt-in workflow for repeated local builds and IDE read APIs
 - Ninja backend with `-G ninja` for C/C++/ASM and generated/custom graph actions
-- Cale source support through Stella language-provider process actions
 - `compile_commands.json` generation for editor tooling
 - LSP and VSCode extension support for `qstar.lua`, `.qst`, and `.qsm`
 - Docs, manpages, action logs, replay, and AI-oriented documentation index

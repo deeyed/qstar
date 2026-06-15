@@ -19,8 +19,6 @@ static const struct source_rule source_rules[] = {
 	{ ".h", { NULL, "header", "header-input", "c", "headers", 0, 1 } },
 	{ ".hpp", { NULL, "cxx-header", "header-input", "cxx", "headers", 0, 1 } },
 	{ ".hh", { NULL, "cxx-header", "header-input", "cxx", "headers", 0, 1 } },
-	{ ".cl", { NULL, "cale", "cale-compiler", "cale", "objects", 1, 0 } },
-	{ ".cale", { NULL, "cale", "cale-compiler", "cale", "objects", 1, 0 } },
 	{ ".s", { NULL, "asm", "assembler", "asm", "objects", 1, 0 } },
 	{ ".S", { NULL, "asm-cpp", "preprocessed-assembler", "asm", "objects", 1, 0 } },
 	{ ".o", { NULL, "object", "link-object", "native", "objects", 0, 0 } },
@@ -155,8 +153,6 @@ description_compile_language(const struct qstar_source_info *source)
 	if (strcmp(source->language, "asm") == 0 ||
 	    strcmp(source->language, "asm-cpp") == 0)
 		return "ASM";
-	if (strcmp(source->language, "cale") == 0)
-		return "Cale";
 	return "";
 }
 

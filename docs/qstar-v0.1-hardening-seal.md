@@ -4,9 +4,9 @@
 > `docs/qstar-v0.2-authoring-spec.md`다. 이 문서는 Round 38 v0.1 contract의
 > 역사 기록으로 유지한다.
 
-QStar v0.1은 Cale frontend/backend와 분리된 standalone developer build system으로
-봉인한다. 이 상태의 목적은 `cale build` 통합 전에 QStar만으로 small-to-medium local
-C/C++/Cale-by-process 프로젝트를 작성, 설명, 빌드, 테스트, 설치, 재빌드 추적할 수
+QStar v0.1은 compiler frontend/backend와 분리된 standalone developer build system으로
+봉인한다. 이 상태의 목적은 `downstream build` 통합 전에 QStar만으로 small-to-medium local
+C/C++/external-language-by-process 프로젝트를 작성, 설명, 빌드, 테스트, 설치, 재빌드 추적할 수
 있음을 고정하는 것이다.
 
 ```txt
@@ -17,13 +17,13 @@ check: make -C qstar check
 install: make -C qstar install PREFIX=/path
 release gate: make -C qstar qstar-v0.1-release-tests
 root Makefile integration: none
-Cale build integration: deferred
+downstream build integration: deferred
 frontend/backend internal API integration: none
 ```
 
-QStar는 compiler가 아니다. C, C++, Cale source를 build input으로 보고 target/profile에
+QStar는 compiler가 아니다. C, C++, external source를 build input으로 보고 target/profile에
 맞는 process invocation과 artifact graph를 만든다. `.h`, `.hpp`, generated header,
-future `.hcl`은 path, dependency, install/export surface일 뿐이며 QStar가 header
+future `.h`은 path, dependency, install/export surface일 뿐이며 QStar가 header
 syntax를 해석하지 않는다.
 
 ## Compatibility Contract
@@ -42,7 +42,7 @@ QStar를 독립 빌드시스템으로 시험할 수 있게 하는 최소 계약�
 - Labels: `:local`, `//:name`, `//path:name`, `@pkg//path:name`.
 - Dependency fields: `deps`, `public_deps`, `private_deps`, `visibility`.
 - Source/header fields: `sources`, `lang`; `public_headers`/`private_headers`는
-  `lang.c`, `lang.cxx`, `lang.cale` 아래에서만 authoring surface다.
+  `lang.c`, `lang.cxx`, `lang.cxx` 아래에서만 authoring surface다.
 - Toolchain/profile fields: `toolchain`, `stdlib`, `libs`, `lib_dirs`, `frameworks`.
 - Commands: `list-targets`, `query`, `doctor`, `check`, `explain`, `dry-run`,
   `build`, `test`, `install`, `why-rebuild`, `log`, `last-failure`,
@@ -59,8 +59,8 @@ regression-tested for QStar itself but are not yet a public remote-cache protoco
 The v0.1 release gate ties these features together:
 
 - Graph evaluation, closure, command plan, and deterministic explain output.
-- Source discovery for C, C++, Cale-by-process source kinds.
-- Toolchain/profile schema v2: host/clang/cale profile rendering, sysroot,
+- Source discovery for C, C++, external-language-by-process source kinds.
+- Toolchain/profile schema v2: host/clang/external-tool profile rendering, sysroot,
   resource dir, include dirs, lib dirs, response file policy.
 - Local executor: compile, archive, link, generated action, config header, test,
   install, failure replay.
@@ -94,7 +94,7 @@ The release gate covers the full repository-local sample corpus:
 ```txt
 qstar/tests/manual/c-only
 qstar/tests/manual/generated
-qstar/tests/manual/mixed-cale
+qstar/tests/manual/generated-extra
 qstar/tests/projects/c-app-lib-test
 qstar/tests/projects/cxx-mixed
 qstar/tests/projects/generated-config
@@ -116,9 +116,9 @@ stderr diagnostics, `qstar last-failure`, and `qstar replay`. The intent is that
 users can identify the failing stage without reverse-engineering a
 generic command failure.
 
-## Standalone Use Before Cale Build
+## Standalone Use Before external language Build
 
-QStar v0.1 is usable before `cale build` exists because it owns its own binary,
+QStar v0.1 is usable before `downstream build` exists because it owns its own binary,
 profile reader, executor state, logs, install manifest, and sample corpus. A
 typical flow is:
 
@@ -126,20 +126,20 @@ typical flow is:
 make -C qstar
 qstar/build/bin/qstar init c-app /tmp/my-qstar-app
 cd /tmp/my-qstar-app
-/Users/gungye/workspace/Cale/qstar/build/bin/qstar --file qstar.lua build //:app
-/Users/gungye/workspace/Cale/qstar/build/bin/qstar --file qstar.lua test //:unit
-/Users/gungye/workspace/Cale/qstar/build/bin/qstar --file qstar.lua install //:app --prefix /tmp/qstar-install --dry-run
+/path/to/qstar/build/bin/qstar --file qstar.lua build //:app
+/path/to/qstar/build/bin/qstar --file qstar.lua test //:unit
+/path/to/qstar/build/bin/qstar --file qstar.lua install //:app --prefix /tmp/qstar-install --dry-run
 ```
 
-For Cale sources, QStar still uses public-ish process invocation only. It does
-not link against Cale frontend/backend internals.
+For external sources, QStar still uses public-ish process invocation only. It does
+not link against compiler frontend/backend internals.
 
 ## Deferred After v0.1
 
-- Root `Makefile` or `cale build` integration.
+- Root `Makefile` or `downstream build` integration.
 - Remote package fetch, lockfile resolution, registry, and remote cache.
 - Ninja generator.
 - Full shared library executor and platform install metadata.
-- HCL parsing/import/export.
-- Cale compiler internal API integration.
+- header-language parsing/import/export.
+- external compiler internal API integration.
 - Stable machine-readable graph/cache protocol.

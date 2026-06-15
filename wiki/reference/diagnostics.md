@@ -1,6 +1,6 @@
 # Diagnostics
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다.
+QStar는 C/C++/external-language을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다.
 Diagnostics는 text와 JSON을 모두 염두에 두고, LSP와 replay가 같은 core를 공유한다.
 
 ## 최소 예제
@@ -42,7 +42,7 @@ qstar --file qstar.lua last-failure
 
 ## Profile/toolchain doctor
 
-`qstar doctor`는 C/C++/Cale target을 빌드하기 전 profile 문제를 먼저 보여준다.
+`qstar doctor`는 C/C++/external-language target을 빌드하기 전 profile 문제를 먼저 보여준다.
 특히 freestanding project에서는 compiler/linker/objcopy 같은 외부 tool, sysroot,
 resource directory, response file policy가 맞는지 확인하는 데 쓴다.
 
@@ -94,4 +94,3 @@ object artifact를 만든 뒤 consuming target의 `sources`에 넣으라고 안�
 - `QSTAR002 subdir fragment must be <folder>.qst`
 - `QSTAR020 source path escapes package root`
 - `QSTAR030 private include leaked across target boundary`
-- `qstar: Cale source 'src/core.cale' is a Stella-only language-provider action in this release; Ninja wrapper lowering is deferred; use -G stella`

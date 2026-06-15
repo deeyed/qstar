@@ -61,10 +61,6 @@ Windows-like profile의 runtime `.dll`, import `.lib`, PDB/debug/install layout�
 deferred이며 Stella/Ninja 모두 `docs/windows-artifact-policy.md`를 가리키는 같은
 diagnostic으로 거부한다.
 
-Cale source action은 Stella-only language-provider action이다. Ninja wrapper lowering은
-이번 release에서 deferred이며, Cale source를 포함하는 target은 `-G stella`를 사용한다.
-QStar는 Cale/HCL 의미론을 해석하지 않는다.
-
 ## 최소 예제
 
 ```lua
@@ -126,4 +122,3 @@ qstar --file qstar.lua -G ninja install //:app --prefix /tmp/qstar-install
 ## 관련 diagnostic
 
 - `qstar: sharedlib target '//:plugin' is not supported for Windows-like profiles yet; Windows shared libraries require a runtime .dll, import .lib, and optional PDB/debug artifact policy. Use custom_target/object bridge for now or see docs/windows-artifact-policy.md`
-- `qstar: Cale source 'src/unit.cale' is a Stella-only language-provider action in this release; Ninja wrapper lowering is deferred; use -G stella`

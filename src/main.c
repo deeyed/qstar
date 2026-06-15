@@ -33,7 +33,7 @@ usage(FILE *out)
 	fputs("       qstar [options] replay <action-id>\n", out);
 	fputs("       qstar [options] daemon --socket path --start|--stop|--serve|--status|--query method  # beta\n", out);
 	fputs("       qstar lsp --stdio\n", out);
-	fputs("       qstar init c-app|c-lib|generated|mixed-cale [directory]\n", out);
+	fputs("       qstar init c-app|c-lib|generated [directory]\n", out);
 	fputs("       qstar [options] --dump-graph\n", out);
 	fputs("options:\n", out);
 	fputs("       --file qstar.lua\n", out);

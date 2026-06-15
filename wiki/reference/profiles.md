@@ -1,6 +1,6 @@
 # Profiles
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다.
+QStar는 C/C++/external-language을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다.
 Profile은 toolchain, target triple, sysroot/resource-dir, freestanding flag,
 external tool override를 `qstar.lua` 안에서 선언한다.
 
@@ -39,7 +39,7 @@ resolution을 하지 않는다.
 `qstar doctor`는 profile/toolchain 문제를 먼저 좁히기 위한 진단 surface다. Doctor는
 build를 실행하지 않고 다음을 보고한다.
 
-- resolved `cc`, `cxx`, `cale`, `ar`, `linker`
+- resolved `cc`, `cxx`, `external-tool`, `ar`, `linker`
 - 실제 필요한 tool role과 PATH/package-local/absolute 발견 상태
 - `sysroot`, `resource_dir` 존재 여부와 directory 여부
 - `response_files`, `response_style`의 configured/effective 값

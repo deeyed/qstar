@@ -1,86 +1,69 @@
 # Language Providers
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. Language
-provider는 source file을 object나 generated artifact로 바꾸는 외부 compiler/process 경계이며,
-QStar는 provider 언어의 AST, module system, header semantics를 해석하지 않는다.
+QStar는 특정 언어에 종속되지 않는 빌드시스템이다. QStar core는 C/C++/ASM compile
+provider만 직접 소유한다. 그 밖의 언어는 source suffix나 언어별 namespace를 QStar DSL에
+추가하지 않고, 외부 compiler가 object artifact를 만들게 한 뒤 그 object를 consuming
+target에 연결한다. 이 경계를 object artifact bridge라고 부른다.
 
 ## 최소 예제
 
 ```lua
-qstar.staticlib "core" {
-  toolchain = "cale",
-  sources = {"src/core.cale"},
+qstar.executable "app" {
+  sources = {"src/main.c"},
 }
 ```
-
-Cale source는 Stella-only language-provider action이다. QStar는 Stella executor에서 configured
-`cale` compiler를 argv-vector process로 호출한다. Ninja backend는 이번 release에서 Cale compile
-wrapper rule을 만들지 않는다.
 
 ## 전체 예제
 
 ```lua
-qstar.profile "default" {
-  toolchain = "cale",
-  cale = "cale",
+qstar.custom_target "foreign_obj" {
+  inputs = {"src/foreign.source"},
+  outputs = {qstar.output("generated/foreign.o", {format = "object"})},
+  command = qstar.cli {"tools/compile-foreign.sh", qstar.input(0), qstar.output(0)},
 }
 
-qstar.staticlib "core" {
+qstar.executable "app" {
   sources = {
-    "src/core.cale",
-  },
-  lang = {
-    cale = {
-      profile = "safe",
-      compile_options = {"--profile=safe"},
-      public_headers = {"include/core.hcl"},
-      public_include_dirs = {"include"},
-    },
+    "src/main.c",
+    qstar.output("generated/foreign.o"),
   },
 }
 ```
-
-계약:
-
-- `.cale`/`.cl` source는 `lang.cale` option과 `toolchain = "cale"` 또는 `cale-sol` profile로
-  표현한다.
-- Stella는 Cale source를 compile action으로 계획하고 `cale -c ... -o ...` 형태의 process를
-  실행한다.
-- Ninja는 C/C++/ASM provider action과 generated/custom action을 lower하지만, Cale source는
-  stable diagnostic으로 거부한다.
-- HCL은 QStar가 해석하지 않는다. `.hcl`은 `lang.cale.public_headers`,
-  `lang.cale.private_headers`, include dir, install/export surface에 들어가는 header-like path다.
-- Cale frontend/backend 내부 API 호출, HCL import/export semantic checking, Cale-specific
-  package resolution은 QStar 책임이 아니다.
 
 ## 실패 예제
 
 ```lua
-qstar.staticlib "core" {
-  toolchain = "cale",
-  sources = {"src/core.cale"},
+qstar.executable "bad" {
+  sources = {"src/main.c", "src/foreign.source"},
 }
 ```
 
-```sh
-qstar --file qstar.lua -G ninja build //:core
-```
+외부 언어 source를 `sources`에 직접 넣지 않는다. 외부 compiler를 호출하는
+`qstar.custom_target`을 만들고 `qstar.output(path, {format = "object"})` output을 consuming
+target의 `sources`에 넣는다.
 
-이 명령은 실패한다. Cale source를 Ninja에서 실행하려면 별도의 wrapper lowering 정책, depfile
-계약, response-file 계약, action-log/replay 계약이 필요하므로 이번 release에서는 제공하지 않는다.
+## 계약
+
+- QStar는 외부 언어의 AST, module system, header semantics를 해석하지 않는다.
+- 외부 compiler 호출은 `qstar.custom_target`과 `qstar.cli` argv-vector로 표현한다.
+- 생성된 object는 `qstar.output(path, {format = "object"})`로 표시한다.
+- Stella와 Ninja backend는 generated object artifact를 link/archive input으로 소비한다.
+- 언어별 package manager, semantic import/export, compiler internal API 호출은 QStar 책임이 아니다.
 
 ## 관련 CLI
 
 ```sh
-qstar --file qstar.lua -G stella build //:core
-qstar --file qstar.lua -G ninja build //:core
-qstar --file qstar.lua dry-run //:core
-qstar --file qstar.lua explain //:core
+qstar --file qstar.lua dry-run //:app
+qstar --file qstar.lua build //:app
+qstar --file qstar.lua -G ninja build //:app
 ```
 
 ## 관련 diagnostic
 
-- `qstar: Cale source 'src/core.cale' is a Stella-only language-provider action in this release; Ninja wrapper lowering is deferred; use -G stella`
-- `qstar: Cale source 'src/core.cale' requires toolchain=cale`
-- `qstar: Cale compiler 'cale' not found`
-- `hcl_include_dirs is removed; use lang.cale.public_include_dirs or lang.cale.private_include_dirs`
+- `this language is not a QStar compile provider`
+- `qstar.output(..., {format = "object"})`
+
+## 관련 문서
+
+- `wiki/reference/object-artifacts.md`
+- `wiki/reference/custom-target.md`

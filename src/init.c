@@ -130,39 +130,6 @@ static const struct init_file generated_files[] = {
 	  "SRC\n", 1 },
 };
 
-static const struct init_file mixed_cale_files[] = {
-	{ "qstar.lua",
-	  "qstar.project {\n"
-	  "  name = \"mixed-cale\",\n"
-	  "  version = \"0.1.0\",\n"
-	  "  root = \".\",\n"
-	  "}\n"
-	  "\n"
-	  "qstar.executable \"mixed\" {\n"
-	  "  toolchain = \"cale\",\n"
-	  "  sources = {\"src/main.c\", \"src/plugin.cale\"},\n"
-	  "  lang = {\n"
-	  "    cale = {\n"
-	  "      profile = \"safe\",\n"
-	  "      compile_options = {},\n"
-	  "      public_include_dirs = {},\n"
-	  "    },\n"
-	  "  },\n"
-	  "}\n", 0 },
-	{ "src/main.c",
-	  "int cale_plugin_value(void);\n"
-	  "\n"
-	  "/** C/Cale mixed sample executable의 C 진입점이다. */\n"
-	  "int main(void)\n"
-	  "{\n"
-	  "\treturn cale_plugin_value() == 9 ? 0 : 1;\n"
-	  "}\n", 0 },
-	{ "src/plugin.cale",
-	  "fn cale_plugin_value() -> int {\n"
-	  "    return 9;\n"
-	  "}\n", 0 },
-};
-
 struct init_template {
 	const char *name;
 	const struct init_file *files;
@@ -173,7 +140,6 @@ static const struct init_template templates[] = {
 	{ "c-app", c_app_files, sizeof(c_app_files) / sizeof(c_app_files[0]) },
 	{ "c-lib", c_lib_files, sizeof(c_lib_files) / sizeof(c_lib_files[0]) },
 	{ "generated", generated_files, sizeof(generated_files) / sizeof(generated_files[0]) },
-	{ "mixed-cale", mixed_cale_files, sizeof(mixed_cale_files) / sizeof(mixed_cale_files[0]) },
 };
 
 /** init error buffer에 stable message를 기록한다. */

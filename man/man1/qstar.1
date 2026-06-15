@@ -33,8 +33,8 @@ suffix and are imported through
 .Ic qstar.import_module .
 .Pp
 QStar is a generic build system.
-C, C++, assembler, and Cale are supported through language namespaces and
-toolchain profiles, but QStar does not interpret Cale or HCL semantics itself.
+C, C++, and assembler are supported through language namespaces and toolchain
+profiles. Other languages can participate through generated object artifacts.
 Generated actions use
 .Ic qstar.cli
 argv vectors, not shell strings.
@@ -125,10 +125,6 @@ wrappers, plus
 .Ic qstar.group
 phony targets.
 Stage/install copy and manifest actions remain QStar-owned.
-Cale source actions are Stella-only language-provider actions in this release and still require the
-.Ar stella
-generator.
-QStar does not interpret Cale or HCL semantics itself.
 Shared library consumers receive build-tree
 .Ar @loader_path
 or
@@ -299,9 +295,7 @@ Run the QStar language server with
 Create a starter project from
 .Ar c-app ,
 .Ar c-lib ,
-.Ar generated ,
-or
-.Ar mixed-cale .
+.Ar generated .
 .It Ic --dump-graph
 Print the raw Graph IR for debugging and drift tests.
 .El

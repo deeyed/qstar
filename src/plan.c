@@ -32,7 +32,6 @@ struct qstar_argv_dump {
 struct doctor_tool_requirements {
 	int cc;
 	int cxx;
-	int cale;
 	int ar;
 	int linker;
 };
@@ -348,10 +347,9 @@ dump_plan_inputs(FILE *out, const struct qstar_graph *graph)
 	    profile_or_default(graph->profile.target, "host"),
 	    profile_or_default(graph->profile.toolchain, "default"),
 	    profile_or_default(graph->profile.stdlib_policy, "default"));
-	fprintf(out, "profile_tools cc=%s cxx=%s cale=%s ar=%s linker=%s sysroot=%s resource_dir=%s\n",
+	fprintf(out, "profile_tools cc=%s cxx=%s ar=%s linker=%s sysroot=%s resource_dir=%s\n",
 	    profile_or_default(graph->profile.cc, "<default>"),
 	    profile_or_default(graph->profile.cxx, "<default>"),
-	    profile_or_default(graph->profile.cale, "<default>"),
 	    profile_or_default(graph->profile.ar, "<default>"),
 	    profile_or_default(graph->profile.linker, "<default>"),
 	    profile_or_default(graph->profile.sysroot, "<none>"),
@@ -775,26 +773,20 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	struct qstar_string_list includes;
 	struct qstar_argv_dump dump;
 	size_t argc, i;
-	int cross, is_asm, is_cale, is_cxx, wants_depfile;
+	int cross, is_asm, is_cxx, wants_depfile;
 
 	memset(&includes, 0, sizeof(includes));
 	collect_compile_include_dirs(graph, target, &includes);
 	snprintf(id, sizeof(id), "%s:compile:%zu", target->label, index);
 	qstar_graph_depfile_output_path(graph, target, index, depfile, sizeof(depfile));
 	is_asm = source_is_asm(source);
-	is_cale = strcmp(source->language, "cale") == 0;
 	is_cxx = strcmp(source->language, "cxx") == 0;
 	wants_depfile = (strcmp(source->language, "c") == 0 || is_cxx ||
-	    source_uses_asm_preprocessor(target, source)) &&
-	    strcmp(toolchain->name, "cale") != 0 && strcmp(toolchain->name, "cale-sol") != 0;
-	role = is_cale ? NULL : is_asm ? "asm" : is_cxx ? "cxx" : "c";
-	tool = is_cale ? toolchain->cale :
-	    is_asm ? toolchain->asm_ : is_cxx ? toolchain->cxx : toolchain->cc;
-	cross = (strcmp(toolchain->name, "clang") == 0 ||
-	    strcmp(toolchain->name, "cale") == 0 ||
-	    strcmp(toolchain->name, "cale-sol") == 0) &&
-	    strcmp(toolchain->target, "host") != 0;
-	argc = 5 + (role ? plan_tool_role_argc(graph, target, role) - 1 : 0) +
+	    source_uses_asm_preprocessor(target, source));
+	role = is_asm ? "asm" : is_cxx ? "cxx" : "c";
+	tool = is_asm ? toolchain->asm_ : is_cxx ? toolchain->cxx : toolchain->cc;
+	cross = strcmp(toolchain->name, "clang") == 0 && strcmp(toolchain->target, "host") != 0;
+	argc = 5 + plan_tool_role_argc(graph, target, role) - 1 +
 	    graph->profile.compile_options.len +
 	    graph->profile.include_dirs.len * 2 +
 	    (is_asm ? target->asm_include_dirs.len * 2 : includes.len * 2) +
@@ -804,19 +796,15 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	    (is_asm ? 2 : 0) +
 	    (strcmp(target->kind, "sharedlib") == 0 &&
 	    qstar_toolchain_target_supports_sharedlib(toolchain->target) &&
-	    !qstar_toolchain_target_is_windows(toolchain->target) && !is_asm &&
-	    !is_cale ? 1 : 0) +
+	    !qstar_toolchain_target_is_windows(toolchain->target) && !is_asm ? 1 : 0) +
 	    (is_cxx && target->cxx_standard[0] ? 1 : 0) +
 	    (is_asm ? target->asm_compile_options.len :
-	    is_cxx ? target->cxxflags.len : is_cale ? 0 : target->cflags.len);
+	    is_cxx ? target->cxxflags.len : target->cflags.len);
 	snprintf(target_arg, sizeof(target_arg), "--target=%s", toolchain->target);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
 	snprintf(sysroot_arg, sizeof(sysroot_arg), "--sysroot=%s", toolchain->sysroot);
 	begin_argv(out, &dump, id, argc, toolchain);
-	if (role)
-		plan_argv_tool_role(out, &dump, graph, target, role, tool);
-	else
-		argv_item(out, &dump, tool);
+	plan_argv_tool_role(out, &dump, graph, target, role, tool);
 	if (cross)
 		argv_item(out, &dump, target_arg);
 	if (toolchain->sysroot[0])
@@ -827,8 +815,7 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	}
 	if (strcmp(target->kind, "sharedlib") == 0 &&
 	    qstar_toolchain_target_supports_sharedlib(toolchain->target) &&
-	    !qstar_toolchain_target_is_windows(toolchain->target) && !is_asm &&
-	    !is_cale)
+	    !qstar_toolchain_target_is_windows(toolchain->target) && !is_asm)
 		argv_item(out, &dump, "-fPIC");
 	if (is_asm) {
 		argv_item(out, &dump, "-x");
@@ -846,13 +833,13 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	}
 	if (is_cxx && target->cxx_standard[0])
 		argv_item(out, &dump, std_arg);
-	for (i = 0; !is_asm && !is_cxx && !is_cale && i < target->cflags.len; i++)
+	for (i = 0; !is_asm && !is_cxx && i < target->cflags.len; i++)
 		argv_item(out, &dump, target->cflags.items[i]);
 	for (i = 0; is_cxx && i < target->cxxflags.len; i++)
 		argv_item(out, &dump, target->cxxflags.items[i]);
 	for (i = 0; is_asm && i < target->asm_compile_options.len; i++)
 		argv_item(out, &dump, target->asm_compile_options.items[i]);
-	for (i = 0; !is_cale && i < graph->profile.compile_options.len; i++)
+	for (i = 0; i < graph->profile.compile_options.len; i++)
 		argv_item(out, &dump, graph->profile.compile_options.items[i]);
 	for (i = 0; i < graph->profile.include_dirs.len; i++) {
 		argv_item(out, &dump, "-I");
@@ -1356,13 +1343,13 @@ dump_resolved_toolchain(FILE *out, const struct qstar_plan *plan,
 		return -1;
 	fprintf(out,
 	    "  resolved_toolchain owner=%s toolchain=%s profile=%s target=%s "
-	    "stdlib=%s resolver=%s toolset=%s cc=%s cxx=%s asm=%s cale=%s ar=%s "
+	    "stdlib=%s resolver=%s toolset=%s cc=%s cxx=%s asm=%s ar=%s "
 	    "linker=%s sysroot=%s resource_dir=%s response_files=%s response_style=%s\n",
 	    target->label, resolved->name,
 	    profile_or_default(plan->graph->profile.name, "default"),
 	    resolved->target, resolved->stdlib_policy, resolved->resolver,
 	    resolved->toolset[0] ? resolved->toolset : "<none>",
-	    resolved->cc, resolved->cxx, resolved->asm_, resolved->cale, resolved->ar,
+	    resolved->cc, resolved->cxx, resolved->asm_, resolved->ar,
 	    resolved->linker,
 	    resolved->sysroot[0] ? resolved->sysroot : "<none>",
 	    resolved->resource_dir[0] ? resolved->resource_dir : "<none>",
@@ -1632,8 +1619,6 @@ collect_doctor_tool_requirements(const struct qstar_plan *plan,
 				continue;
 			if (strcmp(source.language, "cxx") == 0)
 				req->cxx = 1;
-			else if (strcmp(source.language, "cale") == 0)
-				req->cale = 1;
 			else if (strcmp(source.language, "c") == 0 ||
 			    strcmp(source.language, "asm") == 0 ||
 			    strcmp(source.language, "asm-cpp") == 0)
@@ -2157,14 +2142,14 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 	fprintf(out, "stage-count %zu\n", graph->stage_len);
 	memset(&toolchain, 0, sizeof(toolchain));
 	memset(&tool_req, 0, sizeof(tool_req));
-	if (plan.len > 0 && qstar_resolve_toolchain(graph, plan.order[0], &toolchain) == 0) {
-		collect_doctor_tool_requirements(&plan, &tool_req);
-		fprintf(out,
-		    "toolchain-sanity name=%s cc=%s cxx=%s cale=%s ar=%s linker=%s "
-		    "sysroot=%s resource_dir=%s response_files=%s response_style=%s "
-		    "status=resolved\n",
-		    toolchain.name, toolchain.cc, toolchain.cxx, toolchain.cale,
-		    toolchain.ar, toolchain.linker,
+		if (plan.len > 0 && qstar_resolve_toolchain(graph, plan.order[0], &toolchain) == 0) {
+			collect_doctor_tool_requirements(&plan, &tool_req);
+			fprintf(out,
+			    "toolchain-sanity name=%s cc=%s cxx=%s ar=%s linker=%s "
+			    "sysroot=%s resource_dir=%s response_files=%s response_style=%s "
+			    "status=resolved\n",
+			    toolchain.name, toolchain.cc, toolchain.cxx, toolchain.ar,
+			    toolchain.linker,
 		    toolchain.sysroot[0] ? toolchain.sysroot : "<none>",
 		    toolchain.resource_dir[0] ? toolchain.resource_dir : "<none>",
 		    toolchain.response_files ? "on" : "off", toolchain.response_style);
@@ -2174,11 +2159,9 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 		    profile_or_default(graph->profile.response_style, "auto"),
 		    toolchain.response_files ? "on" : "off", toolchain.response_style);
 		dump_toolchain_tool_doctor(out, graph, "cc", toolchain.cc, tool_req.cc);
-		dump_toolchain_tool_doctor(out, graph, "cxx", toolchain.cxx,
-		    tool_req.cxx);
-		dump_toolchain_tool_doctor(out, graph, "cale", toolchain.cale,
-		    tool_req.cale);
-		dump_toolchain_tool_doctor(out, graph, "ar", toolchain.ar, tool_req.ar);
+			dump_toolchain_tool_doctor(out, graph, "cxx", toolchain.cxx,
+			    tool_req.cxx);
+			dump_toolchain_tool_doctor(out, graph, "ar", toolchain.ar, tool_req.ar);
 		dump_toolchain_tool_doctor(out, graph, "linker", toolchain.linker,
 		    tool_req.linker);
 		dump_profile_path_doctor(out, graph, "sysroot", graph->profile.sysroot, 1);

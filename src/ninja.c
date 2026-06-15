@@ -413,11 +413,6 @@ validate_ninja_compile_source(struct qstar_graph *graph, const struct qstar_targ
 		    "sources", target->label,
 		    "qstar: ninja backend MVP does not support C++ module source '%s'",
 		    target->sources.items[index]);
-	if (strcmp(source->language, "cale") == 0)
-		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-		    "sources", target->label,
-		    "qstar: Cale source '%s' is a Stella-only language-provider action in this release; Ninja wrapper lowering is deferred; use -G stella",
-		    target->sources.items[index]);
 	if (strcmp(source->language, "c") != 0 && strcmp(source->language, "cxx") != 0 &&
 	    !source_is_asm(source))
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,

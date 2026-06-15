@@ -46,9 +46,9 @@ manager/profile responsibilities, not arbitrary Lua logic.
 ```lua
 local function platform_sources()
     return qstar.select {
-        [qstar.os.macos] = {"src/platform/darwin.cale"},
-        [qstar.os.linux] = {"src/platform/linux.cale"},
-        [qstar.os.windows] = {"src/platform/windows.cale"},
+        [qstar.os.macos] = {"src/platform/darwin.foreign"},
+        [qstar.os.linux] = {"src/platform/linux.foreign"},
+        [qstar.os.windows] = {"src/platform/windows.foreign"},
         default = qstar.incompatible("unsupported platform"),
     }
 end
@@ -132,7 +132,7 @@ QStar code.
 local sdk = io.popen("xcrun --show-sdk-path"):read("*l")
 ```
 
-SDK discovery, tool discovery, env lookup은 QStar core와 Cale host/profile resolver가 명시 API로 제공해야 한다.
+SDK discovery, tool discovery, env lookup은 QStar core와 external language host/profile resolver가 명시 API로 제공해야 한다.
 
 ## Official Style
 
@@ -205,8 +205,8 @@ package의 QStar fragment를 읽지는 않는다. `--profile`, `--target`,
 Round 4부터 `qstar explain`은 header graph policy도 검증한다. Round 5 기준으로
 이 정책은 build-system 파일 정책일 뿐이다. Public header는 `include/` 아래의
 package-relative file path여야 하고, private header는 package-relative file path여야
-한다. QStar는 `.hcl`, `.h`, `.hpp` 같은 확장자를 해석하지 않는다. `.hcl`의
-전처리, export filter, C/Cale declaration import/export는 Cale compiler/HCL checker가
+한다. QStar는 `.h`, `.h`, `.hpp` 같은 확장자를 해석하지 않는다. `.h`의
+전처리, export filter, C/external declaration import/export는 external compiler/header-language checker가
 맡는다.
 
 Round 5부터 `qstar explain`은 Build Plan IR action key skeleton도 출력한다. 이 값은
@@ -214,8 +214,8 @@ future cache/Ninja/internal executor의 입력 재료이며, 실제 process 실�
 hash 계산은 아직 하지 않는다.
 
 Round 6부터 `sources`는 explicit source discovery skeleton으로 분류된다. Round 47
-기준으로 인식되는 suffix는 `.c`, `.cl`, `.cale`, `.h`, `.s`, `.S`다. QStar는 이를 `c`,
-`cale`, `cale`, `header`, `asm`, `asm-cpp` language로 표시한다. Round 50부터 `.s`와
+기준으로 인식되는 suffix는 `.c`, `.foreign`, `.foreign`, `.h`, `.s`, `.S`다. QStar는 이를 `c`,
+`external-tool`, `external-tool`, `header`, `asm`, `asm-cpp` language로 표시한다. Round 50부터 `.s`와
 `.S`도 host/clang compiler driver를 통해 object compile input으로 허용된다. `.h`는
 header list로 옮기라는 stable diagnostic을 낸다.
 
@@ -310,7 +310,7 @@ qstar.profile "kernel" {
 
 CLI `--target`, `--toolchain`, `--stdlib`은 `qstar.profile` 선언보다 우선한다.
 현재 resolver 이름은 `profile-schema-v2`이며 toolchain profile은 `host`, `clang`,
-`cale`만 정의되어 있다.
+`external-tool`만 정의되어 있다.
 
 `freestanding = true`는 C/C++/ASM compile action에 보수적 freestanding compile
 option을 추가한다. `arch`, `cpu`, `abi`는 target triple에서 모호한 policy를 분리하기
@@ -353,15 +353,19 @@ depfile-discovered header list를 재사용한다. `why-rebuild`는 같은 key �
 보여준다. `clean`은 전체 `build/qstar` 상태 또는 선택 target output을 지운다.
 `--diagnostics json`은 editor/LSP 준비용 JSON diagnostic skeleton이다.
 
-Round 16부터 `.cale` source는 `toolchain = "cale"` 또는 `cale-sol`에서
-object-producing compile action으로 들어간다. 이것은 Cale compiler process를
-호출하는 build-system 통합이며, Cale frontend/backend 내부 API 연결이 아니다.
-`host`/`clang` toolchain에서 `.cale` source를 빌드하면 stable diagnostic이다.
+외부 언어 source는 QStar compile provider로 직접 등록하지 않는다. 외부 compiler를
+`qstar.custom_target`으로 호출해 generated object를 만들고, consuming target이 그 object를
+`sources`에서 소비한다.
 
 ```lua
-qstar.executable "mixed" {
-    toolchain = "cale",
-    sources = {"src/main.c", "src/tool.cale"},
+qstar.custom_target "foreign_obj" {
+    inputs = {"src/tool.foreign"},
+    outputs = {qstar.output("generated/tool.o", {format = "object"})},
+    command = qstar.cli {"tools/compile-foreign.sh", qstar.input(0), qstar.output(0)},
+}
+
+qstar.executable "app" {
+    sources = {"src/main.c", qstar.output("generated/tool.o")},
 }
 ```
 
@@ -482,7 +486,7 @@ directory, firmware package처럼 실행 layout이 중요한 산출물을 packag
 qstar.target "engine" {
     kind = "staticlib",
     lang = {
-        cale = {
+        external-tool = {
             modules = qstar.modules {
                 root = "src",
                 include = {
@@ -491,7 +495,7 @@ qstar.target "engine" {
                 },
             },
             public_headers = {
-                "include/engine/engine.hcl",
+                "include/engine/engine.h",
             },
             public_include_dirs = {
                 "include",
@@ -518,11 +522,11 @@ qstar.target "engine" {
 | `lang` | language-specific header/include/compile/module namespace |
 | `deps` | target dependency label list |
 | `toolchain` | host/freestanding/target profile reference |
-| `stdlib` | `system`, `cale`, `none` |
+| `stdlib` | `system`, `external-tool`, `none` |
 | `linker_script` | freestanding/kernel linker script |
 | `artifact_name` | target-local output filename override such as `BOOTX64.EFI` |
 | `c` | C language mode 같은 build-relevant compile mode |
-| `cale` | Cale edition 같은 build-relevant compile mode |
+| `external-tool` | external language edition 같은 build-relevant compile mode |
 
 Secure profile과 UB category override는 여기 넣지 않는다. Secure, audit, safety
 policy는 compiler/package policy layer가 담당하고 QStar core DSL에는 넣지 않는다.
@@ -534,7 +538,7 @@ policy는 compiler/package policy layer가 담당하고 QStar core DSL에는 넣
 ```lua
 qstar.executable "app" {
     lang = {
-        cale = {
+        external-tool = {
             modules = qstar.modules {
                 root = "src",
                 include = {"app"},
@@ -545,7 +549,7 @@ qstar.executable "app" {
 
 qstar.staticlib "core" {
     lang = {
-        cale = {
+        external-tool = {
             modules = qstar.modules {
                 root = "src",
                 include = {"core"},
@@ -556,7 +560,7 @@ qstar.staticlib "core" {
 
 qstar.sharedlib "plugin" {
     lang = {
-        cale = {
+        external-tool = {
             modules = qstar.modules {
                 root = "src",
                 include = {"plugin"},
@@ -566,7 +570,7 @@ qstar.sharedlib "plugin" {
 }
 
 qstar.test "core_test" {
-    sources = {"tests/core_test.cale"},
+    sources = {"tests/core_test.foreign"},
     deps = {":core"},
 }
 ```
@@ -579,17 +583,17 @@ qstar.test "core_test" {
 | `staticlib` | archive/static library |
 | `sharedlib` | dynamic/shared library |
 | `objectlib` | object collection |
-| `modulelib` | Cale module group |
+| `modulelib` | external language module group |
 | `test` | test executable or test action |
 | `gen` | generated file action |
 
 ## qstar.modules
 
-Cale module set을 선언한다.
+external language module set을 선언한다.
 
 ```lua
 lang = {
-    cale = {
+    external-tool = {
         modules = qstar.modules {
             root = "src",
             include = {
@@ -606,7 +610,7 @@ Optional `exclude`:
 
 ```lua
 lang = {
-    cale = {
+    external-tool = {
         modules = qstar.modules {
             root = "src",
             include = {
@@ -629,12 +633,12 @@ lang = {
 
 ```lua
 sources = {
-    "src/platform/common.cale",
+    "src/platform/common.foreign",
     "src/native/bridge.c",
 }
 ```
 
-`.cale` 구현은 가능하면 `modules`로 묶고, C/C++ source나 target-specific extra source, generated source는 `sources`에 넣는다.
+`.foreign` 구현은 가능하면 `modules`로 묶고, C/C++ source나 target-specific extra source, generated source는 `sources`에 넣는다.
 
 ## qstar.files
 
@@ -643,7 +647,7 @@ Glob/file group이다.
 ```lua
 sources = qstar.files {
     "src/*.c",
-    "src/**/*.cale",
+    "src/**/*.foreign",
 }
 ```
 
@@ -667,9 +671,9 @@ Target/platform condition에 따라 값을 선택한다.
 
 ```lua
 sources = qstar.select {
-    [qstar.os.macos] = {"src/platform/darwin.cale"},
-    [qstar.os.linux] = {"src/platform/linux.cale"},
-    [qstar.os.windows] = {"src/platform/windows.cale"},
+    [qstar.os.macos] = {"src/platform/darwin.foreign"},
+    [qstar.os.linux] = {"src/platform/linux.foreign"},
+    [qstar.os.windows] = {"src/platform/windows.foreign"},
     default = qstar.incompatible("unsupported platform"),
 }
 ```
@@ -679,7 +683,7 @@ sources = qstar.select {
 ```lua
 sources = qstar.select {
     [qstar.all { qstar.os.linux, qstar.arch.x86_64 }] = {
-        "src/platform/linux_x64.cale",
+        "src/platform/linux_x64.foreign",
     },
     default = qstar.incompatible("unsupported target"),
 }
@@ -704,7 +708,7 @@ qstar.arch.aarch64
 qstar.arch.riscv64
 
 qstar.feature "gui"
-qstar.profile "freestanding-cale"
+qstar.profile "freestanding-external-tool"
 
 qstar.all { ... }
 qstar.any { ... }
@@ -794,13 +798,13 @@ deps = {
 
 ```lua
 lang = {
-    cale = {
+    external-tool = {
         public_headers = {
-            "include/engine/engine.hcl",
-            "include/engine/render.hcl",
+            "include/engine/engine.h",
+            "include/engine/render.h",
         },
         private_headers = {
-            "include/engine/internal/debug.hcl",
+            "include/engine/internal/debug.h",
         },
         public_include_dirs = {
             "include",
@@ -809,17 +813,17 @@ lang = {
 }
 ```
 
-`public_headers`는 install/export할 header file surface다. 항목은 `.h`, `.hcl`,
+`public_headers`는 install/export할 header file surface다. 항목은 `.h`, `.h`,
 `.hpp` 같은 확장자를 가질 수 있지만 QStar는 확장자를 의미론으로 해석하지
-않는다. `.hcl`은 `#include`로 소비하지만 QStar label이나 Cale `import`와 섞지
-않는다. QStar는 HCL 내용을 해석하지 않고, header path가 허용된 include root
+않는다. `.h`은 `#include`로 소비하지만 QStar label이나 external language `import`와 섞지
+않는다. QStar는 header-language 내용을 해석하지 않고, header path가 허용된 include root
 안에 있는지와 graph policy에 맞는지만 검증한다.
 
-`.hcl` 자체의 언어 처리는 Cale compiler가 맡는다. `.hcl`은 smart preprocessing, parse, export filter를 거쳐 includer에게 `export` declaration만 노출하는 header surface이며, legacy `.h`처럼 raw textual paste로 정의하지 않는다.
+`.h` 자체의 언어 처리는 external compiler가 맡는다. `.h`은 smart preprocessing, parse, export filter를 거쳐 includer에게 `export` declaration만 노출하는 header surface이며, legacy `.h`처럼 raw textual paste로 정의하지 않는다.
 
-QStar는 `.hcl`의 `export`, `export using`, `export opaque` 같은 declaration 의미를 판단하지 않는다. QStar가 검증하는 것은 `public_headers`가 설치/export surface로 등록되어 있는지, path가 허용된 include root 아래인지, generated header가 선언된 action의 output인지 같은 build graph 정책이다. HCL grammar와 C declaration import/export 규칙은 Cale compiler와 HCL checker가 담당한다.
+QStar는 `.h`의 `export`, `export using`, `export opaque` 같은 declaration 의미를 판단하지 않는다. QStar가 검증하는 것은 `public_headers`가 설치/export surface로 등록되어 있는지, path가 허용된 include root 아래인지, generated header가 선언된 action의 output인지 같은 build graph 정책이다. header-language grammar와 C declaration import/export 규칙은 external compiler와 header-language checker가 담당한다.
 Include search path는 target top-level이 아니라 `lang.c.include_dirs`,
-`lang.cxx.include_dirs`, `lang.asm.include_dirs`, `lang.cale.public_include_dirs`
+`lang.cxx.include_dirs`, `lang.asm.include_dirs`, `lang.cxx.public_include_dirs`
 아래에 둔다.
 
 ## Toolchain And Stdlib
@@ -837,18 +841,18 @@ macos-system
 linux-gnu-system
 linux-musl-system
 windows-mingw-system
-freestanding-cale
+freestanding-external-tool
 ```
 
 초기 stdlib policy:
 
 ```txt
 system
-cale
+external-tool
 none
 ```
 
-QStar는 toolchain profile을 정의하지 않는다. 정의와 discovery는 Cale profile resolver가 담당한다.
+QStar는 toolchain profile을 정의하지 않는다. 정의와 discovery는 external language profile resolver가 담당한다.
 
 ## Language Mode Fields
 
@@ -859,7 +863,7 @@ c = {
     standard = "gnu17",
 }
 
-cale = {
+external-tool = {
     edition = "preview",
 }
 ```
@@ -915,7 +919,7 @@ qstar.custom_target "version_header" {
         "VERSION",
     },
     outputs = {
-        qstar.output("generated/version.hcl"),
+        qstar.output("generated/version.h"),
     },
     command = qstar.cli {
         "gen-version",
@@ -941,7 +945,7 @@ qstar.custom_target "version_header" {
 Generated action 안에서 named path를 참조한다.
 
 ```lua
-qstar.output("generated/version.hcl")
+qstar.output("generated/version.h")
 ```
 
 `qstar.output(path)`은 path spelling helper다. Makefile의 `$<`, `$@` 같은 암호
@@ -1070,7 +1074,7 @@ Round 21부터 QStar는 sample corpus와 drift-tested project skeleton을 생성
 qstar init c-app my-app
 qstar init c-lib my-lib
 qstar init generated my-generated-app
-qstar init mixed-cale my-mixed-app
+qstar init generated-extra my-mixed-app
 ```
 
 생성되는 구조는 다음 manual sample과 같은 surface를 유지한다.
@@ -1078,7 +1082,7 @@ qstar init mixed-cale my-mixed-app
 ```txt
 qstar/tests/manual/c-only
 qstar/tests/manual/generated
-qstar/tests/manual/mixed-cale
+qstar/tests/manual/generated-extra
 ```
 
 v0에서 유지할 authoring surface와 deferred 범위는 `docs/qstar-v0-seal.md`에
@@ -1086,9 +1090,9 @@ v0에서 유지할 authoring surface와 deferred 범위는 `docs/qstar-v0-seal.m
 
 ## QStar v0.2 language options
 
-Round 47부터 C/C++/ASM/Cale option은 target top-level이 아니라 `lang.*` 아래에 둔다.
+Round 47부터 C/C++/ASM option은 target top-level이 아니라 `lang.*` 아래에 둔다.
 `include_dirs`라는 이름은 유지하지만 `lang.c.include_dirs`, `lang.cxx.include_dirs`,
-`lang.asm.include_dirs`, `lang.cale.public_include_dirs`처럼 language namespace 안에서만
+`lang.asm.include_dirs`, `lang.cxx.public_include_dirs`처럼 language namespace 안에서만
 의미가 있다.
 
 ```lua

@@ -14,11 +14,11 @@ binary: qstar/build/bin/qstar
 build: make -C qstar
 install: make -C qstar install PREFIX=/path
 root Makefile integration: none
-cale build integration: Round 21 이후 검토
+downstream build integration: Round 21 이후 검토
 ```
 
-QStar는 Cale frontend/backend 내부 API를 호출하지 않는다. C와 Cale source는 process
-invocation을 위한 build input으로만 다룬다. `.h`, `.hcl`, generated header는 path와
+QStar는 compiler frontend/backend 내부 API를 호출하지 않는다. C와 external source는 process
+invocation을 위한 build input으로만 다룬다. `.h`, `.h`, generated header는 path와
 dependency graph의 일부지만, QStar가 header 내용을 해석하지 않는다.
 
 ## Compatibility Contract
@@ -31,13 +31,13 @@ stable public protocol은 아니다.
 - `qstar.sharedlib`는 local executor에서 stable unsupported 또는 plan-only surface로만 유지.
 - `qstar.custom_target`, `qstar.run_target`, `qstar.configure_file`, `qstar.output`,
   `qstar.cli`.
-- `qstar init c-app|c-lib|generated|mixed-cale`.
+- `qstar init c-app|c-lib|generated|generated-extra`.
 - `qstar.modules`, `qstar.files`, `qstar.join`, `qstar.select`, `qstar.incompatible`,
   `qstar.subdir`.
 - labels: `:local`, `//:name`, `//path:name`, `@pkg//path:name`.
 - fields: `sources`, `lang`, `deps`, `public_deps`, `private_deps`,
   `toolchain`, `stdlib`, `libs`, `lib_dirs`, `frameworks`. Header/include
-  surface는 `lang.c`, `lang.cxx`, `lang.cale` 아래에 둔다.
+  surface는 `lang.c`, `lang.cxx`, `lang.cxx` 아래에 둔다.
 - commands: `list-targets`, `query`, `doctor`, `check`, `explain`, `dry-run`, `build`,
   `test`, `install`, `why-rebuild`, `log`, `last-failure`, `clean`, `--dump-graph`.
 - diagnostics: default text and `--diagnostics json` skeleton.
@@ -54,7 +54,7 @@ Round 20 manual corpus는 QStar를 손으로 써볼 수 있게 하는 작은 pro
 | --- | --- |
 | `qstar/tests/manual/c-only` | C static library, executable, test target, install flow |
 | `qstar/tests/manual/generated` | generated config header와 generated C source chaining |
-| `qstar/tests/manual/mixed-cale` | C/Cale mixed target의 dry-run command plan |
+| `qstar/tests/manual/generated-extra` | C/external mixed target의 dry-run command plan |
 
 권장 manual loop:
 
@@ -63,9 +63,9 @@ make -C qstar
 tmp=$(mktemp -d /tmp/qstar-sample.XXXXXX)
 cp -R qstar/tests/manual/c-only "$tmp/c-only"
 cd "$tmp/c-only"
-/Users/gungye/workspace/Cale/qstar/build/bin/qstar --file qstar.lua build //:app
-/Users/gungye/workspace/Cale/qstar/build/bin/qstar --file qstar.lua test //:unit
-/Users/gungye/workspace/Cale/qstar/build/bin/qstar --file qstar.lua install //:core --prefix "$tmp/install"
+/path/to/qstar/build/bin/qstar --file qstar.lua build //:app
+/path/to/qstar/build/bin/qstar --file qstar.lua test //:unit
+/path/to/qstar/build/bin/qstar --file qstar.lua install //:core --prefix "$tmp/install"
 ```
 
 Generated sample:
@@ -75,29 +75,29 @@ tmp=$(mktemp -d /tmp/qstar-generated.XXXXXX)
 cp -R qstar/tests/manual/generated "$tmp/generated"
 cd "$tmp/generated"
 rm -rf build/qstar generated compile_commands.json
-/Users/gungye/workspace/Cale/qstar/build/bin/qstar --file qstar.lua build //:app
+/path/to/qstar/build/bin/qstar --file qstar.lua build //:app
 ```
 
-Mixed C/Cale sample은 현재 dry-run 중심이다.
+Mixed C/external sample은 현재 dry-run 중심이다.
 
 ```txt
 tmp=$(mktemp -d /tmp/qstar-mixed.XXXXXX)
-cp -R qstar/tests/manual/mixed-cale "$tmp/mixed-cale"
-cd "$tmp/mixed-cale"
-/Users/gungye/workspace/Cale/qstar/build/bin/qstar --file qstar.lua dry-run //:mixed
+cp -R qstar/tests/manual/generated-extra "$tmp/generated-extra"
+cd "$tmp/generated-extra"
+/path/to/qstar/build/bin/qstar --file qstar.lua dry-run //:mixed
 ```
 
 ## qstar init
 
 Round 21부터 `qstar init`은 manual sample corpus와 같은 authoring skeleton을 만든다.
-현재 template은 `c-app`, `c-lib`, `generated`, `mixed-cale`이다. 기존 파일은 덮어쓰지
+현재 template은 `c-app`, `c-lib`, `generated`, `generated-extra`이다. 기존 파일은 덮어쓰지
 않는다.
 
 ```txt
 qstar init c-app my-app
 qstar init c-lib my-lib
 qstar init generated my-generated-app
-qstar init mixed-cale my-mixed-app
+qstar init generated-extra my-mixed-app
 ```
 
 `qstar init`은 package registry, remote dependency, workspace policy를 만들지
@@ -113,7 +113,7 @@ make -C qstar qstar-v0-release-tests
 
 이 target은 QStar 자체 build, smoke, manual sample copy/build/test/install,
 `compile_commands.json` validation, clean rebuild, docs/examples drift check를 묶는다.
-Root `make qstar-tests`와 `cale build` integration은 의도적으로 제공하지 않는다.
+Root `make qstar-tests`와 `downstream build` integration은 의도적으로 제공하지 않는다.
 
 ## v0.1 Hardening Seal
 
@@ -128,7 +128,7 @@ make -C qstar qstar-v0.1-release-tests
 make -C qstar qstar-standalone-integration-tests
 ```
 
-이 seal은 `cale build` 통합 전에도 QStar를 독립 개발용 빌드시스템으로 사용할 수
+이 seal은 `downstream build` 통합 전에도 QStar를 독립 개발용 빌드시스템으로 사용할 수
 있다는 기준을 고정한다.
 
 ## v0.2 Release Candidate Seal
@@ -145,11 +145,11 @@ make -C qstar qstar-release-candidate-tests
 
 ## Deferred
 
-- `cale build` 내부 QStar 사용.
+- `downstream build` 내부 QStar 사용.
 - root `Makefile` integration.
 - package registry/fetch/cache.
 - Ninja generator.
 - full shared library executor.
 - remote cache protocol.
-- HCL parsing/import/export.
-- Cale compiler frontend/backend internal API integration.
+- header-language parsing/import/export.
+- external compiler frontend/backend internal API integration.

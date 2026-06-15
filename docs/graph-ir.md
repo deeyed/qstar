@@ -25,7 +25,7 @@ not execute build actions.
 Round 3 adds graph context for package aliases and profile input:
 
 ```txt
-profile name=debug target=arm64-apple-macos toolchain=clang stdlib=cale
+profile name=debug target=arm64-apple-macos toolchain=clang stdlib=external-tool
 package_aliases [@core=/path/to/core]
 ```
 
@@ -88,8 +88,8 @@ Local label은 canonicalization 단계에서 full label로 바뀐다.
 
 ```lua
 qstar.select {
-    [qstar.os.macos] = {"src/platform/darwin.cale"},
-    [qstar.os.linux] = {"src/platform/linux.cale"},
+    [qstar.os.macos] = {"src/platform/darwin.foreign"},
+    [qstar.os.linux] = {"src/platform/linux.foreign"},
     default = qstar.incompatible("unsupported platform"),
 }
 ```
@@ -98,8 +98,8 @@ Canonical dump는 condition을 deterministic order로 출력해야 한다.
 
 ```txt
 select:
-  when os=linux -> src/platform/linux.cale
-  when os=macos -> src/platform/darwin.cale
+  when os=linux -> src/platform/linux.foreign
+  when os=macos -> src/platform/darwin.foreign
   default -> incompatible("unsupported platform")
 ```
 
@@ -114,8 +114,8 @@ target //:engine
   kind staticlib
   toolchain host
   stdlib system
-  lang.cale.modules root=src include=[asset, render]
-  public_headers [include/engine/engine.hcl]
+  lang.cxx.modules root=src include=[asset, render]
+  public_headers [include/engine/engine.h]
   lang.include_dirs [include]
   deps [//src/asset:asset, //src/render:render]
 ```
@@ -145,7 +145,7 @@ target //:core
   source_discovery explicit=1 modules=absent status=explicit-only
   source_file path=src/core.c language=c tool=c-compiler provider=c output_group=objects role=compile
   sources [src/core.c]
-  public_headers [include/core.hcl]
+  public_headers [include/core.h]
   lang.include_dirs [include]
   system_include_dirs []
   toolchain host
@@ -218,7 +218,7 @@ qstar dry-run v1
 root //:app
 closure-order [//src/foo:foo, //:app]
 dry_run_target //src/foo:foo order=0 kind=staticlib
-  resolved_toolchain owner=//src/foo:foo toolchain=host profile=default target=host stdlib=system resolver=builtin-v1 cc=cc cale=cale ar=ar linker=cc
+  resolved_toolchain owner=//src/foo:foo toolchain=host profile=default target=host stdlib=system resolver=builtin-v1 cc=cc external-tool=external-tool ar=ar linker=cc
   dry_run_step id=//src/foo:foo:compile:0 owner=//src/foo:foo kind=compile language=c tool=c-compiler toolchain=host input=src/foo/foo.c output=build/qstar/out/__src_foo_foo/obj0.o execute=no
   command_argv id=//src/foo:foo:compile:0 argc=5 argv=[cc, -c, src/foo/foo.c, -o, build/qstar/out/__src_foo_foo/obj0.o]
   dry_run_step id=//src/foo:foo:archive:0 owner=//src/foo:foo kind=archive tool=archiver toolchain=host input=<target-objects> output=build/qstar/out/__src_foo_foo/libfoo.a execute=no
@@ -268,7 +268,7 @@ cache_action id=//:app:compile:0 kind=compile status=skip reason=output-check ke
 These cache records are QStar-local developer diagnostics. They are not a stable
 remote cache protocol.
 
-Round 16/17 extend the same graph with C/Cale source kinds and generated
+Round 16/17 extend the same graph with C/external source kinds and generated
 header/source edges:
 
 ```txt
@@ -285,9 +285,9 @@ target //:app
   command_argv id=//:app:compile:0 argc=7 argv=[cc, -c, src/main.c, -o, build/qstar/out/___app/obj0.o, -I, generated]
 ```
 
-Source classification is intentionally shallow. QStar records `.c`, `.cale`,
+Source classification is intentionally shallow. QStar records `.c`, `.foreign`,
 `.h`, generated `.c`, and generated headers as build inputs, but it does not
-parse C, Cale, or HCL. Cale source is compiled through the public-ish `cale`
+parse C, external language, or header-language. external source is compiled through the public-ish `external-tool`
 process invocation selected by the toolchain resolver.
 
 Round 18/19 add target model fields for link and developer-loop policy:
@@ -371,12 +371,12 @@ QStar still does not read `@core`'s graph in this round.
 Round 5 treats header lists as build-system file metadata only:
 
 ```txt
-header_file public path=include/pkg/api.hcl role=install semantic=opaque-to-qstar
+header_file public path=include/pkg/api.h role=install semantic=opaque-to-qstar
 header_file private path=src/pkg/internal.h role=internal semantic=opaque-to-qstar
 ```
 
-These markers are Graph IR validation/explain records. QStar does not parse HCL,
-C, or Cale declarations from header files.
+These markers are Graph IR validation/explain records. QStar does not parse header-language,
+C, or external language declarations from header files.
 
 ## Validation
 

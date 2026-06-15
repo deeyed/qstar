@@ -63,8 +63,8 @@ make -C qstar vscode-extension-tests
 
 ## Deferred
 
-- `cale build` integration.
+- `downstream build` integration.
 - Remote package resolver and lockfile policy.
-- Non-C/C++/Cale provider plugin ABI.
+- Non-C/C++/external-language provider plugin ABI.
 - Full shared library executor policy.
 - C++ modules executor.

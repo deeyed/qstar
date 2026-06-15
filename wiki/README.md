@@ -1,7 +1,7 @@
 # QStar Book
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. CMake나
-Meson처럼 project graph, command plan, build/test/install/stage 실행을 맡고, C/C++/Cale
+QStar는 C/C++/external-language을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. CMake나
+Meson처럼 project graph, command plan, build/test/install/stage 실행을 맡고, C/C++/external-language
 의미론 자체는 각 compiler와 language provider가 맡는다.
 
 이 wiki는 구현 요약이 아니라 “이것만 보고 QStar project를 작성할 수 있는” 한국어
@@ -114,7 +114,6 @@ qstar docs --show reference/qstar-lua.md
 - [Target Rules](reference/target-rules.md)
 - [C Language Options](reference/lang-c.md)
 - [C++ Language Options](reference/lang-cxx.md)
-- [Cale Language Options](reference/lang-cale.md)
 - [Language Providers](reference/language-providers.md)
 - [Object Artifacts](reference/object-artifacts.md)
 - [Custom Target](reference/custom-target.md)
@@ -158,11 +157,10 @@ make -C qstar qstar-pilot-readiness-tests
 이 gate는 QStar binary, sample corpus, lint/LSP, VSCode package, executor, cache/replay,
 systems-style firmware corpus, medium low-level project Stella/Ninja timing gate,
 formatter, subcommand help, wiki/CLI drift guard를 함께
-검증한다. 아직 remote package fetch, Cale source Ninja wrapper lowering, Cale compiler
-internal API integration은 정식 surface가 아니다. Ninja backend는 C/C++/ASM compile,
+검증한다. 아직 remote package fetch와 compiler-specific language provider integration은
+정식 surface가 아니다. Ninja backend는 C/C++/ASM compile,
 generated action, staticlib, sharedlib, executable/test link, `qstar.run_target` wrapper,
 `qstar.group` phony lowering/execution을 지원한다. `stage`/`install`은 copy와 manifest를
 QStar가 맡고, 참조 artifact build는 effective generator를 따른다. `sharedlib`는
 Darwin-like profile에서 `.dylib`, Linux-like profile에서 `.so`를 만들며 Windows
-runtime `.dll`, import `.lib`, PDB/debug artifact 정책은 아직 deferred다. Cale source action은 Stella-only
-language-provider action이며, HCL은 QStar가 해석하지 않는 header-like path다.
+runtime `.dll`, import `.lib`, PDB/debug artifact 정책은 아직 deferred다.

@@ -31,8 +31,8 @@ Non-goals:
 - `qstar.lua`, `.qst`, `.qsm` 문법을 바꾸지 않는다.
 - Ninja file format을 재사용하지 않는다.
 - QStar dependency/package resolver를 만들지 않는다.
-- Cale language-provider behavior를 강화하지 않는다. Cale source는 현 release line에서
-  계속 Stella-only contract로 둔다.
+- external language-provider behavior를 강화하지 않는다. external source는 object artifact
+  bridge로 연결한다.
 
 ## Pipeline
 
@@ -139,9 +139,9 @@ Partial cache는 error가 아니라 miss다. Stella는 cache가 부서져도 sou
 
 ```json
 {
-  "schema": "qstar-stella-plan-cache-v3",
-  "qstar_version": "0.6.0-beta",
-  "plan_abi": 4,
+	  "schema": "qstar-stella-plan-cache-v4",
+	  "qstar_version": "0.7.0-beta",
+	  "plan_abi": 5,
   "package_root": "/absolute/package/root",
   "build_dir": "build/qstar",
   "generated_dir": "build/qstar/generated",

@@ -200,7 +200,7 @@ Keep out of `0.7.0-beta`:
 - Stable daemon protocol version promise.
 - Remote daemon access.
 - Windows named pipe daemon.
-- Cale Ninja wrapper lowering while Cale language/provider contracts are still moving.
+- external language Ninja wrapper lowering while external language language/provider contracts are still moving.
 - Package resolver, lockfile, registry, and fetch policy.
 - VSCode Marketplace publication.
 

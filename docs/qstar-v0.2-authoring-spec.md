@@ -2,7 +2,7 @@
 
 QStar v0.2는 Round 47/48의 hard-cut authoring surface다. 아직 QStar를 쓰는 외부
 project가 없으므로 이전 v0.1 syntax compatibility layer는 두지 않는다. QStar는
-C/C++/Cale을 잘 지원하지만 그 셋에 종속되지 않는 빌드시스템이다. 언어별 option은
+C/C++/external-language을 잘 지원하지만 그 셋에 종속되지 않는 빌드시스템이다. 언어별 option은
 `lang.*` namespace로 격리하고, 일반적인 외부 도구 호출은 shell string이 아니라
 `qstar.cli { ... }` argv-vector로 표현한다.
 
@@ -133,14 +133,14 @@ qstar.staticlib "boot" {
 ```lua
 qstar.staticlib "cale_core" {
   sources = {
-    "src/core.cl",
+    "src/core.foreign",
   },
   lang = {
-    cale = {
+    external-tool = {
       profile = "safe",
       compile_options = {},
       public_headers = {
-        "include/core.hcl",
+        "include/core.h",
       },
       public_include_dirs = {
         "include",
@@ -150,7 +150,7 @@ qstar.staticlib "cale_core" {
 }
 ```
 
-`include_dirs`라는 이름은 유지하지만 C/C++/ASM/Cale language namespace 안에서만
+`include_dirs`라는 이름은 유지하지만 C/C++/ASM/external language namespace 안에서만
 의미가 있다. Rust, Zig, Go 같은 future provider는 include directory 개념을 강제로
 상속하지 않는다.
 
@@ -161,7 +161,7 @@ qstar.staticlib "cale_core" {
 | `lang.c` | `public_headers`, `private_headers`, `include_dirs`, `public_include_dirs`, `private_include_dirs`, `system_include_dirs`, `compile_options`, `defines` |
 | `lang.cxx` | `public_headers`, `private_headers`, `standard`, `modules`, `include_dirs`, `public_include_dirs`, `private_include_dirs`, `system_include_dirs`, `compile_options`, `defines` |
 | `lang.asm` | `include_dirs`, `compile_options`, `preprocess` |
-| `lang.cale` | `public_headers`, `private_headers`, `include_dirs`, `public_include_dirs`, `private_include_dirs`, `profile`, `compile_options`, `modules` |
+| `lang.cxx` | `public_headers`, `private_headers`, `include_dirs`, `public_include_dirs`, `private_include_dirs`, `profile`, `compile_options`, `modules` |
 
 Unknown namespace such as `lang.rust` and unknown field such as
 `lang.c.unknown_option` are lint errors until that provider explicitly defines
@@ -280,7 +280,7 @@ artifact path와 file metadata/content hash를 넣는다. 따라서 `kernel.elf 
 kernel8.img -> stage` 흐름이 wrapper script 없이 graph 안에서 표현된다.
 
 Round 57부터 generated action output은 다른 target의 `sources` 또는
-`lang.c`/`lang.cxx`/`lang.cale`의 `public_headers`/`private_headers`에 등장하면 해당
+`lang.c`/`lang.cxx`/`lang.cxx`의 `public_headers`/`private_headers`에 등장하면 해당
 target build 전에 실행된다. 이 edge는 C/C++ depfile 없이도 action key에 들어가며,
 binary blob input이나 generated object content가 바뀌면 downstream compile/link
 action이 `input-changed`로 rebuild된다. `format = "object"`는
@@ -580,9 +580,9 @@ Current authoring keywords are intentionally small and language-neutral.
 | Graph helpers | `qstar.subdir`, `qstar.files`, `qstar.modules`, `qstar.join`, `qstar.select`, `qstar.incompatible` |
 | Constants | `QSTAR_VERSION`, `QSTAR_HOST_OS`, `QSTAR_HOST_ARCH`, `QSTAR_PACKAGE_ROOT`, `QSTAR_PROJECT_ROOT`, `QSTAR_PROFILE`, `QSTAR_TARGET`, `qstar.version`, `qstar.host.os`, `qstar.host.arch`, `qstar.project.root` |
 | Link policy | `link_options`, `linker_script`, `defsyms` |
-| Language namespaces | `lang.c`, `lang.cxx`, `lang.asm`, `lang.cale` |
+| Language namespaces | `lang.c`, `lang.cxx`, `lang.asm`, `lang.cxx` |
 | Removed API | `qstar.exe`, `qstar.genrule`, `qstar.config_header`, `qstar.write_config_header` |
-| Removed top-level language fields | `include_dirs`, `public_include_dirs`, `private_include_dirs`, `system_include_dirs`, `interface_include_dirs`, `public_headers`, `private_headers`, `modules`, `hcl_include_dirs`, `cflags`, `cxxflags`, `cxx_standard` |
+| Removed top-level language fields | `include_dirs`, `public_include_dirs`, `private_include_dirs`, `system_include_dirs`, `interface_include_dirs`, `public_headers`, `private_headers`, `modules`, `header_include_dirs`, `cflags`, `cxxflags`, `cxx_standard` |
 
 QStar v0.2 does not add built-in `uefi_app`, `rpi_image`, `embed_binary`, or
 `qemu_smoke` keywords. Those flows are represented by generic targets,
@@ -596,6 +596,6 @@ QStar v0.2 does not add built-in `uefi_app`, `rpi_image`, `embed_binary`, or
 `qstar.run_target`은 build artifact 이후 외부 command smoke를 실행한다. `.s`/`.S`
 source는 compiler driver 기반 assembler action으로 object를 만들며,
 `lang.asm.include_dirs`, `lang.asm.compile_options`, `lang.asm.preprocess`를 적용한다.
-`lang.cale.public_include_dirs`와 `lang.cale.private_include_dirs`는 HCL header include
-surface를 표현한다. QStar는 `.hcl` 의미론을 해석하지 않고 path와 graph 정책만
+`lang.cxx.public_include_dirs`와 `lang.cxx.private_include_dirs`는 header-language header include
+surface를 표현한다. QStar는 `.h` 의미론을 해석하지 않고 path와 graph 정책만
 검증한다.

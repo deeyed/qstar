@@ -22,4 +22,4 @@
 ../../../build/bin/qstar --file qstar.lua why-rebuild //:app
 ```
 
-QStar repo root에서 `make -C qstar`를 실행하면 기본 binary는 `qstar/build/bin/qstar`에 생긴다. 이 fixture는 QStar authoring UX와 deterministic graph output을 확인하기 위한 것이며, Cale 언어 semantics를 검증하는 fixture는 아니다.
+QStar repo root에서 `make -C qstar`를 실행하면 기본 binary는 `qstar/build/bin/qstar`에 생긴다. 이 fixture는 QStar authoring UX와 deterministic graph output을 확인하기 위한 것이며, external language 언어 semantics를 검증하는 fixture는 아니다.

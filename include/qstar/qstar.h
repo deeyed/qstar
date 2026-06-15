@@ -55,12 +55,10 @@ struct qstar_target {
 	struct qstar_string_list cxxflags;
 	struct qstar_string_list asm_include_dirs;
 	struct qstar_string_list asm_compile_options;
-	struct qstar_string_list cale_compile_options;
 	struct qstar_string_list run_command;
 	char *description;
 	char *artifact_name;
 	char *cxx_standard;
-	char *cale_profile;
 	char *linker_script;
 	char *run_marker;
 	char *run_marker_log;
@@ -82,7 +80,6 @@ struct qstar_config {
 	struct qstar_target options;
 	int has_artifact_name;
 	int has_cxx_standard;
-	int has_cale_profile;
 	int has_linker_script;
 	int has_asm_preprocess;
 	int has_cxx_modules;
@@ -171,7 +168,6 @@ struct qstar_profile_input {
 	char *stdlib_policy;
 	char *cc;
 	char *cxx;
-	char *cale;
 	char *ar;
 	char *linker;
 	char *sysroot;

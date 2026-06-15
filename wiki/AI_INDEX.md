@@ -6,15 +6,15 @@
 
 ## 1. QStar의 역할
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다.
+QStar는 C/C++/ASM을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다.
 QStar는 build graph, command plan, local executor, stage/package, run smoke, lint/LSP
-authoring UX를 담당한다. C/C++/Cale/HCL의 언어 의미론은 compiler나 language provider가
-맡는다.
+authoring UX를 담당한다. C/C++/ASM 외 언어의 의미론은 외부 compiler와 object artifact
+bridge가 맡는다.
 
 QStar가 하지 않는 일:
 
-- Cale frontend/backend 내부 API 호출
-- HCL semantic import/export 해석
+- compiler frontend/backend 내부 API 호출
+- 외부 언어 source 의미 해석
 - package fetch, registry, lockfile resolution
 - board-specific builtin target 제공
 - shell-string command 실행
@@ -51,9 +51,6 @@ QStar가 하지 않는 일:
   `qstar.custom_target`, staticlib, sharedlib, executable/test link, `qstar.run_target`,
   `qstar.group` phony graph를 Ninja로 실행한다. `stage`와 `install`은 copy와 manifest를
   QStar가 처리하지만, 참조 target artifact는 effective generator로 먼저 build한다.
-  Cale source action은 Q116 기준 Stella-only language-provider action이므로 `-G stella`가
-  필요하다. Ninja wrapper lowering은 deferred이며, HCL은 QStar가 해석하지 않는
-  header-like path다.
   `sharedlib`는 Darwin-like profile에서 `.dylib`, Linux-like profile에서 `.so`를 만들며,
   sharedlib dependency를 link하는 executable/test/sharedlib에는 build-tree 실행용
   `@loader_path`/`$ORIGIN` rpath를 자동 추가한다. Windows sharedlib는 runtime `.dll`,
@@ -295,7 +292,7 @@ Profile/toolchain:
 - `qstar.profile`
 - `extends`
 - `target`, `arch`, `abi`, `cpu`
-- `cc`, `cxx`, `cale`, `ar`, `linker`
+- `cc`, `cxx`, `ar`, `linker`
 - `sysroot`, `resource_dir`
 - `compile_options`, `link_options`, `linker_script`, `defsyms`
 - `path_tools`, `tool_overrides`, `response_files`, `response_style`
@@ -324,8 +321,7 @@ qstar.staticlib "core" {
 - `lang.c`: C headers, include dirs, defines, compile options
 - `lang.cxx`: C++ headers, include dirs, standard, modules skeleton, compile options
 - `lang.asm`: assembler include dirs, compile options, preprocess flag
-- `lang.cale`: Cale/HCL headers, include dirs, Cale profile, modules skeleton
-- `wiki/reference/language-providers.md`: Cale/Stella/Ninja/HCL backend boundary
+- `wiki/reference/language-providers.md`: external object artifact bridge boundary
 
 공통 option은 target top-level로 되돌리지 말고 `qstar.config`로 선언한다. Config label은
 target의 `configs`에서 참조한다.
@@ -550,8 +546,6 @@ qstar lsp --stdio
 
 다음은 되살리면 안 된다.
 
-- `Cale.toml`
-- `.cale/profiles/*.toml`
 - `qstar.toml`
 - `qstar.workspace`
 - legacy qs fragment suffix

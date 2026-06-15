@@ -1,6 +1,6 @@
 # QStar v0.2 Release Candidate Seal
 
-QStar v0.2 RC는 Cale frontend/backend와 분리된 standalone build system contract다.
+QStar v0.2 RC는 compiler frontend/backend와 분리된 standalone build system contract다.
 이 문서는 v0.2 authoring surface가 release candidate로 올라갈 수 있는 범위와 아직
 experimental로 남는 범위를 분리한다.
 
@@ -11,13 +11,13 @@ build: make -C qstar
 check: make -C qstar check
 release gate: make -C qstar qstar-v0.2-rc-tests
 root Makefile integration: none
-Cale build integration: deferred
+downstream build integration: deferred
 frontend/backend internal API integration: none
 ```
 
-QStar는 compiler가 아니다. C, C++, Cale, assembly source를 build input으로 보고,
+QStar는 compiler가 아니다. C, C++, external language, assembly source를 build input으로 보고,
 toolchain/profile에 맞는 process invocation과 artifact graph를 만든다. Header와
-generated header는 path/dependency/install surface이며, QStar가 C/HCL 내용을 해석하지
+generated header는 path/dependency/install surface이며, QStar가 C/header-language 내용을 해석하지
 않는다.
 
 ## Release Candidate Surface
@@ -31,7 +31,7 @@ generated header는 path/dependency/install surface이며, QStar가 C/HCL 내용
 - Lint grouping: `qstar.target_family` for multi-arch shared-source policy.
 - Helpers: `qstar.cli`, `qstar.input`, `qstar.output`, `qstar.target_file`,
   `qstar.files`, `qstar.subdir`, `qstar.select`, `qstar.join`.
-- Language namespaces: `lang.c`, `lang.cxx`, `lang.asm`, `lang.cale`.
+- Language namespaces: `lang.c`, `lang.cxx`, `lang.asm`, `lang.cxx`.
 - Toolchain/profile input: `qstar.profile`, `--profile`, compiler path override,
   sysroot/resource-dir/include/linker settings.
 - Executor: compile, archive, link, generated action, config header, test, install,
@@ -70,7 +70,7 @@ separate names are CI/automation anchors. The aggregate check covers:
 - graph/query/explain/dry-run/check/lint/fmt
 - LSP diagnostics, hover, completion, definition/reference, symbols
 - VSCode package drift and no-generated-artifact policy
-- C, C++, Cale-by-process, and assembler source planning/build smoke
+- C, C++, external-language-by-process, and assembler source planning/build smoke
 - generated source/header chaining, config header, binary/blob artifact flow
 - response file rendering, long command execution, parallel executor, replay UX
 - workspace/package root/visibility/include propagation checks
@@ -95,12 +95,12 @@ when requested, `build/qstar/logs/last-failure.replay`, and `qstar replay`.
 
 The following surfaces are intentionally not RC-stable:
 
-- `cale build` integration and root `Makefile` ownership.
-- Cale frontend/backend internal API integration.
+- `downstream build` integration and root `Makefile` ownership.
+- compiler frontend/backend internal API integration.
 - Remote package fetch, registry, lockfile resolution, and remote cache protocol.
 - Ninja or other generator backends.
 - Full shared library executor/install metadata.
-- HCL parsing/import/export semantics.
+- header-language parsing/import/export semantics.
 - Full public machine-readable graph/cache schema beyond the documented diagnostic
   skeletons.
 - Automatic board/platform-specific target kinds. QStar represents those flows

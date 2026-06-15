@@ -1,6 +1,6 @@
 # QStar v0.3 Seal
 
-QStar v0.3은 Cale frontend/backend와 독립적으로 동작하는 standalone build
+QStar v0.3은 compiler frontend/backend와 독립적으로 동작하는 standalone build
 system release candidate다. 이 문서는 v0.2 hard-cut authoring surface 위에
 systems/firmware-style project corpus, editor UX, replay/diagnostic UX를 더해
 `v0.3`으로 봉인할 수 있는 범위를 고정한다.
@@ -33,12 +33,12 @@ release gate: make -C qstar qstar-v0.3-rc-tests
 - `qstar.input`, `qstar.output`, `qstar.target_file` placeholder가 command plan과
   action key에 반영된다.
 - Header/include/compile/module option은 target top-level이 아니라
-  `lang.c`, `lang.cxx`, `lang.asm`, `lang.cale` 아래에만 둔다.
+  `lang.c`, `lang.cxx`, `lang.asm`, `lang.cxx` 아래에만 둔다.
 - `sources`, `deps`, `visibility`, `libs`, `frameworks`, `link_options`,
   `linker_script`, `defsyms`, `toolchain`, `stdlib`, `artifact_name`은
   language-agnostic target field로 유지한다.
-- C, C++, assembler, Cale source는 process invocation 기반 build input으로 다룬다.
-  QStar는 Cale compiler 내부 API나 HCL semantic checker에 연결되지 않는다.
+- C, C++, assembler, external source는 process invocation 기반 build input으로 다룬다.
+  QStar는 external compiler 내부 API나 header-language semantic checker에 연결되지 않는다.
 - Incremental cache, `build/qstar/state/actions.json`, graph snapshot,
   `compile_commands.json`, action log, `last-failure`, `action-log`, `replay`,
   cache miss reason은 developer UX surface로 유지한다.
@@ -57,14 +57,14 @@ overclaiming package-manager or compiler-integration readiness.
 
 다음 항목은 v0.3에서도 experimental 또는 deferred surface다.
 
-- `cale build` 내부 통합.
-- Cale frontend/backend 내부 API 직접 호출.
+- `downstream build` 내부 통합.
+- compiler frontend/backend 내부 API 직접 호출.
 - Remote package fetch, registry, lockfile resolver.
 - Ninja/CMake generator backend.
 - Full shared library executor and platform loader policy.
 - C++ modules build pipeline. `lang.cxx.modules.enabled = true`는 stable diagnostic이다.
-- HCL declaration import/export semantic checking. QStar는 HCL을 header path로만 본다.
-- Rich provider plugin ABI for non-C/C++/Cale languages.
+- header-language declaration import/export semantic checking. QStar는 header-language을 header path로만 본다.
+- Rich provider plugin ABI for non-C/C++/external languages.
 - Cross-machine remote execution and content-addressed remote cache.
 
 ## Corpus Gate
@@ -111,8 +111,8 @@ The following removed surface must stay rejected:
   `system_include_dirs`
 - top-level `public_headers`, `private_headers`
 - top-level `modules`
-- `hcl_include_dirs`: use `lang.cale.public_include_dirs` or
-  `lang.cale.private_include_dirs`
+- `header_include_dirs`: use `lang.cxx.public_include_dirs` or
+  `lang.cxx.private_include_dirs`
 - top-level `cflags`, `cxxflags`, `cxx_standard`
 
 ## Extension Seal
@@ -140,6 +140,6 @@ QStar v0.3 is suitable for a standalone local systems-project pilot when:
 - failure replay and action logs are sufficient to identify compile, link,
   objcopy, package, or smoke failures;
 - the project accepts that QStar is still standalone and not yet the public
-  `cale build` implementation.
+  `downstream build` implementation.
 
-This is not a full package manager seal and not a Cale language/frontend seal.
+This is not a full package manager seal and not a external language/frontend seal.

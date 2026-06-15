@@ -162,7 +162,7 @@ additional release-cycle history.
 ## Deferred Surface
 
 - Remote package resolution and lockfile management.
-- Full Cale source lowering through Ninja when the Cale provider is not a
+- Full external source lowering through Ninja when the external provider is not a
   process invocation.
 - Shared library policy beyond the current check/diagnostic surface.
 - C++ modules execution policy.

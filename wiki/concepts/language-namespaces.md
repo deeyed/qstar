@@ -1,6 +1,6 @@
 # Language Namespaces
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. 그래서
+QStar는 C/C++/ASM을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. 그래서
 include path, header surface, compile option은 target top-level이 아니라 `lang.*`
 namespace 안에 둔다.
 
@@ -26,11 +26,10 @@ qstar.staticlib "core" {
 ```lua
 qstar.executable "tool" {
   sources = {
-    "src/main.c",
-    "src/cpp.cpp",
-    "boot/start.S",
-    "src/plugin.cl",
-  },
+	    "src/main.c",
+	    "src/cpp.cpp",
+	    "boot/start.S",
+	  },
   lang = {
     c = {
       include_dirs = {"src"},
@@ -42,17 +41,12 @@ qstar.executable "tool" {
       include_dirs = {"include"},
       modules = { enabled = false },
     },
-    asm = {
-      include_dirs = {"boot/include"},
-      preprocess = true,
-    },
-    cale = {
-      profile = "safe",
-      public_headers = {"include/plugin.hcl"},
-      public_include_dirs = {"include"},
-    },
-  },
-}
+	    asm = {
+	      include_dirs = {"boot/include"},
+	      preprocess = true,
+	    },
+	  },
+	}
 ```
 
 ## 실패 예제
@@ -65,7 +59,7 @@ qstar.executable "bad" {
 ```
 
 Top-level language option은 reject된다. `include_dirs`는 `lang.c`, `lang.cxx`,
-`lang.asm`, `lang.cale` 안에서만 의미가 있다.
+`lang.asm` 안에서만 의미가 있다.
 
 ## 관련 CLI
 
