@@ -101,7 +101,7 @@ qstar init generated-extra my-mixed-app
 ```
 
 `qstar init`은 package registry, remote dependency, workspace policy를 만들지
-않는다. Project/profile metadata는 `qstar.lua` 안의 QStar DSL로만 선언한다.
+않는다. Project/toolset metadata는 `qstar.lua` 안의 QStar DSL로만 선언한다.
 
 ## Release Gate
 
@@ -119,7 +119,7 @@ Root `make qstar-tests`와 `downstream build` integration은 의도적으로 제
 
 Round 38 기준 현재 hardening contract는
 `docs/qstar-v0.1-hardening-seal.md`가 canonical이다. v0.1은 v0 authoring
-surface를 유지하면서 executor/profile/install/test/compile database, response file,
+surface를 유지하면서 executor/toolset/install/test/compile database, response file,
 parallel executor, persistent graph snapshot, action replay UX, sample corpus release
 gate를 하나로 묶는다.
 

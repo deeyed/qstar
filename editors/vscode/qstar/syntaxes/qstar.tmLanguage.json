@@ -84,7 +84,7 @@
       "patterns": [
         {
           "name": "support.function.qstar",
-          "match": "\\bqstar\\.(project|profile|config|executable|staticlib|sharedlib|test|custom_target|run_target|group|configure_file|stage|stage_file|target_family|cli|status|input|output|target_file|subdir|import_file|import_module|files|modules|select|join|copy|append|merge|extend|incompatible)\\b"
+          "match": "\\bqstar\\.(project|toolset|config|executable|staticlib|sharedlib|test|custom_target|run_target|group|configure_file|stage|stage_file|target_family|cli|status|input|output|target_file|subdir|import_file|import_module|files|modules|join|copy|append|merge|extend)\\b"
         }
       ]
     },
@@ -92,7 +92,7 @@
       "patterns": [
         {
           "name": "variable.parameter.qstar",
-          "match": "\\b(name|version|build_dir|generated_dir|compile_commands|configs|sources|deps|public_deps|private_deps|public_headers|private_headers|lang|c|cxx|asm|include_dirs|public_include_dirs|private_include_dirs|system_include_dirs|compile_options|defines|standard|preprocess|profile|modules|enabled|visibility|toolchain|stdlib|libs|lib_dirs|link|frameworks|link_options|link_inputs|outputs|inputs|command|description|timeout|expect|contains|file|output|root|files|include|exclude)\\b(?=\\s*=)"
+          "match": "\\b(name|version|build_dir|generated_dir|compile_commands|toolset|tools|response_files|response_style|path_tools|allow_absolute_tools|configs|sources|deps|public_deps|private_deps|public_headers|private_headers|lang|c|cxx|asm|archive|link|include_dirs|public_include_dirs|private_include_dirs|system_include_dirs|compile_options|defines|standard|preprocess|modules|enabled|visibility|libs|lib_dirs|frameworks|link_options|link_inputs|artifact_name|outputs|inputs|command|description|timeout|expect|contains|file|output|root|files|include|exclude)\\b(?=\\s*=)"
         }
       ]
     },
@@ -100,7 +100,7 @@
       "patterns": [
         {
           "name": "constant.language.qstar",
-          "match": "\\b(QSTAR_VERSION|QSTAR_VERSION_MAJOR|QSTAR_VERSION_MINOR|QSTAR_VERSION_PATCH|QSTAR_HOST_OS|QSTAR_HOST_ARCH|QSTAR_PACKAGE_ROOT|QSTAR_PROJECT_ROOT|QSTAR_PROFILE|QSTAR_TARGET)\\b"
+          "match": "\\b(QSTAR_VERSION|QSTAR_VERSION_MAJOR|QSTAR_VERSION_MINOR|QSTAR_VERSION_PATCH|QSTAR_HOST_OS|QSTAR_HOST_ARCH|QSTAR_PACKAGE_ROOT|QSTAR_PROJECT_ROOT)\\b"
         },
         {
           "name": "constant.language.qstar",

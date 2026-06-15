@@ -1,6 +1,6 @@
 # Targets And Actions
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. Target은
+QStar는 C/C++/ASM을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. Target은
 사용자가 이름 붙이는 build graph node이고, action은 compile/link/generate/run 같은 실행
 단위다.
 

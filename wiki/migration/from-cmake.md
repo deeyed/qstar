@@ -1,6 +1,6 @@
 # Migration From CMake
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. CMake의
+QStar는 C/C++/ASM을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. CMake의
 target 중심 사고를 유지하되, QStar는 Lua authoring과 deterministic graph validation을
 더 엄격하게 적용한다.
 

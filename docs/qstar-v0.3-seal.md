@@ -136,7 +136,7 @@ QStar v0.3 is suitable for a standalone local systems-project pilot when:
 
 - the project can express boot/package/smoke steps through generic
   `qstar.custom_target`, `qstar.run_target`, and `qstar.stage`;
-- external tool paths are declared through profile/tool capability policy;
+- external tool paths are declared through toolset capability policy;
 - failure replay and action logs are sufficient to identify compile, link,
   objcopy, package, or smoke failures;
 - the project accepts that QStar is still standalone and not yet the public

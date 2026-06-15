@@ -1,6 +1,6 @@
 # C Language Options
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. C 전용
+QStar는 C/C++/ASM과 external object artifact flow를 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. C 전용
 include/header/compile option은 `lang.c` 아래에 둔다.
 
 ## 최소 예제
@@ -28,7 +28,7 @@ qstar.staticlib "core" {
       public_include_dirs = {"include"},
       private_include_dirs = {"src"},
       system_include_dirs = {"/opt/sdk/include"},
-      compile_options = {"-ffreestanding"},
+      compile_options = {"-Wall"},
       defines = {"CORE_BUILD=1"},
     },
   },

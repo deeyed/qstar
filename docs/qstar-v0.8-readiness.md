@@ -188,8 +188,8 @@ v1.0 blocker를 0.8 기준으로 다시 정렬한다.
 - daemon default-on
 - Windows public asset without native build/install/package gate
 - package resolver, registry, lockfile, fetch policy
-- mandatory `qstar.toml`, `project-specific TOML`, `.foreign/profiles/*.toml`
-- board-specific builtin target
+- mandatory `qstar.toml`, `project-specific TOML`, `.foreign/toolsets/*.toml`
+- domain-specific builtin target
 - external language Ninja wrapper lowering while external language/provider contracts are still moving
 - remote daemon access
 - VSCode Marketplace publication

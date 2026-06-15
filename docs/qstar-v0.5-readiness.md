@@ -163,7 +163,7 @@ Ninja backend가 lowering하는 surface:
 
 - C/C++/ASM compile
 - `qstar.staticlib`
-- `qstar.sharedlib` on Darwin-like and Linux-like profiles
+- `qstar.sharedlib` on macOS and Linux host policies
 - `qstar.executable`
 - `qstar.test`
 - `qstar.configure_file`

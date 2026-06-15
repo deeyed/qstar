@@ -1,7 +1,7 @@
 # QStar v0.2 To v0.3
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. v0.2는
-authoring hard cut 이후의 current surface이고, v0.3은 low-level/bootloader-style
+QStar는 C/C++/ASM을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. v0.2는
+authoring hard cut 이후의 current surface이고, v0.3은 package/artifact-style
 pilot에서 드러나는 실전 build-system 요구를 정리할 후보 버전이다.
 
 ## 최소 예제
@@ -24,7 +24,7 @@ qstar.custom_target "generated" {
 qstar.run_target "smoke" { command = qstar.cli {"tools/smoke.sh"} }
 ```
 
-v0.3 후보는 package resolver, richer provider model, sharedlib executor, toolchain profile
+v0.3 후보는 package resolver, richer provider model, sharedlib executor, tool policy
 schema stabilization 같은 항목이다.
 
 ## 실패 예제

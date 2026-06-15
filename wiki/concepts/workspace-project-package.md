@@ -1,6 +1,6 @@
 # Workspace, Project, Package
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다.
+QStar는 C/C++/ASM을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다.
 Workspace, project, package는 source tree를 graph로 해석하기 위한 경계다.
 
 ## 최소 예제

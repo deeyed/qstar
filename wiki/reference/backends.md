@@ -26,7 +26,7 @@ candidate이며,
 - `qstar.custom_target`
 - `qstar.run_target`
 - `qstar.group`
-- `qstar.sharedlib` on Darwin-like and Linux-like profiles
+- `qstar.sharedlib` on macOS and Linux host policies
 
 `compile_commands.json`는 `qstar.project.compile_commands` policy를 따른다.
 `build.ninja`는 `build_dir/ninja/build.ninja`에 생성된다.
@@ -51,13 +51,13 @@ qstar --file qstar.lua replay //:app:link:0
 
 ## Platform Policy
 
-`qstar.sharedlib`는 Darwin-like profile에서 `.dylib`와 `install_name`, Linux-like profile에서
+`qstar.sharedlib`는 macOS host policy에서 `.dylib`와 `install_name`, Linux host policy에서
 `.so`와 `soname`을 생성한다. sharedlib dependency를 link하는 executable/test/sharedlib
 edge에는 build-tree 실행용 rpath가 자동으로 추가된다. Stella는 실제 argv에
 `$ORIGIN`/`@loader_path` rpath를 넣고, Ninja lowering도 같은 의미의 `description`/command
 edge를 생성한다. Q168 regression gate는 sharedlib-linked executable/test 실행,
 sharedlib stage/install artifact 처리, Windows deferred diagnostic을 함께 확인한다.
-Windows-like profile의 runtime `.dll`, import `.lib`, PDB/debug/install layout은 아직
+Windows runtime `.dll`, import `.lib`, PDB/debug/install layout은 아직
 deferred이며 Stella/Ninja 모두 `docs/windows-artifact-policy.md`를 가리키는 같은
 diagnostic으로 거부한다.
 
@@ -93,18 +93,13 @@ qstar.group "all" {
 ## 실패 예제
 
 ```lua
-qstar.profile "windows" {
-  target = "x86_64-pc-windows-msvc",
-  toolchain = "clang",
-}
-
 qstar.sharedlib "plugin" {
   sources = {"src/plugin.c"},
 }
 ```
 
 ```sh
-qstar --file qstar.lua --profile windows -G ninja build //:plugin
+qstar --file qstar.lua -G ninja build //:plugin
 ```
 
 Windows shared library policy는 아직 deferred이므로 stable diagnostic을 낸다.
@@ -121,4 +116,4 @@ qstar --file qstar.lua -G ninja install //:app --prefix /tmp/qstar-install
 
 ## 관련 diagnostic
 
-- `qstar: sharedlib target '//:plugin' is not supported for Windows-like profiles yet; Windows shared libraries require a runtime .dll, import .lib, and optional PDB/debug artifact policy. Use custom_target/object bridge for now or see docs/windows-artifact-policy.md`
+- `qstar: sharedlib target '//:plugin' is not supported for Windows yet; Windows shared libraries require a runtime .dll, import .lib, and optional PDB/debug artifact policy. Use custom_target/object bridge for now or see docs/windows-artifact-policy.md`

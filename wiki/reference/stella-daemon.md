@@ -50,7 +50,7 @@ fallback한다. 장기 persistent daemon은 여기에 더해 다음 상태를 pr
 
 - Lua runtime
 - Graph IR와 Stella Plan IR
-- target/config/profile lookup table
+- target/config/toolset lookup table
 - file watcher invalidation queue
 - compact dirty state와 discovered dependency index
 - progress/action description formatting cache

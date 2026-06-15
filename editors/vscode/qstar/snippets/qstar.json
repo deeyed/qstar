@@ -15,7 +15,7 @@
   "Reusable config": {
     "prefix": "qtargetconfig",
     "body": [
-      "qstar.config \"${1:kernel_c}\" {",
+      "qstar.config \"${1:common_c}\" {",
       "  lang = {",
       "    c = {",
       "      public_include_dirs = {\"${2:include}\"},",
@@ -25,6 +25,22 @@
       "}"
     ],
     "description": "Declare a reusable target option config."
+  },
+  "Toolset": {
+    "prefix": "qtoolset",
+    "body": [
+      "qstar.toolset \"${1:host}\" {",
+      "  tools = {",
+      "    c = qstar.cli {\"${2:cc}\"},",
+      "    cxx = qstar.cli {\"${3:c++}\"},",
+      "    asm = qstar.cli {\"${4:cc}\"},",
+      "    archive = qstar.cli {\"${5:ar}\"},",
+      "    link = qstar.cli {\"${6:cc}\"},",
+      "  },",
+      "  response_files = \"${7:auto}\",",
+      "}"
+    ],
+    "description": "Declare an explicit QStar tool role bundle."
   },
   "Executable target": {
     "prefix": "qexe",
@@ -113,15 +129,15 @@
   "Stage package": {
     "prefix": "qstage",
     "body": [
-      "qstar.stage \"${1:esp}\" {",
-      "  root = \"${2:stage/esp}\",",
+      "qstar.stage \"${1:bundle}\" {",
+      "  root = \"${2:stage/bundle}\",",
       "  description = qstar.status(\"${5:Staging package}\"),",
       "  files = {",
-      "    qstar.stage_file(qstar.target_file(\"${3://:boot}\"), \"${4:EFI/BOOT/BOOTX64.EFI}\"),",
+      "    qstar.stage_file(qstar.target_file(\"${3://:app}\"), \"${4:bin/app}\"),",
       "  },",
       "}"
     ],
-    "description": "Create a copy-only boot/package staging rule."
+    "description": "Create a copy-only package staging rule."
   },
   "Status description": {
     "prefix": "qstatus",

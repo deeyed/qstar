@@ -37,7 +37,7 @@ qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/
 qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --query build.summary
 ```
 
-`--file`, `-B`, `--profile`, `--target`, `--toolchain`, `--stdlib`은 build command와 같은
+`--file`, `-B`, `-G`, `--color`, `--progress`는 build command와 같은
 effective graph identity를 만든다. IDE는 build panel, target tree, diagnostics panel이 모두
 같은 identity를 보도록 같은 option set을 유지해야 한다.
 

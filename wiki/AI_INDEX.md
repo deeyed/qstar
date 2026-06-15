@@ -16,7 +16,7 @@ QStar가 하지 않는 일:
 - compiler frontend/backend 내부 API 호출
 - 외부 언어 source 의미 해석
 - package fetch, registry, lockfile resolution
-- board-specific builtin target 제공
+- domain-specific builtin target 제공
 - shell-string command 실행
 
 ## 2. 반드시 지킬 authoring surface
@@ -27,7 +27,7 @@ QStar가 하지 않는 일:
 - `qstar.import_file("path.qst")`는 package-root 기준 `.qst` graph fragment를 읽는다.
 - `qstar.import_module("folder/path")`는 `folder/path/path.qsm` helper module table을 읽는다.
 - `qstar.import_module`에는 `.qsm` 파일이 아니라 폴더만 넘긴다.
-- `.qsm` 안에서는 target/profile/project 같은 graph declaration이 금지된다.
+- `.qsm` 안에서는 target/toolset/project 같은 graph declaration이 금지된다.
 - 반복 option은 `qstar.config`와 target `configs = {...}`로 공유한다.
 - 반복 path/list/table 조립은 `qstar.join`, `qstar.copy`, `qstar.append`, `qstar.merge`,
   `qstar.extend`를 쓴다.
@@ -51,7 +51,7 @@ QStar가 하지 않는 일:
   `qstar.custom_target`, staticlib, sharedlib, executable/test link, `qstar.run_target`,
   `qstar.group` phony graph를 Ninja로 실행한다. `stage`와 `install`은 copy와 manifest를
   QStar가 처리하지만, 참조 target artifact는 effective generator로 먼저 build한다.
-  `sharedlib`는 Darwin-like profile에서 `.dylib`, Linux-like profile에서 `.so`를 만들며,
+  `sharedlib`는 macOS host policy에서 `.dylib`, Linux host policy에서 `.so`를 만들며,
   sharedlib dependency를 link하는 executable/test/sharedlib에는 build-tree 실행용
   `@loader_path`/`$ORIGIN` rpath를 자동 추가한다. Windows sharedlib는 runtime `.dll`,
   import `.lib`, PDB/debug artifact 정책이 아직 없으므로 deferred diagnostic으로 거부한다.
@@ -249,7 +249,7 @@ QStar가 하지 않는 일:
   `QSTAR_DEBUG_STATE_DUMPS=1` 또는 `--schedule-trace`에서만 생성된다. 실패 summary와
   `last-failure` replay는 즉시 기록된다.
 - external command는 `qstar.cli { ... }` argv-vector로만 표현한다.
-- low-level/bootloader-style project도 generic primitive로 표현한다.
+- domain-specific package flow도 generic primitive로 표현한다.
 
 ## 3. 핵심 rule과 helper
 
@@ -285,19 +285,19 @@ Command/path helper:
 - `qstar.merge`
 - `qstar.extend`
 
-Profile/toolchain:
+Toolset/build policy:
 
-- `qstar.profile`
-- `extends`
-- `target`, `arch`, `abi`, `cpu`
-- `cc`, `cxx`, `ar`, `linker`
-- `sysroot`, `resource_dir`
-- `compile_options`, `link_options`, `link_inputs`
+- `qstar.toolset`
+- `tools = { c, cxx, asm, archive, link }`
+- 각 tool role은 `qstar.cli { ... }` argv-vector다.
+- `response_files`, `response_style`
+- `path_tools`, `allow_absolute_tools`
+- compile/link option은 `qstar.config`와 target-local `lang.*`, `link_options`,
+  `link_inputs`로 조합한다.
 - macOS frameworks are authored only as `link = { frameworks = {...} }` inside a
   macOS-specific branch.
-- `path_tools`, `tool_overrides`, `response_files`, `response_style`
-- `qstar doctor`는 resolved tool, 누락된 PATH/package tool, sysroot/resource_dir 상태,
-  response policy, depfile behavior를 보고한다.
+- `qstar doctor`는 resolved tool role, 누락된 PATH/package tool, response policy,
+  depfile behavior를 보고한다.
 
 ## 4. 언어별 option 위치
 
@@ -327,18 +327,28 @@ qstar.staticlib "core" {
 target의 `configs`에서 참조한다.
 
 ```lua
-qstar.config "freestanding_c" {
+qstar.toolset "host" {
+  tools = {
+    c = qstar.cli {"cc"},
+    cxx = qstar.cli {"c++"},
+    asm = qstar.cli {"cc"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
+}
+
+qstar.config "module_c" {
+  toolset = "//:host",
   lang = {
     c = {
       public_include_dirs = {"include"},
-      system_include_dirs = {"sysroot/include"},
-      compile_options = {"-std=c23", "-ffreestanding"},
+      compile_options = {"-std=c23", "-Wall", "-Wextra"},
     },
   },
 }
 
 qstar.staticlib "core" {
-  configs = {"//:freestanding_c"},
+  configs = {"//:module_c"},
   sources = {"src/core.c"},
   lang = {
     c = {
@@ -358,17 +368,17 @@ Merge rule:
 
 ## 5. Generated artifact와 stage
 
-Generated file이나 image 변환은 `qstar.custom_target`으로 표현한다.
+Generated file이나 package 변환은 `qstar.custom_target`으로 표현한다.
 
 ```lua
-qstar.custom_target "image" {
-  inputs = {qstar.target_file("//:kernel")},
+qstar.custom_target "package_blob" {
+  inputs = {qstar.target_file("//:app")},
   outputs = {
-    qstar.output("generated/kernel.bin", {
-      group = "images",
+    qstar.output("generated/app.bin", {
+      group = "packages",
     }),
   },
-  command = qstar.cli {"llvm-objcopy", "-O", "binary", qstar.input(0), qstar.output(0)},
+  command = qstar.cli {"tools/package-object", qstar.input(0), qstar.output(0)},
 }
 ```
 
@@ -387,17 +397,17 @@ qstar.executable "app" {
 ```
 
 이 pattern은 새 language provider가 아니라 artifact bridge다. External compiler는 package-local
-wrapper나 profile `path_tools`로 명시적으로 허용한다.
+wrapper나 toolset `path_tools`로 명시적으로 허용한다.
 
-Staging은 install과 다르다. boot partition, test fixture bundle, package tree 같은
+Staging은 install과 다르다. release bundle, test fixture bundle, package tree 같은
 copy-only layout은 `qstar.stage`를 쓴다.
 
 ```lua
-qstar.stage "boot_image" {
-  root = "stage/boot",
+qstar.stage "bundle" {
+  root = "stage/bundle",
   files = {
-    qstar.stage_file(qstar.target_file("//:image"), "kernel.bin"),
-    qstar.stage_file("boot/config.txt", "config.txt"),
+    qstar.stage_file(qstar.target_file("//:package_blob"), "share/app.bin"),
+    qstar.stage_file("assets/config.txt", "config.txt"),
   },
 }
 ```
@@ -406,10 +416,10 @@ Deps-only aggregate는 `qstar.group`으로 표현한다. Group은 command, outpu
 install 대상이 아니며 `qstar.target_file("//:group")`도 금지된다.
 
 ```lua
-qstar.group "kernel_parts" {
+qstar.group "module_parts" {
   deps = {
-    "//sys/kern:mm",
-    "//sys/dev:drivers",
+    "//lib:core",
+    "//plugins:main",
   },
 }
 ```
@@ -421,11 +431,11 @@ External smoke wrapper는 `qstar.run_target`이다. QStar는 wrapper 내부 도�
 
 ```lua
 qstar.run_target "smoke" {
-  deps = {"//:boot_image"},
-  command = qstar.cli {"tools/smoke.sh", qstar.target_file("//:image")},
+  deps = {"//:bundle"},
+  command = qstar.cli {"tools/smoke.sh", qstar.target_file("//:package_blob")},
   timeout = 10,
   expect = {
-    contains = "BOOT_OK",
+    contains = "SMOKE_OK",
     file = "smoke.log",
   },
 }
@@ -483,19 +493,19 @@ Reference:
 3. `reference/modules.md`
 4. `reference/configs.md`
 5. `reference/target-rules.md`
-6. `reference/profiles.md`
+6. `reference/toolsets.md`
 7. `reference/custom-target.md`
 8. `reference/object-artifacts.md`
 9. `reference/run-target.md`
 10. `reference/performance-gates.md`
 11. `reference/diagnostics.md`
 
-Low-level/bootloader-style project:
+Package/artifact flow:
 
-1. `tutorials/freestanding-image.md`
+1. `tutorials/package-artifact.md`
 2. `cookbook/objcopy.md`
 3. `cookbook/staging.md`
-4. `cookbook/qemu-smoke.md`
+4. `cookbook/run-target-smoke.md`
 5. `cookbook/response-files.md`
 
 ## 9. Useful CLI
@@ -555,4 +565,4 @@ qstar lsp --stdio
 - `qstar.write_config_header`
 - top-level `include_dirs`, `public_headers`, `cflags`, `cxxflags`, `modules`
 - `qstar.target_file("//:group")`
-- board-specific target/rule builtin
+- domain-specific target/rule builtin

@@ -6,7 +6,7 @@ QStar is a standalone build system with a Lua-based project DSL, a fast native
 executor named Stella, and an optional Ninja backend. It focuses on deterministic
 build graphs, explicit command vectors, reusable target configuration, and
 tooling-friendly diagnostics for C, C++, assembly, generated files, and
-language-provider driven projects.
+external object artifact flows.
 
 QStar is currently in beta. The current release-prep line is `v0.7.0-beta`,
 with macOS arm64 and Linux x86_64 runtime tarballs. Linux assets
@@ -26,6 +26,8 @@ hotfixes.
 - Build rules for executables, static libraries, shared libraries, tests,
   custom targets, configure files, stage/install flows, and dependency-only
   groups
+- `qstar.toolset` declarations for compiler, archive, link, response-file, and
+  external tool policy
 - Reusable `qstar.config` bundles for large projects with repeated compiler
   options
 - Stella native executor with compact progress output
@@ -141,10 +143,21 @@ QStar projects use `qstar.lua` at the package root. Subdirectory fragments use
 `.qst`, and helper modules use `.qsm`.
 
 ```lua
-qstar.import_file("qstar/policies/freestanding.qst")
+qstar.toolset "host" {
+  tools = {
+    c = qstar.cli {"cc"},
+    cxx = qstar.cli {"c++"},
+    asm = qstar.cli {"cc"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
+}
+
+qstar.import_file("qstar/policies/common.qst")
 local paths = qstar.import_module("qstar/modules/paths")
 
 qstar.config "common_c" {
+  toolset = "//:host",
   lang = {
     c = {
       public_include_dirs = {"include"},
@@ -169,14 +182,14 @@ Commands are argv vectors, not shell strings:
 
 ```lua
 qstar.custom_target "image" {
-  inputs = {qstar.target_file("//:kernel")},
-  outputs = {qstar.output("generated/kernel.img")},
+  inputs = {qstar.target_file("//:app")},
+  outputs = {qstar.output("generated/app.bin")},
   command = qstar.cli {
-    "llvm-objcopy",
-    "-O", "binary",
+    "tools/package-object",
     qstar.input(0),
     qstar.output(0),
   },
+  description = qstar.status("Packaging app.bin"),
 }
 ```
 
@@ -219,10 +232,10 @@ qstar replay <action-id>
 | Linux x86_64 | 0.7 beta release-prep artifact from Ubuntu release workflow or clean Linux host |
 | Windows | Manual native CI alpha through MSYS2 UCRT64; no public asset yet |
 
-QStar can model cross-compilation targets today, including freestanding and
-firmware-style projects, but official host support is intentionally conservative.
-The 1.0 milestone requires validated release artifacts and CI coverage for
-macOS, Linux, and Windows.
+QStar can model custom toolchains and cross-compilation targets through explicit
+toolsets, configs, argv-vector commands, and object artifact bridges. Official
+host support is intentionally conservative. The 1.0 milestone requires
+validated release artifacts and CI coverage for macOS, Linux, and Windows.
 
 ## Documentation
 

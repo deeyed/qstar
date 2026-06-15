@@ -24,7 +24,7 @@ policy with explicit `.exe` introspection, fake static `.lib` Stella/Ninja
 builds, and Windows sharedlib diagnostic parity. The daemon remains disabled on
 Windows until a named-pipe transport and ACL policy are implemented. Round Q174
 adds a dedicated Windows artifact corpus that builds target-local and
-profile-mapped `.exe`/static `.lib` artifacts through Stella and Ninja, then
+explicit `.exe`/static `.lib` artifacts through Stella and Ninja, then
 checks stage/install layout while keeping Windows sharedlib deferred.
 Round Q178 adds `tests/corpus/windows-execution` and the
 `qstar-windows-execution-corpus-tests` target. This is the first Windows alpha
@@ -79,7 +79,7 @@ include_dirs = {"C:/SDK/inc"}   -- invalid
 
 This keeps labels, dependency keys, compile database paths, generated output
 ownership, LSP navigation, and Ninja lowering stable across hosts. Windows
-absolute tool paths belong in toolchain/profile resolution, not package file
+absolute tool paths belong in toolset resolution, not package file
 paths.
 
 ## Drive Letters And Escaping
@@ -90,7 +90,7 @@ wrong. QStar avoids that by keeping project files canonical:
 - package paths: always slash-normalized and package-relative
 - tool names: bare names such as `clang-cl`, `lld-link`, `link.exe`
 - absolute tool paths: future Windows support may allow them through explicit
-  `tool_overrides` plus `allow_absolute_tools`, but not as source paths
+  `qstar.toolset` role argv or `allow_absolute_tools`, but not as source paths
 - user shell paths on the CLI: handled by the host shell before QStar sees them
 
 Round Q114 diagnostics distinguish common mistakes:
@@ -137,13 +137,17 @@ toolchain support.
 
 ## Response Files
 
-Response-file policy belongs to `qstar.profile`:
+Response-file policy belongs to `qstar.toolset`:
 
 ```lua
-qstar.profile "windows-msvc" {
-  target = "x86_64-pc-windows-msvc",
-  cc = "clang-cl",
-  linker = "clang-cl",
+qstar.toolset "windows-msvc" {
+  tools = {
+    c = qstar.cli {"clang-cl"},
+    cxx = qstar.cli {"clang-cl"},
+    asm = qstar.cli {"clang-cl"},
+    archive = qstar.cli {"llvm-lib"},
+    link = qstar.cli {"clang-cl"},
+  },
   response_files = "on",
   response_style = "msvc",
 }
@@ -179,21 +183,19 @@ The prep gate verifies MSVC response-file escaping for:
 
 The detailed artifact contract is `docs/windows-artifact-policy.md`. Summary:
 
-- Executable targets may use `artifact_name = "tool.exe"` or profile
-  `artifact_names = {"//:tool=tool.exe"}`. This `.exe` spelling is the current
-  Windows executable naming contract. The local prep gate verifies both target
-  local `artifact_name` mapping.
+- Executable targets may use `artifact_name = "tool.exe"`. This `.exe` spelling
+  is the current Windows executable naming contract. The local prep gate verifies
+  target-local `artifact_name` mapping.
 - External Windows libraries in `libs = {"kernel32"}` render as `kernel32.lib`
   for Windows/MSVC-like targets. This external library spelling is sealed for
   the pre-port contract.
 - `lib_dirs` render as `/LIBPATH:<path>` for MSVC-like targets.
 - `qstar.staticlib` still uses the current cross-host static archive default
   `lib<name>.a`. If a Windows archive name is required before native archive
-  support lands, use `artifact_name = "name.lib"` or profile
-  `artifact_names = {"//:name=name.lib"}` explicitly. Automatic `.lib` output is
+  support lands, use `artifact_name = "name.lib"` explicitly. Automatic `.lib` output is
   deferred until native `lib.exe`/`llvm-lib` validation.
-- `qstar.sharedlib` is supported for Darwin-like `.dylib` and Linux-like `.so`
-  profiles, but Windows runtime `.dll`, import `.lib`, PDB/debug artifact,
+- `qstar.sharedlib` is supported for macOS `.dylib` and Linux `.so`
+  host policies, but Windows runtime `.dll`, import `.lib`, PDB/debug artifact,
   runtime search path, and install layout are deferred.
 
 Do not claim Windows packaging support until `.exe`, static `.lib`, runtime

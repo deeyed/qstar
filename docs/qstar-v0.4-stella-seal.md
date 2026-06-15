@@ -138,7 +138,7 @@ LSP client wiring, target tree/query/build/test/log/replay command palette, and
 
 `qstar-v0.4-pilot-tests` includes the medium project readiness corpus. The gate
 compares Stella and Ninja clean/no-op/incremental build timings on a generic
-low-level project shape without naming a downstream project. Stella does not
+medium project shape without naming a downstream project. Stella does not
 need to be a byte-for-byte Ninja clone, but no-op, incremental, and clean build
 overhead must remain close enough that Stella is a credible primary backend for
 medium projects. Round Q92 keeps timing thresholds report-only by default and
@@ -166,5 +166,5 @@ additional release-cycle history.
   process invocation.
 - Shared library policy beyond the current check/diagnostic surface.
 - C++ modules execution policy.
-- Board-specific builtins. Firmware image and smoke workflows stay expressed
+- Board-specific builtins. Package image and smoke workflows stay expressed
   through generic targets, custom actions, run targets, and stages.

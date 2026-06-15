@@ -1,6 +1,6 @@
 # Getting Started
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. 이 장은
+QStar는 C/C++/ASM과 external object artifact flow를 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. 이 장은
 새 project를 만들고, target을 검사하고, 실제 build까지 가는 가장 짧은 흐름을 보여준다.
 
 ## 최소 예제

@@ -7,7 +7,7 @@ invocation에서는 Ninja처럼 낮은 수준의 execution graph만 읽게 만�
 ```txt
 status: q124 direct lowered action execution active
 date: 2026-06-14
-depends-on: docs/perf/stella-ninja-profile.md
+depends-on: docs/perf/stella-ninja-architecture.md
 scope: internal plan cache design and current behavior
 implementation: graph cache plus executable compile/archive/link action plan active for Stella build
 next-step: persistent Stella daemon design in docs/daemon/stella-daemon.md
@@ -98,7 +98,7 @@ depfile-discovered header DB다.
 
 Q120 MVP는 다음 파일을 실제로 쓴다.
 
-- `manifest.json`: request identity, QStar version, generator, build dir, profile input,
+- `manifest.json`: request identity, QStar version, generator, build dir, toolset graph input,
   authoring input fingerprint summary.
 - `inputs.json`: evaluated authoring inputs의 path/size/mtime/content hash.
 - `graph.qsg`: validated Graph IR의 internal binary snapshot.
@@ -146,10 +146,7 @@ Partial cache는 error가 아니라 miss다. Stella는 cache가 부서져도 sou
   "build_dir": "build/qstar",
   "generated_dir": "build/qstar/generated",
   "generator": "stella",
-  "profile": "default",
-  "target": "host",
-  "toolchain": "",
-  "stdlib": "",
+  "toolset_fingerprint": "hex",
   "compile_commands": "build",
   "input_fingerprint": "hex",
   "graph_fingerprint": "hex",
@@ -174,10 +171,10 @@ Fingerprint는 "Lua eval 결과가 바뀔 수 있는 모든 입력"을 포함한
 | Entrypoint | `--file`로 선택된 `qstar.lua` absolute path와 file fingerprint |
 | Imports | `qstar.subdir`, `qstar.import_file`, `qstar.import_module`로 읽은 모든 `.qst`/`.qsm` |
 | CLI overrides | `-B`, `-G`, selected subcommand, build label, package aliases |
-| Profile input | `--profile`, `--target`, `--toolchain`, `--stdlib` |
+| Generator/build input | `-G`, `-B`, `--file`, effective `qstar.toolset` graph |
 | Project options | effective `build_dir`, `generated_dir`, `compile_commands`, project root/name/version |
 | Environment | QStar가 graph evaluation에 명시적으로 읽는 env only |
-| Tool policy | profile tool names, `path_tools`, response style, target triple |
+| Tool policy | tool role argv, `path_tools`, response style |
 | Module rules | module entry resolution `<folder>/<name>.qsm` and imported module closure |
 
 ### File Fingerprint
@@ -212,7 +209,7 @@ hash로 fall back한다.
 ```txt
 QSTAR_DOC_DIR      -> exclude from plan fingerprint
 QSTAR_TEST_QSTAR   -> exclude from plan fingerprint
-QSTAR_PROFILE      -> include only if it affects selected profile input
+toolset graph      -> include through parsed authoring input fingerprint
 PATH               -> exclude from plan fingerprint; resolved tool identity/action key handles tools
 ```
 
@@ -230,7 +227,7 @@ Plan cache는 다음 상황에서 miss로 처리한다.
 | `-B` effective build dir mismatch | miss |
 | generator is not `stella` | miss |
 | requested label not covered by cached closure | miss |
-| selected profile/target/toolchain/stdlib mismatch | miss |
+| toolset graph fingerprint mismatch | miss |
 | project `generated_dir` or `compile_commands` mismatch | miss |
 | any authoring file path/size/mtime/hash mismatch | miss |
 | imported file set differs | miss |
@@ -723,7 +720,7 @@ Q120 이후:
 - authoring input이 unchanged이면 `--schedule-trace`에서 plan cache hit이 보여야 한다.
 - `.qst`/`.qsm` 하나를 수정하면 plan cache miss가 나야 한다.
 - QStar version을 바꾸면 plan cache miss가 나야 한다.
-- selected profile이나 `-B`가 바뀌면 plan cache miss가 나야 한다.
+- selected toolset graph나 `-B`가 바뀌면 plan cache miss가 나야 한다.
 - `make check`와 `make qstar-medium-project-readiness-tests`가 통과해야 한다.
 
 Observed Q121 timing on the medium corpus:
@@ -740,7 +737,7 @@ medium_project_gate status=ok perf_issue_count=0 report_only=1
 ```
 
 Q121 이후 no-op과 incremental은 compact dirty state + plan cache hit 경로에서 Ninja와 같은
-체감권을 유지한다. Q123의 `deps.db`는 header가 많은 C/C++/freestanding project에서
+체감권을 유지한다. Q123의 `deps.db`는 header가 많은 C/C++ project에서
 depfile tokenization 비용을 줄이는 incremental hot-path 개선이다. Clean build는 여전히
 compiler/process orchestration과 logging overhead 때문에 Ninja보다 느리며, 다음 큰 lever는
 process runner와 scheduler hot path다.

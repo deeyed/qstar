@@ -1,6 +1,6 @@
 # Diagnostics
 
-QStar는 C/C++/external-language을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다.
+QStar는 C/C++/ASM과 external object artifact flow를 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다.
 Diagnostics는 text와 JSON을 모두 염두에 두고, LSP와 replay가 같은 core를 공유한다.
 
 ## 최소 예제
@@ -40,25 +40,24 @@ qstar --file qstar.lua doctor
 qstar --file qstar.lua last-failure
 ```
 
-## Profile/toolchain doctor
+## Toolset doctor
 
-`qstar doctor`는 C/C++/external-language target을 빌드하기 전 profile 문제를 먼저 보여준다.
-특히 freestanding project에서는 compiler/linker/objcopy 같은 외부 tool, sysroot,
-resource directory, response file policy가 맞는지 확인하는 데 쓴다.
+`qstar doctor`는 C/C++/ASM target과 generated action을 빌드하기 전 tool role과 external
+tool policy 문제를 먼저 보여준다. Compiler/archive/link tool, package-local wrapper,
+response file policy, depfile behavior가 맞는지 확인하는 데 쓴다.
 
 대표 출력:
 
 ```txt
-toolchain-sanity name=clang cc=clang cxx=clang++ ar=ar linker=ld.lld ...
+toolset-sanity label=//:host c=cc cxx=c++ archive=ar link=cc ...
 response-policy configured_files=on configured_style=posix effective_files=on effective_style=posix
-toolchain-tool role=cc name=clang required=true mode=path status=found
-profile-path name=sysroot path=sysroot mode=package status=found type=directory
-external-tool-override name=llvm-objcopy value=tools/fake-objcopy.sh mode=package status=found
+toolset-tool role=c name=cc required=true mode=path status=found
+path-tool name=python3 mode=path status=found
 depfile-behavior compiler=clang platform=darwin flags=-MMD,-MF status=supported
 ```
 
-`status=missing`이나 `severity=warning`이 보이면 먼저 profile의 `cc`, `linker`,
-`path_tools`, `tool_overrides`, `sysroot`, `resource_dir`를 확인한다. Doctor는 진단
+`status=missing`이나 `severity=warning`이 보이면 먼저 `qstar.toolset`의 `tools`,
+`path_tools`, `response_files`, `response_style`을 확인한다. Doctor는 진단
 명령이므로 warning이 있어도 text report를 끝까지 출력한다.
 
 ## Authoring diagnostics
@@ -79,7 +78,7 @@ qstar: top-level include_dirs is not allowed; move it under lang.c.include_dirs
 qstar: unsupported source extension 'src/AppDelegate.m' in '//:app'; Objective-C provider is not available; build this source with qstar.custom_target, declare qstar.output(..., {format = "object"}), and list the generated .o/.obj in sources
 ```
 
-`.qsm`은 helper table 전용이다. Target, profile, config, stage, import_file 같은 graph
+`.qsm`은 helper table 전용이다. Target, toolset, config, stage, import_file 같은 graph
 declaration은 `.qst` 또는 `qstar.lua`에서 선언한다. `qstar.group`은 artifact가 없으므로
 `qstar.target_file("//:group")`의 대상이 될 수 없다.
 

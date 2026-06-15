@@ -1,6 +1,6 @@
 # Installation
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. Public
+QStar는 C/C++/ASM을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. Public
 beta에서는 macOS arm64와 Linux x86_64 runtime tarball을 배포한다. Linux asset은 Ubuntu
 release workflow 또는 clean Linux x86_64 host에서 source build 검증,
 `linux-x86_64` tarball packaging, extracted tarball smoke, Stella/Ninja medium
@@ -180,4 +180,4 @@ install docs/man smoke를 실행하고 `qstar-windows-native-alpha` artifact로 
 ## 관련 diagnostic
 
 - `qstar: qstar.lua not found`
-- `qstar doctor`의 compiler/profile/toolchain warning
+- `qstar doctor`의 compiler/toolset warning

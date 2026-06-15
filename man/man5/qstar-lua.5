@@ -25,8 +25,8 @@ option overrides build_dir for the current invocation.
 The generated_dir field controls the package-relative root for generated
 outputs and defaults to
 .Pa generated .
-.It Ic qstar.profile
-In-DSL toolchain and target profile declaration.
+.It Ic qstar.toolset
+Explicit compiler, archive, link, response-file, and external tool role bundle.
 .It Ic qstar.config
 Reusable target option bundle referenced by target
 .Ic configs
@@ -36,18 +36,18 @@ Executable target.
 .It Ic qstar.staticlib
 Static library target.
 .It Ic qstar.sharedlib
-Shared library target. Darwin-like profiles produce
+Shared library target. macOS host policy produces
 .Pa lib<name>.dylib
 with an
 .Ar @rpath
-install name, and Linux-like profiles produce
+install name, and Linux host policy produces
 .Pa lib<name>.so
 with a soname. Consumers that link a QStar shared library receive a build-tree
 runtime search path based on
 .Ar @loader_path
-on Darwin-like profiles or
+on macOS or
 .Ar $ORIGIN
-on Linux-like profiles. Windows DLL/import-library/PDB policy is deferred and produces a
+on Linux. Windows DLL/import-library/PDB policy is deferred and produces a
 diagnostic.
 .It Ic qstar.test
 Test executable target.
@@ -179,7 +179,7 @@ helpers instead.
 .Pp
 .Pa .qsm
 modules must return a table and cannot declare graph nodes such as targets,
-configs, profiles, project metadata, stages, or subdirs.
+configs, toolsets, project metadata, stages, or subdirs.
 They may return values built with
 .Ic qstar.status
 for use in description fields.
@@ -215,10 +215,7 @@ provides constants such as
 .Ic QSTAR_HOST_OS ,
 .Ic QSTAR_HOST_ARCH ,
 .Ic QSTAR_PACKAGE_ROOT ,
-.Ic QSTAR_PROJECT_ROOT ,
-.Ic QSTAR_PROFILE ,
-and
-.Ic QSTAR_TARGET .
+.Ic QSTAR_PROJECT_ROOT .
 Namespace forms include
 .Ic qstar.version ,
 .Ic qstar.host.os ,

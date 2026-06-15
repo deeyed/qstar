@@ -22,9 +22,9 @@ QStar 1.0은 macOS, Linux, Windows 공식 지원이 모두 갖춰진 뒤에 올�
 - executable, staticlib, sharedlib, test, custom target, configure file, group,
   stage/install 지원
 - 반복 옵션을 줄이는 `qstar.config`
+- compiler/archive/link/response-file/external tool 정책을 선언하는 `qstar.toolset`
 - Stella native executor와 C/C++/ASM/generated graph용 `-G ninja` backend
 - 반복 로컬 빌드와 IDE read API를 위한 Stella daemon beta opt-in workflow
-- Cale source는 Stella language-provider process action으로 지원
 - `compile_commands.json`, LSP, VSCode extension, replay/action log, manpage,
   AI index 제공
 
@@ -126,10 +126,21 @@ local-only, owner-only 정책을 따른다. Windows named pipe는 아직 deferre
 ## 작성 예시
 
 ```lua
-qstar.import_file("qstar/policies/freestanding.qst")
+qstar.toolset "host" {
+  tools = {
+    c = qstar.cli {"cc"},
+    cxx = qstar.cli {"c++"},
+    asm = qstar.cli {"cc"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
+}
+
+qstar.import_file("qstar/policies/common.qst")
 local paths = qstar.import_module("qstar/modules/paths")
 
 qstar.config "common_c" {
+  toolset = "//:host",
   lang = {
     c = {
       public_include_dirs = {"include"},
@@ -154,14 +165,14 @@ qstar.group "all_libs" {
 
 ```lua
 qstar.custom_target "image" {
-  inputs = {qstar.target_file("//:kernel")},
-  outputs = {qstar.output("generated/kernel.img")},
+  inputs = {qstar.target_file("//:app")},
+  outputs = {qstar.output("generated/app.bin")},
   command = qstar.cli {
-    "llvm-objcopy",
-    "-O", "binary",
+    "tools/package-object",
     qstar.input(0),
     qstar.output(0),
   },
+  description = qstar.status("Packaging app.bin"),
 }
 ```
 
@@ -204,9 +215,9 @@ qstar replay <action-id>
 | Linux x86_64 | Ubuntu release workflow 또는 clean Linux host 산출 0.7 beta release-prep artifact |
 | Windows | MSYS2 UCRT64 기반 manual native CI alpha, public asset 없음 |
 
-QStar는 freestanding, firmware-style cross build graph를 표현할 수 있지만, host
-지원 선언은 보수적으로 가져간다. 1.0은 macOS, Linux, Windows release artifact와 CI가
-갖춰진 뒤에 올린다.
+QStar는 명시적 toolset, config, argv-vector command, object artifact bridge로 custom
+toolchain과 cross-compilation target을 표현한다. Host 지원 선언은 보수적으로 가져간다.
+1.0은 macOS, Linux, Windows release artifact와 CI가 갖춰진 뒤에 올린다.
 
 ## 문서
 

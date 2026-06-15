@@ -76,10 +76,10 @@ Linux validation은 다음을 확인한다.
 - Linux daemon opt-in lane이 `daemon_watcher status=active backend=inotify`와
   `daemon_watcher status=event backend=inotify` trace를 artifact로 보존하는지
 
-macOS local run에서는 Linux kernel, glibc, distro package layout, Linux `cc` 구현을
+macOS local run에서는 Linux host runtime, glibc, distro package layout, Linux `cc` 구현을
 직접 검증할 수 없다. 따라서 macOS에서는 portable path/process smoke만 수행하고,
 Linux host 또는 CI에서 같은 script를 full validation으로 실행한다.
-Script는 `QSTAR_LINUX_VALIDATION_CC`를 QStar profile의 C compiler로 넣어 depfile
+Script는 `QSTAR_LINUX_VALIDATION_CC`를 QStar toolset의 C compiler로 넣어 depfile
 생성을 확인한다. Makefile target은 기본값으로 `$(CC)`를 전달하므로 `CC=clang make ...`
 또는 explicit `QSTAR_LINUX_VALIDATION_CC=clang make ...` 둘 다 사용할 수 있다.
 

@@ -21,7 +21,7 @@ downstream build integration: deferred
 frontend/backend internal API integration: none
 ```
 
-QStar는 compiler가 아니다. C, C++, external source를 build input으로 보고 target/profile에
+QStar는 compiler가 아니다. C, C++, external object input을 build input으로 보고 target/toolset에
 맞는 process invocation과 artifact graph를 만든다. `.h`, `.hpp`, generated header,
 future `.h`은 path, dependency, install/export surface일 뿐이며 QStar가 header
 syntax를 해석하지 않는다.
@@ -42,7 +42,7 @@ QStar를 독립 빌드시스템으로 시험할 수 있게 하는 최소 계약�
 - Dependency fields: `deps`, `public_deps`, `private_deps`, `visibility`.
 - Source/header fields: `sources`, `lang`; `public_headers`/`private_headers`는
   `lang.c`, `lang.cxx`, `lang.cxx` 아래에서만 authoring surface다.
-- Toolchain/profile fields: `toolchain`, `stdlib`, `libs`, `lib_dirs`, `link.frameworks`.
+- Toolset/link fields: `toolset`, `libs`, `lib_dirs`, `link.frameworks`.
 - Commands: `list-targets`, `query`, `doctor`, `check`, `explain`, `dry-run`,
   `build`, `test`, `install`, `why-rebuild`, `log`, `last-failure`,
   `action-log <action-id>`, `replay <action-id>`, `clean`, `init`,
@@ -59,7 +59,7 @@ The v0.1 release gate ties these features together:
 
 - Graph evaluation, closure, command plan, and deterministic explain output.
 - Source discovery for C, C++, external-language-by-process source kinds.
-- Toolchain/profile schema v2: host/clang/external-tool profile rendering, sysroot,
+- Toolset schema: host/external-tool role rendering,
   resource dir, include dirs, lib dirs, response file policy.
 - Local executor: compile, archive, link, generated action, config header, test,
   install, failure replay.
@@ -118,7 +118,7 @@ generic command failure.
 ## Standalone Use Before external language Build
 
 QStar v0.1 is usable before `downstream build` exists because it owns its own binary,
-profile reader, executor state, logs, install manifest, and sample corpus. A
+toolset reader, executor state, logs, install manifest, and sample corpus. A
 typical flow is:
 
 ```txt

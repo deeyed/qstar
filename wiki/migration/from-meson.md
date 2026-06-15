@@ -1,6 +1,6 @@
 # Migration From Meson
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. Meson처럼
+QStar는 C/C++/ASM을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. Meson처럼
 target, dependency, generated source를 명시하지만, QStar는 package-relative path와
 label을 더 강하게 고정한다.
 

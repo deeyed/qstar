@@ -3,7 +3,7 @@
 QStar는 Lua `require`를 열지 않는다. 대신 DSL-native import를 두 개로 분리한다.
 
 ```lua
-qstar.import_file("qstar/policies/freestanding.qst")
+qstar.import_file("qstar/policies/common.qst")
 local policy = qstar.import_module("qstar/modules/policy")
 ```
 
@@ -11,7 +11,7 @@ local policy = qstar.import_module("qstar/modules/policy")
 
 `qstar.import_file("path.qst")`는 package-root 기준 `.qst` file만 읽는다.
 
-- `.qst` file은 target, config, profile, group, stage 같은 graph declaration을 만들 수 있다.
+- `.qst` file은 target, config, toolset, group, stage 같은 graph declaration을 만들 수 있다.
 - 같은 file을 한 번 더 import하면 duplicate import error가 난다.
 - circular import는 error다.
 - `.qsm`이나 `qstar.lua`는 받을 수 없다.
@@ -21,13 +21,13 @@ local policy = qstar.import_module("qstar/modules/policy")
 `qstar.import_module("folder/path")`는 folder path만 받는다. File path를 직접 넘기지 않는다.
 
 ```lua
-local kernel = qstar.import_module("qstar/modules/kernel")
+local paths = qstar.import_module("qstar/modules/paths")
 ```
 
 위 호출은 다음 file을 읽는다.
 
 ```txt
-qstar/modules/kernel/kernel.qsm
+qstar/modules/paths/paths.qsm
 ```
 
 `.qsm` file은 반드시 table을 반환한다.
@@ -45,7 +45,7 @@ end
 return M
 ```
 
-`.qsm` 안에서는 graph declaration을 할 수 없다. 즉 `qstar.project`, `qstar.profile`,
+`.qsm` 안에서는 graph declaration을 할 수 없다. 즉 `qstar.project`, `qstar.toolset`,
 `qstar.config`, target rule, `qstar.custom_target`, `qstar.stage`, `qstar.target_family`, `qstar.subdir`,
 `qstar.import_file`은 금지된다. Helper 함수, 상수, table literal, `qstar.import_module`
 을 통한 다른 helper module import는 사용할 수 있다.
@@ -56,19 +56,19 @@ Makefile처럼 문자열 안의 `$VAR`를 확장하는 기능은 없다.
 
 ```lua
 local M = {}
-local triple = "aarch64-unknown-none-elf"
+local prefix = "vendor/include"
 
-function M.libc_include()
-  return qstar.join("lib/libc", triple, "include")
+function M.vendor_include()
+  return qstar.join(prefix, "public")
 end
 
 function M.common_c()
   return qstar.merge({
-    public_include_dirs = {"sys/include"},
-    compile_options = {"-std=c23", "-ffreestanding"},
+    public_include_dirs = {"include"},
+    compile_options = {"-std=c23", "-Wall"},
   }, {
-    system_include_dirs = {M.libc_include()},
-    compile_options = {"-fno-builtin"},
+    system_include_dirs = {M.vendor_include()},
+    compile_options = {"-Wextra"},
   })
 end
 
@@ -104,7 +104,7 @@ qstar.staticlib "platform" {
 대표 diagnostic:
 
 ```txt
-qstar: import_module expects a folder path, not file 'qstar/modules/kernel/kernel.qsm'; use qstar.import_module("qstar/modules/kernel")
+qstar: import_module expects a folder path, not file 'qstar/modules/paths/paths.qsm'; use qstar.import_module("qstar/modules/paths")
 qstar: import_module 'qstar/modules/missing' not found; expected module entry 'qstar/modules/missing/missing.qsm'
 qstar: qstar.config is forbidden inside .qsm module; modules must return a helper table
 qstar: circular import chain: qstar.lua -> qstar/modules/a/a.qsm -> qstar/modules/b/b.qsm -> qstar/modules/a/a.qsm
@@ -112,8 +112,8 @@ qstar: circular import chain: qstar.lua -> qstar/modules/a/a.qsm -> qstar/module
 
 LSP definition navigation은 import 문자열도 해석한다. `qstar.import_file("foo/bar.qst")`
 위에서 definition을 요청하면 해당 `.qst`로 이동하고,
-`qstar.import_module("qstar/modules/kernel")` 위에서는
-`qstar/modules/kernel/kernel.qsm`으로 이동한다.
+`qstar.import_module("qstar/modules/paths")` 위에서는
+`qstar/modules/paths/paths.qsm`으로 이동한다.
 
 ## 권장 배치
 
@@ -121,11 +121,9 @@ LSP definition navigation은 import 문자열도 해석한다. `qstar.import_fil
 qstar.lua
 qstar/
   policies/
-    freestanding.qst
+    common.qst
     warnings.qst
   modules/
-    kernel/
-      kernel.qsm
     paths/
       paths.qsm
 lib/
@@ -133,7 +131,7 @@ lib/
     core.qst
 ```
 
-Root `qstar.lua`는 project/profile/subdir orchestration을 담당한다.
+Root `qstar.lua`는 project/toolset/import/subdir orchestration을 담당한다.
 `qstar/policies/*.qst`는 graph policy를 선언한다.
 `qstar/modules/<name>/<name>.qsm`은 target을 만들지 않는 helper module을 제공한다.
 폴더 이름과 module entry 파일 이름을 일치시키면 LSP navigation, formatter, AI authoring이

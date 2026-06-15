@@ -4179,10 +4179,10 @@ contains "docs/daemon/stella-daemon.md" "Q175"
 contains "docs/daemon/stella-daemon.md" "stale socket cleanup"
 contains "docs/daemon/stella-daemon.md" "stale pid cleanup"
 contains "docs/daemon-beta-readiness.md" "Q153 이후 owner-only socket directory/file"
-contains "docs/perf/stella-ninja-profile.md" "runner=posix_spawn|fork"
-contains "docs/perf/stella-ninja-profile.md" "Q130: Event-Driven Output Drain"
-contains "docs/perf/stella-ninja-profile.md" "Q133-Q137: Scheduler Semantics And Performance Seal"
-contains "docs/perf/stella-ninja-profile.md" "persistent Stella daemon"
+contains "docs/perf/stella-ninja-architecture.md" "runner=posix_spawn|fork"
+contains "docs/perf/stella-ninja-architecture.md" "Q130: Event-Driven Output Drain"
+contains "docs/perf/stella-ninja-architecture.md" "Q133-Q137: Scheduler Semantics And Performance Seal"
+contains "docs/perf/stella-ninja-architecture.md" "persistent Stella daemon"
 contains "docs/progress-output.md" "status: progress output contract"
 contains "docs/progress-output.md" "[ 75%] Linking CXX executable app"
 contains "docs/progress-output.md" "Stella progress renderer and warning/error stream coloring active"
@@ -4526,7 +4526,7 @@ contains "wiki/AI_INDEX.md" "artifact = \"import_lib\""
 contains "wiki/AI_INDEX.md" 'explicit static `.lib`'
 contains "wiki/AI_INDEX.md" "docs/windows-artifact-policy.md"
 contains "wiki/AI_INDEX.md" "qstar --file qstar.lua action-log"
-contains "wiki/AI_INDEX.md" "low-level/bootloader-style project"
+contains "wiki/AI_INDEX.md" "Package/artifact flow"
 contains "wiki/reference/progress-output.md" "[ 75%] Linking CXX executable app"
 contains "wiki/reference/progress-output.md" "legacy scheduler stage wording"
 contains "wiki/reference/progress-output.md" "action_description"
@@ -4723,16 +4723,16 @@ wiki/reference/language-providers.md
 wiki/reference/object-artifacts.md
 wiki/reference/custom-target.md
 wiki/reference/run-target.md
-wiki/reference/profiles.md
+wiki/reference/toolsets.md
 wiki/reference/diagnostics.md
 wiki/tutorials/c-app.md
 wiki/tutorials/c-staticlib.md
 wiki/tutorials/generated-config.md
 wiki/tutorials/cxx-mixed.md
-wiki/tutorials/freestanding-image.md
+wiki/tutorials/package-artifact.md
 wiki/cookbook/objcopy.md
 wiki/cookbook/staging.md
-wiki/cookbook/qemu-smoke.md
+wiki/cookbook/run-target-smoke.md
 wiki/cookbook/response-files.md
 wiki/migration/from-cmake.md
 wiki/migration/from-meson.md
@@ -4749,6 +4749,13 @@ for doc in $wiki_docs; do
 done
 if grep -R -n --include='*.md' -E '\.qs\b' wiki >/dev/null; then
 	fail "QStar wiki contains stale authoring surface"
+fi
+if grep -R -n -E 'qstar\.profile|--profile|QSTAR_PROFILE|QSTAR_TARGET|lang\.cale|mixed-cale|Cale|HCL|freestanding|firmware|UEFI|RPi|Raspberry|QEMU|BOOTX64|BOOTAA64|kernel8|qemu_smoke|kernel_img|kernel_c|freestanding_c|//:kernel|kernel\.bin|kernel\.elf|reference/profiles|tutorials/freestanding-image|cookbook/qemu-smoke' README.md README.ko.md wiki docs man editors/vscode/qstar/snippets editors/vscode/qstar/syntaxes tools/sync-github-wiki.sh >/dev/null; then
+	fail "QStar public docs/editor surface contains old generic-DSL syntax"
+fi
+if sed -n '/qstar_lsp_symbols\[\]/,/^};/p; /qstar_lsp_fields\[\]/,/^};/p' src/lsp.c |
+    grep -n -E 'qstar\.profile|QSTAR_PROFILE|QSTAR_TARGET|freestanding|firmware|UEFI|RPi|Raspberry|QEMU|BOOTX64|kernel_img|kernel_c|freestanding_c|profile' >/dev/null; then
+	fail "QStar LSP hover table contains old generic-DSL syntax"
 fi
 for removed_wiki in wiki/authoring-v0.2.md wiki/language-options.md wiki/project-layout.md; do
 	if test -e "$removed_wiki"; then
@@ -4767,8 +4774,8 @@ contains "wiki/reference/lang-c.md" "lang.c.public_headers"
 contains "wiki/reference/lang-cxx.md" "lang.cxx.modules"
 contains "wiki/reference/language-providers.md" "object artifact bridge"
 contains "wiki/reference/custom-target.md" "qstar.cli"
-contains "wiki/tutorials/freestanding-image.md" "link_inputs"
-contains "wiki/cookbook/qemu-smoke.md" "qstar.run_target"
+contains "wiki/tutorials/package-artifact.md" "qstar.custom_target"
+contains "wiki/cookbook/run-target-smoke.md" "qstar.run_target"
 contains "wiki/migration/from-cmake.md" "target_include_directories"
 
 step "init templates"

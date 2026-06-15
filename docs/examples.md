@@ -1,209 +1,96 @@
 # QStar Examples
 
-> Current note: this file follows the v0.3/v0.4 authoring surface. The larger
-> tutorial book lives under `qstar/wiki/`.
+This page keeps compact examples for the current generic QStar DSL. For full
+explanations, read `../wiki/AI_INDEX.md` and `../wiki/reference/qstar-lua.md`.
 
-QStar examples use one entry file, `qstar.lua`, and optional subdirectory
-fragments named `<folder>.qst`. Profile/toolchain settings are declared inside
-QStar DSL with `qstar.profile`; QStar does not require a separate profile config
-file.
-
-## C Static Library And App
-
-```txt
-hello/
-  qstar.lua
-  lib/
-    lib.qst
-    include/core.h
-    src/core.c
-  app/
-    app.qst
-    src/main.c
-```
-
-Root file:
+## Toolset And Config
 
 ```lua
 qstar.project {
-  name = "hello",
+  name = "demo",
   version = "0.1.0",
   root = ".",
+  generated_dir = "build/qstar/generated",
 }
 
-qstar.profile "default" {
-  toolchain = "clang",
-  target = "host",
+qstar.toolset "host" {
+  tools = {
+    c = qstar.cli {"cc"},
+    cxx = qstar.cli {"c++"},
+    asm = qstar.cli {"cc"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
+  response_files = "auto",
 }
 
-qstar.subdir("lib")
-qstar.subdir("app")
+qstar.config "common_c" {
+  toolset = "//:host",
+  lang = {
+    c = {
+      public_include_dirs = {"include"},
+      compile_options = {"-std=c23", "-Wall", "-Wextra"},
+    },
+  },
+}
 ```
 
-Library fragment:
+## Library And App
 
 ```lua
 qstar.staticlib "core" {
-  sources = {
-    "lib/src/core.c",
-  },
+  configs = {"//:common_c"},
+  sources = {"src/core.c"},
   lang = {
     c = {
-      public_headers = {
-        "lib/include/core.h",
-      },
-      public_include_dirs = {
-        "lib/include",
-      },
+      public_headers = {"include/core.h"},
+      public_include_dirs = {"include"},
     },
   },
 }
+
+qstar.executable "app" {
+  configs = {"//:common_c"},
+  sources = {"src/main.c"},
+  deps = {"//:core"},
+}
 ```
 
-App fragment:
+## Package Artifact
 
 ```lua
-qstar.executable "app" {
-  sources = {
-    "app/src/main.c",
-  },
-  deps = {
-    "//lib:core",
+qstar.custom_target "package_blob" {
+  inputs = {qstar.target_file("//:app")},
+  outputs = {qstar.output("build/qstar/generated/app.bin", {group = "packages"})},
+  command = qstar.cli {"tools/package-object", qstar.input(0), qstar.output(0)},
+  description = qstar.status("Packaging app.bin"),
+}
+
+qstar.stage "bundle" {
+  root = "stage/bundle",
+  description = qstar.status("Staging release bundle"),
+  files = {
+    qstar.stage_file(qstar.target_file("//:app"), "bin/app"),
+    qstar.stage_file(qstar.target_file("//:package_blob"), "share/app.bin"),
   },
 }
 ```
 
-Useful commands:
-
-```txt
-qstar check //...
-qstar explain //app:app
-qstar dry-run //app:app
-qstar build //app:app
-```
-
-## Generated Config Header
-
-Generated files are regular graph edges. `qstar.configure_file` is a built-in
-action; `qstar.custom_target` is for external argv-vector commands.
+## External Object Bridge
 
 ```lua
-qstar.configure_file "config" {
-  output = qstar.output("generated/config.h"),
-  values = {
-    PROJECT_NAME = "demo",
-    ENABLE_TRACE = "1",
-  },
+qstar.custom_target "foreign_object" {
+  inputs = {"src/foreign_source.ext"},
+  outputs = {qstar.output("build/qstar/generated/foreign.o", {format = "object"})},
+  command = qstar.cli {"tools/compile-foreign.sh", qstar.input(0), qstar.output(0)},
+  description = qstar.status("Building foreign object"),
 }
 
-qstar.executable "app" {
+qstar.executable "mixed_app" {
+  configs = {"//:common_c"},
   sources = {
     "src/main.c",
-    qstar.output("generated/config.h"),
-  },
-  deps = {
-    "//:config",
-  },
-  lang = {
-    c = {
-      include_dirs = {
-        "generated",
-      },
-    },
+    qstar.output("build/qstar/generated/foreign.o"),
   },
 }
 ```
-
-## Freestanding Firmware Shape
-
-Firmware and OS-style builds are still generic targets. QStar does not need
-dedicated UEFI or Raspberry Pi keywords; profile/link policy and custom
-artifact transforms describe the graph.
-
-```lua
-qstar.profile "rpi5-aarch64" {
-  toolchain = "clang",
-  target = "aarch64-none-elf",
-  arch = "aarch64",
-  cpu = "cortex-a76",
-  abi = "lp64",
-  freestanding = true,
-  cc = "clang",
-  linker = "ld.lld",
-  link_options = {
-    "-nostdlib",
-    "-T",
-    "linker/rpi5-aarch64.ld",
-    "--defsym=__kernel_base=0x80000",
-  },
-  link_inputs = {
-    "linker/rpi5-aarch64.ld",
-  },
-  path_tools = {
-    "llvm-objcopy",
-    "qemu-system-aarch64",
-  },
-}
-
-qstar.executable "kernel" {
-  sources = {
-    "boot/start.S",
-    "src/kernel.c",
-  },
-  lang = {
-    asm = {
-      preprocess = true,
-      compile_options = {
-        "-ffreestanding",
-      },
-    },
-    c = {
-      compile_options = {
-        "-ffreestanding",
-      },
-    },
-  },
-}
-
-qstar.custom_target "kernel_img" {
-  inputs = {
-    qstar.target_file("//:kernel"),
-  },
-  outputs = {
-    qstar.output("images/kernel8.img"),
-  },
-  command = qstar.cli {
-    "llvm-objcopy",
-    "-O",
-    "binary",
-    qstar.input(0),
-    qstar.output(0),
-  },
-}
-
-qstar.stage "rpi" {
-  root = "stage/rpi",
-  files = {
-    qstar.stage_file("boot/config.txt", "config.txt"),
-    qstar.stage_file(qstar.target_file("//:kernel_img"), "kernel8.img"),
-  },
-}
-```
-
-## Response Files
-
-Response-file policy belongs to the active profile:
-
-```lua
-qstar.profile "windows-msvc" {
-  toolchain = "clang",
-  target = "x86_64-pc-windows-msvc",
-  cc = "clang-cl",
-  linker = "lld-link",
-  response_files = "auto",
-  response_style = "msvc",
-}
-```
-
-Use `qstar dry-run` to inspect whether an action renders argv directly or uses
-an `@response.rsp` file.

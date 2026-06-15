@@ -24,7 +24,6 @@ local function common_c()
     table.insert(opts, flag)
   end
   table.insert(opts, "-DQSTAR_VERSION=" .. QSTAR_VERSION)
-  table.insert(opts, "-DQSTAR_TARGET=" .. QSTAR_TARGET)
   return {
     public_include_dirs = {"include"},
     compile_options = opts,
@@ -40,7 +39,7 @@ qstar.staticlib "core" {
 ```
 
 공식 상수는 `QSTAR_VERSION`, `QSTAR_HOST_OS`, `QSTAR_HOST_ARCH`,
-`QSTAR_PACKAGE_ROOT`, `QSTAR_PROJECT_ROOT`, `QSTAR_PROFILE`, `QSTAR_TARGET`,
+`QSTAR_PACKAGE_ROOT`, `QSTAR_PROJECT_ROOT`,
 `qstar.version`, `qstar.host.os`, `qstar.host.arch`, `qstar.project.root`다.
 `qstar.host`는 read-only namespace다. Host별 분기는 별도 condition DSL이 아니라 일반 Lua
 `if qstar.host.os == "macos" then ... end` 형태로 작성한다.
@@ -48,7 +47,7 @@ qstar.staticlib "core" {
 ## Graph entrypoints
 
 - `qstar.project`: project metadata, `build_dir`, `generated_dir`, compile database policy.
-- `qstar.profile`: toolchain/profile declaration.
+- `qstar.toolset`: explicit compiler/archive/link/response-file/external tool role bundle.
 - `qstar.config`: reusable option bundle used through target `configs`.
 - `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`, `qstar.test`: artifact targets.
 - `qstar.custom_target`, `qstar.configure_file`: generated outputs.
@@ -58,7 +57,7 @@ qstar.staticlib "core" {
 - `qstar.target_family`: shared-source lint grouping.
 - `qstar.subdir`, `qstar.import_file`, `qstar.import_module`: explicit graph/module loading.
 
-`qstar.sharedlib`는 Darwin-like profile에서는 `.dylib`, Linux-like profile에서는 `.so`를
+`qstar.sharedlib`는 macOS host policy에서는 `.dylib`, Linux host policy에서는 `.so`를
 생성한다. sharedlib dependency를 link하는 artifact target은 build-tree 실행을 위해
 macOS `@loader_path`, Linux `$ORIGIN` 기반 rpath를 자동으로 받는다. Windows
 runtime `.dll`, import `.lib`, PDB/debug artifact 정책은 deferred diagnostic이다.
@@ -78,8 +77,8 @@ QStar는 Makefile식 `$VAR` 문자열 치환을 하지 않는다. 반복되는 p
 변수, local function, `.qsm` helper module, 그리고 아래 builtin helper로 조립한다.
 
 ```lua
-local triple = "aarch64-unknown-none-elf"
-local libc_include = qstar.join("lib/libc", triple, "include")
+local vendor = "third_party/acme"
+local vendor_include = qstar.join(vendor, "include")
 local strict = qstar.append({"-Wall"}, "-Wextra", "-Werror")
 ```
 
@@ -107,16 +106,16 @@ return M
 ## Explicit imports
 
 ```lua
-qstar.import_file("qstar/policies/freestanding.qst")
-local kernel = qstar.import_module("qstar/modules/kernel")
+qstar.import_file("qstar/policies/common.qst")
+local paths = qstar.import_module("qstar/modules/paths")
 ```
 
 `qstar.import_file`은 package-root 기준 `.qst` fragment만 읽는다. 해당 file은 graph
 declaration을 포함할 수 있고 once-only로 평가된다.
 
-`qstar.import_module`은 folder path만 받는다. `qstar.import_module("qstar/modules/kernel")`은
-`qstar/modules/kernel/kernel.qsm`을 읽고, module은 반드시 table을 반환해야 한다.
-`.qsm` 안에서는 target/profile/project/subdir/import_file 같은 graph declaration이 금지된다.
+`qstar.import_module`은 folder path만 받는다. `qstar.import_module("qstar/modules/paths")`는
+`qstar/modules/paths/paths.qsm`을 읽고, module은 반드시 table을 반환해야 한다.
+`.qsm` 안에서는 target/toolset/project/subdir/import_file 같은 graph declaration이 금지된다.
 
 ```lua
 local M = {}

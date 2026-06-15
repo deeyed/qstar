@@ -6,7 +6,7 @@
 ```txt
 status: q118 ninja architecture profiling report
 date: 2026-06-13
-ninja clone: /tmp/qstar-ninja-profile
+ninja clone: /tmp/qstar-ninja-architecture
 ninja commit: 5a7fe11
 qstar version: 0.6.0-beta
 scope: architecture profiling, no code copied from Ninja
@@ -85,7 +85,7 @@ QStar에 적용할 점:
 - Compile action이 기다려야 하는 것은 generated source, generated header, configure output
   같은 실제 compile-time file producer다. Generated object bridge는 final archive/link
   input이므로 final action edge로만 둔다.
-- Include dir, define, warning flag 같은 usage requirement는 graph/config/profile merge
+- Include dir, define, warning flag 같은 usage requirement는 graph/config/toolset merge
   결과로 compile argv에 이미 반영된다. 이것들은 dependency artifact가 아니라 authoring
   metadata이므로 build-time final artifact edge를 만들 필요가 없다.
 - action description, log path, replay path 같은 user-facing 문자열은 ready queue 구성
@@ -101,7 +101,7 @@ QStar에 적용할 점:
 
 - Stella도 action key와 output existence로 cache-hit을 판단하지만, key material을 매번
   문자열로 조립한다.
-- lowered plan cache에는 이미 계산된 action id, owner, output, argv digest, profile
+- lowered plan cache에는 이미 계산된 action id, owner, output, argv digest, toolset
   digest, input list digest를 넣고, invocation hot path에서는 파일 mtime/hash와 compact
   state만 비교하도록 한다.
 - `why-rebuild`와 `--explain-cache`용 상세 reason은 일반 build path에서 항상 만들지 말고
@@ -200,7 +200,7 @@ qstar build //:app
 
 하지만 내부적으로는 다음 순서가 되어야 한다.
 
-1. `qstar.lua`, imported `.qst`, `.qsm`, QStar version, selected profile, `-B`, `-G`,
+1. `qstar.lua`, imported `.qst`, `.qsm`, QStar version, selected toolset graph, `-B`, `-G`,
    package aliases, relevant environment fingerprint를 확인한다.
 2. fingerprint가 같으면 Lua eval과 Graph IR validation을 건너뛰고 lowered Stella Plan IR을
    읽는다.

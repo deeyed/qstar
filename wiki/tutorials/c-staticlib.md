@@ -1,6 +1,6 @@
 # Tutorial: C Static Library
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. 이 튜토리얼은
+QStar는 C/C++/ASM을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. 이 튜토리얼은
 public header를 가진 C static library를 만든다.
 
 ## 최소 예제

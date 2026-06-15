@@ -9,22 +9,22 @@ Config는 target 선언 시점에 병합되므로 사용하는 target보다 먼�
 ## Basic Form
 
 ```lua
-qstar.config "kernel_c" {
+qstar.config "module_c" {
+  toolset = "//:host",
   lang = {
     c = {
       public_include_dirs = {"include"},
-      system_include_dirs = {"sysroot/include"},
       compile_options = {
         "-std=c23",
-        "-ffreestanding",
-        "-fno-builtin",
+        "-Wall",
+        "-Wextra",
       },
     },
   },
 }
 
 qstar.staticlib "core" {
-  configs = {"//:kernel_c"},
+  configs = {"//:module_c"},
   sources = {"src/core.c"},
   lang = {
     c = {
@@ -39,11 +39,11 @@ qstar.staticlib "core" {
 `qstar.config`는 일반 `.qst` graph fragment에서 선언한다.
 
 ```lua
-qstar.import_file("qstar/policies/freestanding.qst")
+qstar.import_file("qstar/policies/common.qst")
 
 qstar.staticlib "driver" {
   configs = {
-    "//qstar/policies:kernel_c",
+    "//qstar/policies:module_c",
     "//qstar/policies:strict_warnings",
   },
   sources = {"drivers/driver.c"},
@@ -71,7 +71,7 @@ Config는 target option만 담는다.
 - `libs`, `lib_dirs`
 - `link.frameworks` for macOS-only framework names
 - `link_options`, `link_inputs`
-- `toolchain`, `stdlib`, `artifact_name`
+- `toolset`, `artifact_name`
 
 다음 field는 config에서 금지된다.
 

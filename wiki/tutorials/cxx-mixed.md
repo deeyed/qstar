@@ -1,6 +1,6 @@
 # Tutorial: C++ Mixed
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. 이 튜토리얼은
+QStar는 C/C++/ASM을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. 이 튜토리얼은
 C와 C++ source를 같은 executable에 넣고 C++ linker를 사용한다.
 
 ## 최소 예제

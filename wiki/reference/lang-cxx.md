@@ -1,6 +1,6 @@
 # C++ Language Options
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. C++ source는
+QStar는 C/C++/ASM과 external object artifact flow를 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. C++ source는
 `lang.cxx` 아래에서 standard, include, module policy를 설정한다.
 
 ## 최소 예제

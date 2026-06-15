@@ -1,6 +1,6 @@
 # Object Artifacts
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. QStar가
+QStar는 C/C++/ASM을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. QStar가
 직접 모르는 언어도 외부 compiler가 object file을 만들 수 있다면 `qstar.custom_target`과
 `qstar.output(path, {format = "object"})`로 link graph에 연결할 수 있다.
 
@@ -33,7 +33,7 @@ qstar.executable "app" {
 ## 전체 예제
 
 macOS에서 Objective-C source를 C target에 연결하려면 Objective-C 자체를 QStar language
-provider로 추가하지 않는다. 대신 package-local wrapper나 profile `path_tools`로 허용된
+provider로 추가하지 않는다. 대신 package-local wrapper나 toolset `path_tools`로 허용된
 compiler를 `qstar.custom_target`에서 호출하고, 결과 `.o`를 artifact target의 `sources`에
 넣는다.
 
@@ -45,7 +45,14 @@ qstar.project {
   generated_dir = "build/qstar/generated",
 }
 
-qstar.profile "default" {
+qstar.toolset "host" {
+  tools = {
+    c = qstar.cli {"cc"},
+    cxx = qstar.cli {"c++"},
+    asm = qstar.cli {"cc"},
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
   path_tools = {"clang"},
 }
 

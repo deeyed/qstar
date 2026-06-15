@@ -33,8 +33,8 @@ suffix and are imported through
 .Ic qstar.import_module .
 .Pp
 QStar is a generic build system.
-C, C++, and assembler are supported through language namespaces and toolchain
-profiles. Other languages can participate through generated object artifacts.
+C, C++, and assembler are supported through language namespaces and explicit
+toolsets. Other languages can participate through generated object artifacts.
 Generated actions use
 .Ic qstar.cli
 argv vectors, not shell strings.
@@ -87,11 +87,11 @@ build_dir, generated_dir, compile_commands policy, configs, and installability.
 .It Ic query
 Print one target, generated action, stage, or config by label.
 .It Ic doctor
-Inspect profile and toolchain resolution, external tools, sysroot/resource_dir,
-response file policy, depfile behavior, and writable build state.
+Inspect toolset resolution, external tools, response file policy, depfile
+behavior, and writable build state.
 .It Ic check
 Evaluate the graph and validate packages, labels, generated outputs, sources,
-headers, profiles, and file inputs without running build actions.
+headers, toolsets, and file inputs without running build actions.
 .It Ic lint
 Evaluate authoring diagnostics without executing build actions.
 .It Ic fmt
@@ -118,7 +118,7 @@ without running Ninja.
 The Ninja backend lowers C/C++/ASM compile actions,
 .Ic qstar.configure_file ,
 .Ic qstar.custom_target ,
-static libraries, shared libraries on Darwin-like and Linux-like profiles,
+static libraries, shared libraries on macOS and Linux host policies,
 executable/test links, and
 .Ic qstar.run_target
 wrappers, plus
@@ -129,7 +129,7 @@ Shared library consumers receive build-tree
 .Ar @loader_path
 or
 .Ar $ORIGIN
-rpath flags on Darwin-like and Linux-like profiles.
+rpath flags on macOS and Linux.
 Windows DLL/import-library/PDB shared library policy is deferred.
 .It Ic build
 Build using the effective generator.

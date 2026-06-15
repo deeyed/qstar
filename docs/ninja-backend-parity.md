@@ -16,13 +16,13 @@ The Ninja backend lowers:
 - `qstar.custom_target`
 - `qstar.run_target` wrapper actions
 - `qstar.group` phony aliases
-- `qstar.sharedlib` for Darwin-like and Linux-like profiles
+- `qstar.sharedlib` for macOS and Linux host policies
 - `compile_commands.json` according to project policy
 
 When an executable, test, or shared library links against a QStar `sharedlib`
 dependency, Ninja lowering emits the same build-tree runtime search path policy
-as Stella: Darwin-like profiles use `@loader_path` relative rpaths and Linux-like
-profiles use `$ORIGIN` relative rpaths. This allows the freshly built artifact
+as Stella: macOS host policies use `@loader_path` relative rpaths and Linux
+host policies use `$ORIGIN` relative rpaths. This allows the freshly built artifact
 to run from `build/qstar/out/...` without requiring a prefix install first.
 
 Ninja action ids are written into `build.ninja` as `qstar_action_id` variables
@@ -41,12 +41,13 @@ letting Ninja produce the artifacts.
 ## Deferred Surface
 
 Windows shared library policy remains deferred. QStar emits a stable diagnostic
-for Windows-like `qstar.sharedlib` profiles until `.dll`, import library, PDB,
+for Windows `qstar.sharedlib` targets until `.dll`, import library, PDB,
 runtime search path, and install layout behavior are validated on Windows.
 
-external source lowering through Ninja is also deferred by contract. external source is a
-Stella-only language-provider action in this release. Use `-G stella` for external language
-process compilation; QStar does not interpret external language or header-language semantics itself.
+Unsupported source-language lowering through Ninja is not a separate provider
+contract. Use the object artifact bridge: a `qstar.custom_target` produces
+`qstar.output(path, {format = "object"})`, and the consuming target lists that
+generated object in `sources`.
 
 ## Regression Gate
 

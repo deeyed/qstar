@@ -17,23 +17,21 @@ qstar.custom_target "generated" {
 ## 전체 예제
 
 ```lua
-qstar.custom_target "kernel_img" {
+qstar.custom_target "package_blob" {
   inputs = {
-    qstar.target_file("//:kernel"),
+    qstar.target_file("//:app"),
   },
   outputs = {
-    qstar.output("generated/kernel8.img", {
-      group = "images",
+    qstar.output("generated/app.bin", {
+      group = "packages",
     }),
   },
   command = qstar.cli {
-    "llvm-objcopy",
-    "-O",
-    "binary",
+    "tools/package-object",
     qstar.input(0),
     qstar.output(0),
   },
-  description = qstar.status("Generating binary image"),
+  description = qstar.status("Packaging app.bin"),
 }
 ```
 
@@ -104,9 +102,9 @@ Generated output도 package root 안에 있어야 한다.
 ## 관련 CLI
 
 ```sh
-qstar --file qstar.lua explain //:kernel_img
-qstar --file qstar.lua dry-run //:kernel_img
-qstar --file qstar.lua build //:kernel_img --explain-cache
+qstar --file qstar.lua explain //:package_blob
+qstar --file qstar.lua dry-run //:package_blob
+qstar --file qstar.lua build //:package_blob --explain-cache
 ```
 
 ## 관련 diagnostic

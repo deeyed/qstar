@@ -111,7 +111,7 @@ build/qstar/state/deps.db
 - authoring input fingerprint read
 - lowered action plan load
 - compact state/deps DB load
-- target/config/profile lookup table materialization
+- target/config/toolset lookup table materialization
 - repeated path/label/description formatting cache
 - file watcher event history
 
@@ -228,7 +228,7 @@ Stream이 시작된 뒤 daemon이 죽으면 client는 partial output 뒤에
 Protocol requirements:
 
 - Requests are package-root scoped.
-- Every request carries enough identity to reject build_dir/profile/generator mismatch.
+- Every request carries enough identity to reject build_dir/toolset graph/generator mismatch.
 - The daemon never accepts shell-string commands from clients.
 - The daemon does not expose arbitrary filesystem read/write RPC.
 - Build output remains compatible with normal CLI output because the daemon streams the same
@@ -299,7 +299,7 @@ Watcher invalidation classes:
 | source/header changed | Keep graph, mark affected actions dirty. |
 | generated output deleted | Mark producing/consuming action dirty. |
 | build_dir deleted | Stop daemon or mark stale. |
-| profile/toolchain input changed | Drop Graph IR and Stella Plan IR. |
+| toolset graph input changed | Drop Graph IR and Stella Plan IR. |
 
 The Q148 MVP does not bypass Stella dirty checking for source/header changes. Source/header watcher
 events are traced as `invalidation=dirty-check`; the existing compact `state.db`/`deps.db` path still

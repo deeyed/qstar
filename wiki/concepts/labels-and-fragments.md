@@ -1,6 +1,6 @@
 # Labels And Fragments
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. Label은
+QStar는 C/C++/ASM을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. Label은
 target을 가리키는 안정적인 주소이고, fragment는 큰 project를 나누는 authoring file이다.
 
 ## 최소 예제
