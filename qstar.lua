@@ -70,7 +70,9 @@ qstar.run_target "self_version" {
     qstar.target_file("//:qstar"),
     "--version",
   },
-  marker = "qstar ",
+  expect = {
+    contains = "qstar ",
+  },
 }
 
 qstar.run_target "self_check_sample" {
@@ -83,7 +85,9 @@ qstar.run_target "self_check_sample" {
     "tests/projects/c-app-lib-test/qstar.lua",
     "check",
   },
-  marker = "status ok",
+  expect = {
+    contains = "status ok",
+  },
 }
 
 qstar.run_target "self_check_graph" {
@@ -96,7 +100,9 @@ qstar.run_target "self_check_graph" {
     "qstar.lua",
     "check",
   },
-  marker = "status ok",
+  expect = {
+    contains = "status ok",
+  },
 }
 
 qstar.group "self_host" {

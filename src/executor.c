@@ -446,8 +446,8 @@ progress_node_counts(const struct qstar_sched_node *node)
 	if (node->kind == QSTAR_SCHED_RUN && node->target &&
 	    node->target->run_command.len == 1 &&
 	    strcmp(node->target->run_command.items[0], "true") == 0 &&
-	    (!node->target->run_marker || !*node->target->run_marker) &&
-	    (!node->target->run_marker_log || !*node->target->run_marker_log))
+	    (!node->target->run_expect_contains || !*node->target->run_expect_contains) &&
+	    (!node->target->run_expect_file || !*node->target->run_expect_file))
 		return 0;
 	return 1;
 }
@@ -2254,8 +2254,8 @@ static void
 write_failure_replay_detail(const struct qstar_graph *graph, const char *id,
     const struct qstar_resolved_toolchain *toolchain, char *const argv[],
     const char *description, const char *failure_kind, const char *label,
-    const char *stdout_rel, const char *stderr_rel, const char *marker,
-    const char *marker_log_rel)
+    const char *stdout_rel, const char *stderr_rel, const char *expect_contains,
+    const char *expect_file_rel)
 {
 	char path[QSTAR_PATH_MAX];
 	FILE *f;
@@ -2276,9 +2276,10 @@ write_failure_replay_detail(const struct qstar_graph *graph, const char *id,
 	fprintf(f, "label=%s\n", label && *label ? label : id);
 	fprintf(f, "stdout=%s\n", stdout_rel && *stdout_rel ? stdout_rel : "<none>");
 	fprintf(f, "stderr=%s\n", stderr_rel && *stderr_rel ? stderr_rel : "<none>");
-	fprintf(f, "marker=%s\n", marker && *marker ? marker : "<none>");
-	fprintf(f, "marker_log=%s\n", marker_log_rel && *marker_log_rel ? marker_log_rel :
-	    "<none>");
+	fprintf(f, "expect_contains=%s\n",
+	    expect_contains && *expect_contains ? expect_contains : "<none>");
+	fprintf(f, "expect_file=%s\n",
+	    expect_file_rel && *expect_file_rel ? expect_file_rel : "<none>");
 	digest = QSTAR_HASH_INIT;
 	for (i = 0; argv[i]; i++)
 		hash_str(&digest, argv[i]);
@@ -4020,13 +4021,6 @@ argv_contains(char *const argv[], const char *needle)
 	return 0;
 }
 
-/** run_target이 QEMU wrapper 성격인지 label/argv 기준으로 판별한다. */
-static int
-action_is_qemu_run(const struct qstar_target *target, char *const argv[])
-{
-	return (target && strstr(target->label, "qemu")) || argv_contains(argv, "qemu");
-}
-
 /** action id에서 사용자가 작성한 owner label을 복원한다. */
 static const char *
 action_owner_label(const struct qstar_target *target, const char *id, char *dst,
@@ -4095,8 +4089,7 @@ prepared_action_timeout_sec(const struct qstar_build_ctx *ctx,
 
 /** 실패한 executor action을 debug UX용 stable kind로 분류한다. */
 static const char *
-classify_failure_kind(const char *kind, const struct qstar_target *target,
-    char *const argv[], const char *base)
+classify_failure_kind(const char *kind, char *const argv[], const char *base)
 {
 	if (strcmp(kind, "link") == 0)
 		return "link-failure";
@@ -4106,9 +4099,6 @@ classify_failure_kind(const char *kind, const struct qstar_target *target,
 		return "objcopy-failure";
 	if (strcmp(kind, "generate") == 0)
 		return "generate-failure";
-	if (strcmp(kind, "run") == 0 && base && strcmp(base, "timeout") == 0 &&
-	    action_is_qemu_run(target, argv))
-		return "qemu-timeout";
 	if (base && *base)
 		return base;
 	return "action-failure";
@@ -4291,7 +4281,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 				const char *diag_label;
 				const char *failure_kind;
 
-				failure_kind = classify_failure_kind(kind, target, argv,
+				failure_kind = classify_failure_kind(kind, argv,
 				    "timeout");
 				diag_label = action_owner_label(target, id, label_buf,
 				    sizeof(label_buf));
@@ -4302,8 +4292,8 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 				write_failure_replay_detail(graph, id, toolchain, argv,
 				    description, failure_kind, diag_label,
 				    child_stdout_path, child_stderr_path,
-				    target ? target->run_marker : NULL,
-				    target ? target->run_marker_log : NULL);
+				    target ? target->run_expect_contains : NULL,
+				    target ? target->run_expect_file : NULL);
 				ctx->fail_count++;
 				ctx->cancelled = 1;
 				build_tracef(ctx,
@@ -4352,14 +4342,14 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		const char *diag_label;
 		const char *failure_kind;
 
-		failure_kind = classify_failure_kind(kind, target, argv, "exit-code");
+		failure_kind = classify_failure_kind(kind, argv, "exit-code");
 		diag_label = action_owner_label(target, id, label_buf, sizeof(label_buf));
 		build_tracef(ctx, "build_action id=%s status=fail exit=%d\n", id,
 		    exit_code);
 		write_failure_replay_detail(graph, id, toolchain, argv,
 		    description, failure_kind, diag_label, child_stdout_path,
-		    child_stderr_path, target ? target->run_marker : NULL,
-		    target ? target->run_marker_log : NULL);
+		    child_stderr_path, target ? target->run_expect_contains : NULL,
+		    target ? target->run_expect_file : NULL);
 		emit_action_diagnostic(ctx->out, id, kind, diag_label,
 		    failure_kind, "fail", exit_code, child_stdout_path, child_stderr_path,
 		    replay_path);
@@ -5171,20 +5161,20 @@ run_generated_actions(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	return 0;
 }
 
-/** full path 파일 안에 marker 문자열이 들어 있는지 확인한다. */
+/** full path 파일 안에 기대 문자열이 들어 있는지 확인한다. */
 static int
-file_contains_marker(const char *path, const char *marker)
+file_contains_text(const char *path, const char *text)
 {
 	FILE *f;
 	char buf[4096];
 
-	if (!marker || !*marker)
+	if (!text || !*text)
 		return 1;
 	f = fopen(path, "rb");
 	if (!f)
 		return 0;
 	while (fgets(buf, sizeof(buf), f)) {
-		if (strstr(buf, marker)) {
+		if (strstr(buf, text)) {
 			fclose(f);
 			return 1;
 		}
@@ -5193,18 +5183,19 @@ file_contains_marker(const char *path, const char *marker)
 	return 0;
 }
 
-/** run_target marker를 stdout/stderr와 선택적 serial log에서 찾는다. */
+/** run_target 기대 문자열을 stdout/stderr와 선택적 파일에서 찾는다. */
 static int
-run_marker_match(struct qstar_graph *graph, const char *id, const char *marker,
-    const char *marker_log, char *source, size_t sourcelen, char *rel, size_t rellen)
+run_expect_contains_match(struct qstar_graph *graph, const char *id,
+    const char *expect_contains, const char *expect_file, char *source, size_t sourcelen,
+    char *rel, size_t rellen)
 {
 	char name[QSTAR_PATH_MAX], stdout_rel[QSTAR_PATH_MAX], stderr_rel[QSTAR_PATH_MAX];
 	char full[QSTAR_PATH_MAX];
-	const char *sources[] = { "stdout", "stderr", "marker_log" };
+	const char *sources[] = { "stdout", "stderr", "file" };
 	const char *paths[3];
 	size_t i;
 
-	if (!marker || !*marker)
+	if (!expect_contains || !*expect_contains)
 		return 1;
 	action_log_name(id, name, sizeof(name));
 	if (build_log_rel(graph, name, ".stdout", stdout_rel, sizeof(stdout_rel)) < 0 ||
@@ -5212,12 +5203,12 @@ run_marker_match(struct qstar_graph *graph, const char *id, const char *marker,
 		return 0;
 	paths[0] = stdout_rel;
 	paths[1] = stderr_rel;
-	paths[2] = marker_log && *marker_log ? marker_log : NULL;
+	paths[2] = expect_file && *expect_file ? expect_file : NULL;
 	for (i = 0; i < 3; i++) {
 		if (!paths[i])
 			continue;
 		if (full_path_under_root(graph, paths[i], full, sizeof(full)) == 0 &&
-		    file_contains_marker(full, marker)) {
+		    file_contains_text(full, expect_contains)) {
 			snprintf(source, sourcelen, "%s", sources[i]);
 			snprintf(rel, rellen, "%s", paths[i]);
 			return 1;
@@ -5244,14 +5235,14 @@ write_run_stamp(struct qstar_graph *graph, const char *stamp)
 	return 0;
 }
 
-/** marker가 없는 `true` run_target은 과거 aggregate 우회로로 보고 no-op 처리한다. */
+/** expect가 없는 `true` run_target은 과거 aggregate 우회로로 보고 no-op 처리한다. */
 static int
 run_target_is_noop_true(const struct qstar_target *target)
 {
 	return target && target->run_command.len == 1 &&
 	    strcmp(target->run_command.items[0], "true") == 0 &&
-	    (!target->run_marker || !*target->run_marker) &&
-	    (!target->run_marker_log || !*target->run_marker_log);
+	    (!target->run_expect_contains || !*target->run_expect_contains) &&
+	    (!target->run_expect_file || !*target->run_expect_file);
 }
 
 /** qstar.run_target command를 prepared process action으로 만든다. */
@@ -5324,30 +5315,30 @@ prepare_run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	action->inputs = inputs;
 	action->outputs = outputs;
 	fprintf(ctx->out,
-	    "run_target label=%s command=argv timeout_sec=%d marker=%s marker_log=%s\n",
+	    "run_target label=%s command=argv timeout_sec=%d expect_contains=%s expect_file=%s\n",
 	    target->label, prepared_action_timeout_sec(ctx, action),
-	    target->run_marker && *target->run_marker ? target->run_marker : "<none>",
-	    target->run_marker_log && *target->run_marker_log ?
-	    target->run_marker_log : "<none>");
+	    target->run_expect_contains && *target->run_expect_contains ? target->run_expect_contains : "<none>",
+	    target->run_expect_file && *target->run_expect_file ?
+	    target->run_expect_file : "<none>");
 	return 0;
 }
 
-/** run_target process 성공 뒤 marker 검증과 stamp 생성을 마무리한다. */
+/** run_target process 성공 뒤 expect 검증과 stamp 생성을 마무리한다. */
 static int
 finish_run_target_success(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
     const struct qstar_prepared_action *action, const char *action_log)
 {
 	const struct qstar_target *target = action->target;
-	char marker_source[32], marker_path[QSTAR_PATH_MAX];
+	char expect_source[32], expect_path[QSTAR_PATH_MAX];
 	char action_name[QSTAR_PATH_MAX], stdout_rel[QSTAR_PATH_MAX];
 	char stderr_rel[QSTAR_PATH_MAX];
 
 	if (!target)
 		return 0;
-	if (target->run_marker && *target->run_marker &&
-	    !run_marker_match(graph, action->id, target->run_marker,
-	    target->run_marker_log, marker_source, sizeof(marker_source),
-	    marker_path, sizeof(marker_path))) {
+	if (target->run_expect_contains && *target->run_expect_contains &&
+	    !run_expect_contains_match(graph, action->id, target->run_expect_contains,
+	    target->run_expect_file, expect_source, sizeof(expect_source),
+	    expect_path, sizeof(expect_path))) {
 		action_log_name(action->id, action_name, sizeof(action_name));
 		if (build_log_rel(graph, action_name, ".stdout", stdout_rel,
 		    sizeof(stdout_rel)) < 0 ||
@@ -5355,29 +5346,29 @@ finish_run_target_success(struct qstar_graph *graph, struct qstar_build_ctx *ctx
 		    sizeof(stderr_rel)) < 0)
 			return qstar_set_error(graph, "qstar: action log path too long");
 		write_failure_replay_detail(graph, action->id, NULL, action->argv,
-		    action->description, "marker-missing", target->label,
-		    stdout_rel, stderr_rel, target->run_marker, target->run_marker_log);
+		    action->description, "expect-missing", target->label,
+		    stdout_rel, stderr_rel, target->run_expect_contains, target->run_expect_file);
 		if (action_log && *action_log)
-			write_action_log_text(action_log, action->argv, "marker-missing",
+			write_action_log_text(action_log, action->argv, "expect-missing",
 			    action->description);
 		ctx->fail_count++;
 		ctx->cancelled = 1;
 		fprintf(ctx->out,
-		    "run_target_result label=%s status=marker-missing marker=%s stdout=%s stderr=%s marker_log=%s replay=%s/logs/last-failure.replay\n",
-		    target->label, target->run_marker, stdout_rel, stderr_rel,
-		    target->run_marker_log && *target->run_marker_log ?
-		    target->run_marker_log : "<none>", qstar_graph_build_dir(graph));
+		    "run_target_result label=%s status=expect-missing expect_contains=%s stdout=%s stderr=%s expect_file=%s replay=%s/logs/last-failure.replay\n",
+		    target->label, target->run_expect_contains, stdout_rel, stderr_rel,
+		    target->run_expect_file && *target->run_expect_file ?
+		    target->run_expect_file : "<none>", qstar_graph_build_dir(graph));
 		return qstar_set_error_origin(graph, target->origin_file,
-		    target->origin_line, "marker", target->label,
-		    "qstar: run_target '%s' marker '%s' was not found; replay=%s/logs/last-failure.replay",
-		    target->label, target->run_marker, qstar_graph_build_dir(graph));
+		    target->origin_line, "expect.contains", target->label,
+		    "qstar: run_target '%s' expected text '%s' was not found; replay=%s/logs/last-failure.replay",
+		    target->label, target->run_expect_contains, qstar_graph_build_dir(graph));
 	}
 	if (action->outputs.len > 0 && write_run_stamp(graph, action->outputs.items[0]) < 0)
 		return -1;
-	if (target->run_marker && *target->run_marker)
+	if (target->run_expect_contains && *target->run_expect_contains)
 		fprintf(ctx->out,
-		    "run_marker label=%s status=matched marker=%s source=%s path=%s\n",
-		    target->label, target->run_marker, marker_source, marker_path);
+		    "run_expect label=%s status=matched contains=%s source=%s path=%s\n",
+		    target->label, target->run_expect_contains, expect_source, expect_path);
 	return 0;
 }
 
@@ -6141,8 +6132,8 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	    action->description);
 	owner_label = prepared_action_owner_label(action);
 	if (exit_code != 0) {
-		failure_kind = classify_failure_kind(action->kind, action->target,
-		    action->argv, "exit-code");
+			failure_kind = classify_failure_kind(action->kind, action->argv,
+			    "exit-code");
 		if (build_log_rel(graph, running->name, ".stdout", stdout_rel,
 		    sizeof(stdout_rel)) < 0)
 			snprintf(stdout_rel, sizeof(stdout_rel), "<none>");
@@ -6160,8 +6151,8 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		write_failure_replay_detail(graph, action->id, action->toolchain,
 		    action->argv, action->description, failure_kind, owner_label,
 		    stdout_rel, stderr_rel,
-		    action->target ? action->target->run_marker : NULL,
-		    action->target ? action->target->run_marker_log : NULL);
+		    action->target ? action->target->run_expect_contains : NULL,
+		    action->target ? action->target->run_expect_file : NULL);
 		emit_action_diagnostic(ctx->out, action->id, action->kind,
 		    owner_label, failure_kind, "fail", exit_code,
 		    stdout_rel, stderr_rel, replay_rel);
@@ -8352,8 +8343,8 @@ scheduler_execute(struct qstar_scheduler *sched)
 
 					owner_label = prepared_action_owner_label(running[i].action);
 					failure_kind = classify_failure_kind(
-					    running[i].action->kind, running[i].action->target,
-					    running[i].action->argv, "timeout");
+					    running[i].action->kind, running[i].action->argv,
+					    "timeout");
 					if (build_log_rel(sched->graph, running[i].name,
 					    ".stdout", stdout_rel, sizeof(stdout_rel)) < 0)
 						snprintf(stdout_rel, sizeof(stdout_rel), "<none>");
@@ -8379,9 +8370,9 @@ scheduler_execute(struct qstar_scheduler *sched)
 					    running[i].action->description, failure_kind,
 					    owner_label, stdout_rel, stderr_rel,
 					    running[i].action->target ?
-					    running[i].action->target->run_marker : NULL,
+					    running[i].action->target->run_expect_contains : NULL,
 					    running[i].action->target ?
-					    running[i].action->target->run_marker_log : NULL);
+					    running[i].action->target->run_expect_file : NULL);
 					sched->ctx->fail_count++;
 					sched->ctx->cancelled = 1;
 					build_tracef(sched->ctx,

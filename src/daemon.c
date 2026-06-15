@@ -1689,9 +1689,7 @@ watcher_refresh(struct qstar_daemon_server *server)
 		    watcher_add_list(server, &target->link_inputs,
 		    QSTAR_DAEMON_WATCH_INPUT) < 0)
 			return -1;
-		if (watcher_add_rel(server, target->run_marker,
-		    QSTAR_DAEMON_WATCH_INPUT) < 0 ||
-		    watcher_add_rel(server, target->run_marker_log,
+		if (watcher_add_rel(server, target->run_expect_file,
 		    QSTAR_DAEMON_WATCH_INPUT) < 0)
 			return -1;
 	}

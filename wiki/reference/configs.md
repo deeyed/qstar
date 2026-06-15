@@ -78,7 +78,7 @@ Config는 target option만 담는다.
 - `sources`
 - `deps`, `public_deps`, `private_deps`
 - `visibility`
-- `command`, `timeout`, `marker`, `marker_log`
+- `command`, `timeout`, `expect`
 - generated output이나 stage file
 
 언어별 option은 config에서도 target과 동일하게 반드시 `lang.*` 아래에 둔다.

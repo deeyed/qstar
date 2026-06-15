@@ -139,7 +139,7 @@ Partial cache는 error가 아니라 miss다. Stella는 cache가 부서져도 sou
 
 ```json
 {
-	  "schema": "qstar-stella-plan-cache-v6",
+	  "schema": "qstar-stella-plan-cache-v7",
 	  "qstar_version": "0.7.0-beta",
 	  "plan_abi": 5,
   "package_root": "/absolute/package/root",
@@ -506,7 +506,7 @@ Status: implemented.
 
 1. Stella executor는 성공/skip action의 per-action `.log` 파일을 clean build hot path에서
    즉시 쓰지 않는다.
-2. 실패 action, timeout, marker-missing, `last-failure` replay는 재현성을 위해 즉시 물리
+2. 실패 action, timeout, expect-missing, `last-failure` replay는 재현성을 위해 즉시 물리
    로그를 남긴다.
 3. `qstar action-log <action-id>`와 `qstar replay <action-id>`는 물리 `.log`가 없으면
    compact state와 현재 graph에서 argv/description을 lazy 재구성한다.

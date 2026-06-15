@@ -78,7 +78,7 @@ v0.3 release gate는 QStar-local corpus가 모두 새 surface로 유지되는지
 - Source-dir style corpus: `qstar/tests/projects/source-dir-style`
 - Systems firmware corpus: `qstar/tests/projects/systems-firmware`
 - Stage/package smoke: `qstar.stage`, dry-run diff, staged manifest
-- Run target smoke: timeout, marker, stdout/stderr log, replay
+- Run target smoke: timeout, expect checks, stdout/stderr log, replay
 - VSCode/LSP/lint/formatter/package corpus:
   `qstar/editors/vscode/qstar`
 

@@ -92,7 +92,7 @@
       "patterns": [
         {
           "name": "variable.parameter.qstar",
-          "match": "\\b(name|version|build_dir|generated_dir|compile_commands|configs|sources|deps|public_deps|private_deps|public_headers|private_headers|lang|c|cxx|asm|include_dirs|public_include_dirs|private_include_dirs|system_include_dirs|compile_options|defines|standard|preprocess|profile|modules|enabled|visibility|toolchain|stdlib|libs|lib_dirs|link|frameworks|link_options|link_inputs|outputs|inputs|command|description|timeout|marker|marker_log|output|root|files|include|exclude)\\b(?=\\s*=)"
+          "match": "\\b(name|version|build_dir|generated_dir|compile_commands|configs|sources|deps|public_deps|private_deps|public_headers|private_headers|lang|c|cxx|asm|include_dirs|public_include_dirs|private_include_dirs|system_include_dirs|compile_options|defines|standard|preprocess|profile|modules|enabled|visibility|toolchain|stdlib|libs|lib_dirs|link|frameworks|link_options|link_inputs|outputs|inputs|command|description|timeout|expect|contains|file|output|root|files|include|exclude)\\b(?=\\s*=)"
         }
       ]
     },

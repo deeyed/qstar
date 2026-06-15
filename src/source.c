@@ -447,13 +447,13 @@ validate_link_lists(struct qstar_graph *graph, const struct qstar_target *target
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "link_inputs", target->label,
 		    "qstar: duplicate link input '%s' in '%s'", dup, target->label);
-	if (target->run_marker_log && *target->run_marker_log &&
-	    !qstar_path_is_package_relative(target->run_marker_log))
+	if (target->run_expect_file && *target->run_expect_file &&
+	    !qstar_path_is_package_relative(target->run_expect_file))
 		return qstar_set_error_origin(graph, target->origin_file,
-		    target->origin_line, "marker_log", target->label,
-		    "qstar: run_target marker_log '%s' in '%s' must be package-relative (%s)",
-		    target->run_marker_log, target->label,
-		    qstar_path_package_relative_reason(target->run_marker_log));
+		    target->origin_line, "expect.file", target->label,
+		    "qstar: run_target expect.file '%s' in '%s' must be package-relative (%s)",
+		    target->run_expect_file, target->label,
+		    qstar_path_package_relative_reason(target->run_expect_file));
 	for (i = 0; i < target->link_inputs.len; i++)
 		if (validate_link_input_item(graph, target, target->link_inputs.items[i]) < 0)
 			return -1;

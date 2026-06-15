@@ -57,7 +57,7 @@ make qstar-ninja-backend-parity-tests
 ```
 
 The gate checks staticlib, sharedlib, sharedlib-linked executable/test,
-generated actions, configure file, run target marker handling, sharedlib
+generated actions, configure file, run target expect handling, sharedlib
 stage/install producer integration, object artifact bridge parity through
 `tests/projects/object-artifact-bridge`, action-log and replay compatibility,
 Windows sharedlib diagnostics, explicit Windows static `.lib` lowering in the

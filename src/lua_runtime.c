@@ -948,8 +948,7 @@ reject_group_action_fields(lua_State *L, int table, struct qstar_graph *graph,
 		"artifact_name",
 		"command",
 		"timeout",
-		"marker",
-		"marker_log",
+		"expect",
 	};
 	size_t i;
 
@@ -1675,8 +1674,7 @@ validate_target_fields(lua_State *L, int table, struct qstar_graph *graph)
 		"kind", "configs", "sources", "deps", "public_deps", "private_deps",
 		"visibility", "libs", "lib_dirs", "link", "link_options",
 		"link_inputs", "lang", "toolset", "toolchain", "stdlib",
-		"artifact_name", "command", "description", "timeout", "marker",
-		"marker_log", NULL
+		"artifact_name", "command", "description", "timeout", "expect", NULL
 	};
 	const char *key;
 
@@ -1692,6 +1690,89 @@ validate_target_fields(lua_State *L, int table, struct qstar_graph *graph)
 		}
 		lua_pop(L, 1);
 	}
+	return 0;
+}
+
+/** run_target expect table은 contains와 선택적 file만 허용한다. */
+static int
+read_run_expect_field(lua_State *L, int table, struct qstar_target *target,
+    struct qstar_graph *graph)
+{
+	static const char *const allowed[] = { "contains", "file", NULL };
+	const char *key, *contains, *file;
+	size_t len, i;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_getfield(L, table, "expect");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph,
+		    "qstar: run_target expect must be a table with contains and optional file");
+	}
+	lua_pushnil(L);
+	while (lua_next(L, -2) != 0) {
+		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (!key || !string_in_set(key, allowed)) {
+			lua_pop(L, 3);
+			return qstar_set_error(graph,
+			    "qstar: unknown run_target expect field '%s'",
+			    key ? key : "<non-string>");
+		}
+		lua_pop(L, 1);
+	}
+	lua_getfield(L, -1, "contains");
+	if (!lua_isstring(L, -1)) {
+		lua_pop(L, 2);
+		return qstar_set_error(graph,
+		    "qstar: run_target expect.contains must be a string");
+	}
+	contains = lua_tolstring(L, -1, &len);
+	if (!contains || len == 0) {
+		lua_pop(L, 2);
+		return qstar_set_error(graph,
+		    "qstar: run_target expect.contains must not be empty");
+	}
+	for (i = 0; i < len; i++) {
+		if (contains[i] == '\n' || contains[i] == '\r') {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: run_target expect.contains must be one line");
+		}
+	}
+	if (replace_lua_string(&target->run_expect_contains, contains, graph) < 0) {
+		lua_pop(L, 2);
+		return -1;
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, -1, "file");
+	if (!lua_isnil(L, -1)) {
+		if (!lua_isstring(L, -1)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: run_target expect.file must be a package-relative string");
+		}
+		file = lua_tostring(L, -1);
+		if (!file || !*file) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: run_target expect.file must not be empty");
+		}
+		if (!qstar_path_is_package_relative(file)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: run_target expect.file must be package-relative");
+		}
+		if (replace_lua_string(&target->run_expect_file, file, graph) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+	}
+	lua_pop(L, 2);
 	return 0;
 }
 
@@ -1818,25 +1899,15 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 			    "qstar: run_target '%s' requires command = qstar.cli { ... }",
 			    target->label);
 		target->run_timeout_sec = check_int_field(L, table_index, "timeout", 0);
-		if (target->run_timeout_sec < 0)
-			return luaL_error(L, "qstar: run_target '%s' timeout must be >= 0",
-			    target->label);
-		free(target->run_marker);
-		target->run_marker = qstar_strdup(check_string_field(L, table_index, "marker"));
-		free(target->run_marker_log);
-		target->run_marker_log = qstar_strdup(check_string_field(L, table_index,
-		    "marker_log"));
-		if (target->run_marker_log && *target->run_marker_log &&
-		    !qstar_path_is_package_relative(target->run_marker_log))
-			return luaL_error(L,
-			    "qstar: run_target '%s' marker_log must be package-relative",
-			    target->label);
-		if (!target->run_marker || !target->run_marker_log)
-			return luaL_error(L, "qstar: out of memory");
-	}
+			if (target->run_timeout_sec < 0)
+				return luaL_error(L, "qstar: run_target '%s' timeout must be >= 0",
+				    target->label);
+			if (read_run_expect_field(L, table_index, target, graph) < 0)
+				return luaL_error(L, "%s", graph->error);
+		}
 	if (!target->toolchain || !target->toolset || !target->stdlib_policy ||
 	    !target->artifact_name || !target->cxx_standard ||
-	    !target->run_marker || !target->run_marker_log)
+	    !target->run_expect_contains || !target->run_expect_file)
 		return luaL_error(L, "qstar: out of memory");
 	return 0;
 }

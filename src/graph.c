@@ -136,8 +136,8 @@ free_target(struct qstar_target *target)
 	free(target->description);
 	free(target->artifact_name);
 	free(target->cxx_standard);
-	free(target->run_marker);
-	free(target->run_marker_log);
+	free(target->run_expect_contains);
+	free(target->run_expect_file);
 	free(target->toolset);
 	free(target->toolchain);
 	free(target->stdlib_policy);
@@ -836,14 +836,14 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	target->stdlib_policy = qstar_strdup("system");
 	target->artifact_name = qstar_strdup("");
 	target->cxx_standard = qstar_strdup("");
-	target->run_marker = qstar_strdup("");
-	target->run_marker_log = qstar_strdup("");
+	target->run_expect_contains = qstar_strdup("");
+	target->run_expect_file = qstar_strdup("");
 	target->description = qstar_strdup("");
 	target->toolset = qstar_strdup("");
 	if (!target->label || !target->name || !target->kind || !target->fragment_dir ||
 	    !target->origin_file || !target->toolchain || !target->stdlib_policy ||
 	    !target->artifact_name || !target->cxx_standard ||
-	    !target->run_marker || !target->run_marker_log ||
+	    !target->run_expect_contains || !target->run_expect_file ||
 	    !target->description || !target->toolset) {
 		qstar_set_error(graph, "qstar: out of memory");
 		return NULL;
@@ -1591,9 +1591,10 @@ dump_target(const struct qstar_target *target, FILE *out)
 	fprintf(out, "  description %s\n",
 	    target->description && *target->description ? target->description : "<default>");
 	fprintf(out, "  run.timeout_sec %d\n", target->run_timeout_sec);
-	fprintf(out, "  run.marker %s\n", target->run_marker ? target->run_marker : "");
-	fprintf(out, "  run.marker_log %s\n",
-	    target->run_marker_log && *target->run_marker_log ? target->run_marker_log : "");
+	fprintf(out, "  run.expect.contains %s\n",
+	    target->run_expect_contains ? target->run_expect_contains : "");
+	fprintf(out, "  run.expect.file %s\n",
+	    target->run_expect_file && *target->run_expect_file ? target->run_expect_file : "");
 	fprintf(out, "  artifact_name %s\n",
 	    target->artifact_name && *target->artifact_name ? target->artifact_name :
 	    "<default>");
@@ -2128,10 +2129,10 @@ dump_target_json(FILE *out, const struct qstar_target *target)
 	fputs(",\"run_command\":", out);
 	dump_json_list(out, &target->run_command);
 	fprintf(out, ",\"run_timeout_sec\":%d", target->run_timeout_sec);
-	fputs(",\"run_marker\":", out);
-	dump_json_string(out, target->run_marker ? target->run_marker : "");
-	fputs(",\"run_marker_log\":", out);
-	dump_json_string(out, target->run_marker_log ? target->run_marker_log : "");
+	fputs(",\"run_expect_contains\":", out);
+	dump_json_string(out, target->run_expect_contains ? target->run_expect_contains : "");
+	fputs(",\"run_expect_file\":", out);
+	dump_json_string(out, target->run_expect_file ? target->run_expect_file : "");
 	fprintf(out, ",\"is_test\":%s", strcmp(target->kind, "test") == 0 ? "true" : "false");
 	fprintf(out, ",\"installable\":%s", qstar_target_is_installable(target) ? "true" : "false");
 	fputc('}', out);
@@ -2555,9 +2556,10 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	dump_list(out, &target->run_command);
 	fputc('\n', out);
 	fprintf(out, "  run.timeout_sec %d\n", target->run_timeout_sec);
-	fprintf(out, "  run.marker %s\n", target->run_marker ? target->run_marker : "");
-	fprintf(out, "  run.marker_log %s\n",
-	    target->run_marker_log && *target->run_marker_log ? target->run_marker_log : "");
+	fprintf(out, "  run.expect.contains %s\n",
+	    target->run_expect_contains ? target->run_expect_contains : "");
+	fprintf(out, "  run.expect.file %s\n",
+	    target->run_expect_file && *target->run_expect_file ? target->run_expect_file : "");
 	fprintf(out, "  toolchain %s\n", target->toolchain);
 	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
 	return 0;

@@ -195,8 +195,8 @@ continues to spell a generated path in source/header lists.
 
 `qstar.run_target` is for build-artifact smoke commands. It does not produce a
 normal compile/link artifact; it runs an external command after its deps are
-built, records stdout/stderr logs, supports a timeout, and can check a marker in
-stdout, stderr, or an optional package-relative serial log file.
+built, records stdout/stderr logs, supports a timeout, and can check expected text
+in stdout, stderr, or an optional package-relative file.
 
 ```lua
 qstar.run_target "smoke" {
@@ -207,20 +207,22 @@ qstar.run_target "smoke" {
     qstar.target_file("//:app"),
   },
   timeout = 5,
-  marker = "OK",
-  marker_log = "serial.log",
+  expect = {
+    contains = "OK",
+    file = "smoke.log",
+  },
 }
 ```
 
 Round 56부터 QEMU smoke도 dedicated keyword가 아니라 `run_target` 위에 표현한다.
-Wrapper script가 serial output을 file로 저장하면 `marker_log`에 그 path를 둔다.
-QStar는 marker missing, timeout, nonzero exit code를 각각
-`status=marker-missing`, `status=timeout`, `status=exit-code`로 분리하고,
+Wrapper script가 추가 output을 file로 저장하면 `expect.file`에 그 path를 둔다.
+QStar는 expected text missing, timeout, nonzero exit code를 각각
+`status=expect-missing`, `status=timeout`, `status=exit-code`로 분리하고,
 `build/qstar/logs/last-failure.replay`와 action log에 재현 command를 남긴다.
 Round 59에서는 이 실패 surface를 release hardening 단계로 올려
 `qstar-action-diagnostic-v1` JSON record도 함께 출력한다. Link failure, objcopy
-failure, package/stage failure, QEMU timeout은 각각 `link-failure`,
-`objcopy-failure`, `package-failure`, `qemu-timeout`으로 분리된다. Systems/firmware
+failure, package/stage failure, run timeout은 각각 `link-failure`,
+`objcopy-failure`, `package-failure`, `timeout`으로 분리된다. Systems/firmware
 graph는 link, raw image transform, staging, smoke wrapper가 연쇄되므로,
 각 단계의 실패 원인이 같은 `last-failure`/`replay` UX와 machine-readable diagnostic에
 남아야 한다.
@@ -228,7 +230,7 @@ graph는 link, raw image transform, staging, smoke wrapper가 연쇄되므로,
 `qstar.target_file("//pkg:target")` resolves to the primary artifact path for
 that target. UEFI/RPi/firmware-style flows should be expressed with ordinary rules:
 compile/link targets, `custom_target` for `llvm-objcopy` or image generation,
-and `run_target` for QEMU or serial-log smoke commands. QStar does not need
+and `run_target` for external smoke commands. QStar does not need
 built-in `uefi_app` or `embed_binary` keywords for v0.2.
 
 ## External tool command policy

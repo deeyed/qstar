@@ -1714,11 +1714,11 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 		dump_list(out, &target->run_command);
 		fputc('\n', out);
 		fprintf(out, "  run.timeout_sec %d\n", target->run_timeout_sec);
-		fprintf(out, "  run.marker %s\n",
-		    target->run_marker && *target->run_marker ? target->run_marker : "<none>");
-		fprintf(out, "  run.marker_log %s\n",
-		    target->run_marker_log && *target->run_marker_log ?
-		    target->run_marker_log : "<none>");
+		fprintf(out, "  run.expect.contains %s\n",
+		    target->run_expect_contains && *target->run_expect_contains ? target->run_expect_contains : "<none>");
+		fprintf(out, "  run.expect.file %s\n",
+		    target->run_expect_file && *target->run_expect_file ?
+		    target->run_expect_file : "<none>");
 		snprintf(id, sizeof(id), "%s:run:0", target->label);
 		if (qstar_action_description_run(target, description,
 		    sizeof(description)) < 0)

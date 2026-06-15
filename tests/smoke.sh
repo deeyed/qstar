@@ -222,7 +222,7 @@ test -f "$tmp/build/qstar/stella/manifest.json" || fail "missing Stella plan cac
 test -f "$tmp/build/qstar/stella/inputs.json" || fail "missing Stella plan cache inputs"
 test -f "$tmp/build/qstar/stella/graph.qsg" || fail "missing Stella graph cache"
 test -f "$tmp/build/qstar/stella/actions.qsa" || fail "missing Stella action plan cache"
-contains "$tmp/build/qstar/stella/manifest.json" "\"schema\":\"qstar-stella-plan-cache-v6\""
+contains "$tmp/build/qstar/stella/manifest.json" "\"schema\":\"qstar-stella-plan-cache-v7\""
 contains "$tmp/build/qstar/stella/actions.qsa" "qstar-stella-actions-cache-v1"
 test -f "$tmp/build/qstar/compile_commands.json" || fail "missing compile_commands.json"
 contains "$tmp/build/qstar/compile_commands.json" "src/main.c"
@@ -1039,14 +1039,18 @@ qstar.run_target "smoke" {
   deps = {"//:app"},
   command = qstar.cli {qstar.target_file("//:app")},
   timeout = 3,
-  marker = "APP-OK",
+  expect = {
+    contains = "APP-OK",
+  },
 }
 
-qstar.run_target "missing_marker" {
+qstar.run_target "missing_expect" {
   deps = {"//:app"},
   command = qstar.cli {qstar.target_file("//:app")},
   timeout = 3,
-  marker = "MISSING-MARKER",
+  expect = {
+    contains = "MISSING-EXPECT",
+  },
 }
 
 qstar.stage "bundle" {
@@ -1097,22 +1101,22 @@ if command -v ninja >/dev/null 2>&1; then
 	contains "$tmp/ninja-parity-test.out" "test_result label=//:unit status=pass"
 	"$qstar" --file "$tmp/ninja-parity/qstar.lua" -G ninja build //:smoke > "$tmp/ninja-parity-run.out" 2> "$tmp/ninja-parity-run.err"
 	contains "$tmp/ninja-parity-run.out" "run_target label=//:smoke"
-	contains "$tmp/ninja-parity-run.out" "run_marker label=//:smoke status=matched"
+	contains "$tmp/ninja-parity-run.out" "run_expect label=//:smoke status=matched contains=APP-OK"
 	contains "$tmp/ninja-parity-run.out" "run_target_result label=//:smoke status=pass"
 	"$qstar" --file "$tmp/ninja-parity/qstar.lua" action-log //:smoke:run:0 > "$tmp/ninja-parity-run-log.out" 2> "$tmp/ninja-parity-run-log.err"
 	contains "$tmp/ninja-parity-run-log.out" "qstar action-log v1"
 	contains "$tmp/ninja-parity-run-log.out" "backend=ninja"
 	contains "$tmp/ninja-parity-run-log.out" "build/qstar/out/___app/app"
-	if "$qstar" --file "$tmp/ninja-parity/qstar.lua" -G ninja build //:missing_marker > "$tmp/ninja-parity-run-missing.out" 2> "$tmp/ninja-parity-run-missing.err"; then
-		fail "ninja marker-missing run_target unexpectedly succeeded"
+	if "$qstar" --file "$tmp/ninja-parity/qstar.lua" -G ninja build //:missing_expect > "$tmp/ninja-parity-run-missing.out" 2> "$tmp/ninja-parity-run-missing.err"; then
+		fail "ninja expect-missing run_target unexpectedly succeeded"
 	fi
 	cat "$tmp/ninja-parity-run-missing.out" "$tmp/ninja-parity-run-missing.err" > "$tmp/ninja-parity-run-missing.combined"
-	contains "$tmp/ninja-parity-run-missing.combined" "run_target_result label=//:missing_marker status=marker-missing"
-	contains "$tmp/ninja-parity/build/qstar/logs/last-failure.replay" "failure_kind=marker-missing"
+	contains "$tmp/ninja-parity-run-missing.combined" "run_target_result label=//:missing_expect status=expect-missing"
+	contains "$tmp/ninja-parity/build/qstar/logs/last-failure.replay" "failure_kind=expect-missing"
 	"$qstar" --file "$tmp/ninja-parity/qstar.lua" last-failure > "$tmp/ninja-parity-last-failure.out" 2> "$tmp/ninja-parity-last-failure.err"
 	contains "$tmp/ninja-parity-last-failure.out" "qstar last-failure v1"
-	contains "$tmp/ninja-parity-last-failure.out" "label=//:missing_marker"
-	contains "$tmp/ninja-parity-last-failure.out" "failure_kind=marker-missing"
+	contains "$tmp/ninja-parity-last-failure.out" "label=//:missing_expect"
+	contains "$tmp/ninja-parity-last-failure.out" "failure_kind=expect-missing"
 	"$qstar" --file "$tmp/ninja-parity/qstar.lua" -G ninja stage //:bundle > "$tmp/ninja-parity-stage.out" 2> "$tmp/ninja-parity-stage.err"
 	contains "$tmp/ninja-parity-stage.out" "backend ninja"
 	contains "$tmp/ninja-parity-stage.out" "stage_file src=build/qstar/out/___app/app dst=stage/bundle/bin/app mode=copy"
@@ -2396,6 +2400,26 @@ if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-config.out" 2> "$t
 fi
 contains "$tmp/old-config.err" "qstar.config_header removed; use qstar.configure_file"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
+qstar.run_target "smoke" {
+  command = qstar.cli {"true"},
+  marker = "OK",
+}
+EOF
+if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-marker.out" 2> "$tmp/old-marker.err"; then
+	fail "removed run_target marker unexpectedly succeeded"
+fi
+contains "$tmp/old-marker.err" "unknown target field 'marker'"
+cat > "$tmp/old-api/qstar.lua" <<'EOF'
+qstar.run_target "smoke" {
+  command = qstar.cli {"true"},
+  marker_log = "smoke.log",
+}
+EOF
+if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-marker-log.out" 2> "$tmp/old-marker-log.err"; then
+	fail "removed run_target marker_log unexpectedly succeeded"
+fi
+contains "$tmp/old-marker-log.err" "unknown target field 'marker_log'"
+cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.executable "app" {
   include_dirs = {"include"},
 }
@@ -2737,10 +2761,12 @@ qstar.run_target "smoke" {
   timeout = 5,
 }
 
-qstar.run_target "marker" {
-  command = qstar.cli {"printf", "QSTAR-MARKER\n"},
+qstar.run_target "expect" {
+  command = qstar.cli {"printf", "QSTAR-EXPECT\n"},
   timeout = 5,
-  marker = "QSTAR-MARKER",
+  expect = {
+    contains = "QSTAR-EXPECT",
+  },
 }
 EOF
 
@@ -2763,24 +2789,24 @@ contains "$tmp/run-target-smoke.out" "status ok"
 "$qstar" --file "$tmp/qstar.lua" -B build/async-run build //:smoke --schedule-trace --progress off --color never > "$tmp/run-target-async.out" 2> "$tmp/run-target-async.err"
 contains "$tmp/run-target-async.out" "schedule_action id=//:smoke:run:0 kind=run slot="
 contains "$tmp/run-target-async.out" "parallel_event target=//:smoke event=start id=//:smoke:run:0"
-"$qstar" --file "$tmp/qstar.lua" build //:marker > "$tmp/run-target-marker.out" 2> "$tmp/run-target-marker.err"
-contains "$tmp/run-target-marker.out" "run_marker label=//:marker status=matched"
-contains "$tmp/run-target-marker.out" "status ok"
+"$qstar" --file "$tmp/qstar.lua" build //:expect > "$tmp/run-target-expect.out" 2> "$tmp/run-target-expect.err"
+contains "$tmp/run-target-expect.out" "run_expect label=//:expect status=matched contains=QSTAR-EXPECT"
+contains "$tmp/run-target-expect.out" "status ok"
 
 mkdir -p "$tmp/qemu/tools"
 cat > "$tmp/qemu/tools/fake-qemu.sh" <<'EOF'
 #!/bin/sh
 set -eu
 mode=$1
-serial=$2
+log=$2
 case "$mode" in
 	ok)
 		printf "booting\n"
-		printf "SERIAL-READY\n" > "$serial"
+		printf "SMOKE-READY\n" > "$log"
 		;;
 	missing)
-		printf "booting without marker\n"
-		printf "NO-MARKER\n" > "$serial"
+		printf "booting without expected text\n"
+		printf "NO-EXPECT\n" > "$log"
 		;;
 	exit)
 		printf "fatal boot error\n" >&2
@@ -2794,52 +2820,60 @@ EOF
 chmod +x "$tmp/qemu/tools/fake-qemu.sh"
 cat > "$tmp/qemu/qstar.lua" <<'EOF'
 qstar.run_target "qemu_ok" {
-  command = qstar.cli {"tools/fake-qemu.sh", "ok", "serial.log"},
+  command = qstar.cli {"tools/fake-qemu.sh", "ok", "smoke.log"},
   timeout = 2,
-  marker = "SERIAL-READY",
-  marker_log = "serial.log",
+  expect = {
+    contains = "SMOKE-READY",
+    file = "smoke.log",
+  },
 }
 
-qstar.run_target "qemu_marker_missing" {
-  command = qstar.cli {"tools/fake-qemu.sh", "missing", "serial.log"},
+qstar.run_target "qemu_expect_missing" {
+  command = qstar.cli {"tools/fake-qemu.sh", "missing", "smoke.log"},
   timeout = 2,
-  marker = "SERIAL-READY",
-  marker_log = "serial.log",
+  expect = {
+    contains = "SMOKE-READY",
+    file = "smoke.log",
+  },
 }
 
 qstar.run_target "qemu_exit" {
-  command = qstar.cli {"tools/fake-qemu.sh", "exit", "serial.log"},
+  command = qstar.cli {"tools/fake-qemu.sh", "exit", "smoke.log"},
   timeout = 2,
-  marker = "SERIAL-READY",
-  marker_log = "serial.log",
+  expect = {
+    contains = "SMOKE-READY",
+    file = "smoke.log",
+  },
 }
 
 qstar.run_target "qemu_timeout" {
-  command = qstar.cli {"tools/fake-qemu.sh", "timeout", "serial.log"},
+  command = qstar.cli {"tools/fake-qemu.sh", "timeout", "smoke.log"},
   timeout = 1,
-  marker = "SERIAL-READY",
-  marker_log = "serial.log",
+  expect = {
+    contains = "SMOKE-READY",
+    file = "smoke.log",
+  },
 }
 EOF
 "$qstar" --file "$tmp/qemu/qstar.lua" build //:qemu_ok > "$tmp/qemu-ok.out" 2> "$tmp/qemu-ok.err"
-contains "$tmp/qemu-ok.out" "run_target label=//:qemu_ok command=argv timeout_sec=2 marker=SERIAL-READY marker_log=serial.log"
-contains "$tmp/qemu-ok.out" "run_marker label=//:qemu_ok status=matched marker=SERIAL-READY source=marker_log path=serial.log"
+contains "$tmp/qemu-ok.out" "run_target label=//:qemu_ok command=argv timeout_sec=2 expect_contains=SMOKE-READY expect_file=smoke.log"
+contains "$tmp/qemu-ok.out" "run_expect label=//:qemu_ok status=matched contains=SMOKE-READY source=file path=smoke.log"
 contains "$tmp/qemu-ok.out" "status ok"
-if "$qstar" --file "$tmp/qemu/qstar.lua" build //:qemu_marker_missing > "$tmp/qemu-missing.out" 2> "$tmp/qemu-missing.err"; then
-	fail "qemu marker missing unexpectedly succeeded"
+if "$qstar" --file "$tmp/qemu/qstar.lua" build //:qemu_expect_missing > "$tmp/qemu-missing.out" 2> "$tmp/qemu-missing.err"; then
+	fail "qemu expect missing unexpectedly succeeded"
 fi
-contains "$tmp/qemu-missing.out" "run_target_result label=//:qemu_marker_missing status=marker-missing marker=SERIAL-READY"
-contains "$tmp/qemu-missing.out" "marker_log=serial.log"
-contains "$tmp/qemu-missing.err" "marker 'SERIAL-READY' was not found"
-contains "$tmp/qemu/build/qstar/logs/last-failure.replay" "failure_kind=marker-missing"
-contains "$tmp/qemu/build/qstar/logs/last-failure.replay" "marker_log=serial.log"
+contains "$tmp/qemu-missing.out" "run_target_result label=//:qemu_expect_missing status=expect-missing expect_contains=SMOKE-READY"
+contains "$tmp/qemu-missing.out" "expect_file=smoke.log"
+contains "$tmp/qemu-missing.err" "expected text 'SMOKE-READY' was not found"
+contains "$tmp/qemu/build/qstar/logs/last-failure.replay" "failure_kind=expect-missing"
+contains "$tmp/qemu/build/qstar/logs/last-failure.replay" "expect_file=smoke.log"
 "$qstar" --file "$tmp/qemu/qstar.lua" last-failure > "$tmp/qemu-last-failure.out" 2> "$tmp/qemu-last-failure.err"
 contains "$tmp/qemu-last-failure.out" "qstar last-failure v1"
-contains "$tmp/qemu-last-failure.out" "failure_kind=marker-missing"
-contains "$tmp/qemu-last-failure.out" "tools/fake-qemu.sh missing serial.log"
-"$qstar" --file "$tmp/qemu/qstar.lua" replay //:qemu_marker_missing:run:0 > "$tmp/qemu-replay.out" 2> "$tmp/qemu-replay.err"
+contains "$tmp/qemu-last-failure.out" "failure_kind=expect-missing"
+contains "$tmp/qemu-last-failure.out" "tools/fake-qemu.sh missing smoke.log"
+"$qstar" --file "$tmp/qemu/qstar.lua" replay //:qemu_expect_missing:run:0 > "$tmp/qemu-replay.out" 2> "$tmp/qemu-replay.err"
 contains "$tmp/qemu-replay.out" "qstar replay v1"
-contains "$tmp/qemu-replay.out" "tools/fake-qemu.sh missing serial.log"
+contains "$tmp/qemu-replay.out" "tools/fake-qemu.sh missing smoke.log"
 if "$qstar" --file "$tmp/qemu/qstar.lua" build //:qemu_exit > "$tmp/qemu-exit.out" 2> "$tmp/qemu-exit.err"; then
 	fail "qemu exit failure unexpectedly succeeded"
 fi
@@ -2851,9 +2885,9 @@ if "$qstar" --file "$tmp/qemu/qstar.lua" build //:qemu_timeout > "$tmp/qemu-time
 fi
 contains "$tmp/qemu-timeout.out" "run_target_result label=//:qemu_timeout status=timeout timeout_sec=1"
 contains "$tmp/qemu-timeout.out" "action_diagnostic_json"
-contains "$tmp/qemu-timeout.out" "\"failure_kind\":\"qemu-timeout\""
+contains "$tmp/qemu-timeout.out" "\"failure_kind\":\"timeout\""
 contains "$tmp/qemu-timeout.err" "timed out after 1 seconds"
-contains "$tmp/qemu/build/qstar/logs/last-failure.replay" "failure_kind=qemu-timeout"
+contains "$tmp/qemu/build/qstar/logs/last-failure.replay" "failure_kind=timeout"
 
 mkdir -p "$tmp/qstar/status"
 cat > "$tmp/qstar/status/status.qsm" <<'EOF'
@@ -3886,8 +3920,8 @@ test -f "$tmp/project-firmware/stage/rpi/kernel8.img" || fail "systems firmware 
 contains "$tmp/project-firmware/build/qstar/stage/___rpi/manifest.json" "\"dst\":\"stage/rpi/kernel8.img\""
 "$qstar" --file "$tmp/project-firmware/qstar.lua" build //:qemu_smoke > "$tmp/project-firmware-qemu.out" 2> "$tmp/project-firmware-qemu.err"
 contains "$tmp/project-firmware-qemu.out" "run_target label=//:qemu_smoke"
-contains "$tmp/project-firmware-qemu.out" "run_marker label=//:qemu_smoke status=matched marker=QSTAR-SMOKE-DONE source=marker_log path=serial.log"
-contains "$tmp/project-firmware/serial.log" "QSTAR-SMOKE-DONE"
+contains "$tmp/project-firmware-qemu.out" "run_expect label=//:qemu_smoke status=matched contains=QSTAR-SMOKE-DONE source=file path=smoke.log"
+contains "$tmp/project-firmware/smoke.log" "QSTAR-SMOKE-DONE"
 "$qstar" --file "$tmp/project-firmware/qstar.lua" --target x86_64-pc-windows-msvc --toolchain clang dry-run //:uefi_boot > "$tmp/project-firmware-uefi-dry.out" 2> "$tmp/project-firmware-uefi-dry.err"
 contains "$tmp/project-firmware-uefi-dry.out" "response_style=msvc"
 contains "$tmp/project-firmware-uefi-dry.out" "/out:build/qstar/out/___uefi_boot/BOOTX64.EFI"
@@ -3966,11 +4000,11 @@ if "$qstar" --file "$tmp/project-firmware-qemu-timeout/qstar.lua" --diagnostics 
 	fail "systems firmware qemu timeout unexpectedly succeeded"
 fi
 contains "$tmp/project-firmware-qemu-timeout.out" "run_target_result label=//:qemu_smoke status=timeout timeout_sec=3"
-contains "$tmp/project-firmware-qemu-timeout.out" "\"failure_kind\":\"qemu-timeout\""
-contains "$tmp/project-firmware-qemu-timeout.err" "\"field\":\"qemu-timeout\""
-contains "$tmp/project-firmware-qemu-timeout/build/qstar/logs/last-failure.replay" "failure_kind=qemu-timeout"
+contains "$tmp/project-firmware-qemu-timeout.out" "\"failure_kind\":\"timeout\""
+contains "$tmp/project-firmware-qemu-timeout.err" "\"field\":\"timeout\""
+contains "$tmp/project-firmware-qemu-timeout/build/qstar/logs/last-failure.replay" "failure_kind=timeout"
 "$qstar" --file "$tmp/project-firmware-qemu-timeout/qstar.lua" last-failure > "$tmp/project-firmware-qemu-last.out" 2> "$tmp/project-firmware-qemu-last.err"
-contains "$tmp/project-firmware-qemu-last.out" "failure_kind=qemu-timeout"
+contains "$tmp/project-firmware-qemu-last.out" "failure_kind=timeout"
 
 cp -R "$project_root/systems-firmware" "$tmp/project-firmware-cache-tool"
 "$qstar" --file "$tmp/project-firmware-cache-tool/qstar.lua" build //:kernel > "$tmp/project-firmware-cache-tool-kernel.out" 2> "$tmp/project-firmware-cache-tool-kernel.err"

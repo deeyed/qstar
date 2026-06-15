@@ -22,21 +22,23 @@ qstar.run_target "qemu_smoke" {
   command = qstar.cli {
     "tools/qemu-smoke.sh",
     qstar.target_file("//:kernel_img"),
-    "serial.log",
+    "smoke.log",
   },
   timeout = 3,
-  marker = "QSTAR-SMOKE-DONE",
-  marker_log = "serial.log",
+  expect = {
+    contains = "QSTAR-SMOKE-DONE",
+    file = "smoke.log",
+  },
   description = qstar.status("Running emulator smoke"),
 }
 ```
 
 QStar는 QEMU 자체를 special target으로 알지 않는다. Run target은 command, timeout,
-marker check, log/replay를 제공하는 generic surface다.
+expect check, log/replay를 제공하는 generic surface다.
 `description = qstar.status("...")`를 지정하면 build progress line에서 run target label 대신
 사용자가 정한 status message가 표시된다. 실패하면 `qstar last-failure`와 `qstar replay`에도
 같은 `description=` metadata가 포함된다.
-`-G ninja`에서도 wrapper action으로 lowering되며, marker/timeout/exit-code replay
+`-G ninja`에서도 wrapper action으로 lowering되며, expect/timeout/exit-code replay
 계약은 `stella` backend와 같은 failure kind를 사용한다.
 
 ## 실패 예제
@@ -45,11 +47,13 @@ marker check, log/replay를 제공하는 generic surface다.
 qstar.run_target "bad" {
   command = qstar.cli {"tools/qemu-smoke.sh"},
   timeout = 1,
-  marker = "READY",
+  expect = {
+    contains = "READY",
+  },
 }
 ```
 
-Command가 marker를 출력하지 않으면 marker-missing으로 실패한다.
+Command가 expected text를 출력하지 않으면 expect-missing으로 실패한다.
 
 ## 관련 CLI
 
@@ -61,6 +65,6 @@ qstar --file qstar.lua replay //:qemu_smoke:run:0
 
 ## 관련 diagnostic
 
-- `failure_kind=marker-missing`
-- `failure_kind=qemu-timeout`
+- `failure_kind=expect-missing`
+- `failure_kind=timeout`
 - `failure_kind=exit-code`

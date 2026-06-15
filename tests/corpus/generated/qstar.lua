@@ -56,7 +56,9 @@ qstar.run_target "smoke" {
   deps = {"//:app"},
   command = qstar.cli {qstar.target_file("//:app")},
   timeout = 3,
-  marker = "GENERATED-OK",
+  expect = {
+    contains = "GENERATED-OK",
+  },
   description = qstar.status("Running generated smoke"),
 }
 

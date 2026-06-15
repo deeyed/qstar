@@ -8,7 +8,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v6"
+#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v7"
 #define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v1"
 #define QSTAR_STELLA_ACTION_MAGIC "qstar-stella-actions-cache-v1"
 #define QSTAR_STELLA_PLAN_ABI 7
@@ -400,8 +400,8 @@ write_target(FILE *f, const struct qstar_target *t)
 	WSTR(description);
 	WSTR(artifact_name);
 	WSTR(cxx_standard);
-	WSTR(run_marker);
-	WSTR(run_marker_log);
+	WSTR(run_expect_contains);
+	WSTR(run_expect_file);
 	if (write_i32(f, t->run_timeout_sec) < 0 ||
 	    write_i32(f, t->asm_preprocess) < 0 ||
 	    write_i32(f, t->cxx_modules_present) < 0 ||
@@ -457,8 +457,8 @@ read_target(FILE *f, struct qstar_target *t)
 	RSTR(description);
 	RSTR(artifact_name);
 	RSTR(cxx_standard);
-	RSTR(run_marker);
-	RSTR(run_marker_log);
+	RSTR(run_expect_contains);
+	RSTR(run_expect_file);
 	if (read_i32(f, &t->run_timeout_sec) < 0 ||
 	    read_i32(f, &t->asm_preprocess) < 0 ||
 	    read_i32(f, &t->cxx_modules_present) < 0 ||

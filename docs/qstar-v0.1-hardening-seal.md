@@ -109,7 +109,7 @@ staging, UEFI PE/COFF profile output, and QEMU wrapper smoke without adding
 board-specific QStar keywords.
 
 Round 59 release hardening adds failure diagnostics over this corpus. Link
-failure, objcopy/image transform failure, package/stage failure, and QEMU timeout
+failure, objcopy/image transform failure, package/stage failure, and run timeout
 must be visible as separate `failure_kind` values in stdout JSON diagnostics,
 stderr diagnostics, `qstar last-failure`, and `qstar replay`. The intent is that
 users can identify the failing stage without reverse-engineering a

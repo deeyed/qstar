@@ -90,8 +90,10 @@
       "  deps = {\"${2://:app}\"},",
       "  command = qstar.cli {qstar.target_file(\"${2://:app}\")},",
       "  timeout = ${3:5},",
-      "  marker = \"${4:OK}\",",
-      "  marker_log = \"${5:serial.log}\",",
+      "  expect = {",
+      "    contains = \"${4:OK}\",",
+      "    file = \"${5:smoke.log}\",",
+      "  },",
       "  description = qstar.status(\"${6:Running smoke target}\"),",
       "}"
     ],

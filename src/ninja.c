@@ -520,7 +520,7 @@ shell_argv(FILE *f, const struct ninja_argv *argv)
 	}
 }
 
-/** Ninja variable value에서 special marker를 escape해 한 줄로 출력한다. */
+/** Ninja variable value에서 special token을 escape해 한 줄로 출력한다. */
 static void
 ninja_var_text(FILE *f, const char *s)
 {
@@ -1050,14 +1050,14 @@ write_run_script(struct qstar_graph *graph, const struct qstar_target *target,
 	fputs("set -u\n", f);
 	fputs("label=", f);
 	shell_arg(f, target->label);
-	fputs("\nmarker=", f);
-	shell_arg(f, target->run_marker && *target->run_marker ? target->run_marker : "");
-	fputs("\nmarker_log_path=", f);
-	shell_arg(f, target->run_marker_log && *target->run_marker_log ?
-	    target->run_marker_log : "");
-	fputs("\nmarker_log_display=", f);
-	shell_arg(f, target->run_marker_log && *target->run_marker_log ?
-	    target->run_marker_log : "<none>");
+	fputs("\nexpect_contains=", f);
+	shell_arg(f, target->run_expect_contains && *target->run_expect_contains ? target->run_expect_contains : "");
+	fputs("\nexpect_file_path=", f);
+	shell_arg(f, target->run_expect_file && *target->run_expect_file ?
+	    target->run_expect_file : "");
+	fputs("\nexpect_file_display=", f);
+	shell_arg(f, target->run_expect_file && *target->run_expect_file ?
+	    target->run_expect_file : "<none>");
 	fputs("\nstdout=", f);
 	shell_arg(f, stdout_rel);
 	fputs("\nstderr=", f);
@@ -1086,15 +1086,15 @@ write_run_script(struct qstar_graph *graph, const struct qstar_target *target,
 	fputs("    printf 'label=%s\\n' \"$label\"\n", f);
 	fputs("    printf 'stdout=%s\\n' \"$stdout\"\n", f);
 	fputs("    printf 'stderr=%s\\n' \"$stderr\"\n", f);
-	fputs("    if [ -n \"$marker\" ]; then printf 'marker=%s\\n' \"$marker\"; else printf '%s\\n' 'marker=<none>'; fi\n", f);
-	fputs("    printf 'marker_log=%s\\n' \"$marker_log_display\"\n", f);
+	fputs("    if [ -n \"$expect_contains\" ]; then printf 'expect_contains=%s\\n' \"$expect_contains\"; else printf '%s\\n' 'expect_contains=<none>'; fi\n", f);
+	fputs("    printf 'expect_file=%s\\n' \"$expect_file_display\"\n", f);
 	fputs("    printf '%s\\n' 'response_file path=<none> style=none digest=<none>'\n", f);
 	fputs("    cat <<'QSTAR_REPLAY_CMD'\n", f);
 	shell_argv(f, argv);
 	fputs("\nQSTAR_REPLAY_CMD\n", f);
 	fputs("  } > \"$replay\"\n", f);
 	fputs("}\n", f);
-	fputs("printf 'run_target label=%s command=argv timeout_sec=%d marker=%s marker_log=%s backend=ninja\\n' \"$label\" \"$timeout\" \"${marker:-<none>}\" \"$marker_log_display\"\n", f);
+	fputs("printf 'run_target label=%s command=argv timeout_sec=%d expect_contains=%s expect_file=%s backend=ninja\\n' \"$label\" \"$timeout\" \"${expect_contains:-<none>}\" \"$expect_file_display\"\n", f);
 	fputs("rm -f \"$stdout\" \"$stderr\"\n", f);
 	fputs("timeout_flag=\"$stamp.timeout\"\n", f);
 	fputs("rm -f \"$timeout_flag\"\n", f);
@@ -1127,19 +1127,19 @@ write_run_script(struct qstar_graph *graph, const struct qstar_target *target,
 	fputs("  printf 'run_target_result label=%s status=exit-code exit=%d replay=%s stdout=%s stderr=%s backend=ninja\\n' \"$label\" \"$rc\" \"$replay\" \"$stdout\" \"$stderr\"\n", f);
 	fputs("  exit \"$rc\"\n", f);
 	fputs("fi\n", f);
-	fputs("if [ -n \"$marker\" ]; then\n", f);
+	fputs("if [ -n \"$expect_contains\" ]; then\n", f);
 	fputs("  found=0\n", f);
 	fputs("  source=stdout\n", f);
 	fputs("  path=$stdout\n", f);
-	fputs("  if grep -F -- \"$marker\" \"$stdout\" >/dev/null 2>&1; then found=1; fi\n", f);
-	fputs("  if [ \"$found\" -eq 0 ] && grep -F -- \"$marker\" \"$stderr\" >/dev/null 2>&1; then found=1; source=stderr; path=$stderr; fi\n", f);
-	fputs("  if [ \"$found\" -eq 0 ] && [ -n \"$marker_log_path\" ] && [ -f \"$marker_log_path\" ] && grep -F -- \"$marker\" \"$marker_log_path\" >/dev/null 2>&1; then found=1; source=marker_log; path=$marker_log_path; fi\n", f);
+	fputs("  if grep -F -- \"$expect_contains\" \"$stdout\" >/dev/null 2>&1; then found=1; fi\n", f);
+	fputs("  if [ \"$found\" -eq 0 ] && grep -F -- \"$expect_contains\" \"$stderr\" >/dev/null 2>&1; then found=1; source=stderr; path=$stderr; fi\n", f);
+	fputs("  if [ \"$found\" -eq 0 ] && [ -n \"$expect_file_path\" ] && [ -f \"$expect_file_path\" ] && grep -F -- \"$expect_contains\" \"$expect_file_path\" >/dev/null 2>&1; then found=1; source=file; path=$expect_file_path; fi\n", f);
 	fputs("  if [ \"$found\" -eq 0 ]; then\n", f);
-	fputs("    write_replay marker-missing\n", f);
-	fputs("    printf 'run_target_result label=%s status=marker-missing marker=%s stdout=%s stderr=%s marker_log=%s replay=%s backend=ninja\\n' \"$label\" \"$marker\" \"$stdout\" \"$stderr\" \"$marker_log_display\" \"$replay\"\n", f);
+	fputs("    write_replay expect-missing\n", f);
+	fputs("    printf 'run_target_result label=%s status=expect-missing expect_contains=%s stdout=%s stderr=%s expect_file=%s replay=%s backend=ninja\\n' \"$label\" \"$expect_contains\" \"$stdout\" \"$stderr\" \"$expect_file_display\" \"$replay\"\n", f);
 	fputs("    exit 125\n", f);
 	fputs("  fi\n", f);
-	fputs("  printf 'run_marker label=%s status=matched marker=%s source=%s path=%s backend=ninja\\n' \"$label\" \"$marker\" \"$source\" \"$path\"\n", f);
+	fputs("  printf 'run_expect label=%s status=matched contains=%s source=%s path=%s backend=ninja\\n' \"$label\" \"$expect_contains\" \"$source\" \"$path\"\n", f);
 	fputs("fi\n", f);
 	fputs("printf 'qstar run_target stamp\\n' >\"$stamp\"\n", f);
 	fputs("printf 'run_target_result label=%s status=pass exit=0 stdout=%s stderr=%s backend=ninja\\n' \"$label\" \"$stdout\" \"$stderr\"\n", f);
@@ -2271,14 +2271,14 @@ emit_group_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	return 0;
 }
 
-/** marker가 없는 `true` run_target은 Ninja에서도 phony aggregate로 lower한다. */
+/** expect가 없는 `true` run_target은 Ninja에서도 phony aggregate로 lower한다. */
 static int
 ninja_run_target_is_noop_true(const struct qstar_target *target)
 {
 	return target && target->run_command.len == 1 &&
 	    strcmp(target->run_command.items[0], "true") == 0 &&
-	    (!target->run_marker || !*target->run_marker) &&
-	    (!target->run_marker_log || !*target->run_marker_log);
+	    (!target->run_expect_contains || !*target->run_expect_contains) &&
+	    (!target->run_expect_file || !*target->run_expect_file);
 }
 
 /** no-op run_target을 wrapper 없이 dependency-only phony edge로 lower한다. */
@@ -2667,7 +2667,7 @@ write_ninja_failure_replay(struct qstar_graph *graph, const char *ninja_rel,
 	write_log_description(f, description);
 	fprintf(f, "label=%s\n", alias && *alias ? alias : "//...");
 	fputs("stdout=<inherit>\nstderr=<inherit>\n", f);
-	fputs("marker=<none>\nmarker_log=<none>\n", f);
+	fputs("expect_contains=<none>\nexpect_file=<none>\n", f);
 	fputs("response_file path=<none> style=none digest=<none>\n", f);
 	fprintf(f, "exit=%d\n", exit_code);
 	fputs("ninja -f ", f);

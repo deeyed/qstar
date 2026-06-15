@@ -474,11 +474,11 @@ sharedlib artifact와 public header를 prefix로 복사한다. `qstar.stage`는
 `qstar.target_file("//:shared")`를 통해 sharedlib artifact를 stage tree로 복사할 수 있다.
 package fetch와 registry metadata는 아직 범위 밖이다.
 
-Round 56부터 `qstar.run_target`은 stdout, stderr, 선택적 `marker_log` 파일에서 marker를
-찾는다. QEMU나 emulator wrapper는 `qstar.cli { ... }`로 표현하고, serial output을
-package-relative log file로 쓰면 `marker_log = "serial.log"`로 검증할 수 있다. 실패는
-`marker-missing`, `timeout`, `exit-code`로 분리되며 `qstar last-failure`와
-`qstar replay <action-id>`가 재현 command를 출력한다.
+Round 56부터 `qstar.run_target`은 stdout, stderr, 선택적 `expect.file`에서
+`expect.contains` 문자열을 찾는다. External smoke wrapper는 `qstar.cli { ... }`로
+표현하고, 추가 output file을 package-relative path로 쓰면 `expect.file = "smoke.log"`로
+검증할 수 있다. 실패는 `expect-missing`, `timeout`, `exit-code`로 분리되며
+`qstar last-failure`와 `qstar replay <action-id>`가 재현 command를 출력한다.
 
 Round 59부터 build failure diagnostic은 사람이 읽는 line과 함께
 `qstar-action-diagnostic-v1` JSON record를 남긴다. Systems/firmware flow에서 자주
@@ -487,7 +487,7 @@ Round 59부터 build failure diagnostic은 사람이 읽는 line과 함께
 - `link-failure`: final link 또는 PE/COFF link command 실패
 - `objcopy-failure`: `llvm-objcopy`류 artifact transform 실패
 - `package-failure`: `qstar stage`/copy-only package 단계 실패
-- `qemu-timeout`: QEMU/emulator wrapper `run_target` timeout
+- `timeout`: `run_target` timeout
 
 `last-failure`와 `replay`는 같은 `failure_kind`, action id, owner label, stdout/stderr
 log path를 공유하므로 editor, CI, 외부 도구가 같은 실패 원인을 소비할 수 있다.

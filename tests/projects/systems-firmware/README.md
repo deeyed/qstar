@@ -7,7 +7,7 @@ dedicated QStar keywords:
 - AArch64 freestanding C + preprocessed assembly + linker script.
 - ELF to raw image conversion through `qstar.custom_target` + `qstar.cli`.
 - RPi-style copy-only staging with `qstar.stage`.
-- QEMU/serial smoke through `qstar.run_target` and `marker_log`.
+- External smoke validation through `qstar.run_target` and `expect`.
 - UEFI PE/COFF output naming and ESP staging through target-local artifact and link policy.
 
 The tools in `tools/` are deterministic fake tools. A real package can replace
@@ -25,7 +25,7 @@ qstar --file qstar.lua --target x86_64-pc-windows-msvc --toolchain clang stage /
 ```
 
 The QEMU wrapper invokes `qemu-system-aarch64 --version` when the tool exists and
-writes a deterministic serial marker. If QEMU is absent it writes a skip reason
+writes a deterministic smoke log. If QEMU is absent it writes a skip reason
 instead. Both paths include `QSTAR-SMOKE-DONE` so QStar can validate
-`run_target` marker plumbing without requiring QEMU in every developer
+`run_target` expectation plumbing without requiring QEMU in every developer
 environment.

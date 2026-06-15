@@ -59,8 +59,8 @@ struct qstar_target {
 	char *description;
 	char *artifact_name;
 	char *cxx_standard;
-	char *run_marker;
-	char *run_marker_log;
+	char *run_expect_contains;
+	char *run_expect_file;
 	int run_timeout_sec;
 	int asm_preprocess;
 	int cxx_modules_present;

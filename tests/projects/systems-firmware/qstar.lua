@@ -102,15 +102,17 @@ qstar.run_target "qemu_smoke" {
   deps = {
     "//:kernel",
   },
-  command = qstar.cli {
-    "tools/qemu-smoke.sh",
-    qstar.target_file("//:kernel"),
-    "serial.log",
-  },
-  timeout = 3,
-  marker = "QSTAR-SMOKE-DONE",
-  marker_log = "serial.log",
-}
+	  command = qstar.cli {
+	    "tools/qemu-smoke.sh",
+	    qstar.target_file("//:kernel"),
+	    "smoke.log",
+	  },
+	  timeout = 3,
+	  expect = {
+	    contains = "QSTAR-SMOKE-DONE",
+	    file = "smoke.log",
+	  },
+	}
 
 qstar.executable "uefi_boot" {
   configs = {

@@ -159,9 +159,9 @@ Round 56 strengthens `qstar.run_target` as the external smoke wrapper surface:
 
 ```txt
 qstar.run_target
-  -> QEMU or emulator wrapper as qstar.cli argv-vector
-  -> stdout/stderr plus optional marker_log scan
-  -> marker-missing / timeout / exit-code result split
+  -> external smoke wrapper as qstar.cli argv-vector
+  -> stdout/stderr plus optional expect.file scan
+  -> expect-missing / timeout / exit-code result split
   -> last-failure and replay command for failed smoke actions
 ```
 

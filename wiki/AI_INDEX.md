@@ -416,7 +416,7 @@ qstar.group "kernel_parts" {
 
 ## 6. Run smoke
 
-Emulator나 external smoke wrapper는 `qstar.run_target`이다. QStar는 emulator 자체를
+External smoke wrapper는 `qstar.run_target`이다. QStar는 wrapper 내부 도구를
 깊게 소유하지 않는다.
 
 ```lua
@@ -424,12 +424,14 @@ qstar.run_target "smoke" {
   deps = {"//:boot_image"},
   command = qstar.cli {"tools/smoke.sh", qstar.target_file("//:image")},
   timeout = 10,
-  marker = "BOOT_OK",
-  marker_log = "serial.log",
+  expect = {
+    contains = "BOOT_OK",
+    file = "smoke.log",
+  },
 }
 ```
 
-Failure class는 `marker-missing`, `timeout`, `exit-code`처럼 분리되고,
+Failure class는 `expect-missing`, `timeout`, `exit-code`처럼 분리되고,
 `qstar last-failure`와 `qstar replay <action-id>`가 재현 정보를 출력한다.
 
 ## 7. 안전한 Lua subset

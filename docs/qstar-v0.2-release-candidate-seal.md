@@ -85,8 +85,8 @@ v0.2 RC keeps failure diagnosis as part of the developer contract:
 - `link-failure`: final link command failed.
 - `objcopy-failure`: artifact transform command failed.
 - `package-failure`: copy-only stage/package command failed.
-- `qemu-timeout`: emulator-style run target timed out.
-- `marker-missing`, `exit-code`, `timeout`: generic run target failure classes.
+- `timeout`: run target timed out.
+- `expect-missing`, `exit-code`: generic run target failure classes.
 
 These failure kinds appear in stdout action diagnostics, stderr JSON diagnostics
 when requested, `build/qstar/logs/last-failure.replay`, and `qstar replay`.

@@ -132,7 +132,9 @@ qstar.custom_target "version_header" {
 qstar.run_target "smoke" {
   deps = {"//:app"},
   command = qstar.cli {qstar.target_file("//:app")},
-  marker = "OK",
+  expect = {
+    contains = "OK",
+  },
   description = qstar.status("Running smoke test app"),
 }
 ```

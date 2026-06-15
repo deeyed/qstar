@@ -53,9 +53,9 @@ contains "$stella_build.self-check.out" "status ok"
 test -f "$stella_build/compile_commands.json" || fail "Stella compile database missing"
 
 "$qstar" --file qstar.lua -B "$stella_build" build //:self_host --progress off > "$stella_build.self-host.out" 2> "$stella_build.self-host.err"
-contains "$stella_build.self-host.out" "run_marker label=//:self_version status=matched"
-contains "$stella_build.self-host.out" "run_marker label=//:self_check_sample status=matched"
-contains "$stella_build.self-host.out" "run_marker label=//:self_check_graph status=matched"
+contains "$stella_build.self-host.out" "run_expect label=//:self_version status=matched"
+contains "$stella_build.self-host.out" "run_expect label=//:self_check_sample status=matched"
+contains "$stella_build.self-host.out" "run_expect label=//:self_check_graph status=matched"
 
 "$qstar" --file qstar.lua -B "$ninja_build" -G ninja build //:qstar --progress off > "$ninja_build.build.out" 2> "$ninja_build.build.err"
 contains "$ninja_build.build.out" "backend ninja"
