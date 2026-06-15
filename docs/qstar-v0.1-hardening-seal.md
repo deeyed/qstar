@@ -42,7 +42,7 @@ QStar를 독립 빌드시스템으로 시험할 수 있게 하는 최소 계약�
 - Dependency fields: `deps`, `public_deps`, `private_deps`, `visibility`.
 - Source/header fields: `sources`, `lang`; `public_headers`/`private_headers`는
   `lang.c`, `lang.cxx`, `lang.cxx` 아래에서만 authoring surface다.
-- Toolchain/profile fields: `toolchain`, `stdlib`, `libs`, `lib_dirs`, `frameworks`.
+- Toolchain/profile fields: `toolchain`, `stdlib`, `libs`, `lib_dirs`, `link.frameworks`.
 - Commands: `list-targets`, `query`, `doctor`, `check`, `explain`, `dry-run`,
   `build`, `test`, `install`, `why-rebuild`, `log`, `last-failure`,
   `action-log <action-id>`, `replay <action-id>`, `clean`, `init`,

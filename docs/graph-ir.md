@@ -297,7 +297,7 @@ target //:app
   private_deps []
   libs [m]
   lib_dirs [third_party/lib]
-  frameworks [Foundation]
+  link.frameworks [Foundation]
 target //:unit
   kind test
 ```

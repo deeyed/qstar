@@ -70,7 +70,9 @@ qstar.executable "app" {
     "src/main.c",
     qstar.output("build/qstar/generated/objc/AppDelegate.o"),
   },
-  frameworks = {"Foundation"},
+  link = {
+    frameworks = {"Foundation"},
+  },
 }
 ```
 

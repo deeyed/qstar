@@ -6828,8 +6828,8 @@ append_system_link_flags(struct qstar_graph *graph, const struct qstar_target *t
 	}
 	if (target->frameworks.len && !target_is_darwin(toolchain->target))
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-		    "frameworks", target->label,
-		    "qstar: frameworks are supported only for Darwin-like targets");
+		    "link.frameworks", target->label,
+		    "qstar: link.frameworks is supported only for Darwin-like targets");
 	for (i = 0; i < target->frameworks.len; i++) {
 		if (append_owned_argv(graph, argv, argc, "-framework") < 0 ||
 		    append_owned_argv(graph, argv, argc, target->frameworks.items[i]) < 0)

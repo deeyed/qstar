@@ -366,9 +366,10 @@ Round 18 link policy invariant:
 - `private_include_dirs` apply only to the owning target.
 - staticlib dependency artifacts are linked in dependent-before-dependency
   order.
-- duplicate dependency/library/framework declarations are stable diagnostics.
-- `libs`, `lib_dirs`, and `frameworks` are rendered as target-profile-shaped
-  argv flags; frameworks are Darwin-only.
+- duplicate dependency/library/link framework declarations are stable diagnostics.
+- `libs` and `lib_dirs` are rendered as target-shaped argv flags. macOS
+  frameworks are represented only as `link.frameworks` and render to
+  `-framework <name>` on Darwin-like targets.
 - `sharedlib` builds and installs on Darwin/Linux-like profiles. Consumers get
   build-tree runtime rpath flags based on `@loader_path` or `$ORIGIN`. Windows
   runtime `.dll`, import `.lib`, and PDB/debug policy rejects with a stable

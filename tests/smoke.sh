@@ -1874,6 +1874,26 @@ if "$qstar" --file "$tmp/config-unknown/qstar.lua" check > "$tmp/config-unknown.
 	fail "unknown config field unexpectedly succeeded"
 fi
 contains "$tmp/config-unknown.err" "unknown config field 'sources'"
+cat > "$tmp/config-unknown/qstar.lua" <<'EOF'
+qstar.config "bad" {
+  frameworks = {"Foundation"},
+}
+EOF
+if "$qstar" --file "$tmp/config-unknown/qstar.lua" check > "$tmp/config-frameworks.out" 2> "$tmp/config-frameworks.err"; then
+	fail "top-level config frameworks unexpectedly succeeded"
+fi
+contains "$tmp/config-frameworks.err" "unknown config field 'frameworks'"
+cat > "$tmp/config-unknown/qstar.lua" <<'EOF'
+qstar.config "bad" {
+  link = {
+    unknown = {"Foundation"},
+  },
+}
+EOF
+if "$qstar" --file "$tmp/config-unknown/qstar.lua" check > "$tmp/config-link-unknown.out" 2> "$tmp/config-link-unknown.err"; then
+	fail "unknown config link field unexpectedly succeeded"
+fi
+contains "$tmp/config-link-unknown.err" "unknown config.link field 'unknown'"
 
 mkdir -p "$tmp/config-module/mods/a"
 cat > "$tmp/config-module/qstar.lua" <<'EOF'
@@ -2420,6 +2440,15 @@ if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-modules.out" 2> "$
 	fail "top-level modules unexpectedly succeeded"
 fi
 contains "$tmp/old-modules.err" "top-level modules is not allowed; move it under lang.cxx.modules"
+cat > "$tmp/old-api/qstar.lua" <<'EOF'
+qstar.executable "app" {
+  frameworks = {"Foundation"},
+}
+EOF
+if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-frameworks.out" 2> "$tmp/old-frameworks.err"; then
+	fail "top-level frameworks unexpectedly succeeded"
+fi
+contains "$tmp/old-frameworks.err" "unknown target field 'frameworks'"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.staticlib "core" {
   lang = {
@@ -3243,6 +3272,47 @@ contains "$tmp/bad-private.err" "action '//:bad_private:compile:0' failed"
 "$qstar" --file "$tmp/qstar.lua" dry-run //:sysflags > "$tmp/sysflags.out" 2> "$tmp/sysflags.err"
 contains "$tmp/sysflags.out" "-Llib"
 contains "$tmp/sysflags.out" "-lm"
+
+mkdir -p "$tmp/macos-framework/src"
+cat > "$tmp/macos-framework/src/main.c" <<'EOF'
+int main(void) { return 0; }
+EOF
+cat > "$tmp/macos-framework/src/direct.c" <<'EOF'
+int main(void) { return 0; }
+EOF
+cat > "$tmp/macos-framework/qstar.lua" <<'EOF'
+qstar.config "foundation" {
+  link = {
+    frameworks = {"Foundation"},
+  },
+}
+
+qstar.executable "app" {
+  configs = {"//:foundation"},
+  sources = {"src/main.c"},
+}
+
+qstar.executable "direct" {
+  sources = {"src/direct.c"},
+  link = {
+    frameworks = {"Foundation"},
+  },
+}
+EOF
+"$qstar" --file "$tmp/macos-framework/qstar.lua" --dump-graph > "$tmp/macos-framework-graph.out" 2> "$tmp/macos-framework-graph.err"
+contains "$tmp/macos-framework-graph.out" "link.frameworks [Foundation]"
+if "$qstar" --file "$tmp/macos-framework/qstar.lua" --target x86_64-unknown-linux-gnu check > "$tmp/macos-framework-linux.out" 2> "$tmp/macos-framework-linux.err"; then
+	fail "link.frameworks unexpectedly succeeded for linux-like target"
+fi
+contains "$tmp/macos-framework-linux.err" "link.frameworks is supported only for Darwin-like targets"
+if [ "$(uname -s)" = Darwin ]; then
+	"$qstar" --file "$tmp/macos-framework/qstar.lua" build //:app --progress off > "$tmp/macos-framework-build.out" 2> "$tmp/macos-framework-build.err"
+	contains "$tmp/macos-framework-build.out" "status ok"
+	"$qstar" --file "$tmp/macos-framework/qstar.lua" action-log //:app:link:0 > "$tmp/macos-framework-log.out" 2> "$tmp/macos-framework-log.err"
+	contains "$tmp/macos-framework-log.out" "-framework"
+	contains "$tmp/macos-framework-log.out" "Foundation"
+fi
+not_contains "tests/linux-validation.sh" "frameworks"
 
 case "$(uname -s)" in
 	Darwin)

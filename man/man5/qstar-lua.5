@@ -62,6 +62,9 @@ items are appended to the link argv exactly as authored.
 tracks package-relative files or
 .Ic qstar.target_file(...)
 artifacts as link action rebuild inputs without adding argv items.
+macOS frameworks are not a generic top-level target field; write them inside a
+Darwin-specific branch as
+.Ic link.frameworks .
 .It Ic qstar.custom_target
 Generated action using a
 .Ic qstar.cli

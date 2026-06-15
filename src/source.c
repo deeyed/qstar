@@ -417,6 +417,7 @@ validate_source_list(struct qstar_graph *graph, const struct qstar_target *targe
 static int
 validate_link_lists(struct qstar_graph *graph, const struct qstar_target *target)
 {
+	struct qstar_resolved_toolchain toolchain;
 	const char *dup;
 	size_t i;
 
@@ -432,8 +433,16 @@ validate_link_lists(struct qstar_graph *graph, const struct qstar_target *target
 		    "qstar: duplicate system library '%s' in '%s'", dup, target->label);
 	if (list_has_duplicate(&target->frameworks, &dup))
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-		    "frameworks", target->label,
+		    "link.frameworks", target->label,
 		    "qstar: duplicate framework '%s' in '%s'", dup, target->label);
+	if (target->frameworks.len) {
+		if (qstar_resolve_toolchain(graph, target, &toolchain) < 0)
+			return -1;
+		if (!qstar_toolchain_target_is_darwin(toolchain.target))
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, "link.frameworks", target->label,
+			    "qstar: link.frameworks is supported only for Darwin-like targets");
+	}
 	if (list_has_duplicate(&target->link_inputs, &dup))
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "link_inputs", target->label,

@@ -293,6 +293,8 @@ Profile/toolchain:
 - `cc`, `cxx`, `ar`, `linker`
 - `sysroot`, `resource_dir`
 - `compile_options`, `link_options`, `link_inputs`
+- macOS frameworks are authored only as `link = { frameworks = {...} }` inside a
+  macOS-specific branch.
 - `path_tools`, `tool_overrides`, `response_files`, `response_style`
 - `qstar doctor`는 resolved tool, 누락된 PATH/package tool, sysroot/resource_dir 상태,
   response policy, depfile behavior를 보고한다.

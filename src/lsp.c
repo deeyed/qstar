@@ -89,7 +89,7 @@ static const struct qstar_lsp_hover_entry qstar_lsp_fields[] = {
 	{ "cxx", "C++ language options under lang.cxx." },
 	{ "asm", "Assembly language options under lang.asm." },
 	{ "archive", "Archive tool role under qstar.toolset.tools." },
-	{ "link", "Link tool role under qstar.toolset.tools." },
+	{ "link", "Link tool role under qstar.toolset.tools or target/config link namespace." },
 	{ "include_dirs", "Language-local include directories under lang.<language>." },
 	{ "public_include_dirs", "Language include directories propagated to public dependents." },
 	{ "private_include_dirs", "Language include directories used only by this target." },
@@ -116,7 +116,7 @@ static const struct qstar_lsp_hover_entry qstar_lsp_fields[] = {
 	{ "libs", "System libraries rendered by the selected target profile." },
 	{ "link_options", "Raw target linker options appended before object inputs." },
 	{ "link_inputs", "Extra package-relative files or target_file artifacts tracked as link rebuild inputs without adding argv items." },
-	{ "frameworks", "Darwin frameworks rendered by the selected target profile." },
+	{ "frameworks", "macOS framework names under link.frameworks." },
 };
 
 /** 동적 문자열 buffer를 빈 상태로 초기화한다. */

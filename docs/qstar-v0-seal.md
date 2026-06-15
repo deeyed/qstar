@@ -36,7 +36,7 @@ stable public protocol은 아니다.
   `qstar.subdir`.
 - labels: `:local`, `//:name`, `//path:name`, `@pkg//path:name`.
 - fields: `sources`, `lang`, `deps`, `public_deps`, `private_deps`,
-  `toolchain`, `stdlib`, `libs`, `lib_dirs`, `frameworks`. Header/include
+  `toolchain`, `stdlib`, `libs`, `lib_dirs`, `link.frameworks`. Header/include
   surface는 `lang.c`, `lang.cxx`, `lang.cxx` 아래에 둔다.
 - commands: `list-targets`, `query`, `doctor`, `check`, `explain`, `dry-run`, `build`,
   `test`, `install`, `why-rebuild`, `log`, `last-failure`, `clean`, `--dump-graph`.

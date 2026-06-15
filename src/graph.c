@@ -1560,7 +1560,7 @@ dump_target(const struct qstar_target *target, FILE *out)
 	fputs("  lib_dirs ", out);
 	dump_list(out, &target->lib_dirs);
 	fputc('\n', out);
-	fputs("  frameworks ", out);
+	fputs("  link.frameworks ", out);
 	dump_list(out, &target->frameworks);
 	fputc('\n', out);
 	fputs("  link_options ", out);
@@ -1639,7 +1639,7 @@ dump_config(const struct qstar_config *config, FILE *out)
 	fputs("  lib_dirs ", out);
 	dump_list(out, &options->lib_dirs);
 	fputc('\n', out);
-	fputs("  frameworks ", out);
+	fputs("  link.frameworks ", out);
 	dump_list(out, &options->frameworks);
 	fputc('\n', out);
 	fputs("  link_options ", out);
@@ -2178,8 +2178,9 @@ dump_config_json(FILE *out, const struct qstar_config *config)
 	dump_json_list(out, &options->libs);
 	fputs(",\"lib_dirs\":", out);
 	dump_json_list(out, &options->lib_dirs);
-	fputs(",\"frameworks\":", out);
+	fputs(",\"link\":{\"frameworks\":", out);
 	dump_json_list(out, &options->frameworks);
+	fputc('}', out);
 	fputs(",\"link_options\":", out);
 	dump_json_list(out, &options->link_options);
 	fputs(",\"link_inputs\":", out);

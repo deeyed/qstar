@@ -69,6 +69,8 @@ artifact-producing target이 아니다.
 Artifact target과 config는 `link_options`와 `link_inputs`를 분리한다. `link_options`는
 link argv에 그대로 추가되고, `link_inputs`는 package-relative file이나
 `qstar.target_file(...)` artifact를 link action rebuild input으로만 추적한다.
+macOS framework link는 generic top-level field가 아니라 macOS branch 안의
+`link = { frameworks = {...} }`로만 작성한다.
 
 ## Builtin authoring helpers
 

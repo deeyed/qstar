@@ -68,7 +68,8 @@ qstar.staticlib "driver" {
 Config는 target option만 담는다.
 
 - `lang.c`, `lang.cxx`, `lang.asm`
-- `libs`, `lib_dirs`, `frameworks`
+- `libs`, `lib_dirs`
+- `link.frameworks` for macOS-only framework names
 - `link_options`, `link_inputs`
 - `toolchain`, `stdlib`, `artifact_name`
 

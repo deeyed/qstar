@@ -937,16 +937,16 @@ reject_group_action_fields(lua_State *L, int table, struct qstar_graph *graph,
 		"sources",
 		"lang",
 		"configs",
-			"libs",
-			"lib_dirs",
-			"frameworks",
-			"link_options",
-			"link_inputs",
-			"toolset",
-			"toolchain",
-			"stdlib",
-			"artifact_name",
-			"command",
+		"libs",
+		"lib_dirs",
+		"link",
+		"link_options",
+		"link_inputs",
+		"toolset",
+		"toolchain",
+		"stdlib",
+		"artifact_name",
+		"command",
 		"timeout",
 		"marker",
 		"marker_log",
@@ -1273,6 +1273,61 @@ read_lang_options(lua_State *L, int table, struct qstar_target *target,
 	return rc;
 }
 
+static int
+validate_link_fields(lua_State *L, int table, const char *owner, struct qstar_graph *graph)
+{
+	static const char *const allowed[] = {
+		"frameworks", NULL
+	};
+	const char *key;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_getfield(L, table, "link");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: field '%s.link' must be a table",
+		    owner);
+	}
+	lua_pushnil(L);
+	while (lua_next(L, -2) != 0) {
+		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (!key || !string_in_set(key, allowed)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph, "qstar: unknown %s.link field '%s'",
+			    owner, key ? key : "<non-string>");
+		}
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+static int
+read_link_options(lua_State *L, int table, struct qstar_target *target,
+    struct qstar_graph *graph, const char *owner)
+{
+	int rc;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_getfield(L, table, "link");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	rc = validate_link_fields(L, table, owner, graph);
+	if (rc == 0)
+		rc = read_list_field(L, -1, "frameworks", &target->frameworks, graph, 0,
+		    target->fragment_dir);
+	lua_pop(L, 1);
+	return rc;
+}
+
 /** qstar.toolset table에서 허용되는 top-level field만 검사한다. */
 static int
 validate_toolset_fields(lua_State *L, int table, struct qstar_graph *graph)
@@ -1452,7 +1507,7 @@ static int
 validate_config_fields(lua_State *L, int table, struct qstar_graph *graph)
 {
 	static const char *const allowed[] = {
-		"lang", "libs", "lib_dirs", "frameworks", "link_options", "link_inputs",
+		"lang", "libs", "lib_dirs", "link", "link_options", "link_inputs",
 		"toolset", "toolchain", "stdlib", "artifact_name", NULL
 	};
 	const char *key;
@@ -1537,8 +1592,7 @@ add_config(lua_State *L, const char *name, int table_index, const char *fragment
 	    config->options.fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "lib_dirs", &config->options.lib_dirs, graph,
 	    0, config->options.fragment_dir) < 0 ||
-	    read_list_field(L, table_index, "frameworks", &config->options.frameworks,
-	    graph, 0, config->options.fragment_dir) < 0 ||
+	    read_link_options(L, table_index, &config->options, graph, "config") < 0 ||
 	    read_list_field(L, table_index, "link_options", &config->options.link_options,
 	    graph, 0, config->options.fragment_dir) < 0 ||
 	    read_target_file_list_field(L, table_index, "link_inputs",
@@ -1615,6 +1669,33 @@ qstar_lua_config(lua_State *L)
 }
 
 static int
+validate_target_fields(lua_State *L, int table, struct qstar_graph *graph)
+{
+	static const char *const allowed[] = {
+		"kind", "configs", "sources", "deps", "public_deps", "private_deps",
+		"visibility", "libs", "lib_dirs", "link", "link_options",
+		"link_inputs", "lang", "toolset", "toolchain", "stdlib",
+		"artifact_name", "command", "description", "timeout", "marker",
+		"marker_log", NULL
+	};
+	const char *key;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_pushnil(L);
+	while (lua_next(L, table) != 0) {
+		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (!key || !string_in_set(key, allowed)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph, "qstar: unknown target field '%s'",
+			    key ? key : "<non-string>");
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
 add_target(lua_State *L, const char *name, int table_index, const char *default_kind,
     const char *fragment_dir)
 {
@@ -1678,6 +1759,8 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	    reject_top_level_field(L, table_index, graph, "modules",
 	    "top-level modules is not allowed; move it under lang.cxx.modules") < 0)
 		return luaL_error(L, "%s", graph->error);
+	if (validate_target_fields(L, table_index, graph) < 0)
+		return luaL_error(L, "%s", graph->error);
 	if (strcmp(target->kind, "group") == 0 &&
 	    reject_group_action_fields(L, table_index, graph, target->label) < 0)
 		return luaL_error(L, "%s", graph->error);
@@ -1691,7 +1774,7 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	    read_list_field(L, table_index, "visibility", &target->visibility, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "libs", &target->libs, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "lib_dirs", &target->lib_dirs, graph, 0, target->fragment_dir) < 0 ||
-	    read_list_field(L, table_index, "frameworks", &target->frameworks, graph, 0, target->fragment_dir) < 0 ||
+	    read_link_options(L, table_index, target, graph, "target") < 0 ||
 	    read_list_field(L, table_index, "link_options", &target->link_options, graph, 0, target->fragment_dir) < 0 ||
 	    read_target_file_list_field(L, table_index, "link_inputs",
 	    &target->link_inputs, graph) < 0 ||

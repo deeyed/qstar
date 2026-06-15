@@ -993,10 +993,12 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 	size_t argc, i;
 	struct qstar_argv_dump dump;
 	int windows;
+	int darwin;
 	int msvc_out;
 
 	snprintf(id, sizeof(id), "%s:%s:0", target->label, action);
 	windows = qstar_toolchain_target_is_windows(toolchain->target);
+	darwin = qstar_toolchain_target_is_darwin(toolchain->target);
 	msvc_out = strcmp(action, "archive") != 0 &&
 	    toolchain_uses_msvc_out_arg(toolchain, target);
 	argc = strcmp(action, "archive") == 0 ?
@@ -1008,7 +1010,7 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 	if (strcmp(action, "archive") != 0)
 		argc += target->lib_dirs.len + (toolchain->sysroot[0] ? 1 : 0) +
 		    graph->profile.lib_dirs.len + target->libs.len +
-		    (windows ? 0 : target->frameworks.len * 2) +
+		    (darwin ? target->frameworks.len * 2 : 0) +
 		    link_policy_arg_count(graph, target) +
 		    (toolchain_needs_msvc_link_boundary(toolchain, target) ? 1 : 0);
 	if (msvc_out)
@@ -1082,7 +1084,7 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 				argv_item(out, &dump, buf);
 			}
 		}
-		if (!windows) {
+		if (darwin) {
 			for (i = 0; i < target->frameworks.len; i++) {
 				argv_item(out, &dump, "-framework");
 				argv_item(out, &dump, target->frameworks.items[i]);
@@ -1684,7 +1686,7 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	fputs("  lib_dirs ", out);
 	dump_list(out, &target->lib_dirs);
 	fputc('\n', out);
-	fputs("  frameworks ", out);
+	fputs("  link.frameworks ", out);
 	dump_list(out, &target->frameworks);
 	fputc('\n', out);
 	fputs("  link_options ", out);

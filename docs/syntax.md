@@ -423,7 +423,23 @@ qstar.executable "app" {
     deps = {"//:core"},
     libs = {"m"},
     lib_dirs = {"third_party/lib"},
-    frameworks = {"Foundation"}, -- Darwin-like target only
+}
+```
+
+macOS framework link는 generic top-level field가 아니라 macOS branch 안의
+`link.frameworks`로만 작성한다.
+
+```lua
+local macos_link = {}
+if qstar.host.os == "macos" then
+    macos_link = {
+        frameworks = {"Foundation"},
+    }
+end
+
+qstar.executable "mac_app" {
+    sources = {"src/main.c"},
+    link = macos_link,
 }
 ```
 
@@ -525,6 +541,7 @@ qstar.target "engine" {
 | `deps` | target dependency label list |
 | `toolchain` | host/freestanding/target profile reference |
 | `stdlib` | `system`, `external-tool`, `none` |
+| `link.frameworks` | macOS-only framework names inside a `link` table |
 | `link_inputs` | link action이 읽지만 argv에는 자동 추가하지 않는 file/artifact input |
 | `artifact_name` | target-local output filename override such as `BOOTX64.EFI` |
 | `c` | C language mode 같은 build-relevant compile mode |
