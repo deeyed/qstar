@@ -2315,6 +2315,7 @@ step "lint canonical fragment corpus" "lint-canonical"
 "$qstar" --file "$tmp/lint-canonical/qstar.lua" lint //... > "$tmp/lint-canonical.out" 2> "$tmp/lint-canonical.err"
 contains "$tmp/lint-canonical.out" "status ok"
 
+step "lint removed qs fragment corpus" "lint-removed-qs"
 mkdir -p "$tmp/lint-removed-qs/foo"
 cat > "$tmp/lint-removed-qs/qstar.lua" <<'EOF'
 qstar.executable "app" {}
@@ -2328,6 +2329,7 @@ fi
 contains "$tmp/lint-removed-qs.out" "\"code\":\"QSTAR003\""
 contains "$tmp/lint-removed-qs.out" ".qs fragments were removed"
 
+step "lint removed workspace corpus" "lint-removed-workspace"
 mkdir -p "$tmp/lint-removed-workspace"
 cat > "$tmp/lint-removed-workspace/qstar.lua" <<'EOF'
 qstar.executable "app" {}
@@ -2339,6 +2341,7 @@ fi
 contains "$tmp/lint-removed-workspace.out" "\"code\":\"QSTAR004\""
 contains "$tmp/lint-removed-workspace.out" "qstar.workspace was removed"
 
+step "lint missing fragment corpus" "lint-missing"
 mkdir -p "$tmp/lint-missing"
 cat > "$tmp/lint-missing/qstar.lua" <<'EOF'
 qstar.subdir("foo")
@@ -2349,6 +2352,7 @@ fi
 contains "$tmp/lint-missing.out" "QSTAR002"
 contains "$tmp/lint-missing.out" "missing fragment"
 
+step "lint bad root corpus" "lint-badroot"
 badroot_tmp="${tmp}.badroot"
 rm -rf "$badroot_tmp"
 mkdir -p "$badroot_tmp"
@@ -2362,6 +2366,7 @@ contains "$tmp/lint-badroot.out" "QSTAR001"
 contains "$tmp/lint-badroot.out" "could not find qstar.lua"
 rm -rf "$badroot_tmp"
 
+step "lint package escape corpus" "lint-outside"
 mkdir -p "$tmp/lint-outside"
 cat > "$tmp/lint-outside/qstar.lua" <<'EOF'
 qstar.executable "bad" {
@@ -2374,6 +2379,7 @@ fi
 contains "$tmp/lint-outside.out" "QSTAR020"
 contains "$tmp/lint-outside.out" "must be package-relative"
 
+step "lint duplicate target corpus" "lint-duplicate"
 mkdir -p "$tmp/lint-duplicate"
 cat > "$tmp/lint-duplicate/qstar.lua" <<'EOF'
 qstar.executable "dup" {}
@@ -2385,6 +2391,7 @@ fi
 contains "$tmp/lint-duplicate.out" "QSTAR011"
 contains "$tmp/lint-duplicate.out" "duplicate target label"
 
+step "lint bad label corpus" "lint-badlabel"
 mkdir -p "$tmp/lint-badlabel"
 cat > "$tmp/lint-badlabel/qstar.lua" <<'EOF'
 qstar.executable "bad label" {}
@@ -2395,6 +2402,7 @@ fi
 contains "$tmp/lint-badlabel.out" "QSTAR010"
 contains "$tmp/lint-badlabel.out" "invalid target name"
 
+step "removed API diagnostics corpus" "old-api"
 mkdir -p "$tmp/old-api"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.exe "app" {}
@@ -2543,6 +2551,7 @@ if "$qstar" --file "$tmp/old-api/qstar.lua" lint --format json > "$tmp/lang-c-fi
 fi
 contains "$tmp/lang-c-field.out" "unknown field lang.c.unknown_option"
 
+step "lint header in sources corpus" "lint-header-source"
 mkdir -p "$tmp/lint-header-source/include" "$tmp/lint-header-source/src"
 cat > "$tmp/lint-header-source/include/app.h" <<'EOF'
 #define APP_VALUE 1
@@ -2569,6 +2578,7 @@ contains "$tmp/lint-header-source.out" "\"status\":\"warning\""
 contains "$tmp/lint-header-source-color.out" "${esc}[1;33mwarning${esc}[0m"
 contains "$tmp/lint-header-source-color.out" "status ${esc}[1;33mwarning${esc}[0m"
 
+step "lint generated public header corpus" "lint-public-generated"
 mkdir -p "$tmp/lint-public-generated"
 cat > "$tmp/lint-public-generated/qstar.lua" <<'EOF'
 qstar.configure_file "cfg" {
@@ -2588,6 +2598,7 @@ EOF
 contains "$tmp/lint-public-generated.out" "\"code\":\"QSTAR041\""
 contains "$tmp/lint-public-generated.out" "outside include/"
 
+step "lint private dependency corpus" "lint-private-dep"
 mkdir -p "$tmp/lint-private-dep/include" "$tmp/lint-private-dep/src"
 cat > "$tmp/lint-private-dep/include/lib.h" <<'EOF'
 int lib_value(void);
@@ -2626,6 +2637,7 @@ EOF
 contains "$tmp/lint-private-dep.out" "QSTAR042"
 contains "$tmp/lint-private-dep.out" "private dependency '//:lib'"
 
+step "lint duplicate source corpus" "lint-duplicate-source"
 mkdir -p "$tmp/lint-duplicate-source/src"
 cat > "$tmp/lint-duplicate-source/src/shared.c" <<'EOF'
 int shared(void) { return 0; }
@@ -2643,6 +2655,7 @@ EOF
 contains "$tmp/lint-duplicate-source.out" "QSTAR043"
 contains "$tmp/lint-duplicate-source.out" "used by both '//:one' and '//:two'"
 
+step "lint target family corpus" "lint-target-family"
 mkdir -p "$tmp/lint-target-family/src"
 cat > "$tmp/lint-target-family/src/shared.c" <<'EOF'
 int shared(void) { return 0; }
@@ -2685,6 +2698,7 @@ if "$qstar" --file "$tmp/lint-target-family/qstar.lua" check > "$tmp/lint-target
 fi
 contains "$tmp/lint-target-family-missing.err" "target_family 'manual' references unknown target '//:missing'"
 
+step "lint cxx info corpus" "lint-cxx-info"
 mkdir -p "$tmp/lint-cxx-info/src"
 cat > "$tmp/lint-cxx-info/src/main.cpp" <<'EOF'
 int main() { return 0; }
@@ -2699,6 +2713,7 @@ contains "$tmp/lint-cxx-info.out" "\"code\":\"QSTAR044\""
 contains "$tmp/lint-cxx-info.out" "\"severity\":\"info\""
 contains "$tmp/lint-cxx-info.out" "\"status\":\"ok\""
 
+step "lint visibility corpus" "lint-visibility"
 mkdir -p "$tmp/lint-visibility"
 cat > "$tmp/lint-visibility/qstar.lua" <<'EOF'
 qstar.staticlib "core" {
@@ -2711,6 +2726,7 @@ fi
 contains "$tmp/lint-visibility.out" "QSTAR050"
 contains "$tmp/lint-visibility.out" "invalid visibility pattern"
 
+step "lint output collision corpus" "lint-output-collision"
 mkdir -p "$tmp/lint-output-collision"
 cat > "$tmp/lint-output-collision/qstar.lua" <<'EOF'
 qstar.custom_target "one" {
@@ -2729,6 +2745,7 @@ fi
 contains "$tmp/lint-output-collision.out" "\"code\":\"QSTAR060\""
 contains "$tmp/lint-output-collision.out" "multiple producers"
 
+step "lint orphan fragment corpus" "lint-orphan"
 mkdir -p "$tmp/lint-orphan/foo"
 cat > "$tmp/lint-orphan/qstar.lua" <<'EOF'
 qstar.executable "app" {}
@@ -2740,6 +2757,7 @@ EOF
 contains "$tmp/lint-orphan.out" "\"code\":\"QSTAR071\""
 contains "$tmp/lint-orphan.out" "not reached by qstar.subdir()"
 
+step "generated action corpus setup" "generated-first"
 mkdir -p "$tmp/tools"
 cat > "$tmp/tools/gen-value.sh" <<'EOF'
 #!/bin/sh
