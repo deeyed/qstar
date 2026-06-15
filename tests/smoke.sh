@@ -3091,6 +3091,7 @@ step "generated root graph metadata" "generated-root-graph"
 "$qstar" --file "$tmp/generated-root/qstar.lua" --dump-graph > "$tmp/generated-root-graph.out" 2> "$tmp/generated-root-graph.err"
 contains "$tmp/generated-root-graph.out" "generated_dir=build/qstar/generated"
 
+step "generated root bad output diagnostic" "generated-root-bad-output"
 mkdir -p "$tmp/generated-root-bad-output"
 cp -R "$tmp/generated-root/tools" "$tmp/generated-root-bad-output/tools"
 cat > "$tmp/generated-root-bad-output/qstar.lua" <<'EOF'
@@ -3109,6 +3110,7 @@ if "$qstar" --file "$tmp/generated-root-bad-output/qstar.lua" check //:bad > "$t
 fi
 contains "$tmp/generated-root-bad-output.err" "must be under generated_dir 'build/qstar/generated'"
 
+step "generated root bad source diagnostic" "generated-root-bad-source"
 mkdir -p "$tmp/generated-root-bad-source"
 cat > "$tmp/generated-root-bad-source/qstar.lua" <<'EOF'
 qstar.project {
@@ -3125,6 +3127,7 @@ if "$qstar" --file "$tmp/generated-root-bad-source/qstar.lua" check //:bad > "$t
 fi
 contains "$tmp/generated-root-bad-source.err" "has no generating action"
 
+step "generated root bad project diagnostic" "generated-root-bad-project"
 mkdir -p "$tmp/generated-root-bad-project"
 cat > "$tmp/generated-root-bad-project/qstar.lua" <<'EOF'
 qstar.project {
