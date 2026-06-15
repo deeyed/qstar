@@ -4,16 +4,23 @@
 #if defined(__APPLE__) && !defined(_DARWIN_C_SOURCE)
 #define _DARWIN_C_SOURCE
 #endif
+#if defined(_WIN32)
+#define QSTAR_PLATFORM_WINDOWS 1
+#else
+#define QSTAR_PLATFORM_WINDOWS 0
+#endif
 
 #include "internal.h"
 
 #include <errno.h>
-#include <fcntl.h>
 #include <dirent.h>
 #include <ctype.h>
+#if !QSTAR_PLATFORM_WINDOWS
+#include <fcntl.h>
 #include <poll.h>
 #include <spawn.h>
 #include <signal.h>
+#endif
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -25,8 +32,10 @@
 #if defined(__APPLE__)
 #include <sys/sysctl.h>
 #endif
+#if !QSTAR_PLATFORM_WINDOWS
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
 
 #define QSTAR_EXEC_MAX_ARGV 256
 #define QSTAR_ACTION_TIMEOUT_SEC 30
@@ -43,7 +52,7 @@
 #define QSTAR_FILE_WRITE_BUFFER_SIZE 65536
 #define QSTAR_PROCESS_EVENT_WAIT_MS 25
 
-#if defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__))
+#if !QSTAR_PLATFORM_WINDOWS && (defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__)))
 #define QSTAR_HAVE_POSIX_SPAWN_RUNNER 1
 #else
 #define QSTAR_HAVE_POSIX_SPAWN_RUNNER 0
@@ -51,6 +60,23 @@
 
 #if QSTAR_HAVE_POSIX_SPAWN_RUNNER
 extern char **environ;
+#endif
+
+#if QSTAR_PLATFORM_WINDOWS
+typedef int qstar_process_id;
+struct qstar_pollfd {
+	int fd;
+	short events;
+	short revents;
+};
+typedef size_t qstar_poll_count;
+#ifndef POLLIN
+#define POLLIN 1
+#endif
+#else
+typedef pid_t qstar_process_id;
+#define qstar_pollfd pollfd
+typedef nfds_t qstar_poll_count;
 #endif
 
 struct qstar_observed_stream {
@@ -199,7 +225,7 @@ struct qstar_prepared_action {
 
 struct qstar_running_action {
 	struct qstar_prepared_action *action;
-	pid_t pid;
+	qstar_process_id pid;
 	time_t start;
 	size_t slot;
 	size_t node_index;
@@ -266,7 +292,12 @@ struct qstar_scheduler {
 static int
 stream_is_tty(FILE *out)
 {
+#if QSTAR_PLATFORM_WINDOWS
+	(void)out;
+	return 0;
+#else
 	return out && isatty(fileno(out));
+#endif
 }
 
 /** build color 정책을 terminal capability와 합쳐 최종 bool로 만든다. */
@@ -560,6 +591,7 @@ child_capture_init(struct qstar_child_capture *capture)
 }
 
 /** fd를 nonblocking mode로 전환한다. */
+#if !QSTAR_PLATFORM_WINDOWS
 static int
 set_nonblocking_fd(int fd)
 {
@@ -570,6 +602,7 @@ set_nonblocking_fd(int fd)
 		return -1;
 	return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
+#endif
 
 /** child 출력 line에서 warning/error token 위치와 color role을 찾는다. */
 static const char *
@@ -663,6 +696,11 @@ observed_stream_flush_line(struct qstar_build_ctx *ctx,
 static int
 observed_stream_drain(struct qstar_build_ctx *ctx, struct qstar_observed_stream *stream)
 {
+#if QSTAR_PLATFORM_WINDOWS
+	(void)ctx;
+	(void)stream;
+	return 0;
+#else
 	char buf[4096];
 	ssize_t n;
 
@@ -687,6 +725,7 @@ observed_stream_drain(struct qstar_build_ctx *ctx, struct qstar_observed_stream 
 		stream->fd = -1;
 		return -1;
 	}
+#endif
 }
 
 /** child stdout/stderr capture용 pipe를 준비한다. 원문 log 파일은 출력이 생길 때 연다. */
@@ -694,6 +733,13 @@ static int
 child_capture_open(struct qstar_graph *graph, struct qstar_child_capture *capture,
     const char *stdout_path, const char *stderr_path)
 {
+#if QSTAR_PLATFORM_WINDOWS
+	child_capture_init(capture);
+	snprintf(capture->out.log_path, sizeof(capture->out.log_path), "%s", stdout_path);
+	snprintf(capture->err.log_path, sizeof(capture->err.log_path), "%s", stderr_path);
+	return qstar_set_error(graph,
+	    "qstar: Windows process runner is not implemented yet; this build can check, lint, dry-run, and emit Ninja, but Stella cannot execute build actions on Windows");
+#else
 	int out_pipe[2] = { -1, -1 };
 	int err_pipe[2] = { -1, -1 };
 
@@ -724,9 +770,11 @@ fail:
 		fclose(capture->err.log);
 	child_capture_init(capture);
 	return qstar_set_error(graph, "qstar: could not capture child output");
+#endif
 }
 
 /** fork된 child에서 pipe write end를 stdout/stderr로 연결한다. */
+#if !QSTAR_PLATFORM_WINDOWS
 static void
 child_capture_redirect_or_exit(struct qstar_child_capture *capture)
 {
@@ -741,11 +789,16 @@ child_capture_redirect_or_exit(struct qstar_child_capture *capture)
 	close(capture->out_write);
 	close(capture->err_write);
 }
+#endif
 
 /** fork 후 parent에서 child 쪽 pipe write end를 닫는다. */
 static void
 child_capture_parent_started(struct qstar_child_capture *capture)
 {
+#if QSTAR_PLATFORM_WINDOWS
+	capture->out_write = -1;
+	capture->err_write = -1;
+#else
 	if (capture->out_write >= 0) {
 		close(capture->out_write);
 		capture->out_write = -1;
@@ -754,14 +807,16 @@ child_capture_parent_started(struct qstar_child_capture *capture)
 		close(capture->err_write);
 		capture->err_write = -1;
 	}
+#endif
 }
 
 /** fork/exec fallback으로 action process를 시작한다. */
+#if !QSTAR_PLATFORM_WINDOWS
 static int
 fork_action_process(struct qstar_graph *graph, struct qstar_child_capture *capture,
-    char *const argv[], pid_t *pid_out)
+    char *const argv[], qstar_process_id *pid_out)
 {
-	pid_t pid;
+	qstar_process_id pid;
 
 	pid = fork();
 	if (pid < 0)
@@ -776,6 +831,7 @@ fork_action_process(struct qstar_graph *graph, struct qstar_child_capture *captu
 	*pid_out = pid;
 	return 0;
 }
+#endif
 
 #if QSTAR_HAVE_POSIX_SPAWN_RUNNER
 /** 현재 platform의 posix_spawn cwd file action을 추가한다. */
@@ -797,7 +853,7 @@ spawn_actions_addchdir(posix_spawn_file_actions_t *actions, const char *path)
 /** posix_spawn으로 action process를 시작한다. 실패 시 caller가 fork fallback을 쓴다. */
 static int
 posix_spawn_action_process(struct qstar_graph *graph, struct qstar_child_capture *capture,
-    char *const argv[], pid_t *pid_out)
+    char *const argv[], qstar_process_id *pid_out)
 {
 	posix_spawn_file_actions_t actions;
 	const char *cwd;
@@ -829,8 +885,17 @@ fail:
 /** action process를 posix_spawn fast path 또는 fork fallback으로 시작한다. */
 static int
 spawn_action_process(struct qstar_graph *graph, struct qstar_child_capture *capture,
-    char *const argv[], pid_t *pid_out, const char **runner_out)
+    char *const argv[], qstar_process_id *pid_out, const char **runner_out)
 {
+#if QSTAR_PLATFORM_WINDOWS
+	(void)capture;
+	(void)argv;
+	(void)pid_out;
+	if (runner_out)
+		*runner_out = "windows-unimplemented";
+	return qstar_set_error(graph,
+	    "qstar: Windows process runner is not implemented yet; use qstar check, qstar dry-run, or qstar emit-ninja until the CreateProcess runner lands");
+#else
 #if QSTAR_HAVE_POSIX_SPAWN_RUNNER
 	if (posix_spawn_action_process(graph, capture, argv, pid_out) == 0) {
 		if (runner_out)
@@ -843,6 +908,144 @@ spawn_action_process(struct qstar_graph *graph, struct qstar_child_capture *capt
 	if (runner_out)
 		*runner_out = "fork";
 	return 0;
+#endif
+}
+
+/** platform fd close primitive다. Windows stub runner에서는 fd를 실제로 열지 않는다. */
+static void
+qstar_process_close_fd(int *fd)
+{
+	if (!fd || *fd < 0)
+		return;
+#if !QSTAR_PLATFORM_WINDOWS
+	close(*fd);
+#endif
+	*fd = -1;
+}
+
+/** child process가 끝났는지 non-blocking 방식으로 확인한다. */
+static int
+qstar_process_wait_nohang(qstar_process_id pid, int *status, int *done)
+{
+#if QSTAR_PLATFORM_WINDOWS
+	(void)pid;
+	if (status)
+		*status = 127;
+	if (done)
+		*done = 1;
+	return -1;
+#else
+	pid_t waited;
+
+	for (;;) {
+		waited = waitpid(pid, status, WNOHANG);
+		if (waited == pid) {
+			*done = 1;
+			return 0;
+		}
+		if (waited == 0) {
+			*done = 0;
+			return 0;
+		}
+		if (errno == EINTR)
+			continue;
+		return -1;
+	}
+#endif
+}
+
+/** child process 종료를 blocking으로 기다린다. */
+static int
+qstar_process_wait_blocking(qstar_process_id pid, int *status)
+{
+#if QSTAR_PLATFORM_WINDOWS
+	(void)pid;
+	if (status)
+		*status = 127;
+	return -1;
+#else
+	pid_t waited;
+
+	for (;;) {
+		waited = waitpid(pid, status, 0);
+		if (waited == pid)
+			return 0;
+		if (waited < 0 && errno == EINTR)
+			continue;
+		return -1;
+	}
+#endif
+}
+
+/** timeout/cancel 시 child process를 종료한다. */
+static void
+qstar_process_terminate(qstar_process_id pid, int *status)
+{
+#if QSTAR_PLATFORM_WINDOWS
+	(void)pid;
+	if (status)
+		*status = 124;
+#else
+	kill(pid, SIGKILL);
+	(void)qstar_process_wait_blocking(pid, status);
+#endif
+}
+
+/** platform별 process status를 QStar exit code로 정규화한다. */
+static int
+qstar_process_exit_code(int status)
+{
+#if QSTAR_PLATFORM_WINDOWS
+	return status;
+#else
+	return WIFEXITED(status) ? WEXITSTATUS(status) : 128;
+#endif
+}
+
+/** process status가 정상 종료 0인지 확인한다. */
+static int
+qstar_process_exited_success(int status)
+{
+#if QSTAR_PLATFORM_WINDOWS
+	return status == 0;
+#else
+	return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+#endif
+}
+
+/** process status가 exit code를 포함하는지 확인한다. */
+static int
+qstar_process_has_exit_code(int status)
+{
+#if QSTAR_PLATFORM_WINDOWS
+	(void)status;
+	return 1;
+#else
+	return WIFEXITED(status);
+#endif
+}
+
+/** process status의 exit code를 가져온다. */
+static int
+qstar_process_status_exit_code(int status)
+{
+#if QSTAR_PLATFORM_WINDOWS
+	return status;
+#else
+	return WEXITSTATUS(status);
+#endif
+}
+
+/** POSIX signal 종료 상태를 diagnostic용으로 반환한다. */
+static int
+qstar_process_signal_number(int status)
+{
+#if QSTAR_PLATFORM_WINDOWS
+	(void)status;
+	return 0;
+#else
+	return WTERMSIG(status);
+#endif
 }
 
 /** child stdout/stderr pipe를 가능한 만큼 읽어 terminal과 log에 반영한다. */
@@ -877,11 +1080,11 @@ process_event_wait_timeout_ms(time_t start, int timeout_sec)
 }
 
 /** 하나의 child capture에서 poll 가능한 stdout/stderr fd를 수집한다. */
-static nfds_t
-child_capture_pollfds(const struct qstar_child_capture *capture, struct pollfd *fds,
-    nfds_t cap)
+static qstar_poll_count
+child_capture_pollfds(const struct qstar_child_capture *capture, struct qstar_pollfd *fds,
+    qstar_poll_count cap)
 {
-	nfds_t nfds = 0;
+	qstar_poll_count nfds = 0;
 
 	if (capture->out.fd >= 0 && nfds < cap) {
 		fds[nfds].fd = capture->out.fd;
@@ -900,8 +1103,14 @@ child_capture_pollfds(const struct qstar_child_capture *capture, struct pollfd *
 
 /** poll을 EINTR-safe하게 실행한다. */
 static int
-process_event_poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
+process_event_poll(struct qstar_pollfd *fds, qstar_poll_count nfds, int timeout_ms)
 {
+#if QSTAR_PLATFORM_WINDOWS
+	(void)fds;
+	(void)nfds;
+	(void)timeout_ms;
+	return 0;
+#else
 	int rc;
 
 	if (timeout_ms < 0)
@@ -912,6 +1121,7 @@ process_event_poll(struct pollfd *fds, nfds_t nfds, int timeout_ms)
 			continue;
 		return rc;
 	}
+#endif
 }
 
 /** 단일 action의 stdout/stderr pipe readiness를 기다린 뒤 가능한 output을 drain한다. */
@@ -919,8 +1129,8 @@ static int
 child_capture_wait_ready(struct qstar_build_ctx *ctx,
     struct qstar_child_capture *capture, int timeout_ms)
 {
-	struct pollfd fds[2];
-	nfds_t nfds;
+	struct qstar_pollfd fds[2];
+	qstar_poll_count nfds;
 	int rc;
 
 	nfds = child_capture_pollfds(capture, fds, 2);
@@ -939,22 +1149,10 @@ child_capture_finish(struct qstar_build_ctx *ctx, struct qstar_child_capture *ca
 	child_capture_drain(ctx, capture);
 	observed_stream_flush_line(ctx, &capture->out);
 	observed_stream_flush_line(ctx, &capture->err);
-	if (capture->out.fd >= 0) {
-		close(capture->out.fd);
-		capture->out.fd = -1;
-	}
-	if (capture->err.fd >= 0) {
-		close(capture->err.fd);
-		capture->err.fd = -1;
-	}
-	if (capture->out_write >= 0) {
-		close(capture->out_write);
-		capture->out_write = -1;
-	}
-	if (capture->err_write >= 0) {
-		close(capture->err_write);
-		capture->err_write = -1;
-	}
+	qstar_process_close_fd(&capture->out.fd);
+	qstar_process_close_fd(&capture->err.fd);
+	qstar_process_close_fd(&capture->out_write);
+	qstar_process_close_fd(&capture->err_write);
 	if (capture->out.log) {
 		fclose(capture->out.log);
 		capture->out.log = NULL;
@@ -990,10 +1188,10 @@ static int
 running_actions_wait_ready(struct qstar_build_ctx *ctx,
     struct qstar_running_action *running, size_t jobs, int timeout_ms)
 {
-	struct pollfd fds[QSTAR_EXEC_MAX_ARGV * 2];
+	struct qstar_pollfd fds[QSTAR_EXEC_MAX_ARGV * 2];
 	size_t i;
-	nfds_t nfds = 0;
-	nfds_t cap = (nfds_t)(sizeof(fds) / sizeof(fds[0]));
+	qstar_poll_count nfds = 0;
+	qstar_poll_count cap = (qstar_poll_count)(sizeof(fds) / sizeof(fds[0]));
 	int rc;
 
 	for (i = 0; i < jobs; i++) {
@@ -1197,6 +1395,50 @@ path_exists(const char *path)
 	return stat(path, &st) == 0;
 }
 
+/** path가 command 실행 후보로 존재하는지 확인한다. */
+static int
+executable_path_exists(const char *path)
+{
+#if QSTAR_PLATFORM_WINDOWS
+	return path_exists(path);
+#else
+	return access(path, X_OK) == 0;
+#endif
+}
+
+/** PATH list 구분자를 platform별로 선택한다. */
+static char
+path_list_separator(void)
+{
+#if QSTAR_PLATFORM_WINDOWS
+	return ';';
+#else
+	return ':';
+#endif
+}
+
+/** 일반 파일 삭제 primitive다. */
+static int
+qstar_remove_file(const char *path)
+{
+#if QSTAR_PLATFORM_WINDOWS
+	return remove(path);
+#else
+	return unlink(path);
+#endif
+}
+
+/** 빈 directory 삭제 primitive다. */
+static int
+qstar_remove_dir(const char *path)
+{
+#if QSTAR_PLATFORM_WINDOWS
+	return remove(path);
+#else
+	return rmdir(path);
+#endif
+}
+
 /** stat mtime을 deps DB fingerprint용 internal tick으로 바꾼다. */
 static unsigned long long
 stat_mtime_tick(const struct stat *st)
@@ -1258,12 +1500,12 @@ command_exists(const char *cmd)
 	if (!cmd || !*cmd)
 		return 0;
 	if (strchr(cmd, '/'))
-		return access(cmd, X_OK) == 0;
+		return executable_path_exists(cmd);
 	path = getenv("PATH");
 	if (!path)
 		return 0;
 	for (start = path; ; start = end + 1) {
-		end = strchr(start, ':');
+		end = strchr(start, path_list_separator());
 		n = end ? (size_t)(end - start) : strlen(start);
 		if (n == 0)
 			snprintf(candidate, sizeof(candidate), "%s", cmd);
@@ -1271,7 +1513,7 @@ command_exists(const char *cmd)
 			goto next;
 		else
 			snprintf(candidate, sizeof(candidate), "%.*s/%s", (int)n, start, cmd);
-		if (access(candidate, X_OK) == 0)
+		if (executable_path_exists(candidate))
 			return 1;
 next:
 		if (!end)
@@ -1291,7 +1533,7 @@ command_exists_in_graph(const struct qstar_graph *graph, const char *cmd)
 	if (strchr(cmd, '/') && cmd[0] != '/' && qstar_path_is_package_relative(cmd)) {
 		if (full_path_under_root(graph, cmd, full, sizeof(full)) < 0)
 			return 0;
-		return access(full, X_OK) == 0;
+		return executable_path_exists(full);
 	}
 	return command_exists(cmd);
 }
@@ -2681,7 +2923,7 @@ state_db_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 	    state_db_write_u64(f, QSTAR_STATE_DB_ABI) < 0 ||
 	    state_db_write_u64(f, (unsigned long long)ctx->next_len) < 0) {
 		fclose(f);
-		unlink(tmp);
+		qstar_remove_file(tmp);
 		return qstar_set_error(graph, "qstar: could not write compact action state");
 	}
 	for (i = 0; i < ctx->next_len; i++) {
@@ -2698,17 +2940,17 @@ state_db_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 		    state_db_write_string(f, ctx->next[i].output_key) < 0 ||
 		    state_db_write_string(f, ctx->next[i].external_tool_key) < 0) {
 			fclose(f);
-			unlink(tmp);
+			qstar_remove_file(tmp);
 			return qstar_set_error(graph,
 			    "qstar: could not write compact action state");
 		}
 	}
 	if (fclose(f) < 0) {
-		unlink(tmp);
+		qstar_remove_file(tmp);
 		return qstar_set_error(graph, "qstar: could not write compact action state");
 	}
 	if (rename(tmp, path) < 0) {
-		unlink(tmp);
+		qstar_remove_file(tmp);
 		return qstar_set_error(graph, "qstar: could not commit compact action state");
 	}
 	return 0;
@@ -3140,7 +3382,7 @@ deps_db_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 	    state_db_write_u64(f, QSTAR_DEPS_DB_ABI) < 0 ||
 	    state_db_write_u64(f, (unsigned long long)ctx->deps_next_len) < 0) {
 		fclose(f);
-		unlink(tmp);
+		qstar_remove_file(tmp);
 		return qstar_set_error(graph, "qstar: could not write dependency state");
 	}
 	for (i = 0; i < ctx->deps_next_len; i++) {
@@ -3151,25 +3393,25 @@ deps_db_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 		    state_db_write_u64(f,
 		    (unsigned long long)ctx->deps_next[i].inputs.len) < 0) {
 			fclose(f);
-			unlink(tmp);
+			qstar_remove_file(tmp);
 			return qstar_set_error(graph, "qstar: could not write dependency state");
 		}
 		for (j = 0; j < ctx->deps_next[i].inputs.len; j++) {
 			if (state_db_write_string(f,
 			    ctx->deps_next[i].inputs.items[j]) < 0) {
 				fclose(f);
-				unlink(tmp);
+				qstar_remove_file(tmp);
 				return qstar_set_error(graph,
 				    "qstar: could not write dependency state");
 			}
 		}
 	}
 	if (fclose(f) < 0) {
-		unlink(tmp);
+		qstar_remove_file(tmp);
 		return qstar_set_error(graph, "qstar: could not write dependency state");
 	}
 	if (rename(tmp, path) < 0) {
-		unlink(tmp);
+		qstar_remove_file(tmp);
 		return qstar_set_error(graph, "qstar: could not commit dependency state");
 	}
 	return 0;
@@ -3504,7 +3746,7 @@ build_summary_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx
 	    sizeof(path)) < 0)
 		return qstar_set_error(graph, "qstar: could not create build summary dir");
 	if (strcmp(status, "success") == 0 && !debug_metadata_dumps_enabled(ctx)) {
-		if (path_exists(path) && unlink(path) < 0 && errno != ENOENT)
+		if (path_exists(path) && qstar_remove_file(path) < 0 && errno != ENOENT)
 			return qstar_set_error(graph,
 			    "qstar: could not remove stale build summary");
 		return 0;
@@ -3920,7 +4162,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	struct qstar_child_capture capture;
 	const struct qstar_state_entry *prev;
 	const char *runner;
-	pid_t pid;
+	qstar_process_id pid;
 	int status, exit_code, use_rsp;
 
 	prev = state_find(ctx, id);
@@ -4006,19 +4248,16 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	    id, (long)pid, runner);
 	{
 		time_t start;
-		pid_t waited;
+		int done;
 
 		start = time(NULL);
 		for (;;) {
-			waited = waitpid(pid, &status, WNOHANG);
-			if (waited == pid)
-				break;
-			if (waited < 0) {
-				if (errno == EINTR)
-					continue;
+			if (qstar_process_wait_nohang(pid, &status, &done) < 0) {
 				child_capture_finish(ctx, &capture);
-				return qstar_set_error(graph, "qstar: waitpid failed");
+				return qstar_set_error(graph, "qstar: process wait failed");
 			}
+			if (done)
+				break;
 			if (time(NULL) - start >= ctx->action_timeout_sec) {
 				char label_buf[QSTAR_PATH_MAX];
 				const char *diag_label;
@@ -4028,8 +4267,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 				    "timeout");
 				diag_label = action_owner_label(target, id, label_buf,
 				    sizeof(label_buf));
-				kill(pid, SIGKILL);
-				waitpid(pid, &status, 0);
+				qstar_process_terminate(pid, &status);
 				child_capture_finish(ctx, &capture);
 				action_log_queue_exit(ctx, action_log, argv, 124,
 				    description);
@@ -4079,7 +4317,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		}
 	}
 	child_capture_finish(ctx, &capture);
-	exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
+	exit_code = qstar_process_exit_code(status);
 	action_log_queue_exit(ctx, action_log, argv, exit_code, description);
 	if (exit_code != 0) {
 		char label_buf[QSTAR_PATH_MAX];
@@ -5864,7 +6102,7 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	char *const *child_argv;
 	const struct qstar_state_entry *prev;
 	const char *runner;
-	pid_t pid;
+	qstar_process_id pid;
 	int use_rsp;
 	const char *owner_label;
 	int timeout_sec;
@@ -5959,7 +6197,7 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	int exit_code;
 
 	child_capture_finish(ctx, &running->capture);
-	exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
+	exit_code = qstar_process_exit_code(status);
 	action_log_queue_exit_ref(ctx, running->action_log, action->argv, exit_code,
 	    action->description);
 	owner_label = prepared_action_owner_label(action);
@@ -6033,8 +6271,7 @@ cancel_running_actions(struct qstar_build_ctx *ctx, struct qstar_running_action 
 	for (i = 0; i < jobs; i++) {
 		if (running[i].pid <= 0)
 			continue;
-		kill(running[i].pid, SIGKILL);
-		waitpid(running[i].pid, &status, 0);
+		qstar_process_terminate(running[i].pid, &status);
 		child_capture_finish(ctx, &running[i].capture);
 		build_tracef(ctx,
 		    "build_action id=%s status=cancelled reason=parallel-failure retry=next-build\n",
@@ -6070,8 +6307,7 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	struct qstar_running_action *running;
 	size_t *indices;
 	size_t i, j, next, active, jobs, slot, compile_count;
-	int rc, status, progressed;
-	pid_t waited;
+	int rc, status, progressed, done;
 	struct qstar_source_info source;
 
 	if (target->sources.len == 0)
@@ -6140,11 +6376,13 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 				    "qstar: could not read child output");
 				goto fail;
 			}
-			waited = waitpid(running[i].pid, &status, WNOHANG);
-			if (waited == 0) {
+			if (qstar_process_wait_nohang(running[i].pid, &status, &done) < 0) {
+				rc = qstar_set_error(graph, "qstar: process wait failed");
+				goto fail;
+			}
+			if (!done) {
 				if (time(NULL) - running[i].start >= ctx->action_timeout_sec) {
-					kill(running[i].pid, SIGKILL);
-					waitpid(running[i].pid, &status, 0);
+					qstar_process_terminate(running[i].pid, &status);
 					running[i].pid = 0;
 					child_capture_finish(ctx, &running[i].capture);
 					action_log_queue_exit_ref(ctx, running[i].action_log,
@@ -6173,12 +6411,6 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 					goto fail;
 				}
 				continue;
-			}
-			if (waited < 0) {
-				if (errno == EINTR)
-					continue;
-				rc = qstar_set_error(graph, "qstar: waitpid failed");
-				goto fail;
 			}
 			running[i].pid = 0;
 			rc = finish_running_action(graph, ctx, &running[i], status);
@@ -7942,8 +8174,7 @@ scheduler_execute(struct qstar_scheduler *sched)
 {
 	struct qstar_running_action *running;
 	size_t i, node_index, completed, active, jobs, slot;
-	int rc, status, popped, progressed;
-	pid_t waited;
+	int rc, status, popped, progressed, done;
 
 	jobs = sched->ctx->jobs > 1 ? (size_t)sched->ctx->jobs : 1;
 	running = calloc(jobs, sizeof(running[0]));
@@ -8055,8 +8286,11 @@ scheduler_execute(struct qstar_scheduler *sched)
 				    "qstar: could not read child output");
 				goto fail;
 			}
-			waited = waitpid(running[i].pid, &status, WNOHANG);
-			if (waited == 0) {
+			if (qstar_process_wait_nohang(running[i].pid, &status, &done) < 0) {
+				rc = qstar_set_error(sched->graph, "qstar: process wait failed");
+				goto fail;
+			}
+			if (!done) {
 				if (time(NULL) - running[i].start >=
 				    running[i].timeout_sec) {
 					char stdout_rel[QSTAR_PATH_MAX];
@@ -8079,8 +8313,7 @@ scheduler_execute(struct qstar_scheduler *sched)
 					    sizeof(replay_rel)) < 0)
 						snprintf(replay_rel, sizeof(replay_rel),
 						    "build/qstar/logs/last-failure.replay");
-					kill(running[i].pid, SIGKILL);
-					waitpid(running[i].pid, &status, 0);
+					qstar_process_terminate(running[i].pid, &status);
 					running[i].pid = 0;
 					child_capture_finish(sched->ctx,
 					    &running[i].capture);
@@ -8135,12 +8368,6 @@ scheduler_execute(struct qstar_scheduler *sched)
 					goto fail;
 				}
 				continue;
-			}
-			if (waited < 0) {
-				if (errno == EINTR)
-					continue;
-				rc = qstar_set_error(sched->graph, "qstar: waitpid failed");
-				goto fail;
 			}
 			running[i].pid = 0;
 			node_index = running[i].node_index;
@@ -8380,7 +8607,7 @@ remove_tree(const char *path)
 	if (lstat(path, &st) < 0)
 		return errno == ENOENT ? 0 : -1;
 	if (!S_ISDIR(st.st_mode))
-		return unlink(path);
+		return qstar_remove_file(path);
 	dir = opendir(path);
 	if (!dir)
 		return -1;
@@ -8398,7 +8625,7 @@ remove_tree(const char *path)
 		}
 	}
 	closedir(dir);
-	return rmdir(path);
+	return qstar_remove_dir(path);
 }
 
 /** target 하나의 build output directory를 지운다. */
@@ -8464,12 +8691,18 @@ qstar_graph_clean(struct qstar_graph *graph, const char *label, FILE *out)
 static int
 run_test_artifact(struct qstar_graph *graph, const struct qstar_target *target, FILE *out)
 {
+#if QSTAR_PLATFORM_WINDOWS
+	(void)out;
+	return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+	    "test", target->label,
+	    "qstar: Windows test runner is not implemented yet; build the test target and run the artifact outside QStar until the CreateProcess runner lands");
+#else
 	char artifact[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX], logdir[QSTAR_PATH_MAX];
 	char name[QSTAR_PATH_MAX], stdout_path[QSTAR_PATH_MAX], stderr_path[QSTAR_PATH_MAX];
 	char child_stdout_path[QSTAR_PATH_MAX], child_stderr_path[QSTAR_PATH_MAX];
-	pid_t pid;
+	qstar_process_id pid;
 	time_t start;
-	int status, fdout, fderr;
+	int status, fdout, fderr, done;
 
 	if (qstar_graph_artifact_output_path(graph, target, artifact, sizeof(artifact)) < 0 ||
 	    full_path_under_root(graph, artifact, full, sizeof(full)) < 0)
@@ -8510,19 +8743,12 @@ run_test_artifact(struct qstar_graph *graph, const struct qstar_target *target, 
 	}
 	start = time(NULL);
 	for (;;) {
-		pid_t waited;
-
-		waited = waitpid(pid, &status, WNOHANG);
-		if (waited == pid)
+		if (qstar_process_wait_nohang(pid, &status, &done) < 0)
+			return qstar_set_error(graph, "qstar: process wait failed");
+		if (done)
 			break;
-		if (waited < 0) {
-			if (errno == EINTR)
-				continue;
-			return qstar_set_error(graph, "qstar: waitpid failed");
-		}
 		if (time(NULL) - start >= QSTAR_TEST_TIMEOUT_SEC) {
-			kill(pid, SIGKILL);
-			waitpid(pid, &status, 0);
+			qstar_process_terminate(pid, &status);
 			fprintf(out, "test_result label=%s status=timeout timeout_sec=%d\n",
 			    target->label, QSTAR_TEST_TIMEOUT_SEC);
 			return qstar_set_error_origin(graph, target->origin_file,
@@ -8533,23 +8759,24 @@ run_test_artifact(struct qstar_graph *graph, const struct qstar_target *target, 
 		    process_event_wait_timeout_ms(start, QSTAR_TEST_TIMEOUT_SEC)) < 0)
 			return qstar_set_error(graph, "qstar: waitpid failed");
 	}
-	if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+	if (qstar_process_exited_success(status)) {
 		fprintf(out, "test_result label=%s status=pass exit=0\n", target->label);
 		return 0;
 	}
-	if (WIFEXITED(status)) {
+	if (qstar_process_has_exit_code(status)) {
 		fprintf(out, "test_result label=%s status=fail exit=%d\n",
-		    target->label, WEXITSTATUS(status));
+		    target->label, qstar_process_status_exit_code(status));
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "test", target->label,
 		    "qstar: test '%s' failed with status %d", target->label,
-		    WEXITSTATUS(status));
+		    qstar_process_status_exit_code(status));
 	}
 	fprintf(out, "test_result label=%s status=signal signal=%d\n",
-	    target->label, WTERMSIG(status));
+	    target->label, qstar_process_signal_number(status));
 	return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 	    "test", target->label, "qstar: test '%s' terminated by signal %d",
-	    target->label, WTERMSIG(status));
+	    target->label, qstar_process_signal_number(status));
+#endif
 }
 
 /** 단일 test target을 build 후 실행한다. */

@@ -33,12 +33,20 @@ Windows artifact contract corpus: it uses the MSYS2 UCRT64 GCC lane to build and
 run real executable artifacts, while the existing fake MSVC/clang-cl fixtures
 continue to cover `.lib`, response escaping, and deferred `.dll` policy.
 
+Round Q179 splits the POSIX Stella/Ninja process runner boundary. `src/executor.c`
+and `src/ninja.c` no longer expose `<poll.h>`, POSIX pipe/wait, or Unix process
+launch headers to `_WIN32` compilation. Windows builds can compile the runner
+boundary as a clear unsupported/fallback path, while actual process execution is
+still deferred until the CreateProcess runner lands.
+
 The first Q172 hosted run was
 `https://github.com/deeyed/qstar/actions/runs/27508325529`. It reached the
 baseline Makefile bootstrap and failed in `src/executor.c` because MSYS2 UCRT64
 gcc does not provide POSIX `<poll.h>`. The artifact correctly recorded
 `status=fail step=make-all cc=gcc rc=2 log=make-all.log`, so the next Windows
-round has a concrete executor portability boundary to fix.
+round had a concrete executor portability boundary to fix. Q179 addresses that
+boundary locally; the manual alpha workflow still needs to be rerun to discover
+the next hosted failure class.
 
 ## Toolchain Choice
 
@@ -90,6 +98,12 @@ builds. `src/daemon.c` now provides a Windows stub that compiles without
 Stella build path. This should let `make all CC=gcc` progress past the first
 observed daemon source failure; any new native failure class belongs in the
 Known Issues section below.
+
+Round Q179 adds the same kind of boundary to process execution. `_WIN32` builds
+compile `src/executor.c` and `src/ninja.c` without POSIX `<poll.h>`, `fork`,
+`waitpid`, or Unix socket assumptions. Stella build/test execution and QStar's
+Ninja launcher return explicit deferred diagnostics on Windows until a
+CreateProcess-based runner is implemented.
 
 The optional `run_ninja_parity=true` input also runs:
 
@@ -193,10 +207,14 @@ Current known gaps:
 - Q159's first observed `src/daemon.c` `<sys/socket.h>` failure is addressed by
   Q164's Windows daemon stub. The manual alpha lane still needs to be rerun to
   discover the next real native failure class.
-- Q172's hosted `msys2-ucrt64-gcc` run now fails at `src/executor.c` because the
-  Stella process/event runner includes POSIX `<poll.h>`. The next Windows
-  portability round should split executor process waiting/output drain behind a
-  Windows boundary instead of weakening the shell-free argv-vector contract.
+- Q172's hosted `msys2-ucrt64-gcc` run failed at `src/executor.c` because the
+  Stella process/event runner included POSIX `<poll.h>`. Q179 splits that
+  process runner boundary in local compile checks. The manual alpha workflow
+  still needs a hosted rerun to confirm the next native failure class.
+- Stella and QStar's Ninja launcher on Windows are compile-time stubs only. They
+  report that the CreateProcess runner has not landed yet, so the Q178 execution
+  corpus is expected to remain blocked at execution until that implementation
+  round.
 - Q172 has not promoted Windows to official support. It only makes
   `msys2-ucrt64-gcc` the baseline lane and ensures failed runs leave structured
   status and known-issue artifacts.

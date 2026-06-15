@@ -40,13 +40,24 @@ contains "$tmp/version.out" "qstar "
 
 stub_cc=${CC:-cc}
 if command -v "$stub_cc" >/dev/null 2>&1; then
-	"$stub_cc" -D_WIN32 -std=c99 -Wall -Wextra -Wpedantic \
+	stub_cflags="-D_WIN32 -std=c99 -Wall -Wextra -Wpedantic -Wno-unused-function"
+	"$stub_cc" $stub_cflags \
 		-Iinclude -Ivendor/lua -c src/daemon.c -o "$tmp/daemon-win-stub.o"
 	test -s "$tmp/daemon-win-stub.o" ||
 		fail "Windows daemon stub object was not created"
 	printf 'qstar-windows-native-alpha: daemon_stub=compiled cc=%s\n' "$stub_cc"
+	"$stub_cc" $stub_cflags \
+		-Iinclude -Ivendor/lua -c src/executor.c -o "$tmp/executor-win-stub.o"
+	test -s "$tmp/executor-win-stub.o" ||
+		fail "Windows executor stub object was not created"
+	printf 'qstar-windows-native-alpha: executor_stub=compiled cc=%s\n' "$stub_cc"
+	"$stub_cc" $stub_cflags \
+		-Iinclude -Ivendor/lua -c src/ninja.c -o "$tmp/ninja-win-stub.o"
+	test -s "$tmp/ninja-win-stub.o" ||
+		fail "Windows ninja stub object was not created"
+	printf 'qstar-windows-native-alpha: ninja_stub=compiled cc=%s\n' "$stub_cc"
 else
-	printf 'qstar-windows-native-alpha: daemon_stub=skipped cc=%s reason=compiler-not-found\n' "$stub_cc"
+	printf 'qstar-windows-native-alpha: runner_stubs=skipped cc=%s reason=compiler-not-found\n' "$stub_cc"
 fi
 
 "$qstar" help > "$tmp/help.out" 2> "$tmp/help.err"

@@ -150,8 +150,10 @@ QStar가 하지 않는 일:
   이 artifact는 `windows-alpha-status.txt`, `KNOWN_ISSUES.md`, `status/*.status`를 포함해
   실패 class를 raw log만으로 추적하지 않게 한다.
   Q172 hosted run `https://github.com/deeyed/qstar/actions/runs/27508325529`은
-  `src/executor.c`의 POSIX `<poll.h>` include에서 `make all CC=gcc`가 실패했다. 다음 Windows
-  portability 작업은 executor process/event runner 경계를 Windows용으로 분리해야 한다.
+  `src/executor.c`의 POSIX `<poll.h>` include에서 `make all CC=gcc`가 실패했다. Q179는
+  `src/executor.c`와 `src/ninja.c`의 POSIX process runner boundary를 `_WIN32` compile stub으로
+  분리한다. 다음 hosted Windows alpha 검증은 이 경계를 통과하는지 확인하고, 이후
+  CreateProcess 기반 Stella/Ninja launcher 구현으로 넘어가야 한다.
   Q164부터 `src/daemon.c`는 Windows stub을 제공해 Unix socket include 실패를 피하고,
   Windows host에서 `qstar daemon`/`--use-daemon=always`는 named pipe 구현 전까지 deferred
   diagnostic으로 처리한다.

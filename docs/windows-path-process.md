@@ -30,6 +30,10 @@ Round Q178 adds `tests/corpus/windows-execution` and the
 `qstar-windows-execution-corpus-tests` target. This is the first Windows alpha
 gate that builds and runs real executables in the MSYS2 UCRT64 GCC lane instead
 of only proving Windows-like graph contracts.
+Round Q179 splits POSIX process execution from the Windows compile boundary:
+`src/executor.c` and `src/ninja.c` now compile as `_WIN32` stubs without POSIX
+`<poll.h>`, `fork`, `waitpid`, pipe, or Unix launcher headers. Native Stella and
+Ninja-backed execution still need a future CreateProcess runner.
 
 ## Status
 
@@ -47,7 +51,9 @@ Linux has validation and release-candidate packaging dry-run coverage. Windows
 has a manual alpha lane, but remains unofficial until QStar has a green regular
 Windows CI lane, source build, install smoke, response-file execution with real
 Windows tools, and artifact packaging story. Q178 starts that execution path for
-MSYS2 UCRT64 GCC; MSVC/clang-cl execution is still deferred.
+MSYS2 UCRT64 GCC; Q179 moves the process-runner failure from POSIX headers to an
+explicit unsupported CreateProcess boundary; MSVC/clang-cl execution is still
+deferred.
 
 ## Path Normalization Rule
 
@@ -115,6 +121,12 @@ QStar must pass each list item as one argv element. It must not expand `$VAR`,
 split on spaces, interpret semicolons, or run commands through a shell. The
 Windows port should use the platform process API with the same argv-vector
 semantics, not a shell command string.
+
+Until that runner lands, `_WIN32` Stella build/test execution and QStar's Ninja
+launcher fail with explicit diagnostics instead of accidentally depending on
+POSIX process APIs. This is intentional: `qstar check`, `qstar dry-run`, and
+`qstar emit-ninja` can continue validating graph contracts while real Windows
+execution remains a separate implementation step.
 
 Local non-Windows tests use `tests/corpus/response-files/tools/fake-clang-cl` to
 prove that QStar itself preserves argv structure and response-file escaping. That

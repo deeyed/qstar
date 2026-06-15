@@ -2,16 +2,25 @@
 
 #include <ctype.h>
 #include <errno.h>
+#if defined(_WIN32)
+#define QSTAR_PLATFORM_WINDOWS 1
+#else
+#define QSTAR_PLATFORM_WINDOWS 0
+#endif
+#if !QSTAR_PLATFORM_WINDOWS
 #include <fcntl.h>
 #include <signal.h>
+#endif
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#if !QSTAR_PLATFORM_WINDOWS
 #include <sys/wait.h>
-#include <time.h>
 #include <unistd.h>
+#endif
+#include <time.h>
 
 #define QSTAR_NINJA_MAX_ARGV 256
 #define QSTAR_NINJA_RESPONSE_ARGV_BYTES 512
@@ -139,6 +148,7 @@ path_exists(const char *path)
 }
 
 /** child process polling 사이의 지연을 짧게 유지한다. */
+#if !QSTAR_PLATFORM_WINDOWS
 static void
 wait_poll_pause(void)
 {
@@ -149,6 +159,7 @@ wait_poll_pause(void)
 	while (nanosleep(&delay, &delay) < 0 && errno == EINTR)
 		;
 }
+#endif
 
 /** package-relative file path의 parent directory를 만든다. */
 static int
@@ -2675,7 +2686,7 @@ clear_ninja_failure_replay(struct qstar_graph *graph)
 
 	if (full_path_under_build(graph, "logs/last-failure.replay", path,
 	    sizeof(path)) == 0)
-		unlink(path);
+		remove(path);
 }
 
 /** Ninja executable을 실행해 emitted graph를 빌드한다. */
@@ -2683,6 +2694,14 @@ static int
 run_ninja(struct qstar_graph *graph, const char *ninja_rel, const char *alias,
     const struct qstar_build_options *options)
 {
+#if QSTAR_PLATFORM_WINDOWS
+	(void)ninja_rel;
+	(void)alias;
+	(void)options;
+	clear_ninja_failure_replay(graph);
+	return qstar_set_error(graph,
+	    "qstar: Windows Ninja launcher is not implemented yet; use qstar emit-ninja and run ninja from the Windows shell until the CreateProcess runner lands");
+#else
 	pid_t pid;
 	int status, exit_code;
 	char jobs_arg[32];
@@ -2726,6 +2745,7 @@ run_ninja(struct qstar_graph *graph, const char *ninja_rel, const char *alias,
 		    exit_code);
 	}
 	return 0;
+#endif
 }
 
 /** Ninja backend로 build.ninja를 emit한 뒤 requested target을 빌드한다. */
@@ -2759,6 +2779,12 @@ qstar_graph_build_ninja(struct qstar_graph *graph, const char *label,
 static int
 run_ninja_test_artifact(struct qstar_graph *graph, const struct qstar_target *target, FILE *out)
 {
+#if QSTAR_PLATFORM_WINDOWS
+	(void)out;
+	return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+	    "test", target->label,
+	    "qstar: Windows Ninja test runner is not implemented yet; run the emitted test artifact from the Windows shell until the CreateProcess runner lands");
+#else
 	char artifact[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX], logdir[QSTAR_PATH_MAX];
 	char name[QSTAR_PATH_MAX], stdout_path[QSTAR_PATH_MAX], stderr_path[QSTAR_PATH_MAX];
 	char child_stdout_path[QSTAR_PATH_MAX], child_stderr_path[QSTAR_PATH_MAX];
@@ -2839,6 +2865,7 @@ run_ninja_test_artifact(struct qstar_graph *graph, const struct qstar_target *ta
 	return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 	    "test", target->label, "qstar: test '%s' terminated by signal %d",
 	    target->label, WTERMSIG(status));
+#endif
 }
 
 /** 단일 test target을 Ninja backend로 build 후 실행한다. */
