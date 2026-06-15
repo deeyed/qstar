@@ -59,6 +59,9 @@ qstar.executable "qstar" {
     "//:qstar_core",
     "//:lua_vendor",
   },
+  libs = {
+    "m",
+  },
   artifact_name = "qstar",
 }
 
