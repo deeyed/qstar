@@ -353,9 +353,9 @@ EOF
 int main(void) { return 0; }
 EOF
 	if "$qstar" --file "$other_root/qstar.lua" -B build/daemon build //:app --use-daemon=always --daemon-socket "$daemon_sock" --progress off --color never > "$tmp/daemon-root-mismatch.out" 2> "$tmp/daemon-root-mismatch.err"; then
-		fail "daemon package root mismatch unexpectedly succeeded"
+		fail "daemon identity mismatch unexpectedly succeeded"
 	fi
-	contains "$tmp/daemon-root-mismatch.out" "daemon identity mismatch: package root differs"
+	contains "$tmp/daemon-root-mismatch.out" "daemon identity mismatch: entry file differs"
 	kill "$daemon_pid" 2>/dev/null || true
 	wait "$daemon_pid" 2>/dev/null || true
 	daemon_pid=
