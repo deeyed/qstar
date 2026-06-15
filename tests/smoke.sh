@@ -1554,6 +1554,102 @@ contains "$tmp/config-scalar.out" "lang.cale.profile safe"
 contains "$tmp/config-scalar.out" "toolchain host"
 contains "$tmp/config-scalar.out" "stdlib system"
 
+mkdir -p "$tmp/toolset/src"
+cat > "$tmp/toolset/src/main.c" <<'EOF'
+int toolset_value(void) { return 0; }
+EOF
+cat > "$tmp/toolset/qstar.lua" <<'EOF'
+qstar.toolset "clang_like" {
+  tools = {
+    c = qstar.cli {"clang"},
+    cxx = qstar.cli {"clang++"},
+    asm = qstar.cli {"clang"},
+    archive = qstar.cli {"llvm-ar"},
+    link = qstar.cli {"clang"},
+  },
+  response_files = "on",
+  response_style = "posix",
+  path_tools = {"llvm-objcopy"},
+  allow_absolute_tools = false,
+}
+
+qstar.toolset "host_like" {
+  tools = {
+    c = qstar.cli {"cc"},
+  },
+}
+
+qstar.config "use_clang" {
+  toolset = "//:clang_like",
+}
+
+qstar.staticlib "core" {
+  configs = {"//:use_clang"},
+  toolset = "//:host_like",
+  sources = {"src/main.c"},
+}
+EOF
+"$qstar" --file "$tmp/toolset/qstar.lua" check > "$tmp/toolset-check.out" 2> "$tmp/toolset-check.err"
+"$qstar" --file "$tmp/toolset/qstar.lua" --dump-graph > "$tmp/toolset-graph.out" 2> "$tmp/toolset-graph.err"
+contains "$tmp/toolset-graph.out" "toolset //:clang_like"
+contains "$tmp/toolset-graph.out" "tools.c [clang]"
+contains "$tmp/toolset-graph.out" "tools.archive [llvm-ar]"
+contains "$tmp/toolset-graph.out" "response_files on"
+contains "$tmp/toolset-graph.out" "response_style posix"
+contains "$tmp/toolset-graph.out" "allow_absolute_tools false"
+contains "$tmp/toolset-graph.out" "path_tools [llvm-objcopy]"
+contains "$tmp/toolset-graph.out" "config //:use_clang"
+contains "$tmp/toolset-graph.out" "toolset //:host_like"
+"$qstar" --file "$tmp/toolset/qstar.lua" list-targets > "$tmp/toolset-list.out" 2> "$tmp/toolset-list.err"
+contains "$tmp/toolset-list.out" "toolset-count 2"
+contains "$tmp/toolset-list.out" "toolset //:clang_like"
+"$qstar" --file "$tmp/toolset/qstar.lua" list-targets --format json > "$tmp/toolset-json.out" 2> "$tmp/toolset-json.err"
+contains "$tmp/toolset-json.out" "\"toolset_count\":2"
+contains "$tmp/toolset-json.out" "\"toolsets\":["
+contains "$tmp/toolset-json.out" "\"tools\":{\"c\":[\"clang\"]"
+contains "$tmp/toolset-json.out" "\"toolset\":\"//:host_like\""
+
+mkdir -p "$tmp/toolset-bad-role"
+cat > "$tmp/toolset-bad-role/qstar.lua" <<'EOF'
+qstar.toolset "bad" {
+  tools = {
+    ar = qstar.cli {"ar"},
+  },
+}
+EOF
+if "$qstar" --file "$tmp/toolset-bad-role/qstar.lua" check > "$tmp/toolset-bad-role.out" 2> "$tmp/toolset-bad-role.err"; then
+  fail "bad toolset role unexpectedly succeeded"
+fi
+contains "$tmp/toolset-bad-role.err" "unknown toolset tool role 'ar'"
+
+mkdir -p "$tmp/toolset-missing"
+cat > "$tmp/toolset-missing/qstar.lua" <<'EOF'
+qstar.staticlib "core" {
+  toolset = "//:missing",
+}
+EOF
+if "$qstar" --file "$tmp/toolset-missing/qstar.lua" check > "$tmp/toolset-missing.out" 2> "$tmp/toolset-missing.err"; then
+  fail "missing toolset unexpectedly succeeded"
+fi
+contains "$tmp/toolset-missing.err" "references unknown toolset '//:missing'"
+
+mkdir -p "$tmp/toolset-module/mods/a"
+cat > "$tmp/toolset-module/qstar.lua" <<'EOF'
+qstar.import_module("mods/a")
+EOF
+cat > "$tmp/toolset-module/mods/a/a.qsm" <<'EOF'
+qstar.toolset "bad" {
+  tools = {
+    c = qstar.cli {"cc"},
+  },
+}
+return {}
+EOF
+if "$qstar" --file "$tmp/toolset-module/qstar.lua" check > "$tmp/toolset-module.out" 2> "$tmp/toolset-module.err"; then
+  fail "qsm toolset declaration unexpectedly succeeded"
+fi
+contains "$tmp/toolset-module.err" "qstar.toolset is forbidden inside .qsm module"
+
 mkdir -p "$tmp/config-missing"
 cat > "$tmp/config-missing/qstar.lua" <<'EOF'
 qstar.staticlib "core" {

@@ -1018,6 +1018,8 @@ main(int argc, char **argv)
 	if (rc == 0 && !plan_cache_loaded)
 		rc = qstar_graph_validate_profile(&graph);
 	if (rc == 0 && !plan_cache_loaded)
+		rc = qstar_graph_validate_toolsets(&graph);
+	if (rc == 0 && !plan_cache_loaded)
 		rc = qstar_graph_validate_packages(&graph);
 	if (rc == 0 && !plan_cache_loaded)
 		rc = qstar_graph_validate_generated_outputs(&graph);

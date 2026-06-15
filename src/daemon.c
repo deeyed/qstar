@@ -2110,6 +2110,8 @@ load_graph(struct qstar_daemon_server *server, const struct qstar_daemon_request
 	if (rc == 0 && !plan_loaded)
 		rc = qstar_graph_validate_profile(&server->graph);
 	if (rc == 0 && !plan_loaded)
+		rc = qstar_graph_validate_toolsets(&server->graph);
+	if (rc == 0 && !plan_loaded)
 		rc = qstar_graph_validate_packages(&server->graph);
 	if (rc == 0 && !plan_loaded)
 		rc = qstar_graph_validate_generated_outputs(&server->graph);

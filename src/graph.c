@@ -141,6 +141,7 @@ free_target(struct qstar_target *target)
 	free(target->linker_script);
 	free(target->run_marker);
 	free(target->run_marker_log);
+	free(target->toolset);
 	free(target->toolchain);
 	free(target->stdlib_policy);
 }
@@ -154,6 +155,25 @@ free_config(struct qstar_config *config)
 	free(config->fragment_dir);
 	free(config->origin_file);
 	free_target(&config->options);
+}
+
+/** toolset declaration이 소유한 문자열과 argv list를 해제한다. */
+static void
+free_toolset(struct qstar_toolset *toolset)
+{
+	free(toolset->label);
+	free(toolset->name);
+	free(toolset->fragment_dir);
+	free(toolset->origin_file);
+	qstar_string_list_free(&toolset->c);
+	qstar_string_list_free(&toolset->cxx);
+	qstar_string_list_free(&toolset->asm_);
+	qstar_string_list_free(&toolset->archive);
+	qstar_string_list_free(&toolset->link);
+	qstar_string_list_free(&toolset->path_tools);
+	free(toolset->response_files);
+	free(toolset->response_style);
+	free(toolset->allow_absolute_tools);
 }
 
 /** generated action skeleton이 소유한 문자열과 list를 해제한다. */
@@ -304,6 +324,8 @@ qstar_graph_free(struct qstar_graph *graph)
 		free_target(&graph->targets[i]);
 	for (i = 0; i < graph->config_len; i++)
 		free_config(&graph->configs[i]);
+	for (i = 0; i < graph->toolset_len; i++)
+		free_toolset(&graph->toolsets[i]);
 	for (i = 0; i < graph->genrule_len; i++)
 		free_genrule(&graph->genrules[i]);
 	for (i = 0; i < graph->stage_len; i++)
@@ -325,6 +347,7 @@ qstar_graph_free(struct qstar_graph *graph)
 	free_profile_input(&graph->profile);
 	free(graph->targets);
 	free(graph->configs);
+	free(graph->toolsets);
 	free(graph->packages);
 	free(graph->genrules);
 	free(graph->stages);
@@ -633,6 +656,18 @@ has_config(const struct qstar_graph *graph, const char *label)
 }
 
 static int
+has_toolset(const struct qstar_graph *graph, const char *label)
+{
+	size_t i;
+
+	for (i = 0; i < graph->toolset_len; i++) {
+		if (strcmp(graph->toolsets[i].label, label) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+static int
 valid_alias(const char *alias)
 {
 	const unsigned char *p;
@@ -844,6 +879,10 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 		qstar_set_error(graph, "qstar: label '%s' is already used by config", label);
 		return NULL;
 	}
+	if (has_toolset(graph, label)) {
+		qstar_set_error(graph, "qstar: label '%s' is already used by toolset", label);
+		return NULL;
+	}
 	if (graph->len == graph->cap) {
 		cap = graph->cap ? graph->cap * 2 : 8;
 		targets = realloc(graph->targets, cap * sizeof(graph->targets[0]));
@@ -871,11 +910,12 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	target->run_marker = qstar_strdup("");
 	target->run_marker_log = qstar_strdup("");
 	target->description = qstar_strdup("");
+	target->toolset = qstar_strdup("");
 	if (!target->label || !target->name || !target->kind || !target->fragment_dir ||
 	    !target->origin_file || !target->toolchain || !target->stdlib_policy ||
 	    !target->artifact_name || !target->cxx_standard || !target->cale_profile ||
 	    !target->linker_script || !target->run_marker || !target->run_marker_log ||
-	    !target->description) {
+	    !target->description || !target->toolset) {
 		qstar_set_error(graph, "qstar: out of memory");
 		return NULL;
 	}
@@ -906,6 +946,10 @@ qstar_graph_add_config(struct qstar_graph *graph, const char *label, const char 
 	}
 	if (has_config(graph, label)) {
 		qstar_set_error(graph, "qstar: duplicate config label '%s'", label);
+		return NULL;
+	}
+	if (has_toolset(graph, label)) {
+		qstar_set_error(graph, "qstar: config label '%s' conflicts with toolset", label);
 		return NULL;
 	}
 	if (graph->config_len == graph->config_cap) {
@@ -939,6 +983,65 @@ qstar_graph_add_config(struct qstar_graph *graph, const char *label, const char 
 		return NULL;
 	}
 	return config;
+}
+
+/** QStar graph에 toolset declaration을 추가하고 label 충돌을 막는다. */
+struct qstar_toolset *
+qstar_graph_add_toolset(struct qstar_graph *graph, const char *label, const char *name,
+    const char *fragment_dir, const char *origin_file, int origin_line)
+{
+	struct qstar_toolset *toolsets, *toolset;
+	size_t cap;
+
+	if (has_target(graph, label)) {
+		qstar_set_error(graph, "qstar: toolset label '%s' conflicts with target", label);
+		return NULL;
+	}
+	if (has_genrule(graph, label)) {
+		qstar_set_error(graph,
+		    "qstar: toolset label '%s' conflicts with generated action", label);
+		return NULL;
+	}
+	if (has_stage(graph, label)) {
+		qstar_set_error(graph, "qstar: toolset label '%s' conflicts with stage rule",
+		    label);
+		return NULL;
+	}
+	if (has_config(graph, label)) {
+		qstar_set_error(graph, "qstar: toolset label '%s' conflicts with config", label);
+		return NULL;
+	}
+	if (has_toolset(graph, label)) {
+		qstar_set_error(graph, "qstar: duplicate toolset label '%s'", label);
+		return NULL;
+	}
+	if (graph->toolset_len == graph->toolset_cap) {
+		cap = graph->toolset_cap ? graph->toolset_cap * 2 : 4;
+		toolsets = realloc(graph->toolsets, cap * sizeof(graph->toolsets[0]));
+		if (!toolsets) {
+			qstar_set_error(graph, "qstar: out of memory");
+			return NULL;
+		}
+		graph->toolsets = toolsets;
+		graph->toolset_cap = cap;
+	}
+	toolset = &graph->toolsets[graph->toolset_len++];
+	memset(toolset, 0, sizeof(*toolset));
+	toolset->label = qstar_strdup(label);
+	toolset->name = qstar_strdup(name);
+	toolset->fragment_dir = qstar_strdup(fragment_dir ? fragment_dir : "");
+	toolset->origin_file = qstar_strdup(origin_file ? origin_file : "");
+	toolset->origin_line = origin_line;
+	toolset->response_files = qstar_strdup("auto");
+	toolset->response_style = qstar_strdup("auto");
+	toolset->allow_absolute_tools = qstar_strdup("false");
+	if (!toolset->label || !toolset->name || !toolset->fragment_dir ||
+	    !toolset->origin_file || !toolset->response_files ||
+	    !toolset->response_style || !toolset->allow_absolute_tools) {
+		qstar_set_error(graph, "qstar: out of memory");
+		return NULL;
+	}
+	return toolset;
 }
 
 /** config label로 reusable config declaration을 찾는다. */
@@ -1024,6 +1127,9 @@ merge_config_scalars(struct qstar_graph *graph, struct qstar_target *target,
 	if (config->has_linker_script &&
 	    replace_string(&target->linker_script, options->linker_script) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
+	if (config->has_toolset &&
+	    replace_string(&target->toolset, options->toolset) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
 	if (config->has_toolchain &&
 	    replace_string(&target->toolchain, options->toolchain) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
@@ -1062,6 +1168,36 @@ qstar_graph_apply_target_configs(struct qstar_graph *graph, struct qstar_target 
 	return 0;
 }
 
+/** target/config의 toolset scalar가 선언된 qstar.toolset label을 가리키는지 검증한다. */
+int
+qstar_graph_validate_toolsets(struct qstar_graph *graph)
+{
+	size_t i;
+
+	for (i = 0; i < graph->config_len; i++) {
+		if (graph->configs[i].has_toolset && graph->configs[i].options.toolset &&
+		    *graph->configs[i].options.toolset &&
+		    !has_toolset(graph, graph->configs[i].options.toolset)) {
+			return qstar_set_error_origin(graph, graph->configs[i].origin_file,
+			    graph->configs[i].origin_line, "toolset",
+			    graph->configs[i].label,
+			    "qstar: config '%s' references unknown toolset '%s'",
+			    graph->configs[i].label, graph->configs[i].options.toolset);
+		}
+	}
+	for (i = 0; i < graph->len; i++) {
+		if (graph->targets[i].toolset && *graph->targets[i].toolset &&
+		    !has_toolset(graph, graph->targets[i].toolset)) {
+			return qstar_set_error_origin(graph, graph->targets[i].origin_file,
+			    graph->targets[i].origin_line, "toolset",
+			    graph->targets[i].label,
+			    "qstar: target '%s' references unknown toolset '%s'",
+			    graph->targets[i].label, graph->targets[i].toolset);
+		}
+	}
+	return 0;
+}
+
 /** QStar graph에 generated action skeleton을 추가하고 중복 label을 막는다. */
 struct qstar_genrule *
 qstar_graph_add_genrule(struct qstar_graph *graph, const char *label, const char *name,
@@ -1087,6 +1223,11 @@ qstar_graph_add_genrule(struct qstar_graph *graph, const char *label, const char
 	if (has_config(graph, label)) {
 		qstar_set_error(graph,
 		    "qstar: generated action label '%s' conflicts with config", label);
+		return NULL;
+	}
+	if (has_toolset(graph, label)) {
+		qstar_set_error(graph,
+		    "qstar: generated action label '%s' conflicts with toolset", label);
 		return NULL;
 	}
 	if (graph->genrule_len == graph->genrule_cap) {
@@ -1139,6 +1280,10 @@ qstar_graph_add_stage(struct qstar_graph *graph, const char *label, const char *
 	}
 	if (has_config(graph, label)) {
 		qstar_set_error(graph, "qstar: stage label '%s' conflicts with config", label);
+		return NULL;
+	}
+	if (has_toolset(graph, label)) {
+		qstar_set_error(graph, "qstar: stage label '%s' conflicts with toolset", label);
 		return NULL;
 	}
 	if (graph->stage_len == graph->stage_cap) {
@@ -1553,6 +1698,8 @@ dump_target(const struct qstar_target *target, FILE *out)
 	fprintf(out, "  artifact_name %s\n",
 	    target->artifact_name && *target->artifact_name ? target->artifact_name :
 	    "<default>");
+	fprintf(out, "  toolset %s\n",
+	    target->toolset && *target->toolset ? target->toolset : "<default>");
 	fprintf(out, "  toolchain %s\n", target->toolchain);
 	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
 }
@@ -1643,6 +1790,9 @@ dump_config(const struct qstar_config *config, FILE *out)
 	fprintf(out, "  artifact_name %s\n",
 	    config->has_artifact_name && options->artifact_name && *options->artifact_name ?
 	    options->artifact_name : "<unset>");
+	fprintf(out, "  toolset %s\n",
+	    config->has_toolset && options->toolset && *options->toolset ? options->toolset :
+	    "<unset>");
 	fprintf(out, "  toolchain %s\n",
 	    config->has_toolchain && options->toolchain ? options->toolchain : "<unset>");
 	fprintf(out, "  stdlib %s\n",
@@ -1726,6 +1876,44 @@ dump_target_family(const struct qstar_target_family *family, FILE *out)
 	fputc('\n', out);
 }
 
+/** toolset declaration을 Graph IR dump 형식으로 출력한다. */
+static void
+dump_toolset(const struct qstar_toolset *toolset, FILE *out)
+{
+	fprintf(out, "toolset %s\n", toolset->label);
+	fprintf(out, "  origin file=%s line=%d\n",
+	    toolset->origin_file && *toolset->origin_file ? toolset->origin_file :
+	    "<unknown>", toolset->origin_line);
+	fprintf(out, "  fragment_dir %s\n", toolset->fragment_dir);
+	fputs("  tools.c ", out);
+	dump_list(out, &toolset->c);
+	fputc('\n', out);
+	fputs("  tools.cxx ", out);
+	dump_list(out, &toolset->cxx);
+	fputc('\n', out);
+	fputs("  tools.asm ", out);
+	dump_list(out, &toolset->asm_);
+	fputc('\n', out);
+	fputs("  tools.archive ", out);
+	dump_list(out, &toolset->archive);
+	fputc('\n', out);
+	fputs("  tools.link ", out);
+	dump_list(out, &toolset->link);
+	fputc('\n', out);
+	fprintf(out, "  response_files %s\n",
+	    toolset->response_files && *toolset->response_files ? toolset->response_files :
+	    "auto");
+	fprintf(out, "  response_style %s\n",
+	    toolset->response_style && *toolset->response_style ? toolset->response_style :
+	    "auto");
+	fprintf(out, "  allow_absolute_tools %s\n",
+	    toolset->allow_absolute_tools && *toolset->allow_absolute_tools ?
+	    toolset->allow_absolute_tools : "false");
+	fputs("  path_tools ", out);
+	dump_list(out, &toolset->path_tools);
+	fputc('\n', out);
+}
+
 /** QStar Graph IR를 deterministic explain text로 출력한다. */
 int
 qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
@@ -1792,6 +1980,8 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 	dump_list(out, &graph->profile.tool_overrides);
 	fputc('\n', out);
 	dump_package_aliases(out, graph);
+	for (i = 0; i < graph->toolset_len; i++)
+		dump_toolset(&graph->toolsets[i], out);
 	for (i = 0; i < graph->config_len; i++)
 		dump_config(&graph->configs[i], out);
 	for (i = 0; i < graph->genrule_len; i++)
@@ -1826,6 +2016,24 @@ sort_target_ptrs(const struct qstar_target **targets, size_t n)
 			j--;
 		}
 		targets[j] = v;
+	}
+}
+
+/** toolset pointer list를 canonical label 순서로 정렬한다. */
+static void
+sort_toolset_ptrs(const struct qstar_toolset **toolsets, size_t n)
+{
+	size_t i, j;
+	const struct qstar_toolset *v;
+
+	for (i = 1; i < n; i++) {
+		v = toolsets[i];
+		j = i;
+		while (j > 0 && strcmp(toolsets[j - 1]->label, v->label) > 0) {
+			toolsets[j] = toolsets[j - 1];
+			j--;
+		}
+		toolsets[j] = v;
 	}
 }
 
@@ -1920,17 +2128,21 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 {
 	const struct qstar_target **targets;
 	const struct qstar_config **configs;
+	const struct qstar_toolset **toolsets;
 	const struct qstar_stage **stages;
 	const struct qstar_target_family **families;
 	size_t i;
 
 	targets = malloc((graph->len ? graph->len : 1) * sizeof(targets[0]));
 	configs = malloc((graph->config_len ? graph->config_len : 1) * sizeof(configs[0]));
+	toolsets = malloc((graph->toolset_len ? graph->toolset_len : 1) *
+	    sizeof(toolsets[0]));
 	stages = malloc((graph->stage_len ? graph->stage_len : 1) * sizeof(stages[0]));
 	families = malloc((graph->family_len ? graph->family_len : 1) * sizeof(families[0]));
-	if (!targets || !configs || !stages || !families) {
+	if (!targets || !configs || !toolsets || !stages || !families) {
 		free(targets);
 		free(configs);
+		free(toolsets);
 		free(stages);
 		free(families);
 		return -1;
@@ -1939,12 +2151,15 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 		targets[i] = &graph->targets[i];
 	for (i = 0; i < graph->config_len; i++)
 		configs[i] = &graph->configs[i];
+	for (i = 0; i < graph->toolset_len; i++)
+		toolsets[i] = &graph->toolsets[i];
 	for (i = 0; i < graph->stage_len; i++)
 		stages[i] = &graph->stages[i];
 	for (i = 0; i < graph->family_len; i++)
 		families[i] = &graph->families[i];
 	sort_target_ptrs(targets, graph->len);
 	sort_config_ptrs(configs, graph->config_len);
+	sort_toolset_ptrs(toolsets, graph->toolset_len);
 	sort_stage_ptrs(stages, graph->stage_len);
 	sort_family_ptrs(families, graph->family_len);
 	fputs("qstar targets v1\n", out);
@@ -1961,6 +2176,12 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 		    configs[i]->origin_file && *configs[i]->origin_file ?
 		    configs[i]->origin_file : "<unknown>",
 		    configs[i]->origin_line);
+	fprintf(out, "toolset-count %zu\n", graph->toolset_len);
+	for (i = 0; i < graph->toolset_len; i++)
+		fprintf(out, "toolset %s origin=%s:%d\n", toolsets[i]->label,
+		    toolsets[i]->origin_file && *toolsets[i]->origin_file ?
+		    toolsets[i]->origin_file : "<unknown>",
+		    toolsets[i]->origin_line);
 	fprintf(out, "stage-count %zu\n", graph->stage_len);
 	for (i = 0; i < graph->stage_len; i++)
 		fprintf(out, "stage %s root=%s origin=%s:%d\n", stages[i]->label,
@@ -1973,10 +2194,11 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 		fprintf(out, "target_family %s allow_shared_sources=%s origin=%s:%d\n",
 		    families[i]->name, families[i]->allow_shared_sources ? "true" : "false",
 		    families[i]->origin_file && *families[i]->origin_file ?
-		    families[i]->origin_file : "<unknown>",
-		    families[i]->origin_line);
+			    families[i]->origin_file : "<unknown>",
+			    families[i]->origin_line);
 	free(targets);
 	free(configs);
+	free(toolsets);
 	free(stages);
 	free(families);
 	return 0;
@@ -2010,6 +2232,8 @@ dump_target_json(FILE *out, const struct qstar_target *target)
 	dump_json_list(out, &target->private_deps);
 	fputs(",\"toolchain\":", out);
 	dump_json_string(out, target->toolchain);
+	fputs(",\"toolset\":", out);
+	dump_json_string(out, target->toolset && *target->toolset ? target->toolset : "");
 	fputs(",\"artifact_name\":", out);
 	dump_json_string(out, target->artifact_name && *target->artifact_name ?
 	    target->artifact_name : "");
@@ -2087,6 +2311,10 @@ dump_config_json(FILE *out, const struct qstar_config *config)
 	dump_json_list(out, &options->defsyms);
 	fputs(",\"has_toolchain\":", out);
 	fprintf(out, "%s", config->has_toolchain ? "true" : "false");
+	fputs(",\"has_toolset\":", out);
+	fprintf(out, "%s", config->has_toolset ? "true" : "false");
+	fputs(",\"toolset\":", out);
+	dump_json_string(out, config->has_toolset && options->toolset ? options->toolset : "");
 	fputs(",\"toolchain\":", out);
 	dump_json_string(out, config->has_toolchain && options->toolchain ?
 	    options->toolchain : "");
@@ -2123,6 +2351,45 @@ dump_config_json(FILE *out, const struct qstar_config *config)
 	fprintf(out, "%s", config->has_cxx_modules ? "true" : "false");
 	fputs(",\"cxx_modules_enabled\":", out);
 	fprintf(out, "%s", options->cxx_modules_enabled ? "true" : "false");
+	fputc('}', out);
+}
+
+/** toolset 하나를 machine-readable JSON record로 출력한다. */
+static void
+dump_toolset_json(FILE *out, const struct qstar_toolset *toolset)
+{
+	fputs("{\"label\":", out);
+	dump_json_string(out, toolset->label);
+	fputs(",\"name\":", out);
+	dump_json_string(out, toolset->name);
+	fputs(",\"origin_file\":", out);
+	dump_json_string(out, toolset->origin_file && *toolset->origin_file ?
+	    toolset->origin_file : "<unknown>");
+	fprintf(out, ",\"origin_line\":%d", toolset->origin_line);
+	fputs(",\"fragment_dir\":", out);
+	dump_json_string(out, toolset->fragment_dir);
+	fputs(",\"tools\":{\"c\":", out);
+	dump_json_list(out, &toolset->c);
+	fputs(",\"cxx\":", out);
+	dump_json_list(out, &toolset->cxx);
+	fputs(",\"asm\":", out);
+	dump_json_list(out, &toolset->asm_);
+	fputs(",\"archive\":", out);
+	dump_json_list(out, &toolset->archive);
+	fputs(",\"link\":", out);
+	dump_json_list(out, &toolset->link);
+	fputc('}', out);
+	fputs(",\"response_files\":", out);
+	dump_json_string(out, toolset->response_files && *toolset->response_files ?
+	    toolset->response_files : "auto");
+	fputs(",\"response_style\":", out);
+	dump_json_string(out, toolset->response_style && *toolset->response_style ?
+	    toolset->response_style : "auto");
+	fputs(",\"allow_absolute_tools\":", out);
+	dump_json_string(out, toolset->allow_absolute_tools && *toolset->allow_absolute_tools ?
+	    toolset->allow_absolute_tools : "false");
+	fputs(",\"path_tools\":", out);
+	dump_json_list(out, &toolset->path_tools);
 	fputc('}', out);
 }
 
@@ -2241,6 +2508,7 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 {
 	const struct qstar_target **targets;
 	const struct qstar_config **configs;
+	const struct qstar_toolset **toolsets;
 	const struct qstar_genrule **genrules;
 	const struct qstar_stage **stages;
 	const struct qstar_target_family **families;
@@ -2248,12 +2516,15 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 
 	targets = malloc((graph->len ? graph->len : 1) * sizeof(targets[0]));
 	configs = malloc((graph->config_len ? graph->config_len : 1) * sizeof(configs[0]));
+	toolsets = malloc((graph->toolset_len ? graph->toolset_len : 1) *
+	    sizeof(toolsets[0]));
 	genrules = malloc((graph->genrule_len ? graph->genrule_len : 1) * sizeof(genrules[0]));
 	stages = malloc((graph->stage_len ? graph->stage_len : 1) * sizeof(stages[0]));
 	families = malloc((graph->family_len ? graph->family_len : 1) * sizeof(families[0]));
-	if (!targets || !configs || !genrules || !stages || !families) {
+	if (!targets || !configs || !toolsets || !genrules || !stages || !families) {
 		free(targets);
 		free(configs);
+		free(toolsets);
 		free(genrules);
 		free(stages);
 		free(families);
@@ -2263,6 +2534,8 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 		targets[i] = &graph->targets[i];
 	for (i = 0; i < graph->config_len; i++)
 		configs[i] = &graph->configs[i];
+	for (i = 0; i < graph->toolset_len; i++)
+		toolsets[i] = &graph->toolsets[i];
 	for (i = 0; i < graph->genrule_len; i++)
 		genrules[i] = &graph->genrules[i];
 	for (i = 0; i < graph->stage_len; i++)
@@ -2271,6 +2544,7 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 		families[i] = &graph->families[i];
 	sort_target_ptrs(targets, graph->len);
 	sort_config_ptrs(configs, graph->config_len);
+	sort_toolset_ptrs(toolsets, graph->toolset_len);
 	sort_genrule_ptrs(genrules, graph->genrule_len);
 	sort_stage_ptrs(stages, graph->stage_len);
 	sort_family_ptrs(families, graph->family_len);
@@ -2297,10 +2571,10 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	dump_json_string(out, qstar_graph_requested_generator(graph));
 	fputc('}', out);
 	fprintf(out,
-	    ",\"target_count\":%zu,\"config_count\":%zu,\"generated_action_count\":%zu,\"stage_count\":%zu,"
-	    "\"target_family_count\":%zu",
-	    graph->len, graph->config_len, graph->genrule_len, graph->stage_len,
-	    graph->family_len);
+	    ",\"target_count\":%zu,\"config_count\":%zu,\"toolset_count\":%zu,"
+	    "\"generated_action_count\":%zu,\"stage_count\":%zu,\"target_family_count\":%zu",
+	    graph->len, graph->config_len, graph->toolset_len, graph->genrule_len,
+	    graph->stage_len, graph->family_len);
 	fputs(",\"targets\":[", out);
 	for (i = 0; i < graph->len; i++) {
 		if (i)
@@ -2312,6 +2586,12 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 		if (i)
 			fputc(',', out);
 		dump_config_json(out, configs[i]);
+	}
+	fputs("],\"toolsets\":[", out);
+	for (i = 0; i < graph->toolset_len; i++) {
+		if (i)
+			fputc(',', out);
+		dump_toolset_json(out, toolsets[i]);
 	}
 	fputs("],\"generated_actions\":[", out);
 	for (i = 0; i < graph->genrule_len; i++) {
@@ -2334,6 +2614,7 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	fputs("]}\n", out);
 	free(targets);
 	free(configs);
+	free(toolsets);
 	free(genrules);
 	free(stages);
 	free(families);

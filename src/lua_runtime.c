@@ -494,6 +494,78 @@ replace_lua_string(char **slot, const char *value, struct qstar_graph *graph)
 	return 0;
 }
 
+/** string 또는 bool Lua field를 QStar-owned string slot으로 읽는다. */
+static int
+read_string_or_bool_field(lua_State *L, int table, const char *field, char **slot,
+    struct qstar_graph *graph)
+{
+	const char *value;
+	int type;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_getfield(L, table, field);
+	type = lua_type(L, -1);
+	if (type == LUA_TNIL) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (type == LUA_TBOOLEAN) {
+		value = lua_toboolean(L, -1) ? "true" : "false";
+	} else if (type == LUA_TSTRING) {
+		value = lua_tostring(L, -1);
+	} else {
+		lua_pop(L, 1);
+		return qstar_set_error(graph,
+		    "qstar: field '%s' must be a string or boolean", field);
+	}
+	if (replace_lua_string(slot, value, graph) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+/** label scalar field를 현재 fragment 기준 canonical label로 읽는다. */
+static int
+read_label_scalar_field(lua_State *L, int table, const char *field, char **slot,
+    struct qstar_graph *graph, const char *fragment_dir, int *present)
+{
+	const char *raw;
+	char label[QSTAR_PATH_MAX];
+	int type;
+
+	if (present)
+		*present = 0;
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_getfield(L, table, field);
+	type = lua_type(L, -1);
+	if (type == LUA_TNIL) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (type != LUA_TSTRING) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: field '%s' must be a label string",
+		    field);
+	}
+	raw = lua_tostring(L, -1);
+	if (qstar_label_canonicalize(raw, fragment_dir, label, sizeof(label)) < 0) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: invalid %s label '%s'", field, raw);
+	}
+	if (replace_lua_string(slot, label, graph) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	if (present)
+		*present = 1;
+	lua_pop(L, 1);
+	return 0;
+}
+
 /** lang.<namespace>.<field>가 명시되었는지 검사해 config scalar merge flag를 만든다. */
 static int
 nested_lang_field_present(lua_State *L, int table, const char *lang_name, const char *field)
@@ -821,10 +893,11 @@ reject_group_action_fields(lua_State *L, int table, struct qstar_graph *graph,
 		"lib_dirs",
 		"frameworks",
 		"link_options",
-		"defsyms",
-		"toolchain",
-		"stdlib",
-		"artifact_name",
+			"defsyms",
+			"toolset",
+			"toolchain",
+			"stdlib",
+			"artifact_name",
 		"linker_script",
 		"command",
 		"timeout",
@@ -1243,13 +1316,187 @@ read_lang_options(lua_State *L, int table, struct qstar_target *target,
 	return rc;
 }
 
+/** qstar.toolset table에서 허용되는 top-level field만 검사한다. */
+static int
+validate_toolset_fields(lua_State *L, int table, struct qstar_graph *graph)
+{
+	static const char *const allowed[] = {
+		"tools", "response_files", "response_style", "path_tools",
+		"allow_absolute_tools", NULL
+	};
+	const char *key;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_pushnil(L);
+	while (lua_next(L, table) != 0) {
+		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (!key || !string_in_set(key, allowed)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph, "qstar: unknown toolset field '%s'",
+			    key ? key : "<non-string>");
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+/** qstar.toolset tools.<role> field를 받을 argv list slot을 찾는다. */
+static struct qstar_string_list *
+toolset_role_list(struct qstar_toolset *toolset, const char *role)
+{
+	if (strcmp(role, "c") == 0)
+		return &toolset->c;
+	if (strcmp(role, "cxx") == 0)
+		return &toolset->cxx;
+	if (strcmp(role, "asm") == 0)
+		return &toolset->asm_;
+	if (strcmp(role, "archive") == 0)
+		return &toolset->archive;
+	if (strcmp(role, "link") == 0)
+		return &toolset->link;
+	return NULL;
+}
+
+/** qstar.toolset tools table을 allowlist role별 argv-vector로 읽는다. */
+static int
+read_toolset_tools(lua_State *L, int table, struct qstar_toolset *toolset,
+    struct qstar_graph *graph)
+{
+	struct qstar_string_list *list;
+	const char *role;
+	size_t count;
+	char field[64];
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_getfield(L, table, "tools");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: toolset '%s' requires tools table",
+		    toolset->label);
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: field 'tools' must be a table");
+	}
+	count = 0;
+	lua_pushnil(L);
+	while (lua_next(L, -2) != 0) {
+		role = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		list = role ? toolset_role_list(toolset, role) : NULL;
+		if (!list) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: unknown toolset tool role '%s'; expected c, cxx, asm, archive, or link",
+			    role ? role : "<non-string>");
+		}
+		if (snprintf(field, sizeof(field), "tools.%s", role) >= (int)sizeof(field)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph, "qstar: toolset tool role is too long");
+		}
+		if (read_cli_command(L, -1, list, graph, field) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		count++;
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	if (count == 0)
+		return qstar_set_error(graph,
+		    "qstar: toolset '%s' must declare at least one tool role",
+		    toolset->label);
+	return 0;
+}
+
+/** Lua qstar.toolset 선언을 Graph IR toolset declaration으로 낮춘다. */
+static int
+add_toolset(lua_State *L, const char *name, int table_index, const char *fragment_dir)
+{
+	struct qstar_lua_context *ctx;
+	struct qstar_toolset *toolset;
+	struct qstar_graph *graph;
+	char label[QSTAR_PATH_MAX], rawlabel[QSTAR_PATH_MAX];
+	char origin_file[QSTAR_PATH_MAX];
+	int origin_line;
+
+	if (table_index < 0)
+		table_index = lua_gettop(L) + table_index + 1;
+	ctx = get_context(L);
+	graph = ctx->graph;
+	if (reject_graph_declaration_in_module(L, "qstar.toolset") != 0)
+		return 1;
+	luaL_checktype(L, table_index, LUA_TTABLE);
+	if (!name[0])
+		return luaL_error(L, "qstar: toolset name is empty");
+	if (name[0] == ':' || name[0] == '/' || name[0] == '@') {
+		if (qstar_label_canonicalize(name, ctx->current_dir, label, sizeof(label)) < 0)
+			return luaL_error(L, "qstar: invalid toolset name '%s'", name);
+	} else {
+		if (snprintf(rawlabel, sizeof(rawlabel), ":%s", name) >=
+		    (int)sizeof(rawlabel) ||
+		    qstar_label_canonicalize(rawlabel, ctx->current_dir, label,
+		    sizeof(label)) < 0)
+			return luaL_error(L, "qstar: invalid toolset name '%s'", name);
+	}
+	current_origin(L, origin_file, sizeof(origin_file), &origin_line);
+	toolset = qstar_graph_add_toolset(graph, label, name, fragment_dir, origin_file,
+	    origin_line);
+	if (!toolset)
+		return luaL_error(L, "%s", graph->error);
+	if (validate_toolset_fields(L, table_index, graph) < 0 ||
+	    read_toolset_tools(L, table_index, toolset, graph) < 0 ||
+	    read_string_or_bool_field(L, table_index, "response_files",
+	    &toolset->response_files, graph) < 0 ||
+	    read_string_or_bool_field(L, table_index, "response_style",
+	    &toolset->response_style, graph) < 0 ||
+	    read_string_or_bool_field(L, table_index, "allow_absolute_tools",
+	    &toolset->allow_absolute_tools, graph) < 0 ||
+	    read_list_field(L, table_index, "path_tools", &toolset->path_tools, graph,
+	    0, toolset->fragment_dir) < 0)
+		return luaL_error(L, "%s", graph->error);
+	return 0;
+}
+
+/** qstar.toolset "name" { ... } 형태의 후행 table call을 처리한다. */
+static int
+qstar_lua_toolset_finish(lua_State *L)
+{
+	const char *name, *fragment_dir;
+
+	name = lua_tostring(L, lua_upvalueindex(1));
+	fragment_dir = lua_tostring(L, lua_upvalueindex(2));
+	return add_toolset(L, name, 1, fragment_dir);
+}
+
+/** qstar.toolset API entry point다. */
+static int
+qstar_lua_toolset(lua_State *L)
+{
+	struct qstar_lua_context *ctx;
+	const char *name;
+
+	ctx = get_context(L);
+	if (reject_graph_declaration_in_module(L, "qstar.toolset") != 0)
+		return 1;
+	name = luaL_checkstring(L, 1);
+	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
+		lua_pushstring(L, name);
+		lua_pushstring(L, ctx->current_dir);
+		lua_pushcclosure(L, qstar_lua_toolset_finish, 2);
+		return 1;
+	}
+	return add_toolset(L, name, 2, ctx->current_dir);
+}
+
 /** qstar.config table에서 config primitive가 받을 수 있는 top-level field만 허용한다. */
 static int
 validate_config_fields(lua_State *L, int table, struct qstar_graph *graph)
 {
 	static const char *const allowed[] = {
 		"lang", "libs", "lib_dirs", "frameworks", "link_options", "defsyms",
-		"toolchain", "stdlib", "artifact_name", "linker_script", NULL
+		"toolset", "toolchain", "stdlib", "artifact_name", "linker_script", NULL
 	};
 	const char *key;
 
@@ -1278,7 +1525,7 @@ add_config(lua_State *L, const char *name, int table_index, const char *fragment
 	const char *artifact_name, *linker_script, *toolchain, *stdlib_policy;
 	char label[QSTAR_PATH_MAX], rawlabel[QSTAR_PATH_MAX];
 	char origin_file[QSTAR_PATH_MAX];
-	int origin_line;
+	int origin_line, has_toolset;
 
 	if (table_index < 0)
 		table_index = lua_gettop(L) + table_index + 1;
@@ -1355,6 +1602,11 @@ add_config(lua_State *L, const char *name, int table_index, const char *fragment
 	linker_script = check_string_field(L, table_index, "linker_script");
 	toolchain = check_string_field(L, table_index, "toolchain");
 	stdlib_policy = check_string_field(L, table_index, "stdlib");
+	if (read_label_scalar_field(L, table_index, "toolset", &config->options.toolset,
+	    graph, config->fragment_dir, &has_toolset) < 0)
+		return luaL_error(L, "%s", graph->error);
+	if (has_toolset)
+		config->has_toolset = 1;
 	if (artifact_name) {
 		if (!valid_target_artifact_name(artifact_name))
 			return luaL_error(L,
@@ -1503,6 +1755,9 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	toolchain = check_string_field(L, table_index, "toolchain");
 	stdlib_policy = check_string_field(L, table_index, "stdlib");
 	artifact_name = check_string_field(L, table_index, "artifact_name");
+	if (read_label_scalar_field(L, table_index, "toolset", &target->toolset, graph,
+	    target->fragment_dir, NULL) < 0)
+		return luaL_error(L, "%s", graph->error);
 	if (artifact_name) {
 		if (!valid_target_artifact_name(artifact_name))
 			return luaL_error(L,
@@ -1556,9 +1811,9 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 		if (!target->run_marker || !target->run_marker_log)
 			return luaL_error(L, "qstar: out of memory");
 	}
-	if (!target->toolchain || !target->stdlib_policy || !target->artifact_name ||
-	    !target->cxx_standard || !target->linker_script || !target->run_marker ||
-	    !target->run_marker_log)
+	if (!target->toolchain || !target->toolset || !target->stdlib_policy ||
+	    !target->artifact_name || !target->cxx_standard || !target->linker_script ||
+	    !target->run_marker || !target->run_marker_log)
 		return luaL_error(L, "qstar: out of memory");
 	return 0;
 }
@@ -3389,6 +3644,8 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "project");
 	lua_pushcfunction(L, qstar_lua_profile);
 	lua_setfield(L, -2, "profile");
+	lua_pushcfunction(L, qstar_lua_toolset);
+	lua_setfield(L, -2, "toolset");
 	lua_pushcfunction(L, qstar_lua_config);
 	lua_setfield(L, -2, "config");
 	lua_pushstring(L, "target");

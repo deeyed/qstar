@@ -68,6 +68,7 @@ struct qstar_target {
 	int asm_preprocess;
 	int cxx_modules_present;
 	int cxx_modules_enabled;
+	char *toolset;
 	char *toolchain;
 	char *stdlib_policy;
 };
@@ -85,8 +86,26 @@ struct qstar_config {
 	int has_linker_script;
 	int has_asm_preprocess;
 	int has_cxx_modules;
+	int has_toolset;
 	int has_toolchain;
 	int has_stdlib_policy;
+};
+
+struct qstar_toolset {
+	char *label;
+	char *name;
+	char *fragment_dir;
+	char *origin_file;
+	int origin_line;
+	struct qstar_string_list c;
+	struct qstar_string_list cxx;
+	struct qstar_string_list asm_;
+	struct qstar_string_list archive;
+	struct qstar_string_list link;
+	struct qstar_string_list path_tools;
+	char *response_files;
+	char *response_style;
+	char *allow_absolute_tools;
 };
 
 struct qstar_genrule {
@@ -237,6 +256,9 @@ struct qstar_graph {
 	struct qstar_config *configs;
 	size_t config_len;
 	size_t config_cap;
+	struct qstar_toolset *toolsets;
+	size_t toolset_len;
+	size_t toolset_cap;
 	char *package_root;
 	struct qstar_package_alias *packages;
 	size_t package_len;
@@ -351,6 +373,10 @@ struct qstar_target *qstar_graph_add_target(struct qstar_graph *graph, const cha
 struct qstar_config *qstar_graph_add_config(struct qstar_graph *graph, const char *label,
     const char *name, const char *fragment_dir, const char *origin_file, int origin_line);
 
+/** QStar toolset declaration을 graph에 추가한다. */
+struct qstar_toolset *qstar_graph_add_toolset(struct qstar_graph *graph, const char *label,
+    const char *name, const char *fragment_dir, const char *origin_file, int origin_line);
+
 /** QStar target에 선언된 configs list를 target option field로 병합한다. */
 int qstar_graph_apply_target_configs(struct qstar_graph *graph, struct qstar_target *target);
 
@@ -387,6 +413,9 @@ const struct qstar_package_alias *qstar_graph_find_package_alias(const struct qs
 
 /** QStar in-DSL profile schema 입력을 검증한다. */
 int qstar_graph_validate_profile(struct qstar_graph *graph);
+
+/** QStar toolset 참조가 선언된 toolset label을 가리키는지 검증한다. */
+int qstar_graph_validate_toolsets(struct qstar_graph *graph);
 
 /** QStar header file graph policy를 검증한다. */
 int qstar_graph_validate_headers(struct qstar_graph *graph);

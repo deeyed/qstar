@@ -32,6 +32,7 @@ struct qstar_lsp_hover_entry {
 static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 	{ "qstar.project", "Declare package-root project metadata, build_dir, generated_dir, and compile database policy." },
 	{ "qstar.profile", "Declare an in-DSL toolchain/profile policy for qstar.lua." },
+	{ "qstar.toolset", "Declare an allowlisted tool role bundle with tools.c/cxx/asm/archive/link argv vectors." },
 	{ "qstar.config", "Declare a reusable target option bundle for configs = { ... }." },
 	{ "qstar.executable", "Create an executable target." },
 	{ "qstar.staticlib", "Create a static library target." },
@@ -77,6 +78,8 @@ static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 static const struct qstar_lsp_hover_entry qstar_lsp_fields[] = {
 	{ "sources", "Compile or generated source inputs for this target." },
 	{ "configs", "Reusable qstar.config labels merged before target-local fields." },
+	{ "toolset", "Canonical qstar.toolset label selected by a target or config." },
+	{ "tools", "Tool role map inside qstar.toolset; allowed roles are c, cxx, asm, archive, and link." },
 	{ "generated_dir", "Project-level package-relative root for qstar.output generated artifacts." },
 	{ "deps", "Public dependency edges used for build, link, and include propagation." },
 	{ "public_deps", "Alias for public dependency edges." },
@@ -87,6 +90,8 @@ static const struct qstar_lsp_hover_entry qstar_lsp_fields[] = {
 	{ "c", "C language options under lang.c." },
 	{ "cxx", "C++ language options under lang.cxx." },
 	{ "asm", "Assembly language options under lang.asm." },
+	{ "archive", "Archive tool role under qstar.toolset.tools." },
+	{ "link", "Link tool role under qstar.toolset.tools." },
 	{ "cale", "Cale language options under lang.cale." },
 	{ "include_dirs", "Language-local include directories under lang.<language>." },
 	{ "public_include_dirs", "Language include directories propagated to public dependents." },
@@ -561,6 +566,8 @@ load_lint_graph(const char *root_file, struct qstar_graph *graph)
 		rc = qstar_graph_set_profile_input(graph, NULL, NULL, NULL, NULL);
 	if (rc == 0)
 		rc = qstar_graph_validate_profile(graph);
+	if (rc == 0)
+		rc = qstar_graph_validate_toolsets(graph);
 	if (rc == 0)
 		rc = qstar_graph_validate_packages(graph);
 	if (rc == 0)
