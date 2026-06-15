@@ -1236,7 +1236,8 @@ clamp_default_job_count(long n)
 static int
 default_job_count_from_sysconf(void)
 {
-#if !defined(__APPLE__) && (defined(__linux__) || defined(_SC_NPROCESSORS_ONLN))
+#if !QSTAR_PLATFORM_WINDOWS && !defined(__APPLE__) && \
+    (defined(__linux__) || defined(_SC_NPROCESSORS_ONLN))
 	long n;
 
 	errno = 0;
