@@ -3185,17 +3185,20 @@ qstar.custom_target "bad_generated_dir" {
 }
 EOF
 
+step "generated dir escape diagnostic" "generated-dir"
 if "$qstar" --file "$tmp/qstar.lua" check > "$tmp/generated-dir.out" 2> "$tmp/generated-dir.err"; then
 	fail "generated_dir escape output unexpectedly succeeded"
 fi
 contains "$tmp/generated-dir.err" "must be under generated_dir 'build/qstar/generated'"
 contains "$tmp/generated-dir.err" "change the output path to 'build/qstar/generated/<file>'"
 
+step "bad group corpus diagnostic" "bad-group-corpus"
 if "$qstar" --file tests/corpus/bad-group/qstar.lua check > "$tmp/bad-group-corpus.out" 2> "$tmp/bad-group-corpus.err"; then
 	fail "bad-group corpus unexpectedly succeeded"
 fi
 contains "$tmp/bad-group-corpus.err" "qstar.target_file cannot reference group target '//:aggregate' because group targets have no artifact"
 
+step "generated command escape diagnostic" "bad-arg"
 cat > "$tmp/qstar.lua" <<'EOF'
 qstar.custom_target "bad_arg" {
   outputs = {qstar.output("generated/safe.c")},
@@ -3212,6 +3215,7 @@ if "$qstar" --file "$tmp/qstar.lua" build //:bad_gen > "$tmp/bad-arg.out" 2> "$t
 fi
 contains "$tmp/bad-arg.err" "escapes package root"
 
+step "unsupported source suffix diagnostic" "suffix"
 cat > "$tmp/qstar.lua" <<'EOF'
 qstar.executable "bad_suffix" {
   sources = {"src/main.txt"},
@@ -3235,6 +3239,7 @@ contains "$tmp/bad-unsupported-source.err" "Objective-C provider is not availabl
 contains "$tmp/bad-unsupported-source.err" "qstar.output(..., {format = \"object\"})"
 
 for unsupported_suffix in mm rs zig swift; do
+	step "unsupported source .${unsupported_suffix} diagnostic" "unsupported-${unsupported_suffix}"
 	cat > "$tmp/qstar.lua" <<EOF
 qstar.executable "bad_${unsupported_suffix}" {
   sources = {"src/foreign.${unsupported_suffix}"},
@@ -3247,9 +3252,14 @@ EOF
 	contains "$tmp/unsupported-${unsupported_suffix}.err" "qstar.custom_target"
 	contains "$tmp/unsupported-${unsupported_suffix}.err" "qstar.output(..., {format = \"object\"})"
 done
+
+step "unsupported Objective-C++ source detail" "unsupported-mm"
 contains "$tmp/unsupported-mm.err" "Objective-C++ provider is not available"
+
+step "unsupported external language source detail" "unsupported-rs"
 contains "$tmp/unsupported-rs.err" "this language is not a QStar compile provider"
 
+step "usage requirements corpus setup" "usage-requirements"
 mkdir -p "$tmp/include" "$tmp/src/core_private" "$tmp/lib"
 cat > "$tmp/include/core.h" <<'EOF'
 int core_value(void);
