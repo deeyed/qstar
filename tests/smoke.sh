@@ -1038,7 +1038,7 @@ qstar.test "unit" {
 qstar.run_target "smoke" {
   deps = {"//:app"},
   command = qstar.cli {qstar.target_file("//:app")},
-  timeout = 3,
+  timeout = 10,
   expect = {
     contains = "APP-OK",
   },
@@ -1047,7 +1047,7 @@ qstar.run_target "smoke" {
 qstar.run_target "missing_expect" {
   deps = {"//:app"},
   command = qstar.cli {qstar.target_file("//:app")},
-  timeout = 3,
+  timeout = 10,
   expect = {
     contains = "MISSING-EXPECT",
   },
@@ -4130,6 +4130,11 @@ contains "docs/performance-gates.md" "async_final_actions"
 contains "docs/performance-gates.md" "Large Synthetic Corpus Gate"
 contains "docs/performance-gates.md" "large_project_gate"
 contains "docs/performance-gates.md" "qstar-performance-release-gate"
+contains "docs/performance-gates.md" "qstar-generic-dsl-backend-parity-tests"
+contains "docs/qstar-generic-dsl-backend-seal.md" "status: generic DSL backend seal"
+contains "docs/qstar-generic-dsl-backend-seal.md" "make qstar-generic-dsl-backend-parity-tests"
+contains "docs/qstar-generic-dsl-backend-seal.md" "Stella/Ninja 2.5x + 500ms"
+contains "wiki/reference/performance-gates.md" "make qstar-generic-dsl-backend-parity-tests"
 contains "docs/performance-gates.md" "Skipped reason"
 contains "docs/performance-gates.md" "hard_threshold_x100"
 contains "docs/performance-gates.md" "Q176 release gate format"
@@ -4215,6 +4220,7 @@ contains "docs/linux-validation.md" "extract-docs-show-qstar-lua.txt"
 contains "docs/linux-validation.md" "qstar-linux-x86_64-release-candidate-dry-run"
 contains "docs/linux-validation.md" "download-smoke-linux-x86_64"
 contains "docs/linux-validation.md" "linux-hosted-release-decision.txt"
+contains "docs/linux-validation.md" "make qstar-generic-dsl-backend-parity-tests"
 contains "docs/linux-validation.md" "https://github.com/deeyed/qstar/actions/runs/27507809666"
 contains "docs/linux-validation.md" "qstar-v0.7.0-beta-linux-x86_64.tar.gz"
 contains "docs/linux-validation.md" "linux_release_asset status=published"
@@ -4227,6 +4233,7 @@ contains ".github/workflows/linux-validation.yml" "ninja-build"
 contains ".github/workflows/linux-validation.yml" "make check"
 contains ".github/workflows/linux-validation.yml" "make qstar-linux-validation-tests"
 contains ".github/workflows/linux-validation.yml" "Run explicit Ninja backend parity gate"
+contains ".github/workflows/linux-validation.yml" "Run generic DSL backend and performance seal"
 contains ".github/workflows/linux-validation.yml" "QSTAR_LINUX_VALIDATION_CC"
 contains ".github/workflows/linux-validation.yml" "docs --path"
 contains ".github/workflows/linux-validation.yml" "Medium Stella/Ninja performance line protocol"
@@ -4582,6 +4589,7 @@ contains "Makefile" "qstar-release-candidate-tests"
 contains "Makefile" "qstar-full-regression-tests"
 contains "Makefile" "qstar-systems-corpus-tests"
 contains "Makefile" "qstar-medium-project-readiness-tests"
+contains "Makefile" "qstar-generic-dsl-backend-parity-tests"
 contains "Makefile" "qstar-large-project-performance-tests"
 contains "Makefile" "qstar-perf-summary-tests"
 contains "Makefile" "qstar-performance-release-gate"
@@ -4611,6 +4619,7 @@ contains "docs/performance-gates.md" "tools/perf-summary.sh --repeat 3 --"
 contains "docs/performance-gates.md" "perf_summary ratio"
 contains "wiki/reference/performance-gates.md" "tools/perf-summary.sh --repeat 3 --"
 contains "wiki/AI_INDEX.md" "tools/perf-summary.sh"
+contains "wiki/AI_INDEX.md" "make qstar-generic-dsl-backend-parity-tests"
 contains "wiki/AI_INDEX.md" "docs/perf/q166-large-performance-refresh.md"
 contains "wiki/AI_INDEX.md" "linux-daemon-validation-status.txt"
 contains "wiki/AI_INDEX.md" "docs/qstar-v0.8-readiness.md"

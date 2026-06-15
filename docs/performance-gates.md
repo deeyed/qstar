@@ -12,6 +12,17 @@ project shape에서 비교해 executor 품질을 숫자로 관리한다. 이 문
 make qstar-medium-project-readiness-tests
 ```
 
+Generic DSL hard cut 이후 backend/performance release seal은 self-host,
+Stella/Ninja backend parity, Linux validation, medium performance summary를 함께 묶는다.
+
+```sh
+make qstar-generic-dsl-backend-parity-tests
+```
+
+이 target은 `tools/perf-summary.sh --hard`를 사용해 Stella/Ninja ratio가
+기본 hard threshold인 `2.5x + 500ms`를 넘으면 실패한다. 구조적 backend failure는
+항상 hard fail이다.
+
 이 gate는 임시 project를 만들고 다음 phase를 측정한다.
 
 | Phase | 의미 |

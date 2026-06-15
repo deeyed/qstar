@@ -111,7 +111,7 @@ QStar가 하지 않는 일:
   `ubuntu-latest`에서 gcc/clang matrix를 돌리고 `QSTAR_LINUX_VALIDATION_CC`로 실제 depfile
   compiler lane을 고정한다. 각 lane은 Ninja를 설치하고 `make all`, `make check`,
   `make qstar-linux-validation-tests`, `make qstar-ninja-backend-parity-tests`,
-  install docs/man smoke를 실행한다. gcc lane은
+  `make qstar-generic-dsl-backend-parity-tests`, install docs/man smoke를 실행한다. gcc lane은
   `QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh`로 ELF x86-64,
   `ldd`, installed/extracted docs/wiki/manpages, `SHA256SUMS`를 확인하는 publish 없는
   dry-run을 수행하고, `qstar-linux-x86_64-release-candidate-dry-run` artifact를 업로드한다.
@@ -184,6 +184,10 @@ QStar가 하지 않는 일:
   no-op, incremental build 시간을 `medium_project_gate ...` line protocol로 기록한다.
   Round Q92 기준 timing threshold는 report-only가 기본이며,
   `QSTAR_MEDIUM_PERF_REPORT_ONLY=0`이면 hard gate로 승격된다.
+- `make qstar-generic-dsl-backend-parity-tests`는 Q193 generic DSL backend seal이다.
+  self-host, Stella generated/object/sharedlib smoke, Ninja backend parity, Linux
+  validation, medium Stella/Ninja timing summary를 current `qstar.toolset`/`qstar.config`
+  surface로 묶는다.
 - `make qstar-large-project-performance-tests`는 200/500 target synthetic corpus의 scaling을
   report-only line protocol로 기록한다. `tools/perf-summary.sh`는 medium/large output을
   읽어 min/median/max와 Stella/Ninja ratio를 요약한다. `--format markdown` output은

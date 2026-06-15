@@ -10,6 +10,17 @@ incremental build 시간을 line protocol로 남기고 release마다 추적하�
 make qstar-medium-project-readiness-tests
 ```
 
+Generic DSL hard cut 이후 release 후보는 backend/performance seal도 함께 실행한다.
+
+```sh
+make qstar-generic-dsl-backend-parity-tests
+```
+
+이 gate는 self-host, Stella generated/object/sharedlib smoke, Ninja backend parity,
+Linux validation, medium Stella/Ninja timing summary를 current `qstar.toolset` /
+`qstar.config` authoring surface로 묶는다. 구조적 backend failure는 hard fail이고,
+timing은 기본적으로 Stella/Ninja `2.5x + 500ms` hard threshold를 넘으면 실패한다.
+
 또는 QStar binary를 직접 지정한다.
 
 ```sh

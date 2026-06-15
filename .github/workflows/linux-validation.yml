@@ -69,6 +69,13 @@ jobs:
       - name: Run explicit Ninja backend parity gate
         run: make qstar-ninja-backend-parity-tests
 
+      - name: Run generic DSL backend and performance seal
+        run: |
+          set -euo pipefail
+          mkdir -p dist/perf/generic-dsl-${{ matrix.compiler }}
+          QSTAR_GENERIC_DSL_SEAL_ARTIFACT_DIR="dist/perf/generic-dsl-${{ matrix.compiler }}" \
+            make qstar-generic-dsl-backend-parity-tests
+
       - name: Medium Stella/Ninja performance line protocol
         run: |
           set -euo pipefail
@@ -96,6 +103,12 @@ jobs:
             dist/perf/linux-${{ matrix.compiler }}-medium-perf.txt
             dist/perf/linux-${{ matrix.compiler }}-medium-summary.txt
             dist/perf/linux-${{ matrix.compiler }}-medium-summary.md
+            dist/perf/generic-dsl-${{ matrix.compiler }}/generic-dsl-medium-perf.txt
+            dist/perf/generic-dsl-${{ matrix.compiler }}/generic-dsl-medium-summary.txt
+            dist/perf/generic-dsl-${{ matrix.compiler }}/generic-dsl-medium-summary.md
+            dist/perf/generic-dsl-${{ matrix.compiler }}/generic-dsl-self-host.txt
+            dist/perf/generic-dsl-${{ matrix.compiler }}/generic-dsl-ninja-backend-parity.txt
+            dist/perf/generic-dsl-${{ matrix.compiler }}/generic-dsl-linux-validation.txt
           if-no-files-found: ignore
 
       - name: Install prefix docs and manpage smoke

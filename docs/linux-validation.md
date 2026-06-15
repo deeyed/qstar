@@ -95,6 +95,16 @@ QSTAR_TEST_QSTAR=build/bin/qstar sh tests/medium-project-performance.sh
 git diff --check
 ```
 
+Generic DSL backend/performance seal:
+
+```sh
+make qstar-generic-dsl-backend-parity-tests
+```
+
+이 gate는 Linux validation만 따로 보지 않고, current `qstar.toolset`/`qstar.config`
+authoring surface로 self-host, Stella generated/object/sharedlib smoke, Ninja parity,
+medium Stella/Ninja timing을 함께 확인한다.
+
 `tests/linux-validation.sh`는 임시 project를 만들고 다음 경로를 한 번에 확인한다.
 
 - `.qsm` module import

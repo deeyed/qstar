@@ -57,6 +57,12 @@ Run the dedicated gate with:
 make qstar-ninja-backend-parity-tests
 ```
 
+Generic DSL release candidates also run the consolidated Q193 seal:
+
+```sh
+make qstar-generic-dsl-backend-parity-tests
+```
+
 The gate checks staticlib, sharedlib, sharedlib-linked executable/test,
 generated actions, configure file, run target expect handling, sharedlib
 stage/install producer integration, object artifact bridge parity through

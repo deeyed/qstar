@@ -232,6 +232,7 @@ Before tagging a future `v0.8.0-beta`:
 make all
 make check
 make qstar-self-host-tests
+make qstar-generic-dsl-backend-parity-tests
 make qstar-medium-project-readiness-tests
 make qstar-large-project-performance-tests
 make qstar-public-beta-release-tests

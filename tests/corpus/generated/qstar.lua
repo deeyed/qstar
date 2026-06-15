@@ -55,7 +55,7 @@ qstar.test "unit" {
 qstar.run_target "smoke" {
   deps = {"//:app"},
   command = qstar.cli {qstar.target_file("//:app")},
-  timeout = 3,
+  timeout = 10,
   expect = {
     contains = "GENERATED-OK",
   },

@@ -29,15 +29,31 @@ Important documents:
 - `ninja-backend-parity.md`: Ninja lowering parity contract.
 - `language-provider-backend-contract.md`: external object artifact bridge boundary.
 - `performance-gates.md`: Stella/Ninja performance gate contract.
+- `qstar-generic-dsl-backend-seal.md`: Q193 backend/performance seal after the
+  generic DSL hard cut.
 - `perf/q166-large-performance-refresh.md`: large synthetic Stella/Ninja/daemon timing.
 - `progress-output.md`: CMake-style progress output and warning/error color policy.
 - `daemon/stella-daemon.md`: Stella daemon design and beta surface.
+- `daemon-beta-readiness.md`: daemon beta readiness and opt-in decision.
 - `contracts/daemon-read-api.md`: daemon read-only API contract.
 - `windows-path-process.md`: Windows path/process preparation.
+- `windows-native-alpha.md`: manual native CI alpha workflow.
 - `windows-artifact-policy.md`: Windows artifact policy.
+- `windows-artifact-graph-ir.md`: Windows multi-artifact Graph IR design note.
 - `linux-validation.md`: Linux host validation and release asset criteria.
 - `public-beta-release.md`: release packaging and wiki sync checklist.
+- `qstar-submodule-extraction-prep.md`: submodule extraction notes.
+- `qstar-pilot-readiness-seal.md`: pilot readiness gate notes.
+- `qstar-v0.2-release-candidate-seal.md`: v0.2 release-candidate gate.
+- `qstar-v0.3-seal.md`: v0.3 release-candidate gate.
+- `qstar-v0.4-stella-seal.md`: v0.4 Stella workflow gate.
+- `qstar-v0.5-readiness.md`: v0.5 readiness gate.
+- `qstar-v0.6-readiness.md`: v0.6 readiness gate.
+- `qstar-v0.6-post-release-smoke.md`: post-release artifact smoke notes.
+- `qstar-v0.7-readiness.md`: v0.7 readiness gate.
 - `qstar-v0.8-readiness.md`: next feature-line readiness gate.
+- `releases/TEMPLATE.md`: release note template.
+- `releases/v0.7.0-beta.md`: current public beta release note.
 - `releases/v0.8.0-beta.md`: draft release note for the next beta feature line.
 
 Hard-cut rule: public docs must teach the current generic DSL only. Historical
