@@ -1585,6 +1585,9 @@ watcher_add_list(struct qstar_daemon_server *server,
 	size_t i;
 
 	for (i = 0; i < list->len; i++) {
+		if (qstar_target_file_token_label(list->items[i],
+		    (char[QSTAR_PATH_MAX]){0}, QSTAR_PATH_MAX) != 0)
+			continue;
 		if (watcher_add_rel(server, list->items[i], scope) < 0)
 			return -1;
 	}
@@ -1682,11 +1685,11 @@ watcher_refresh(struct qstar_daemon_server *server)
 		    watcher_add_list(server, &target->public_headers,
 		    QSTAR_DAEMON_WATCH_INPUT) < 0 ||
 		    watcher_add_list(server, &target->private_headers,
+		    QSTAR_DAEMON_WATCH_INPUT) < 0 ||
+		    watcher_add_list(server, &target->link_inputs,
 		    QSTAR_DAEMON_WATCH_INPUT) < 0)
 			return -1;
-		if (watcher_add_rel(server, target->linker_script,
-		    QSTAR_DAEMON_WATCH_INPUT) < 0 ||
-		    watcher_add_rel(server, target->run_marker,
+		if (watcher_add_rel(server, target->run_marker,
 		    QSTAR_DAEMON_WATCH_INPUT) < 0 ||
 		    watcher_add_rel(server, target->run_marker_log,
 		    QSTAR_DAEMON_WATCH_INPUT) < 0)

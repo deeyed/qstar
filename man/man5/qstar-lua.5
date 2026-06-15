@@ -51,6 +51,17 @@ on Linux-like profiles. Windows DLL/import-library/PDB policy is deferred and pr
 diagnostic.
 .It Ic qstar.test
 Test executable target.
+.Pp
+Artifact targets and configs split
+.Ic link_options
+from
+.Ic link_inputs .
+.Ic link_options
+items are appended to the link argv exactly as authored.
+.Ic link_inputs
+tracks package-relative files or
+.Ic qstar.target_file(...)
+artifacts as link action rebuild inputs without adding argv items.
 .It Ic qstar.custom_target
 Generated action using a
 .Ic qstar.cli

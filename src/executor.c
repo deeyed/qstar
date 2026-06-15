@@ -4578,13 +4578,14 @@ generated_output_in_list(const struct qstar_genrule *genrule, const struct qstar
 	return 0;
 }
 
-/** target이 generated action output을 source/header로 소비하는지 검사한다. */
+/** target이 generated action output을 source/header/link input으로 소비하는지 검사한다. */
 static int
 target_consumes_genrule(const struct qstar_target *target, const struct qstar_genrule *genrule)
 {
 	return generated_output_in_list(genrule, &target->sources) ||
 	    generated_output_in_list(genrule, &target->public_headers) ||
-	    generated_output_in_list(genrule, &target->private_headers);
+	    generated_output_in_list(genrule, &target->private_headers) ||
+	    generated_output_in_list(genrule, &target->link_inputs);
 }
 
 /** target compile action이 기다려야 하는 generated source/header인지 확인한다. */
@@ -6741,22 +6742,11 @@ toolchain_uses_msvc_out_arg(const struct qstar_resolved_toolchain *toolchain,
 	return strstr(tool, "lld-link") != NULL || strstr(tool, "link.exe") != NULL;
 }
 
-/** target linker_script가 있으면 우선하고 없으면 profile linker_script를 쓴다. */
-static const char *
-effective_linker_script(const struct qstar_graph *graph, const struct qstar_target *target)
-{
-	return target->linker_script && *target->linker_script ? target->linker_script :
-	    graph->profile.linker_script && *graph->profile.linker_script ?
-	    graph->profile.linker_script : NULL;
-}
-
-/** target/profile link policy를 argv에 추가한다. */
+/** target/profile link_options를 argv에 추가한다. */
 static int
 append_link_policy_flags(struct qstar_graph *graph, const struct qstar_target *target,
     char **argv, size_t *argc)
 {
-	char arg[QSTAR_PATH_MAX];
-	const char *script;
 	size_t i;
 
 	for (i = 0; i < graph->profile.link_options.len; i++) {
@@ -6767,34 +6757,42 @@ append_link_policy_flags(struct qstar_graph *graph, const struct qstar_target *t
 		if (append_owned_argv(graph, argv, argc, target->link_options.items[i]) < 0)
 			return -1;
 	}
-	script = effective_linker_script(graph, target);
-	if (script) {
-		if (append_owned_argv(graph, argv, argc, "-T") < 0 ||
-		    append_owned_argv(graph, argv, argc, script) < 0)
-			return -1;
-	}
-	for (i = 0; i < graph->profile.defsyms.len; i++) {
-		snprintf(arg, sizeof(arg), "--defsym=%s", graph->profile.defsyms.items[i]);
-		if (append_owned_argv(graph, argv, argc, arg) < 0)
-			return -1;
-	}
-	for (i = 0; i < target->defsyms.len; i++) {
-		snprintf(arg, sizeof(arg), "--defsym=%s", target->defsyms.items[i]);
-		if (append_owned_argv(graph, argv, argc, arg) < 0)
-			return -1;
-	}
 	return 0;
 }
 
-/** linker_script가 package-relative이면 action input으로 추적한다. */
+/** link_inputs 항목을 실제 action input으로 해석한다. */
 static int
-push_linker_script_input(struct qstar_graph *graph, const char *script,
+push_link_action_input(struct qstar_graph *graph, struct qstar_string_list *inputs,
+    const char *item)
+{
+	char resolved[QSTAR_PATH_MAX];
+	int rc;
+
+	rc = qstar_target_file_token_label(item, (char[QSTAR_PATH_MAX]){0},
+	    QSTAR_PATH_MAX);
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: malformed target_file placeholder");
+	if (rc == 1) {
+		if (resolve_target_file_token(graph, item, resolved, sizeof(resolved)) < 0)
+			return -1;
+		return push_unique_tmp(inputs, resolved) < 0 ?
+		    qstar_set_error(graph, "qstar: out of memory") : 0;
+	}
+	return push_unique_tmp(inputs, item) < 0 ?
+	    qstar_set_error(graph, "qstar: out of memory") : 0;
+}
+
+/** link_inputs를 action input key에 포함한다. */
+static int
+push_link_action_inputs(struct qstar_graph *graph, const struct qstar_target *target,
     struct qstar_string_list *inputs)
 {
-	if (!script || !*script || !qstar_path_is_package_relative(script))
-		return 0;
-	if (qstar_string_list_push(inputs, script) < 0)
-		return qstar_set_error(graph, "qstar: out of memory");
+	size_t i;
+
+	for (i = 0; i < target->link_inputs.len; i++) {
+		if (push_link_action_input(graph, inputs, target->link_inputs.items[i]) < 0)
+			return -1;
+	}
 	return 0;
 }
 
@@ -6959,7 +6957,7 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			return qstar_set_error(graph, "qstar: out of memory");
 		}
 	}
-	if (push_linker_script_input(graph, effective_linker_script(graph, target), &inputs) < 0) {
+	if (push_link_action_inputs(graph, target, &inputs) < 0) {
 		qstar_string_list_free(&inputs);
 		return -1;
 	}
@@ -7552,6 +7550,47 @@ scheduler_discover_target_genrules(struct qstar_scheduler *sched,
 	return 0;
 }
 
+/** target link_inputs의 target_file producer를 discovery set에 반영한다. */
+static int
+scheduler_discover_target_link_inputs(struct qstar_scheduler *sched,
+    const struct qstar_target *target, int *changed)
+{
+	const struct qstar_genrule *owner;
+	char label[QSTAR_PATH_MAX];
+	size_t i;
+	int rc, target_index, gen_index, before_targets;
+
+	for (i = 0; i < target->link_inputs.len; i++) {
+		rc = qstar_target_file_token_label(target->link_inputs.items[i], label,
+		    sizeof(label));
+		if (rc < 0)
+			return qstar_set_error_origin(sched->graph, target->origin_file,
+			    target->origin_line, "link_inputs", target->label,
+			    "qstar: malformed target_file placeholder");
+		if (rc != 1)
+			continue;
+		target_index = sched_target_index_label(sched->graph, label);
+		if (target_index >= 0) {
+			before_targets = (int)sched->target_len;
+			if (scheduler_add_target_closure(sched, label) < 0)
+				return -1;
+			if ((size_t)before_targets != sched->target_len)
+				*changed = 1;
+			continue;
+		}
+		owner = qstar_graph_find_genrule(sched->graph, label);
+		if (owner) {
+			gen_index = sched_genrule_index(sched->graph, owner);
+			if (gen_index >= 0 && !sched->genrule_needed[gen_index]) {
+				if (scheduler_mark_genrule(sched, owner) < 0)
+					return -1;
+				*changed = 1;
+			}
+		}
+	}
+	return 0;
+}
+
 /** root label에서 필요한 target/genrule 닫힌 집합을 수집한다. */
 static int
 scheduler_discover(struct qstar_scheduler *sched, const char *label)
@@ -7572,6 +7611,8 @@ scheduler_discover(struct qstar_scheduler *sched, const char *label)
 		changed = 0;
 		for (i = 0; i < sched->target_len; i++) {
 			if (scheduler_discover_target_genrules(sched, sched->targets[i],
+			    &changed) < 0 ||
+			    scheduler_discover_target_link_inputs(sched, sched->targets[i],
 			    &changed) < 0)
 				return -1;
 		}
@@ -7831,6 +7872,44 @@ scheduler_add_genrule_item_edge(struct qstar_scheduler *sched,
 	return 0;
 }
 
+/** target link_inputs의 producer를 final action edge로 연결한다. */
+static int
+scheduler_add_target_link_input_edge(struct qstar_scheduler *sched,
+    const struct qstar_target *target, const char *item, size_t user_node)
+{
+	const struct qstar_genrule *owner;
+	char label[QSTAR_PATH_MAX];
+	int rc, target_index, gen_index;
+
+	rc = qstar_target_file_token_label(item, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error_origin(sched->graph, target->origin_file,
+		    target->origin_line, "link_inputs", target->label,
+		    "qstar: malformed target_file placeholder");
+	if (rc == 1) {
+		target_index = sched_target_index_label(sched->graph, label);
+		if (target_index >= 0 && sched->target_final_node[target_index] >= 0)
+			return scheduler_add_edge(sched,
+			    (size_t)sched->target_final_node[target_index], user_node);
+		owner = qstar_graph_find_genrule(sched->graph, label);
+		if (owner) {
+			gen_index = sched_genrule_index(sched->graph, owner);
+			if (gen_index >= 0 && sched->genrule_node[gen_index] >= 0)
+				return scheduler_add_edge(sched,
+				    (size_t)sched->genrule_node[gen_index], user_node);
+		}
+		return 0;
+	}
+	owner = qstar_graph_find_output_owner(sched->graph, item);
+	if (owner) {
+		gen_index = sched_genrule_index(sched->graph, owner);
+		if (gen_index >= 0 && sched->genrule_node[gen_index] >= 0)
+			return scheduler_add_edge(sched,
+			    (size_t)sched->genrule_node[gen_index], user_node);
+	}
+	return 0;
+}
+
 /** genrule dependency edge를 scheduler graph에 연결한다. */
 static int
 scheduler_connect_genrule_edges(struct qstar_scheduler *sched)
@@ -7938,6 +8017,11 @@ scheduler_connect_target_edges(struct qstar_scheduler *sched)
 			continue;
 		if (scheduler_connect_consumed_genrules(sched, target, final_node) < 0)
 			return -1;
+		for (j = 0; j < target->link_inputs.len; j++) {
+			if (scheduler_add_target_link_input_edge(sched, target,
+			    target->link_inputs.items[j], final_node) < 0)
+				return -1;
+		}
 		for (j = 0; j < sched->node_len; j++) {
 			node = &sched->nodes[j];
 			if (node->kind != QSTAR_SCHED_COMPILE || node->target != target)

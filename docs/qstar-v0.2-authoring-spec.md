@@ -436,12 +436,14 @@ qstar.profile "rpi5" {
   freestanding = true,
   cc = "clang",
   linker = "ld.lld",
-  linker_script = "linker/rpi5-aarch64.ld",
   link_options = {
     "-nostdlib",
+    "-T",
+    "linker/rpi5-aarch64.ld",
+    "--defsym=__kernel_base=0x80000",
   },
-  defsyms = {
-    "__kernel_base=0x80000",
+  link_inputs = {
+    "linker/rpi5-aarch64.ld",
   },
 }
 ```
@@ -460,12 +462,14 @@ qstar.executable "kernel" {
     "src/kernel.c",
     "boot/start.S",
   },
-  linker_script = "linker/kernel.ld",
   link_options = {
     "-Wl,-Map=kernel.map",
+    "-T",
+    "linker/kernel.ld",
+    "--defsym=__stack_top=0x80000",
   },
-  defsyms = {
-    "__stack_top=0x80000",
+  link_inputs = {
+    "linker/kernel.ld",
   },
   lang = {
     asm = {
@@ -475,11 +479,11 @@ qstar.executable "kernel" {
 }
 ```
 
-The target `linker_script` overrides the profile `linker_script`. Both profile
-and target `link_options`/`defsyms` are rendered into the link argv. A package
-relative linker script is also tracked as a link action input, so changing the
-script rebuilds the link action even if object files are unchanged. `defsyms`
-must use `NAME=VALUE` spelling.
+Target `link_options` are rendered into the link argv exactly as authored. Files
+or artifacts that the linker reads, but that should not be added to argv by
+QStar, are listed in `link_inputs`. A package-relative link input is tracked as
+a link action input, so changing it rebuilds the link action even if object files
+are unchanged.
 
 ## PE/COFF and UEFI link surface
 
@@ -579,7 +583,7 @@ Current authoring keywords are intentionally small and language-neutral.
 | Command helpers | `qstar.cli`, `qstar.input`, `qstar.output`, `qstar.target_file`, `qstar.stage_file` |
 | Graph helpers | `qstar.subdir`, `qstar.files`, `qstar.modules`, `qstar.join`, `qstar.select`, `qstar.incompatible` |
 | Constants | `QSTAR_VERSION`, `QSTAR_HOST_OS`, `QSTAR_HOST_ARCH`, `QSTAR_PACKAGE_ROOT`, `QSTAR_PROJECT_ROOT`, `QSTAR_PROFILE`, `QSTAR_TARGET`, `qstar.version`, `qstar.host.os`, `qstar.host.arch`, `qstar.project.root` |
-| Link policy | `link_options`, `linker_script`, `defsyms` |
+| Link policy | `link_options`, `link_inputs` |
 | Language namespaces | `lang.c`, `lang.cxx`, `lang.asm`, `lang.cxx` |
 | Removed API | `qstar.exe`, `qstar.genrule`, `qstar.config_header`, `qstar.write_config_header` |
 | Removed top-level language fields | `include_dirs`, `public_include_dirs`, `private_include_dirs`, `system_include_dirs`, `interface_include_dirs`, `public_headers`, `private_headers`, `modules`, `header_include_dirs`, `cflags`, `cxxflags`, `cxx_standard` |

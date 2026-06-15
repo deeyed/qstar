@@ -35,7 +35,7 @@ release gate: make -C qstar qstar-v0.3-rc-tests
 - Header/include/compile/module option은 target top-level이 아니라
   `lang.c`, `lang.cxx`, `lang.asm`, `lang.cxx` 아래에만 둔다.
 - `sources`, `deps`, `visibility`, `libs`, `frameworks`, `link_options`,
-  `linker_script`, `defsyms`, `toolchain`, `stdlib`, `artifact_name`은
+  `link_inputs`, `toolchain`, `stdlib`, `artifact_name`은
   language-agnostic target field로 유지한다.
 - C, C++, assembler, external source는 process invocation 기반 build input으로 다룬다.
   QStar는 external compiler 내부 API나 header-language semantic checker에 연결되지 않는다.

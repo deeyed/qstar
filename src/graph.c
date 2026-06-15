@@ -127,7 +127,7 @@ free_target(struct qstar_target *target)
 	qstar_string_list_free(&target->lib_dirs);
 	qstar_string_list_free(&target->frameworks);
 	qstar_string_list_free(&target->link_options);
-	qstar_string_list_free(&target->defsyms);
+	qstar_string_list_free(&target->link_inputs);
 	qstar_string_list_free(&target->cflags);
 	qstar_string_list_free(&target->cxxflags);
 	qstar_string_list_free(&target->asm_include_dirs);
@@ -136,7 +136,6 @@ free_target(struct qstar_target *target)
 	free(target->description);
 	free(target->artifact_name);
 	free(target->cxx_standard);
-	free(target->linker_script);
 	free(target->run_marker);
 	free(target->run_marker_log);
 	free(target->toolset);
@@ -256,14 +255,12 @@ free_profile_input(struct qstar_profile_input *profile)
 	free(profile->resource_dir);
 	free(profile->response_files);
 	free(profile->response_style);
-	free(profile->linker_script);
 	free(profile->allow_absolute_tools);
 	qstar_string_list_free(&profile->artifact_names);
 	qstar_string_list_free(&profile->compile_options);
 	qstar_string_list_free(&profile->include_dirs);
 	qstar_string_list_free(&profile->lib_dirs);
 	qstar_string_list_free(&profile->link_options);
-	qstar_string_list_free(&profile->defsyms);
 	qstar_string_list_free(&profile->path_tools);
 	qstar_string_list_free(&profile->tool_overrides);
 }
@@ -841,14 +838,13 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	target->stdlib_policy = qstar_strdup("system");
 	target->artifact_name = qstar_strdup("");
 	target->cxx_standard = qstar_strdup("");
-	target->linker_script = qstar_strdup("");
 	target->run_marker = qstar_strdup("");
 	target->run_marker_log = qstar_strdup("");
 	target->description = qstar_strdup("");
 	target->toolset = qstar_strdup("");
 	if (!target->label || !target->name || !target->kind || !target->fragment_dir ||
 	    !target->origin_file || !target->toolchain || !target->stdlib_policy ||
-	    !target->artifact_name || !target->cxx_standard || !target->linker_script ||
+	    !target->artifact_name || !target->cxx_standard ||
 	    !target->run_marker || !target->run_marker_log ||
 	    !target->description || !target->toolset) {
 		qstar_set_error(graph, "qstar: out of memory");
@@ -1032,7 +1028,7 @@ merge_config_lists(struct qstar_graph *graph, struct qstar_target *target,
 	MERGE_LIST(lib_dirs);
 	MERGE_LIST(frameworks);
 	MERGE_LIST(link_options);
-	MERGE_LIST(defsyms);
+	MERGE_LIST(link_inputs);
 	MERGE_LIST(cflags);
 	MERGE_LIST(cxxflags);
 	MERGE_LIST(asm_include_dirs);
@@ -1054,9 +1050,6 @@ merge_config_scalars(struct qstar_graph *graph, struct qstar_target *target,
 		return qstar_set_error(graph, "qstar: out of memory");
 	if (config->has_cxx_standard &&
 	    replace_string(&target->cxx_standard, options->cxx_standard) < 0)
-		return qstar_set_error(graph, "qstar: out of memory");
-	if (config->has_linker_script &&
-	    replace_string(&target->linker_script, options->linker_script) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
 	if (config->has_toolset &&
 	    replace_string(&target->toolset, options->toolset) < 0)
@@ -1592,10 +1585,8 @@ dump_target(const struct qstar_target *target, FILE *out)
 	fputs("  link_options ", out);
 	dump_list(out, &target->link_options);
 	fputc('\n', out);
-	fprintf(out, "  linker_script %s\n",
-	    target->linker_script && *target->linker_script ? target->linker_script : "<none>");
-	fputs("  defsyms ", out);
-	dump_list(out, &target->defsyms);
+	fputs("  link_inputs ", out);
+	dump_list(out, &target->link_inputs);
 	fputc('\n', out);
 	fputs("  cflags ", out);
 	dump_list(out, &target->cflags);
@@ -1673,11 +1664,8 @@ dump_config(const struct qstar_config *config, FILE *out)
 	fputs("  link_options ", out);
 	dump_list(out, &options->link_options);
 	fputc('\n', out);
-	fprintf(out, "  linker_script %s\n",
-	    config->has_linker_script && options->linker_script &&
-	    *options->linker_script ? options->linker_script : "<unset>");
-	fputs("  defsyms ", out);
-	dump_list(out, &options->defsyms);
+	fputs("  link_inputs ", out);
+	dump_list(out, &options->link_inputs);
 	fputc('\n', out);
 	fputs("  cflags ", out);
 	dump_list(out, &options->cflags);
@@ -1877,11 +1865,8 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 	fprintf(out, "profile_response response_files=%s response_style=%s\n",
 	    graph->profile.response_files ? graph->profile.response_files : "auto",
 	    graph->profile.response_style ? graph->profile.response_style : "auto");
-	fprintf(out, "profile_link linker_script=%s link_options=",
-	    graph->profile.linker_script ? graph->profile.linker_script : "<none>");
+	fputs("profile_link link_options=", out);
 	dump_list(out, &graph->profile.link_options);
-	fputs(" defsyms=", out);
-	dump_list(out, &graph->profile.defsyms);
 	fputc('\n', out);
 	fputs("profile_compile compile_options=", out);
 	dump_list(out, &graph->profile.compile_options);
@@ -2218,8 +2203,8 @@ dump_config_json(FILE *out, const struct qstar_config *config)
 	dump_json_list(out, &options->frameworks);
 	fputs(",\"link_options\":", out);
 	dump_json_list(out, &options->link_options);
-	fputs(",\"defsyms\":", out);
-	dump_json_list(out, &options->defsyms);
+	fputs(",\"link_inputs\":", out);
+	dump_json_list(out, &options->link_inputs);
 	fputs(",\"has_toolchain\":", out);
 	fprintf(out, "%s", config->has_toolchain ? "true" : "false");
 	fputs(",\"has_toolset\":", out);
@@ -2244,11 +2229,6 @@ dump_config_json(FILE *out, const struct qstar_config *config)
 	fputs(",\"cxx_standard\":", out);
 	dump_json_string(out, config->has_cxx_standard && options->cxx_standard ?
 	    options->cxx_standard : "");
-	fputs(",\"has_linker_script\":", out);
-	fprintf(out, "%s", config->has_linker_script ? "true" : "false");
-	fputs(",\"linker_script\":", out);
-	dump_json_string(out, config->has_linker_script && options->linker_script ?
-	    options->linker_script : "");
 	fputs(",\"has_asm_preprocess\":", out);
 	fprintf(out, "%s", config->has_asm_preprocess ? "true" : "false");
 	fputs(",\"asm_preprocess\":", out);

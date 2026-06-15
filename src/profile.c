@@ -12,29 +12,6 @@ valid_profile_path(const char *path)
 	return path && *path && (path[0] == '/' || qstar_path_is_package_relative(path));
 }
 
-/** profile linker_script가 실제 파일로 존재하는지 확인한다. */
-static int
-profile_linker_script_exists(const struct qstar_graph *graph, const char *path)
-{
-	char full[QSTAR_PATH_MAX];
-	FILE *f;
-
-	if (!path || !*path)
-		return 1;
-	if (path[0] == '/') {
-		f = fopen(path, "rb");
-	} else {
-		if (qstar_path_join(graph->package_root ? graph->package_root : ".", path, full,
-		    sizeof(full)) < 0)
-			return 0;
-		f = fopen(full, "rb");
-	}
-	if (!f)
-		return 0;
-	fclose(f);
-	return 1;
-}
-
 /** profile boolean string이 QStar v3 policy 안에 있는지 검사한다. */
 static int
 valid_profile_bool(const char *value)
@@ -44,18 +21,6 @@ valid_profile_bool(const char *value)
 	    strcmp(value, "0") == 0 || strcmp(value, "yes") == 0 ||
 	    strcmp(value, "no") == 0 || strcmp(value, "on") == 0 ||
 	    strcmp(value, "off") == 0;
-}
-
-/** defsym entry를 NAME=VALUE 형태로 제한한다. */
-static int
-valid_defsym(const char *value)
-{
-	const char *eq;
-
-	if (!value || !*value)
-		return 0;
-	eq = strchr(value, '=');
-	return eq && eq != value && eq[1] != '\0';
 }
 
 /** target artifact filename이 package-local basename으로 안전한지 검사한다. */
@@ -422,14 +387,6 @@ qstar_graph_validate_profile(struct qstar_graph *graph)
 	    !valid_profile_path(graph->profile.resource_dir))
 		return qstar_set_error(graph,
 		    "qstar: profile resource_dir must be absolute or workspace-relative");
-	if (graph->profile.linker_script && *graph->profile.linker_script &&
-	    !valid_profile_path(graph->profile.linker_script))
-		return qstar_set_error(graph,
-		    "qstar: profile linker_script must be absolute or workspace-relative");
-	if (!profile_linker_script_exists(graph, graph->profile.linker_script))
-		return qstar_set_error(graph,
-		    "qstar: profile linker_script '%s' does not exist",
-		    graph->profile.linker_script);
 	if (!valid_profile_bool(graph->profile.allow_absolute_tools))
 		return qstar_set_error(graph,
 		    "qstar: profile allow_absolute_tools must be true, false, 1, 0, yes, no, on, or off");
@@ -444,12 +401,6 @@ qstar_graph_validate_profile(struct qstar_graph *graph)
 			return qstar_set_error(graph,
 			    "qstar: profile lib_dirs entry '%s' must be absolute or workspace-relative",
 			    graph->profile.lib_dirs.items[i]);
-	}
-	for (i = 0; i < graph->profile.defsyms.len; i++) {
-		if (!valid_defsym(graph->profile.defsyms.items[i]))
-			return qstar_set_error(graph,
-			    "qstar: profile defsyms entry '%s' must be NAME=VALUE",
-			    graph->profile.defsyms.items[i]);
 	}
 	for (i = 0; i < graph->profile.artifact_names.len; i++) {
 		char key[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX];

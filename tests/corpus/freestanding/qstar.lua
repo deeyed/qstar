@@ -53,12 +53,14 @@ qstar.executable "kernel" {
     "boot/start.S",
     "src/kernel.c",
   },
-  linker_script = "linker/kernel.ld",
-  defsyms = {
-    "__stack_top=0x810000",
-  },
   link_options = {
     "-nostdlib",
+    "-T",
+    "linker/kernel.ld",
+    "--defsym=__stack_top=0x810000",
+  },
+  link_inputs = {
+    "linker/kernel.ld",
   },
   lang = {
     asm = {

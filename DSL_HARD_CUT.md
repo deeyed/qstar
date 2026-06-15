@@ -97,8 +97,8 @@ profile-level compile_options
 profile-level include_dirs
 profile-level lib_dirs
 profile-level link_options
-profile-level defsyms
-profile-level linker_script
+profile-level dedicated linker symbol definitions
+profile-level dedicated linker script path
 artifact_names
 tool_overrides
 external_tools
@@ -256,9 +256,10 @@ qstar.executable "app" {
 QStar는 `freestanding`, `cpu`, `abi`, `sysroot` 같은 domain word를 해석하지 않고, 사용자가
 필요한 argv를 명시한다.
 
-## Linker Script And Defsym
+## Linker-Specific Builtins
 
-`linker_script`와 `defsyms`는 GNU/low-level linker policy를 core field로 노출하므로 삭제한다.
+Dedicated linker script and linker symbol definition fields expose GNU/low-level
+linker policy as core DSL, so they are removed.
 대신 generic link option과 link-time input을 조합한다.
 
 ```lua
@@ -277,7 +278,7 @@ qstar.executable "app" {
 }
 ```
 
-`link_inputs`는 새 후보 field다. Link command에 직접 들어가는 인자가 아니라 rebuild dependency
+`link_inputs`는 generic field다. Link command에 직접 들어가는 인자가 아니라 rebuild dependency
 tracking만 담당한다.
 
 ## Output Metadata
@@ -458,7 +459,7 @@ default vocabulary가 되어서는 안 된다.
 5. Cale language provider surface 제거.
 6. `qstar.os`, `qstar.arch`, `qstar.select`, `qstar.incompatible` 제거.
 7. `frameworks`를 macOS-scoped link config로만 노출.
-8. `linker_script`, `defsyms`, `address`, `layout`, `marker_log` 제거.
+8. Dedicated linker-script/symbol fields, `address`, `layout`, `marker_log` 제거.
 9. docs/wiki/manpage/snippets/test corpus 정리.
 10. release/readiness 문서에서 old syntax가 없음을 확인.
 

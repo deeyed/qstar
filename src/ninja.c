@@ -922,13 +922,14 @@ generated_output_in_list(const struct qstar_genrule *genrule, const struct qstar
 	return 0;
 }
 
-/** target이 generated action output을 source/header로 소비하는지 검사한다. */
+/** target이 generated action output을 source/header/link input으로 소비하는지 검사한다. */
 static int
 target_consumes_genrule(const struct qstar_target *target, const struct qstar_genrule *genrule)
 {
 	return generated_output_in_list(genrule, &target->sources) ||
 	    generated_output_in_list(genrule, &target->public_headers) ||
-	    generated_output_in_list(genrule, &target->private_headers);
+	    generated_output_in_list(genrule, &target->private_headers) ||
+	    generated_output_in_list(genrule, &target->link_inputs);
 }
 
 /** qstar.configure_file define 항목 하나를 C preprocessor line으로 출력한다. */
@@ -1226,6 +1227,49 @@ emit_genrule_item_producer(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	owner = qstar_graph_find_output_owner(graph, item);
 	if (owner && owner != genrule)
 		return emit_genrule_edge(graph, ctx, NULL, owner);
+	return 0;
+}
+
+/** target link_inputs 항목이 가리키는 producer edge를 먼저 emit한다. */
+static int
+emit_target_link_input_producer(struct qstar_graph *graph, struct ninja_ctx *ctx,
+    const struct qstar_target *target, const char *item)
+{
+	const struct qstar_genrule *owner;
+	char label[QSTAR_PATH_MAX];
+	int rc;
+
+	rc = qstar_target_file_token_label(item, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "link_inputs", target->label,
+		    "qstar: malformed target_file placeholder");
+	if (rc == 1) {
+		if (find_target(graph, label))
+			return emit_target_closure(graph, ctx, label);
+		owner = qstar_graph_find_genrule(graph, label);
+		if (owner)
+			return emit_genrule_edge(graph, ctx, NULL, owner);
+		return 0;
+	}
+	owner = qstar_graph_find_output_owner(graph, item);
+	if (owner)
+		return emit_genrule_edge(graph, ctx, NULL, owner);
+	return 0;
+}
+
+/** target link_inputs의 producer edge를 emit한다. */
+static int
+emit_target_link_input_producers(struct qstar_graph *graph, struct ninja_ctx *ctx,
+    const struct qstar_target *target)
+{
+	size_t i;
+
+	for (i = 0; i < target->link_inputs.len; i++) {
+		if (emit_target_link_input_producer(graph, ctx, target,
+		    target->link_inputs.items[i]) < 0)
+			return -1;
+	}
 	return 0;
 }
 
@@ -1725,22 +1769,11 @@ toolchain_uses_msvc_out_arg(const struct qstar_resolved_toolchain *toolchain,
 	return strstr(tool, "lld-link") != NULL || strstr(tool, "link.exe") != NULL;
 }
 
-/** target linker_script가 있으면 우선하고 없으면 profile linker_script를 쓴다. */
-static const char *
-effective_linker_script(const struct qstar_graph *graph, const struct qstar_target *target)
-{
-	return target->linker_script && *target->linker_script ? target->linker_script :
-	    graph->profile.linker_script && *graph->profile.linker_script ?
-	    graph->profile.linker_script : NULL;
-}
-
-/** target/profile link policy를 argv에 추가한다. */
+/** target/profile link_options를 argv에 추가한다. */
 static int
 append_link_policy_flags(struct qstar_graph *graph, const struct qstar_target *target,
     struct ninja_argv *argv)
 {
-	char arg[QSTAR_PATH_MAX];
-	const char *script;
 	size_t i;
 
 	for (i = 0; i < graph->profile.link_options.len; i++) {
@@ -1749,22 +1782,6 @@ append_link_policy_flags(struct qstar_graph *graph, const struct qstar_target *t
 	}
 	for (i = 0; i < target->link_options.len; i++) {
 		if (ninja_argv_push(graph, argv, target->link_options.items[i]) < 0)
-			return -1;
-	}
-	script = effective_linker_script(graph, target);
-	if (script) {
-		if (ninja_argv_push(graph, argv, "-T") < 0 ||
-		    ninja_argv_push(graph, argv, script) < 0)
-			return -1;
-	}
-	for (i = 0; i < graph->profile.defsyms.len; i++) {
-		snprintf(arg, sizeof(arg), "--defsym=%s", graph->profile.defsyms.items[i]);
-		if (ninja_argv_push(graph, argv, arg) < 0)
-			return -1;
-	}
-	for (i = 0; i < target->defsyms.len; i++) {
-		snprintf(arg, sizeof(arg), "--defsym=%s", target->defsyms.items[i]);
-		if (ninja_argv_push(graph, argv, arg) < 0)
 			return -1;
 	}
 	return 0;
@@ -2064,6 +2081,14 @@ emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		fputc(' ', ctx->ninja);
 		ninja_path(ctx->ninja, object);
 	}
+	if (target->link_inputs.len) {
+		fputs(" |", ctx->ninja);
+		for (i = 0; i < target->link_inputs.len; i++) {
+			if (write_genrule_dep_item(graph, ctx->ninja,
+			    target->link_inputs.items[i]) < 0)
+				goto fail;
+		}
+	}
 	if (target->deps.len || target->private_deps.len) {
 		fputs(" ||", ctx->ninja);
 		if (write_dep_aliases(graph, ctx->ninja, target, &target->deps) < 0 ||
@@ -2179,11 +2204,19 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		fputc(' ', ctx->ninja);
 		ninja_path(ctx->ninja, object);
 	}
-	for (i = 0; i < dep_artifacts.len; i++) {
-		fputc(' ', ctx->ninja);
-		ninja_path(ctx->ninja, dep_artifacts.items[i]);
-	}
-	if (target->deps.len || target->private_deps.len) {
+		for (i = 0; i < dep_artifacts.len; i++) {
+			fputc(' ', ctx->ninja);
+			ninja_path(ctx->ninja, dep_artifacts.items[i]);
+		}
+		if (target->link_inputs.len) {
+			fputs(" |", ctx->ninja);
+			for (i = 0; i < target->link_inputs.len; i++) {
+				if (write_genrule_dep_item(graph, ctx->ninja,
+				    target->link_inputs.items[i]) < 0)
+					goto fail;
+			}
+		}
+		if (target->deps.len || target->private_deps.len) {
 		fputs(" ||", ctx->ninja);
 		if (write_dep_aliases(graph, ctx->ninja, target, &target->deps) < 0 ||
 		    write_dep_aliases(graph, ctx->ninja, target, &target->private_deps) < 0)
@@ -2468,7 +2501,8 @@ emit_target(struct qstar_graph *graph, const struct qstar_target *target, size_t
 		    target->label, target->kind);
 	if (qstar_resolve_toolchain(graph, target, &toolchain) < 0)
 		return -1;
-	if (emit_consumed_genrules(graph, ctx, target) < 0)
+	if (emit_consumed_genrules(graph, ctx, target) < 0 ||
+	    emit_target_link_input_producers(graph, ctx, target) < 0)
 		return -1;
 	for (i = 0; i < target->sources.len; i++) {
 		if (emit_compile_edge(graph, ctx, target, &toolchain, i) < 0)

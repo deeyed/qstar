@@ -115,8 +115,7 @@ static const struct qstar_lsp_hover_entry qstar_lsp_fields[] = {
 	{ "artifact_name", "Target artifact filename override, for example BOOTX64.EFI." },
 	{ "libs", "System libraries rendered by the selected target profile." },
 	{ "link_options", "Raw target linker options appended before object inputs." },
-	{ "linker_script", "Package-relative linker script rendered as -T <script>." },
-	{ "defsyms", "Linker --defsym=NAME=VALUE entries." },
+	{ "link_inputs", "Extra package-relative files or target_file artifacts tracked as link rebuild inputs without adding argv items." },
 	{ "frameworks", "Darwin frameworks rendered by the selected target profile." },
 };
 

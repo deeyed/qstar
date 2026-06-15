@@ -1,6 +1,6 @@
 # Target Rules
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. 이 장은
+QStar는 C/C++와 외부 object artifact bridge를 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. 이 장은
 target/rule API의 정본 이름을 정리한다.
 
 ## 최소 예제

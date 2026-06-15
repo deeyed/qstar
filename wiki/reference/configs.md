@@ -69,7 +69,7 @@ Config는 target option만 담는다.
 
 - `lang.c`, `lang.cxx`, `lang.asm`
 - `libs`, `lib_dirs`, `frameworks`
-- `link_options`, `defsyms`, `linker_script`
+- `link_options`, `link_inputs`
 - `toolchain`, `stdlib`, `artifact_name`
 
 다음 field는 config에서 금지된다.

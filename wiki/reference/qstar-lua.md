@@ -64,6 +64,10 @@ runtime `.dll`, import `.lib`, PDB/debug artifact 정책은 deferred diagnostic�
 `qstar.target_file("//:group")`은 error다. Group은 dependency closure를 묶는 label일 뿐
 artifact-producing target이 아니다.
 
+Artifact target과 config는 `link_options`와 `link_inputs`를 분리한다. `link_options`는
+link argv에 그대로 추가되고, `link_inputs`는 package-relative file이나
+`qstar.target_file(...)` artifact를 link action rebuild input으로만 추적한다.
+
 ## Builtin authoring helpers
 
 QStar는 Makefile식 `$VAR` 문자열 치환을 하지 않는다. 반복되는 path와 option은 Lua `local`

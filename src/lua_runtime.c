@@ -452,6 +452,60 @@ read_list_field(lua_State *L, int table, const char *field, struct qstar_string_
 	return rc;
 }
 
+/** string 또는 qstar.target_file(...) 항목을 받는 list field를 읽는다. */
+static int
+read_target_file_list_field(lua_State *L, int table, const char *field,
+    struct qstar_string_list *list, struct qstar_graph *graph)
+{
+	const char *kind, *s;
+	char token[QSTAR_PATH_MAX];
+	size_t i, n;
+
+	lua_getfield(L, table, field);
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: field '%s' must be a list", field);
+	}
+	n = lua_rawlen(L, -1);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, -1, (lua_Integer)i);
+		if (lua_isstring(L, -1)) {
+			s = lua_tostring(L, -1);
+		} else if (lua_istable(L, -1)) {
+			kind = qstar_table_kind(L, -1);
+			if (!kind || strcmp(kind, "target_file") != 0 ||
+			    format_placeholder_token(L, -1, token, sizeof(token)) < 0) {
+				lua_pop(L, 2);
+				return qstar_set_error(graph,
+				    "qstar: field '%s' contains non-string or target_file item",
+				    field);
+			}
+			s = token;
+		} else {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: field '%s' contains non-string or target_file item",
+			    field);
+		}
+		if (!s || !*s) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph, "qstar: field '%s' contains empty path",
+			    field);
+		}
+		if (qstar_string_list_push(list, s) < 0) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph, "qstar: out of memory");
+		}
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
 static int append_list(struct qstar_graph *graph, struct qstar_string_list *dst,
     const struct qstar_string_list *src);
 
@@ -889,17 +943,16 @@ reject_group_action_fields(lua_State *L, int table, struct qstar_graph *graph,
 		"sources",
 		"lang",
 		"configs",
-		"libs",
-		"lib_dirs",
-		"frameworks",
-		"link_options",
-			"defsyms",
+			"libs",
+			"lib_dirs",
+			"frameworks",
+			"link_options",
+			"link_inputs",
 			"toolset",
 			"toolchain",
 			"stdlib",
 			"artifact_name",
-		"linker_script",
-		"command",
+			"command",
 		"timeout",
 		"marker",
 		"marker_log",
@@ -1405,8 +1458,8 @@ static int
 validate_config_fields(lua_State *L, int table, struct qstar_graph *graph)
 {
 	static const char *const allowed[] = {
-		"lang", "libs", "lib_dirs", "frameworks", "link_options", "defsyms",
-		"toolset", "toolchain", "stdlib", "artifact_name", "linker_script", NULL
+		"lang", "libs", "lib_dirs", "frameworks", "link_options", "link_inputs",
+		"toolset", "toolchain", "stdlib", "artifact_name", NULL
 	};
 	const char *key;
 
@@ -1432,7 +1485,7 @@ add_config(lua_State *L, const char *name, int table_index, const char *fragment
 	struct qstar_lua_context *ctx;
 	struct qstar_config *config;
 	struct qstar_graph *graph;
-	const char *artifact_name, *linker_script, *toolchain, *stdlib_policy;
+	const char *artifact_name, *toolchain, *stdlib_policy;
 	char label[QSTAR_PATH_MAX], rawlabel[QSTAR_PATH_MAX];
 	char origin_file[QSTAR_PATH_MAX];
 	int origin_line, has_toolset;
@@ -1494,8 +1547,8 @@ add_config(lua_State *L, const char *name, int table_index, const char *fragment
 	    graph, 0, config->options.fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "link_options", &config->options.link_options,
 	    graph, 0, config->options.fragment_dir) < 0 ||
-	    read_list_field(L, table_index, "defsyms", &config->options.defsyms, graph,
-	    0, config->options.fragment_dir) < 0 ||
+	    read_target_file_list_field(L, table_index, "link_inputs",
+	    &config->options.link_inputs, graph) < 0 ||
 	    read_lang_options(L, table_index, &config->options, graph) < 0)
 		return luaL_error(L, "%s", graph->error);
 	config->has_cxx_standard = nested_lang_field_present(L, table_index, "cxx",
@@ -1505,7 +1558,6 @@ add_config(lua_State *L, const char *name, int table_index, const char *fragment
 	config->has_cxx_modules = nested_lang_field_present(L, table_index, "cxx",
 	    "modules");
 	artifact_name = check_string_field(L, table_index, "artifact_name");
-	linker_script = check_string_field(L, table_index, "linker_script");
 	toolchain = check_string_field(L, table_index, "toolchain");
 	stdlib_policy = check_string_field(L, table_index, "stdlib");
 	if (read_label_scalar_field(L, table_index, "toolset", &config->options.toolset,
@@ -1520,12 +1572,6 @@ add_config(lua_State *L, const char *name, int table_index, const char *fragment
 			    artifact_name);
 		config->has_artifact_name = 1;
 		if (replace_lua_string(&config->options.artifact_name, artifact_name,
-		    graph) < 0)
-			return luaL_error(L, "%s", graph->error);
-	}
-	if (linker_script) {
-		config->has_linker_script = 1;
-		if (replace_lua_string(&config->options.linker_script, linker_script,
 		    graph) < 0)
 			return luaL_error(L, "%s", graph->error);
 	}
@@ -1653,7 +1699,8 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	    read_list_field(L, table_index, "lib_dirs", &target->lib_dirs, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "frameworks", &target->frameworks, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "link_options", &target->link_options, graph, 0, target->fragment_dir) < 0 ||
-	    read_list_field(L, table_index, "defsyms", &target->defsyms, graph, 0, target->fragment_dir) < 0 ||
+	    read_target_file_list_field(L, table_index, "link_inputs",
+	    &target->link_inputs, graph) < 0 ||
 	    read_lang_options(L, table_index, target, graph) < 0)
 		return luaL_error(L, "%s", graph->error);
 	toolchain = check_string_field(L, table_index, "toolchain");
@@ -1669,11 +1716,6 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 			    artifact_name);
 		free(target->artifact_name);
 		target->artifact_name = qstar_strdup(artifact_name);
-	}
-	if (check_string_field(L, table_index, "linker_script")) {
-		free(target->linker_script);
-		target->linker_script = qstar_strdup(check_string_field(L, table_index,
-		    "linker_script"));
 	}
 	if (toolchain) {
 		free(target->toolchain);
@@ -1716,7 +1758,7 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 			return luaL_error(L, "qstar: out of memory");
 	}
 	if (!target->toolchain || !target->toolset || !target->stdlib_policy ||
-	    !target->artifact_name || !target->cxx_standard || !target->linker_script ||
+	    !target->artifact_name || !target->cxx_standard ||
 	    !target->run_marker || !target->run_marker_log)
 		return luaL_error(L, "qstar: out of memory");
 	return 0;

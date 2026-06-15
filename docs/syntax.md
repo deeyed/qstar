@@ -297,8 +297,6 @@ qstar.profile "kernel" {
   include_dirs = {"profile/include"},
   lib_dirs = {"profile/lib"},
   link_options = {"-nostdlib"},
-  linker_script = "linker/kernel.ld",
-  defsyms = {"__kernel_base=0x80000"},
   artifact_names = {"//:boot=BOOTX64.EFI"},
   path_tools = {"llvm-objcopy"},
   tool_overrides = {"llvm-objcopy=tools/fake-objcopy.sh"},
@@ -314,8 +312,8 @@ CLI `--target`, `--toolchain`, `--stdlib`은 `qstar.profile` 선언보다 우선
 
 `freestanding = true`는 C/C++/ASM compile action에 보수적 freestanding compile
 option을 추가한다. `arch`, `cpu`, `abi`는 target triple에서 모호한 policy를 분리하기
-위한 profile hint다. `linker_script`, `link_options`, `defsyms`는 link argv에
-반영되며, package-relative linker script는 link action input으로 추적된다.
+위한 profile hint다. `link_options`는 link argv에 그대로 반영된다. 링크 시 읽는
+별도 file dependency는 target/config의 `link_inputs`로 추적한다.
 `path_tools`는 `qstar.custom_target`에서 허용할 bare PATH tool allowlist다.
 `tool_overrides`는 `NAME=VALUE` 형식으로 build file의 command spelling은 유지하면서
 profile별 실행 tool을 바꾼다. `allow_absolute_tools`는 absolute command path를 여는
@@ -523,7 +521,7 @@ qstar.target "engine" {
 | `deps` | target dependency label list |
 | `toolchain` | host/freestanding/target profile reference |
 | `stdlib` | `system`, `external-tool`, `none` |
-| `linker_script` | freestanding/kernel linker script |
+| `link_inputs` | link action이 읽지만 argv에는 자동 추가하지 않는 file/artifact input |
 | `artifact_name` | target-local output filename override such as `BOOTX64.EFI` |
 | `c` | C language mode 같은 build-relevant compile mode |
 | `external-tool` | external language edition 같은 build-relevant compile mode |

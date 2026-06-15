@@ -8,10 +8,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v4"
+#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v5"
 #define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v1"
 #define QSTAR_STELLA_ACTION_MAGIC "qstar-stella-actions-cache-v1"
-#define QSTAR_STELLA_PLAN_ABI 5
+#define QSTAR_STELLA_PLAN_ABI 6
 #define QSTAR_STELLA_HASH_INIT 1469598103934665603ULL
 #define QSTAR_STELLA_HASH_PRIME 1099511628211ULL
 #define QSTAR_STELLA_MAX_STRING (16U * 1024U * 1024U)
@@ -278,14 +278,12 @@ write_profile(FILE *f, const struct qstar_profile_input *p)
 	WSTR(resource_dir);
 	WSTR(response_files);
 	WSTR(response_style);
-	WSTR(linker_script);
 	WSTR(allow_absolute_tools);
 	WLIST(artifact_names);
 	WLIST(compile_options);
 	WLIST(include_dirs);
 	WLIST(lib_dirs);
 	WLIST(link_options);
-	WLIST(defsyms);
 	WLIST(path_tools);
 	WLIST(tool_overrides);
 #undef WSTR
@@ -310,14 +308,12 @@ read_profile(FILE *f, struct qstar_profile_input *p)
 	RSTR(resource_dir);
 	RSTR(response_files);
 	RSTR(response_style);
-	RSTR(linker_script);
 	RSTR(allow_absolute_tools);
 	RLIST(artifact_names);
 	RLIST(compile_options);
 	RLIST(include_dirs);
 	RLIST(lib_dirs);
 	RLIST(link_options);
-	RLIST(defsyms);
 	RLIST(path_tools);
 	RLIST(tool_overrides);
 #undef RSTR
@@ -395,7 +391,7 @@ write_target(FILE *f, const struct qstar_target *t)
 	WLIST(lib_dirs);
 	WLIST(frameworks);
 	WLIST(link_options);
-	WLIST(defsyms);
+	WLIST(link_inputs);
 	WLIST(cflags);
 	WLIST(cxxflags);
 	WLIST(asm_include_dirs);
@@ -404,7 +400,6 @@ write_target(FILE *f, const struct qstar_target *t)
 	WSTR(description);
 	WSTR(artifact_name);
 	WSTR(cxx_standard);
-	WSTR(linker_script);
 	WSTR(run_marker);
 	WSTR(run_marker_log);
 	if (write_i32(f, t->run_timeout_sec) < 0 ||
@@ -453,7 +448,7 @@ read_target(FILE *f, struct qstar_target *t)
 	RLIST(lib_dirs);
 	RLIST(frameworks);
 	RLIST(link_options);
-	RLIST(defsyms);
+	RLIST(link_inputs);
 	RLIST(cflags);
 	RLIST(cxxflags);
 	RLIST(asm_include_dirs);
@@ -462,7 +457,6 @@ read_target(FILE *f, struct qstar_target *t)
 	RSTR(description);
 	RSTR(artifact_name);
 	RSTR(cxx_standard);
-	RSTR(linker_script);
 	RSTR(run_marker);
 	RSTR(run_marker_log);
 	if (read_i32(f, &t->run_timeout_sec) < 0 ||

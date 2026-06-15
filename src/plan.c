@@ -357,11 +357,8 @@ dump_plan_inputs(FILE *out, const struct qstar_graph *graph)
 	fprintf(out, "profile_response response_files=%s response_style=%s\n",
 	    profile_or_default(graph->profile.response_files, "auto"),
 	    profile_or_default(graph->profile.response_style, "auto"));
-	fprintf(out, "profile_link linker_script=%s link_options=",
-	    profile_or_default(graph->profile.linker_script, "<none>"));
+	fputs("profile_link link_options=", out);
 	dump_list(out, &graph->profile.link_options);
-	fputs(" defsyms=", out);
-	dump_list(out, &graph->profile.defsyms);
 	fputc('\n', out);
 	fputs("profile_compile compile_options=", out);
 	dump_list(out, &graph->profile.compile_options);
@@ -902,50 +899,24 @@ toolchain_uses_msvc_out_arg(const struct qstar_resolved_toolchain *toolchain,
 	return strstr(tool, "lld-link") != NULL || strstr(tool, "link.exe") != NULL;
 }
 
-/** target linker_script가 있으면 우선하고 없으면 profile linker_script를 쓴다. */
-static const char *
-effective_linker_script(const struct qstar_graph *graph, const struct qstar_target *target)
-{
-	return target->linker_script && *target->linker_script ? target->linker_script :
-	    graph->profile.linker_script && *graph->profile.linker_script ?
-	    graph->profile.linker_script : NULL;
-}
-
-/** target/profile link policy가 argv에 추가할 argument 수를 계산한다. */
+/** target/profile link_options가 argv에 추가할 argument 수를 계산한다. */
 static size_t
 link_policy_arg_count(const struct qstar_graph *graph, const struct qstar_target *target)
 {
-	return graph->profile.link_options.len + target->link_options.len +
-	    (effective_linker_script(graph, target) ? 2 : 0) +
-	    graph->profile.defsyms.len + target->defsyms.len;
+	return graph->profile.link_options.len + target->link_options.len;
 }
 
-/** target/profile link policy를 deterministic command argv dump에 추가한다. */
+/** target/profile link_options를 deterministic command argv dump에 추가한다. */
 static void
 dump_link_policy_argv(FILE *out, struct qstar_argv_dump *dump,
     const struct qstar_graph *graph, const struct qstar_target *target)
 {
-	char arg[QSTAR_PATH_MAX];
-	const char *script;
 	size_t i;
 
 	for (i = 0; i < graph->profile.link_options.len; i++)
 		argv_item(out, dump, graph->profile.link_options.items[i]);
 	for (i = 0; i < target->link_options.len; i++)
 		argv_item(out, dump, target->link_options.items[i]);
-	script = effective_linker_script(graph, target);
-	if (script) {
-		argv_item(out, dump, "-T");
-		argv_item(out, dump, script);
-	}
-	for (i = 0; i < graph->profile.defsyms.len; i++) {
-		snprintf(arg, sizeof(arg), "--defsym=%s", graph->profile.defsyms.items[i]);
-		argv_item(out, dump, arg);
-	}
-	for (i = 0; i < target->defsyms.len; i++) {
-		snprintf(arg, sizeof(arg), "--defsym=%s", target->defsyms.items[i]);
-		argv_item(out, dump, arg);
-	}
 }
 
 /** generated action의 실제 argv plan을 출력한다. */
@@ -1731,10 +1702,8 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	fputs("  link_options ", out);
 	dump_list(out, &target->link_options);
 	fputc('\n', out);
-	fprintf(out, "  linker_script %s\n",
-	    target->linker_script && *target->linker_script ? target->linker_script : "<none>");
-	fputs("  defsyms ", out);
-	dump_list(out, &target->defsyms);
+	fputs("  link_inputs ", out);
+	dump_list(out, &target->link_inputs);
 	fputc('\n', out);
 	fputs("  cflags ", out);
 	dump_list(out, &target->cflags);

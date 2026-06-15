@@ -222,7 +222,7 @@ test -f "$tmp/build/qstar/stella/manifest.json" || fail "missing Stella plan cac
 test -f "$tmp/build/qstar/stella/inputs.json" || fail "missing Stella plan cache inputs"
 test -f "$tmp/build/qstar/stella/graph.qsg" || fail "missing Stella graph cache"
 test -f "$tmp/build/qstar/stella/actions.qsa" || fail "missing Stella action plan cache"
-contains "$tmp/build/qstar/stella/manifest.json" "\"schema\":\"qstar-stella-plan-cache-v4\""
+contains "$tmp/build/qstar/stella/manifest.json" "\"schema\":\"qstar-stella-plan-cache-v5\""
 contains "$tmp/build/qstar/stella/actions.qsa" "qstar-stella-actions-cache-v1"
 test -f "$tmp/build/qstar/compile_commands.json" || fail "missing compile_commands.json"
 contains "$tmp/build/qstar/compile_commands.json" "src/main.c"
@@ -4630,7 +4630,7 @@ contains "wiki/reference/lang-c.md" "lang.c.public_headers"
 contains "wiki/reference/lang-cxx.md" "lang.cxx.modules"
 contains "wiki/reference/language-providers.md" "object artifact bridge"
 contains "wiki/reference/custom-target.md" "qstar.cli"
-contains "wiki/tutorials/freestanding-image.md" "linker_script"
+contains "wiki/tutorials/freestanding-image.md" "link_inputs"
 contains "wiki/cookbook/qemu-smoke.md" "qstar.run_target"
 contains "wiki/migration/from-cmake.md" "target_include_directories"
 
@@ -5181,9 +5181,15 @@ qstar.config "kernel_tools" {
 qstar.executable "kernel" {
   configs = {"//:kernel_tools"},
   sources = {"src/kernel.c"},
-  link_options = {"-nostdlib", "-Wl,-Map=kernel.map"},
-  linker_script = "linker/kernel.ld",
-  defsyms = {"__profile_base=0x1000", "__stack_top=0x80000"},
+  link_options = {
+    "-nostdlib",
+    "-Wl,-Map=kernel.map",
+    "-T",
+    "linker/kernel.ld",
+    "--defsym=__profile_base=0x1000",
+    "--defsym=__stack_top=0x80000",
+  },
+  link_inputs = {"linker/kernel.ld"},
 }
 EOF
 "$qstar" --file "$tmp/freestanding/qstar.lua" dry-run //:kernel > "$tmp/freestanding-dry.out" 2> "$tmp/freestanding-dry.err"
@@ -5217,33 +5223,23 @@ contains "$tmp/freestanding-rebuild.out" "status=skip"
 cat > "$tmp/freestanding/qstar.lua" <<'EOF'
 qstar.executable "bad_script" {
   sources = {"src/kernel.c"},
-  linker_script = "../escape.ld",
+  link_inputs = {"../escape.ld"},
 }
 EOF
 if "$qstar" --file "$tmp/freestanding/qstar.lua" check //:bad_script > "$tmp/freestanding-bad-script.out" 2> "$tmp/freestanding-bad-script.err"; then
-	fail "package-escaping linker_script unexpectedly succeeded"
+	fail "package-escaping link_inputs unexpectedly succeeded"
 fi
-contains "$tmp/freestanding-bad-script.err" "linker_script '../escape.ld' in '//:bad_script' must be package-relative"
-cat > "$tmp/freestanding/qstar.lua" <<'EOF'
-qstar.executable "bad_defsym" {
-  sources = {"src/kernel.c"},
-  defsyms = {"BROKEN"},
-}
-EOF
-if "$qstar" --file "$tmp/freestanding/qstar.lua" check //:bad_defsym > "$tmp/freestanding-bad-defsym.out" 2> "$tmp/freestanding-bad-defsym.err"; then
-	fail "bad defsym unexpectedly succeeded"
-fi
-contains "$tmp/freestanding-bad-defsym.err" "defsym 'BROKEN' in '//:bad_defsym' must be NAME=VALUE"
+contains "$tmp/freestanding-bad-script.err" "link input '../escape.ld' in '//:bad_script' must be package-relative"
 cat > "$tmp/freestanding/qstar.lua" <<'EOF'
 qstar.executable "missing_script" {
   sources = {"src/kernel.c"},
-  linker_script = "linker/missing.ld",
+  link_inputs = {"linker/missing.ld"},
 }
 EOF
 if "$qstar" --file "$tmp/freestanding/qstar.lua" check //:missing_script > "$tmp/freestanding-missing-script.out" 2> "$tmp/freestanding-missing-script.err"; then
-	fail "missing linker script unexpectedly succeeded"
+	fail "missing link input unexpectedly succeeded"
 fi
-contains "$tmp/freestanding-missing-script.err" "linker script 'linker/missing.ld' in '//:missing_script' does not exist"
+contains "$tmp/freestanding-missing-script.err" "link input file 'linker/missing.ld' in '//:missing_script' does not exist"
 
 "$qstar" --file tests/corpus/freestanding/qstar.lua doctor > "$tmp/freestanding-corpus-doctor.out" 2> "$tmp/freestanding-corpus-doctor.err"
 contains "$tmp/freestanding-corpus-doctor.out" "response-policy configured_files=auto configured_style=auto effective_files=on effective_style=posix"

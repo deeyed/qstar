@@ -130,12 +130,14 @@ qstar.profile "rpi5-aarch64" {
   freestanding = true,
   cc = "clang",
   linker = "ld.lld",
-  linker_script = "linker/rpi5-aarch64.ld",
   link_options = {
     "-nostdlib",
+    "-T",
+    "linker/rpi5-aarch64.ld",
+    "--defsym=__kernel_base=0x80000",
   },
-  defsyms = {
-    "__kernel_base=0x80000",
+  link_inputs = {
+    "linker/rpi5-aarch64.ld",
   },
   path_tools = {
     "llvm-objcopy",

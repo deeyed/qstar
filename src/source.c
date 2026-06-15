@@ -87,18 +87,6 @@ list_pair_has_duplicate(const struct qstar_string_list *a,
 	return 0;
 }
 
-/** defsym entry를 NAME=VALUE 형태로 제한한다. */
-static int
-valid_defsym(const char *value)
-{
-	const char *eq;
-
-	if (!value || !*value)
-		return 0;
-	eq = strchr(value, '=');
-	return eq && eq != value && eq[1] != '\0';
-}
-
 static const struct qstar_target *
 find_target(const struct qstar_graph *graph, const char *label)
 {
@@ -109,6 +97,42 @@ find_target(const struct qstar_graph *graph, const char *label)
 			return &graph->targets[i];
 	}
 	return NULL;
+}
+
+/** link_inputs 항목 하나가 package file이나 artifact producer를 가리키는지 검증한다. */
+static int
+validate_link_input_item(struct qstar_graph *graph, const struct qstar_target *owner,
+    const char *path)
+{
+	const struct qstar_target *target;
+	char label[QSTAR_PATH_MAX];
+	int rc;
+
+	rc = qstar_target_file_token_label(path, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error_origin(graph, owner->origin_file, owner->origin_line,
+		    "link_inputs", owner->label,
+		    "qstar: malformed link input target_file '%s'", path);
+	if (rc == 1) {
+		target = find_target(graph, label);
+		if (target && strcmp(target->kind, "group") == 0)
+			return qstar_set_error_origin(graph, owner->origin_file,
+			    owner->origin_line, "link_inputs", owner->label,
+			    "qstar: qstar.target_file cannot reference group target '%s' because group targets have no artifact",
+			    label);
+		if (!target && !qstar_graph_find_genrule(graph, label))
+			return qstar_set_error_origin(graph, owner->origin_file,
+			    owner->origin_line, "link_inputs", owner->label,
+			    "qstar: link input target '%s' in '%s' is unknown",
+			    label, owner->label);
+		return 0;
+	}
+	if (!qstar_path_is_package_relative(path))
+		return qstar_set_error_origin(graph, owner->origin_file, owner->origin_line,
+		    "link_inputs", owner->label,
+		    "qstar: link input '%s' in '%s' must be package-relative (%s)",
+		    path, owner->label, qstar_path_package_relative_reason(path));
+	return 0;
 }
 
 /** qstar.target_file이 실제 파일 artifact를 가진 target/action만 가리키는지 검사한다. */
@@ -435,17 +459,10 @@ validate_link_lists(struct qstar_graph *graph, const struct qstar_target *target
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "frameworks", target->label,
 		    "qstar: duplicate framework '%s' in '%s'", dup, target->label);
-	if (list_has_duplicate(&target->defsyms, &dup))
+	if (list_has_duplicate(&target->link_inputs, &dup))
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-		    "defsyms", target->label,
-		    "qstar: duplicate defsym '%s' in '%s'", dup, target->label);
-	if (target->linker_script && *target->linker_script &&
-	    !qstar_path_is_package_relative(target->linker_script))
-		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-		    "linker_script", target->label,
-		    "qstar: linker_script '%s' in '%s' must be package-relative (%s)",
-		    target->linker_script, target->label,
-		    qstar_path_package_relative_reason(target->linker_script));
+		    "link_inputs", target->label,
+		    "qstar: duplicate link input '%s' in '%s'", dup, target->label);
 	if (target->run_marker_log && *target->run_marker_log &&
 	    !qstar_path_is_package_relative(target->run_marker_log))
 		return qstar_set_error_origin(graph, target->origin_file,
@@ -453,13 +470,9 @@ validate_link_lists(struct qstar_graph *graph, const struct qstar_target *target
 		    "qstar: run_target marker_log '%s' in '%s' must be package-relative (%s)",
 		    target->run_marker_log, target->label,
 		    qstar_path_package_relative_reason(target->run_marker_log));
-	for (i = 0; i < target->defsyms.len; i++) {
-		if (!valid_defsym(target->defsyms.items[i]))
-			return qstar_set_error_origin(graph, target->origin_file,
-			    target->origin_line, "defsyms", target->label,
-			    "qstar: defsym '%s' in '%s' must be NAME=VALUE",
-			    target->defsyms.items[i], target->label);
-	}
+	for (i = 0; i < target->link_inputs.len; i++)
+		if (validate_link_input_item(graph, target, target->link_inputs.items[i]) < 0)
+			return -1;
 	if (validate_include_dir_list(graph, target, &target->include_dirs,
 	    "include_dirs") < 0 ||
 	    validate_include_dir_list(graph, target, &target->public_include_dirs,
@@ -812,12 +825,20 @@ validate_target_file_inputs(struct qstar_graph *graph, const struct qstar_target
 			    "qstar: header file '%s' in '%s' does not exist under package root",
 			    path, target->label);
 	}
-	if (target->linker_script && *target->linker_script &&
-	    !file_exists_under_root(graph, target->linker_script))
-		return qstar_set_error_origin(graph, target->origin_file,
-		    target->origin_line, "linker_script", target->label,
-		    "qstar: linker script '%s' in '%s' does not exist under package root",
-		    target->linker_script, target->label);
+	for (i = 0; i < target->link_inputs.len; i++) {
+		path = target->link_inputs.items[i];
+		if (qstar_target_file_token_label(path, (char[QSTAR_PATH_MAX]){0},
+		    QSTAR_PATH_MAX) != 0)
+			continue;
+		if (qstar_graph_path_is_generated(graph, path) &&
+		    qstar_graph_find_output_owner(graph, path))
+			continue;
+		if (!file_exists_under_root(graph, path))
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, "link_inputs", target->label,
+			    "qstar: link input file '%s' in '%s' does not exist under package root",
+			    path, target->label);
+	}
 	return 0;
 }
 

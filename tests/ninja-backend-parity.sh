@@ -125,6 +125,31 @@ cat > "$tmp/shared/src/main.c" <<'SRC'
 int plugin_value(void);
 int main(void) { return plugin_value() - 9; }
 SRC
+
+mkdir -p "$tmp/link-input/src" "$tmp/link-input/link"
+cat > "$tmp/link-input/qstar.lua" <<'QSTAR'
+qstar.executable "app" {
+  sources = {"src/main.c"},
+  link_inputs = {"link/input.txt"},
+}
+QSTAR
+cat > "$tmp/link-input/src/main.c" <<'SRC'
+int main(void) { return 0; }
+SRC
+cat > "$tmp/link-input/link/input.txt" <<'TXT'
+first
+TXT
+"$qstar" --file "$tmp/link-input/qstar.lua" build //:app --progress off > "$tmp/link-input-stella-build.out" 2> "$tmp/link-input-stella-build.err"
+contains "$tmp/link-input-stella-build.out" "status ok"
+cat > "$tmp/link-input/link/input.txt" <<'TXT'
+second
+TXT
+"$qstar" --file "$tmp/link-input/qstar.lua" build //:app --explain-cache --verbose > "$tmp/link-input-stella-rebuild.out" 2> "$tmp/link-input-stella-rebuild.err"
+contains "$tmp/link-input-stella-rebuild.out" "cache_miss id=//:app:link:0"
+contains "$tmp/link-input-stella-rebuild.out" "reason=input-changed"
+"$qstar" --file "$tmp/link-input/qstar.lua" emit-ninja //:app > "$tmp/link-input-emit.out" 2> "$tmp/link-input-emit.err"
+contains "$tmp/link-input/build/qstar/ninja/build.ninja" "build/qstar/out/___app/app: qstar_link build/qstar/out/___app/obj0.o | link/input.txt"
+
 case "$(uname -s)" in
 	Darwin)
 		shared_artifact="build/qstar/out/___plugin/libplugin.dylib"
@@ -205,6 +230,12 @@ if command -v ninja >/dev/null 2>&1; then
 	"$object_bridge/build/qstar/out/___app/app"
 	test ! -f "$object_bridge/.ninja_log" || fail "object bridge ninja wrote package root .ninja_log"
 	test ! -f "$object_bridge/.ninja_deps" || fail "object bridge ninja wrote package root .ninja_deps"
+
+	"$qstar" --file "$tmp/link-input/qstar.lua" -G ninja build //:app --progress off > "$tmp/link-input-ninja-build.out" 2> "$tmp/link-input-ninja-build.err"
+	contains "$tmp/link-input-ninja-build.out" "backend ninja"
+	contains "$tmp/link-input-ninja-build.out" "status ok"
+	test -f "$tmp/link-input/build/qstar/out/___app/app" || fail "link_inputs ninja executable missing"
+	"$tmp/link-input/build/qstar/out/___app/app"
 
 	"$qstar" --file "$tmp/shared/qstar.lua" -G ninja build //:plugin_app --progress off > "$tmp/shared-build.out" 2> "$tmp/shared-build.err"
 	contains "$tmp/shared-build.out" "backend ninja"

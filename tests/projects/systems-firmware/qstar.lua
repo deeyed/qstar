@@ -44,15 +44,17 @@ qstar.executable "kernel" {
     "boot/start.S",
     "src/kernel.c",
   },
-  linker_script = "linker/rpi5-aarch64.ld",
   artifact_name = "kernel.elf",
-  defsyms = {
-    "__stack_top=0x810000",
-    "__rpi_load_addr=0x80000",
-  },
   link_options = {
     "-nostdlib",
     "-Wl,-Map=kernel.map",
+    "-T",
+    "linker/rpi5-aarch64.ld",
+    "--defsym=__stack_top=0x810000",
+    "--defsym=__rpi_load_addr=0x80000",
+  },
+  link_inputs = {
+    "linker/rpi5-aarch64.ld",
   },
   lang = {
     c = {
