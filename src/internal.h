@@ -192,13 +192,7 @@ const char *qstar_genrule_output_group(const struct qstar_genrule *genrule, size
 /** generated output metadata의 format을 기본값 포함해 반환한다. */
 const char *qstar_genrule_output_format(const struct qstar_genrule *genrule, size_t index);
 
-/** generated output metadata의 address를 기본값 포함해 반환한다. */
-const char *qstar_genrule_output_address(const struct qstar_genrule *genrule, size_t index);
-
-/** generated output metadata의 layout을 기본값 포함해 반환한다. */
-const char *qstar_genrule_output_layout(const struct qstar_genrule *genrule, size_t index);
-
-/** generated output path와 format/address/layout metadata를 action identity로 만든다. */
+/** generated output path와 generic metadata를 action identity로 만든다. */
 int qstar_genrule_output_identity(const struct qstar_genrule *genrule, size_t index,
     char *dst, size_t dstlen);
 

@@ -187,8 +187,6 @@ free_genrule(struct qstar_genrule *genrule)
 	qstar_string_list_free(&genrule->outputs);
 	qstar_string_list_free(&genrule->output_groups);
 	qstar_string_list_free(&genrule->output_formats);
-	qstar_string_list_free(&genrule->output_addresses);
-	qstar_string_list_free(&genrule->output_layouts);
 	qstar_string_list_free(&genrule->args);
 	qstar_string_list_free(&genrule->command);
 }
@@ -1363,36 +1361,19 @@ qstar_genrule_output_group(const struct qstar_genrule *genrule, size_t index)
 		return group;
 	if (strcmp(qstar_genrule_output_format(genrule, index), "object") == 0)
 		return "objects";
-	return strcmp(qstar_genrule_output_format(genrule, index), "raw-binary") == 0 ?
-	    "images" : "generated";
+	return "generated";
 }
 
-/** generated output metadata의 address를 기본값 포함해 반환한다. */
-const char *
-qstar_genrule_output_address(const struct qstar_genrule *genrule, size_t index)
-{
-	return genrule_meta_or_default(&genrule->output_addresses, index, "<none>");
-}
-
-/** generated output metadata의 layout을 기본값 포함해 반환한다. */
-const char *
-qstar_genrule_output_layout(const struct qstar_genrule *genrule, size_t index)
-{
-	return genrule_meta_or_default(&genrule->output_layouts, index, "<none>");
-}
-
-/** generated output path와 format/address/layout metadata를 action identity로 만든다. */
+/** generated output path와 generic metadata를 action identity로 만든다. */
 int
 qstar_genrule_output_identity(const struct qstar_genrule *genrule, size_t index,
     char *dst, size_t dstlen)
 {
 	if (index >= genrule->outputs.len)
 		return -1;
-	return snprintf(dst, dstlen, "%s|group=%s|format=%s|address=%s|layout=%s",
+	return snprintf(dst, dstlen, "%s|group=%s|format=%s",
 	    genrule->outputs.items[index], qstar_genrule_output_group(genrule, index),
-	    qstar_genrule_output_format(genrule, index),
-	    qstar_genrule_output_address(genrule, index),
-	    qstar_genrule_output_layout(genrule, index)) < (int)dstlen ? 0 : -1;
+	    qstar_genrule_output_format(genrule, index)) < (int)dstlen ? 0 : -1;
 }
 
 /** generated output identity list를 action key material로 만든다. */
@@ -1735,11 +1716,9 @@ dump_genrule(const struct qstar_genrule *genrule, FILE *out)
 		    sizeof(identity)) < 0)
 			snprintf(identity, sizeof(identity), "<too-long>");
 		fprintf(out,
-		    "  output_artifact path=%s group=%s format=%s address=%s layout=%s identity=%s\n",
+		    "  output_artifact path=%s group=%s format=%s identity=%s\n",
 		    genrule->outputs.items[i], qstar_genrule_output_group(genrule, i),
-		    qstar_genrule_output_format(genrule, i),
-		    qstar_genrule_output_address(genrule, i),
-		    qstar_genrule_output_layout(genrule, i), identity);
+		    qstar_genrule_output_format(genrule, i), identity);
 	}
 	fputs("  args ", out);
 	dump_list(out, &genrule->args);
@@ -2319,10 +2298,6 @@ dump_genrule_json(FILE *out, const struct qstar_genrule *genrule)
 		dump_json_string(out, qstar_genrule_output_group(genrule, i));
 		fputs(",\"format\":", out);
 		dump_json_string(out, qstar_genrule_output_format(genrule, i));
-		fputs(",\"address\":", out);
-		dump_json_string(out, qstar_genrule_output_address(genrule, i));
-		fputs(",\"layout\":", out);
-		dump_json_string(out, qstar_genrule_output_layout(genrule, i));
 		fputs(",\"identity\":", out);
 		dump_json_string(out, identity);
 		fputc('}', out);

@@ -139,7 +139,7 @@ Partial cache는 error가 아니라 miss다. Stella는 cache가 부서져도 sou
 
 ```json
 {
-	  "schema": "qstar-stella-plan-cache-v5",
+	  "schema": "qstar-stella-plan-cache-v6",
 	  "qstar_version": "0.7.0-beta",
 	  "plan_abi": 5,
   "package_root": "/absolute/package/root",

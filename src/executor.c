@@ -3654,10 +3654,6 @@ json_generated_output_artifacts(FILE *f, const struct qstar_genrule *genrule)
 		json_string(f, qstar_genrule_output_group(genrule, i));
 		fputs(",\"format\":", f);
 		json_string(f, qstar_genrule_output_format(genrule, i));
-		fputs(",\"address\":", f);
-		json_string(f, qstar_genrule_output_address(genrule, i));
-		fputs(",\"layout\":", f);
-		json_string(f, qstar_genrule_output_layout(genrule, i));
 		fputs(",\"identity\":", f);
 		json_string(f, identity);
 		fputc('}', f);

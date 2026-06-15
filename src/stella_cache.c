@@ -8,10 +8,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v5"
+#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v6"
 #define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v1"
 #define QSTAR_STELLA_ACTION_MAGIC "qstar-stella-actions-cache-v1"
-#define QSTAR_STELLA_PLAN_ABI 6
+#define QSTAR_STELLA_PLAN_ABI 7
 #define QSTAR_STELLA_HASH_INIT 1469598103934665603ULL
 #define QSTAR_STELLA_HASH_PRIME 1099511628211ULL
 #define QSTAR_STELLA_MAX_STRING (16U * 1024U * 1024U)
@@ -487,8 +487,6 @@ write_genrule(FILE *f, const struct qstar_genrule *g)
 	    write_list(f, &g->outputs) < 0 ||
 	    write_list(f, &g->output_groups) < 0 ||
 	    write_list(f, &g->output_formats) < 0 ||
-	    write_list(f, &g->output_addresses) < 0 ||
-	    write_list(f, &g->output_layouts) < 0 ||
 	    write_list(f, &g->args) < 0 ||
 	    write_list(f, &g->command) < 0)
 		return -1;
@@ -510,8 +508,6 @@ read_genrule(FILE *f, struct qstar_genrule *g)
 	    read_list(f, &g->outputs) < 0 ||
 	    read_list(f, &g->output_groups) < 0 ||
 	    read_list(f, &g->output_formats) < 0 ||
-	    read_list(f, &g->output_addresses) < 0 ||
-	    read_list(f, &g->output_layouts) < 0 ||
 	    read_list(f, &g->args) < 0 ||
 	    read_list(f, &g->command) < 0)
 		return -1;

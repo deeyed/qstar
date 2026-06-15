@@ -106,17 +106,15 @@ dump_genrule_artifacts(FILE *out, const struct qstar_genrule *genrule, const cha
 	size_t i;
 
 	for (i = 0; i < genrule->outputs.len; i++) {
-		if (qstar_genrule_output_identity(genrule, i, identity,
-		    sizeof(identity)) < 0)
-			snprintf(identity, sizeof(identity), "<too-long>");
-		fprintf(out,
-		    "%sgenerated_artifact output=%s group=%s format=%s address=%s layout=%s identity=%s\n",
-		    prefix ? prefix : "", genrule->outputs.items[i],
-		    qstar_genrule_output_group(genrule, i),
-		    qstar_genrule_output_format(genrule, i),
-		    qstar_genrule_output_address(genrule, i),
-		    qstar_genrule_output_layout(genrule, i), identity);
-	}
+			if (qstar_genrule_output_identity(genrule, i, identity,
+			    sizeof(identity)) < 0)
+				snprintf(identity, sizeof(identity), "<too-long>");
+			fprintf(out,
+			    "%sgenerated_artifact output=%s group=%s format=%s identity=%s\n",
+			    prefix ? prefix : "", genrule->outputs.items[i],
+			    qstar_genrule_output_group(genrule, i),
+			    qstar_genrule_output_format(genrule, i), identity);
+		}
 }
 
 /** canonical label에 대응하는 target index를 찾는다. */

@@ -1,7 +1,7 @@
 # Custom Target
 
-QStar는 C/C++/Cale을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. 언어에
-특화되지 않은 생성 작업은 `qstar.custom_target`과 `qstar.cli`로 표현한다.
+QStar는 C/C++를 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. 언어에 특화되지
+않은 생성 작업은 `qstar.custom_target`과 `qstar.cli`로 표현한다.
 
 ## 최소 예제
 
@@ -24,9 +24,6 @@ qstar.custom_target "kernel_img" {
   outputs = {
     qstar.output("generated/kernel8.img", {
       group = "images",
-      format = "raw-binary",
-      address = "0x80000",
-      layout = "rpi5-kernel8",
     }),
   },
   command = qstar.cli {
@@ -36,7 +33,7 @@ qstar.custom_target "kernel_img" {
     qstar.input(0),
     qstar.output(0),
   },
-  description = qstar.status("Generating firmware image"),
+  description = qstar.status("Generating binary image"),
 }
 ```
 

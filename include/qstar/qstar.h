@@ -116,8 +116,6 @@ struct qstar_genrule {
 	struct qstar_string_list outputs;
 	struct qstar_string_list output_groups;
 	struct qstar_string_list output_formats;
-	struct qstar_string_list output_addresses;
-	struct qstar_string_list output_layouts;
 	struct qstar_string_list args;
 	struct qstar_string_list command;
 };

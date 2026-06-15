@@ -82,9 +82,6 @@ qstar.custom_target "kernel_img" {
   outputs = {
     qstar.output("build/qstar/generated/kernel.img", {
       group = "images",
-      format = "raw-binary",
-      address = "0x80000",
-      layout = "firmware-image",
     }),
   },
   command = qstar.cli {

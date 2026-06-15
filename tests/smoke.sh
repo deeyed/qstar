@@ -222,7 +222,7 @@ test -f "$tmp/build/qstar/stella/manifest.json" || fail "missing Stella plan cac
 test -f "$tmp/build/qstar/stella/inputs.json" || fail "missing Stella plan cache inputs"
 test -f "$tmp/build/qstar/stella/graph.qsg" || fail "missing Stella graph cache"
 test -f "$tmp/build/qstar/stella/actions.qsa" || fail "missing Stella action plan cache"
-contains "$tmp/build/qstar/stella/manifest.json" "\"schema\":\"qstar-stella-plan-cache-v5\""
+contains "$tmp/build/qstar/stella/manifest.json" "\"schema\":\"qstar-stella-plan-cache-v6\""
 contains "$tmp/build/qstar/stella/actions.qsa" "qstar-stella-actions-cache-v1"
 test -f "$tmp/build/qstar/compile_commands.json" || fail "missing compile_commands.json"
 contains "$tmp/build/qstar/compile_commands.json" "src/main.c"
@@ -3757,7 +3757,7 @@ contains "$tmp/project-firmware-kernel-link-log.out" "-T linker/rpi5-aarch64.ld"
 contains "$tmp/project-firmware-kernel-link-log.out" "--defsym=__rpi_load_addr=0x80000"
 "$qstar" --file "$tmp/project-firmware/qstar.lua" build //:kernel_img --explain-cache --verbose > "$tmp/project-firmware-img-build.out" 2> "$tmp/project-firmware-img-build.err"
 contains "$tmp/project-firmware-img-build.out" "build_generated_action //:kernel_img"
-contains "$tmp/project-firmware-img-build.out" "output_identity=[generated/kernel8.img|group=images|format=raw-binary|address=0x80000|layout=rpi5-kernel8]"
+contains "$tmp/project-firmware-img-build.out" "output_identity=[generated/kernel8.img|group=images|format=file]"
 contains "$tmp/project-firmware-img-build.out" "status ok"
 test -f "$tmp/project-firmware/generated/kernel8.img" || fail "systems firmware raw image missing"
 contains "$tmp/project-firmware/generated/kernel8.img" "RAW-BINARY"
@@ -5631,9 +5631,6 @@ qstar.custom_target "kernel_img" {
   outputs = {
     qstar.output("generated/kernel8.img", {
       group = "images",
-      format = "raw-binary",
-      address = "0x80000",
-      layout = "rpi5-kernel8",
     }),
   },
   command = qstar.cli {
@@ -5653,15 +5650,15 @@ EOF
 contains "$tmp/artifact-check.out" "generated-action-count 1"
 "$qstar" --file "$tmp/artifact/qstar.lua" explain //:kernel_img > "$tmp/artifact-explain.out" 2> "$tmp/artifact-explain.err"
 contains "$tmp/artifact-explain.out" "plan_generated_action //:kernel_img"
-contains "$tmp/artifact-explain.out" "generated_artifact output=generated/kernel8.img group=images format=raw-binary address=0x80000 layout=rpi5-kernel8"
-contains "$tmp/artifact-explain.out" "identity=generated/kernel8.img|group=images|format=raw-binary|address=0x80000|layout=rpi5-kernel8"
+contains "$tmp/artifact-explain.out" "generated_artifact output=generated/kernel8.img group=images format=file"
+contains "$tmp/artifact-explain.out" "identity=generated/kernel8.img|group=images|format=file"
 "$qstar" --file "$tmp/artifact/qstar.lua" dry-run //:kernel_img > "$tmp/artifact-dry.out" 2> "$tmp/artifact-dry.err"
 contains "$tmp/artifact-dry.out" "dry_run_generated_action //:kernel_img"
 contains "$tmp/artifact-dry.out" "tool=tools/fake-objcopy.sh tool_mode=package resolved_tool=tools/fake-objcopy.sh"
 contains "$tmp/artifact-dry.out" "argv=[tools/fake-objcopy.sh, -O, binary, fixtures/kernel.elf, generated/kernel8.img]"
 "$qstar" --file "$tmp/artifact/qstar.lua" build //:kernel_img --verbose > "$tmp/artifact-build.out" 2> "$tmp/artifact-build.err"
 contains "$tmp/artifact-build.out" "build_generated_action //:kernel_img"
-contains "$tmp/artifact-build.out" "output_identity=[generated/kernel8.img|group=images|format=raw-binary|address=0x80000|layout=rpi5-kernel8]"
+contains "$tmp/artifact-build.out" "output_identity=[generated/kernel8.img|group=images|format=file]"
 contains "$tmp/artifact-build.out" "status ok"
 test -f "$tmp/artifact/generated/kernel8.img" || fail "missing generated raw image artifact"
 cmp "$tmp/artifact/fixtures/kernel.elf" "$tmp/artifact/generated/kernel8.img" >/dev/null || fail "raw image artifact content drifted"
@@ -5669,7 +5666,7 @@ test ! -e "$tmp/artifact/build/qstar/state/graph.json" || fail "artifact graph s
 test ! -e "$tmp/artifact/build/qstar/state/actions.json" || fail "artifact debug action state dump should be opt-in"
 QSTAR_DEBUG_STATE_DUMPS=1 "$qstar" --file "$tmp/artifact/qstar.lua" build //:kernel_img --progress off > "$tmp/artifact-debug-state.out" 2> "$tmp/artifact-debug-state.err"
 contains "$tmp/artifact/build/qstar/state/graph.json" "\"output_artifacts\""
-contains "$tmp/artifact/build/qstar/state/graph.json" "\"format\":\"raw-binary\""
+contains "$tmp/artifact/build/qstar/state/graph.json" "\"format\":\"file\""
 contains "$tmp/artifact/build/qstar/state/actions.json" "\"output\":\"generated/kernel8.img\""
 "$qstar" --file "$tmp/artifact/qstar.lua" action-log //:kernel_img:generate:0 > "$tmp/artifact-img-log.out" 2> "$tmp/artifact-img-log.err"
 contains "$tmp/artifact-img-log.out" "argv[0]=tools/fake-objcopy.sh"
@@ -5679,7 +5676,7 @@ test -f "$tmp/artifact/generated/copy.img" || fail "target_file generated artifa
 "$qstar" --file "$tmp/artifact/qstar.lua" list-targets --format json > "$tmp/artifact-targets-json.out" 2> "$tmp/artifact-targets-json.err"
 contains "$tmp/artifact-targets-json.out" "\"output_artifacts\""
 contains "$tmp/artifact-targets-json.out" "\"group\":\"images\""
-contains "$tmp/artifact-targets-json.out" "\"format\":\"raw-binary\""
+contains "$tmp/artifact-targets-json.out" "\"format\":\"file\""
 
 step "artifact dependency edges"
 mkdir -p "$tmp/artifact-dep/tools" "$tmp/artifact-dep/src" "$tmp/artifact-dep/fixtures"
@@ -5736,8 +5733,6 @@ qstar.custom_target "kernel_img" {
   outputs = {
     qstar.output("generated/kernel.img", {
       group = "images",
-      format = "raw-binary",
-      layout = "host-kernel-image",
     }),
   },
   command = qstar.cli {"tools/fake-objcopy.sh", "-O", "binary", qstar.input(0), qstar.output(0)},
@@ -5745,7 +5740,7 @@ qstar.custom_target "kernel_img" {
 
 qstar.custom_target "raw_blob" {
   inputs = {"fixtures/blob.bin"},
-  outputs = {qstar.output("generated/blob.raw", {format = "raw-binary"})},
+  outputs = {qstar.output("generated/blob.raw", {group = "images"})},
   command = qstar.cli {"tools/copy.sh", qstar.input(0), qstar.output(0)},
 }
 
@@ -5753,7 +5748,7 @@ qstar.custom_target "blob_image" {
   inputs = {
     qstar.target_file("//:raw_blob"),
   },
-  outputs = {qstar.output("generated/blob.img", {group = "images", format = "raw-binary"})},
+  outputs = {qstar.output("generated/blob.img", {group = "images"})},
   command = qstar.cli {"tools/copy.sh", qstar.input(0), qstar.output(0)},
 }
 EOF
@@ -5787,27 +5782,6 @@ if "$qstar" --file "$tmp/artifact-unknown/qstar.lua" check > "$tmp/artifact-unkn
 fi
 contains "$tmp/artifact-unknown.err" "generated input target '//:missing' in '//:bad' is unknown"
 
-mkdir -p "$tmp/artifact-collision/tools" "$tmp/artifact-collision/fixtures"
-cp "$tmp/artifact/tools/fake-objcopy.sh" "$tmp/artifact-collision/tools/fake-objcopy.sh"
-cp "$tmp/artifact/fixtures/kernel.elf" "$tmp/artifact-collision/fixtures/kernel.elf"
-cat > "$tmp/artifact-collision/qstar.lua" <<'EOF'
-qstar.custom_target "one" {
-  inputs = {"fixtures/kernel.elf"},
-  outputs = {qstar.output("generated/one.img", {format = "raw-binary", address = "0x80000", layout = "rpi5-kernel8"})},
-  command = qstar.cli {"tools/fake-objcopy.sh", "-O", "binary", qstar.input(0), qstar.output(0)},
-}
-
-qstar.custom_target "two" {
-  inputs = {"fixtures/kernel.elf"},
-  outputs = {qstar.output("generated/two.img", {group = "images", format = "raw-binary", address = "0x80000", layout = "rpi5-kernel8"})},
-  command = qstar.cli {"tools/fake-objcopy.sh", "-O", "binary", qstar.input(0), qstar.output(0)},
-}
-EOF
-if "$qstar" --file "$tmp/artifact-collision/qstar.lua" check > "$tmp/artifact-collision.out" 2> "$tmp/artifact-collision.err"; then
-	fail "duplicate artifact identity unexpectedly succeeded"
-fi
-contains "$tmp/artifact-collision.err" "generated artifact identity group=images format=raw-binary address=0x80000 layout=rpi5-kernel8 has multiple outputs"
-
 mkdir -p "$tmp/artifact-badmeta"
 cat > "$tmp/artifact-badmeta/qstar.lua" <<'EOF'
 qstar.custom_target "bad" {
@@ -5829,6 +5803,16 @@ if "$qstar" --file "$tmp/artifact-badmeta/qstar.lua" check > "$tmp/artifact-badm
 	fail "non-string artifact metadata unexpectedly succeeded"
 fi
 contains "$tmp/artifact-badmeta-type.err" "qstar.output metadata field 'format' must be a string"
+cat > "$tmp/artifact-badmeta/qstar.lua" <<'EOF'
+qstar.custom_target "bad" {
+  outputs = {qstar.output("generated/bad.img", {format = "text"})},
+  command = qstar.cli {"tools/fake.sh", qstar.output(0)},
+}
+EOF
+if "$qstar" --file "$tmp/artifact-badmeta/qstar.lua" check > "$tmp/artifact-badmeta-format.out" 2> "$tmp/artifact-badmeta-format.err"; then
+	fail "unsupported artifact format unexpectedly succeeded"
+fi
+contains "$tmp/artifact-badmeta-format.err" "only format = \"object\" is supported"
 
 step "generated assembly blob"
 mkdir -p "$tmp/blob-embed/tools" "$tmp/blob-embed/fixtures" "$tmp/blob-embed/src"
@@ -5855,13 +5839,7 @@ EOF
 cat > "$tmp/blob-embed/qstar.lua" <<'EOF'
 qstar.custom_target "embed_asm" {
   inputs = {"fixtures/payload.elf"},
-  outputs = {
-    qstar.output("generated/blob.S", {
-      group = "objects",
-      format = "assembly",
-      layout = "rpi5-elf-fixture-embed",
-    }),
-  },
+  outputs = {qstar.output("generated/blob.S")},
   command = qstar.cli {"tools/embed-asm.sh", qstar.input(0), qstar.output(0)},
 }
 
@@ -5874,7 +5852,7 @@ qstar.executable "app" {
 EOF
 "$qstar" --file "$tmp/blob-embed/qstar.lua" explain //:app > "$tmp/blob-embed-explain.out" 2> "$tmp/blob-embed-explain.err"
 contains "$tmp/blob-embed-explain.out" "generated_edge source=generated/blob.S generator=//:embed_asm"
-contains "$tmp/blob-embed-explain.out" "generated_artifact output=generated/blob.S group=objects format=assembly"
+contains "$tmp/blob-embed-explain.out" "generated_artifact output=generated/blob.S group=generated format=file"
 "$qstar" --file "$tmp/blob-embed/qstar.lua" build //:app --explain-cache --verbose > "$tmp/blob-embed-first.out" 2> "$tmp/blob-embed-first.err"
 contains "$tmp/blob-embed-first.out" "build_action id=//:embed_asm:generate:0 status=run"
 contains "$tmp/blob-embed-first.out" "build_action id=//:app:compile:1 status=run"
@@ -5918,7 +5896,6 @@ qstar.custom_target "embed_object" {
   outputs = {
     qstar.output("generated/blob.o", {
       format = "object",
-      layout = "rpi5-elf-fixture-embed",
     }),
   },
   command = qstar.cli {"tools/embed-object.sh", qstar.input(0), qstar.output(0)},
@@ -6254,9 +6231,6 @@ qstar.custom_target "kernel_img" {
   outputs = {
     qstar.output("generated/kernel8.img", {
       group = "images",
-      format = "raw-binary",
-      address = "0x80000",
-      layout = "rpi5-kernel8",
     }),
   },
   command = qstar.cli {

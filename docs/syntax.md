@@ -949,28 +949,22 @@ qstar.output("generated/version.h")
 `qstar.output(path)`은 path spelling helper다. Makefile의 `$<`, `$@` 같은 암호
 기호를 쓰지 않는다.
 
-Round 53부터 `qstar.output(path, metadata)`도 허용한다. 이 형태는 path helper에
-generated artifact identity를 붙인다.
+Round 53부터 `qstar.output(path, metadata)`도 허용한다. 이 형태는 path helper에 generated
+artifact identity를 붙인다. Metadata는 generic graph 분류와 external object bridge에만 쓴다.
 
 ```lua
 qstar.output("generated/kernel8.img", {
     group = "images",
-    format = "raw-binary",
-    address = "0x80000",
-    layout = "rpi5-kernel8",
 })
 ```
 
-- `group`: output group. 예: `generated`, `images`, `binaries`.
-- `format`: output format. 예: `file`, `raw-binary`, `elf`.
-- `address`: boot/load address 같은 artifact identity metadata.
-- `layout`: RPi/UEFI/firmware packaging layout 같은 artifact identity metadata.
+- `group`: output group. 예: `generated`, `images`, `objects`.
+- `format`: 생략하면 `file`이다. 명시 가능한 값은 `object`뿐이다.
 
-`format = "raw-binary"`이고 `group`이 비어 있으면 QStar는 group을 `images`로
-분류한다. Metadata는 command argv를 자동 생성하지 않는다. `llvm-objcopy -O binary`
-같은 실제 변환은 여전히 `qstar.custom_target`의 `command = qstar.cli { ... }`가
-담당한다. 같은 package 안에서 같은 `group + format + address + layout` metadata를
-가진 output이 둘 이상 있으면 duplicate artifact collision으로 거절한다.
+`format = "object"`는 QStar가 직접 compile하지 않는 외부 언어 compiler가 만든 `.o`/`.obj`
+output을 final archive/link input으로 연결하는 bridge다. Raw binary 변환, load address,
+platform layout 같은 의미는 QStar metadata가 아니라 `qstar.custom_target`의 command argv,
+input file, stage rule 또는 project-owned config가 담당한다.
 
 Round 68부터 `custom_target.inputs = { qstar.target_file("//:kernel") }`가 generated
 action의 artifact dependency edge로 추적된다. `qstar.input(0)`은 command argv에서 실제

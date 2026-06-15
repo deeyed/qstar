@@ -54,9 +54,6 @@ qstar.custom_target "kernel_img" {
   outputs = {
     qstar.output("generated/kernel8.img", {
       group = "images",
-      format = "raw-binary",
-      address = "0x80000",
-      layout = "rpi5-kernel8",
     }),
   },
   command = qstar.cli {"llvm-objcopy", "-O", "binary", qstar.input(0), qstar.output(0)},
@@ -86,4 +83,4 @@ qstar --file qstar.lua stage //:rpi --dry-run
 
 - `linker script must be package-relative`
 - `failure_kind=objcopy-failure`
-- `output_identity=[...format=raw-binary...]`
+- `output_identity=[...group=images|format=file...]`

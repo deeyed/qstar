@@ -286,12 +286,8 @@ tracking만 담당한다.
 `qstar.output(path, { format = "object" })`는 유지한다. 이는 external language/object producer
 bridge에 필요하고, QStar가 해당 언어를 소유하지 않는다는 원칙과 맞는다.
 
-다음 metadata는 삭제한다.
-
-```lua
-address
-layout
-```
+Load address나 binary layout 같은 domain-specific metadata는 core DSL에 두지 않는다.
+그 의미는 command argv, input file, stage rule 또는 project-owned config가 담당한다.
 
 이 값들은 firmware/image layout 의미를 QStar core가 암시한다. 필요한 경우 사용자가 output path,
 description, custom command argv 안에서 직접 관리한다.

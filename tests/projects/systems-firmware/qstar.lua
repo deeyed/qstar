@@ -87,9 +87,6 @@ qstar.custom_target "kernel_img" {
   outputs = {
     qstar.output("generated/kernel8.img", {
       group = "images",
-      format = "raw-binary",
-      address = "0x80000",
-      layout = "rpi5-kernel8",
     }),
   },
   command = qstar.cli {

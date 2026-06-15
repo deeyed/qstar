@@ -245,9 +245,6 @@ qstar.custom_target "kernel_img" {
   outputs = {
     qstar.output("generated/kernel8.img", {
       group = "images",
-      format = "raw-binary",
-      address = "0x80000",
-      layout = "rpi5-kernel8",
     }),
   },
   command = qstar.cli {
@@ -260,13 +257,11 @@ qstar.custom_target "kernel_img" {
 }
 ```
 
-Round 53부터 `qstar.output(path, metadata)`는 generated artifact identity를
-명시한다. Metadata는 `group`, `format`, `address`, `layout` 문자열 field만 받는다.
-`format = "raw-binary"`는 `group`을 생략하면 `images` group으로 분류되고, 그 외
-output은 기본적으로 `generated` group이다. `address`와 `layout`은 실제 linker/objcopy를
-대신 실행하는 값이 아니라 artifact identity metadata다. 같은 package 안에서 서로 다른
-output path가 같은 `group + format + address + layout`을 선언하면 QStar는 duplicate
-artifact collision으로 거절한다.
+`qstar.output(path, metadata)`는 generated artifact identity를 명시한다. Metadata는 `group`,
+`output_group`, `format` 문자열 field만 받는다. `format`은 생략하면 `file`이고, 명시 가능한
+값은 external object bridge용 `object`뿐이다. Raw image 변환이나 load address/layout 같은
+project-specific 의미는 metadata가 아니라 `qstar.custom_target` command argv, input file,
+stage rule 또는 project-owned config로 표현한다.
 
 `qstar build //:kernel_img`처럼 `custom_target` label을 직접 빌드할 수 있다. Direct
 generated build는 compile/link target closure를 만들지 않고 해당 generated action만
@@ -303,7 +298,6 @@ qstar.custom_target "embed_payload" {
   outputs = {
     qstar.output("generated/payload.o", {
       format = "object",
-      layout = "rpi5-elf-fixture-embed",
     }),
   },
   command = qstar.cli {

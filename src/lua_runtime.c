@@ -687,8 +687,7 @@ validate_output_metadata_fields(lua_State *L, int table, struct qstar_graph *gra
 	while (lua_next(L, table) != 0) {
 		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
 		if (!key || (strcmp(key, "group") != 0 &&
-		    strcmp(key, "output_group") != 0 && strcmp(key, "format") != 0 &&
-		    strcmp(key, "address") != 0 && strcmp(key, "layout") != 0)) {
+		    strcmp(key, "output_group") != 0 && strcmp(key, "format") != 0)) {
 			lua_pop(L, 1);
 			return qstar_set_error(graph,
 			    "qstar: unknown qstar.output metadata field '%s'",
@@ -705,20 +704,25 @@ validate_output_metadata_fields(lua_State *L, int table, struct qstar_graph *gra
 	return 0;
 }
 
+/** qstar.output format metadata가 core bridge surface에 속하는지 검사한다. */
+static int
+valid_output_format(const char *format)
+{
+	return !format || !*format || strcmp(format, "object") == 0;
+}
+
 /** generated output path와 metadata를 genrule parallel lists에 추가한다. */
 static int
 push_genrule_output(lua_State *L, int idx, struct qstar_genrule *genrule,
     struct qstar_graph *graph)
 {
-	const char *path, *group, *format, *address, *layout;
+	const char *path, *group, *format;
 	const char *kind;
 
 	if (idx < 0)
 		idx = lua_gettop(L) + idx + 1;
 	group = "";
 	format = "";
-	address = "";
-	layout = "";
 	if (lua_isstring(L, idx)) {
 		path = lua_tostring(L, idx);
 	} else if (lua_istable(L, idx)) {
@@ -738,27 +742,22 @@ push_genrule_output(lua_State *L, int idx, struct qstar_genrule *genrule,
 		lua_getfield(L, idx, "format");
 		format = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
 		lua_pop(L, 1);
-		lua_getfield(L, idx, "address");
-		address = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
-		lua_pop(L, 1);
-		lua_getfield(L, idx, "layout");
-		layout = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
-		lua_pop(L, 1);
 	} else {
 		return qstar_set_error(graph, "qstar: field 'outputs' contains non-string item");
 	}
 	if (!path || !*path)
 		return qstar_set_error(graph, "qstar: generated output path is empty");
-	if (!valid_output_metadata_token(group) || !valid_output_metadata_token(format) ||
-	    !valid_output_metadata_token(address) || !valid_output_metadata_token(layout))
+	if (!valid_output_metadata_token(group) || !valid_output_metadata_token(format))
 		return qstar_set_error(graph,
 		    "qstar: generated output metadata for '%s' contains unsupported characters",
 		    path);
+	if (!valid_output_format(format))
+		return qstar_set_error(graph,
+		    "qstar: qstar.output format '%s' is not supported; only format = \"object\" is supported",
+		    format);
 	if (qstar_string_list_push(&genrule->outputs, path) < 0 ||
 	    qstar_string_list_push(&genrule->output_groups, group) < 0 ||
-	    qstar_string_list_push(&genrule->output_formats, format) < 0 ||
-	    qstar_string_list_push(&genrule->output_addresses, address) < 0 ||
-	    qstar_string_list_push(&genrule->output_layouts, layout) < 0)
+	    qstar_string_list_push(&genrule->output_formats, format) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
 	return 0;
 }
@@ -2735,7 +2734,7 @@ qstar_lua_output(lua_State *L)
 {
 	struct qstar_lua_context *ctx;
 	lua_Integer index;
-	const char *path, *group, *format, *address, *layout;
+	const char *path, *group, *format;
 
 	if (lua_isinteger(L, 1)) {
 		index = lua_tointeger(L, 1);
@@ -2761,15 +2760,15 @@ qstar_lua_output(lua_State *L)
 	if (!group || !*group)
 		group = check_string_field(L, 2, "output_group");
 	format = check_string_field(L, 2, "format");
-	address = check_string_field(L, 2, "address");
-	layout = check_string_field(L, 2, "layout");
 	if ((group && !valid_output_metadata_token(group)) ||
-	    (format && !valid_output_metadata_token(format)) ||
-	    (address && !valid_output_metadata_token(address)) ||
-	    (layout && !valid_output_metadata_token(layout)))
+	    (format && !valid_output_metadata_token(format)))
 		return luaL_error(L,
 		    "qstar: generated output metadata for '%s' contains unsupported characters",
 		    path);
+	if (!valid_output_format(format))
+		return luaL_error(L,
+		    "qstar: qstar.output format '%s' is not supported; only format = \"object\" is supported",
+		    format);
 	lua_newtable(L);
 	lua_pushstring(L, "output_path");
 	lua_setfield(L, -2, "__qstar_kind");
@@ -2782,14 +2781,6 @@ qstar_lua_output(lua_State *L)
 	if (format) {
 		lua_pushstring(L, format);
 		lua_setfield(L, -2, "format");
-	}
-	if (address) {
-		lua_pushstring(L, address);
-		lua_setfield(L, -2, "address");
-	}
-	if (layout) {
-		lua_pushstring(L, layout);
-		lua_setfield(L, -2, "layout");
 	}
 	return 1;
 }

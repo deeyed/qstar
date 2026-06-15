@@ -192,31 +192,6 @@ path_parent_child_collision(const char *a, const char *b)
 	return strncmp(b, a, nb) == 0 && a[nb] == '/';
 }
 
-/** generated artifact location metadata가 충돌 검사에 의미 있는지 본다. */
-static int
-artifact_has_location_metadata(const struct qstar_genrule *genrule, size_t index)
-{
-	return strcmp(qstar_genrule_output_address(genrule, index), "<none>") != 0 ||
-	    strcmp(qstar_genrule_output_layout(genrule, index), "<none>") != 0;
-}
-
-/** 두 generated output이 같은 binary/image artifact identity 위치를 가리키는지 본다. */
-static int
-artifact_location_collides(const struct qstar_genrule *a, size_t ai,
-    const struct qstar_genrule *b, size_t bi)
-{
-	if (!artifact_has_location_metadata(a, ai) || !artifact_has_location_metadata(b, bi))
-		return 0;
-	return strcmp(qstar_genrule_output_group(a, ai),
-	    qstar_genrule_output_group(b, bi)) == 0 &&
-	    strcmp(qstar_genrule_output_format(a, ai),
-	    qstar_genrule_output_format(b, bi)) == 0 &&
-	    strcmp(qstar_genrule_output_address(a, ai),
-	    qstar_genrule_output_address(b, bi)) == 0 &&
-	    strcmp(qstar_genrule_output_layout(a, ai),
-	    qstar_genrule_output_layout(b, bi)) == 0;
-}
-
 /** include directory list 하나를 package-relative path로 제한한다. */
 static int
 validate_include_dir_list(struct qstar_graph *graph, const struct qstar_target *target,
@@ -556,17 +531,19 @@ validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 	}
 	for (i = 0; i < genrule->outputs.len; i++) {
 		path = genrule->outputs.items[i];
-		if (!qstar_path_is_package_relative(path))
+		if (!qstar_path_is_package_relative(path)) {
 			return qstar_set_error_origin(graph, genrule->origin_file,
 			    genrule->origin_line, "outputs", genrule->label,
 			    "qstar: generated output '%s' in '%s' must be package-relative (%s)",
 			    path, genrule->label, qstar_path_package_relative_reason(path));
-		if (!qstar_graph_path_is_generated(graph, path))
+		}
+		if (!qstar_graph_path_is_generated(graph, path)) {
 			return qstar_set_error_origin(graph, genrule->origin_file,
 			    genrule->origin_line, "outputs", genrule->label,
 			    "qstar: generated output '%s' in '%s' must be under generated_dir '%s'; set qstar.project.generated_dir or change the output path to '%s/<file>'",
 			    path, genrule->label, qstar_graph_generated_dir(graph),
 			    qstar_graph_generated_dir(graph));
+		}
 		for (j = 0; j < graph->genrule_len; j++) {
 			for (k = 0; k < graph->genrules[j].outputs.len; k++) {
 				if (&graph->genrules[j] == genrule && k == i)
@@ -577,16 +554,6 @@ validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 					    "outputs", genrule->label,
 					    "qstar: generated output '%s' has multiple producers",
 					    path);
-				if (artifact_location_collides(genrule, i,
-				    &graph->genrules[j], k))
-					return qstar_set_error_origin(graph,
-					    genrule->origin_file, genrule->origin_line,
-					    "outputs", genrule->label,
-					    "qstar: generated artifact identity group=%s format=%s address=%s layout=%s has multiple outputs",
-					    qstar_genrule_output_group(genrule, i),
-					    qstar_genrule_output_format(genrule, i),
-					    qstar_genrule_output_address(genrule, i),
-					    qstar_genrule_output_layout(genrule, i));
 			}
 		}
 	}

@@ -11,7 +11,6 @@ qstar.custom_target "embed_object" {
   outputs = {
     qstar.output("generated/payload.o", {
       format = "object",
-      layout = "rpi5-elf-fixture-embed",
     }),
   },
   command = qstar.cli {

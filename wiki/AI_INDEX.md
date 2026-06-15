@@ -366,8 +366,6 @@ qstar.custom_target "image" {
   outputs = {
     qstar.output("generated/kernel.bin", {
       group = "images",
-      format = "raw-binary",
-      layout = "generic-kernel",
     }),
   },
   command = qstar.cli {"llvm-objcopy", "-O", "binary", qstar.input(0), qstar.output(0)},
