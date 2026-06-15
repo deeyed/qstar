@@ -2255,11 +2255,13 @@ cat > "$tmp/src/main.c" <<'EOF'
 int main(void) { return 1 - 1; }
 EOF
 
+step "initial build smoke: cache miss rebuild" "third"
 "$qstar" --file "$tmp/qstar.lua" build //:app --explain-cache --verbose > "$tmp/third.out" 2> "$tmp/third.err"
 contains "$tmp/third.out" "cache_miss id=//:app:compile:0"
 contains "$tmp/third.out" "reason=input-changed"
 contains "$tmp/third.out" "status=run"
 
+step "initial build smoke: build log" "log"
 "$qstar" --file "$tmp/qstar.lua" log //:app > "$tmp/log.out" 2> "$tmp/log.err"
 contains "$tmp/log.out" "qstar log v1"
 contains "$tmp/log.out" "log_file build/qstar/logs/___app_compile_0.log"
@@ -2268,6 +2270,7 @@ cat > "$tmp/src/main.c" <<'EOF'
 int main(void) { return (1 + ); }
 EOF
 
+step "initial build smoke: json compile failure" "fail"
 if "$qstar" --file "$tmp/qstar.lua" --diagnostics json build //:app > "$tmp/fail.out" 2> "$tmp/fail.err"; then
 	fail "invalid C build unexpectedly succeeded"
 fi
@@ -2276,6 +2279,7 @@ contains "$tmp/fail.err" "\"field\":\"exit-code\""
 contains "$tmp/fail.out" "action_diagnostic_json"
 contains "$tmp/build/qstar/state/last-summary.json" "\"status\":\"failure\""
 test -f "$tmp/build/qstar/logs/last-failure.replay" || fail "missing failure replay"
+step "initial build smoke: color compile failure" "fail-color"
 if "$qstar" --file "$tmp/qstar.lua" --diagnostics json --color always build //:app --progress off > "$tmp/fail-color.out" 2> "$tmp/fail-color.err"; then
 	fail "invalid C color build unexpectedly succeeded"
 fi
@@ -2284,14 +2288,17 @@ contains "$tmp/fail-color.out" "${esc}[1;31mstatus fail${esc}[0m"
 grep '^action_diagnostic_json ' "$tmp/fail-color.out" > "$tmp/fail-color-action-json.out" || fail "missing action diagnostic json in color failure"
 not_contains "$tmp/fail-color-action-json.out" "$esc"
 
+step "initial build smoke: last failure" "replay"
 "$qstar" --file "$tmp/qstar.lua" last-failure > "$tmp/replay.out" 2> "$tmp/replay.err"
 contains "$tmp/replay.out" "qstar last-failure v1"
 contains "$tmp/replay.out" "cc -c src/main.c"
 
+step "initial build smoke: target clean" "clean-target"
 "$qstar" --file "$tmp/qstar.lua" clean --target //:app > "$tmp/clean-target.out" 2> "$tmp/clean-target.err"
 contains "$tmp/clean-target.out" "qstar clean v1"
 test ! -d "$tmp/build/qstar/out/___app" || fail "target clean left target output"
 
+step "initial build smoke: workspace clean" "clean"
 "$qstar" --file "$tmp/qstar.lua" clean > "$tmp/clean.out" 2> "$tmp/clean.err"
 contains "$tmp/clean.out" "clean_all build/qstar compile_commands=build"
 test ! -d "$tmp/build/qstar" || fail "clean left build/qstar"
