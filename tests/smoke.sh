@@ -3422,8 +3422,15 @@ qstar.executable "direct" {
   },
 }
 EOF
-"$qstar" --file "$tmp/macos-framework/qstar.lua" --dump-graph > "$tmp/macos-framework-graph.out" 2> "$tmp/macos-framework-graph.err"
-contains "$tmp/macos-framework-graph.out" "link.frameworks [Foundation]"
+if [ "$(uname -s)" = Darwin ]; then
+	"$qstar" --file "$tmp/macos-framework/qstar.lua" --dump-graph > "$tmp/macos-framework-graph.out" 2> "$tmp/macos-framework-graph.err"
+	contains "$tmp/macos-framework-graph.out" "link.frameworks [Foundation]"
+else
+	if "$qstar" --file "$tmp/macos-framework/qstar.lua" --dump-graph > "$tmp/macos-framework-graph.out" 2> "$tmp/macos-framework-graph.err"; then
+		fail "link.frameworks graph dump unexpectedly succeeded on non-Darwin host"
+	fi
+	contains "$tmp/macos-framework-graph.err" "link.frameworks is supported only for Darwin-like targets"
+fi
 
 step "macos framework linux diagnostic" "macos-framework-linux"
 if "$qstar" --file "$tmp/macos-framework/qstar.lua" --target x86_64-unknown-linux-gnu check > "$tmp/macos-framework-linux.out" 2> "$tmp/macos-framework-linux.err"; then
