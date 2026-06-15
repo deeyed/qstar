@@ -751,14 +751,13 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
     const struct qstar_resolved_toolchain *toolchain, const struct qstar_source_info *source,
     const char *input, const char *output, size_t index)
 {
-	char id[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], target_arg[QSTAR_PATH_MAX];
-	char std_arg[128], sysroot_arg[QSTAR_PATH_MAX];
+	char id[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], std_arg[128];
 	const char *role;
 	const char *tool;
 	struct qstar_string_list includes;
 	struct qstar_argv_dump dump;
 	size_t argc, i;
-	int cross, is_asm, is_cxx, wants_depfile;
+	int is_asm, is_cxx, wants_depfile;
 
 	memset(&includes, 0, sizeof(includes));
 	collect_compile_include_dirs(graph, target, &includes);
@@ -770,14 +769,12 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	    source_uses_asm_preprocessor(target, source));
 	role = is_asm ? "asm" : is_cxx ? "cxx" : "c";
 	tool = is_asm ? toolchain->asm_ : is_cxx ? toolchain->cxx : toolchain->cc;
-	cross = strcmp(toolchain->name, "clang") == 0 && strcmp(toolchain->target, "host") != 0;
 	argc = 5 + plan_tool_role_argc(graph, target, role) - 1 +
 	    graph->build_context.compile_options.len +
 	    graph->build_context.include_dirs.len * 2 +
 	    (is_asm ? target->asm_include_dirs.len * 2 : includes.len * 2) +
 	    (is_asm ? 0 : target->system_include_dirs.len * 2) +
-	    (cross ? 1 : 0) + (wants_depfile ? 3 : 0) +
-	    (toolchain->sysroot[0] ? 1 : 0) + (toolchain->resource_dir[0] ? 2 : 0) +
+	    (wants_depfile ? 3 : 0) +
 	    (is_asm ? 2 : 0) +
 	    (strcmp(target->kind, "sharedlib") == 0 &&
 	    qstar_toolchain_target_supports_sharedlib(toolchain->target) &&
@@ -785,19 +782,9 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	    (is_cxx && target->cxx_standard[0] ? 1 : 0) +
 	    (is_asm ? target->asm_compile_options.len :
 	    is_cxx ? target->cxxflags.len : target->cflags.len);
-	snprintf(target_arg, sizeof(target_arg), "--target=%s", toolchain->target);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
-	snprintf(sysroot_arg, sizeof(sysroot_arg), "--sysroot=%s", toolchain->sysroot);
 	begin_argv(out, &dump, id, argc, toolchain);
 	plan_argv_tool_role(out, &dump, graph, target, role, tool);
-	if (cross)
-		argv_item(out, &dump, target_arg);
-	if (toolchain->sysroot[0])
-		argv_item(out, &dump, sysroot_arg);
-	if (toolchain->resource_dir[0]) {
-		argv_item(out, &dump, "-resource-dir");
-		argv_item(out, &dump, toolchain->resource_dir);
-	}
 	if (strcmp(target->kind, "sharedlib") == 0 &&
 	    qstar_toolchain_target_supports_sharedlib(toolchain->target) &&
 	    !qstar_toolchain_target_is_windows(toolchain->target) && !is_asm)
@@ -1008,7 +995,7 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 	    plan_tool_role_argc(graph, target, "link") :
 	    3 + plan_tool_role_argc(graph, target, "link");
 	if (strcmp(action, "archive") != 0)
-		argc += target->lib_dirs.len + (toolchain->sysroot[0] ? 1 : 0) +
+		argc += target->lib_dirs.len +
 		    graph->build_context.lib_dirs.len + target->libs.len +
 		    (darwin ? target->frameworks.len * 2 : 0) +
 		    link_policy_arg_count(graph, target) +
@@ -1026,10 +1013,6 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 		plan_argv_tool_role(out, &dump, graph, target, "link",
 		    target_has_cxx_source(target) ? toolchain->cxx :
 		    toolchain->linker);
-		if (toolchain->sysroot[0]) {
-			snprintf(buf, sizeof(buf), "--sysroot=%s", toolchain->sysroot);
-			argv_item(out, &dump, buf);
-		}
 		if (msvc_out) {
 			snprintf(buf, sizeof(buf), "/out:%s", output);
 			argv_item(out, &dump, buf);

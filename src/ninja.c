@@ -1482,10 +1482,10 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	struct qstar_string_list includes;
 	struct ninja_argv argv;
 	char object[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], out_dir[QSTAR_PATH_MAX];
-	char action_id[QSTAR_PATH_MAX], target_arg[QSTAR_PATH_MAX], sysroot_arg[QSTAR_PATH_MAX];
+	char action_id[QSTAR_PATH_MAX];
 	char description[QSTAR_PATH_MAX], std_arg[128];
 	const char *compiler;
-	int is_asm, is_cxx, wants_depfile, cross;
+	int is_asm, is_cxx, wants_depfile;
 	size_t i;
 
 	memset(&argv, 0, sizeof(argv));
@@ -1506,22 +1506,11 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	wants_depfile = strcmp(source.language, "c") == 0 || is_cxx ||
 	    source_uses_asm_preprocessor(target, &source);
 	snprintf(action_id, sizeof(action_id), "%s:compile:%zu", target->label, index);
-	snprintf(target_arg, sizeof(target_arg), "--target=%s", toolchain->target);
-	snprintf(sysroot_arg, sizeof(sysroot_arg), "--sysroot=%s", toolchain->sysroot);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s",
 	    target->cxx_standard ? target->cxx_standard : "");
 	compiler = is_asm ? toolchain->asm_ : is_cxx ? toolchain->cxx : toolchain->cc;
-	cross = strcmp(toolchain->name, "clang") == 0 && strcmp(toolchain->target, "host") != 0;
 	if (ninja_argv_push_tool_role(graph, &argv, target,
 	    is_asm ? "asm" : is_cxx ? "cxx" : "c", compiler) < 0)
-		goto fail;
-	if (cross && ninja_argv_push(graph, &argv, target_arg) < 0)
-		goto fail;
-	if (toolchain->sysroot[0] && ninja_argv_push(graph, &argv, sysroot_arg) < 0)
-		goto fail;
-	if (toolchain->resource_dir[0] &&
-	    (ninja_argv_push(graph, &argv, "-resource-dir") < 0 ||
-	    ninja_argv_push(graph, &argv, toolchain->resource_dir) < 0))
 		goto fail;
 	if (target_compile_needs_pic(target, toolchain, is_asm) &&
 	    ninja_argv_push(graph, &argv, "-fPIC") < 0)
@@ -2144,9 +2133,6 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	snprintf(action_id, sizeof(action_id), "%s:%s:0", target->label, final_action);
 	if (ninja_argv_push_tool_role(graph, &argv, target, "link",
 	    target_has_cxx_source(target) ? toolchain->cxx : toolchain->linker) < 0)
-		goto fail;
-	if (toolchain->sysroot[0] &&
-	    ninja_argv_pushf(graph, &argv, "--sysroot=%s", toolchain->sysroot) < 0)
 		goto fail;
 	if (toolchain_uses_msvc_out_arg(toolchain, target)) {
 		if (ninja_argv_pushf(graph, &argv, "/out:%s", artifact) < 0)

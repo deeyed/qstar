@@ -5384,7 +5384,7 @@ EOF
 cat > "$tmp/toolset-diagnostics/qstar.lua" <<'EOF'
 qstar.toolset "custom" {
   tools = {
-    c = qstar.cli {"clang-custom"},
+    c = qstar.cli {"clang-custom", "--target=thumbv7em-none-eabi"},
     cxx = qstar.cli {"clang++-custom"},
     archive = qstar.cli {"llvm-ar-custom"},
     link = qstar.cli {"ld-custom"},
@@ -5399,8 +5399,14 @@ qstar.config "custom_options" {
   lang = {
     c = {
       include_dirs = {"toolset include", "toolinc"},
+      compile_options = {
+        "--sysroot=explicit-sysroot",
+        "-resource-dir",
+        "explicit-resource",
+      },
     },
   },
+  link_options = {"-nostdlib"},
 }
 
 qstar.executable "app" {
@@ -5411,6 +5417,11 @@ qstar.executable "app" {
 EOF
 "$qstar" --file "$tmp/toolset-diagnostics/qstar.lua" --qstar-internal-target x86_64-unknown-none-elf --qstar-internal-toolchain clang --qstar-internal-stdlib none dry-run //:app > "$tmp/toolset-dry.out" 2> "$tmp/toolset-dry.err"
 contains "$tmp/toolset-dry.out" "resolved_toolchain owner=//:app toolchain=clang build_context=default target=x86_64-unknown-none-elf stdlib=none resolver=toolset-schema-v1 toolset=//:custom cc=clang-custom"
+contains "$tmp/toolset-dry.out" "--target=thumbv7em-none-eabi"
+not_contains "$tmp/toolset-dry.out" "--target=x86_64-unknown-none-elf"
+contains "$tmp/toolset-dry.out" "--sysroot=explicit-sysroot"
+contains "$tmp/toolset-dry.out" "-resource-dir"
+contains "$tmp/toolset-dry.out" "-nostdlib"
 contains "$tmp/toolset-dry.out" "\"toolset include\""
 contains "$tmp/toolset-dry.out" "\"-Ltoolset lib\""
 contains "$tmp/toolset-dry.out" "digest="

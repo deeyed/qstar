@@ -59,6 +59,37 @@ qstar.staticlib "core" {
 Target이 `configs`를 통해 toolset을 받거나 target-local `toolset = "//:host"`를 직접
 지정하면 Stella와 Ninja는 같은 role resolver를 사용한다.
 
+## Cross Compile
+
+Cross compile policy도 QStar built-in 의미론이 아니라 argv다. compiler driver가 target이나
+SDK 경로를 알아야 한다면 tool role 또는 config option에 직접 쓴다.
+
+```lua
+qstar.toolset "cross_clang" {
+  tools = {
+    c = qstar.cli {"clang", "--target=vendor-platform"},
+    cxx = qstar.cli {"clang++", "--target=vendor-platform"},
+    asm = qstar.cli {"clang", "--target=vendor-platform"},
+    archive = qstar.cli {"llvm-ar"},
+    link = qstar.cli {"clang", "--target=vendor-platform"},
+  },
+}
+
+qstar.config "cross_flags" {
+  toolset = "//:cross_clang",
+  lang = {
+    c = {
+      compile_options = {
+        "--sysroot=vendor/sdk",
+        "-resource-dir",
+        "vendor/clang-resource",
+      },
+    },
+  },
+  link_options = {"--sysroot=vendor/sdk"},
+}
+```
+
 ## External Tools
 
 `qstar.custom_target`과 `qstar.run_target`에서 실행할 package-local wrapper나 PATH tool은

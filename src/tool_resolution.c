@@ -94,7 +94,7 @@ response_files_enabled(const char *value, int default_value)
 	return 1;
 }
 
-/** target/build context 입력을 합쳐 toolchain v1을 결정한다. */
+/** target/build context 입력을 tool role metadata로 결정한다. */
 int
 qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *target,
     struct qstar_resolved_toolchain *resolved)
@@ -144,12 +144,6 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 		snprintf(resolved->linker, sizeof(resolved->linker), "%s",
 		    graph->build_context.linker);
 	snprintf(resolved->asm_, sizeof(resolved->asm_), "%s", resolved->cc);
-	if (graph->build_context.sysroot && *graph->build_context.sysroot)
-		snprintf(resolved->sysroot, sizeof(resolved->sysroot), "%s",
-		    graph->build_context.sysroot);
-	if (graph->build_context.resource_dir && *graph->build_context.resource_dir)
-		snprintf(resolved->resource_dir, sizeof(resolved->resource_dir), "%s",
-		    graph->build_context.resource_dir);
 	resolved->response_files =
 	    response_files_enabled(graph->build_context.response_files, 1);
 	if (graph->build_context.response_style && *graph->build_context.response_style)

@@ -5804,12 +5804,11 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
     size_t index, struct qstar_prepared_action *action)
 {
 	struct qstar_source_info source;
-	char object[QSTAR_PATH_MAX], target_arg[QSTAR_PATH_MAX], std_arg[128];
-	char sysroot_arg[QSTAR_PATH_MAX];
+	char object[QSTAR_PATH_MAX], std_arg[128];
 	const char *role;
 	const char *compiler;
 	struct qstar_string_list inputs, dep_inputs, outputs, includes;
-	int cross, wants_depfile, is_asm, is_cxx;
+	int wants_depfile, is_asm, is_cxx;
 	size_t i;
 
 	memset(action, 0, sizeof(*action));
@@ -5851,24 +5850,11 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		qstar_string_list_free(&includes);
 		return qstar_set_error(graph, "qstar: compile action description too long");
 	}
-	snprintf(target_arg, sizeof(target_arg), "--target=%s", toolchain->target);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
-	snprintf(sysroot_arg, sizeof(sysroot_arg), "--sysroot=%s", toolchain->sysroot);
 	role = is_asm ? "asm" : is_cxx ? "cxx" : "c";
 	compiler = is_asm ? toolchain->asm_ : is_cxx ? toolchain->cxx : toolchain->cc;
-	cross = strcmp(toolchain->name, "clang") == 0 && strcmp(toolchain->target, "host") != 0;
 	if (prepared_action_push_tool_role(graph, action, target, role, compiler) < 0)
 		goto fail;
-	if (cross && prepared_action_push_argv(graph, action, target_arg) < 0)
-		goto fail;
-	if (toolchain->sysroot[0] &&
-	    prepared_action_push_argv(graph, action, sysroot_arg) < 0)
-		goto fail;
-	if (toolchain->resource_dir[0]) {
-		if (prepared_action_push_argv(graph, action, "-resource-dir") < 0 ||
-		    prepared_action_push_argv(graph, action, toolchain->resource_dir) < 0)
-			goto fail;
-	}
 	if (target_compile_needs_pic(target, toolchain, is_asm) &&
 	    prepared_action_push_argv(graph, action, "-fPIC") < 0)
 		goto fail;
@@ -6840,7 +6826,6 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
     struct qstar_prepared_action *action)
 {
 	char artifact[QSTAR_PATH_MAX], object[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX], key[32];
-	char sysroot_arg[QSTAR_PATH_MAX];
 	char out_arg[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	char *argv[QSTAR_EXEC_MAX_ARGV];
 	struct qstar_string_list inputs, outputs;
@@ -6878,11 +6863,6 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    target_has_cxx_source(target) ? toolchain->cxx :
 		    toolchain->linker) < 0)
 			return -1;
-		if (toolchain->sysroot[0]) {
-			snprintf(sysroot_arg, sizeof(sysroot_arg), "--sysroot=%s",
-			    toolchain->sysroot);
-			argv[argc++] = sysroot_arg;
-		}
 		if (toolchain_uses_msvc_out_arg(toolchain, target)) {
 			snprintf(out_arg, sizeof(out_arg), "/out:%s", artifact);
 			argv[argc++] = out_arg;
