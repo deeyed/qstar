@@ -63,8 +63,7 @@ printf 'qstar-generic-dsl-backend-seal: qstar=%s\n' "$qstar"
 run_capture self_check "$qstar" --file qstar.lua check
 contains "$tmp/self_check.out" "status ok"
 
-QSTAR_TEST_QSTAR="$qstar" sh tests/self-host.sh > "$tmp/self-host.out" 2> "$tmp/self-host.err" ||
-	fail "self-host gate failed; see $tmp/self-host.out and $tmp/self-host.err"
+run_capture self-host env QSTAR_TEST_QSTAR="$qstar" sh tests/self-host.sh
 contains "$tmp/self-host.out" "qstar-self-host: passed"
 printf 'qstar-generic-dsl-backend-seal: self_host=ok\n'
 
