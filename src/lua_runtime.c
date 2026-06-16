@@ -4615,15 +4615,8 @@ filesystem_file_exists(const char *path)
 }
 
 static int
-canonical_existing_path(const char *path, char *dst, size_t dstlen)
+copy_existing_path(const char *path, char *dst, size_t dstlen)
 {
-	char resolved[QSTAR_PATH_MAX];
-
-	if (realpath(path, resolved)) {
-		if (snprintf(dst, dstlen, "%s", resolved) >= (int)dstlen)
-			return -1;
-		return 0;
-	}
 	if (snprintf(dst, dstlen, "%s", path) >= (int)dstlen)
 		return -1;
 	return 0;
@@ -4639,7 +4632,7 @@ current_executable_path(char *dst, size_t dstlen)
 	len = (uint32_t)sizeof(raw);
 	if (_NSGetExecutablePath(raw, &len) != 0)
 		return -1;
-	return canonical_existing_path(raw, dst, dstlen);
+	return copy_existing_path(raw, dst, dstlen);
 #elif defined(__linux__)
 	ssize_t n;
 
@@ -4647,7 +4640,7 @@ current_executable_path(char *dst, size_t dstlen)
 	if (n < 0 || (size_t)n >= sizeof(raw))
 		return -1;
 	raw[n] = '\0';
-	return canonical_existing_path(raw, dst, dstlen);
+	return copy_existing_path(raw, dst, dstlen);
 #else
 	(void)dst;
 	(void)dstlen;
@@ -4670,8 +4663,8 @@ standard_provider_manifest_from_base(const char *base, const char *id,
 		return -1;
 	if (!filesystem_file_exists(candidate_manifest))
 		return 0;
-	if (canonical_existing_path(candidate_dir, dir, dir_len) < 0 ||
-	    canonical_existing_path(candidate_manifest, manifest,
+	if (copy_existing_path(candidate_dir, dir, dir_len) < 0 ||
+	    copy_existing_path(candidate_manifest, manifest,
 	    manifest_len) < 0)
 		return -1;
 	return 1;
