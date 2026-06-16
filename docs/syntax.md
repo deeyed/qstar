@@ -72,6 +72,38 @@ return qstar.language_provider {
     options = "options",
     object = "object",
   },
+  scaffold = {
+    api = "qstar.scaffold/1",
+    tools = {
+      compiler = {"zig"},
+    },
+    options = {
+      optimize = "Debug",
+      target = "native",
+    },
+    shapes = {
+      app = {
+        files = {
+          {
+            path = "src/main.zig",
+            body = "pub fn main() void {}\n",
+          },
+        },
+        targets = {
+          {
+            kind = "executable",
+            name = "app",
+            sources = {
+              {
+                helper = "object",
+                path = "src/main.zig",
+              },
+            },
+          },
+        },
+      },
+    },
+  },
 }
 ```
 
@@ -101,6 +133,10 @@ return P
 
 `provider.lua` runs in a restricted provider sandbox. It cannot declare targets
 or call graph entrypoints; only the manifest `exports` are returned to user code.
+Provider `scaffold` metadata is optional validated init data. It can name
+default tools/options and shape-local files/targets/fragments, but all path
+fields must be package-relative and the schema has no shell command, script,
+fetch, or network fields.
 Provider `options` schemas validate `lang.<namespace>` keys and values when
 user code writes tables such as:
 

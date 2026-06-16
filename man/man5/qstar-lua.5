@@ -57,6 +57,12 @@ and names the restricted
 implementation through the
 .Ic implementation
 field.
+The optional
+.Ic scaffold
+field declares validated init metadata with
+.Li api = "qstar.scaffold/1" .
+Scaffold file and fragment paths must be package-relative; command, script,
+fetch, network, and absolute-path surfaces are not part of the schema.
 .It Ic qstar.config
 Reusable target option bundle referenced by target
 .Ic configs
@@ -254,7 +260,12 @@ are returned to user code. Provider
 .Ic options
 schemas validate dynamic
 .Ic lang.<namespace>
-tables. Provider implementations build lowered action argv vectors with
+tables. Provider
+.Ic scaffold
+metadata validates optional project-shape files, targets, fragments, default
+tools, and default options for future
+.Ic qstar init
+consumption. Provider implementations build lowered action argv vectors with
 .Ic qstar.argv
 inside the restricted provider sandbox.
 .Sh CONSTANTS

@@ -4,8 +4,9 @@
 Language Provider(GLP)가 언어별 project layout과 sample source를 선언하는 방향을
 정리한다. Q208에서 public init surface는 `qstar init app|lib|tool|empty|workspace`
 project shape로 전환되었고, Q210에서 `--use-language` language selection과 external
-provider vendoring이 실제 init flow에 들어왔다. Provider-defined scaffold metadata는
-후속 GLP scaffold 라운드에서 완성한다.
+provider vendoring이 실제 init flow에 들어왔다. Q211에서 provider manifest의 optional
+`scaffold` root는 정식 schema로 검증된다. 다만 `qstar init`이 이 metadata를 소비해
+provider별 파일을 생성하는 단계는 후속 GLP scaffold 라운드에서 완성한다.
 
 ## 배경
 
@@ -219,8 +220,9 @@ qstar init app mixed --use-language zig --use-language rust
 언어를 생략하면 기본값은 `c`다. C는 builtin이고 provider vendoring이 필요 없으며,
 바로 build 가능한 skeleton을 만들 수 있다. `cxx`와 `asm`도 builtin language로 판별되며
 generated `qstar.lua`의 `tools.cxx.compiler`, `tools.asm.compiler` entry를 만들 수 있다.
-다만 provider-defined scaffold metadata가 아직 구현되지 않았기 때문에, primary language가
-`c`가 아니면 현재는 C fallback scaffold를 만들고 warning을 출력한다.
+다만 provider-defined scaffold metadata는 현재 manifest schema로만 검증되고 `qstar init`이
+아직 소비하지 않기 때문에, primary language가 `c`가 아니면 현재는 C fallback scaffold를
+만들고 warning을 출력한다.
 
 ```sh
 qstar init app hello --use-language=zig
@@ -714,6 +716,8 @@ return qstar.language_provider {
 
 이 `scaffold` table은 선언적 plan이다. Provider는 init 시점에 shell command를 실행하지 않고,
 프로젝트 파일을 직접 쓰지도 않는다. QStar core가 scaffold plan을 검증한 뒤 파일을 생성한다.
+Q211 현재 QStar는 manifest load 시점에 이 schema를 검증하지만, 아직 init scaffold 생성에는
+사용하지 않는다.
 
 ## Scaffold Schema
 

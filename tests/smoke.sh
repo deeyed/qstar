@@ -1936,9 +1936,87 @@ return qstar.language_provider {
       default = {},
     },
   },
+  units = {
+    object = {
+      suffixes = {".zig"},
+      emits = "object",
+      lower = "compile_object",
+    },
+  },
+  scaffold = {
+    api = "qstar.scaffold/1",
+    tools = {
+      compiler = {"zig"},
+    },
+    options = {
+      target = "native",
+      optimize = "Debug",
+      emit_docs = false,
+      compile_options = {"-Ddemo"},
+    },
+    shapes = {
+      app = {
+        directories = {"src"},
+        files = {
+          {
+            path = "src/main.zig",
+            body = "pub fn main() void {}\n",
+          },
+        },
+        targets = {
+          {
+            kind = "executable",
+            name = "app",
+            sources = {
+              {
+                helper = "object",
+                path = "src/main.zig",
+                options = {
+                  optimize = "Debug",
+                },
+              },
+            },
+            lang = {
+              zig = {
+                compile_options = {"-Dapp"},
+              },
+            },
+          },
+        },
+      },
+      workspace = {
+        fragments = {
+          {
+            path = "packages/${project_ident}/${project_ident}.qst",
+            files = {
+              {
+                path = "packages/${project_ident}/src/main.zig",
+                body = "pub fn value() i32 { return 1; }\n",
+              },
+            },
+            target = {
+              kind = "staticlib",
+              name = "core",
+              sources = {
+                {
+                  helper = "object",
+                  path = "packages/${project_ident}/src/main.zig",
+                },
+              },
+            },
+          },
+        },
+        group = {
+          name = "all",
+          deps = {"//packages/${project_ident}:core"},
+        },
+      },
+    },
+  },
   exports = {
     tools = "tools",
     options = "options",
+    object = "object",
   },
 }
 EOF
@@ -1953,6 +2031,13 @@ end
 
 function P.options(t)
   return qstar.language_options("zig", t or {})
+end
+
+function P.object(path, opts)
+  return qstar.source(path, qstar.merge({
+    language = "zig",
+    unit = "object",
+  }, opts or {}))
 end
 
 return P
@@ -2732,6 +2817,211 @@ if "$qstar" --file "$tmp/language-provider-bad-default/qstar.lua" check > "$tmp/
   fail "bad language provider default unexpectedly succeeded"
 fi
 contains "$tmp/language-provider-bad-default.err" "language provider options.optimize.default must be one of values"
+
+mkdir -p "$tmp/language-provider-scaffold-bad-api/qstar/languages/zig"
+cat > "$tmp/language-provider-scaffold-bad-api/qstar/languages/zig/zig.qsm" <<'EOF'
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig",
+  version = "0.1",
+  namespace = "zig",
+  implementation = "provider.lua",
+  scaffold = {
+    api = "qstar.scaffold/999",
+    shapes = {
+      app = {},
+    },
+  },
+  exports = {
+    options = "options",
+  },
+}
+EOF
+cat > "$tmp/language-provider-scaffold-bad-api/qstar.lua" <<'EOF'
+qstar.use_language("zig")
+EOF
+if "$qstar" --file "$tmp/language-provider-scaffold-bad-api/qstar.lua" check > "$tmp/language-provider-scaffold-bad-api.out" 2> "$tmp/language-provider-scaffold-bad-api.err"; then
+  fail "bad language provider scaffold api unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-scaffold-bad-api.err" "language provider scaffold.api must be \"qstar.scaffold/1\""
+
+mkdir -p "$tmp/language-provider-scaffold-bad-path/qstar/languages/zig"
+cat > "$tmp/language-provider-scaffold-bad-path/qstar/languages/zig/zig.qsm" <<'EOF'
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig",
+  version = "0.1",
+  namespace = "zig",
+  implementation = "provider.lua",
+  scaffold = {
+    api = "qstar.scaffold/1",
+    shapes = {
+      app = {
+        files = {
+          {
+            path = "/tmp/main.zig",
+            body = "pub fn main() void {}\n",
+          },
+        },
+      },
+    },
+  },
+  exports = {
+    options = "options",
+  },
+}
+EOF
+cat > "$tmp/language-provider-scaffold-bad-path/qstar.lua" <<'EOF'
+qstar.use_language("zig")
+EOF
+if "$qstar" --file "$tmp/language-provider-scaffold-bad-path/qstar.lua" check > "$tmp/language-provider-scaffold-bad-path.out" 2> "$tmp/language-provider-scaffold-bad-path.err"; then
+  fail "bad language provider scaffold path unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-scaffold-bad-path.err" "path '/tmp/main.zig' must be package-relative"
+
+mkdir -p "$tmp/language-provider-scaffold-bad-tool/qstar/languages/zig"
+cat > "$tmp/language-provider-scaffold-bad-tool/qstar/languages/zig/zig.qsm" <<'EOF'
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig",
+  version = "0.1",
+  namespace = "zig",
+  implementation = "provider.lua",
+  tools = {
+    compiler = {
+      role = "zig.compiler",
+      required = true,
+    },
+  },
+  scaffold = {
+    api = "qstar.scaffold/1",
+    tools = {
+      runner = {"zig"},
+    },
+    shapes = {
+      app = {},
+    },
+  },
+  exports = {
+    options = "options",
+  },
+}
+EOF
+cat > "$tmp/language-provider-scaffold-bad-tool/qstar.lua" <<'EOF'
+qstar.use_language("zig")
+EOF
+if "$qstar" --file "$tmp/language-provider-scaffold-bad-tool/qstar.lua" check > "$tmp/language-provider-scaffold-bad-tool.out" 2> "$tmp/language-provider-scaffold-bad-tool.err"; then
+  fail "bad language provider scaffold tool unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-scaffold-bad-tool.err" "scaffold.tools.runner references undeclared provider tool"
+
+mkdir -p "$tmp/language-provider-scaffold-bad-option/qstar/languages/zig"
+cat > "$tmp/language-provider-scaffold-bad-option/qstar/languages/zig/zig.qsm" <<'EOF'
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig",
+  version = "0.1",
+  namespace = "zig",
+  implementation = "provider.lua",
+  options = {
+    optimize = {
+      type = "enum",
+      values = {"Debug", "ReleaseFast"},
+      default = "Debug",
+    },
+  },
+  scaffold = {
+    api = "qstar.scaffold/1",
+    options = {
+      optimize = "ReleaseSlow",
+    },
+    shapes = {
+      app = {},
+    },
+  },
+  exports = {
+    options = "options",
+  },
+}
+EOF
+cat > "$tmp/language-provider-scaffold-bad-option/qstar.lua" <<'EOF'
+qstar.use_language("zig")
+EOF
+if "$qstar" --file "$tmp/language-provider-scaffold-bad-option/qstar.lua" check > "$tmp/language-provider-scaffold-bad-option.out" 2> "$tmp/language-provider-scaffold-bad-option.err"; then
+  fail "bad language provider scaffold option unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-scaffold-bad-option.err" "language provider scaffold.options.optimize has unsupported enum value 'ReleaseSlow'"
+
+mkdir -p "$tmp/language-provider-scaffold-bad-helper/qstar/languages/zig"
+cat > "$tmp/language-provider-scaffold-bad-helper/qstar/languages/zig/zig.qsm" <<'EOF'
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig",
+  version = "0.1",
+  namespace = "zig",
+  implementation = "provider.lua",
+  scaffold = {
+    api = "qstar.scaffold/1",
+    shapes = {
+      app = {
+        target = {
+          kind = "executable",
+          name = "app",
+          sources = {
+            {
+              helper = "object",
+              path = "src/main.zig",
+            },
+          },
+        },
+      },
+    },
+  },
+  exports = {
+    options = "options",
+  },
+}
+EOF
+cat > "$tmp/language-provider-scaffold-bad-helper/qstar.lua" <<'EOF'
+qstar.use_language("zig")
+EOF
+if "$qstar" --file "$tmp/language-provider-scaffold-bad-helper/qstar.lua" check > "$tmp/language-provider-scaffold-bad-helper.out" 2> "$tmp/language-provider-scaffold-bad-helper.err"; then
+  fail "bad language provider scaffold helper unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-scaffold-bad-helper.err" "helper references missing provider export 'object'"
+
+mkdir -p "$tmp/language-provider-scaffold-bad-fragment/qstar/languages/zig"
+cat > "$tmp/language-provider-scaffold-bad-fragment/qstar/languages/zig/zig.qsm" <<'EOF'
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig",
+  version = "0.1",
+  namespace = "zig",
+  implementation = "provider.lua",
+  scaffold = {
+    api = "qstar.scaffold/1",
+    shapes = {
+      workspace = {
+        fragments = {
+          {
+            path = "packages/core/core.lua",
+          },
+        },
+      },
+    },
+  },
+  exports = {
+    options = "options",
+  },
+}
+EOF
+cat > "$tmp/language-provider-scaffold-bad-fragment/qstar.lua" <<'EOF'
+qstar.use_language("zig")
+EOF
+if "$qstar" --file "$tmp/language-provider-scaffold-bad-fragment/qstar.lua" check > "$tmp/language-provider-scaffold-bad-fragment.out" 2> "$tmp/language-provider-scaffold-bad-fragment.err"; then
+  fail "bad language provider scaffold fragment unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-scaffold-bad-fragment.err" "path must end with .qst"
 
 mkdir -p "$tmp/language-provider-missing-impl/qstar/languages/zig"
 cat > "$tmp/language-provider-missing-impl/qstar/languages/zig/zig.qsm" <<'EOF'

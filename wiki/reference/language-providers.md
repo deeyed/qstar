@@ -51,7 +51,8 @@ local zig = qstar.use_language("zig")
 
 `zig.qsm`은 일반 helper `.qsm`이 아니라 provider manifest다. 반드시
 `qstar.language_provider { ... }`를 반환해야 하며, QStar는 `api`, `id`, `version`,
-`namespace`, `implementation`, `tools`, `units`, `options`, `exports` schema를 검증한다.
+`namespace`, `implementation`, `tools`, `units`, `options`, `exports`, `scaffold` schema를
+검증한다.
 `provider.lua`는 별도의 제한 sandbox에서 로드되는 implementation이다. Provider 작성자 API와
 사용자 API는 `exports` table로 분리된다.
 
@@ -96,8 +97,59 @@ return qstar.language_provider {
     options = "options",
     object = "object",
   },
+  scaffold = {
+    api = "qstar.scaffold/1",
+    tools = {
+      compiler = {"zig"},
+    },
+    options = {
+      optimize = "Debug",
+      target = "native",
+    },
+    shapes = {
+      app = {
+        files = {
+          {
+            path = "src/main.zig",
+            body = "pub fn main() void {}\n",
+          },
+        },
+        targets = {
+          {
+            kind = "executable",
+            name = "app",
+            sources = {
+              {
+                helper = "object",
+                path = "src/main.zig",
+              },
+            },
+          },
+        },
+      },
+    },
+  },
 }
 ```
+
+## Provider Init Scaffold Metadata
+
+`scaffold`는 선택 field다. 있으면 QStar는 `api = "qstar.scaffold/1"`, `tools`,
+`options`, `shapes`를 manifest load 시점에 검증한다. Q211 현재 이 metadata는 검증만
+되고 `qstar init`이 아직 소비하지 않는다. 다음 init scaffold round에서 이 선언을 읽어
+provider별 folder layout과 sample source를 생성한다.
+
+검증 규칙:
+
+- `scaffold.tools.<role>`은 provider manifest의 `tools.<role>`에 선언되어 있어야 한다.
+- `scaffold.options.<name>`은 provider manifest의 `options.<name>` schema와 타입이 맞아야 한다.
+- `scaffold.shapes` key는 `app`, `lib`, `tool`, `empty`, `workspace` 중 하나여야 한다.
+- `files`, `directories`, source helper path, fragment path는 package-relative path만 허용한다.
+- Fragment path는 `.qst`로 끝나야 한다.
+- Template variable은 `${project_name}`, `${project_ident}`, `${shape}`, `${namespace}`,
+  `${target_name}`, `${source_ext}`만 허용한다.
+- `command`, `script`, `fetch`, URL field 같은 실행/네트워크 surface는 schema에 없다.
+- Absolute path, parent directory path, shell command substitution은 rejected diagnostic이다.
 
 `provider.lua`는 graph declaration API를 볼 수 없다. 아래처럼 provider helper만 작성한다.
 

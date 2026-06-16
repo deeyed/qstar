@@ -63,8 +63,11 @@ QStar가 하지 않는 일:
   `qstar.use_language("<id>")`가 반환한 exported helper table을 통해 `zig.tools`,
   `zig.options`, `zig.object` 같은 helper를 사용한다. `lang.<namespace>`는 provider activation
   이후에만 유효하며, provider-defined `options` schema가 unknown option, string, bool, list,
-  enum, default metadata를 검증한다. Source unit lowering은 `ctx.tool`, `ctx.input`,
-  `ctx.output`, `ctx.option`으로 작성한 action template을 Stella/Ninja 양쪽에 공유한다.
+  enum, default metadata를 검증한다. Optional `scaffold` schema는
+  `api = "qstar.scaffold/1"`, default tools/options, shape files/targets/fragments를
+  package-relative declarative data로 검증한다. Source unit lowering은 `ctx.tool`,
+  `ctx.input`, `ctx.output`, `ctx.option`으로 작성한 action template을 Stella/Ninja 양쪽에
+  공유한다.
 - CLI `-B path`는 `qstar.project.build_dir`보다 우선한다.
 - CLI `-G auto`는 현재 `stella`로 resolve된다.
 - CLI `-G ninja build [label]`은 C/C++/ASM compile, `qstar.configure_file`,

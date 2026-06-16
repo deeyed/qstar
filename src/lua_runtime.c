@@ -3617,7 +3617,8 @@ qstar_lua_validate_provider_fields(lua_State *L, int table, struct qstar_graph *
 {
 	static const char *const allowed[] = {
 		"api", "id", "version", "namespace", "implementation",
-		"tools", "units", "options", "exports", "__qstar_kind", NULL
+		"tools", "units", "options", "exports", "scaffold",
+		"__qstar_kind", NULL
 	};
 	const char *key;
 
@@ -3909,6 +3910,883 @@ qstar_lua_validate_provider_options(lua_State *L, int table, struct qstar_graph 
 }
 
 static int
+qstar_lua_validate_table_fields(lua_State *L, int table, struct qstar_graph *graph,
+    const char *owner, const char *const *allowed)
+{
+	const char *key;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_pushnil(L);
+	while (lua_next(L, table) != 0) {
+		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (!key || !string_in_set(key, allowed)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph, "qstar: unknown %s field '%s'",
+			    owner, key ? key : "<non-string>");
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
+qstar_lua_table_has_key(lua_State *L, int table, const char *key)
+{
+	int has;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	if (!key || !*key)
+		return 0;
+	lua_getfield(L, table, key);
+	has = !lua_isnil(L, -1);
+	lua_pop(L, 1);
+	return has;
+}
+
+static int
+scaffold_template_var_allowed(const char *name, size_t len)
+{
+	static const char *const allowed[] = {
+		"project_name", "project_ident", "shape", "namespace",
+		"target_name", "source_ext", NULL
+	};
+	size_t i;
+
+	for (i = 0; allowed[i]; i++) {
+		if (strlen(allowed[i]) == len && strncmp(name, allowed[i], len) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+static int
+validate_scaffold_template_string(struct qstar_graph *graph, const char *owner,
+    const char *value)
+{
+	const char *p, *end;
+
+	if (!value)
+		return qstar_set_error(graph, "qstar: %s must be a string", owner);
+	for (p = value; *p; p++) {
+		if (*p == '`')
+			return qstar_set_error(graph,
+			    "qstar: %s contains shell command substitution", owner);
+		if (*p != '$')
+			continue;
+		if (p[1] != '{')
+			return qstar_set_error(graph,
+			    "qstar: %s contains unsupported template syntax", owner);
+		end = strchr(p + 2, '}');
+		if (!end || end == p + 2 ||
+		    !scaffold_template_var_allowed(p + 2, (size_t)(end - (p + 2))))
+			return qstar_set_error(graph,
+			    "qstar: %s contains unsupported template variable", owner);
+		p = end;
+	}
+	return 0;
+}
+
+static int
+validate_scaffold_path(struct qstar_graph *graph, const char *owner,
+    const char *path)
+{
+	size_t n;
+
+	if (!path || !*path)
+		return qstar_set_error(graph, "qstar: %s path must not be empty", owner);
+	if (!qstar_path_is_package_relative(path))
+		return qstar_set_error(graph,
+		    "qstar: %s path '%s' must be package-relative (%s)", owner,
+		    path, qstar_path_package_relative_reason(path));
+	n = strlen(path);
+	if (n > 0 && path[n - 1] == '/')
+		return qstar_set_error(graph,
+		    "qstar: %s path '%s' must not end with '/'", owner, path);
+	return validate_scaffold_template_string(graph, owner, path);
+}
+
+static int
+validate_scaffold_string_list(lua_State *L, int idx, struct qstar_graph *graph,
+    const char *owner, int as_path)
+{
+	const char *item;
+	size_t i, n;
+	char item_owner[192];
+
+	if (idx < 0)
+		idx = lua_gettop(L) + idx + 1;
+	if (!lua_istable(L, idx) || !qstar_lua_array_table(L, idx))
+		return qstar_set_error(graph, "qstar: %s must be a list of strings",
+		    owner);
+	n = lua_rawlen(L, idx);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, idx, (lua_Integer)i);
+		item = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : NULL;
+		if (!item || !*item) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph,
+			    "qstar: %s must be a list of non-empty strings", owner);
+		}
+		snprintf(item_owner, sizeof(item_owner), "%s[%zu]", owner, i);
+		if (as_path) {
+			if (validate_scaffold_path(graph, item_owner, item) < 0) {
+				lua_pop(L, 1);
+				return -1;
+			}
+		} else if (validate_scaffold_template_string(graph, item_owner,
+		    item) < 0) {
+			lua_pop(L, 1);
+			return -1;
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
+validate_scaffold_option_value(lua_State *L, int manifest, int value,
+    struct qstar_graph *graph, const char *option_name, const char *owner)
+{
+	const char *type, *canonical, *enum_value;
+
+	if (manifest < 0)
+		manifest = lua_gettop(L) + manifest + 1;
+	if (value < 0)
+		value = lua_gettop(L) + value + 1;
+	lua_getfield(L, manifest, "options");
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph,
+		    "qstar: %s references undeclared provider option '%s'", owner,
+		    option_name ? option_name : "<non-string>");
+	}
+	lua_getfield(L, -1, option_name);
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 2);
+		return qstar_set_error(graph,
+		    "qstar: %s references undeclared provider option '%s'", owner,
+		    option_name ? option_name : "<non-string>");
+	}
+	lua_getfield(L, -1, "type");
+	type = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : NULL;
+	canonical = canonical_provider_option_type(type);
+	if (!canonical) {
+		lua_pop(L, 3);
+		return qstar_set_error(graph,
+		    "qstar: %s references provider option '%s' with unsupported type",
+		    owner, option_name ? option_name : "<non-string>");
+	}
+	if (strcmp(canonical, "string") == 0) {
+		if (lua_type(L, value) != LUA_TSTRING) {
+			lua_pop(L, 3);
+			return qstar_set_error(graph, "qstar: %s must be a string",
+			    owner);
+		}
+	} else if (strcmp(canonical, "bool") == 0) {
+		if (!lua_isboolean(L, value)) {
+			lua_pop(L, 3);
+			return qstar_set_error(graph, "qstar: %s must be a boolean",
+			    owner);
+		}
+	} else if (strcmp(canonical, "list") == 0) {
+		if (validate_exact_string_list_value(L, value, graph, owner) < 0) {
+			lua_pop(L, 3);
+			return -1;
+		}
+	} else if (strcmp(canonical, "enum") == 0) {
+		enum_value = lua_type(L, value) == LUA_TSTRING ?
+		    lua_tostring(L, value) : NULL;
+		lua_getfield(L, -2, "values");
+		if (!enum_value || !lua_string_list_contains_value(L, -1,
+		    enum_value)) {
+			lua_pop(L, 4);
+			return qstar_set_error(graph,
+			    "qstar: %s has unsupported enum value '%s'", owner,
+			    enum_value ? enum_value : "<non-string>");
+		}
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 3);
+	return 0;
+}
+
+static int
+validate_scaffold_options_table(lua_State *L, int manifest, int table,
+    struct qstar_graph *graph, const char *owner)
+{
+	const char *name;
+	char item_owner[192];
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	if (!lua_istable(L, table))
+		return qstar_set_error(graph, "qstar: %s must be a table", owner);
+	lua_pushnil(L);
+	while (lua_next(L, table) != 0) {
+		name = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (!valid_tool_role_component(name)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: %s contains invalid option '%s'", owner,
+			    name ? name : "<non-string>");
+		}
+		snprintf(item_owner, sizeof(item_owner), "%s.%s", owner, name);
+		if (validate_scaffold_option_value(L, manifest, -1, graph, name,
+		    item_owner) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
+validate_scaffold_tool_argv(lua_State *L, int table, struct qstar_graph *graph,
+    const char *owner)
+{
+	const char *arg;
+	size_t i, n;
+	char item_owner[192];
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	if (!lua_istable(L, table) || !qstar_lua_array_table(L, table) ||
+	    lua_rawlen(L, table) == 0)
+		return qstar_set_error(graph,
+		    "qstar: %s must be a non-empty list of argv strings", owner);
+	n = lua_rawlen(L, table);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, table, (lua_Integer)i);
+		arg = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : NULL;
+		if (!arg || !*arg) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph,
+			    "qstar: %s must be a non-empty list of argv strings", owner);
+		}
+		if (strstr(arg, "://") || strstr(arg, "$(") || strchr(arg, '`')) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph,
+			    "qstar: %s contains network or shell syntax", owner);
+		}
+		if (fs_path_is_absolute(arg)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph,
+			    "qstar: %s must not contain absolute paths", owner);
+		}
+		if (strchr(arg, '/') || strchr(arg, '\\') || strchr(arg, ':')) {
+			if (!qstar_path_is_package_relative(arg)) {
+				lua_pop(L, 1);
+				return qstar_set_error(graph,
+				    "qstar: %s path '%s' must be package-relative (%s)",
+				    owner, arg, qstar_path_package_relative_reason(arg));
+			}
+		}
+		snprintf(item_owner, sizeof(item_owner), "%s[%zu]", owner, i);
+		if (validate_scaffold_template_string(graph, item_owner, arg) < 0) {
+			lua_pop(L, 1);
+			return -1;
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
+validate_scaffold_sources(lua_State *L, int manifest, int table,
+    struct qstar_graph *graph, const char *owner)
+{
+	static const char *const allowed_source[] = {
+		"helper", "path", "options", NULL
+	};
+	const char *path, *helper;
+	size_t i, n;
+	char item_owner[192], path_owner[224], option_owner[224];
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	if (!lua_istable(L, table) || !qstar_lua_array_table(L, table))
+		return qstar_set_error(graph, "qstar: %s must be a list", owner);
+	n = lua_rawlen(L, table);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, table, (lua_Integer)i);
+		snprintf(item_owner, sizeof(item_owner), "%s[%zu]", owner, i);
+		if (lua_type(L, -1) == LUA_TSTRING) {
+			path = lua_tostring(L, -1);
+			if (validate_scaffold_path(graph, item_owner, path) < 0) {
+				lua_pop(L, 1);
+				return -1;
+			}
+			lua_pop(L, 1);
+			continue;
+		}
+		if (!qstar_lua_plain_table(L, -1)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph,
+			    "qstar: %s must be a string path or provider helper table",
+			    item_owner);
+		}
+		if (qstar_lua_validate_table_fields(L, -1, graph, item_owner,
+		    allowed_source) < 0) {
+			lua_pop(L, 1);
+			return -1;
+		}
+		if (qstar_lua_required_string_field(L, -1, graph, item_owner,
+		    "helper", NULL, 0) < 0 ||
+		    qstar_lua_required_string_field(L, -1, graph, item_owner,
+		    "path", NULL, 0) < 0) {
+			lua_pop(L, 1);
+			return -1;
+		}
+		lua_getfield(L, -1, "helper");
+		helper = lua_tostring(L, -1);
+		lua_getfield(L, manifest, "exports");
+		if (!valid_tool_role_component(helper) || !lua_istable(L, -1)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: %s.helper references missing provider export '%s'",
+			    item_owner, helper ? helper : "<non-string>");
+		}
+		lua_getfield(L, -1, helper);
+		if (lua_isnil(L, -1)) {
+			lua_pop(L, 3);
+			return qstar_set_error(graph,
+			    "qstar: %s.helper references missing provider export '%s'",
+			    item_owner, helper ? helper : "<non-string>");
+		}
+		lua_pop(L, 3);
+		lua_getfield(L, -1, "path");
+		path = lua_tostring(L, -1);
+		snprintf(path_owner, sizeof(path_owner), "%s.path", item_owner);
+		if (validate_scaffold_path(graph, path_owner, path) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		lua_pop(L, 1);
+		lua_getfield(L, -1, "options");
+		if (!lua_isnil(L, -1)) {
+			snprintf(option_owner, sizeof(option_owner), "%s.options",
+			    item_owner);
+			if (validate_scaffold_options_table(L, manifest, -1, graph,
+			    option_owner) < 0) {
+				lua_pop(L, 2);
+				return -1;
+			}
+		}
+		lua_pop(L, 1);
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int validate_scaffold_target(lua_State *L, int manifest, int table,
+    struct qstar_graph *graph, const char *owner, const char *namespace,
+    int require_kind);
+
+static int
+validate_scaffold_group(lua_State *L, int manifest, int table,
+    struct qstar_graph *graph, const char *owner, const char *namespace)
+{
+	static const char *const allowed_group[] = { "name", "deps", NULL };
+	const char *name;
+	(void)manifest;
+	(void)namespace;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	if (!qstar_lua_plain_table(L, table))
+		return qstar_set_error(graph, "qstar: %s must be a table", owner);
+	if (qstar_lua_validate_table_fields(L, table, graph, owner, allowed_group) < 0)
+		return -1;
+	if (qstar_lua_required_string_field(L, table, graph, owner, "name", NULL,
+	    0) < 0)
+		return -1;
+	lua_getfield(L, table, "name");
+	name = lua_tostring(L, -1);
+	if (validate_scaffold_template_string(graph, owner, name) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, table, "deps");
+	if (!lua_isnil(L, -1) && validate_scaffold_string_list(L, -1, graph,
+	    "language provider scaffold group deps", 0) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+static int
+validate_scaffold_lang_table(lua_State *L, int manifest, int table,
+    struct qstar_graph *graph, const char *owner, const char *namespace)
+{
+	const char *name;
+	char lang_owner[192];
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	if (!lua_istable(L, table))
+		return qstar_set_error(graph, "qstar: %s must be a table", owner);
+	lua_pushnil(L);
+	while (lua_next(L, table) != 0) {
+		name = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (!valid_tool_role_component(name) || !lua_istable(L, -1)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: %s contains invalid language namespace '%s'",
+			    owner, name ? name : "<non-string>");
+		}
+		if (strcmp(name, namespace) == 0) {
+			snprintf(lang_owner, sizeof(lang_owner), "%s.%s", owner, name);
+			if (validate_scaffold_options_table(L, manifest, -1, graph,
+			    lang_owner) < 0) {
+				lua_pop(L, 2);
+				return -1;
+			}
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
+validate_scaffold_target(lua_State *L, int manifest, int table,
+    struct qstar_graph *graph, const char *owner, const char *namespace,
+    int require_kind)
+{
+	static const char *const allowed_target[] = {
+		"kind", "name", "sources", "deps", "lang", NULL
+	};
+	static const char *const allowed_kinds[] = {
+		"executable", "staticlib", "sharedlib", "test", "run_target",
+		"group", NULL
+	};
+	const char *kind, *name;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	if (!qstar_lua_plain_table(L, table))
+		return qstar_set_error(graph, "qstar: %s must be a table", owner);
+	if (qstar_lua_validate_table_fields(L, table, graph, owner,
+	    allowed_target) < 0)
+		return -1;
+	lua_getfield(L, table, "kind");
+	kind = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : NULL;
+	if (require_kind && !kind) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: %s.kind must be a string",
+		    owner);
+	}
+	if (kind && !string_in_set(kind, allowed_kinds)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph,
+		    "qstar: %s.kind has unsupported target kind '%s'", owner, kind);
+	}
+	lua_pop(L, 1);
+	if (qstar_lua_required_string_field(L, table, graph, owner, "name", NULL,
+	    0) < 0)
+		return -1;
+	lua_getfield(L, table, "name");
+	name = lua_tostring(L, -1);
+	if (validate_scaffold_template_string(graph, owner, name) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, table, "sources");
+	if (!lua_isnil(L, -1) && validate_scaffold_sources(L, manifest, -1,
+	    graph, "language provider scaffold target sources") < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, table, "deps");
+	if (!lua_isnil(L, -1) && validate_scaffold_string_list(L, -1, graph,
+	    "language provider scaffold target deps", 0) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, table, "lang");
+	if (!lua_isnil(L, -1) && validate_scaffold_lang_table(L, manifest, -1,
+	    graph, "language provider scaffold target lang", namespace) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+static int
+validate_scaffold_files(lua_State *L, int table, struct qstar_graph *graph,
+    const char *owner)
+{
+	static const char *const allowed_file[] = { "path", "body", "executable", NULL };
+	const char *path, *body;
+	size_t i, n;
+	char item_owner[192], field_owner[224];
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	if (!lua_istable(L, table) || !qstar_lua_array_table(L, table))
+		return qstar_set_error(graph, "qstar: %s must be a list", owner);
+	n = lua_rawlen(L, table);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, table, (lua_Integer)i);
+		snprintf(item_owner, sizeof(item_owner), "%s[%zu]", owner, i);
+		if (!qstar_lua_plain_table(L, -1)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph, "qstar: %s must be a table",
+			    item_owner);
+		}
+		if (qstar_lua_validate_table_fields(L, -1, graph, item_owner,
+		    allowed_file) < 0) {
+			lua_pop(L, 1);
+			return -1;
+		}
+		if (qstar_lua_required_string_field(L, -1, graph, item_owner,
+		    "path", NULL, 0) < 0 ||
+		    qstar_lua_required_string_field(L, -1, graph, item_owner,
+		    "body", NULL, 0) < 0) {
+			lua_pop(L, 1);
+			return -1;
+		}
+		lua_getfield(L, -1, "path");
+		path = lua_tostring(L, -1);
+		snprintf(field_owner, sizeof(field_owner), "%s.path", item_owner);
+		if (validate_scaffold_path(graph, field_owner, path) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		lua_pop(L, 1);
+		lua_getfield(L, -1, "body");
+		body = lua_tostring(L, -1);
+		snprintf(field_owner, sizeof(field_owner), "%s.body", item_owner);
+		if (validate_scaffold_template_string(graph, field_owner,
+		    body) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		lua_pop(L, 1);
+		lua_getfield(L, -1, "executable");
+		if (!lua_isnil(L, -1) && !lua_isboolean(L, -1)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: %s.executable must be boolean", item_owner);
+		}
+		lua_pop(L, 1);
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
+validate_scaffold_targets_list(lua_State *L, int manifest, int table,
+    struct qstar_graph *graph, const char *owner, const char *namespace)
+{
+	size_t i, n;
+	char item_owner[192];
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	if (!lua_istable(L, table) || !qstar_lua_array_table(L, table))
+		return qstar_set_error(graph, "qstar: %s must be a list", owner);
+	n = lua_rawlen(L, table);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, table, (lua_Integer)i);
+		snprintf(item_owner, sizeof(item_owner), "%s[%zu]", owner, i);
+		if (validate_scaffold_target(L, manifest, -1, graph, item_owner,
+		    namespace, 1) < 0) {
+			lua_pop(L, 1);
+			return -1;
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int validate_scaffold_shape(lua_State *L, int manifest, int table,
+    struct qstar_graph *graph, const char *owner, const char *namespace);
+
+static int
+validate_scaffold_fragments(lua_State *L, int manifest, int table,
+    struct qstar_graph *graph, const char *owner, const char *namespace)
+{
+	static const char *const allowed_fragment[] = {
+		"path", "directories", "files", "targets", "target", "group", NULL
+	};
+	const char *path;
+	size_t i, n;
+	char item_owner[192], path_owner[224];
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	if (!lua_istable(L, table) || !qstar_lua_array_table(L, table))
+		return qstar_set_error(graph, "qstar: %s must be a list", owner);
+	n = lua_rawlen(L, table);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, table, (lua_Integer)i);
+		snprintf(item_owner, sizeof(item_owner), "%s[%zu]", owner, i);
+		if (!qstar_lua_plain_table(L, -1)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph, "qstar: %s must be a table",
+			    item_owner);
+		}
+		if (qstar_lua_validate_table_fields(L, -1, graph, item_owner,
+		    allowed_fragment) < 0) {
+			lua_pop(L, 1);
+			return -1;
+		}
+		if (qstar_lua_required_string_field(L, -1, graph, item_owner,
+		    "path", NULL, 0) < 0) {
+			lua_pop(L, 1);
+			return -1;
+		}
+		lua_getfield(L, -1, "path");
+		path = lua_tostring(L, -1);
+		snprintf(path_owner, sizeof(path_owner), "%s.path", item_owner);
+		if (validate_scaffold_path(graph, path_owner, path) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		if (!path_has_suffix(path, ".qst")) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: %s.path must end with .qst", item_owner);
+		}
+		lua_pop(L, 1);
+		lua_getfield(L, -1, "directories");
+		if (!lua_isnil(L, -1) && validate_scaffold_string_list(L, -1, graph,
+		    "language provider scaffold fragment directories", 1) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		lua_pop(L, 1);
+		lua_getfield(L, -1, "files");
+		if (!lua_isnil(L, -1) && validate_scaffold_files(L, -1, graph,
+		    "language provider scaffold fragment files") < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		lua_pop(L, 1);
+		lua_getfield(L, -1, "targets");
+		if (!lua_isnil(L, -1) && validate_scaffold_targets_list(L, manifest,
+		    -1, graph, "language provider scaffold fragment targets",
+		    namespace) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		lua_pop(L, 1);
+		lua_getfield(L, -1, "target");
+		if (!lua_isnil(L, -1) && validate_scaffold_target(L, manifest, -1,
+		    graph, "language provider scaffold fragment target", namespace,
+		    1) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		lua_pop(L, 1);
+		lua_getfield(L, -1, "group");
+		if (!lua_isnil(L, -1) && validate_scaffold_group(L, manifest, -1,
+		    graph, "language provider scaffold fragment group", namespace) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		lua_pop(L, 1);
+		if (validate_scaffold_template_string(graph, item_owner, path) < 0) {
+			lua_pop(L, 1);
+			return -1;
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
+validate_scaffold_shape(lua_State *L, int manifest, int table,
+    struct qstar_graph *graph, const char *owner, const char *namespace)
+{
+	static const char *const allowed_shape[] = {
+		"directories", "files", "targets", "target", "fragments", "group", NULL
+	};
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	if (!qstar_lua_plain_table(L, table))
+		return qstar_set_error(graph, "qstar: %s must be a table", owner);
+	if (qstar_lua_validate_table_fields(L, table, graph, owner, allowed_shape) < 0)
+		return -1;
+	lua_getfield(L, table, "directories");
+	if (!lua_isnil(L, -1) && validate_scaffold_string_list(L, -1, graph,
+	    "language provider scaffold directories", 1) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, table, "files");
+	if (!lua_isnil(L, -1) && validate_scaffold_files(L, -1, graph,
+	    "language provider scaffold files") < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, table, "targets");
+	if (!lua_isnil(L, -1) && validate_scaffold_targets_list(L, manifest, -1,
+	    graph, "language provider scaffold targets", namespace) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, table, "target");
+	if (!lua_isnil(L, -1) && validate_scaffold_target(L, manifest, -1, graph,
+	    "language provider scaffold target", namespace, 1) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, table, "fragments");
+	if (!lua_isnil(L, -1) && validate_scaffold_fragments(L, manifest, -1,
+	    graph, "language provider scaffold fragments", namespace) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, table, "group");
+	if (!lua_isnil(L, -1) && validate_scaffold_group(L, manifest, -1, graph,
+	    "language provider scaffold group", namespace) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+static int
+qstar_lua_validate_provider_scaffold(lua_State *L, int table,
+    struct qstar_graph *graph, const char *namespace)
+{
+	static const char *const allowed_root[] = {
+		"api", "tools", "options", "shapes", NULL
+	};
+	static const char *const allowed_shapes[] = {
+		"app", "lib", "tool", "empty", "workspace", NULL
+	};
+	const char *api, *name;
+	size_t count;
+	char owner[192];
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_getfield(L, table, "scaffold");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!qstar_lua_plain_table(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph,
+		    "qstar: language provider scaffold must be a table");
+	}
+	if (qstar_lua_validate_table_fields(L, -1, graph,
+	    "language provider scaffold", allowed_root) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	if (qstar_lua_required_string_field(L, -1, graph,
+	    "language provider scaffold", "api", NULL, 0) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_getfield(L, -1, "api");
+	api = lua_tostring(L, -1);
+	if (strcmp(api, "qstar.scaffold/1") != 0) {
+		lua_pop(L, 2);
+		return qstar_set_error(graph,
+		    "qstar: language provider scaffold.api must be \"qstar.scaffold/1\"");
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, -1, "tools");
+	if (!lua_isnil(L, -1)) {
+		if (!qstar_lua_plain_table(L, -1)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: language provider scaffold.tools must be a table");
+		}
+		lua_pushnil(L);
+		while (lua_next(L, -2) != 0) {
+			name = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+			if (!valid_tool_role_component(name)) {
+				lua_pop(L, 4);
+				return qstar_set_error(graph,
+				    "qstar: language provider scaffold.tools contains invalid tool '%s'",
+				    name ? name : "<non-string>");
+			}
+			lua_getfield(L, table, "tools");
+			if (!lua_istable(L, -1) ||
+			    !qstar_lua_table_has_key(L, -1, name)) {
+				lua_pop(L, 4);
+				return qstar_set_error(graph,
+				    "qstar: language provider scaffold.tools.%s references undeclared provider tool",
+				    name);
+			}
+			lua_pop(L, 1);
+			snprintf(owner, sizeof(owner),
+			    "language provider scaffold.tools.%s", name);
+			if (validate_scaffold_tool_argv(L, -1, graph, owner) < 0) {
+				lua_pop(L, 3);
+				return -1;
+			}
+			lua_pop(L, 1);
+		}
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, -1, "options");
+	if (!lua_isnil(L, -1) && validate_scaffold_options_table(L, table, -1,
+	    graph, "language provider scaffold.options") < 0) {
+		lua_pop(L, 2);
+		return -1;
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, -1, "shapes");
+	if (!qstar_lua_plain_table(L, -1)) {
+		lua_pop(L, 2);
+		return qstar_set_error(graph,
+		    "qstar: language provider scaffold.shapes must be a table");
+	}
+	count = 0;
+	lua_pushnil(L);
+	while (lua_next(L, -2) != 0) {
+		name = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (!name || !string_in_set(name, allowed_shapes)) {
+			lua_pop(L, 4);
+			return qstar_set_error(graph,
+			    "qstar: language provider scaffold.shapes contains unsupported shape '%s'",
+			    name ? name : "<non-string>");
+		}
+		snprintf(owner, sizeof(owner), "language provider scaffold.shapes.%s",
+		    name);
+		if (validate_scaffold_shape(L, table, -1, graph, owner,
+		    namespace) < 0) {
+			lua_pop(L, 3);
+			return -1;
+		}
+		count++;
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	if (count == 0) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph,
+		    "qstar: language provider scaffold.shapes must not be empty");
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+static int
 qstar_lua_validate_provider_exports(lua_State *L, int table, struct qstar_graph *graph)
 {
 	const char *name, *value;
@@ -3990,6 +4868,7 @@ validate_language_provider_manifest_table(lua_State *L, int table,
 	if (qstar_lua_validate_provider_tools(L, table, graph, namespace) < 0 ||
 	    qstar_lua_validate_provider_units(L, table, graph) < 0 ||
 	    qstar_lua_validate_provider_options(L, table, graph) < 0 ||
+	    qstar_lua_validate_provider_scaffold(L, table, graph, namespace) < 0 ||
 	    qstar_lua_validate_provider_exports(L, table, graph) < 0)
 		return -1;
 	return 0;
