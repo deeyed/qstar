@@ -8,9 +8,9 @@ line은 toolset의 response file policy로 다룬다.
 ```lua
 qstar.toolset "msvc_rsp" {
   tools = {
-    c = qstar.cli {"clang-cl"},
-    cxx = qstar.cli {"clang-cl"},
-    asm = qstar.cli {"clang-cl"},
+    c = { compiler = qstar.cli {"clang-cl"} },
+    cxx = { compiler = qstar.cli {"clang-cl"} },
+    asm = { compiler = qstar.cli {"clang-cl"} },
     archive = qstar.cli {"llvm-lib"},
     link = qstar.cli {"clang-cl"},
   },
@@ -46,9 +46,9 @@ QStar가 `response_style = "msvc"` 규칙으로 response file에 escape한다.
 ```lua
 qstar.toolset "windows_msvc" {
   tools = {
-    c = qstar.cli {"clang-cl"},
-    cxx = qstar.cli {"clang-cl"},
-    asm = qstar.cli {"clang-cl"},
+    c = { compiler = qstar.cli {"clang-cl"} },
+    cxx = { compiler = qstar.cli {"clang-cl"} },
+    asm = { compiler = qstar.cli {"clang-cl"} },
     archive = qstar.cli {"llvm-lib"},
     link = qstar.cli {"clang-cl"},
   },
@@ -62,9 +62,9 @@ qstar.toolset "windows_msvc" {
 ```lua
 qstar.toolset "no_rsp" {
   tools = {
-    c = qstar.cli {"cc"},
-    cxx = qstar.cli {"c++"},
-    asm = qstar.cli {"cc"},
+    c = { compiler = qstar.cli {"cc"} },
+    cxx = { compiler = qstar.cli {"c++"} },
+    asm = { compiler = qstar.cli {"cc"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"cc"},
   },

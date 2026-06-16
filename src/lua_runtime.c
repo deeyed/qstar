@@ -1352,30 +1352,135 @@ validate_toolset_fields(lua_State *L, int table, struct qstar_graph *graph)
 	return 0;
 }
 
-/** qstar.toolset tools.<role> field를 받을 argv list slot을 찾는다. */
-static struct qstar_string_list *
-toolset_role_list(struct qstar_toolset *toolset, const char *role)
+static int
+toolset_core_role(const char *role)
 {
-	if (strcmp(role, "c") == 0)
-		return &toolset->c;
-	if (strcmp(role, "cxx") == 0)
-		return &toolset->cxx;
-	if (strcmp(role, "asm") == 0)
-		return &toolset->asm_;
-	if (strcmp(role, "archive") == 0)
-		return &toolset->archive;
-	if (strcmp(role, "link") == 0)
-		return &toolset->link;
-	return NULL;
+	return role && (strcmp(role, "archive") == 0 || strcmp(role, "link") == 0);
 }
 
-/** qstar.toolset tools table을 allowlist role별 argv-vector로 읽는다. */
+static int
+toolset_removed_direct_role(const char *role)
+{
+	return role && (strcmp(role, "c") == 0 || strcmp(role, "cxx") == 0 ||
+	    strcmp(role, "asm") == 0);
+}
+
+static int
+valid_tool_role_component(const char *s)
+{
+	const unsigned char *p;
+
+	if (!s || !*s)
+		return 0;
+	for (p = (const unsigned char *)s; *p; p++) {
+		if (!(isalnum(*p) || *p == '_' || *p == '-'))
+			return 0;
+	}
+	return 1;
+}
+
+static int
+valid_tool_role_name(const char *s)
+{
+	char component[64];
+	const char *p, *dot;
+	size_t n;
+
+	if (!s || !*s)
+		return 0;
+	p = s;
+	while (*p) {
+		dot = strchr(p, '.');
+		n = dot ? (size_t)(dot - p) : strlen(p);
+		if (n == 0 || n >= sizeof(component))
+			return 0;
+		memcpy(component, p, n);
+		component[n] = '\0';
+		if (!valid_tool_role_component(component))
+			return 0;
+		if (!dot)
+			break;
+		p = dot + 1;
+	}
+	return 1;
+}
+
+static int
+read_toolset_role_command(lua_State *L, int idx, struct qstar_toolset *toolset,
+    struct qstar_graph *graph, const char *role, const char *field)
+{
+	struct qstar_string_list *list;
+
+	if (!valid_tool_role_name(role))
+		return qstar_set_error(graph, "qstar: invalid toolset tool role '%s'",
+		    role ? role : "<non-string>");
+	list = qstar_toolset_add_role(graph, toolset, role);
+	if (!list)
+		return -1;
+	return read_cli_command(L, idx, list, graph, field);
+}
+
+static int
+read_toolset_provider_tools(lua_State *L, int table, struct qstar_toolset *toolset,
+    struct qstar_graph *graph, const char *namespace, size_t *count)
+{
+	const char *subrole, *kind;
+	char role[128], field[128];
+
+	if (!valid_tool_role_component(namespace))
+		return qstar_set_error(graph, "qstar: invalid toolset provider namespace '%s'",
+		    namespace ? namespace : "<non-string>");
+	if (toolset_core_role(namespace))
+		return qstar_set_error(graph,
+		    "qstar: tools.%s is a core role and must be qstar.cli { ... }",
+		    namespace);
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	if (!lua_istable(L, table))
+		return qstar_set_error(graph,
+		    "qstar: tools.%s must be a provider tool table", namespace);
+	kind = qstar_table_kind(L, table);
+	if (kind) {
+		if (strcmp(kind, "cli") == 0 && toolset_removed_direct_role(namespace))
+			return qstar_set_error(graph,
+			    "qstar: tools.%s direct compiler role is removed; use tools.%s = { compiler = qstar.cli { ... } }",
+			    namespace, namespace);
+		return qstar_set_error(graph,
+		    "qstar: tools.%s must be a provider tool table, not qstar.%s",
+		    namespace, kind);
+	}
+	lua_pushnil(L);
+	while (lua_next(L, table) != 0) {
+		subrole = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (!valid_tool_role_component(subrole)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: invalid provider tool role tools.%s.%s",
+			    namespace, subrole ? subrole : "<non-string>");
+		}
+		if (snprintf(role, sizeof(role), "%s.%s", namespace, subrole) >=
+		    (int)sizeof(role) ||
+		    snprintf(field, sizeof(field), "tools.%s.%s", namespace, subrole) >=
+		    (int)sizeof(field)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph, "qstar: toolset tool role is too long");
+		}
+		if (read_toolset_role_command(L, -1, toolset, graph, role, field) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		(*count)++;
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+/** qstar.toolset tools table을 core role과 provider namespace role map으로 읽는다. */
 static int
 read_toolset_tools(lua_State *L, int table, struct qstar_toolset *toolset,
     struct qstar_graph *graph)
 {
-	struct qstar_string_list *list;
-	const char *role;
+	const char *role, *kind;
 	size_t count;
 	char field[64];
 
@@ -1395,22 +1500,43 @@ read_toolset_tools(lua_State *L, int table, struct qstar_toolset *toolset,
 	lua_pushnil(L);
 	while (lua_next(L, -2) != 0) {
 		role = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
-		list = role ? toolset_role_list(toolset, role) : NULL;
-		if (!list) {
+		if (!role) {
 			lua_pop(L, 2);
 			return qstar_set_error(graph,
-			    "qstar: unknown toolset tool role '%s'; expected c, cxx, asm, archive, or link",
-			    role ? role : "<non-string>");
+			    "qstar: toolset tools keys must be strings");
 		}
-		if (snprintf(field, sizeof(field), "tools.%s", role) >= (int)sizeof(field)) {
+		kind = qstar_table_kind(L, -1);
+		if (toolset_core_role(role)) {
+			if (snprintf(field, sizeof(field), "tools.%s", role) >=
+			    (int)sizeof(field)) {
+				lua_pop(L, 2);
+				return qstar_set_error(graph,
+				    "qstar: toolset tool role is too long");
+			}
+			if (read_toolset_role_command(L, -1, toolset, graph, role,
+			    field) < 0) {
+				lua_pop(L, 2);
+				return -1;
+			}
+			count++;
+		} else if (kind && strcmp(kind, "cli") == 0) {
+			if (toolset_removed_direct_role(role)) {
+				lua_pop(L, 2);
+				return qstar_set_error(graph,
+				    "qstar: tools.%s direct compiler role is removed; use tools.%s = { compiler = qstar.cli { ... } }",
+				    role, role);
+			}
 			lua_pop(L, 2);
-			return qstar_set_error(graph, "qstar: toolset tool role is too long");
+			return qstar_set_error(graph,
+			    "qstar: unknown direct tool role '%s'; use archive/link or a provider namespace table",
+			    role);
+		} else {
+			if (read_toolset_provider_tools(L, -1, toolset, graph, role,
+			    &count) < 0) {
+				lua_pop(L, 2);
+				return -1;
+			}
 		}
-		if (read_cli_command(L, -1, list, graph, field) < 0) {
-			lua_pop(L, 2);
-			return -1;
-		}
-		count++;
 		lua_pop(L, 1);
 	}
 	lua_pop(L, 1);
@@ -1418,6 +1544,7 @@ read_toolset_tools(lua_State *L, int table, struct qstar_toolset *toolset,
 		return qstar_set_error(graph,
 		    "qstar: toolset '%s' must declare at least one tool role",
 		    toolset->label);
+	qstar_toolset_sort_roles(toolset);
 	return 0;
 }
 

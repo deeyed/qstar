@@ -123,6 +123,13 @@ const struct qstar_toolset *qstar_graph_find_toolset(const struct qstar_graph *g
 const struct qstar_string_list *qstar_toolset_role_argv(const struct qstar_toolset *toolset,
     const char *role);
 
+/** toolset에 role argv-vector slot을 추가한다. */
+struct qstar_string_list *qstar_toolset_add_role(struct qstar_graph *graph,
+    struct qstar_toolset *toolset, const char *role);
+
+/** toolset role map을 deterministic한 role name 순서로 정렬한다. */
+void qstar_toolset_sort_roles(struct qstar_toolset *toolset);
+
 /** target에 연결된 toolset role argv-vector를 찾는다. */
 const struct qstar_string_list *qstar_target_tool_role_argv(const struct qstar_graph *graph,
     const struct qstar_target *target, const char *role);

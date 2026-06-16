@@ -495,7 +495,7 @@ qstar.project {
 
 qstar.toolset "warn" {
   tools = {
-    c = qstar.cli {"tools/warn-cc.sh"},
+    c = { compiler = qstar.cli {"tools/warn-cc.sh"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"cc"},
   },
@@ -570,7 +570,7 @@ qstar.project {
 
 qstar.toolset "error" {
   tools = {
-    c = qstar.cli {"tools/error-cc.sh"},
+    c = { compiler = qstar.cli {"tools/error-cc.sh"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"cc"},
   },
@@ -990,9 +990,9 @@ qstar.project {
 
 qstar.toolset "ninja_parity" {
   tools = {
-    c = qstar.cli {"cc"},
-    cxx = qstar.cli {"c++"},
-    asm = qstar.cli {"cc"},
+    c = { compiler = qstar.cli {"cc"} },
+    cxx = { compiler = qstar.cli {"c++"} },
+    asm = { compiler = qstar.cli {"cc"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"cc"},
   },
@@ -1660,9 +1660,10 @@ EOF
 cat > "$tmp/toolset/qstar.lua" <<'EOF'
 qstar.toolset "clang_like" {
   tools = {
-    c = qstar.cli {"clang"},
-    cxx = qstar.cli {"clang++"},
-    asm = qstar.cli {"clang"},
+    c = { compiler = qstar.cli {"clang"} },
+    cxx = { compiler = qstar.cli {"clang++"} },
+    asm = { compiler = qstar.cli {"clang"} },
+    zig = { compiler = qstar.cli {"zig"} },
     archive = qstar.cli {"llvm-ar"},
     link = qstar.cli {"clang"},
   },
@@ -1674,7 +1675,7 @@ qstar.toolset "clang_like" {
 
 qstar.toolset "host_like" {
   tools = {
-    c = qstar.cli {"cc"},
+    c = { compiler = qstar.cli {"cc"} },
   },
 }
 
@@ -1691,8 +1692,9 @@ EOF
 "$qstar" --file "$tmp/toolset/qstar.lua" check > "$tmp/toolset-check.out" 2> "$tmp/toolset-check.err"
 "$qstar" --file "$tmp/toolset/qstar.lua" --dump-graph > "$tmp/toolset-graph.out" 2> "$tmp/toolset-graph.err"
 contains "$tmp/toolset-graph.out" "toolset //:clang_like"
-contains "$tmp/toolset-graph.out" "tools.c [clang]"
+contains "$tmp/toolset-graph.out" "tools.c.compiler [clang]"
 contains "$tmp/toolset-graph.out" "tools.archive [llvm-ar]"
+contains "$tmp/toolset-graph.out" "tools.zig.compiler [zig]"
 contains "$tmp/toolset-graph.out" "response_files on"
 contains "$tmp/toolset-graph.out" "response_style posix"
 contains "$tmp/toolset-graph.out" "allow_absolute_tools false"
@@ -1705,7 +1707,8 @@ contains "$tmp/toolset-list.out" "toolset //:clang_like"
 "$qstar" --file "$tmp/toolset/qstar.lua" list-targets --format json > "$tmp/toolset-json.out" 2> "$tmp/toolset-json.err"
 contains "$tmp/toolset-json.out" "\"toolset_count\":2"
 contains "$tmp/toolset-json.out" "\"toolsets\":["
-contains "$tmp/toolset-json.out" "\"tools\":{\"c\":[\"clang\"]"
+contains "$tmp/toolset-json.out" "\"c.compiler\":[\"clang\"]"
+contains "$tmp/toolset-json.out" "\"zig.compiler\":[\"zig\"]"
 contains "$tmp/toolset-json.out" "\"toolset\":\"//:host_like\""
 
 mkdir -p "$tmp/toolset-wire/src" "$tmp/toolset-wire/tools"
@@ -1748,7 +1751,7 @@ qstar.project {
 
 qstar.toolset "local" {
   tools = {
-    c = qstar.cli {"tools/toolset-cc.sh"},
+    c = { compiler = qstar.cli {"tools/toolset-cc.sh"} },
     archive = qstar.cli {"tools/toolset-ar.sh"},
     link = qstar.cli {"tools/toolset-link.sh"},
   },
@@ -1843,7 +1846,20 @@ EOF
 if "$qstar" --file "$tmp/toolset-bad-role/qstar.lua" check > "$tmp/toolset-bad-role.out" 2> "$tmp/toolset-bad-role.err"; then
   fail "bad toolset role unexpectedly succeeded"
 fi
-contains "$tmp/toolset-bad-role.err" "unknown toolset tool role 'ar'"
+contains "$tmp/toolset-bad-role.err" "unknown direct tool role 'ar'"
+
+mkdir -p "$tmp/toolset-direct-compiler-role"
+cat > "$tmp/toolset-direct-compiler-role/qstar.lua" <<'EOF'
+qstar.toolset "bad" {
+  tools = {
+    c = qstar.cli {"cc"},
+  },
+}
+EOF
+if "$qstar" --file "$tmp/toolset-direct-compiler-role/qstar.lua" check > "$tmp/toolset-direct-compiler-role.out" 2> "$tmp/toolset-direct-compiler-role.err"; then
+  fail "direct compiler toolset role unexpectedly succeeded"
+fi
+contains "$tmp/toolset-direct-compiler-role.err" "tools.c direct compiler role is removed"
 
 mkdir -p "$tmp/toolset-missing"
 cat > "$tmp/toolset-missing/qstar.lua" <<'EOF'
@@ -1863,7 +1879,7 @@ EOF
 cat > "$tmp/toolset-module/mods/a/a.qsm" <<'EOF'
 qstar.toolset "bad" {
   tools = {
-    c = qstar.cli {"cc"},
+    c = { compiler = qstar.cli {"cc"} },
   },
 }
 return {}
@@ -3816,7 +3832,7 @@ EOF
 cat > "$tmp/cross-target/qstar.lua" <<'EOF'
 qstar.toolset "fake" {
   tools = {
-    c = qstar.cli {"tools/fake-cc.sh"},
+    c = { compiler = qstar.cli {"tools/fake-cc.sh"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"cc"},
   },
@@ -3890,7 +3906,7 @@ EOF
 cat > "$tmp/parallel-fail/qstar.lua" <<'EOF'
 qstar.toolset "fake" {
   tools = {
-    c = qstar.cli {"tools/fake-cc.sh"},
+    c = { compiler = qstar.cli {"tools/fake-cc.sh"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"cc"},
   },
@@ -3936,7 +3952,7 @@ EOF
 cat > "$tmp/parallel-timeout/qstar.lua" <<'EOF'
 qstar.toolset "fake" {
   tools = {
-    c = qstar.cli {"tools/fake-cc.sh"},
+    c = { compiler = qstar.cli {"tools/fake-cc.sh"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"cc"},
   },
@@ -5056,7 +5072,7 @@ EOF
 cat > "$tmp/depfile-fallback/qstar.lua" <<'EOF'
 qstar.toolset "nodep" {
   tools = {
-    c = qstar.cli {"tools/no-dep-cc.sh"},
+    c = { compiler = qstar.cli {"tools/no-dep-cc.sh"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"cc"},
   },
@@ -5398,8 +5414,8 @@ EOF
 cat > "$tmp/toolset-diagnostics/qstar.lua" <<'EOF'
 qstar.toolset "custom" {
   tools = {
-    c = qstar.cli {"clang-custom", "--target=thumbv7em-none-eabi"},
-    cxx = qstar.cli {"clang++-custom"},
+    c = { compiler = qstar.cli {"clang-custom", "--target=thumbv7em-none-eabi"} },
+    cxx = { compiler = qstar.cli {"clang++-custom"} },
     archive = qstar.cli {"llvm-ar-custom"},
     link = qstar.cli {"ld-custom"},
   },
@@ -5501,7 +5517,7 @@ EOF
 cat > "$tmp/toolchain-app/qstar.lua" <<'EOF'
 qstar.toolset "fake" {
   tools = {
-    c = qstar.cli {"tools/fake-cc.sh"},
+    c = { compiler = qstar.cli {"tools/fake-cc.sh"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"tools/fake-link.sh"},
   },
@@ -5591,7 +5607,7 @@ EOF
 cat > "$tmp/context-doctor-missing/qstar.lua" <<'EOF'
 qstar.toolset "missing" {
   tools = {
-    c = qstar.cli {"qstar-missing-cc"},
+    c = { compiler = qstar.cli {"qstar-missing-cc"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"qstar-missing-ld"},
   },
@@ -5629,7 +5645,7 @@ EOF
 cat > "$tmp/exttool/qstar.lua" <<'EOF'
 qstar.toolset "external" {
   tools = {
-    c = qstar.cli {"cc"},
+    c = { compiler = qstar.cli {"cc"} },
   },
   path_tools = {"qstar-extgen"},
 }
@@ -5746,7 +5762,7 @@ contains "$tmp/absolute-tool-deny.err" "requires allow_absolute_tools=true"
 cat > "$tmp/absolute-tool/qstar.lua" <<EOF
 qstar.toolset "absolute" {
   tools = {
-    c = qstar.cli {"cc"},
+    c = { compiler = qstar.cli {"cc"} },
   },
   allow_absolute_tools = true,
 }
@@ -5832,7 +5848,7 @@ EOF
 cat > "$tmp/rsppolicy/qstar.lua" <<'EOF'
 qstar.toolset "no_rsp" {
   tools = {
-    c = qstar.cli {"cc"},
+    c = { compiler = qstar.cli {"cc"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"cc"},
   },
@@ -5898,9 +5914,9 @@ EOF
 cat > "$tmp/windows/qstar.lua" <<'EOF'
 qstar.toolset "msvc" {
   tools = {
-    c = qstar.cli {"clang-cl"},
-    cxx = qstar.cli {"clang-cl"},
-    asm = qstar.cli {"clang-cl"},
+    c = { compiler = qstar.cli {"clang-cl"} },
+    cxx = { compiler = qstar.cli {"clang-cl"} },
+    asm = { compiler = qstar.cli {"clang-cl"} },
     archive = qstar.cli {"llvm-lib"},
     link = qstar.cli {"clang-cl"},
   },
@@ -6353,7 +6369,7 @@ EOF
 cat > "$tmp/pe-name/qstar.lua" <<'EOF'
 qstar.toolset "pe" {
   tools = {
-    c = qstar.cli {"tools/fake-clang.sh"},
+    c = { compiler = qstar.cli {"tools/fake-clang.sh"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"tools/fake-lld-link.sh"},
   },
@@ -6398,7 +6414,7 @@ contains "$tmp/pe-name/build/qstar/state/graph.json" "\"artifact_name\":\"app-x6
 cat > "$tmp/pe-name/qstar.lua" <<'EOF'
 qstar.toolset "pe" {
   tools = {
-    c = qstar.cli {"tools/fake-clang.sh"},
+    c = { compiler = qstar.cli {"tools/fake-clang.sh"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"tools/fake-lld-link.sh"},
   },
@@ -6557,7 +6573,7 @@ EOF
 cat > "$tmp/stagepkg/qstar.lua" <<'EOF'
 qstar.toolset "stagepkg" {
   tools = {
-    c = qstar.cli {"tools/fake-clang.sh"},
+    c = { compiler = qstar.cli {"tools/fake-clang.sh"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"tools/fake-link.sh"},
   },

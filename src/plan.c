@@ -717,26 +717,41 @@ artifact_basename(const char *path)
 }
 
 /** toolset role argv-vector가 있으면 argc 계산에 반영한다. */
+static const struct qstar_string_list *
+plan_resolved_tool_role_argv(const struct qstar_graph *graph,
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
+    const char *role)
+{
+	const struct qstar_toolset *toolset;
+
+	if (toolchain && toolchain->toolset[0]) {
+		toolset = qstar_graph_find_toolset(graph, toolchain->toolset);
+		return qstar_toolset_role_argv(toolset, role);
+	}
+	return qstar_target_tool_role_argv(graph, target, role);
+}
+
 static size_t
 plan_tool_role_argc(const struct qstar_graph *graph, const struct qstar_target *target,
-    const char *role)
+    const struct qstar_resolved_toolchain *toolchain, const char *role)
 {
 	const struct qstar_string_list *argv;
 
-	argv = qstar_target_tool_role_argv(graph, target, role);
+	argv = plan_resolved_tool_role_argv(graph, target, toolchain, role);
 	return argv ? argv->len : 1;
 }
 
 /** toolset role argv-vector 또는 fallback tool 하나를 command plan에 쓴다. */
 static void
 plan_argv_tool_role(FILE *out, struct qstar_argv_dump *dump,
-    const struct qstar_graph *graph, const struct qstar_target *target, const char *role,
+    const struct qstar_graph *graph, const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain, const char *role,
     const char *fallback)
 {
 	const struct qstar_string_list *argv;
 	size_t i;
 
-	argv = qstar_target_tool_role_argv(graph, target, role);
+	argv = plan_resolved_tool_role_argv(graph, target, toolchain, role);
 	if (!argv) {
 		argv_item(out, dump, fallback);
 		return;
@@ -768,9 +783,9 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	is_cxx = strcmp(source->language, "cxx") == 0;
 	wants_depfile = (strcmp(source->language, "c") == 0 || is_cxx ||
 	    source_uses_asm_preprocessor(target, source));
-	role = is_asm ? "asm" : is_cxx ? "cxx" : "c";
+	role = is_asm ? "asm.compiler" : is_cxx ? "cxx.compiler" : "c.compiler";
 	tool = is_asm ? toolchain->asm_ : is_cxx ? toolchain->cxx : toolchain->cc;
-	argc = 5 + plan_tool_role_argc(graph, target, role) - 1 +
+	argc = 5 + plan_tool_role_argc(graph, target, toolchain, role) - 1 +
 	    graph->build_context.compile_options.len +
 	    graph->build_context.include_dirs.len * 2 +
 	    (is_asm ? target->asm_include_dirs.len * 2 : includes.len * 2) +
@@ -785,7 +800,7 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	    is_cxx ? target->cxxflags.len : target->cflags.len);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
 	begin_argv(out, &dump, id, argc, toolchain);
-	plan_argv_tool_role(out, &dump, graph, target, role, tool);
+	plan_argv_tool_role(out, &dump, graph, target, toolchain, role, tool);
 	if (strcmp(target->kind, "sharedlib") == 0 &&
 	    qstar_platform_supports_sharedlib(toolchain->platform) &&
 	    !qstar_platform_is_windows(toolchain->platform) && !is_asm)
@@ -990,11 +1005,11 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 	msvc_out = strcmp(action, "archive") != 0 &&
 	    toolchain_uses_msvc_out_arg(toolchain, target);
 	argc = strcmp(action, "archive") == 0 ?
-	    3 + plan_tool_role_argc(graph, target, "archive") :
+	    3 + plan_tool_role_argc(graph, target, toolchain, "archive") :
 	    strcmp(action, "link-shared") == 0 ?
 	    (qstar_platform_is_darwin(toolchain->platform) ? 6 : 5) +
-	    plan_tool_role_argc(graph, target, "link") :
-	    3 + plan_tool_role_argc(graph, target, "link");
+	    plan_tool_role_argc(graph, target, toolchain, "link") :
+	    3 + plan_tool_role_argc(graph, target, toolchain, "link");
 	if (strcmp(action, "archive") != 0)
 		argc += target->lib_dirs.len +
 		    graph->build_context.lib_dirs.len + target->libs.len +
@@ -1005,13 +1020,13 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 		argc--;
 	begin_argv(out, &dump, id, argc, toolchain);
 	if (strcmp(action, "archive") == 0) {
-		plan_argv_tool_role(out, &dump, graph, target, "archive",
+		plan_argv_tool_role(out, &dump, graph, target, toolchain, "archive",
 		    toolchain->ar);
 		argv_item(out, &dump, "rcs");
 		argv_item(out, &dump, output);
 		argv_item(out, &dump, "<target-objects>");
 	} else {
-		plan_argv_tool_role(out, &dump, graph, target, "link",
+		plan_argv_tool_role(out, &dump, graph, target, toolchain, "link",
 		    target_has_cxx_source(target) ? toolchain->cxx :
 		    toolchain->linker);
 		if (msvc_out) {

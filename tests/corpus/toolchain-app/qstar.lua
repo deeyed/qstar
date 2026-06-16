@@ -9,9 +9,9 @@ qstar.project {
 
 qstar.toolset "fake_clang" {
   tools = {
-    c = qstar.cli {"tools/fake-clang.sh"},
-    cxx = qstar.cli {"tools/fake-clang.sh"},
-    asm = qstar.cli {"tools/fake-clang.sh"},
+    c = { compiler = qstar.cli {"tools/fake-clang.sh"} },
+    cxx = { compiler = qstar.cli {"tools/fake-clang.sh"} },
+    asm = { compiler = qstar.cli {"tools/fake-clang.sh"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"tools/fake-link.sh"},
   },

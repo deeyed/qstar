@@ -5,19 +5,19 @@ policy를 명시적으로 선언하는 graph node다. QStar는 target triple, CP
 domain-specific 의미를 해석하지 않는다. 그런 값이 필요하면 `qstar.config`의
 `compile_options`, `link_options`, `link_inputs`에 그대로 작성한다.
 
-현재 runtime의 tool role allowlist는 `c`, `cxx`, `asm`, `archive`, `link`다. GLP
-로드맵에서는 이 고정 role table을 provider namespace 기반 tool map으로 hard cut한다.
-최종 목표 문법은 `tools.zig = zig.tools { compiler = qstar.cli {"zig"} }`처럼 provider가
-자기 tool role을 정의하는 구조다.
+현재 runtime의 direct core role은 `archive`, `link`다. Compiler role은 `c`, `cxx`,
+`asm` 같은 provider namespace table 아래에 둔다. 장기 GLP 문법은
+`tools.zig = zig.tools { compiler = qstar.cli {"zig"} }`처럼 provider가 자기 tool role을
+정의하는 구조다.
 
 ## 최소 예제
 
 ```lua
 qstar.toolset "host" {
   tools = {
-    c = qstar.cli {"cc"},
-    cxx = qstar.cli {"c++"},
-    asm = qstar.cli {"cc"},
+    c = { compiler = qstar.cli {"cc"} },
+    cxx = { compiler = qstar.cli {"c++"} },
+    asm = { compiler = qstar.cli {"cc"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"cc"},
   },
@@ -27,8 +27,8 @@ qstar.toolset "host" {
 }
 ```
 
-`tools` table의 role allowlist는 `c`, `cxx`, `asm`, `archive`, `link`뿐이다.
-각 role은 shell string이 아니라 `qstar.cli { ... }` argv-vector로 작성한다.
+`tools.archive`와 `tools.link`는 shell string이 아니라 `qstar.cli { ... }` argv-vector로
+작성한다. Compiler role은 `tools.c.compiler`처럼 provider namespace 아래에 둔다.
 
 ## 전체 예제
 
@@ -37,9 +37,9 @@ Toolset은 compile/link option bundle이 아니다. 반복 option은 `qstar.conf
 ```lua
 qstar.toolset "host" {
   tools = {
-    c = qstar.cli {"cc"},
-    cxx = qstar.cli {"c++"},
-    asm = qstar.cli {"cc"},
+    c = { compiler = qstar.cli {"cc"} },
+    cxx = { compiler = qstar.cli {"c++"} },
+    asm = { compiler = qstar.cli {"cc"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"cc"},
   },
@@ -72,9 +72,9 @@ SDK 경로를 알아야 한다면 tool role 또는 config option에 직접 쓴�
 ```lua
 qstar.toolset "cross_clang" {
   tools = {
-    c = qstar.cli {"clang", "--target=vendor-platform"},
-    cxx = qstar.cli {"clang++", "--target=vendor-platform"},
-    asm = qstar.cli {"clang", "--target=vendor-platform"},
+    c = { compiler = qstar.cli {"clang", "--target=vendor-platform"} },
+    cxx = { compiler = qstar.cli {"clang++", "--target=vendor-platform"} },
+    asm = { compiler = qstar.cli {"clang", "--target=vendor-platform"} },
     archive = qstar.cli {"llvm-ar"},
     link = qstar.cli {"clang", "--target=vendor-platform"},
   },
@@ -103,9 +103,9 @@ qstar.config "cross_flags" {
 ```lua
 qstar.toolset "host" {
   tools = {
-    c = qstar.cli {"cc"},
-    cxx = qstar.cli {"c++"},
-    asm = qstar.cli {"cc"},
+    c = { compiler = qstar.cli {"cc"} },
+    cxx = { compiler = qstar.cli {"c++"} },
+    asm = { compiler = qstar.cli {"cc"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"cc"},
   },
@@ -121,9 +121,9 @@ qstar.toolset "host" {
 ```lua
 qstar.toolset "rsp" {
   tools = {
-    c = qstar.cli {"cc"},
-    cxx = qstar.cli {"c++"},
-    asm = qstar.cli {"cc"},
+    c = { compiler = qstar.cli {"cc"} },
+    cxx = { compiler = qstar.cli {"c++"} },
+    asm = { compiler = qstar.cli {"cc"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"cc"},
   },
@@ -181,9 +181,11 @@ qstar.toolset "host" {
 module value와 연결된다. 내부 role은 `zig.compiler`처럼 저장되지만, 사용자는 provider
 helper를 통해 tool을 선언한다.
 
-기존 `tools.c`, `tools.cxx`, `tools.asm` 직접 문법은 GLP toolset hard cut에서 제거될 수
-있다. C/C++/ASM 자체는 사라지지 않고 built-in provider로 preloaded되어 `lang.c`,
-`lang.cxx`, `lang.asm` beginner surface를 계속 제공한다.
+기존 `tools.c = qstar.cli {...}`, `tools.cxx = qstar.cli {...}`,
+`tools.asm = qstar.cli {...}` 직접 문법은 제거됐다. C/C++/ASM 자체는 사라지지 않고
+built-in provider namespace로 `tools.c.compiler`, `tools.cxx.compiler`,
+`tools.asm.compiler`를 사용한다. `lang.c`, `lang.cxx`, `lang.asm` beginner surface는 계속
+제공한다.
 
 ## 관련 diagnostic
 

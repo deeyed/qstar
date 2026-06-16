@@ -99,9 +99,9 @@ qstar.project {
 
 qstar.toolset "validation" {
   tools = {
-    c = qstar.cli {"$validation_cc"},
-    cxx = qstar.cli {"c++"},
-    asm = qstar.cli {"$validation_cc"},
+    c = { compiler = qstar.cli {"$validation_cc"} },
+    cxx = { compiler = qstar.cli {"c++"} },
+    asm = { compiler = qstar.cli {"$validation_cc"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"$validation_cc"},
   },

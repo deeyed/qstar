@@ -186,13 +186,13 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 	    qstar_graph_find_toolset(graph, target->toolset) : NULL;
 	if (toolset) {
 		snprintf(resolved->toolset, sizeof(resolved->toolset), "%s", toolset->label);
-		role = qstar_toolset_role_argv(toolset, "c");
+		role = qstar_toolset_role_argv(toolset, "c.compiler");
 		if (role)
 			snprintf(resolved->cc, sizeof(resolved->cc), "%s", role->items[0]);
-		role = qstar_toolset_role_argv(toolset, "cxx");
+		role = qstar_toolset_role_argv(toolset, "cxx.compiler");
 		if (role)
 			snprintf(resolved->cxx, sizeof(resolved->cxx), "%s", role->items[0]);
-		role = qstar_toolset_role_argv(toolset, "asm");
+		role = qstar_toolset_role_argv(toolset, "asm.compiler");
 		if (role)
 			snprintf(resolved->asm_, sizeof(resolved->asm_), "%s", role->items[0]);
 		else

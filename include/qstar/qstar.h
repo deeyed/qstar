@@ -86,17 +86,20 @@ struct qstar_config {
 	int has_stdlib_policy;
 };
 
+struct qstar_tool_role {
+	char *role;
+	struct qstar_string_list argv;
+};
+
 struct qstar_toolset {
 	char *label;
 	char *name;
 	char *fragment_dir;
 	char *origin_file;
 	int origin_line;
-	struct qstar_string_list c;
-	struct qstar_string_list cxx;
-	struct qstar_string_list asm_;
-	struct qstar_string_list archive;
-	struct qstar_string_list link;
+	struct qstar_tool_role *roles;
+	size_t role_len;
+	size_t role_cap;
 	struct qstar_string_list path_tools;
 	char *response_files;
 	char *response_style;

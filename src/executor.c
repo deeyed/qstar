@@ -1712,7 +1712,7 @@ static void
 hash_toolsets(unsigned long long *h, const struct qstar_graph *graph)
 {
 	const struct qstar_toolset *toolset;
-	size_t i;
+	size_t i, j;
 
 	for (i = 0; graph && i < graph->toolset_len; i++) {
 		toolset = &graph->toolsets[i];
@@ -1720,11 +1720,10 @@ hash_toolsets(unsigned long long *h, const struct qstar_graph *graph)
 		hash_str(h, toolset->response_files);
 		hash_str(h, toolset->response_style);
 		hash_str(h, toolset->allow_absolute_tools);
-		hash_string_list(h, &toolset->c);
-		hash_string_list(h, &toolset->cxx);
-		hash_string_list(h, &toolset->asm_);
-		hash_string_list(h, &toolset->archive);
-		hash_string_list(h, &toolset->link);
+		for (j = 0; j < toolset->role_len; j++) {
+			hash_str(h, toolset->roles[j].role);
+			hash_string_list(h, &toolset->roles[j].argv);
+		}
 		hash_string_list(h, &toolset->path_tools);
 	}
 }
@@ -5787,6 +5786,19 @@ depfile_refresh_queue_flush(struct qstar_graph *graph, struct qstar_build_ctx *c
 	return 0;
 }
 
+static const struct qstar_string_list *
+resolved_tool_role_argv(struct qstar_graph *graph, const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain, const char *role)
+{
+	const struct qstar_toolset *toolset;
+
+	if (toolchain && toolchain->toolset[0]) {
+		toolset = qstar_graph_find_toolset(graph, toolchain->toolset);
+		return qstar_toolset_role_argv(toolset, role);
+	}
+	return qstar_target_tool_role_argv(graph, target, role);
+}
+
 /** target toolset role argv-vector 또는 fallback tool 하나를 prepared action에 추가한다. */
 static int
 prepared_action_push_tool_role(struct qstar_graph *graph, struct qstar_prepared_action *action,
@@ -5795,7 +5807,7 @@ prepared_action_push_tool_role(struct qstar_graph *graph, struct qstar_prepared_
 	const struct qstar_string_list *argv;
 	size_t i;
 
-	argv = qstar_target_tool_role_argv(graph, target, role);
+	argv = resolved_tool_role_argv(graph, target, action->toolchain, role);
 	if (!argv)
 		return prepared_action_push_argv(graph, action, fallback);
 	for (i = 0; i < argv->len; i++) {
@@ -5859,7 +5871,7 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		return qstar_set_error(graph, "qstar: compile action description too long");
 	}
 	snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
-	role = is_asm ? "asm" : is_cxx ? "cxx" : "c";
+	role = is_asm ? "asm.compiler" : is_cxx ? "cxx.compiler" : "c.compiler";
 	compiler = is_asm ? toolchain->asm_ : is_cxx ? toolchain->cxx : toolchain->cc;
 	if (prepared_action_push_tool_role(graph, action, target, role, compiler) < 0)
 		goto fail;
@@ -6669,12 +6681,13 @@ target_compile_needs_pic(const struct qstar_target *target,
 /** target toolset role argv-vector 또는 fallback tool 하나를 raw argv에 추가한다. */
 static int
 append_raw_tool_role(struct qstar_graph *graph, char **argv, size_t *argc,
-    const struct qstar_target *target, const char *role, const char *fallback)
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
+    const char *role, const char *fallback)
 {
 	const struct qstar_string_list *role_argv;
 	size_t i;
 
-	role_argv = qstar_target_tool_role_argv(graph, target, role);
+	role_argv = resolved_tool_role_argv(graph, target, toolchain, role);
 	if (!role_argv) {
 		if (*argc >= QSTAR_EXEC_MAX_ARGV)
 			return qstar_set_error(graph, "qstar: action argv too long");
@@ -6846,7 +6859,7 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	argc = 0;
 	if (strcmp(target->kind, "staticlib") == 0) {
 		snprintf(id, sizeof(id), "%s:%s:0", target->label, final_action);
-		if (append_raw_tool_role(graph, argv, &argc, target, "archive",
+		if (append_raw_tool_role(graph, argv, &argc, target, toolchain, "archive",
 		    toolchain->ar) < 0)
 			return -1;
 		argv[argc++] = "rcs";
@@ -6855,7 +6868,7 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		if (validate_sharedlib_platform(graph, target, toolchain) < 0)
 			return -1;
 		snprintf(id, sizeof(id), "%s:%s:0", target->label, final_action);
-		if (append_raw_tool_role(graph, argv, &argc, target, "link",
+		if (append_raw_tool_role(graph, argv, &argc, target, toolchain, "link",
 		    target_has_cxx_source(target) ? toolchain->cxx :
 		    toolchain->linker) < 0)
 			return -1;

@@ -9,9 +9,9 @@ qstar.project {
 
 qstar.toolset "msys2_ucrt64_gcc" {
   tools = {
-    c = qstar.cli {"gcc"},
-    cxx = qstar.cli {"g++"},
-    asm = qstar.cli {"gcc"},
+    c = { compiler = qstar.cli {"gcc"} },
+    cxx = { compiler = qstar.cli {"g++"} },
+    asm = { compiler = qstar.cli {"gcc"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"gcc"},
   },

@@ -9,9 +9,9 @@ qstar.project {
 
 qstar.toolset "windows_fake" {
   tools = {
-    c = qstar.cli {"tools/fake-clang-cl"},
-    cxx = qstar.cli {"tools/fake-clang-cl"},
-    asm = qstar.cli {"tools/fake-clang-cl"},
+    c = { compiler = qstar.cli {"tools/fake-clang-cl"} },
+    cxx = { compiler = qstar.cli {"tools/fake-clang-cl"} },
+    asm = { compiler = qstar.cli {"tools/fake-clang-cl"} },
     archive = qstar.cli {"tools/fake-lib"},
     link = qstar.cli {"tools/fake-clang-cl"},
   },

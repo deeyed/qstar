@@ -2,8 +2,10 @@
 
 이 문서는 QStar의 다음 장기 설계인 GLP(Generic Language Provider)를 정리한다.
 현재 QStar는 `qstar.toolset`, `qstar.config`, target, generated action, stage를 중심으로
-generic build system 표면을 갖는다. 다만 언어 표면은 아직 `lang.c`, `lang.cxx`,
-`lang.asm`과 `tools.c`, `tools.cxx`, `tools.asm`처럼 core에 고정된 부분이 있다.
+generic build system 표면을 갖는다. 다만 언어 option 표면은 아직 `lang.c`,
+`lang.cxx`, `lang.asm`처럼 beginner-friendly builtin namespace로 남아 있다.
+Q200부터 toolset compiler role은 `tools.c.compiler`처럼 provider namespace table로
+표현하고, `tools.c = qstar.cli {...}` 같은 직접 compiler slot은 제거한다.
 
 GLP의 목표는 기존 초보자 친화적인 C/C++/ASM 문법을 유지하면서도, QStar core가 특정
 언어를 직접 알지 않고 새 언어를 provider package로 추가할 수 있게 만드는 것이다.
@@ -23,14 +25,15 @@ GLP의 목표는 기존 초보자 친화적인 C/C++/ASM 문법을 유지하면�
   `qstar.target_file`, `qstar.stage_file`, `qstar.files`, `qstar.join`,
   `qstar.copy`, `qstar.append`, `qstar.merge`, `qstar.extend`.
 
-현재 `qstar.toolset`의 `tools` role은 고정 allowlist다.
+현재 `qstar.toolset`의 direct core role은 `archive`, `link`다. Compiler tool은
+provider namespace table 아래에 둔다.
 
 ```lua
 qstar.toolset "host" {
   tools = {
-    c = qstar.cli {"cc"},
-    cxx = qstar.cli {"c++"},
-    asm = qstar.cli {"cc"},
+    c = { compiler = qstar.cli {"cc"} },
+    cxx = { compiler = qstar.cli {"c++"} },
+    asm = { compiler = qstar.cli {"cc"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"cc"},
   },
@@ -118,8 +121,11 @@ GLP는 이 경계를 바꾼다.
 ## 기본 원칙
 
 - 기존 `lang.c`, `lang.cxx`, `lang.asm` 문법은 유지한다.
-- 기존 `tools.c`, `tools.cxx`, `tools.asm`, `tools.archive`, `tools.link` 문법은 유지한다.
-- GLP 도입 후에도 기존 문법은 compatibility alias로 오래 지원한다.
+- `tools.archive`, `tools.link`는 core direct role로 유지한다.
+- `tools.c = qstar.cli {...}`, `tools.cxx = qstar.cli {...}`,
+  `tools.asm = qstar.cli {...}` 직접 compiler role은 제거한다.
+- Compiler tool은 `tools.c.compiler`, `tools.cxx.compiler`, `tools.asm.compiler`처럼
+  provider namespace table로 표현한다.
 - `.qsm` helper module의 기존 철학은 유지한다.
 - 일반 `.qsm`은 target/config/toolset을 선언하지 않는 helper table이다.
 - language provider는 일반 helper module과 구분되는 provider package다.
@@ -313,7 +319,7 @@ qstar.project {
 
 qstar.toolset "host" {
   tools = qstar.merge({
-    c = qstar.cli {"cc"},
+    c = { compiler = qstar.cli {"cc"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"cc"},
   }, zig.tools {
@@ -415,25 +421,24 @@ qstar.toolset "rust_host" {
 
 ## 기존 Toolset 전환 계획
 
-기존 role은 즉시 제거하지 않는다.
+Q200 hard cut 기준으로 direct compiler role은 제거됐다.
 
-| 현재 role | 장기 GLP 내부 role | public compatibility |
+| 이전 문법 | 현재 role | 상태 |
 | --- | --- | --- |
-| `tools.c` | `c.compiler` | 유지 |
-| `tools.cxx` | `cxx.compiler` | 유지 |
-| `tools.asm` | `asm.compiler` | 유지 |
-| `tools.archive` | `archive` 또는 `core.archive` | 유지 |
-| `tools.link` | `link` 또는 `core.link` | 유지 |
+| `tools.c = qstar.cli {...}` | `tools.c.compiler` | 제거, diagnostic |
+| `tools.cxx = qstar.cli {...}` | `tools.cxx.compiler` | 제거, diagnostic |
+| `tools.asm = qstar.cli {...}` | `tools.asm.compiler` | 제거, diagnostic |
+| `tools.archive = qstar.cli {...}` | `archive` | 유지 |
+| `tools.link = qstar.cli {...}` | `link` | 유지 |
 
 전환 단계:
 
-1. 현재 role allowlist를 유지한다.
-2. 내부 Graph IR에 dynamic tool role map을 추가한다.
-3. `tools.c`, `tools.cxx`, `tools.asm`을 built-in provider role로 복사한다.
+1. 내부 Graph IR에 dynamic tool role map을 둔다.
+2. direct compiler role은 diagnostic으로 거절한다.
+3. built-in C/C++/ASM compiler는 provider namespace role로 저장한다.
 4. `qstar.use_language(...)`가 provider role을 등록한다.
-5. `tools["zig.compiler"]` 또는 `tools.zig = zig.tools { ... }`를 허용한다.
-6. explain/doctor/JSON 출력은 legacy role과 dynamic role을 함께 보여준다.
-7. 충분히 안정화되면 문서에서는 provider namespace style을 권장한다.
+5. `tools.zig = zig.tools { ... }`를 정식 provider bundle 문법으로 확장한다.
+6. explain/doctor/JSON 출력은 provider role name을 보여준다.
 
 ## GLP Builtin과 Provider Flexibility
 
@@ -479,8 +484,9 @@ qstar.toolset "rust_host" {
 - provider helper는 사용자에게 `zig.options`, `zig.object`, `zig.tools`처럼 의미 있는 API를
   제공한다.
 - 사용자는 provider string이 아니라 provider module value를 다룬다.
-- toolset은 장기적으로 provider namespace nested tools를 허용한다.
-- C/C++/ASM은 built-in provider로 preloaded하고 기존 문법은 compatibility alias로 유지한다.
+- toolset은 provider namespace nested tools를 받는다.
+- C/C++/ASM은 built-in provider namespace로 preloaded하고 direct compiler slot alias는
+  유지하지 않는다.
 
 ## 현재 Object Bridge와의 관계
 
@@ -588,7 +594,7 @@ cache invalidation, version pinning 문제가 GLP 자체보다 커진다.
 
 ## 성공 조건
 
-- 기존 C/C++/ASM 프로젝트가 문법 변경 없이 계속 동작한다.
+- 기존 C/C++/ASM 프로젝트는 `tools.<provider>.compiler` toolset 문법으로 동작한다.
 - 새 언어 provider가 QStar core patch 없이 추가된다.
 - `lang.<namespace>`는 provider activation 이후에만 허용된다.
 - provider option typo는 diagnostic으로 잡힌다.

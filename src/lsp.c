@@ -31,7 +31,7 @@ struct qstar_lsp_hover_entry {
 
 static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 	{ "qstar.project", "Declare package-root project metadata, build_dir, generated_dir, and compile database policy." },
-	{ "qstar.toolset", "Declare an allowlisted tool role bundle with tools.c/cxx/asm/archive/link argv vectors." },
+	{ "qstar.toolset", "Declare a tool role bundle with core archive/link roles and provider namespace tool tables." },
 	{ "qstar.config", "Declare a reusable target option bundle for configs = { ... }." },
 	{ "qstar.executable", "Create an executable target." },
 	{ "qstar.staticlib", "Create a static library target." },
@@ -76,7 +76,7 @@ static const struct qstar_lsp_hover_entry qstar_lsp_fields[] = {
 	{ "sources", "Compile or generated source inputs for this target." },
 	{ "configs", "Reusable qstar.config labels merged before target-local fields." },
 	{ "toolset", "Canonical qstar.toolset label selected by a target or config." },
-	{ "tools", "Tool role map inside qstar.toolset; allowed roles are c, cxx, asm, archive, and link." },
+	{ "tools", "Tool role map inside qstar.toolset; archive/link are core roles and compiler tools live under provider namespaces." },
 	{ "generated_dir", "Project-level package-relative root for qstar.output generated artifacts." },
 	{ "deps", "Public dependency edges used for build, link, and include propagation." },
 	{ "public_deps", "Alias for public dependency edges." },

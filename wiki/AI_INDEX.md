@@ -301,9 +301,10 @@ Command/path helper:
 Toolset/build policy:
 
 - `qstar.toolset`
-- `tools = { c, cxx, asm, archive, link }`
-- 각 tool role은 `qstar.cli { ... }` argv-vector다.
-- GLP toolset 목표 문법은 provider namespace를 직접 받는 형태다:
+- `tools.archive`와 `tools.link`는 core role이며 `qstar.cli { ... }` argv-vector다.
+- compiler role은 provider namespace table 아래에 둔다:
+  `tools = { c = { compiler = qstar.cli {"cc"} }, archive = qstar.cli {"ar"}, link = qstar.cli {"cc"} }`.
+- GLP toolset 목표 문법도 provider namespace를 직접 받는 형태다:
   `tools = { archive = qstar.cli {"ar"}, link = qstar.cli {"cc"}, zig = zig.tools { compiler = qstar.cli {"zig"} } }`.
 - `response_files`, `response_style`
 - `path_tools`, `allow_absolute_tools`
@@ -345,9 +346,9 @@ target의 `configs`에서 참조한다.
 ```lua
 qstar.toolset "host" {
   tools = {
-    c = qstar.cli {"cc"},
-    cxx = qstar.cli {"c++"},
-    asm = qstar.cli {"cc"},
+    c = { compiler = qstar.cli {"cc"} },
+    cxx = { compiler = qstar.cli {"c++"} },
+    asm = { compiler = qstar.cli {"cc"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"cc"},
   },

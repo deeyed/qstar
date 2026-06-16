@@ -142,9 +142,9 @@ Response-file policy belongs to `qstar.toolset`:
 ```lua
 qstar.toolset "windows-msvc" {
   tools = {
-    c = qstar.cli {"clang-cl"},
-    cxx = qstar.cli {"clang-cl"},
-    asm = qstar.cli {"clang-cl"},
+    c = { compiler = qstar.cli {"clang-cl"} },
+    cxx = { compiler = qstar.cli {"clang-cl"} },
+    asm = { compiler = qstar.cli {"clang-cl"} },
     archive = qstar.cli {"llvm-lib"},
     link = qstar.cli {"clang-cl"},
   },

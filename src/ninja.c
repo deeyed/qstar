@@ -56,7 +56,8 @@ static int emit_genrule_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 static int target_compile_needs_pic(const struct qstar_target *target,
     const struct qstar_resolved_toolchain *toolchain, int is_asm);
 static int ninja_argv_push_tool_role(struct qstar_graph *graph, struct ninja_argv *argv,
-    const struct qstar_target *target, const char *role, const char *fallback);
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
+    const char *role, const char *fallback);
 
 /** graph에서 canonical label target을 찾는다. */
 static const struct qstar_target *
@@ -1509,8 +1510,9 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	snprintf(std_arg, sizeof(std_arg), "-std=%s",
 	    target->cxx_standard ? target->cxx_standard : "");
 	compiler = is_asm ? toolchain->asm_ : is_cxx ? toolchain->cxx : toolchain->cc;
-	if (ninja_argv_push_tool_role(graph, &argv, target,
-	    is_asm ? "asm" : is_cxx ? "cxx" : "c", compiler) < 0)
+	if (ninja_argv_push_tool_role(graph, &argv, target, toolchain,
+	    is_asm ? "asm.compiler" : is_cxx ? "cxx.compiler" : "c.compiler",
+	    compiler) < 0)
 		goto fail;
 	if (target_compile_needs_pic(target, toolchain, is_asm) &&
 	    ninja_argv_push(graph, &argv, "-fPIC") < 0)
@@ -1656,12 +1658,19 @@ artifact_basename(const char *path)
 /** target toolset role argv-vector 또는 fallback tool 하나를 Ninja argv에 추가한다. */
 static int
 ninja_argv_push_tool_role(struct qstar_graph *graph, struct ninja_argv *argv,
-    const struct qstar_target *target, const char *role, const char *fallback)
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
+    const char *role, const char *fallback)
 {
+	const struct qstar_toolset *toolset;
 	const struct qstar_string_list *role_argv;
 	size_t i;
 
-	role_argv = qstar_target_tool_role_argv(graph, target, role);
+	if (toolchain && toolchain->toolset[0]) {
+		toolset = qstar_graph_find_toolset(graph, toolchain->toolset);
+		role_argv = qstar_toolset_role_argv(toolset, role);
+	} else {
+		role_argv = qstar_target_tool_role_argv(graph, target, role);
+	}
 	if (!role_argv)
 		return ninja_argv_push(graph, argv, fallback);
 	for (i = 0; i < role_argv->len; i++) {
@@ -2022,7 +2031,7 @@ emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	    path_dirname(artifact, out_dir, sizeof(out_dir)) < 0)
 		return qstar_set_error(graph, "qstar: ninja artifact path too long");
 	snprintf(action_id, sizeof(action_id), "%s:archive:0", target->label);
-	if (ninja_argv_push_tool_role(graph, &argv, target, "archive",
+	if (ninja_argv_push_tool_role(graph, &argv, target, toolchain, "archive",
 	    toolchain->ar) < 0 ||
 	    ninja_argv_push(graph, &argv, "rcs") < 0 ||
 	    ninja_argv_push(graph, &argv, artifact) < 0)
@@ -2119,7 +2128,7 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		return -1;
 	final_action = qstar_target_final_action(target);
 	snprintf(action_id, sizeof(action_id), "%s:%s:0", target->label, final_action);
-	if (ninja_argv_push_tool_role(graph, &argv, target, "link",
+	if (ninja_argv_push_tool_role(graph, &argv, target, toolchain, "link",
 	    target_has_cxx_source(target) ? toolchain->cxx : toolchain->linker) < 0)
 		goto fail;
 	if (toolchain_uses_msvc_out_arg(toolchain, target)) {

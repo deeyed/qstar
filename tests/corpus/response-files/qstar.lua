@@ -9,9 +9,9 @@ qstar.project {
 
 qstar.toolset "host_rsp" {
   tools = {
-    c = qstar.cli {"cc"},
-    cxx = qstar.cli {"c++"},
-    asm = qstar.cli {"cc"},
+    c = { compiler = qstar.cli {"cc"} },
+    cxx = { compiler = qstar.cli {"c++"} },
+    asm = { compiler = qstar.cli {"cc"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"cc"},
   },
@@ -22,9 +22,9 @@ qstar.toolset "host_rsp" {
 
 qstar.toolset "windows_fake" {
   tools = {
-    c = qstar.cli {"tools/fake-clang-cl"},
-    cxx = qstar.cli {"tools/fake-clang-cl"},
-    asm = qstar.cli {"tools/fake-clang-cl"},
+    c = { compiler = qstar.cli {"tools/fake-clang-cl"} },
+    cxx = { compiler = qstar.cli {"tools/fake-clang-cl"} },
+    asm = { compiler = qstar.cli {"tools/fake-clang-cl"} },
     archive = qstar.cli {"tools/fake-lib"},
     link = qstar.cli {"tools/fake-clang-cl"},
   },

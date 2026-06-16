@@ -11,7 +11,7 @@
 #define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v7"
 #define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v1"
 #define QSTAR_STELLA_ACTION_MAGIC "qstar-stella-actions-cache-v1"
-#define QSTAR_STELLA_PLAN_ABI 8
+#define QSTAR_STELLA_PLAN_ABI 9
 #define QSTAR_STELLA_HASH_INIT 1469598103934665603ULL
 #define QSTAR_STELLA_HASH_PRIME 1099511628211ULL
 #define QSTAR_STELLA_MAX_STRING (16U * 1024U * 1024U)
@@ -326,16 +326,21 @@ read_build_context(FILE *f, struct qstar_build_context *p)
 static int
 write_toolset(FILE *f, const struct qstar_toolset *toolset)
 {
-	return write_str(f, toolset->label) < 0 ||
+	size_t i;
+
+	if (write_str(f, toolset->label) < 0 ||
 	    write_str(f, toolset->name) < 0 ||
 	    write_str(f, toolset->fragment_dir) < 0 ||
 	    write_str(f, toolset->origin_file) < 0 ||
 	    write_i32(f, toolset->origin_line) < 0 ||
-	    write_list(f, &toolset->c) < 0 ||
-	    write_list(f, &toolset->cxx) < 0 ||
-	    write_list(f, &toolset->asm_) < 0 ||
-	    write_list(f, &toolset->archive) < 0 ||
-	    write_list(f, &toolset->link) < 0 ||
+	    write_u64(f, (unsigned long long)toolset->role_len) < 0)
+		return -1;
+	for (i = 0; i < toolset->role_len; i++) {
+		if (write_str(f, toolset->roles[i].role) < 0 ||
+		    write_list(f, &toolset->roles[i].argv) < 0)
+			return -1;
+	}
+	return
 	    write_list(f, &toolset->path_tools) < 0 ||
 	    write_str(f, toolset->response_files) < 0 ||
 	    write_str(f, toolset->response_style) < 0 ||
@@ -345,16 +350,28 @@ write_toolset(FILE *f, const struct qstar_toolset *toolset)
 static int
 read_toolset(FILE *f, struct qstar_toolset *toolset)
 {
-	return read_str(f, &toolset->label) < 0 ||
+	unsigned long long len64;
+	size_t i;
+	char *role;
+	struct qstar_string_list *argv;
+
+	if (read_str(f, &toolset->label) < 0 ||
 	    read_str(f, &toolset->name) < 0 ||
 	    read_str(f, &toolset->fragment_dir) < 0 ||
 	    read_str(f, &toolset->origin_file) < 0 ||
 	    read_i32(f, &toolset->origin_line) < 0 ||
-	    read_list(f, &toolset->c) < 0 ||
-	    read_list(f, &toolset->cxx) < 0 ||
-	    read_list(f, &toolset->asm_) < 0 ||
-	    read_list(f, &toolset->archive) < 0 ||
-	    read_list(f, &toolset->link) < 0 ||
+	    read_u64(f, &len64) < 0 || len64 > 1000000ULL)
+		return -1;
+	for (i = 0; i < (size_t)len64; i++) {
+		if (read_str(f, &role) < 0)
+			return -1;
+		argv = qstar_toolset_add_role(NULL, toolset, role);
+		free(role);
+		if (!argv || read_list(f, argv) < 0)
+			return -1;
+	}
+	qstar_toolset_sort_roles(toolset);
+	return
 	    read_list(f, &toolset->path_tools) < 0 ||
 	    read_str(f, &toolset->response_files) < 0 ||
 	    read_str(f, &toolset->response_style) < 0 ||

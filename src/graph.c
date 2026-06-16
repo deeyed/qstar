@@ -158,15 +158,17 @@ free_config(struct qstar_config *config)
 static void
 free_toolset(struct qstar_toolset *toolset)
 {
+	size_t i;
+
 	free(toolset->label);
 	free(toolset->name);
 	free(toolset->fragment_dir);
 	free(toolset->origin_file);
-	qstar_string_list_free(&toolset->c);
-	qstar_string_list_free(&toolset->cxx);
-	qstar_string_list_free(&toolset->asm_);
-	qstar_string_list_free(&toolset->archive);
-	qstar_string_list_free(&toolset->link);
+	for (i = 0; i < toolset->role_len; i++) {
+		free(toolset->roles[i].role);
+		qstar_string_list_free(&toolset->roles[i].argv);
+	}
+	free(toolset->roles);
 	qstar_string_list_free(&toolset->path_tools);
 	free(toolset->response_files);
 	free(toolset->response_style);
@@ -656,23 +658,70 @@ qstar_graph_find_toolset(const struct qstar_graph *graph, const char *label)
 const struct qstar_string_list *
 qstar_toolset_role_argv(const struct qstar_toolset *toolset, const char *role)
 {
-	const struct qstar_string_list *list;
+	size_t i;
 
 	if (!toolset || !role)
 		return NULL;
-	if (strcmp(role, "c") == 0)
-		list = &toolset->c;
-	else if (strcmp(role, "cxx") == 0)
-		list = &toolset->cxx;
-	else if (strcmp(role, "asm") == 0)
-		list = &toolset->asm_;
-	else if (strcmp(role, "archive") == 0)
-		list = &toolset->archive;
-	else if (strcmp(role, "link") == 0)
-		list = &toolset->link;
-	else
+	for (i = 0; i < toolset->role_len; i++) {
+		if (toolset->roles[i].role && strcmp(toolset->roles[i].role, role) == 0)
+			return toolset->roles[i].argv.len ? &toolset->roles[i].argv : NULL;
+	}
+	return NULL;
+}
+
+struct qstar_string_list *
+qstar_toolset_add_role(struct qstar_graph *graph, struct qstar_toolset *toolset,
+    const char *role)
+{
+	struct qstar_tool_role *roles;
+	size_t cap, i;
+
+	if (!toolset || !role || !*role) {
+		qstar_set_error(graph, "qstar: empty toolset tool role");
 		return NULL;
-	return list->len ? list : NULL;
+	}
+	for (i = 0; i < toolset->role_len; i++) {
+		if (toolset->roles[i].role && strcmp(toolset->roles[i].role, role) == 0) {
+			qstar_set_error(graph, "qstar: duplicate toolset tool role '%s'",
+			    role);
+			return NULL;
+		}
+	}
+	if (toolset->role_len == toolset->role_cap) {
+		cap = toolset->role_cap ? toolset->role_cap * 2 : 4;
+		roles = realloc(toolset->roles, cap * sizeof(toolset->roles[0]));
+		if (!roles) {
+			qstar_set_error(graph, "qstar: out of memory");
+			return NULL;
+		}
+		toolset->roles = roles;
+		toolset->role_cap = cap;
+	}
+	memset(&toolset->roles[toolset->role_len], 0,
+	    sizeof(toolset->roles[toolset->role_len]));
+	toolset->roles[toolset->role_len].role = qstar_strdup(role);
+	if (!toolset->roles[toolset->role_len].role) {
+		qstar_set_error(graph, "qstar: out of memory");
+		return NULL;
+	}
+	return &toolset->roles[toolset->role_len++].argv;
+}
+
+static int
+compare_tool_role(const void *a, const void *b)
+{
+	const struct qstar_tool_role *ra = a, *rb = b;
+
+	return strcmp(ra->role ? ra->role : "", rb->role ? rb->role : "");
+}
+
+void
+qstar_toolset_sort_roles(struct qstar_toolset *toolset)
+{
+	if (!toolset || toolset->role_len < 2)
+		return;
+	qsort(toolset->roles, toolset->role_len, sizeof(toolset->roles[0]),
+	    compare_tool_role);
 }
 
 /** target에 연결된 toolset role argv-vector를 찾는다. */
@@ -1815,26 +1864,18 @@ dump_target_family(const struct qstar_target_family *family, FILE *out)
 static void
 dump_toolset(const struct qstar_toolset *toolset, FILE *out)
 {
+	size_t i;
+
 	fprintf(out, "toolset %s\n", toolset->label);
 	fprintf(out, "  origin file=%s line=%d\n",
 	    toolset->origin_file && *toolset->origin_file ? toolset->origin_file :
 	    "<unknown>", toolset->origin_line);
 	fprintf(out, "  fragment_dir %s\n", toolset->fragment_dir);
-	fputs("  tools.c ", out);
-	dump_list(out, &toolset->c);
-	fputc('\n', out);
-	fputs("  tools.cxx ", out);
-	dump_list(out, &toolset->cxx);
-	fputc('\n', out);
-	fputs("  tools.asm ", out);
-	dump_list(out, &toolset->asm_);
-	fputc('\n', out);
-	fputs("  tools.archive ", out);
-	dump_list(out, &toolset->archive);
-	fputc('\n', out);
-	fputs("  tools.link ", out);
-	dump_list(out, &toolset->link);
-	fputc('\n', out);
+	for (i = 0; i < toolset->role_len; i++) {
+		fprintf(out, "  tools.%s ", toolset->roles[i].role);
+		dump_list(out, &toolset->roles[i].argv);
+		fputc('\n', out);
+	}
 	fprintf(out, "  response_files %s\n",
 	    toolset->response_files && *toolset->response_files ? toolset->response_files :
 	    "auto");
@@ -2272,6 +2313,8 @@ dump_config_json(FILE *out, const struct qstar_config *config)
 static void
 dump_toolset_json(FILE *out, const struct qstar_toolset *toolset)
 {
+	size_t i;
+
 	fputs("{\"label\":", out);
 	dump_json_string(out, toolset->label);
 	fputs(",\"name\":", out);
@@ -2282,16 +2325,14 @@ dump_toolset_json(FILE *out, const struct qstar_toolset *toolset)
 	fprintf(out, ",\"origin_line\":%d", toolset->origin_line);
 	fputs(",\"fragment_dir\":", out);
 	dump_json_string(out, toolset->fragment_dir);
-	fputs(",\"tools\":{\"c\":", out);
-	dump_json_list(out, &toolset->c);
-	fputs(",\"cxx\":", out);
-	dump_json_list(out, &toolset->cxx);
-	fputs(",\"asm\":", out);
-	dump_json_list(out, &toolset->asm_);
-	fputs(",\"archive\":", out);
-	dump_json_list(out, &toolset->archive);
-	fputs(",\"link\":", out);
-	dump_json_list(out, &toolset->link);
+	fputs(",\"tools\":{", out);
+	for (i = 0; i < toolset->role_len; i++) {
+		if (i)
+			fputc(',', out);
+		dump_json_string(out, toolset->roles[i].role);
+		fputc(':', out);
+		dump_json_list(out, &toolset->roles[i].argv);
+	}
 	fputc('}', out);
 	fputs(",\"response_files\":", out);
 	dump_json_string(out, toolset->response_files && *toolset->response_files ?
