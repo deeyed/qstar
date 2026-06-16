@@ -54,6 +54,32 @@ return M
 list는 `qstar.append`, option table은 `qstar.copy`, `qstar.merge`, `qstar.extend`로 조립한다.
 Makefile처럼 문자열 안의 `$VAR`를 확장하는 기능은 없다.
 
+## GLP와 module의 경계
+
+Generic Language Provider(GLP)는 일반 helper module과 다르다. 일반 `.qsm`은 값을 반환할
+뿐 build graph semantics를 바꾸지 않는다. 반면 language provider는 source classification,
+tool role, `lang.<namespace>` option schema, backend lowering에 영향을 준다.
+
+따라서 provider는 `qstar.import_module(...)`로 조용히 등록하지 않는다. GLP 구현 후에는
+`qstar.use_language(...)`가 provider activation의 명시적 entrypoint가 된다.
+
+권장 provider 배치:
+
+```txt
+qstar/
+  languages/
+    zig/
+      zig.qsm
+      provider.lua
+  modules/
+    paths/
+      paths.qsm
+```
+
+`qstar/modules`는 helper module 공간이고, `qstar/languages`는 provider package 공간이다.
+`qstar/modules/language/zig.lua`처럼 기존 module 규칙을 우회하는 flat Lua file 특별취급은
+하지 않는다.
+
 ```lua
 local M = {}
 local prefix = "vendor/include"

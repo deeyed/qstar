@@ -1,8 +1,14 @@
 # QStar Book
 
-QStar는 C/C++/ASM and external object artifact flows을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. CMake나
-Meson처럼 project graph, command plan, build/test/install/stage 실행을 맡고, C/C++/ASM and external object artifact flows
-의미론 자체는 각 compiler와 language provider가 맡는다.
+QStar는 C/C++/ASM과 external object artifact flow를 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. CMake나 Meson처럼 project graph, command plan,
+build/test/install/stage 실행을 맡고, 언어 의미론 자체는 각 compiler와 현재 object
+artifact bridge가 맡는다.
+
+Generic Language Provider(GLP)는 이 경계를 다음 단계로 확장하는 정식 로드맵이다. 현재
+runtime에서는 외부 언어를 `qstar.custom_target`과 `qstar.output(..., {format = "object"})`
+로 연결하고, GLP가 구현되면 `qstar.use_language("zig")` 같은 provider 활성화와
+`lang.zig` 동적 namespace가 정식 경로가 된다. 자세한 설계는
+[GLP Roadmap](../glp_roadmap.md)에 둔다.
 
 이 wiki는 구현 요약이 아니라 “이것만 보고 QStar project를 작성할 수 있는” 한국어
 사용 설명서다. Root file은 `qstar.lua`, subdir fragment는 `<folder>.qst`, helper
@@ -104,6 +110,7 @@ qstar docs --show reference/qstar-lua.md
 4. [Labels And Fragments](concepts/labels-and-fragments.md)
 5. [Targets And Actions](concepts/targets-and-actions.md)
 6. [Language Namespaces](concepts/language-namespaces.md)
+7. [Language Providers](reference/language-providers.md)
 
 ## Reference
 
@@ -115,6 +122,7 @@ qstar docs --show reference/qstar-lua.md
 - [C Language Options](reference/lang-c.md)
 - [C++ Language Options](reference/lang-cxx.md)
 - [Language Providers](reference/language-providers.md)
+- [GLP Roadmap](../glp_roadmap.md)
 - [Object Artifacts](reference/object-artifacts.md)
 - [Custom Target](reference/custom-target.md)
 - [Run Target](reference/run-target.md)
@@ -157,8 +165,8 @@ make -C qstar qstar-pilot-readiness-tests
 이 gate는 QStar binary, sample corpus, lint/LSP, VSCode package, executor, cache/replay,
 generic project corpus, medium project Stella/Ninja timing gate,
 formatter, subcommand help, wiki/CLI drift guard를 함께
-검증한다. 아직 remote package fetch와 compiler-specific language provider integration은
-정식 surface가 아니다. Ninja backend는 C/C++/ASM compile,
+검증한다. 아직 remote package fetch와 GLP runtime integration은 정식 surface가 아니다.
+현재 외부 언어의 정식 경로는 object artifact bridge다. Ninja backend는 C/C++/ASM compile,
 generated action, staticlib, sharedlib, executable/test link, `qstar.run_target` wrapper,
 `qstar.group` phony lowering/execution을 지원한다. `stage`/`install`은 copy와 manifest를
 QStar가 맡고, 참조 artifact build는 effective generator를 따른다. `sharedlib`는

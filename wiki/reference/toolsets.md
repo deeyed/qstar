@@ -5,6 +5,11 @@ policy를 명시적으로 선언하는 graph node다. QStar는 target triple, CP
 domain-specific 의미를 해석하지 않는다. 그런 값이 필요하면 `qstar.config`의
 `compile_options`, `link_options`, `link_inputs`에 그대로 작성한다.
 
+현재 runtime의 tool role allowlist는 `c`, `cxx`, `asm`, `archive`, `link`다. GLP
+로드맵에서는 이 고정 role table을 provider namespace 기반 tool map으로 hard cut한다.
+최종 목표 문법은 `tools.zig = zig.tools { compiler = qstar.cli {"zig"} }`처럼 provider가
+자기 tool role을 정의하는 구조다.
+
 ## 최소 예제
 
 ```lua
@@ -153,6 +158,32 @@ qstar.toolset "bad" {
 ```
 
 Tool role은 `c`, `cxx`, `asm`, `archive`, `link`만 허용된다.
+
+## GLP 목표 문법
+
+GLP가 구현되면 toolset은 provider namespace를 직접 받을 수 있어야 한다.
+
+```lua
+local zig = qstar.use_language("zig")
+
+qstar.toolset "host" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+    zig = zig.tools {
+      compiler = qstar.cli {"zig"},
+    },
+  },
+}
+```
+
+이 문법에서 `zig`는 문자열 key가 아니라 `qstar.use_language("zig")`가 반환한 provider
+module value와 연결된다. 내부 role은 `zig.compiler`처럼 저장되지만, 사용자는 provider
+helper를 통해 tool을 선언한다.
+
+기존 `tools.c`, `tools.cxx`, `tools.asm` 직접 문법은 GLP toolset hard cut에서 제거될 수
+있다. C/C++/ASM 자체는 사라지지 않고 built-in provider로 preloaded되어 `lang.c`,
+`lang.cxx`, `lang.asm` beginner surface를 계속 제공한다.
 
 ## 관련 diagnostic
 

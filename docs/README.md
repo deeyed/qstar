@@ -19,6 +19,11 @@ Current DSL surface:
 - authoring helpers: `qstar.files`, `qstar.join`, `qstar.copy`, `qstar.append`,
   `qstar.merge`, `qstar.extend`
 
+Generic Language Provider (GLP) note: the current runtime supports C/C++/ASM
+compile providers directly and uses the object artifact bridge for other
+languages. The formal roadmap for making language providers a first-class,
+language-neutral extension surface is tracked in `../glp_roadmap.md`.
+
 Important documents:
 
 - `syntax.md`: short current syntax cheat sheet.
@@ -28,6 +33,8 @@ Important documents:
 - `rule-model.md`: target rule and link model notes.
 - `ninja-backend-parity.md`: Ninja lowering parity contract.
 - `language-provider-backend-contract.md`: external object artifact bridge boundary.
+- `../glp_roadmap.md`: Generic Language Provider roadmap and final provider
+  syntax direction.
 - `performance-gates.md`: Stella/Ninja performance gate contract.
 - `qstar-generic-dsl-backend-seal.md`: Q193 backend/performance seal after the
   generic DSL hard cut.

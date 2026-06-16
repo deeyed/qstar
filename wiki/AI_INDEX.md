@@ -11,6 +11,11 @@ QStar는 build graph, command plan, local executor, stage/package, run smoke, li
 authoring UX를 담당한다. C/C++/ASM 외 언어의 의미론은 외부 compiler와 object artifact
 bridge가 맡는다.
 
+Generic Language Provider(GLP)는 이 경계를 다음 정식 provider surface로 확장하는
+로드맵이다. 현재 runtime에서는 object artifact bridge가 정식 경로이고, GLP가 구현되면
+`qstar.use_language("zig")`, provider namespace toolset, 동적 `lang.zig` 같은 surface가
+정식 경로가 된다. 설계 정본은 root `glp_roadmap.md`다.
+
 QStar가 하지 않는 일:
 
 - compiler frontend/backend 내부 API 호출
@@ -45,6 +50,10 @@ QStar가 하지 않는 일:
   `.obj`를 만든 뒤, consuming target의 `sources`에 그 generated object를 넣는다. QStar는
   Objective-C, Rust, Zig, Swift 같은 언어 의미론을 파싱하거나 소유하지 않고 object artifact
   edge만 관리한다.
+- GLP roadmap은 object bridge boilerplate를 provider가 흡수하는 다음 경로다. Provider는
+  `qstar/languages/<id>/<id>.qsm` manifest와 `provider.lua` implementation을 가지며,
+  사용자는 `qstar.use_language("<id>")`가 반환한 module value를 통해 `zig.tools`,
+  `zig.options`, `zig.object` 같은 helper를 사용한다.
 - CLI `-B path`는 `qstar.project.build_dir`보다 우선한다.
 - CLI `-G auto`는 현재 `stella`로 resolve된다.
 - CLI `-G ninja build [label]`은 C/C++/ASM compile, `qstar.configure_file`,
@@ -294,6 +303,8 @@ Toolset/build policy:
 - `qstar.toolset`
 - `tools = { c, cxx, asm, archive, link }`
 - 각 tool role은 `qstar.cli { ... }` argv-vector다.
+- GLP toolset 목표 문법은 provider namespace를 직접 받는 형태다:
+  `tools = { archive = qstar.cli {"ar"}, link = qstar.cli {"cc"}, zig = zig.tools { compiler = qstar.cli {"zig"} } }`.
 - `response_files`, `response_style`
 - `path_tools`, `allow_absolute_tools`
 - compile/link option은 `qstar.config`와 target-local `lang.*`, `link_options`,
@@ -326,6 +337,7 @@ qstar.staticlib "core" {
 - `lang.cxx`: C++ headers, include dirs, standard, modules skeleton, compile options
 - `lang.asm`: assembler include dirs, compile options, preprocess flag
 - `wiki/reference/language-providers.md`: external object artifact bridge boundary
+- `glp_roadmap.md`: dynamic language provider namespace와 최종 GLP 문법
 
 공통 option은 target top-level로 되돌리지 말고 `qstar.config`로 선언한다. Config label은
 target의 `configs`에서 참조한다.
