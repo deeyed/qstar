@@ -27,7 +27,7 @@ Generic Language Provider (GLP) note: the current runtime preloads built-in
 `qstar.use_language("id")` first checks a project-local provider manifest at
 `qstar/languages/<id>/<id>.qsm` and then falls back to the installed standard
 provider bundle under `share/qstar/languages/<id>`. QStar currently ships the
-standard `zig` and `rust` providers. The explicit folder form, such as
+standard `zig`, `rust`, and `cuda` providers. The explicit folder form, such as
 `qstar.use_language("qstar/languages/zig")`, stays project-relative. Provider
 manifests must return
 `qstar.language_provider { api = "qstar.lang/1", ... }`; their `provider.lua`
@@ -40,8 +40,6 @@ artifacts through provider lowering functions. The lowered `command`, `inputs`,
 `outputs`, and `depfile` action template is shared by Stella and Ninja, including
 response-file handling and action-log/replay. The object artifact bridge remains
 available for hand-written foreign compiler flows.
-The formal roadmap for making language providers a first-class,
-language-neutral extension surface is tracked in `../glp_roadmap.md`.
 
 Important documents:
 
@@ -52,10 +50,8 @@ Important documents:
 - `rule-model.md`: target rule and link model notes.
 - `ninja-backend-parity.md`: Ninja lowering parity contract.
 - `language-provider-backend-contract.md`: external object artifact bridge boundary.
-- `init-glp-scaffold.md`: Korean design for the generic `qstar init` shape
+- `init-glp-scaffold.md`: Korean reference for the generic `qstar init` shape
   model, provider vendoring, and provider-defined scaffold metadata.
-- `../glp_roadmap.md`: Generic Language Provider roadmap and final provider
-  syntax direction.
 - `performance-gates.md`: Stella/Ninja performance gate contract.
 - `qstar-generic-dsl-backend-seal.md`: Q193 backend/performance seal after the
   generic DSL hard cut.

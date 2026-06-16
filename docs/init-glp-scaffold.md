@@ -2,11 +2,10 @@
 
 이 문서는 `qstar init`을 generic project scaffolder로 개편하고, Generic
 Language Provider(GLP)가 언어별 project layout과 sample source를 선언하는 방향을
-정리한다. Q208에서 public init surface는 `qstar init app|lib|tool|empty|workspace`
-project shape로 전환되었고, Q210에서 `--use-language` language selection과 external
-provider vendoring이 실제 init flow에 들어왔다. Q211에서 provider manifest의 optional
-`scaffold` root는 정식 schema로 검증되기 시작했고, Q212에서 `qstar init`은 이 metadata를
-소비해 provider별 `qstar.lua`, source file, workspace fragment를 생성한다.
+정리한다. 현재 public init surface는 `qstar init app|lib|tool|empty|workspace`
+project shape이며, `--use-language` language selection, external provider vendoring,
+provider manifest의 optional `scaffold` schema validation, provider별 `qstar.lua`,
+source file, workspace fragment materialization까지 지원한다.
 
 ## 배경
 
@@ -30,7 +29,7 @@ QStar는 C/C++/ASM을 잘 지원하지만 특정 언어에 종속되지 않는 �
   낮아진다.
 - Stella와 Ninja는 같은 provider action contract를 실행한다.
 
-Q208 이전 `qstar init`은 GLP 철학을 충분히 반영하지 못했다. `c-app`, `c-lib` 같은
+이전 `qstar init`은 GLP 철학을 충분히 반영하지 못했다. `c-app`, `c-lib` 같은
 template 이름은 언어가 top-level init surface에 노출되는 구조였고, 언어별 source
 layout도 QStar core 내부 C 문자열 template로 고정되어 있었다. 새 설계는 이 구조를
 "project shape + language provider" 조합으로 바꾼다.
@@ -135,11 +134,11 @@ qstar.executable "app" {
 Provider는 다음을 담당한다.
 
 - provider namespace: `zig`, `rust`, `cuda`.
-- tool role: `zig.compiler`, `rust.compiler`.
-- option schema: `optimize`, `edition`, `target`, `compile_options`.
-- source unit: `object`, `crate`, `module`.
+- tool role: `zig.compiler`, `rust.compiler`, `cuda.compiler`.
+- option schema: `optimize`, `edition`, `target`, `arch`, `compile_options`.
+- source unit: `object`.
 - lowering function: source unit을 object-producing action으로 변환.
-- 사용자 helper export: `zig.tools`, `zig.options`, `zig.object`.
+- 사용자 helper export: `zig.tools`, `rust.options`, `cuda.object`.
 
 ## Provider 배치
 
@@ -172,9 +171,9 @@ project/
         provider.lua
 ```
 
-`qstar.use_language("zig")`나 `qstar.use_language("rust")`는 project-local provider를
-먼저 찾고, 없으면 installed standard provider를 찾는다. Init에서
-`--use-language=zig` 또는 `--use-language=rust`를 주면 installed standard provider를
+`qstar.use_language("zig")`, `qstar.use_language("rust")`, `qstar.use_language("cuda")`는
+project-local provider를 먼저 찾고, 없으면 installed standard provider를 찾는다. Init에서
+`--use-language=zig`, `--use-language=rust`, `--use-language=cuda`를 주면 installed standard provider를
 project-local `qstar/languages/<id>`로 복사한다. 생성된 `qstar.lua`에는 그래도
 `local zig = qstar.use_language("zig")` 같은 activation이 남는다.
 
@@ -187,11 +186,11 @@ project-local `qstar/languages/<id>`로 복사한다. 생성된 `qstar.lua`에�
 
 ## Init CLI
 
-기존의 언어별 template 이름은 제거하거나 compatibility diagnostic으로 돌린다.
+기존의 언어별 template 이름은 제거되었고 compatibility diagnostic으로 돌린다.
 
-Q208 이전에 존재하던 `c-app`, `c-lib`, `generated` 형태는 제거 대상이다.
+이전에 존재하던 `c-app`, `c-lib`, `generated` 형태는 제거되었다.
 
-Q210에서 실제 지원하는 현재 구조:
+현재 지원 구조:
 
 ```sh
 qstar init <shape> [directory]
@@ -238,9 +237,10 @@ qstar init app hello --use-language=zig
 - `qstar.config`에 `zig = zig.options { ... }` default option entry를 생성한다.
 - provider scaffold plan에 따라 `src/main.zig`와 `zig.object("src/main.zig")` target을 만든다.
 
-`--use-language=rust`도 같은 흐름을 사용하며, 표준 Rust provider는
+`--use-language=rust`와 `--use-language=cuda`도 같은 흐름을 사용한다. 표준 Rust provider는
 `qstar/languages/rust`, `rust.tools`, `rust.options`, `rust.object("src/main.rs")`를
-생성한다.
+생성하고, 표준 CUDA provider는 `qstar/languages/cuda`, `cuda.tools`, `cuda.options`,
+`cuda.object("src/main.cu")`를 생성한다.
 
 여러 언어가 들어오면 첫 번째 언어가 primary scaffold language다. Primary provider가
 shape-specific scaffold를 제공하면 그 layout이 `src/main.zig`, `src/crates/...`,
@@ -727,8 +727,8 @@ return qstar.language_provider {
 
 이 `scaffold` table은 선언적 plan이다. Provider는 init 시점에 shell command를 실행하지 않고,
 프로젝트 파일을 직접 쓰지도 않는다. QStar core가 scaffold plan을 검증한 뒤 파일을 생성한다.
-Q212 현재 QStar는 manifest load 시점에 이 schema를 검증하고, `qstar init`이 primary
-provider의 shape plan을 실제 project files로 materialize한다.
+QStar는 manifest load 시점에 이 schema를 검증하고, `qstar init`이 primary provider의
+shape plan을 실제 project files로 materialize한다.
 
 ## Scaffold Schema
 

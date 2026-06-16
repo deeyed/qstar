@@ -224,6 +224,67 @@ EOF
 	chmod +x "$dir/rustc"
 }
 
+write_fake_cuda_bin() {
+	dir=$1
+	mkdir -p "$dir"
+	cat > "$dir/nvcc" <<'EOF'
+#!/bin/sh
+set -eu
+
+out=
+src=
+need_out=0
+
+parse_arg() {
+	if [ "$need_out" -ne 0 ]; then
+		out=$1
+		need_out=0
+		return
+	fi
+	case "$1" in
+		-o)
+			need_out=1
+			;;
+		*.cu)
+			if [ -z "$src" ]; then
+				src=$1
+			fi
+			;;
+	esac
+}
+
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		@*)
+			rsp=${1#@}
+			while IFS= read -r arg; do
+				parse_arg "$arg"
+			done < "$rsp"
+			;;
+		*)
+			parse_arg "$1"
+			;;
+	esac
+	shift
+done
+
+test -n "$out" || exit 2
+mkdir -p "$(dirname "$out")"
+tmp_c="$out.c"
+case "$src" in
+	*main.cu)
+		printf 'int main(void) { return 0; }\n' > "$tmp_c"
+		;;
+	*)
+		printf 'int qstar_fake_cuda_value(void) { return 42; }\n' > "$tmp_c"
+		;;
+esac
+"${QSTAR_FAKE_CUDA_CC:-${CC:-cc}}" -x c -c "$tmp_c" -o "$out"
+rm -f "$tmp_c"
+EOF
+	chmod +x "$dir/nvcc"
+}
+
 check_init_zig_backend_contract() {
 	project=$1
 	prefix=$2
@@ -265,6 +326,51 @@ check_init_zig_backend_contract() {
 		if [ "$run_output" = "yes" ]; then
 			"$stella_output" || fail "init Zig Stella output '$output_name' failed for $prefix"
 			"$ninja_output" || fail "init Zig Ninja output '$output_name' failed for $prefix"
+		fi
+	fi
+}
+
+check_init_cuda_backend_contract() {
+	project=$1
+	prefix=$2
+	explain_target=$3
+	build_target=$4
+	action_id=$5
+	output_name=$6
+	run_output=$7
+
+	PATH="$fake_cuda_bin:$PATH" "$qstar" --file "$project/qstar.lua" explain "$explain_target" > "$tmp/$prefix-explain.out" 2> "$tmp/$prefix-explain.err"
+	contains "$tmp/$prefix-explain.out" "language=cuda"
+	contains "$tmp/$prefix-explain.out" "provider=cuda"
+	contains "$tmp/$prefix-explain.out" "-c"
+	PATH="$fake_cuda_bin:$PATH" "$qstar" --file "$project/qstar.lua" dry-run "$build_target" > "$tmp/$prefix-dry-run.out" 2> "$tmp/$prefix-dry-run.err"
+	contains "$tmp/$prefix-dry-run.out" "dry_run_step id=$action_id"
+	contains "$tmp/$prefix-dry-run.out" "argv=[nvcc, -c"
+	PATH="$fake_cuda_bin:$PATH" "$qstar" --file "$project/qstar.lua" build "$build_target" > "$tmp/$prefix-build.out" 2> "$tmp/$prefix-build.err"
+	contains "$tmp/$prefix-build.out" "status ok"
+	PATH="$fake_cuda_bin:$PATH" "$qstar" --file "$project/qstar.lua" action-log "$action_id" > "$tmp/$prefix-action-log.out" 2> "$tmp/$prefix-action-log.err"
+	contains "$tmp/$prefix-action-log.out" "nvcc"
+	contains "$tmp/$prefix-action-log.out" "-c"
+	PATH="$fake_cuda_bin:$PATH" "$qstar" --file "$project/qstar.lua" replay "$action_id" > "$tmp/$prefix-replay.out" 2> "$tmp/$prefix-replay.err"
+	contains "$tmp/$prefix-replay.out" "nvcc"
+	contains "$tmp/$prefix-replay.out" "-c"
+	PATH="$fake_cuda_bin:$PATH" "$qstar" --file "$project/qstar.lua" -B build-ninja -G ninja build "$build_target" > "$tmp/$prefix-ninja-build.out" 2> "$tmp/$prefix-ninja-build.err"
+	contains "$tmp/$prefix-ninja-build.out" "backend ninja"
+	PATH="$fake_cuda_bin:$PATH" "$qstar" --file "$project/qstar.lua" -B build-ninja -G ninja action-log "$action_id" > "$tmp/$prefix-ninja-action-log.out" 2> "$tmp/$prefix-ninja-action-log.err"
+	contains "$tmp/$prefix-ninja-action-log.out" "backend=ninja"
+	contains "$tmp/$prefix-ninja-action-log.out" "nvcc"
+	PATH="$fake_cuda_bin:$PATH" "$qstar" --file "$project/qstar.lua" -B build-ninja -G ninja replay "$action_id" > "$tmp/$prefix-ninja-replay.out" 2> "$tmp/$prefix-ninja-replay.err"
+	contains "$tmp/$prefix-ninja-replay.out" "nvcc"
+	contains "$tmp/$prefix-ninja-replay.out" "-c"
+
+	if [ -n "$output_name" ]; then
+		stella_output=$(find "$project/build/qstar" -name "$output_name" -type f | sed -n '1p')
+		test -n "$stella_output" || fail "init CUDA Stella output '$output_name' missing for $prefix"
+		ninja_output=$(find "$project/build-ninja" -name "$output_name" -type f | sed -n '1p')
+		test -n "$ninja_output" || fail "init CUDA Ninja output '$output_name' missing for $prefix"
+		if [ "$run_output" = "yes" ]; then
+			"$stella_output" || fail "init CUDA Stella output '$output_name' failed for $prefix"
+			"$ninja_output" || fail "init CUDA Ninja output '$output_name' failed for $prefix"
 		fi
 	fi
 }
@@ -2785,6 +2891,93 @@ contains "$tmp/standard-rust-ninja-action-log.out" "tools/rustc"
 "$qstar" --file "$tmp/standard-rust/qstar.lua" -B build-ninja -G ninja replay //:core:compile:0 > "$tmp/standard-rust-ninja-replay.out" 2> "$tmp/standard-rust-ninja-replay.err"
 contains "$tmp/standard-rust-ninja-replay.out" "tools/rustc"
 contains "$tmp/standard-rust-ninja-replay.out" "--extern dep=vendor/libdep.rlib"
+
+mkdir -p "$tmp/standard-cuda/src" "$tmp/standard-cuda/tools"
+write_fake_cuda_bin "$tmp/standard-cuda/tools"
+cat > "$tmp/standard-cuda/src/main.cu" <<'EOF'
+extern "C" int standard_cuda_value() {
+    return 7;
+}
+EOF
+cat > "$tmp/standard-cuda/qstar.lua" <<'EOF'
+local cuda = qstar.use_language("cuda")
+
+qstar.project {
+  name = "standard-cuda",
+  version = "0.1.0",
+  root = ".",
+  build_dir = "build/qstar",
+}
+
+qstar.toolset "host" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    cuda = cuda.tools {
+      compiler = qstar.cli {"tools/nvcc"},
+    },
+  },
+}
+
+qstar.config "cuda_release" {
+  toolset = "//:host",
+  lang = {
+    cuda = cuda.options {
+      arch = "sm_70",
+      compile_options = {
+        "--fake-device-option",
+      },
+    },
+  },
+}
+
+qstar.staticlib "core" {
+  configs = {
+    "//:cuda_release",
+  },
+  sources = {
+    cuda.object("src/main.cu"),
+  },
+}
+EOF
+test ! -d "$tmp/standard-cuda/qstar/languages" ||
+  fail "standard CUDA fixture must not vendor qstar/languages"
+"$qstar" --file "$tmp/standard-cuda/qstar.lua" check > "$tmp/standard-cuda-check.out" 2> "$tmp/standard-cuda-check.err"
+"$qstar" --file "$tmp/standard-cuda/qstar.lua" --dump-graph > "$tmp/standard-cuda-graph.out" 2> "$tmp/standard-cuda-graph.err"
+contains "$tmp/standard-cuda-graph.out" "language_provider namespace=cuda id=cuda api=qstar.lang/1 version=0.1"
+contains "$tmp/standard-cuda-graph.out" "qstar/languages/cuda/cuda.qsm"
+contains "$tmp/standard-cuda-graph.out" "tools.cuda.compiler [tools/nvcc]"
+"$qstar" --file "$tmp/standard-cuda/qstar.lua" explain //:core > "$tmp/standard-cuda-explain.out" 2> "$tmp/standard-cuda-explain.err"
+contains "$tmp/standard-cuda-explain.out" "source_file path=src/main.cu language=cuda tool=provider-compiler provider=cuda provider_role=compiler toolset_role=cuda.compiler output_group=objects role=compile"
+contains "$tmp/standard-cuda-explain.out" "-arch, sm_70"
+contains "$tmp/standard-cuda-explain.out" "-c, src/main.cu"
+contains "$tmp/standard-cuda-explain.out" "-o, build/qstar/out/___core/obj0.o"
+contains "$tmp/standard-cuda-explain.out" "--fake-device-option"
+"$qstar" --file "$tmp/standard-cuda/qstar.lua" dry-run //:core > "$tmp/standard-cuda-dry-run.out" 2> "$tmp/standard-cuda-dry-run.err"
+contains "$tmp/standard-cuda-dry-run.out" "dry_run_step id=//:core:compile:0 owner=//:core kind=compile language=cuda tool=provider-compiler"
+contains "$tmp/standard-cuda-dry-run.out" "argv=[tools/nvcc, -arch, sm_70, -c, src/main.cu"
+contains "$tmp/standard-cuda-dry-run.out" "--fake-device-option"
+"$qstar" --file "$tmp/standard-cuda/qstar.lua" build //:core > "$tmp/standard-cuda-build.out" 2> "$tmp/standard-cuda-build.err"
+contains "$tmp/standard-cuda-build.out" "status ok"
+if ! find "$tmp/standard-cuda/build" -name obj0.o -type f | grep -q .; then
+  fail "standard CUDA provider object was not produced"
+fi
+"$qstar" --file "$tmp/standard-cuda/qstar.lua" action-log //:core:compile:0 > "$tmp/standard-cuda-action-log.out" 2> "$tmp/standard-cuda-action-log.err"
+contains "$tmp/standard-cuda-action-log.out" "tools/nvcc"
+contains "$tmp/standard-cuda-action-log.out" "-arch"
+"$qstar" --file "$tmp/standard-cuda/qstar.lua" replay //:core:compile:0 > "$tmp/standard-cuda-replay.out" 2> "$tmp/standard-cuda-replay.err"
+contains "$tmp/standard-cuda-replay.out" "tools/nvcc"
+contains "$tmp/standard-cuda-replay.out" "-arch sm_70"
+"$qstar" --file "$tmp/standard-cuda/qstar.lua" -B build-ninja -G ninja build //:core > "$tmp/standard-cuda-ninja-build.out" 2> "$tmp/standard-cuda-ninja-build.err"
+contains "$tmp/standard-cuda-ninja-build.out" "backend ninja"
+if ! find "$tmp/standard-cuda/build-ninja" -name obj0.o -type f | grep -q .; then
+  fail "standard CUDA provider object was not produced by Ninja"
+fi
+"$qstar" --file "$tmp/standard-cuda/qstar.lua" -B build-ninja -G ninja action-log //:core:compile:0 > "$tmp/standard-cuda-ninja-action-log.out" 2> "$tmp/standard-cuda-ninja-action-log.err"
+contains "$tmp/standard-cuda-ninja-action-log.out" "backend=ninja"
+contains "$tmp/standard-cuda-ninja-action-log.out" "tools/nvcc"
+"$qstar" --file "$tmp/standard-cuda/qstar.lua" -B build-ninja -G ninja replay //:core:compile:0 > "$tmp/standard-cuda-ninja-replay.out" 2> "$tmp/standard-cuda-ninja-replay.err"
+contains "$tmp/standard-cuda-ninja-replay.out" "tools/nvcc"
+contains "$tmp/standard-cuda-ninja-replay.out" "--fake-device-option"
 
 mkdir -p "$tmp/language-provider-options/qstar/languages/zig"
 cat > "$tmp/language-provider-options/qstar/languages/zig/zig.qsm" <<'EOF'
@@ -6573,6 +6766,7 @@ contains "$tmp/init-languages.out" "qstar init languages"
 contains "$tmp/init-languages.out" "builtin c"
 contains "$tmp/init-languages.out" "builtin cxx"
 contains "$tmp/init-languages.out" "builtin asm"
+contains "$tmp/init-languages.out" "provider cuda"
 contains "$tmp/init-languages.out" "provider rust"
 contains "$tmp/init-languages.out" "provider zig"
 
@@ -6772,6 +6966,76 @@ contains "$tmp/init-rust-workspace-graph.out" "target //packages/app:app"
 contains "$tmp/init-rust-workspace-graph.out" "language_provider namespace=rust id=rust"
 check_init_rust_backend_contract "$tmp/init-rust-workspace" init-rust-workspace //packages/app:app //:all //packages/app:app:compile:0 app yes
 
+"$qstar" init app "$tmp/init-cuda" --use-language=cuda > "$tmp/init-cuda.out" 2> "$tmp/init-cuda.err"
+contains "$tmp/init-cuda.out" "language cuda"
+not_contains "$tmp/init-cuda.out" "using builtin c scaffold"
+contains "$tmp/init-cuda.out" "vendor qstar/languages/cuda"
+contains "$tmp/init-cuda.out" "activate cuda"
+contains "$tmp/init-cuda.out" "scaffold cuda app"
+contains "$tmp/init-cuda/qstar.lua" "local cuda = qstar.use_language(\"cuda\")"
+contains "$tmp/init-cuda/qstar.lua" "cuda = cuda.tools"
+contains "$tmp/init-cuda/qstar.lua" "cuda = cuda.options"
+contains "$tmp/init-cuda/qstar.lua" "cuda.object(\"src/main.cu\")"
+contains "$tmp/init-cuda/qstar.lua" "compiler = qstar.cli {\"nvcc\"}"
+test -f "$tmp/init-cuda/src/main.cu" || fail "init did not materialize cuda app source"
+test ! -f "$tmp/init-cuda/src/main.c" || fail "init cuda app unexpectedly used C fallback source"
+test -f "$tmp/init-cuda/qstar/languages/cuda/cuda.qsm" || fail "init did not vendor cuda manifest"
+test -f "$tmp/init-cuda/qstar/languages/cuda/provider.lua" || fail "init did not vendor cuda provider"
+"$qstar" --file "$tmp/init-cuda/qstar.lua" check //... > "$tmp/init-cuda-check.out" 2> "$tmp/init-cuda-check.err"
+contains "$tmp/init-cuda-check.out" "status ok"
+"$qstar" --file "$tmp/init-cuda/qstar.lua" --dump-graph > "$tmp/init-cuda-graph.out" 2> "$tmp/init-cuda-graph.err"
+contains "$tmp/init-cuda-graph.out" "language_provider namespace=cuda id=cuda"
+contains "$tmp/init-cuda-graph.out" "dir=qstar/languages/cuda"
+contains "$tmp/init-cuda-graph.out" "tools.cuda.compiler [nvcc]"
+
+fake_cuda_bin="$tmp/init-cuda-bin"
+write_fake_cuda_bin "$fake_cuda_bin"
+check_init_cuda_backend_contract "$tmp/init-cuda" init-cuda-app //:app //:app //:app:compile:0 app yes
+
+"$qstar" init lib "$tmp/init-cuda-lib" --use-language=cuda > "$tmp/init-cuda-lib.out" 2> "$tmp/init-cuda-lib.err"
+contains "$tmp/init-cuda-lib.out" "scaffold cuda lib"
+contains "$tmp/init-cuda-lib/qstar.lua" "cuda.object(\"src/init_cuda_lib.cu\")"
+test -f "$tmp/init-cuda-lib/src/init_cuda_lib.cu" || fail "init did not materialize cuda lib source"
+test -f "$tmp/init-cuda-lib/qstar/languages/cuda/cuda.qsm" || fail "init did not vendor cuda manifest for lib"
+check_init_cuda_backend_contract "$tmp/init-cuda-lib" init-cuda-lib //:core //:core //:core:compile:0 libcore.a no
+
+"$qstar" init tool "$tmp/init-cuda-tool" --use-language=cuda > "$tmp/init-cuda-tool.out" 2> "$tmp/init-cuda-tool.err"
+contains "$tmp/init-cuda-tool.out" "scaffold cuda tool"
+contains "$tmp/init-cuda-tool/qstar.lua" "cuda.object(\"tools/init_cuda_tool/main.cu\")"
+test -f "$tmp/init-cuda-tool/tools/init_cuda_tool/main.cu" || fail "init did not materialize cuda tool source"
+test -f "$tmp/init-cuda-tool/qstar/languages/cuda/provider.lua" || fail "init did not vendor cuda provider for tool"
+check_init_cuda_backend_contract "$tmp/init-cuda-tool" init-cuda-tool //:tool //:tool //:tool:compile:0 tool yes
+
+"$qstar" init empty "$tmp/init-cuda-empty" --use-language=cuda > "$tmp/init-cuda-empty.out" 2> "$tmp/init-cuda-empty.err"
+contains "$tmp/init-cuda-empty.out" "scaffold cuda empty"
+contains "$tmp/init-cuda-empty/qstar.lua" "local cuda = qstar.use_language(\"cuda\")"
+test -f "$tmp/init-cuda-empty/qstar/languages/cuda/cuda.qsm" || fail "init did not vendor cuda manifest for empty"
+PATH="$fake_cuda_bin:$PATH" "$qstar" --file "$tmp/init-cuda-empty/qstar.lua" check //... > "$tmp/init-cuda-empty-check.out" 2> "$tmp/init-cuda-empty-check.err"
+contains "$tmp/init-cuda-empty-check.out" "target-count 0"
+PATH="$fake_cuda_bin:$PATH" "$qstar" --file "$tmp/init-cuda-empty/qstar.lua" --dump-graph > "$tmp/init-cuda-empty-graph.out" 2> "$tmp/init-cuda-empty-graph.err"
+contains "$tmp/init-cuda-empty-graph.out" "language_provider namespace=cuda id=cuda"
+
+"$qstar" init workspace "$tmp/init-cuda-workspace" --use-language=cuda > "$tmp/init-cuda-workspace.out" 2> "$tmp/init-cuda-workspace.err"
+contains "$tmp/init-cuda-workspace.out" "scaffold cuda workspace"
+contains "$tmp/init-cuda-workspace/qstar.lua" "qstar.subdir(\"packages/core\")"
+contains "$tmp/init-cuda-workspace/qstar.lua" "qstar.subdir(\"packages/app\")"
+contains "$tmp/init-cuda-workspace/qstar.lua" "\"//packages/core:core\""
+contains "$tmp/init-cuda-workspace/qstar.lua" "\"//packages/app:app\""
+contains "$tmp/init-cuda-workspace/packages/core/core.qst" "local cuda = qstar.use_language(\"cuda\")"
+contains "$tmp/init-cuda-workspace/packages/core/core.qst" "cuda.object(\"packages/core/src/core.cu\")"
+contains "$tmp/init-cuda-workspace/packages/app/app.qst" "local cuda = qstar.use_language(\"cuda\")"
+contains "$tmp/init-cuda-workspace/packages/app/app.qst" "cuda.object(\"packages/app/src/main.cu\")"
+contains "$tmp/init-cuda-workspace/packages/app/app.qst" "\"//packages/core:core\""
+test -f "$tmp/init-cuda-workspace/packages/core/src/core.cu" || fail "init did not materialize cuda core workspace source"
+test -f "$tmp/init-cuda-workspace/packages/app/src/main.cu" || fail "init did not materialize cuda app workspace source"
+"$qstar" --file "$tmp/init-cuda-workspace/qstar.lua" check //... > "$tmp/init-cuda-workspace-check.out" 2> "$tmp/init-cuda-workspace-check.err"
+contains "$tmp/init-cuda-workspace-check.out" "status ok"
+"$qstar" --file "$tmp/init-cuda-workspace/qstar.lua" --dump-graph > "$tmp/init-cuda-workspace-graph.out" 2> "$tmp/init-cuda-workspace-graph.err"
+contains "$tmp/init-cuda-workspace-graph.out" "target //packages/core:core"
+contains "$tmp/init-cuda-workspace-graph.out" "target //packages/app:app"
+contains "$tmp/init-cuda-workspace-graph.out" "language_provider namespace=cuda id=cuda"
+check_init_cuda_backend_contract "$tmp/init-cuda-workspace" init-cuda-workspace //packages/app:app //:all //packages/app:app:compile:0 app yes
+
 mkdir -p "$tmp/init-provider-dir/rust"
 cat > "$tmp/init-provider-dir/rust/rust.qsm" <<'EOF'
 return qstar.language_provider {
@@ -6804,15 +7068,21 @@ return P
 EOF
 QSTAR_PROVIDER_DIR="$tmp/init-provider-dir" "$qstar" init --list-languages > "$tmp/init-provider-languages.out" 2> "$tmp/init-provider-languages.err"
 contains "$tmp/init-provider-languages.out" "provider rust"
-QSTAR_PROVIDER_DIR="$tmp/init-provider-dir" "$qstar" init app "$tmp/init-mixed" --use-language=zig,rust > "$tmp/init-mixed.out" 2> "$tmp/init-mixed.err"
+QSTAR_PROVIDER_DIR="$tmp/init-provider-dir" "$qstar" init app "$tmp/init-mixed" --use-language=zig,rust,cuda > "$tmp/init-mixed.out" 2> "$tmp/init-mixed.err"
 contains "$tmp/init-mixed.out" "language zig"
 contains "$tmp/init-mixed.out" "vendor qstar/languages/zig"
 contains "$tmp/init-mixed.out" "vendor qstar/languages/rust"
+contains "$tmp/init-mixed.out" "vendor qstar/languages/cuda"
 contains "$tmp/init-mixed.out" "activate rust"
+contains "$tmp/init-mixed.out" "activate cuda"
 contains "$tmp/init-mixed/qstar.lua" "local rust = qstar.use_language(\"rust\")"
+contains "$tmp/init-mixed/qstar.lua" "local cuda = qstar.use_language(\"cuda\")"
 contains "$tmp/init-mixed/qstar.lua" "rust = rust.tools"
+contains "$tmp/init-mixed/qstar.lua" "cuda = cuda.tools"
 contains "$tmp/init-mixed/qstar.lua" "compiler = qstar.cli {\"rustc\"}"
+contains "$tmp/init-mixed/qstar.lua" "compiler = qstar.cli {\"nvcc\"}"
 test -f "$tmp/init-mixed/qstar/languages/rust/rust.qsm" || fail "init did not vendor rust manifest"
+test -f "$tmp/init-mixed/qstar/languages/cuda/cuda.qsm" || fail "init did not vendor cuda manifest"
 "$qstar" --file "$tmp/init-mixed/qstar.lua" check //... > "$tmp/init-mixed-check.out" 2> "$tmp/init-mixed-check.err"
 contains "$tmp/init-mixed-check.out" "status ok"
 

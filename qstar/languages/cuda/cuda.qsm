@@ -1,0 +1,157 @@
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "cuda",
+  version = "0.1",
+  namespace = "cuda",
+  implementation = "provider.lua",
+  tools = {
+    compiler = {
+      role = "cuda.compiler",
+      required = true,
+    },
+  },
+  options = {
+    arch = {
+      type = "string",
+      default = "native",
+    },
+    compile_options = {
+      type = "list",
+      default = {},
+    },
+  },
+  units = {
+    object = {
+      suffixes = {
+        ".cu",
+      },
+      emits = "object",
+      lower = "compile_object",
+    },
+  },
+  scaffold = {
+    api = "qstar.scaffold/1",
+    tools = {
+      compiler = {"nvcc"},
+    },
+    options = {
+      arch = "native",
+      compile_options = {},
+    },
+    shapes = {
+      app = {
+        directories = {"src"},
+        files = {
+          {
+            path = "src/main.cu",
+            body = "int main() { return 0; }\n",
+          },
+        },
+        target = {
+          kind = "executable",
+          name = "app",
+          sources = {
+            {
+              helper = "object",
+              path = "src/main.cu",
+            },
+          },
+        },
+      },
+      lib = {
+        directories = {"src"},
+        files = {
+          {
+            path = "src/${project_ident}.cu",
+            body = "extern \"C\" int ${project_ident}_value() { return 42; }\n",
+          },
+        },
+        target = {
+          kind = "staticlib",
+          name = "core",
+          sources = {
+            {
+              helper = "object",
+              path = "src/${project_ident}.cu",
+            },
+          },
+        },
+      },
+      tool = {
+        directories = {"tools/${project_ident}"},
+        files = {
+          {
+            path = "tools/${project_ident}/main.cu",
+            body = "int main() { return 0; }\n",
+          },
+        },
+        target = {
+          kind = "executable",
+          name = "tool",
+          sources = {
+            {
+              helper = "object",
+              path = "tools/${project_ident}/main.cu",
+            },
+          },
+        },
+      },
+      empty = {},
+      workspace = {
+        fragments = {
+          {
+            path = "packages/core/core.qst",
+            files = {
+              {
+                path = "packages/core/src/core.cu",
+                body = "extern \"C\" int core_value() { return 42; }\n",
+              },
+            },
+            target = {
+              kind = "staticlib",
+              name = "core",
+              sources = {
+                {
+                  helper = "object",
+                  path = "packages/core/src/core.cu",
+                },
+              },
+            },
+          },
+          {
+            path = "packages/app/app.qst",
+            files = {
+              {
+                path = "packages/app/src/main.cu",
+                body = "int main() { return 0; }\n",
+              },
+            },
+            target = {
+              kind = "executable",
+              name = "app",
+              sources = {
+                {
+                  helper = "object",
+                  path = "packages/app/src/main.cu",
+                },
+              },
+              deps = {"//packages/core:core"},
+            },
+          },
+        },
+        group = {
+          name = "all",
+          deps = {
+            "//packages/core:core",
+            "//packages/app:app",
+          },
+        },
+      },
+    },
+  },
+  exports = {
+    tools = "tools",
+    options = "options",
+    object = "object",
+  },
+}

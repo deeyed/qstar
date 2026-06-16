@@ -144,6 +144,67 @@ EOF
 	chmod +x "$dir/rustc"
 }
 
+write_fake_cuda_bin() {
+	dir=$1
+	mkdir -p "$dir"
+	cat > "$dir/nvcc" <<'EOF'
+#!/bin/sh
+set -eu
+
+out=
+src=
+need_out=0
+
+parse_arg() {
+	if [ "$need_out" -ne 0 ]; then
+		out=$1
+		need_out=0
+		return
+	fi
+	case "$1" in
+		-o)
+			need_out=1
+			;;
+		*.cu)
+			if [ -z "$src" ]; then
+				src=$1
+			fi
+			;;
+	esac
+}
+
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		@*)
+			rsp=${1#@}
+			while IFS= read -r arg; do
+				parse_arg "$arg"
+			done < "$rsp"
+			;;
+		*)
+			parse_arg "$1"
+			;;
+	esac
+	shift
+done
+
+test -n "$out" || exit 2
+mkdir -p "$(dirname "$out")"
+tmp_c="$out.c"
+case "$src" in
+	*main.cu)
+		printf 'int main(void) { return 0; }\n' > "$tmp_c"
+		;;
+	*)
+		printf 'int qstar_fake_cuda_value(void) { return 42; }\n' > "$tmp_c"
+		;;
+esac
+"${QSTAR_FAKE_CUDA_CC:-cc}" -x c -c "$tmp_c" -o "$out"
+rm -f "$tmp_c"
+EOF
+	chmod +x "$dir/nvcc"
+}
+
 rm -rf "$tmp"
 mkdir -p "$project/src" "$project/include" "$project/tools" \
 	"$project/qstar/modules/paths"
@@ -325,6 +386,10 @@ test -f "$install_root/share/qstar/languages/rust/rust.qsm" ||
 	fail "installed Rust language provider manifest missing"
 test -f "$install_root/share/qstar/languages/rust/provider.lua" ||
 	fail "installed Rust language provider implementation missing"
+test -f "$install_root/share/qstar/languages/cuda/cuda.qsm" ||
+	fail "installed CUDA language provider manifest missing"
+test -f "$install_root/share/qstar/languages/cuda/provider.lua" ||
+	fail "installed CUDA language provider implementation missing"
 QSTAR_DOC_DIR="$install_root/share/doc/qstar" \
 	"$install_root/bin/qstar" docs --path > "$tmp/install-docs-path.out" \
 	2> "$tmp/install-docs-path.err"
@@ -424,6 +489,24 @@ QSTAR_FAKE_RUST_CC="$validation_cc" PATH="$installed_fake_rust_bin:$PATH" \
 contains "$tmp/install-init-rust-build.out" "status ok"
 "$installed_init_rust/build/qstar/out/___app/app" ||
 	fail "installed qstar init Rust app binary failed"
+
+installed_init_cuda="$tmp/installed-init-cuda"
+installed_fake_cuda_bin="$tmp/installed-fake-cuda-bin"
+write_fake_cuda_bin "$installed_fake_cuda_bin"
+"$install_root/bin/qstar" init app "$installed_init_cuda" --use-language=cuda \
+	> "$tmp/install-init-cuda.out" 2> "$tmp/install-init-cuda.err"
+contains "$tmp/install-init-cuda.out" "vendor qstar/languages/cuda"
+contains "$tmp/install-init-cuda.out" "scaffold cuda app"
+test -f "$installed_init_cuda/qstar/languages/cuda/cuda.qsm" ||
+	fail "installed qstar init did not vendor CUDA manifest"
+test -f "$installed_init_cuda/qstar/languages/cuda/provider.lua" ||
+	fail "installed qstar init did not vendor CUDA implementation"
+QSTAR_FAKE_CUDA_CC="$validation_cc" PATH="$installed_fake_cuda_bin:$PATH" \
+	"$install_root/bin/qstar" --file "$installed_init_cuda/qstar.lua" build //:app \
+	> "$tmp/install-init-cuda-build.out" 2> "$tmp/install-init-cuda-build.err"
+contains "$tmp/install-init-cuda-build.out" "status ok"
+"$installed_init_cuda/build/qstar/out/___app/app" ||
+	fail "installed qstar init CUDA app binary failed"
 
 printf 'qstar-linux-validation: install_prefix=%s\n' "$install_root"
 printf 'qstar-linux-validation: passed\n'

@@ -7,7 +7,8 @@ namespace 안에 둔다.
 `lang.c`, `lang.cxx`, `lang.asm`은 built-in provider namespace라 preloaded 상태다. 그 밖의
 namespace는 `qstar.use_language("<id>")`로 provider manifest를 먼저 활성화해야 한다.
 예를 들어 `qstar.use_language("zig")`는 project-local `qstar/languages/zig/zig.qsm`을 먼저
-찾고, 없으면 installed standard provider bundle의 `zig` provider를 읽는다. 그 뒤에만 `lang.zig = { ... }`가
+찾고, 없으면 installed standard provider bundle의 `zig` provider를 읽는다. `rust`,
+`cuda`도 같은 규칙을 따른다. 그 뒤에만 `lang.zig = { ... }` 같은 provider namespace가
 유효해진다. Provider manifest가 `options` schema를 선언하면 QStar는
 `lang.zig`의 unknown option과 string/bool/list/enum 값을 검증한다. Provider가 source unit과
 lowering function을 제공하면 `zig.object("src/main.zig")` 같은 helper가 Stella/Ninja 공통

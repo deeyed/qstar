@@ -210,6 +210,40 @@
     ],
     "description": "Use the bundled standard Zig provider."
   },
+  "CUDA provider executable": {
+    "prefix": "qcudaapp",
+    "body": [
+      "local cuda = qstar.use_language(\"cuda\")",
+      "",
+      "qstar.toolset \"${1:host}\" {",
+      "  tools = {",
+      "    archive = qstar.cli {\"${2:ar}\"},",
+      "    link = qstar.cli {\"${3:cc}\"},",
+      "    cuda = cuda.tools {",
+      "      compiler = qstar.cli {\"${4:nvcc}\"},",
+      "    },",
+      "  },",
+      "}",
+      "",
+      "qstar.config \"${5:cuda_debug}\" {",
+      "  toolset = \"//:${1:host}\",",
+      "  lang = {",
+      "    cuda = cuda.options {",
+      "      arch = \"${6:native}\",",
+      "      compile_options = {},",
+      "    },",
+      "  },",
+      "}",
+      "",
+      "qstar.executable \"${7:app}\" {",
+      "  configs = {\"//:${5:cuda_debug}\"},",
+      "  sources = {",
+      "    cuda.object(\"${8:src/main.cu}\"),",
+      "  },",
+      "}"
+    ],
+    "description": "Use the bundled standard CUDA provider."
+  },
   "Language provider manifest": {
     "prefix": "qlanguageprovider",
     "body": [

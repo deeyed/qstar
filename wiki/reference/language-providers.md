@@ -15,7 +15,7 @@ function이 반환한 action template을 consuming target 소유 object artifact
 
 ## Provider Activation
 
-QStar는 표준 Zig/Rust provider를 설치물에 함께 포함한다. 따라서 일반 사용자는 provider
+QStar는 표준 Zig/Rust/CUDA provider를 설치물에 함께 포함한다. 따라서 일반 사용자는 provider
 package를 직접 작성하지 않아도 다음처럼 바로 활성화할 수 있다.
 
 ```lua
@@ -37,7 +37,8 @@ qstar/
 ```
 
 `qstar.use_language("zig")`는 project-local `qstar/languages/zig/zig.qsm`을 먼저 읽고,
-없으면 installed standard provider bundle의 `zig` provider를 읽는다. 명시적 folder form은 project-relative
+없으면 installed standard provider bundle의 `zig` provider를 읽는다. `rust`, `cuda`도 같은
+short-id 규칙을 따른다. 명시적 folder form은 project-relative
 manifest로만 해석된다.
 
 ```lua
@@ -135,7 +136,7 @@ return qstar.language_provider {
 ## Provider Init Scaffold Metadata
 
 `scaffold`는 선택 field다. 있으면 QStar는 `api = "qstar.scaffold/1"`, `tools`,
-`options`, `shapes`를 manifest load 시점에 검증한다. Q212부터 `qstar init`은 primary
+`options`, `shapes`를 manifest load 시점에 검증한다. `qstar init`은 primary
 provider의 shape plan을 읽어 provider별 folder layout, sample source, root `qstar.lua`,
 workspace fragment를 materialize한다. Provider가 요청한 shape를 제공하지 않으면 C fallback
 scaffold와 warning을 사용한다.
@@ -350,6 +351,5 @@ qstar --file qstar.lua -G ninja build //:app
 
 ## 관련 문서
 
-- `glp_roadmap.md`
 - `wiki/reference/object-artifacts.md`
 - `wiki/reference/custom-target.md`

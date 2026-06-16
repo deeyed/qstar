@@ -30,6 +30,7 @@ local zig = qstar.use_language("zig")
 
 `qstar.use_language` activates a provider namespace before `lang.<namespace>`
 is accepted. Built-in `lang.c`, `lang.cxx`, and `lang.asm` are preloaded.
+QStar ships standard `zig`, `rust`, and `cuda` providers.
 
 Provider packages use a manifest plus implementation split:
 
@@ -169,6 +170,21 @@ owned by the consuming target. The GLP backend calls the unit `lower` function
 from `provider.lua` during graph evaluation and stores its action template in
 Graph IR. Stella and Ninja then consume the same `command`, `inputs`, `outputs`,
 and `depfile` contract.
+
+Standard external providers follow the same shape:
+
+```lua
+local cuda = qstar.use_language("cuda")
+
+qstar.config "debug_cuda" {
+  lang = {
+    cuda = cuda.options {
+      arch = "native",
+      compile_options = {},
+    },
+  },
+}
+```
 
 ## Toolsets
 

@@ -18,9 +18,9 @@ Generic Language Provider(GLP)는 이 경계를 정식 provider surface로 확�
 `lang.zig` activation gate, provider-defined option schema, `qstar.source(...)` 기반 source
 unit object lowering을 제공한다. Provider implementation의 lowering function은 `command`,
 `inputs`, `outputs`, `depfile` action template을 만들고, Stella와 Ninja는 이 template을 같은
-backend contract로 실행한다. `zig`와 `rust` provider는 installed standard provider bundle에
-포함되고, project-local `qstar/languages/<id>/<id>.qsm`이 있으면 그 manifest가 우선한다. 설계 정본은 root
-`glp_roadmap.md`다.
+backend contract로 실행한다. `zig`, `rust`, `cuda` provider는 installed standard provider
+bundle에 포함되고, project-local `qstar/languages/<id>/<id>.qsm`이 있으면 그 manifest가
+우선한다. Provider 문법의 정본은 `wiki/reference/language-providers.md`다.
 
 QStar가 하지 않는 일:
 
@@ -61,7 +61,7 @@ QStar가 하지 않는 일:
   implementation을 가진다. Manifest는 `qstar.language_provider { api = "qstar.lang/1", ... }`
   schema로 검증되고, implementation은 제한 provider sandbox에서 로드된다. 사용자는
   `qstar.use_language("<id>")`가 반환한 exported helper table을 통해 `zig.tools`,
-  `zig.options`, `zig.object` 같은 helper를 사용한다. `lang.<namespace>`는 provider activation
+  `rust.options`, `cuda.object` 같은 helper를 사용한다. `lang.<namespace>`는 provider activation
   이후에만 유효하며, provider-defined `options` schema가 unknown option, string, bool, list,
   enum, default metadata를 검증한다. Optional `scaffold` schema는
   `api = "qstar.scaffold/1"`, default tools/options, shape files/targets/fragments를
@@ -357,7 +357,7 @@ qstar.staticlib "core" {
 - `lang.asm`: assembler include dirs, compile options, preprocess flag
 - `wiki/reference/language-providers.md`: built-in provider registry와 external object
   artifact bridge boundary
-- `glp_roadmap.md`: dynamic language provider namespace와 최종 GLP 문법
+- `wiki/reference/language-providers.md`: dynamic language provider namespace와 GLP 문법
 
 공통 option은 target top-level로 되돌리지 말고 `qstar.config`로 선언한다. Config label은
 target의 `configs`에서 참조한다.

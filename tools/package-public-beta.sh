@@ -106,6 +106,10 @@ test -f "$install_root/share/qstar/languages/rust/rust.qsm" || \
 	fail "installed Rust language provider manifest missing"
 test -f "$install_root/share/qstar/languages/rust/provider.lua" || \
 	fail "installed Rust language provider implementation missing"
+test -f "$install_root/share/qstar/languages/cuda/cuda.qsm" || \
+	fail "installed CUDA language provider manifest missing"
+test -f "$install_root/share/qstar/languages/cuda/provider.lua" || \
+	fail "installed CUDA language provider implementation missing"
 test -s "$install_root/share/man/man1/qstar.1" || fail "installed qstar(1) manpage missing"
 test -s "$install_root/share/man/man5/qstar-lua.5" || fail "installed qstar-lua(5) manpage missing"
 
@@ -176,6 +180,8 @@ for entry in \
 	share/doc/qstar/wiki/AI_INDEX.md \
 	share/doc/qstar/wiki/README.md \
 	share/doc/qstar/wiki/reference/qstar-lua.md \
+	share/qstar/languages/cuda/cuda.qsm \
+	share/qstar/languages/cuda/provider.lua \
 	share/qstar/languages/rust/rust.qsm \
 	share/qstar/languages/rust/provider.lua \
 	share/qstar/languages/zig/zig.qsm \
@@ -235,6 +241,10 @@ test -f "$extract_root/share/qstar/languages/rust/rust.qsm" || \
 	fail "extracted Rust language provider manifest missing"
 test -f "$extract_root/share/qstar/languages/rust/provider.lua" || \
 	fail "extracted Rust language provider implementation missing"
+test -f "$extract_root/share/qstar/languages/cuda/cuda.qsm" || \
+	fail "extracted CUDA language provider manifest missing"
+test -f "$extract_root/share/qstar/languages/cuda/provider.lua" || \
+	fail "extracted CUDA language provider implementation missing"
 
 if command -v file >/dev/null 2>&1; then
 	file "$extract_root/bin/qstar" > "$extract_file_report"

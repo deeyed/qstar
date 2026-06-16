@@ -8,15 +8,15 @@ Generic Language Provider(GLP)는 이 경계를 확장하는 정식 provider sur
 runtime은 `qstar.use_language("zig")` 같은 provider 활성화와 `lang.zig` 동적 namespace
 gate를 제공한다. Provider manifest는 `qstar.language_provider { api = "qstar.lang/1",
 ... }` schema로 검증되고, `provider.lua` implementation은 제한 sandbox에서 로드된다.
-`zig`는 QStar가 함께 설치하는 표준 provider이며, 같은 ID의 project-local provider가 있으면
-그 manifest가 먼저 사용된다.
+`zig`, `rust`, `cuda`는 QStar가 함께 설치하는 표준 provider이며, 같은 ID의
+project-local provider가 있으면 그 manifest가 먼저 사용된다.
 Provider가 선언한 `options` schema는 `lang.<namespace>` table의 key와 value type을 검증한다.
 Provider가 선언한 `units` schema와 exported helper는 `zig.object("src/main.zig")` 같은
 source token을 만들 수 있고, backend는 provider lowering function이 반환한 `command`,
 `inputs`, `outputs`, `depfile` action template을 Stella와 Ninja에서 동일하게 실행한다.
 `qstar.custom_target`과 `qstar.output(..., {format = "object"})` object artifact bridge도
-hand-written 외부 compiler flow를 위해 계속 지원한다. 자세한 설계는
-[GLP Roadmap](../glp_roadmap.md)에 둔다.
+hand-written 외부 compiler flow를 위해 계속 지원한다. 자세한 문법은
+[Language Providers](reference/language-providers.md)에 둔다.
 
 이 wiki는 구현 요약이 아니라 “이것만 보고 QStar project를 작성할 수 있는” 한국어
 사용 설명서다. Root file은 `qstar.lua`, subdir fragment는 `<folder>.qst`, helper
@@ -133,7 +133,6 @@ qstar docs --show reference/qstar-lua.md
 - [C Language Options](reference/lang-c.md)
 - [C++ Language Options](reference/lang-cxx.md)
 - [Language Providers](reference/language-providers.md)
-- [GLP Roadmap](../glp_roadmap.md)
 - [Object Artifacts](reference/object-artifacts.md)
 - [Custom Target](reference/custom-target.md)
 - [Run Target](reference/run-target.md)
