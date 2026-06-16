@@ -304,6 +304,68 @@ output_path_table_path(lua_State *L, int idx)
 	return path;
 }
 
+static int
+source_unit_suffix_matches(const struct qstar_language_unit_schema *unit,
+    const char *path)
+{
+	size_t i;
+
+	if (!unit || !path)
+		return 0;
+	for (i = 0; i < unit->suffixes.len; i++) {
+		if (path_has_suffix(path, unit->suffixes.items[i]))
+			return 1;
+	}
+	return 0;
+}
+
+static int
+read_source_unit_table(lua_State *L, int idx, struct qstar_graph *graph,
+    const char *field, const char **path, const char **provider,
+    const char **unit_name, const struct qstar_language_unit_schema **unit)
+{
+	const struct qstar_language_provider *lang;
+	const char *kind;
+
+	if (idx < 0)
+		idx = lua_gettop(L) + idx + 1;
+	*path = NULL;
+	*provider = NULL;
+	*unit_name = NULL;
+	*unit = NULL;
+	kind = qstar_table_kind(L, idx);
+	if (!kind || strcmp(kind, "source_unit") != 0)
+		return qstar_set_error(graph, "qstar: field '%s' contains non-string item",
+		    field);
+	lua_getfield(L, idx, "path");
+	*path = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+	lua_pop(L, 1);
+	lua_getfield(L, idx, "language");
+	*provider = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+	lua_pop(L, 1);
+	lua_getfield(L, idx, "unit");
+	*unit_name = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+	lua_pop(L, 1);
+	if (!*path || !*provider || !*unit_name)
+		return qstar_set_error(graph,
+		    "qstar: field '%s' contains malformed qstar.source token", field);
+	lang = qstar_graph_find_language_provider(graph, *provider);
+	if (!lang)
+		return qstar_set_error(graph,
+		    "qstar: source token uses inactive language provider '%s'",
+		    *provider);
+	*unit = qstar_language_provider_find_unit(lang, *unit_name);
+	if (!*unit)
+		return qstar_set_error(graph,
+		    "qstar: source token uses unknown unit '%s.%s'",
+		    *provider, *unit_name);
+	if (!source_unit_suffix_matches(*unit, *path))
+		return qstar_set_error(graph,
+		    "qstar: source '%s' does not match suffixes for unit '%s.%s'",
+		    *path, *provider, *unit_name);
+	return 0;
+}
+
 /** QStar Lua helper가 넘긴 placeholder table을 argv token 문자열로 변환한다. */
 static int
 format_placeholder_token(lua_State *L, int idx, char *dst, size_t dstlen)
@@ -380,6 +442,78 @@ read_cli_command(lua_State *L, int idx, struct qstar_string_list *list,
 		}
 		lua_pop(L, 1);
 	}
+	return 0;
+}
+
+static int
+push_source_unit_item(lua_State *L, int idx, struct qstar_target *target,
+    struct qstar_graph *graph, const char *field)
+{
+	const struct qstar_language_unit_schema *unit;
+	const char *path, *provider, *unit_name;
+	size_t source_index;
+
+	if (read_source_unit_table(L, idx, graph, field, &path, &provider,
+	    &unit_name, &unit) < 0)
+		return -1;
+	source_index = target->sources.len;
+	if (qstar_string_list_push(&target->sources, path) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	return qstar_target_add_provider_source_unit(graph, target, source_index, path,
+	    provider, unit_name, unit->emits, unit->lower);
+}
+
+static int
+read_sources_field(lua_State *L, int table, const char *field,
+    struct qstar_target *target, struct qstar_graph *graph)
+{
+	size_t n, i;
+	const char *s, *kind;
+
+	lua_getfield(L, table, field);
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: field '%s' must be a list", field);
+	}
+	n = lua_rawlen(L, -1);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, -1, (lua_Integer)i);
+		if (lua_isstring(L, -1)) {
+			s = lua_tostring(L, -1);
+			if (qstar_string_list_push(&target->sources, s) < 0) {
+				lua_pop(L, 2);
+				return qstar_set_error(graph, "qstar: out of memory");
+			}
+		} else if (lua_istable(L, -1)) {
+			kind = qstar_table_kind(L, -1);
+			if (kind && strcmp(kind, "output_path") == 0) {
+				s = output_path_table_path(L, -1);
+				if (!s || qstar_string_list_push(&target->sources, s) < 0) {
+					lua_pop(L, 2);
+					return qstar_set_error(graph, "qstar: out of memory");
+				}
+			} else if (kind && strcmp(kind, "source_unit") == 0) {
+				if (push_source_unit_item(L, -1, target, graph, field) < 0) {
+					lua_pop(L, 2);
+					return -1;
+				}
+			} else {
+				lua_pop(L, 2);
+				return qstar_set_error(graph,
+				    "qstar: field '%s' contains non-string item", field);
+			}
+		} else {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: field '%s' contains non-string item", field);
+		}
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
 	return 0;
 }
 
@@ -1562,6 +1696,64 @@ valid_tool_role_component(const char *s)
 }
 
 static int
+qstar_lua_source(lua_State *L)
+{
+	struct qstar_lua_context *ctx;
+	struct qstar_graph *graph;
+	const struct qstar_language_provider *provider;
+	const struct qstar_language_unit_schema *unit_schema;
+	const char *path, *language, *unit;
+
+	ctx = get_context(L);
+	graph = ctx->graph;
+	path = luaL_checkstring(L, 1);
+	if (!qstar_path_is_package_relative(path))
+		return luaL_error(L,
+		    "qstar: source path '%s' must be package-relative (%s)",
+		    path, qstar_path_package_relative_reason(path));
+	if (!lua_istable(L, 2))
+		return luaL_error(L,
+		    "qstar: qstar.source metadata must be a table");
+	language = check_string_field(L, 2, "language");
+	if (!language)
+		language = check_string_field(L, 2, "provider");
+	unit = check_string_field(L, 2, "unit");
+	if (!valid_tool_role_component(language) || !valid_tool_role_component(unit))
+		return luaL_error(L,
+		    "qstar: qstar.source metadata requires language and unit names");
+	provider = qstar_graph_find_language_provider(graph, language);
+	if (!provider)
+		return luaL_error(L,
+		    "qstar: source language '%s' is not active; use qstar.use_language(\"%s\") first",
+		    language, language);
+	unit_schema = qstar_language_provider_find_unit(provider, unit);
+	if (!unit_schema)
+		return luaL_error(L,
+		    "qstar: language provider '%s' has no source unit '%s'",
+		    language, unit);
+	if (strcmp(unit_schema->emits, "object") != 0)
+		return luaL_error(L,
+		    "qstar: language provider source unit '%s.%s' does not emit objects",
+		    language, unit);
+	if (!source_unit_suffix_matches(unit_schema, path))
+		return luaL_error(L,
+		    "qstar: source '%s' does not match suffixes for unit '%s.%s'",
+		    path, language, unit);
+	lua_newtable(L);
+	lua_pushstring(L, "source_unit");
+	lua_setfield(L, -2, "__qstar_kind");
+	lua_pushstring(L, path);
+	lua_setfield(L, -2, "path");
+	lua_pushstring(L, language);
+	lua_setfield(L, -2, "language");
+	lua_pushstring(L, language);
+	lua_setfield(L, -2, "provider");
+	lua_pushstring(L, unit);
+	lua_setfield(L, -2, "unit");
+	return 1;
+}
+
+static int
 valid_tool_role_name(const char *s)
 {
 	char component[64];
@@ -2148,7 +2340,7 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	if (read_list_field(L, table_index, "configs", &target->configs, graph, 1,
 	    target->fragment_dir) < 0 ||
 	    qstar_graph_apply_target_configs(graph, target) < 0 ||
-	    read_list_field(L, table_index, "sources", &target->sources, graph, 0, target->fragment_dir) < 0 ||
+	    read_sources_field(L, table_index, "sources", target, graph) < 0 ||
 	    read_list_field(L, table_index, "deps", &target->deps, graph, 1, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "public_deps", &target->deps, graph, 1, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "private_deps", &target->private_deps, graph, 1, target->fragment_dir) < 0 ||
@@ -4164,6 +4356,55 @@ add_language_provider_option_schemas(lua_State *L, int manifest,
 	return 0;
 }
 
+static int
+add_language_provider_unit_schemas(lua_State *L, int manifest,
+    struct qstar_graph *graph, struct qstar_language_provider *provider)
+{
+	struct qstar_string_list suffixes;
+	const char *name, *emits, *lower, *deps;
+	int unit_idx;
+
+	manifest = qstar_lua_abs_index(L, manifest);
+	lua_getfield(L, manifest, "units");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	lua_pushnil(L);
+	while (lua_next(L, -2) != 0) {
+		memset(&suffixes, 0, sizeof(suffixes));
+		name = lua_tostring(L, -2);
+		unit_idx = lua_gettop(L);
+		lua_getfield(L, unit_idx, "suffixes");
+		if (read_exact_string_list_value(L, -1, &suffixes, graph,
+		    "language provider unit suffixes") < 0) {
+			lua_pop(L, 4);
+			qstar_string_list_free(&suffixes);
+			return -1;
+		}
+		lua_pop(L, 1);
+		lua_getfield(L, unit_idx, "emits");
+		emits = lua_tostring(L, -1);
+		lua_pop(L, 1);
+		lua_getfield(L, unit_idx, "lower");
+		lower = lua_tostring(L, -1);
+		lua_pop(L, 1);
+		lua_getfield(L, unit_idx, "deps");
+		deps = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+		lua_pop(L, 1);
+		if (qstar_language_provider_add_unit_schema(graph, provider, name,
+		    &suffixes, emits, lower, deps) < 0) {
+			lua_pop(L, 3);
+			qstar_string_list_free(&suffixes);
+			return -1;
+		}
+		qstar_string_list_free(&suffixes);
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
 /** qstar.use_language("id"): provider manifest를 읽고 lang.<namespace>를 활성화한다. */
 static int
 qstar_lua_use_language(lua_State *L)
@@ -4249,6 +4490,10 @@ qstar_lua_use_language(lua_State *L)
 		return luaL_error(L, "%s", graph->error);
 	}
 	if (add_language_provider_option_schemas(L, manifest_idx, graph, provider) < 0) {
+		lua_pop(L, 3);
+		return luaL_error(L, "%s", graph->error);
+	}
+	if (add_language_provider_unit_schemas(L, manifest_idx, graph, provider) < 0) {
 		lua_pop(L, 3);
 		return luaL_error(L, "%s", graph->error);
 	}
@@ -4442,6 +4687,7 @@ push_provider_env(lua_State *L)
 	qstar = lua_gettop(L);
 	set_table_cfunction(L, qstar, "provider_tools", qstar_lua_provider_tools);
 	set_table_cfunction(L, qstar, "language_options", qstar_lua_language_options);
+	set_table_cfunction(L, qstar, "source", qstar_lua_source);
 	set_table_cfunction(L, qstar, "join", qstar_lua_join);
 	set_table_cfunction(L, qstar, "copy", qstar_lua_copy);
 	set_table_cfunction(L, qstar, "append", qstar_lua_append);
@@ -4571,6 +4817,8 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "output");
 	lua_pushcfunction(L, qstar_lua_input);
 	lua_setfield(L, -2, "input");
+	lua_pushcfunction(L, qstar_lua_source);
+	lua_setfield(L, -2, "source");
 	lua_pushcfunction(L, qstar_lua_target_file);
 	lua_setfield(L, -2, "target_file");
 	lua_pushcfunction(L, qstar_lua_stage_file);

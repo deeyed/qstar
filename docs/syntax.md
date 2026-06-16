@@ -43,6 +43,14 @@ return qstar.language_provider {
   tools = {
     compiler = {role = "zig.compiler", required = true},
   },
+  units = {
+    object = {
+      suffixes = {".zig"},
+      emits = "object",
+      lower = "compile_object",
+      deps = "none",
+    },
+  },
   options = {
     optimize = {
       type = "enum",
@@ -61,6 +69,7 @@ return qstar.language_provider {
   exports = {
     tools = "tools",
     options = "options",
+    object = "object",
   },
 }
 ```
@@ -77,6 +86,13 @@ end
 
 function P.options(t)
   return qstar.language_options("zig", t or {})
+end
+
+function P.object(path, opts)
+  return qstar.source(path, qstar.merge({
+    language = "zig",
+    unit = "object",
+  }, opts or {}))
 end
 
 return P
@@ -99,7 +115,20 @@ qstar.config "debug_zig" {
     },
   },
 }
+
+qstar.staticlib "core" {
+  configs = {"//:debug_zig"},
+  sources = {
+    zig.object("src/main.zig"),
+  },
+}
 ```
+
+Provider `units` schemas let exported helpers create typed source tokens. A
+source helper such as `zig.object("src/main.zig")` lowers to an object artifact
+owned by the consuming target. The current GLP backend uses the provider
+compiler role and the generic object contract `compiler -c <source> -o <object>`;
+provider-specific argv lowering is reserved for a later provider backend API.
 
 ## Toolsets
 

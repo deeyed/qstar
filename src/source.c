@@ -399,7 +399,7 @@ validate_source_list(struct qstar_graph *graph, const struct qstar_target *targe
 			return qstar_set_error_origin(graph, target->origin_file,
 			    target->origin_line, "sources", target->label,
 			    "qstar: duplicate source '%s' in '%s'", path, target->label);
-		if (qstar_source_classify(path, NULL) < 0)
+		if (qstar_target_source_classify(target, i, NULL) < 0)
 			return qstar_set_error_origin(graph, target->origin_file,
 			    target->origin_line, "sources", target->label,
 			    "qstar: unsupported source extension '%s' in '%s'; %s",
@@ -891,11 +891,13 @@ qstar_graph_validate_file_inputs(struct qstar_graph *graph)
 
 /** source discovery 결과 하나를 deterministic metadata line으로 출력한다. */
 static void
-dump_source(FILE *out, const char *path)
+dump_source(FILE *out, const struct qstar_target *target, size_t index)
 {
 	struct qstar_source_info info;
+	const char *path;
 
-	if (qstar_source_classify(path, &info) < 0)
+	path = target->sources.items[index];
+	if (qstar_target_source_classify(target, index, &info) < 0)
 		return;
 	fprintf(out,
 	    "  source_file path=%s language=%s tool=%s provider=%s provider_role=%s toolset_role=%s output_group=%s role=compile\n",
@@ -912,5 +914,5 @@ qstar_target_dump_source_discovery(const struct qstar_target *target, FILE *out)
 	fprintf(out, "  source_discovery explicit=%zu modules=%s status=explicit-only\n",
 	    target->sources.len, target->modules.present ? "present" : "absent");
 	for (i = 0; i < target->sources.len; i++)
-		dump_source(out, target->sources.items[i]);
+		dump_source(out, target, i);
 }

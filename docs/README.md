@@ -10,7 +10,7 @@ Current DSL surface:
 - `qstar.toolset`
 - `qstar.use_language`
 - provider authoring: `qstar.language_provider`, `qstar.provider_tools`,
-  `qstar.language_options`
+  `qstar.language_options`, `qstar.source`
 - `qstar.config`
 - artifact targets: `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`,
   `qstar.test`
@@ -31,8 +31,11 @@ Generic Language Provider (GLP) note: the current runtime preloads built-in
 implementation is loaded in a restricted provider sandbox and only `exports`
 are returned to user code. Provider-defined `options` schemas now validate
 `lang.<namespace>` tables with string, bool, list, enum, and default metadata.
-Full external source lowering is still roadmap work, so unsupported source
-languages use the object artifact bridge until their provider backend exists.
+Provider-defined `units` can now expose helpers such as
+`zig.object("src/main.zig")`; these lower to consuming-target-owned object
+artifacts through the generic `compiler -c <source> -o <object>` contract.
+The object artifact bridge remains available for provider-specific command
+shapes until richer provider argv lowering exists.
 The formal roadmap for making language providers a first-class,
 language-neutral extension surface is tracked in `../glp_roadmap.md`.
 

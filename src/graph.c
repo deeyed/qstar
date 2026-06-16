@@ -103,6 +103,8 @@ qstar_graph_init(struct qstar_graph *graph)
 static void
 free_target(struct qstar_target *target)
 {
+	size_t i;
+
 	free(target->label);
 	free(target->name);
 	free(target->kind);
@@ -113,6 +115,15 @@ free_target(struct qstar_target *target)
 	qstar_string_list_free(&target->modules.exclude);
 	qstar_string_list_free(&target->configs);
 	qstar_string_list_free(&target->sources);
+	for (i = 0; i < target->provider_source_len; i++) {
+		free(target->provider_sources[i].path);
+		free(target->provider_sources[i].provider);
+		free(target->provider_sources[i].unit);
+		free(target->provider_sources[i].emits);
+		free(target->provider_sources[i].lower);
+		free(target->provider_sources[i].toolset_role);
+	}
+	free(target->provider_sources);
 	qstar_string_list_free(&target->public_headers);
 	qstar_string_list_free(&target->private_headers);
 	qstar_string_list_free(&target->include_dirs);
@@ -196,6 +207,14 @@ free_language_provider(struct qstar_language_provider *provider)
 		qstar_string_list_free(&provider->options[i].values);
 	}
 	free(provider->options);
+	for (i = 0; i < provider->unit_len; i++) {
+		free(provider->units[i].name);
+		qstar_string_list_free(&provider->units[i].suffixes);
+		free(provider->units[i].emits);
+		free(provider->units[i].lower);
+		free(provider->units[i].deps);
+	}
+	free(provider->units);
 }
 
 /** generated action skeleton이 소유한 문자열과 list를 해제한다. */
@@ -1223,6 +1242,89 @@ qstar_language_provider_add_option_schema(struct qstar_graph *graph,
 	return 0;
 }
 
+int
+qstar_language_provider_add_unit_schema(struct qstar_graph *graph,
+    struct qstar_language_provider *provider, const char *name,
+    const struct qstar_string_list *suffixes, const char *emits, const char *lower,
+    const char *deps)
+{
+	struct qstar_language_unit_schema *units, *unit;
+	size_t cap, i;
+
+	if (!provider || !name || !*name || !suffixes || suffixes->len == 0 ||
+	    !emits || !*emits || !lower || !*lower)
+		return qstar_set_error(graph, "qstar: invalid language provider unit schema");
+	for (i = 0; i < provider->unit_len; i++) {
+		if (provider->units[i].name && strcmp(provider->units[i].name, name) == 0)
+			return qstar_set_error(graph,
+			    "qstar: duplicate language provider unit '%s.%s'",
+			    provider->namespace, name);
+	}
+	if (provider->unit_len == provider->unit_cap) {
+		cap = provider->unit_cap ? provider->unit_cap * 2 : 4;
+		units = realloc(provider->units, cap * sizeof(provider->units[0]));
+		if (!units)
+			return qstar_set_error(graph, "qstar: out of memory");
+		provider->units = units;
+		provider->unit_cap = cap;
+	}
+	unit = &provider->units[provider->unit_len++];
+	memset(unit, 0, sizeof(*unit));
+	unit->name = qstar_strdup(name);
+	unit->emits = qstar_strdup(emits);
+	unit->lower = qstar_strdup(lower);
+	unit->deps = qstar_strdup(deps ? deps : "");
+	if (!unit->name || !unit->emits || !unit->lower || !unit->deps ||
+	    copy_string_list(&unit->suffixes, suffixes) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	return 0;
+}
+
+int
+qstar_target_add_provider_source_unit(struct qstar_graph *graph,
+    struct qstar_target *target, size_t source_index, const char *path,
+    const char *provider, const char *unit, const char *emits, const char *lower)
+{
+	struct qstar_provider_source_unit *items, *item;
+	char role[128];
+	size_t cap, i;
+
+	if (!target || !path || !*path || !provider || !*provider || !unit ||
+	    !*unit || !emits || !*emits || !lower || !*lower)
+		return qstar_set_error(graph, "qstar: invalid provider source unit");
+	for (i = 0; i < target->provider_source_len; i++) {
+		if (target->provider_sources[i].source_index == source_index)
+			return qstar_set_error(graph,
+			    "qstar: duplicate provider source metadata for '%s'",
+			    target->label ? target->label : "<target>");
+	}
+	if (snprintf(role, sizeof(role), "%s.compiler", provider) >=
+	    (int)sizeof(role))
+		return qstar_set_error(graph, "qstar: provider source tool role is too long");
+	if (target->provider_source_len == target->provider_source_cap) {
+		cap = target->provider_source_cap ? target->provider_source_cap * 2 : 4;
+		items = realloc(target->provider_sources,
+		    cap * sizeof(target->provider_sources[0]));
+		if (!items)
+			return qstar_set_error(graph, "qstar: out of memory");
+		target->provider_sources = items;
+		target->provider_source_cap = cap;
+	}
+	item = &target->provider_sources[target->provider_source_len++];
+	memset(item, 0, sizeof(*item));
+	item->source_index = source_index;
+	item->path = qstar_strdup(path);
+	item->provider = qstar_strdup(provider);
+	item->unit = qstar_strdup(unit);
+	item->emits = qstar_strdup(emits);
+	item->lower = qstar_strdup(lower);
+	item->toolset_role = qstar_strdup(role);
+	if (!item->path || !item->provider || !item->unit || !item->emits ||
+	    !item->lower || !item->toolset_role)
+		return qstar_set_error(graph, "qstar: out of memory");
+	return 0;
+}
+
 const struct qstar_language_option_schema *
 qstar_language_provider_find_option(const struct qstar_language_provider *provider,
     const char *name)
@@ -1235,6 +1337,37 @@ qstar_language_provider_find_option(const struct qstar_language_provider *provid
 		if (provider->options[i].name &&
 		    strcmp(provider->options[i].name, name) == 0)
 			return &provider->options[i];
+	}
+	return NULL;
+}
+
+const struct qstar_language_unit_schema *
+qstar_language_provider_find_unit(const struct qstar_language_provider *provider,
+    const char *name)
+{
+	size_t i;
+
+	if (!provider || !name || !*name)
+		return NULL;
+	for (i = 0; i < provider->unit_len; i++) {
+		if (provider->units[i].name &&
+		    strcmp(provider->units[i].name, name) == 0)
+			return &provider->units[i];
+	}
+	return NULL;
+}
+
+const struct qstar_provider_source_unit *
+qstar_target_provider_source_unit(const struct qstar_target *target,
+    size_t source_index)
+{
+	size_t i;
+
+	if (!target)
+		return NULL;
+	for (i = 0; i < target->provider_source_len; i++) {
+		if (target->provider_sources[i].source_index == source_index)
+			return &target->provider_sources[i];
 	}
 	return NULL;
 }
@@ -2065,6 +2198,8 @@ dump_toolset(const struct qstar_toolset *toolset, FILE *out)
 static void
 dump_language_provider(const struct qstar_language_provider *provider, FILE *out)
 {
+	size_t i;
+
 	fprintf(out,
 	    "language_provider namespace=%s id=%s api=%s version=%s dir=%s manifest=%s implementation=%s\n",
 	    provider->namespace && *provider->namespace ? provider->namespace : "<unknown>",
@@ -2075,6 +2210,16 @@ dump_language_provider(const struct qstar_language_provider *provider, FILE *out
 	    provider->manifest && *provider->manifest ? provider->manifest : "<unknown>",
 	    provider->implementation && *provider->implementation ?
 	    provider->implementation : "<unknown>");
+	for (i = 0; i < provider->unit_len; i++) {
+		fprintf(out, "  unit %s emits=%s lower=%s deps=%s suffixes ",
+		    provider->units[i].name ? provider->units[i].name : "<unknown>",
+		    provider->units[i].emits ? provider->units[i].emits : "<unknown>",
+		    provider->units[i].lower ? provider->units[i].lower : "<unknown>",
+		    provider->units[i].deps && *provider->units[i].deps ?
+		    provider->units[i].deps : "<none>");
+		dump_list(out, &provider->units[i].suffixes);
+		fputc('\n', out);
+	}
 }
 
 /** QStar Graph IR를 deterministic explain text로 출력한다. */

@@ -1997,6 +1997,186 @@ contains "$tmp/language-provider-json.out" "\"language_provider_count\":1"
 contains "$tmp/language-provider-json.out" "\"namespace\":\"zig\""
 contains "$tmp/language-provider-json.out" "\"implementation\":\"qstar/languages/zig/provider.lua\""
 
+mkdir -p "$tmp/provider-source-unit/src" "$tmp/provider-source-unit/tools" "$tmp/provider-source-unit/qstar/languages/zig"
+cat > "$tmp/provider-source-unit/src/main.zig" <<'EOF'
+pub fn value() i32 {
+    return 42;
+}
+EOF
+cat > "$tmp/provider-source-unit/tools/zigcc" <<'EOF'
+#!/bin/sh
+out=
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-o" ]; then
+    shift
+    out=$1
+  fi
+  shift
+done
+if [ -z "$out" ]; then
+  exit 2
+fi
+mkdir -p "$(dirname "$out")"
+printf 'provider object\n' > "$out"
+EOF
+chmod +x "$tmp/provider-source-unit/tools/zigcc"
+cat > "$tmp/provider-source-unit/qstar/languages/zig/zig.qsm" <<'EOF'
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig",
+  version = "0.1",
+  namespace = "zig",
+  implementation = "provider.lua",
+  tools = {
+    compiler = {role = "zig.compiler", required = true},
+  },
+  units = {
+    object = {
+      suffixes = {".zig"},
+      emits = "object",
+      lower = "compile_object",
+      deps = "none",
+    },
+  },
+  exports = {
+    tools = "tools",
+    object = "object",
+  },
+}
+EOF
+cat > "$tmp/provider-source-unit/qstar/languages/zig/provider.lua" <<'EOF'
+local P = {}
+
+function P.tools(t)
+  return qstar.provider_tools("zig", {
+    compiler = t.compiler,
+  })
+end
+
+function P.object(path, opts)
+  return qstar.source(path, qstar.merge({
+    language = "zig",
+    unit = "object",
+  }, opts or {}))
+end
+
+return P
+EOF
+cat > "$tmp/provider-source-unit/qstar.lua" <<'EOF'
+local zig = qstar.use_language("zig")
+
+qstar.toolset "host" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    zig = zig.tools {
+      compiler = qstar.cli {"tools/zigcc"},
+    },
+  },
+}
+
+qstar.config "use_host" {
+  toolset = "//:host",
+}
+
+qstar.staticlib "core" {
+  configs = {"//:use_host"},
+  sources = {
+    zig.object("src/main.zig"),
+  },
+}
+EOF
+"$qstar" --file "$tmp/provider-source-unit/qstar.lua" check > "$tmp/provider-source-unit-check.out" 2> "$tmp/provider-source-unit-check.err"
+"$qstar" --file "$tmp/provider-source-unit/qstar.lua" --dump-graph > "$tmp/provider-source-unit-graph.out" 2> "$tmp/provider-source-unit-graph.err"
+contains "$tmp/provider-source-unit-graph.out" "unit object emits=object lower=compile_object deps=none suffixes [.zig]"
+"$qstar" --file "$tmp/provider-source-unit/qstar.lua" explain //:core > "$tmp/provider-source-unit-explain.out" 2> "$tmp/provider-source-unit-explain.err"
+contains "$tmp/provider-source-unit-explain.out" "source_file path=src/main.zig language=zig tool=provider-compiler provider=zig provider_role=compiler toolset_role=zig.compiler output_group=objects role=compile"
+"$qstar" --file "$tmp/provider-source-unit/qstar.lua" dry-run //:core > "$tmp/provider-source-unit-dry-run.out" 2> "$tmp/provider-source-unit-dry-run.err"
+contains "$tmp/provider-source-unit-dry-run.out" "dry_run_step id=//:core:compile:0 owner=//:core kind=compile language=zig tool=provider-compiler"
+contains "$tmp/provider-source-unit-dry-run.out" "tools/zigcc"
+"$qstar" --file "$tmp/provider-source-unit/qstar.lua" build //:core > "$tmp/provider-source-unit-build.out" 2> "$tmp/provider-source-unit-build.err"
+if ! find "$tmp/provider-source-unit/build" -name obj0.o -type f | grep -q .; then
+  fail "provider source object was not produced"
+fi
+cat > "$tmp/provider-source-unit/qstar.lua" <<'EOF'
+local zig = qstar.use_language("zig")
+
+qstar.toolset "missing" {
+  tools = {
+    archive = qstar.cli {"ar"},
+  },
+}
+
+qstar.config "use_missing" {
+  toolset = "//:missing",
+}
+
+qstar.staticlib "bad" {
+  configs = {"//:use_missing"},
+  sources = {
+    zig.object("src/main.zig"),
+  },
+}
+EOF
+if "$qstar" --file "$tmp/provider-source-unit/qstar.lua" build //:bad > "$tmp/provider-source-unit-missing-tool.out" 2> "$tmp/provider-source-unit-missing-tool.err"; then
+  fail "provider source missing tool role unexpectedly succeeded"
+fi
+contains "$tmp/provider-source-unit-missing-tool.err" "tool role 'zig.compiler' is not configured"
+cat > "$tmp/provider-source-unit/qstar.lua" <<'EOF'
+local zig = qstar.use_language("zig")
+
+qstar.toolset "host" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    zig = zig.tools {
+      compiler = qstar.cli {"tools/zigcc"},
+    },
+  },
+}
+
+qstar.config "use_host" {
+  toolset = "//:host",
+}
+
+qstar.staticlib "bad" {
+  configs = {"//:use_host"},
+  sources = {"src/main.zig"},
+}
+EOF
+if "$qstar" --file "$tmp/provider-source-unit/qstar.lua" check > "$tmp/provider-source-unit-raw.out" 2> "$tmp/provider-source-unit-raw.err"; then
+  fail "raw provider source unexpectedly succeeded"
+fi
+contains "$tmp/provider-source-unit-raw.err" "unsupported source extension 'src/main.zig'"
+cat > "$tmp/provider-source-unit/src/not_zig.c" <<'EOF'
+int not_zig(void) { return 0; }
+EOF
+cat > "$tmp/provider-source-unit/qstar.lua" <<'EOF'
+local zig = qstar.use_language("zig")
+
+qstar.toolset "host" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    zig = zig.tools {
+      compiler = qstar.cli {"tools/zigcc"},
+    },
+  },
+}
+
+qstar.config "use_host" {
+  toolset = "//:host",
+}
+
+qstar.staticlib "bad" {
+  configs = {"//:use_host"},
+  sources = {
+    zig.object("src/not_zig.c"),
+  },
+}
+EOF
+if "$qstar" --file "$tmp/provider-source-unit/qstar.lua" check > "$tmp/provider-source-unit-suffix.out" 2> "$tmp/provider-source-unit-suffix.err"; then
+  fail "provider source suffix mismatch unexpectedly succeeded"
+fi
+contains "$tmp/provider-source-unit-suffix.err" "does not match suffixes for unit 'zig.object'"
+
 mkdir -p "$tmp/language-provider-options/qstar/languages/zig"
 cat > "$tmp/language-provider-options/qstar/languages/zig/zig.qsm" <<'EOF'
 return qstar.language_provider {

@@ -133,7 +133,7 @@ qstar_target_has_compile_provider(const struct qstar_target *target, const char 
 	if (!target || !provider)
 		return 0;
 	for (i = 0; i < target->sources.len; i++) {
-		if (qstar_source_classify(target->sources.items[i], &source) == 0 &&
+		if (qstar_target_source_classify(target, i, &source) == 0 &&
 		    qstar_source_requires_compile(&source) &&
 		    strcmp(source.provider, provider) == 0)
 			return 1;
@@ -186,6 +186,31 @@ qstar_source_classify(const char *path, struct qstar_source_info *info)
 	if (info) {
 		*info = *rule;
 		info->path = path;
+	}
+	return 0;
+}
+
+int
+qstar_target_source_classify(const struct qstar_target *target, size_t source_index,
+    struct qstar_source_info *info)
+{
+	const struct qstar_provider_source_unit *unit;
+
+	if (!target || source_index >= target->sources.len)
+		return -1;
+	unit = qstar_target_provider_source_unit(target, source_index);
+	if (!unit)
+		return qstar_source_classify(target->sources.items[source_index], info);
+	if (info) {
+		info->path = unit->path ? unit->path : target->sources.items[source_index];
+		info->language = unit->provider ? unit->provider : "unknown";
+		info->tool_role = "provider-compiler";
+		info->provider = unit->provider ? unit->provider : "unknown";
+		info->provider_role = "compiler";
+		info->toolset_role = unit->toolset_role ? unit->toolset_role : "";
+		info->output_group = "objects";
+		info->compile_input = 1;
+		info->header_input = 0;
 	}
 	return 0;
 }
@@ -270,7 +295,7 @@ description_target_uses_cxx(const struct qstar_target *target)
 	if (!target)
 		return 0;
 	for (i = 0; i < target->sources.len; i++) {
-		if (qstar_source_classify(target->sources.items[i], &source) == 0 &&
+		if (qstar_target_source_classify(target, i, &source) == 0 &&
 		    (strcmp(source.language, "cxx") == 0 ||
 		    strcmp(source.language, "cxx-module") == 0))
 			return 1;

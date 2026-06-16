@@ -10,13 +10,15 @@ QStar는 C/C++/ASM을 잘 지원하지만 특정 언어에 종속되지 않는 �
 현재 runtime은 built-in `c`, `cxx`, `asm` provider namespace를 preloaded registry로
 다루며, public `lang.c`, `lang.cxx`, `lang.asm` syntax는 계속 유지한다. QStar는 build
 graph, command plan, local executor, stage/package, run smoke, lint/LSP authoring UX를
-담당한다. C/C++/ASM 외 언어의 의미론은 외부 compiler와 object artifact bridge가 맡는다.
+담당한다. C/C++/ASM 외 언어의 의미론은 외부 compiler와 GLP source unit 또는 object artifact
+bridge가 맡는다.
 
 Generic Language Provider(GLP)는 이 경계를 다음 정식 provider surface로 확장하는
 로드맵이다. 현재 runtime은 `qstar.use_language("zig")`, provider namespace toolset, 동적
-`lang.zig` activation gate를 제공한다. 외부 source suffix classification과 backend lowering은
-아직 후속 GLP 작업이므로, provider backend가 없는 언어는 object artifact bridge가 정식
-경로다. 설계 정본은 root `glp_roadmap.md`다.
+`lang.zig` activation gate, provider-defined option schema, `qstar.source(...)` 기반 source
+unit object lowering을 제공한다. 현재 source unit lowering은 generic
+`compiler -c <source> -o <object>` contract이며, provider별 복잡한 argv lowering은 후속 GLP
+작업이다. 설계 정본은 root `glp_roadmap.md`다.
 
 QStar가 하지 않는 일:
 
@@ -47,19 +49,19 @@ QStar가 하지 않는 일:
 - 산출물 기본 위치는 `build/qstar`다.
 - generated action output 기본 root는 `generated`이고, `qstar.project.generated_dir`로
   package-relative generated root를 바꿀 수 있다.
-- QStar가 직접 지원하지 않는 언어 source는 `sources`에 그대로 넣지 않는다. 외부 compiler를
-  `qstar.custom_target`으로 호출하고 `qstar.output(path, {format = "object"})`로 `.o` 또는
-  `.obj`를 만든 뒤, consuming target의 `sources`에 그 generated object를 넣는다. QStar는
-  Objective-C, Rust, Zig, Swift 같은 언어 의미론을 파싱하거나 소유하지 않고 object artifact
-  edge만 관리한다.
+- QStar가 직접 지원하지 않는 언어 source는 raw string으로 `sources`에 그대로 넣지 않는다.
+  활성화된 GLP provider가 `zig.object("src/main.zig")` 같은 helper로 `qstar.source(...)`
+  token을 만들고, QStar가 consuming target 소유의 object output으로 낮춘다. 더 세밀한 외부
+  compiler 호출이 필요하면 `qstar.custom_target`과 `qstar.output(path, {format = "object"})`
+  bridge도 계속 사용할 수 있다.
 - GLP provider는 `qstar/languages/<id>/<id>.qsm` manifest와 `provider.lua` implementation을
   가진다. Manifest는 `qstar.language_provider { api = "qstar.lang/1", ... }` schema로
   검증되고, implementation은 제한 provider sandbox에서 로드된다. 사용자는
   `qstar.use_language("<id>")`가 반환한 exported helper table을 통해 `zig.tools`,
-  `zig.options` 같은 helper를 사용한다. `lang.<namespace>`는 provider activation 이후에만
-  유효하며, provider-defined `options` schema가 unknown option, string, bool, list, enum,
-  default metadata를 검증한다. `zig.object` 같은 source helper와 backend lowering은 후속
-  작업이다.
+  `zig.options`, `zig.object` 같은 helper를 사용한다. `lang.<namespace>`는 provider activation
+  이후에만 유효하며, provider-defined `options` schema가 unknown option, string, bool, list,
+  enum, default metadata를 검증한다. 현재 source unit lowering은 generic
+  `compiler -c <source> -o <object>` contract이며 provider별 argv lowering은 후속 작업이다.
 - CLI `-B path`는 `qstar.project.build_dir`보다 우선한다.
 - CLI `-G auto`는 현재 `stella`로 resolve된다.
 - CLI `-G ninja build [label]`은 C/C++/ASM compile, `qstar.configure_file`,

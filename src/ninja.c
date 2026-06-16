@@ -383,7 +383,7 @@ validate_ninja_compile_source(struct qstar_graph *graph, const struct qstar_targ
 		    "sources", target->label,
 		    "qstar: ninja backend MVP does not support C++ module source '%s'",
 		    target->sources.items[index]);
-	if (!qstar_language_provider_lookup(source->provider) ||
+	if (!qstar_graph_language_provider_is_available(graph, source->provider) ||
 	    !qstar_source_toolset_role(source)[0])
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "sources", target->label,
@@ -399,7 +399,7 @@ target_source_object_input(struct qstar_graph *graph, const struct qstar_target 
 {
 	struct qstar_source_info source;
 
-	if (qstar_source_classify(target->sources.items[index], &source) < 0)
+	if (qstar_target_source_classify(target, index, &source) < 0)
 		return qstar_set_error(graph, "qstar: unsupported source '%s'",
 		    target->sources.items[index]);
 	if (qstar_source_is_link_object(&source)) {
@@ -1455,11 +1455,11 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	char action_id[QSTAR_PATH_MAX];
 	char description[QSTAR_PATH_MAX], std_arg[128];
 	const char *compiler;
-	int is_asm, is_cxx, wants_depfile;
+	int is_asm, is_cxx, provider_source, wants_depfile;
 	size_t i;
 
 	memset(&argv, 0, sizeof(argv));
-	qstar_source_classify(target->sources.items[index], &source);
+	qstar_target_source_classify(target, index, &source);
 	if (!qstar_source_requires_compile(&source))
 		return 0;
 	if (validate_ninja_compile_source(graph, target, &source, index) < 0)
@@ -1473,23 +1473,25 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		return qstar_set_error(graph, "qstar: out of memory");
 	is_asm = qstar_source_is_asm(&source);
 	is_cxx = strcmp(source.provider, "cxx") == 0;
-	wants_depfile = strcmp(source.provider, "c") == 0 || is_cxx ||
-	    qstar_source_uses_asm_preprocessor(target, &source);
+	provider_source = qstar_target_provider_source_unit(target, index) != NULL;
+	wants_depfile = !provider_source &&
+	    (strcmp(source.provider, "c") == 0 || is_cxx ||
+	    qstar_source_uses_asm_preprocessor(target, &source));
 	snprintf(action_id, sizeof(action_id), "%s:compile:%zu", target->label, index);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s",
 	    target->cxx_standard ? target->cxx_standard : "");
 	compiler = qstar_resolved_toolchain_provider_tool(toolchain, source.provider,
 	    source.provider_role);
-	if (!compiler)
+	if (!compiler && !provider_source)
 		compiler = toolchain->cc;
 	if (ninja_argv_push_tool_role(graph, &argv, target, toolchain,
 	    qstar_source_toolset_role(&source),
 	    compiler) < 0)
 		goto fail;
-	if (target_compile_needs_pic(target, toolchain, is_asm) &&
+	if (!provider_source && target_compile_needs_pic(target, toolchain, is_asm) &&
 	    ninja_argv_push(graph, &argv, "-fPIC") < 0)
 		goto fail;
-	if (is_asm &&
+	if (!provider_source && is_asm &&
 	    (ninja_argv_push(graph, &argv, "-x") < 0 ||
 	    ninja_argv_push(graph, &argv,
 	    qstar_source_uses_asm_preprocessor(target, &source) ?
@@ -1505,41 +1507,41 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	    ninja_argv_push(graph, &argv, "-MF") < 0 ||
 	    ninja_argv_push(graph, &argv, depfile) < 0))
 		goto fail;
-	if (is_cxx && target->cxx_standard && target->cxx_standard[0] &&
+	if (!provider_source && is_cxx && target->cxx_standard && target->cxx_standard[0] &&
 	    ninja_argv_push(graph, &argv, std_arg) < 0)
 		goto fail;
-	for (i = 0; !is_asm && !is_cxx && i < target->cflags.len; i++) {
+	for (i = 0; !provider_source && !is_asm && !is_cxx && i < target->cflags.len; i++) {
 		if (ninja_argv_push(graph, &argv, target->cflags.items[i]) < 0)
 			goto fail;
 	}
-	for (i = 0; is_cxx && i < target->cxxflags.len; i++) {
+	for (i = 0; !provider_source && is_cxx && i < target->cxxflags.len; i++) {
 		if (ninja_argv_push(graph, &argv, target->cxxflags.items[i]) < 0)
 			goto fail;
 	}
-	for (i = 0; is_asm && i < target->asm_compile_options.len; i++) {
+	for (i = 0; !provider_source && is_asm && i < target->asm_compile_options.len; i++) {
 		if (ninja_argv_push(graph, &argv, target->asm_compile_options.items[i]) < 0)
 			goto fail;
 	}
-	for (i = 0; i < graph->build_context.compile_options.len; i++) {
+	for (i = 0; !provider_source && i < graph->build_context.compile_options.len; i++) {
 		if (ninja_argv_push(graph, &argv, graph->build_context.compile_options.items[i]) < 0)
 			goto fail;
 	}
-	for (i = 0; i < graph->build_context.include_dirs.len; i++) {
+	for (i = 0; !provider_source && i < graph->build_context.include_dirs.len; i++) {
 		if (ninja_argv_push(graph, &argv, "-I") < 0 ||
 		    ninja_argv_push(graph, &argv, graph->build_context.include_dirs.items[i]) < 0)
 			goto fail;
 	}
-	for (i = 0; !is_asm && i < includes.len; i++) {
+	for (i = 0; !provider_source && !is_asm && i < includes.len; i++) {
 		if (ninja_argv_push(graph, &argv, "-I") < 0 ||
 		    ninja_argv_push(graph, &argv, includes.items[i]) < 0)
 			goto fail;
 	}
-	for (i = 0; is_asm && i < target->asm_include_dirs.len; i++) {
+	for (i = 0; !provider_source && is_asm && i < target->asm_include_dirs.len; i++) {
 		if (ninja_argv_push(graph, &argv, "-I") < 0 ||
 		    ninja_argv_push(graph, &argv, target->asm_include_dirs.items[i]) < 0)
 			goto fail;
 	}
-	for (i = 0; !is_asm && i < target->system_include_dirs.len; i++) {
+	for (i = 0; !provider_source && !is_asm && i < target->system_include_dirs.len; i++) {
 		if (ninja_argv_push(graph, &argv, "-isystem") < 0 ||
 		    ninja_argv_push(graph, &argv, target->system_include_dirs.items[i]) < 0)
 			goto fail;
@@ -1628,6 +1630,9 @@ ninja_argv_push_tool_role(struct qstar_graph *graph, struct ninja_argv *argv,
 	} else {
 		role_argv = qstar_target_tool_role_argv(graph, target, role);
 	}
+	if (!role_argv && (!fallback || !*fallback))
+		return qstar_set_error(graph, "qstar: tool role '%s' is not configured",
+		    role ? role : "<unknown>");
 	if (!role_argv)
 		return ninja_argv_push(graph, argv, fallback);
 	for (i = 0; i < role_argv->len; i++) {
@@ -1998,7 +2003,7 @@ emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	for (i = 0; i < target->sources.len; i++) {
 		struct qstar_source_info source;
 
-		if (qstar_source_classify(target->sources.items[i], &source) < 0)
+		if (qstar_target_source_classify(target, i, &source) < 0)
 			goto fail;
 		if (!qstar_source_requires_compile(&source) &&
 		    !qstar_source_is_link_object(&source))
@@ -2018,7 +2023,7 @@ emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	for (i = 0; i < target->sources.len; i++) {
 		struct qstar_source_info source;
 
-		if (qstar_source_classify(target->sources.items[i], &source) < 0)
+		if (qstar_target_source_classify(target, i, &source) < 0)
 			goto fail;
 		if (!qstar_source_requires_compile(&source) &&
 		    !qstar_source_is_link_object(&source))
@@ -2107,7 +2112,7 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	for (i = 0; i < target->sources.len; i++) {
 		struct qstar_source_info source;
 
-		if (qstar_source_classify(target->sources.items[i], &source) < 0)
+		if (qstar_target_source_classify(target, i, &source) < 0)
 			goto fail;
 		if (!qstar_source_requires_compile(&source) &&
 		    !qstar_source_is_link_object(&source))
@@ -2141,7 +2146,7 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	for (i = 0; i < target->sources.len; i++) {
 		struct qstar_source_info source;
 
-		if (qstar_source_classify(target->sources.items[i], &source) < 0)
+		if (qstar_target_source_classify(target, i, &source) < 0)
 			goto fail;
 		if (!qstar_source_requires_compile(&source) &&
 		    !qstar_source_is_link_object(&source))

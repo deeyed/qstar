@@ -8,10 +8,11 @@ role로 내려간다.
 
 외부 provider는 `qstar.use_language(...)`로 명시적으로 활성화한다. Activation은 provider
 manifest를 읽고 `lang.<namespace>`를 허용하는 registry를 갱신하며, manifest의 `options`
-schema로 `lang.<namespace>` table을 검증한다. 다만 외부 source suffix classification과
-backend lowering은 아직 후속 GLP 작업이다. Provider backend가 없는 언어는 외부 compiler가
-object artifact를 만들게 한 뒤 그 object를 consuming target에 연결한다. 이 현재 경계를
-object artifact bridge라고 부른다.
+schema로 `lang.<namespace>` table을 검증한다. Manifest의 `units` schema는 provider helper가
+`qstar.source(...)` token을 만들 수 있게 하고, 현재 backend는 이 token을 consuming target이
+소유하는 object artifact로 낮춘다. Provider별 복잡한 argv lowering은 아직 후속 GLP 작업이므로,
+그 경우에는 외부 compiler가 object artifact를 만들게 한 뒤 그 object를 consuming target에
+연결하는 object artifact bridge를 계속 쓴다.
 
 ## Provider Activation
 
@@ -56,6 +57,14 @@ return qstar.language_provider {
       required = true,
     },
   },
+  units = {
+    object = {
+      suffixes = {".zig"},
+      emits = "object",
+      lower = "compile_object",
+      deps = "none",
+    },
+  },
   options = {
     target = {
       type = "string",
@@ -78,6 +87,7 @@ return qstar.language_provider {
   exports = {
     tools = "tools",
     options = "options",
+    object = "object",
   },
 }
 ```
@@ -97,12 +107,19 @@ function P.options(t)
   return qstar.language_options("zig", t or {})
 end
 
+function P.object(path, opts)
+  return qstar.source(path, qstar.merge({
+    language = "zig",
+    unit = "object",
+  }, opts or {}))
+end
+
 return P
 ```
 
 현재 runtime은 manifest와 implementation을 모두 읽고 검증한 뒤, `exports`가 가리키는
 implementation field만 `qstar.use_language(...)`의 반환 table에 노출한다. 예를 들어 위
-manifest에서는 사용자 코드가 `zig.tools`와 `zig.options`만 볼 수 있다. `options` schema는
+manifest에서는 사용자 코드가 `zig.tools`, `zig.options`, `zig.object`를 볼 수 있다. `options` schema는
 `string`, `bool`/`boolean`, `list`, `enum` 타입과 `default` metadata를 지원한다. 사용자가
 `lang.zig`에 schema에 없는 key를 쓰거나 타입이 맞지 않는 값을 넣으면 diagnostic이 난다.
 
@@ -110,12 +127,21 @@ manifest에서는 사용자 코드가 `zig.tools`와 `zig.options`만 볼 수 �
 `qstar.use_language(...)`를 호출하는 것도 금지된다. Provider manifest 안에서 다른 provider
 dependency를 활성화하는 경우만 허용된다.
 
-## 현재 source 경로: object artifact bridge
+## 현재 source 경로
 
-Provider backend가 외부 source lowering까지 확장되기 전까지 built-in `c`/`cxx`/`asm` 외
-언어 source를 직접 `sources`에 넣지 않는다.
-외부 compiler 호출은 `qstar.custom_target`으로 작성하고, 결과 object를
-`qstar.output(path, {format = "object"})`로 표시한다.
+외부 언어 source는 raw string으로 `sources`에 넣지 않는다. Provider가 노출한 helper가
+`qstar.source(path, {language = "...", unit = "..."})` token을 반환하고, target reader가
+그 token을 object-producing source unit으로 Graph IR에 낮춘다. 예를 들어
+`zig.object("src/main.zig")`는 consuming target이 소유하는 deterministic object output을
+만든다.
+
+기존 object artifact bridge도 계속 유효하다. 외부 compiler 호출을 더 세밀하게 제어해야 하면
+`qstar.custom_target`으로 작성하고, 결과 object를 `qstar.output(path, {format = "object"})`로
+표시한 뒤 consuming target의 `sources`에 넣는다.
+
+현재 provider source unit lowering은 provider compiler role을 사용해
+`compiler -c <source> -o <object>` 형태의 generic object contract로 실행된다. provider별
+정교한 argv lowering 함수는 후속 backend API에서 확장한다.
 
 ## 최소 예제
 
@@ -212,9 +238,9 @@ qstar.executable "app" {
 ```
 
 이 문법 중 provider activation, manifest validation, `provider.lua` sandbox loading,
-`lang.zig` namespace gate, provider-defined option schema validation은 구현되어 있다.
-`zig.object` 같은 source helper와 외부 source lowering은 후속 GLP backend 작업이므로, 아직
-stable runtime에서는 object artifact bridge를 사용한다.
+`lang.zig` namespace gate, provider-defined option schema validation, `zig.object` source
+token, object output allocation은 구현되어 있다. Provider별 정교한 argv lowering은 아직
+후속 GLP backend 작업이다.
 
 ## 관련 CLI
 

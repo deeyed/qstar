@@ -1,15 +1,17 @@
 # QStar Book
 
 QStar는 C/C++/ASM과 external object artifact flow를 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. CMake나 Meson처럼 project graph, command plan,
-build/test/install/stage 실행을 맡고, 언어 의미론 자체는 각 compiler와 현재 object
-artifact bridge가 맡는다.
+build/test/install/stage 실행을 맡고, 언어 의미론 자체는 각 compiler와 GLP source unit 또는
+object artifact bridge가 맡는다.
 
 Generic Language Provider(GLP)는 이 경계를 다음 단계로 확장하는 정식 로드맵이다. 현재
 runtime은 `qstar.use_language("zig")` 같은 provider 활성화와 `lang.zig` 동적 namespace
 gate를 제공한다. Provider manifest는 `qstar.language_provider { api = "qstar.lang/1",
 ... }` schema로 검증되고, `provider.lua` implementation은 제한 sandbox에서 로드된다.
 Provider가 선언한 `options` schema는 `lang.<namespace>` table의 key와 value type을 검증한다.
-외부 언어 source lowering은 아직 provider backend가 필요하므로, 그 전에는
+Provider가 선언한 `units` schema와 exported helper는 `zig.object("src/main.zig")` 같은
+source token을 만들 수 있고, 현재 backend는 이를 consuming target 소유 object artifact로
+낮춘다. Provider별 복잡한 argv lowering은 아직 후속 작업이므로 그 경우에는
 `qstar.custom_target`과 `qstar.output(..., {format = "object"})` object artifact bridge로
 연결한다. 자세한 설계는 [GLP Roadmap](../glp_roadmap.md)에 둔다.
 
@@ -171,10 +173,11 @@ make -C qstar qstar-pilot-readiness-tests
 이 gate는 QStar binary, sample corpus, lint/LSP, VSCode package, executor, cache/replay,
 generic project corpus, medium project Stella/Ninja timing gate,
 formatter, subcommand help, wiki/CLI drift guard를 함께
-검증한다. 아직 remote package fetch와 GLP runtime integration은 정식 surface가 아니다.
-현재 외부 언어의 정식 경로는 object artifact bridge다. Ninja backend는 C/C++/ASM compile,
-generated action, staticlib, sharedlib, executable/test link, `qstar.run_target` wrapper,
-`qstar.group` phony lowering/execution을 지원한다. `stage`/`install`은 copy와 manifest를
+검증한다. 아직 remote package fetch와 provider-specific argv lowering은 정식 surface가 아니다.
+현재 외부 언어의 기본 경로는 GLP source unit 또는 object artifact bridge다. Ninja backend는
+C/C++/ASM compile, provider source unit object lowering, generated action, staticlib,
+sharedlib, executable/test link, `qstar.run_target` wrapper, `qstar.group` phony
+lowering/execution을 지원한다. `stage`/`install`은 copy와 manifest를
 QStar가 맡고, 참조 artifact build는 effective generator를 따른다. `sharedlib`는
 macOS platform context에서 `.dylib`, Linux platform context에서 `.so`를 만들며 Windows
 runtime `.dll`, import `.lib`, PDB/debug artifact 정책은 아직 deferred다.

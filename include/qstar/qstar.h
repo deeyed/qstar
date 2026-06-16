@@ -26,6 +26,16 @@ struct qstar_modules {
 	struct qstar_string_list exclude;
 };
 
+struct qstar_provider_source_unit {
+	size_t source_index;
+	char *path;
+	char *provider;
+	char *unit;
+	char *emits;
+	char *lower;
+	char *toolset_role;
+};
+
 struct qstar_target {
 	char *label;
 	char *name;
@@ -36,6 +46,9 @@ struct qstar_target {
 	struct qstar_modules modules;
 	struct qstar_string_list configs;
 	struct qstar_string_list sources;
+	struct qstar_provider_source_unit *provider_sources;
+	size_t provider_source_len;
+	size_t provider_source_cap;
 	struct qstar_string_list public_headers;
 	struct qstar_string_list private_headers;
 	struct qstar_string_list include_dirs;
@@ -115,6 +128,14 @@ struct qstar_language_option_schema {
 	struct qstar_string_list values;
 };
 
+struct qstar_language_unit_schema {
+	char *name;
+	struct qstar_string_list suffixes;
+	char *emits;
+	char *lower;
+	char *deps;
+};
+
 struct qstar_language_provider {
 	char *api;
 	char *id;
@@ -126,6 +147,9 @@ struct qstar_language_provider {
 	struct qstar_language_option_schema *options;
 	size_t option_len;
 	size_t option_cap;
+	struct qstar_language_unit_schema *units;
+	size_t unit_len;
+	size_t unit_cap;
 };
 
 struct qstar_genrule {
@@ -401,6 +425,17 @@ int qstar_language_provider_add_option_schema(struct qstar_graph *graph,
     const struct qstar_string_list *values, int has_default, const char *default_value,
     const struct qstar_string_list *default_list);
 
+/** Activated language provider에 source unit schema를 추가한다. */
+int qstar_language_provider_add_unit_schema(struct qstar_graph *graph,
+    struct qstar_language_provider *provider, const char *name,
+    const struct qstar_string_list *suffixes, const char *emits, const char *lower,
+    const char *deps);
+
+/** QStar target source list entry에 provider source unit metadata를 붙인다. */
+int qstar_target_add_provider_source_unit(struct qstar_graph *graph,
+    struct qstar_target *target, size_t source_index, const char *path,
+    const char *provider, const char *unit, const char *emits, const char *lower);
+
 /** QStar target에 선언된 configs list를 target option field로 병합한다. */
 int qstar_graph_apply_target_configs(struct qstar_graph *graph, struct qstar_target *target);
 
@@ -479,9 +514,21 @@ const struct qstar_language_provider *qstar_graph_find_language_provider_manifes
 const struct qstar_language_option_schema *qstar_language_provider_find_option(
     const struct qstar_language_provider *provider, const char *name);
 
+/** Activated language provider에서 source unit schema를 찾는다. */
+const struct qstar_language_unit_schema *qstar_language_provider_find_unit(
+    const struct qstar_language_provider *provider, const char *name);
+
 /** public lang table에서 preloaded 또는 graph-local activated namespace인지 확인한다. */
 int qstar_graph_language_provider_is_available(const struct qstar_graph *graph,
     const char *namespace);
+
+/** target source index에 붙은 provider source unit metadata를 찾는다. */
+const struct qstar_provider_source_unit *qstar_target_provider_source_unit(
+    const struct qstar_target *target, size_t source_index);
+
+/** target source index를 built-in suffix 또는 provider source unit 기준으로 분류한다. */
+int qstar_target_source_classify(const struct qstar_target *target, size_t source_index,
+    struct qstar_source_info *info);
 
 /** source kind가 compile action을 요구하는지 확인한다. */
 int qstar_source_requires_compile(const struct qstar_source_info *source);

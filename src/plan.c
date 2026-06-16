@@ -749,7 +749,7 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	struct qstar_string_list includes;
 	struct qstar_argv_dump dump;
 	size_t argc, i;
-	int is_asm, is_cxx, wants_depfile;
+	int is_asm, is_cxx, provider_source, wants_depfile;
 
 	memset(&includes, 0, sizeof(includes));
 	collect_compile_include_dirs(graph, target, &includes);
@@ -757,7 +757,9 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	qstar_graph_depfile_output_path(graph, target, index, depfile, sizeof(depfile));
 	is_asm = qstar_source_is_asm(source);
 	is_cxx = strcmp(source->provider, "cxx") == 0;
-	wants_depfile = (strcmp(source->provider, "c") == 0 || is_cxx ||
+	provider_source = qstar_target_provider_source_unit(target, index) != NULL;
+	wants_depfile = !provider_source &&
+	    (strcmp(source->provider, "c") == 0 || is_cxx ||
 	    qstar_source_uses_asm_preprocessor(target, source));
 	role = qstar_source_toolset_role(source);
 	tool = qstar_resolved_toolchain_provider_tool(toolchain, source->provider,
@@ -765,26 +767,29 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	if (!tool)
 		tool = toolchain->cc;
 	argc = 5 + plan_tool_role_argc(graph, target, toolchain, role) - 1 +
-	    graph->build_context.compile_options.len +
-	    graph->build_context.include_dirs.len * 2 +
-	    (is_asm ? target->asm_include_dirs.len * 2 : includes.len * 2) +
-	    (is_asm ? 0 : target->system_include_dirs.len * 2) +
+	    (provider_source ? 0 : graph->build_context.compile_options.len) +
+	    (provider_source ? 0 : graph->build_context.include_dirs.len * 2) +
+	    (provider_source ? 0 :
+	    (is_asm ? target->asm_include_dirs.len * 2 : includes.len * 2)) +
+	    (provider_source || is_asm ? 0 : target->system_include_dirs.len * 2) +
 	    (wants_depfile ? 3 : 0) +
-	    (is_asm ? 2 : 0) +
+	    (!provider_source && is_asm ? 2 : 0) +
 	    (strcmp(target->kind, "sharedlib") == 0 &&
 	    qstar_platform_supports_sharedlib(toolchain->platform) &&
-	    !qstar_platform_is_windows(toolchain->platform) && !is_asm ? 1 : 0) +
-	    (is_cxx && target->cxx_standard[0] ? 1 : 0) +
-	    (is_asm ? target->asm_compile_options.len :
+	    !qstar_platform_is_windows(toolchain->platform) && !provider_source &&
+	    !is_asm ? 1 : 0) +
+	    (!provider_source && is_cxx && target->cxx_standard[0] ? 1 : 0) +
+	    (provider_source ? 0 : is_asm ? target->asm_compile_options.len :
 	    is_cxx ? target->cxxflags.len : target->cflags.len);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
 	begin_argv(out, &dump, id, argc, toolchain);
 	plan_argv_tool_role(out, &dump, graph, target, toolchain, role, tool);
 	if (strcmp(target->kind, "sharedlib") == 0 &&
 	    qstar_platform_supports_sharedlib(toolchain->platform) &&
-	    !qstar_platform_is_windows(toolchain->platform) && !is_asm)
+	    !qstar_platform_is_windows(toolchain->platform) && !provider_source &&
+	    !is_asm)
 		argv_item(out, &dump, "-fPIC");
-	if (is_asm) {
+	if (!provider_source && is_asm) {
 		argv_item(out, &dump, "-x");
 		argv_item(out, &dump, qstar_source_uses_asm_preprocessor(target, source) ?
 		    "assembler-with-cpp" : "assembler");
@@ -798,29 +803,29 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 		argv_item(out, &dump, "-MF");
 		argv_item(out, &dump, depfile);
 	}
-	if (is_cxx && target->cxx_standard[0])
+	if (!provider_source && is_cxx && target->cxx_standard[0])
 		argv_item(out, &dump, std_arg);
-	for (i = 0; !is_asm && !is_cxx && i < target->cflags.len; i++)
+	for (i = 0; !provider_source && !is_asm && !is_cxx && i < target->cflags.len; i++)
 		argv_item(out, &dump, target->cflags.items[i]);
-	for (i = 0; is_cxx && i < target->cxxflags.len; i++)
+	for (i = 0; !provider_source && is_cxx && i < target->cxxflags.len; i++)
 		argv_item(out, &dump, target->cxxflags.items[i]);
-	for (i = 0; is_asm && i < target->asm_compile_options.len; i++)
+	for (i = 0; !provider_source && is_asm && i < target->asm_compile_options.len; i++)
 		argv_item(out, &dump, target->asm_compile_options.items[i]);
-	for (i = 0; i < graph->build_context.compile_options.len; i++)
+	for (i = 0; !provider_source && i < graph->build_context.compile_options.len; i++)
 		argv_item(out, &dump, graph->build_context.compile_options.items[i]);
-	for (i = 0; i < graph->build_context.include_dirs.len; i++) {
+	for (i = 0; !provider_source && i < graph->build_context.include_dirs.len; i++) {
 		argv_item(out, &dump, "-I");
 		argv_item(out, &dump, graph->build_context.include_dirs.items[i]);
 	}
-	for (i = 0; !is_asm && i < includes.len; i++) {
+	for (i = 0; !provider_source && !is_asm && i < includes.len; i++) {
 		argv_item(out, &dump, "-I");
 		argv_item(out, &dump, includes.items[i]);
 	}
-	for (i = 0; is_asm && i < target->asm_include_dirs.len; i++) {
+	for (i = 0; !provider_source && is_asm && i < target->asm_include_dirs.len; i++) {
 		argv_item(out, &dump, "-I");
 		argv_item(out, &dump, target->asm_include_dirs.items[i]);
 	}
-	for (i = 0; !is_asm && i < target->system_include_dirs.len; i++) {
+	for (i = 0; !provider_source && !is_asm && i < target->system_include_dirs.len; i++) {
 		argv_item(out, &dump, "-isystem");
 		argv_item(out, &dump, target->system_include_dirs.items[i]);
 	}
@@ -1541,7 +1546,7 @@ collect_doctor_tool_requirements(const struct qstar_plan *plan,
 	memset(req, 0, sizeof(*req));
 	for (i = 0; i < plan->len; i++) {
 		for (j = 0; j < plan->order[i]->sources.len; j++) {
-			if (qstar_source_classify(plan->order[i]->sources.items[j],
+			if (qstar_target_source_classify(plan->order[i], j,
 			    &source) < 0 || !source.compile_input)
 				continue;
 			if (strcmp(source.language, "cxx") == 0)
@@ -1702,7 +1707,7 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 		return -1;
 	dump_effective_compile_merge(out, plan->graph, target, &toolchain);
 	for (i = 0; i < target->sources.len; i++) {
-		qstar_source_classify(target->sources.items[i], &source);
+		qstar_target_source_classify(target, i, &source);
 		if (!qstar_source_requires_compile(&source)) {
 			fprintf(out,
 			    "  action link-input source=%s language=%s output=%s\n",
@@ -1849,7 +1854,7 @@ dump_dry_run_compiles(FILE *out, const struct qstar_plan *plan,
 	if (qstar_resolve_toolchain(plan->graph, target, &toolchain) < 0)
 		return -1;
 	for (i = 0; i < target->sources.len; i++) {
-		qstar_source_classify(target->sources.items[i], &source);
+		qstar_target_source_classify(target, i, &source);
 		if (!qstar_source_requires_compile(&source)) {
 			fprintf(out,
 			    "dry_run_step id=%s:link-input:%zu owner=%s kind=link-input "

@@ -464,7 +464,7 @@ lint_target_shape(struct qstar_graph *graph, const struct qstar_target *target,
 		return 0;
 	saw_cxx_missing_standard = 0;
 	for (i = 0; i < target->sources.len; i++) {
-		if (qstar_source_classify(target->sources.items[i], &info) < 0)
+		if (qstar_target_source_classify(target, i, &info) < 0)
 			continue;
 		if (info.header_input) {
 			if (qstar_graph_add_lint(graph, "QSTAR040", "warning",
