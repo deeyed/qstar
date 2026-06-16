@@ -115,6 +115,8 @@ for entry in \
 	share/doc/qstar/wiki/AI_INDEX.md \
 	share/doc/qstar/wiki/README.md \
 	share/doc/qstar/wiki/reference/qstar-lua.md \
+	share/qstar/languages/rust/rust.qsm \
+	share/qstar/languages/rust/provider.lua \
 	share/qstar/languages/zig/zig.qsm \
 	share/qstar/languages/zig/provider.lua \
 	share/man/man1/qstar.1 \
@@ -161,6 +163,10 @@ test -f "$install_root/share/qstar/languages/zig/zig.qsm" || \
 	fail "installed Zig language provider manifest missing"
 test -f "$install_root/share/qstar/languages/zig/provider.lua" || \
 	fail "installed Zig language provider implementation missing"
+test -f "$install_root/share/qstar/languages/rust/rust.qsm" || \
+	fail "installed Rust language provider manifest missing"
+test -f "$install_root/share/qstar/languages/rust/provider.lua" || \
+	fail "installed Rust language provider implementation missing"
 grep -F ".Dt QSTAR 1" "$install_root/share/man/man1/qstar.1" >/dev/null || \
 	fail "installed qstar(1) manpage does not look like qstar"
 grep -F ".Dt QSTAR-LUA 5" "$install_root/share/man/man5/qstar-lua.5" >/dev/null || \

@@ -18,8 +18,8 @@ Generic Language Provider(GLP)는 이 경계를 정식 provider surface로 확�
 `lang.zig` activation gate, provider-defined option schema, `qstar.source(...)` 기반 source
 unit object lowering을 제공한다. Provider implementation의 lowering function은 `command`,
 `inputs`, `outputs`, `depfile` action template을 만들고, Stella와 Ninja는 이 template을 같은
-backend contract로 실행한다. `zig` provider는 installed standard provider bundle에 포함되고,
-project-local `qstar/languages/zig/zig.qsm`이 있으면 그 manifest가 우선한다. 설계 정본은 root
+backend contract로 실행한다. `zig`와 `rust` provider는 installed standard provider bundle에
+포함되고, project-local `qstar/languages/<id>/<id>.qsm`이 있으면 그 manifest가 우선한다. 설계 정본은 root
 `glp_roadmap.md`다.
 
 QStar가 하지 않는 일:

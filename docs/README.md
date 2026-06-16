@@ -27,7 +27,7 @@ Generic Language Provider (GLP) note: the current runtime preloads built-in
 `qstar.use_language("id")` first checks a project-local provider manifest at
 `qstar/languages/<id>/<id>.qsm` and then falls back to the installed standard
 provider bundle under `share/qstar/languages/<id>`. QStar currently ships the
-standard `zig` provider. The explicit folder form, such as
+standard `zig` and `rust` providers. The explicit folder form, such as
 `qstar.use_language("qstar/languages/zig")`, stays project-relative. Provider
 manifests must return
 `qstar.language_provider { api = "qstar.lang/1", ... }`; their `provider.lua`

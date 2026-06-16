@@ -63,7 +63,7 @@ tool role, `lang.<namespace>` option schema, backend lowering에 영향을 준�
 따라서 provider는 `qstar.import_module(...)`로 조용히 등록하지 않는다.
 `qstar.use_language(...)`가 provider activation의 명시적 entrypoint다. 예를 들어
 `qstar.use_language("zig")`는 project-local `qstar/languages/zig/zig.qsm` manifest를 먼저
-찾고, 없으면 installed standard Zig provider를 읽는다. 그 provider가 등록한 namespace만
+찾고, 없으면 installed standard provider bundle의 `zig` provider를 읽는다. 그 provider가 등록한 namespace만
 `lang.zig` 같은 language option table에서 허용한다.
 Provider manifest는 `qstar.language_provider { api = "qstar.lang/1", ... }`를 반환해야 하고,
 `implementation = "provider.lua"` 파일은 제한된 provider sandbox에서 따로 로드된다.

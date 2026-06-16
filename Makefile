@@ -265,8 +265,11 @@ install: all
 	rm -rf "$(DOC_DIR)/wiki"
 	cp -R wiki "$(DOC_DIR)/wiki"
 	mkdir -p "$(PROVIDER_DIR)"
-	rm -rf "$(PROVIDER_DIR)/zig"
-	cp -R qstar/languages/zig "$(PROVIDER_DIR)/zig"
+	for provider in qstar/languages/*; do \
+		name=$${provider##*/}; \
+		rm -rf "$(PROVIDER_DIR)/$$name"; \
+		cp -R "$$provider" "$(PROVIDER_DIR)/$$name"; \
+	done
 	mkdir -p "$(MAN_DIR)/man1" "$(MAN_DIR)/man5"
 	cp man/man1/qstar.1 "$(MAN_DIR)/man1/qstar.1"
 	cp man/man5/qstar-lua.5 "$(MAN_DIR)/man5/qstar-lua.5"

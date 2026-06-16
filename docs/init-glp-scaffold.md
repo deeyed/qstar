@@ -172,10 +172,11 @@ project/
         provider.lua
 ```
 
-`qstar.use_language("zig")`는 project-local provider를 먼저 찾고, 없으면 installed
-standard provider를 찾는다. Init에서 `--use-language=zig`를 주면 installed standard
-provider를 project-local `qstar/languages/zig`로 복사한다. 생성된 `qstar.lua`에는
-그래도 `local zig = qstar.use_language("zig")`가 남는다.
+`qstar.use_language("zig")`나 `qstar.use_language("rust")`는 project-local provider를
+먼저 찾고, 없으면 installed standard provider를 찾는다. Init에서
+`--use-language=zig` 또는 `--use-language=rust`를 주면 installed standard provider를
+project-local `qstar/languages/<id>`로 복사한다. 생성된 `qstar.lua`에는 그래도
+`local zig = qstar.use_language("zig")` 같은 activation이 남는다.
 
 이 방식의 장점:
 
@@ -236,6 +237,10 @@ qstar init app hello --use-language=zig
 - `qstar.toolset`에 `zig = zig.tools { compiler = qstar.cli {"zig"} }` entry를 생성한다.
 - `qstar.config`에 `zig = zig.options { ... }` default option entry를 생성한다.
 - provider scaffold plan에 따라 `src/main.zig`와 `zig.object("src/main.zig")` target을 만든다.
+
+`--use-language=rust`도 같은 흐름을 사용하며, 표준 Rust provider는
+`qstar/languages/rust`, `rust.tools`, `rust.options`, `rust.object("src/main.rs")`를
+생성한다.
 
 여러 언어가 들어오면 첫 번째 언어가 primary scaffold language다. Primary provider가
 shape-specific scaffold를 제공하면 그 layout이 `src/main.zig`, `src/crates/...`,

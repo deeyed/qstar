@@ -1,0 +1,167 @@
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "rust",
+  version = "0.1",
+  namespace = "rust",
+  implementation = "provider.lua",
+  tools = {
+    compiler = {
+      role = "rust.compiler",
+      required = true,
+    },
+  },
+  options = {
+    edition = {
+      type = "string",
+      default = "2021",
+    },
+    cfg = {
+      type = "list",
+      default = {},
+    },
+    externs = {
+      type = "list",
+      default = {},
+    },
+    compile_options = {
+      type = "list",
+      default = {},
+    },
+  },
+  units = {
+    object = {
+      suffixes = {
+        ".rs",
+      },
+      emits = "object",
+      lower = "compile_object",
+    },
+  },
+  scaffold = {
+    api = "qstar.scaffold/1",
+    tools = {
+      compiler = {"rustc"},
+    },
+    options = {
+      edition = "2021",
+      cfg = {},
+      externs = {},
+      compile_options = {},
+    },
+    shapes = {
+      app = {
+        directories = {"src"},
+        files = {
+          {
+            path = "src/main.rs",
+            body = "fn main() {}\n",
+          },
+        },
+        target = {
+          kind = "executable",
+          name = "app",
+          sources = {
+            {
+              helper = "object",
+              path = "src/main.rs",
+            },
+          },
+        },
+      },
+      lib = {
+        directories = {"src"},
+        files = {
+          {
+            path = "src/${project_ident}.rs",
+            body = "#[no_mangle]\npub extern \"C\" fn ${project_ident}_value() -> i32 { 42 }\n",
+          },
+        },
+        target = {
+          kind = "staticlib",
+          name = "core",
+          sources = {
+            {
+              helper = "object",
+              path = "src/${project_ident}.rs",
+            },
+          },
+        },
+      },
+      tool = {
+        directories = {"tools/${project_ident}"},
+        files = {
+          {
+            path = "tools/${project_ident}/main.rs",
+            body = "fn main() {}\n",
+          },
+        },
+        target = {
+          kind = "executable",
+          name = "tool",
+          sources = {
+            {
+              helper = "object",
+              path = "tools/${project_ident}/main.rs",
+            },
+          },
+        },
+      },
+      empty = {},
+      workspace = {
+        fragments = {
+          {
+            path = "packages/core/core.qst",
+            files = {
+              {
+                path = "packages/core/src/lib.rs",
+                body = "#[no_mangle]\npub extern \"C\" fn core_value() -> i32 { 42 }\n",
+              },
+            },
+            target = {
+              kind = "staticlib",
+              name = "core",
+              sources = {
+                {
+                  helper = "object",
+                  path = "packages/core/src/lib.rs",
+                },
+              },
+            },
+          },
+          {
+            path = "packages/app/app.qst",
+            files = {
+              {
+                path = "packages/app/src/main.rs",
+                body = "fn main() {}\n",
+              },
+            },
+            target = {
+              kind = "executable",
+              name = "app",
+              sources = {
+                {
+                  helper = "object",
+                  path = "packages/app/src/main.rs",
+                },
+              },
+              deps = {"//packages/core:core"},
+            },
+          },
+        },
+        group = {
+          name = "all",
+          deps = {
+            "//packages/core:core",
+            "//packages/app:app",
+          },
+        },
+      },
+    },
+  },
+  exports = {
+    tools = "tools",
+    options = "options",
+    object = "object",
+  },
+}

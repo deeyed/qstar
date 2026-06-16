@@ -128,7 +128,7 @@ declaration을 포함할 수 있고 once-only로 평가된다.
 
 `qstar.use_language("zig")`는 먼저 project-local `qstar/languages/zig/zig.qsm` provider
 manifest를 찾고, 없으면 installed standard bundle의 `share/qstar/languages/zig/zig.qsm`을
-읽는다. QStar는 표준 Zig provider를 함께 설치한다. Manifest의
+읽는다. QStar는 표준 Zig/Rust provider를 함께 설치한다. Manifest의
 `implementation = "provider.lua"` 파일을 제한 provider sandbox에서 로드한 뒤 `exports`에
 지정된 helper table만 돌려준다. 명시적 folder form인
 `qstar.use_language("qstar/languages/zig")`는 project-relative `<dir>/<id>.qsm` 규칙을 쓴다.

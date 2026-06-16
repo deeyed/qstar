@@ -15,8 +15,8 @@ function이 반환한 action template을 consuming target 소유 object artifact
 
 ## Provider Activation
 
-QStar는 표준 Zig provider를 설치물에 함께 포함한다. 따라서 일반 사용자는 provider package를
-직접 작성하지 않아도 다음처럼 바로 활성화할 수 있다.
+QStar는 표준 Zig/Rust provider를 설치물에 함께 포함한다. 따라서 일반 사용자는 provider
+package를 직접 작성하지 않아도 다음처럼 바로 활성화할 수 있다.
 
 ```lua
 local zig = qstar.use_language("zig")
@@ -37,7 +37,7 @@ qstar/
 ```
 
 `qstar.use_language("zig")`는 project-local `qstar/languages/zig/zig.qsm`을 먼저 읽고,
-없으면 installed standard Zig provider를 읽는다. 명시적 folder form은 project-relative
+없으면 installed standard provider bundle의 `zig` provider를 읽는다. 명시적 folder form은 project-relative
 manifest로만 해석된다.
 
 ```lua

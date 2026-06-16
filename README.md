@@ -7,7 +7,7 @@ executor named Stella, and an optional Ninja backend. It focuses on deterministi
 build graphs, explicit command vectors, reusable target configuration, and
 tooling-friendly diagnostics for C, C++, assembly, generated files, and
 external object artifact flows. Language providers can be activated with
-`qstar.use_language(...)`; QStar ships a standard Zig provider and also accepts
+`qstar.use_language(...)`; QStar ships standard Zig and Rust providers and also accepts
 project-local provider packages. Provider source units lower through the same
 Stella/Ninja backend action contract.
 

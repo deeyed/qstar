@@ -24,7 +24,7 @@ qstar.subdir("src")
 ```lua
 local zig = qstar.use_language("zig")
 -- Resolves project-local qstar/languages/zig/zig.qsm first.
--- If absent, falls back to the bundled standard Zig provider.
+-- If absent, falls back to the bundled standard provider.
 -- qstar.use_language("qstar/languages/zig") is the explicit project folder form.
 ```
 
