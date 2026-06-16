@@ -179,6 +179,8 @@ free_toolset(struct qstar_toolset *toolset)
 static void
 free_language_provider(struct qstar_language_provider *provider)
 {
+	size_t i;
+
 	free(provider->api);
 	free(provider->id);
 	free(provider->namespace);
@@ -186,6 +188,14 @@ free_language_provider(struct qstar_language_provider *provider)
 	free(provider->dir);
 	free(provider->manifest);
 	free(provider->implementation);
+	for (i = 0; i < provider->option_len; i++) {
+		free(provider->options[i].name);
+		free(provider->options[i].type);
+		free(provider->options[i].default_value);
+		qstar_string_list_free(&provider->options[i].default_list);
+		qstar_string_list_free(&provider->options[i].values);
+	}
+	free(provider->options);
 }
 
 /** generated action skeleton이 소유한 문자열과 list를 해제한다. */
@@ -1179,6 +1189,54 @@ qstar_graph_add_language_provider(struct qstar_graph *graph, const char *api,
 		return NULL;
 	}
 	return provider;
+}
+
+int
+qstar_language_provider_add_option_schema(struct qstar_graph *graph,
+    struct qstar_language_provider *provider, const char *name, const char *type,
+    const struct qstar_string_list *values, int has_default, const char *default_value,
+    const struct qstar_string_list *default_list)
+{
+	struct qstar_language_option_schema *options, *option;
+	size_t cap;
+
+	if (!provider || !name || !*name || !type || !*type)
+		return qstar_set_error(graph, "qstar: invalid language provider option schema");
+	if (provider->option_len == provider->option_cap) {
+		cap = provider->option_cap ? provider->option_cap * 2 : 4;
+		options = realloc(provider->options, cap * sizeof(provider->options[0]));
+		if (!options)
+			return qstar_set_error(graph, "qstar: out of memory");
+		provider->options = options;
+		provider->option_cap = cap;
+	}
+	option = &provider->options[provider->option_len++];
+	memset(option, 0, sizeof(*option));
+	option->name = qstar_strdup(name);
+	option->type = qstar_strdup(type);
+	option->has_default = has_default ? 1 : 0;
+	option->default_value = qstar_strdup(default_value ? default_value : "");
+	if (!option->name || !option->type || !option->default_value ||
+	    copy_string_list(&option->values, values) < 0 ||
+	    copy_string_list(&option->default_list, default_list) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	return 0;
+}
+
+const struct qstar_language_option_schema *
+qstar_language_provider_find_option(const struct qstar_language_provider *provider,
+    const char *name)
+{
+	size_t i;
+
+	if (!provider || !name || !*name)
+		return NULL;
+	for (i = 0; i < provider->option_len; i++) {
+		if (provider->options[i].name &&
+		    strcmp(provider->options[i].name, name) == 0)
+			return &provider->options[i];
+	}
+	return NULL;
 }
 
 /** config label로 reusable config declaration을 찾는다. */

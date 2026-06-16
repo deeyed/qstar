@@ -8,9 +8,10 @@ Generic Language Provider(GLP)는 이 경계를 다음 단계로 확장하는 �
 runtime은 `qstar.use_language("zig")` 같은 provider 활성화와 `lang.zig` 동적 namespace
 gate를 제공한다. Provider manifest는 `qstar.language_provider { api = "qstar.lang/1",
 ... }` schema로 검증되고, `provider.lua` implementation은 제한 sandbox에서 로드된다.
-외부 언어 source lowering은 아직 provider backend가 필요하므로, 그 전에는 `qstar.custom_target`과
-`qstar.output(..., {format = "object"})` object artifact bridge로 연결한다. 자세한 설계는
-[GLP Roadmap](../glp_roadmap.md)에 둔다.
+Provider가 선언한 `options` schema는 `lang.<namespace>` table의 key와 value type을 검증한다.
+외부 언어 source lowering은 아직 provider backend가 필요하므로, 그 전에는
+`qstar.custom_target`과 `qstar.output(..., {format = "object"})` object artifact bridge로
+연결한다. 자세한 설계는 [GLP Roadmap](../glp_roadmap.md)에 둔다.
 
 이 wiki는 구현 요약이 아니라 “이것만 보고 QStar project를 작성할 수 있는” 한국어
 사용 설명서다. Root file은 `qstar.lua`, subdir fragment는 `<folder>.qst`, helper

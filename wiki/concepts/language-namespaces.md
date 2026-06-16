@@ -7,8 +7,9 @@ namespace 안에 둔다.
 `lang.c`, `lang.cxx`, `lang.asm`은 built-in provider namespace라 preloaded 상태다. 그 밖의
 namespace는 `qstar.use_language("<id>")`로 provider manifest를 먼저 활성화해야 한다.
 예를 들어 `qstar.use_language("zig")`는 `qstar/languages/zig/zig.qsm`을 읽고, 그 뒤에만
-`lang.zig = { ... }`가 유효해진다. Provider backend가 source lowering을 제공하기 전까지
-외부 언어 source 자체는 object artifact bridge로 연결한다.
+`lang.zig = { ... }`가 유효해진다. Provider manifest가 `options` schema를 선언하면 QStar는
+`lang.zig`의 unknown option과 string/bool/list/enum 값을 검증한다. Provider backend가 source
+lowering을 제공하기 전까지 외부 언어 source 자체는 object artifact bridge로 연결한다.
 
 ## 최소 예제
 
@@ -80,5 +81,6 @@ qstar --file qstar.lua dry-run //:tool
 - `top-level include_dirs is not allowed; use lang.c.include_dirs or lang.cxx.include_dirs`
 - `top-level cflags is not allowed; use lang.c.compile_options`
 - `unknown language namespace`
+- `unknown field lang.<namespace>.<option>`
 - `duplicate language provider`
 - `circular language provider activation`

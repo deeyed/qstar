@@ -43,6 +43,21 @@ return qstar.language_provider {
   tools = {
     compiler = {role = "zig.compiler", required = true},
   },
+  options = {
+    optimize = {
+      type = "enum",
+      values = {"Debug", "ReleaseFast"},
+      default = "Debug",
+    },
+    emit_docs = {
+      type = "bool",
+      default = false,
+    },
+    compile_options = {
+      type = "list",
+      default = {},
+    },
+  },
   exports = {
     tools = "tools",
     options = "options",
@@ -69,6 +84,22 @@ return P
 
 `provider.lua` runs in a restricted provider sandbox. It cannot declare targets
 or call graph entrypoints; only the manifest `exports` are returned to user code.
+Provider `options` schemas validate `lang.<namespace>` keys and values when
+user code writes tables such as:
+
+```lua
+local zig = qstar.use_language("zig")
+
+qstar.config "debug_zig" {
+  lang = {
+    zig = zig.options {
+      optimize = "Debug",
+      emit_docs = false,
+      compile_options = {"-Ddemo"},
+    },
+  },
+}
+```
 
 ## Toolsets
 

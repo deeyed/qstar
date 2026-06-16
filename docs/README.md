@@ -29,10 +29,12 @@ Generic Language Provider (GLP) note: the current runtime preloads built-in
 `qstar.use_language("qstar/languages/zig")`. Provider manifests must return
 `qstar.language_provider { api = "qstar.lang/1", ... }`; their `provider.lua`
 implementation is loaded in a restricted provider sandbox and only `exports`
-are returned to user code. Full external source lowering is still roadmap work,
-so unsupported source languages use the object artifact bridge until their
-provider backend exists. The formal roadmap for making language providers a
-first-class, language-neutral extension surface is tracked in `../glp_roadmap.md`.
+are returned to user code. Provider-defined `options` schemas now validate
+`lang.<namespace>` tables with string, bool, list, enum, and default metadata.
+Full external source lowering is still roadmap work, so unsupported source
+languages use the object artifact bridge until their provider backend exists.
+The formal roadmap for making language providers a first-class,
+language-neutral extension surface is tracked in `../glp_roadmap.md`.
 
 Important documents:
 

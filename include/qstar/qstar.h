@@ -106,6 +106,15 @@ struct qstar_toolset {
 	char *allow_absolute_tools;
 };
 
+struct qstar_language_option_schema {
+	char *name;
+	char *type;
+	int has_default;
+	char *default_value;
+	struct qstar_string_list default_list;
+	struct qstar_string_list values;
+};
+
 struct qstar_language_provider {
 	char *api;
 	char *id;
@@ -114,6 +123,9 @@ struct qstar_language_provider {
 	char *dir;
 	char *manifest;
 	char *implementation;
+	struct qstar_language_option_schema *options;
+	size_t option_len;
+	size_t option_cap;
 };
 
 struct qstar_genrule {
@@ -383,6 +395,12 @@ struct qstar_language_provider *qstar_graph_add_language_provider(struct qstar_g
     const char *api, const char *id, const char *namespace, const char *version,
     const char *dir, const char *manifest, const char *implementation);
 
+/** Activated language provider에 option schema를 추가한다. */
+int qstar_language_provider_add_option_schema(struct qstar_graph *graph,
+    struct qstar_language_provider *provider, const char *name, const char *type,
+    const struct qstar_string_list *values, int has_default, const char *default_value,
+    const struct qstar_string_list *default_list);
+
 /** QStar target에 선언된 configs list를 target option field로 병합한다. */
 int qstar_graph_apply_target_configs(struct qstar_graph *graph, struct qstar_target *target);
 
@@ -456,6 +474,10 @@ const struct qstar_language_provider *qstar_graph_find_language_provider(
 /** qstar.use_language manifest path가 이미 활성화됐는지 확인한다. */
 const struct qstar_language_provider *qstar_graph_find_language_provider_manifest(
     const struct qstar_graph *graph, const char *manifest);
+
+/** Activated language provider에서 option schema를 찾는다. */
+const struct qstar_language_option_schema *qstar_language_provider_find_option(
+    const struct qstar_language_provider *provider, const char *name);
 
 /** public lang table에서 preloaded 또는 graph-local activated namespace인지 확인한다. */
 int qstar_graph_language_provider_is_available(const struct qstar_graph *graph,

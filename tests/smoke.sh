@@ -1918,10 +1918,22 @@ return qstar.language_provider {
     compiler = {role = "zig.compiler", required = true},
   },
   options = {
+    target = {
+      type = "string",
+      default = "native",
+    },
     optimize = {
       type = "enum",
       values = {"Debug", "ReleaseFast"},
       default = "Debug",
+    },
+    emit_docs = {
+      type = "boolean",
+      default = false,
+    },
+    compile_options = {
+      type = "list",
+      default = {},
     },
   },
   exports = {
@@ -1963,7 +1975,10 @@ qstar.config "debug" {
   toolset = "//:host",
   lang = {
     zig = zig.options {
+      target = "native",
       optimize = "Debug",
+      emit_docs = false,
+      compile_options = {"-Ddemo"},
     },
   },
 }
@@ -1981,6 +1996,138 @@ contains "$tmp/language-provider-graph.out" "tools.zig.compiler [zig]"
 contains "$tmp/language-provider-json.out" "\"language_provider_count\":1"
 contains "$tmp/language-provider-json.out" "\"namespace\":\"zig\""
 contains "$tmp/language-provider-json.out" "\"implementation\":\"qstar/languages/zig/provider.lua\""
+
+mkdir -p "$tmp/language-provider-options/qstar/languages/zig"
+cat > "$tmp/language-provider-options/qstar/languages/zig/zig.qsm" <<'EOF'
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig",
+  version = "0.1",
+  namespace = "zig",
+  implementation = "provider.lua",
+  options = {
+    target = {
+      type = "string",
+      default = "native",
+    },
+    optimize = {
+      type = "enum",
+      values = {"Debug", "ReleaseFast"},
+      default = "Debug",
+    },
+    emit_docs = {
+      type = "bool",
+      default = false,
+    },
+    compile_options = {
+      type = "list",
+      default = {},
+    },
+  },
+  exports = {
+    options = "options",
+  },
+}
+EOF
+cat > "$tmp/language-provider-options/qstar/languages/zig/provider.lua" <<'EOF'
+local P = {}
+
+function P.options(t)
+  return qstar.language_options("zig", t or {})
+end
+
+return P
+EOF
+cat > "$tmp/language-provider-options/qstar.lua" <<'EOF'
+local zig = qstar.use_language("zig")
+
+qstar.config "debug" {
+  lang = {
+    zig = zig.options {
+      target = "native",
+      optimize = "Debug",
+      emit_docs = false,
+      compile_options = {"-Ddemo"},
+    },
+  },
+}
+EOF
+"$qstar" --file "$tmp/language-provider-options/qstar.lua" check > "$tmp/language-provider-options.out" 2> "$tmp/language-provider-options.err"
+cat > "$tmp/language-provider-options/qstar.lua" <<'EOF'
+local zig = qstar.use_language("zig")
+
+qstar.config "bad" {
+  lang = {
+    zig = zig.options {
+      unknown_option = true,
+    },
+  },
+}
+EOF
+if "$qstar" --file "$tmp/language-provider-options/qstar.lua" check > "$tmp/language-provider-option-unknown.out" 2> "$tmp/language-provider-option-unknown.err"; then
+  fail "unknown provider language option unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-option-unknown.err" "unknown field lang.zig.unknown_option"
+cat > "$tmp/language-provider-options/qstar.lua" <<'EOF'
+local zig = qstar.use_language("zig")
+
+qstar.config "bad" {
+  lang = {
+    zig = zig.options {
+      optimize = "ReleaseSlow",
+    },
+  },
+}
+EOF
+if "$qstar" --file "$tmp/language-provider-options/qstar.lua" check > "$tmp/language-provider-option-enum.out" 2> "$tmp/language-provider-option-enum.err"; then
+  fail "bad provider enum option unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-option-enum.err" "lang.zig.optimize has unsupported enum value 'ReleaseSlow'"
+cat > "$tmp/language-provider-options/qstar.lua" <<'EOF'
+local zig = qstar.use_language("zig")
+
+qstar.config "bad" {
+  lang = {
+    zig = zig.options {
+      emit_docs = "false",
+    },
+  },
+}
+EOF
+if "$qstar" --file "$tmp/language-provider-options/qstar.lua" check > "$tmp/language-provider-option-bool.out" 2> "$tmp/language-provider-option-bool.err"; then
+  fail "bad provider bool option unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-option-bool.err" "lang.zig.emit_docs must be a boolean"
+cat > "$tmp/language-provider-options/qstar.lua" <<'EOF'
+local zig = qstar.use_language("zig")
+
+qstar.config "bad" {
+  lang = {
+    zig = zig.options {
+      compile_options = {"-Ddemo", true},
+    },
+  },
+}
+EOF
+if "$qstar" --file "$tmp/language-provider-options/qstar.lua" check > "$tmp/language-provider-option-list.out" 2> "$tmp/language-provider-option-list.err"; then
+  fail "bad provider list option unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-option-list.err" "lang.zig.compile_options must be a list of strings"
+cat > "$tmp/language-provider-options/qstar.lua" <<'EOF'
+local zig = qstar.use_language("zig")
+
+qstar.config "bad" {
+  lang = {
+    zig = zig.options {
+      target = true,
+    },
+  },
+}
+EOF
+if "$qstar" --file "$tmp/language-provider-options/qstar.lua" check > "$tmp/language-provider-option-string.out" 2> "$tmp/language-provider-option-string.err"; then
+  fail "bad provider string option unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-option-string.err" "lang.zig.target must be a string"
 
 mkdir -p "$tmp/language-provider-path/qstar/languages/zig"
 cat > "$tmp/language-provider-path/qstar/languages/zig/zig.qsm" <<'EOF'
@@ -2158,6 +2305,34 @@ if "$qstar" --file "$tmp/language-provider-bad-api/qstar.lua" check > "$tmp/lang
   fail "bad language provider api unexpectedly succeeded"
 fi
 contains "$tmp/language-provider-bad-api.err" "language provider api must be \"qstar.lang/1\""
+
+mkdir -p "$tmp/language-provider-bad-default/qstar/languages/zig"
+cat > "$tmp/language-provider-bad-default/qstar/languages/zig/zig.qsm" <<'EOF'
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig",
+  version = "0.1",
+  namespace = "zig",
+  implementation = "provider.lua",
+  options = {
+    optimize = {
+      type = "enum",
+      values = {"Debug", "ReleaseFast"},
+      default = "ReleaseSlow",
+    },
+  },
+  exports = {
+    options = "options",
+  },
+}
+EOF
+cat > "$tmp/language-provider-bad-default/qstar.lua" <<'EOF'
+qstar.use_language("zig")
+EOF
+if "$qstar" --file "$tmp/language-provider-bad-default/qstar.lua" check > "$tmp/language-provider-bad-default.out" 2> "$tmp/language-provider-bad-default.err"; then
+  fail "bad language provider default unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-bad-default.err" "language provider options.optimize.default must be one of values"
 
 mkdir -p "$tmp/language-provider-missing-impl/qstar/languages/zig"
 cat > "$tmp/language-provider-missing-impl/qstar/languages/zig/zig.qsm" <<'EOF'

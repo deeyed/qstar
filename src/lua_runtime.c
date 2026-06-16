@@ -504,6 +504,7 @@ read_target_file_list_field(lua_State *L, int table, const char *field,
 
 static int append_list(struct qstar_graph *graph, struct qstar_string_list *dst,
     const struct qstar_string_list *src);
+static int qstar_lua_array_table(lua_State *L, int idx);
 
 static int
 read_command_field(lua_State *L, int table, const char *field, struct qstar_string_list *list,
@@ -1054,6 +1055,145 @@ validate_lang_fields(lua_State *L, int table, const char *lang_name,
 	return 0;
 }
 
+static const char *
+canonical_provider_option_type(const char *type)
+{
+	if (!type)
+		return NULL;
+	if (strcmp(type, "boolean") == 0)
+		return "bool";
+	if (strcmp(type, "string") == 0)
+		return "string";
+	if (strcmp(type, "bool") == 0)
+		return "bool";
+	if (strcmp(type, "list") == 0)
+		return "list";
+	if (strcmp(type, "enum") == 0)
+		return "enum";
+	return NULL;
+}
+
+static int
+string_list_contains_value(const struct qstar_string_list *list, const char *value)
+{
+	size_t i;
+
+	if (!list || !value)
+		return 0;
+	for (i = 0; i < list->len; i++) {
+		if (strcmp(list->items[i], value) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+static int
+lua_string_list_contains_value(lua_State *L, int table, const char *value)
+{
+	const char *item;
+	size_t i, n;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	if (!lua_istable(L, table) || !value)
+		return 0;
+	n = lua_rawlen(L, table);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, table, (lua_Integer)i);
+		item = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : NULL;
+		if (item && strcmp(item, value) == 0) {
+			lua_pop(L, 1);
+			return 1;
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
+validate_exact_string_list_value(lua_State *L, int idx, struct qstar_graph *graph,
+    const char *owner)
+{
+	const char *item;
+	size_t i, n;
+
+	if (idx < 0)
+		idx = lua_gettop(L) + idx + 1;
+	if (!lua_istable(L, idx) || !qstar_lua_array_table(L, idx))
+		return qstar_set_error(graph, "qstar: %s must be a list of strings",
+		    owner);
+	n = lua_rawlen(L, idx);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, idx, (lua_Integer)i);
+		item = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : NULL;
+		if (!item) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph,
+			    "qstar: %s must be a list of strings", owner);
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
+read_exact_string_list_value(lua_State *L, int idx, struct qstar_string_list *list,
+    struct qstar_graph *graph, const char *owner)
+{
+	size_t i, n;
+
+	if (idx < 0)
+		idx = lua_gettop(L) + idx + 1;
+	if (validate_exact_string_list_value(L, idx, graph, owner) < 0)
+		return -1;
+	n = lua_rawlen(L, idx);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, idx, (lua_Integer)i);
+		if (qstar_string_list_push(list, lua_tostring(L, -1)) < 0) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph, "qstar: out of memory");
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
+validate_provider_option_value(lua_State *L, int idx, struct qstar_graph *graph,
+    const char *owner, const char *type, const struct qstar_string_list *values)
+{
+	const char *value;
+
+	if (idx < 0)
+		idx = lua_gettop(L) + idx + 1;
+	if (strcmp(type, "string") == 0) {
+		if (lua_type(L, idx) != LUA_TSTRING)
+			return qstar_set_error(graph, "qstar: %s must be a string",
+			    owner);
+		return 0;
+	}
+	if (strcmp(type, "bool") == 0) {
+		if (!lua_isboolean(L, idx))
+			return qstar_set_error(graph, "qstar: %s must be a boolean",
+			    owner);
+		return 0;
+	}
+	if (strcmp(type, "list") == 0)
+		return validate_exact_string_list_value(L, idx, graph, owner);
+	if (strcmp(type, "enum") == 0) {
+		if (lua_type(L, idx) != LUA_TSTRING)
+			return qstar_set_error(graph, "qstar: %s must be an enum string",
+			    owner);
+		value = lua_tostring(L, idx);
+		if (!string_list_contains_value(values, value))
+			return qstar_set_error(graph,
+			    "qstar: %s has unsupported enum value '%s'", owner, value);
+		return 0;
+	}
+	return qstar_set_error(graph, "qstar: %s has unsupported provider option type '%s'",
+	    owner, type ? type : "<none>");
+}
+
 static int
 read_lang_c(lua_State *L, int lang, struct qstar_target *target, struct qstar_graph *graph)
 {
@@ -1221,6 +1361,36 @@ read_lang_asm(lua_State *L, int lang, struct qstar_target *target, struct qstar_
 }
 
 static int
+read_provider_lang_options(lua_State *L, int table, struct qstar_graph *graph,
+    const struct qstar_language_provider *provider)
+{
+	const struct qstar_language_option_schema *schema;
+	const char *key;
+	char owner[192];
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_pushnil(L);
+	while (lua_next(L, table) != 0) {
+		key = lua_type(L, -2) == LUA_TSTRING ? lua_tostring(L, -2) : NULL;
+		schema = qstar_language_provider_find_option(provider, key);
+		if (!key || !schema) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph, "qstar: unknown field lang.%s.%s",
+			    provider->namespace, key ? key : "<non-string>");
+		}
+		snprintf(owner, sizeof(owner), "lang.%s.%s", provider->namespace, key);
+		if (validate_provider_option_value(L, -1, graph, owner, schema->type,
+		    &schema->values) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
 append_list(struct qstar_graph *graph, struct qstar_string_list *dst,
     const struct qstar_string_list *src)
 {
@@ -1263,6 +1433,15 @@ read_lang_options(lua_State *L, int table, struct qstar_target *target,
 			lua_pop(L, 2);
 			return qstar_set_error(graph, "qstar: lang.%s must be a table",
 			    key);
+		}
+		if (!qstar_language_provider_is_preloaded(key)) {
+			const struct qstar_language_provider *provider;
+			provider = qstar_graph_find_language_provider(graph, key);
+			if (!provider || read_provider_lang_options(L, -1, graph,
+			    provider) < 0) {
+				lua_pop(L, 2);
+				return -1;
+			}
 		}
 		lua_pop(L, 1);
 	}
@@ -2952,11 +3131,8 @@ static int
 qstar_lua_validate_provider_options(lua_State *L, int table, struct qstar_graph *graph)
 {
 	static const char *const allowed[] = { "type", "values", "default", NULL };
-	static const char *const types[] = {
-		"string", "list", "enum", "bool", "boolean", "number", NULL
-	};
-	const char *name, *key, *type_name;
-	char type_buf[32];
+	const char *name, *key, *type_name, *type_canonical, *default_value;
+	int option_idx;
 	char owner[160];
 
 	if (table < 0)
@@ -2999,19 +3175,21 @@ qstar_lua_validate_provider_options(lua_State *L, int table, struct qstar_graph 
 		}
 		lua_getfield(L, -1, "type");
 		type_name = lua_tostring(L, -1);
-		if (!string_in_set(type_name, types)) {
+		type_canonical = canonical_provider_option_type(type_name);
+		if (!type_canonical) {
 			lua_pop(L, 3);
 			return qstar_set_error(graph,
 			    "qstar: language provider options.%s.type is unsupported",
 			    name);
 		}
-		snprintf(type_buf, sizeof(type_buf), "%s", type_name);
 		lua_pop(L, 1);
-		if (strcmp(type_buf, "enum") == 0) {
+		option_idx = lua_gettop(L);
+		if (strcmp(type_canonical, "enum") == 0) {
 			lua_getfield(L, -1, "values");
 			if (lua_isnil(L, -1) ||
-			    qstar_lua_validate_list_of_strings(L, -1, graph, owner,
-			    "values", 1, 0) < 0) {
+			    validate_exact_string_list_value(L, -1, graph,
+			    "language provider enum values") < 0 ||
+			    lua_rawlen(L, -1) == 0) {
 				lua_pop(L, 3);
 				return qstar_set_error(graph,
 				    "qstar: language provider options.%s.values must be a non-empty string list",
@@ -3019,6 +3197,45 @@ qstar_lua_validate_provider_options(lua_State *L, int table, struct qstar_graph 
 			}
 			lua_pop(L, 1);
 		}
+		lua_getfield(L, option_idx, "default");
+		if (!lua_isnil(L, -1)) {
+			if (strcmp(type_canonical, "string") == 0) {
+				if (lua_type(L, -1) != LUA_TSTRING) {
+					lua_pop(L, 3);
+					return qstar_set_error(graph,
+					    "qstar: language provider options.%s.default must be a string",
+					    name);
+				}
+			} else if (strcmp(type_canonical, "bool") == 0) {
+				if (!lua_isboolean(L, -1)) {
+					lua_pop(L, 3);
+					return qstar_set_error(graph,
+					    "qstar: language provider options.%s.default must be a boolean",
+					    name);
+				}
+			} else if (strcmp(type_canonical, "list") == 0) {
+				if (validate_exact_string_list_value(L, -1, graph,
+				    "language provider option default") < 0) {
+					lua_pop(L, 3);
+					return qstar_set_error(graph,
+					    "qstar: language provider options.%s.default must be a string list",
+					    name);
+				}
+			} else if (strcmp(type_canonical, "enum") == 0) {
+				default_value = lua_type(L, -1) == LUA_TSTRING ?
+				    lua_tostring(L, -1) : NULL;
+				lua_getfield(L, option_idx, "values");
+				if (!default_value ||
+				    !lua_string_list_contains_value(L, -1, default_value)) {
+					lua_pop(L, 4);
+					return qstar_set_error(graph,
+					    "qstar: language provider options.%s.default must be one of values",
+					    name);
+				}
+				lua_pop(L, 1);
+			}
+		}
+		lua_pop(L, 1);
 		lua_pop(L, 1);
 	}
 	lua_pop(L, 1);
@@ -3872,12 +4089,88 @@ build_language_provider_exports(lua_State *L, int manifest, int implementation,
 	return 0;
 }
 
+static int
+add_language_provider_option_schemas(lua_State *L, int manifest,
+    struct qstar_graph *graph, struct qstar_language_provider *provider)
+{
+	struct qstar_string_list values, default_list;
+	const char *name, *type, *canonical, *default_value;
+	int has_default, option_idx;
+
+	manifest = qstar_lua_abs_index(L, manifest);
+	lua_getfield(L, manifest, "options");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	lua_pushnil(L);
+	while (lua_next(L, -2) != 0) {
+		memset(&values, 0, sizeof(values));
+		memset(&default_list, 0, sizeof(default_list));
+		name = lua_tostring(L, -2);
+		option_idx = lua_gettop(L);
+		lua_getfield(L, option_idx, "type");
+		type = lua_tostring(L, -1);
+		canonical = canonical_provider_option_type(type);
+		lua_pop(L, 1);
+		if (!canonical) {
+			lua_pop(L, 3);
+			return qstar_set_error(graph,
+			    "qstar: language provider options.%s.type is unsupported",
+			    name ? name : "<non-string>");
+		}
+		if (strcmp(canonical, "enum") == 0) {
+			lua_getfield(L, option_idx, "values");
+			if (read_exact_string_list_value(L, -1, &values, graph,
+			    "language provider enum values") < 0) {
+				lua_pop(L, 4);
+				qstar_string_list_free(&values);
+				return -1;
+			}
+			lua_pop(L, 1);
+		}
+		has_default = 0;
+		default_value = "";
+		lua_getfield(L, option_idx, "default");
+		if (!lua_isnil(L, -1)) {
+			has_default = 1;
+			if (strcmp(canonical, "bool") == 0) {
+				default_value = lua_toboolean(L, -1) ? "true" : "false";
+			} else if (strcmp(canonical, "list") == 0) {
+				if (read_exact_string_list_value(L, -1, &default_list, graph,
+				    "language provider option default") < 0) {
+					lua_pop(L, 4);
+					qstar_string_list_free(&values);
+					qstar_string_list_free(&default_list);
+					return -1;
+				}
+			} else {
+				default_value = lua_tostring(L, -1);
+			}
+		}
+		lua_pop(L, 1);
+		if (qstar_language_provider_add_option_schema(graph, provider, name,
+		    canonical, &values, has_default, default_value, &default_list) < 0) {
+			lua_pop(L, 3);
+			qstar_string_list_free(&values);
+			qstar_string_list_free(&default_list);
+			return -1;
+		}
+		qstar_string_list_free(&values);
+		qstar_string_list_free(&default_list);
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
 /** qstar.use_language("id"): provider manifest를 읽고 lang.<namespace>를 활성화한다. */
 static int
 qstar_lua_use_language(lua_State *L)
 {
 	struct qstar_lua_context *ctx;
 	struct qstar_graph *graph;
+	struct qstar_language_provider *provider;
 	const char *raw;
 	char rel_dir[QSTAR_PATH_MAX], rel[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX];
 	char impl_name[QSTAR_PATH_MAX], impl_rel[QSTAR_PATH_MAX], impl_full[QSTAR_PATH_MAX];
@@ -3949,8 +4242,13 @@ qstar_lua_use_language(lua_State *L)
 		lua_pop(L, 2);
 		return luaL_error(L, "%s", graph->error);
 	}
-	if (!qstar_graph_add_language_provider(graph, api, id, namespace, version,
-	    rel_dir, rel, impl_rel)) {
+	provider = qstar_graph_add_language_provider(graph, api, id, namespace, version,
+	    rel_dir, rel, impl_rel);
+	if (!provider) {
+		lua_pop(L, 3);
+		return luaL_error(L, "%s", graph->error);
+	}
+	if (add_language_provider_option_schemas(L, manifest_idx, graph, provider) < 0) {
 		lua_pop(L, 3);
 		return luaL_error(L, "%s", graph->error);
 	}

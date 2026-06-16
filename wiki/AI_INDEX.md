@@ -57,7 +57,9 @@ QStar가 하지 않는 일:
   검증되고, implementation은 제한 provider sandbox에서 로드된다. 사용자는
   `qstar.use_language("<id>")`가 반환한 exported helper table을 통해 `zig.tools`,
   `zig.options` 같은 helper를 사용한다. `lang.<namespace>`는 provider activation 이후에만
-  유효하다. `zig.object` 같은 source helper와 backend lowering은 후속 작업이다.
+  유효하며, provider-defined `options` schema가 unknown option, string, bool, list, enum,
+  default metadata를 검증한다. `zig.object` 같은 source helper와 backend lowering은 후속
+  작업이다.
 - CLI `-B path`는 `qstar.project.build_dir`보다 우선한다.
 - CLI `-G auto`는 현재 `stella`로 resolve된다.
 - CLI `-G ninja build [label]`은 C/C++/ASM compile, `qstar.configure_file`,

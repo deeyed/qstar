@@ -128,8 +128,10 @@ declaration을 포함할 수 있고 once-only로 평가된다.
 manifest의 `implementation = "provider.lua"` 파일을 제한 provider sandbox에서 로드한 뒤
 `exports`에 지정된 helper table만 돌려준다. 명시적 folder form인
 `qstar.use_language("qstar/languages/zig")`도 같은 `<dir>/<id>.qsm` 규칙을 쓴다. Provider
-activation 이후에만 `lang.zig` 같은 dynamic language namespace가 허용된다. 같은 provider를
-두 번 활성화하거나 provider activation이 circular chain을 만들면 error다.
+activation 이후에만 `lang.zig` 같은 dynamic language namespace가 허용된다. Provider
+manifest의 `options` schema는 `lang.zig` 같은 dynamic table에서 unknown option, string,
+bool, list, enum, default metadata를 검증한다. 같은 provider를 두 번 활성화하거나 provider
+activation이 circular chain을 만들면 error다.
 
 ```lua
 local M = {}
