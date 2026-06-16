@@ -1,0 +1,47 @@
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig",
+  version = "0.1",
+  namespace = "zig",
+  implementation = "provider.lua",
+  tools = {
+    compiler = {
+      role = "zig.compiler",
+      required = true,
+    },
+  },
+  options = {
+    target = {
+      type = "string",
+      default = "native",
+    },
+    optimize = {
+      type = "enum",
+      values = {
+        "Debug",
+        "ReleaseSafe",
+        "ReleaseFast",
+        "ReleaseSmall",
+      },
+      default = "Debug",
+    },
+    compile_options = {
+      type = "list",
+      default = {},
+    },
+  },
+  units = {
+    object = {
+      suffixes = {
+        ".zig",
+      },
+      emits = "object",
+      lower = "compile_object",
+    },
+  },
+  exports = {
+    tools = "tools",
+    options = "options",
+    object = "object",
+  },
+}

@@ -28,10 +28,12 @@ outputs and defaults to
 .It Ic qstar.toolset
 Explicit compiler, archive, link, response-file, and external tool role bundle.
 .It Ic qstar.use_language
-Activate a project-local language provider. The short form
+Activate a bundled or project-local language provider. The short form
 .Ic qstar.use_language("zig")
-loads
-.Pa qstar/languages/zig/zig.qsm ;
+first checks
+.Pa qstar/languages/zig/zig.qsm
+and then falls back to the installed standard provider bundle at
+.Pa share/qstar/languages/zig/zig.qsm ;
 the folder form
 .Ic qstar.use_language("qstar/languages/zig")
 loads
@@ -239,7 +241,10 @@ module entry. Definitions on
 .Ic qstar.use_language
 strings resolve to the provider manifest
 .Pa qstar/languages/<id>/<id>.qsm
-or the explicit provider folder form. The manifest is validated with
+or the explicit provider folder form. At runtime, short ids also fall back to
+the installed standard provider bundle under
+.Pa share/qstar/languages .
+The manifest is validated with
 .Ic qstar.language_provider ,
 then its
 .Pa provider.lua

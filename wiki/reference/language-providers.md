@@ -15,6 +15,17 @@ function이 반환한 action template을 consuming target 소유 object artifact
 
 ## Provider Activation
 
+QStar는 표준 Zig provider를 설치물에 함께 포함한다. 따라서 일반 사용자는 provider package를
+직접 작성하지 않아도 다음처럼 바로 활성화할 수 있다.
+
+```lua
+local zig = qstar.use_language("zig")
+```
+
+Short id form은 먼저 project-local provider를 찾고, 없으면 installed standard provider bundle
+`share/qstar/languages/<id>`를 찾는다. 같은 ID를 project-local layout에 vendoring하면 그
+manifest가 우선한다.
+
 Project-local provider는 다음 layout을 쓴다.
 
 ```txt
@@ -25,8 +36,9 @@ qstar/
       provider.lua
 ```
 
-`qstar.use_language("zig")`는 `qstar/languages/zig/zig.qsm`을 읽는다. 명시적 folder form도
-같은 manifest로 해석된다.
+`qstar.use_language("zig")`는 project-local `qstar/languages/zig/zig.qsm`을 먼저 읽고,
+없으면 installed standard Zig provider를 읽는다. 명시적 folder form은 project-relative
+manifest로만 해석된다.
 
 ```lua
 local zig = qstar.use_language("zig")
@@ -71,12 +83,8 @@ return qstar.language_provider {
     },
     optimize = {
       type = "enum",
-      values = {"Debug", "ReleaseFast"},
+      values = {"Debug", "ReleaseSafe", "ReleaseFast", "ReleaseSmall"},
       default = "Debug",
-    },
-    emit_docs = {
-      type = "bool",
-      default = false,
     },
     compile_options = {
       type = "list",
@@ -248,7 +256,6 @@ qstar.config "debug" {
     zig = zig.options {
       target = "native",
       optimize = "Debug",
-      emit_docs = false,
       compile_options = {"-Ddemo"},
     },
   },

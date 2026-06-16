@@ -23,8 +23,9 @@ qstar.subdir("src")
 
 ```lua
 local zig = qstar.use_language("zig")
--- Resolves qstar/languages/zig/zig.qsm.
--- qstar.use_language("qstar/languages/zig") is the explicit folder form.
+-- Resolves project-local qstar/languages/zig/zig.qsm first.
+-- If absent, falls back to the bundled standard Zig provider.
+-- qstar.use_language("qstar/languages/zig") is the explicit project folder form.
 ```
 
 `qstar.use_language` activates a provider namespace before `lang.<namespace>`
@@ -37,7 +38,7 @@ Provider packages use a manifest plus implementation split:
 return qstar.language_provider {
   api = "qstar.lang/1",
   id = "zig",
-  version = "0.1.0",
+  version = "0.1",
   namespace = "zig",
   implementation = "provider.lua",
   tools = {
@@ -54,12 +55,12 @@ return qstar.language_provider {
   options = {
     optimize = {
       type = "enum",
-      values = {"Debug", "ReleaseFast"},
+      values = {"Debug", "ReleaseSafe", "ReleaseFast", "ReleaseSmall"},
       default = "Debug",
     },
-    emit_docs = {
-      type = "bool",
-      default = false,
+    target = {
+      type = "string",
+      default = "native",
     },
     compile_options = {
       type = "list",
@@ -110,7 +111,7 @@ qstar.config "debug_zig" {
   lang = {
     zig = zig.options {
       optimize = "Debug",
-      emit_docs = false,
+      target = "native",
       compile_options = {"-Ddemo"},
     },
   },

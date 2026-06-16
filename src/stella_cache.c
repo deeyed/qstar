@@ -71,6 +71,8 @@ full_path(const struct qstar_graph *graph, const char *rel, char *dst, size_t ds
 	const char *root;
 	int n;
 
+	if (rel && rel[0] == '/')
+		return snprintf(dst, dstlen, "%s", rel) < (int)dstlen ? 0 : -1;
 	root = graph->package_root && *graph->package_root ? graph->package_root : ".";
 	if (strcmp(root, ".") == 0)
 		n = snprintf(dst, dstlen, "%s", rel);

@@ -198,6 +198,18 @@ struct qstar_daemon_event_stream {
 static int input_full_path(const struct qstar_graph *graph, const char *rel,
     char *dst, size_t dstlen);
 
+static int
+daemon_path_is_absolute(const char *path)
+{
+	if (!path || !*path)
+		return 0;
+	if (path[0] == '/')
+		return 1;
+	return ((path[0] >= 'A' && path[0] <= 'Z') ||
+	    (path[0] >= 'a' && path[0] <= 'z')) &&
+	    path[1] == ':' && (path[2] == '/' || path[2] == '\\');
+}
+
 /** daemon/client error buffer에 printf 형식 메시지를 기록한다. */
 static void
 set_error(char *error, size_t error_len, const char *fmt, ...)
@@ -1580,10 +1592,19 @@ watcher_add_rel(struct qstar_daemon_server *server, const char *rel, int scope)
 {
 	char path[QSTAR_PATH_MAX];
 
-	if (!rel || !*rel || !qstar_path_is_package_relative(rel))
+	if (!rel || !*rel)
 		return 0;
-	if (input_full_path(&server->graph, rel, path, sizeof(path)) < 0)
-		return -1;
+	if (daemon_path_is_absolute(rel)) {
+		if (!(scope & QSTAR_DAEMON_WATCH_AUTHORING))
+			return 0;
+		if (snprintf(path, sizeof(path), "%s", rel) >= (int)sizeof(path))
+			return -1;
+	} else {
+		if (!qstar_path_is_package_relative(rel))
+			return 0;
+		if (input_full_path(&server->graph, rel, path, sizeof(path)) < 0)
+			return -1;
+	}
 	return watcher_add_existing(&server->watcher, path, scope);
 }
 
@@ -1924,6 +1945,8 @@ input_full_path(const struct qstar_graph *graph, const char *rel, char *dst,
 {
 	const char *root;
 
+	if (daemon_path_is_absolute(rel))
+		return snprintf(dst, dstlen, "%s", rel) < (int)dstlen ? 0 : -1;
 	root = graph->package_root && *graph->package_root ? graph->package_root : ".";
 	if (strcmp(root, ".") == 0)
 		return snprintf(dst, dstlen, "%s", rel) < (int)dstlen ? 0 : -1;
