@@ -1,12 +1,22 @@
 #include "internal.h"
 
+#include <ctype.h>
+#include <dirent.h>
 #include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+#if defined(__APPLE__) && defined(__MACH__)
+#include <mach-o/dyld.h>
+#endif
+
+#define QSTAR_INIT_MAX_LANGUAGES 16
+#define QSTAR_INIT_LANGUAGE_MAX 64
 
 static const char *const init_shapes[] = {
 	"app",
@@ -17,16 +27,32 @@ static const char *const init_shapes[] = {
 	NULL
 };
 
+struct init_language {
+	char id[QSTAR_INIT_LANGUAGE_MAX];
+	char local_name[QSTAR_INIT_LANGUAGE_MAX + 8];
+	char source_dir[QSTAR_PATH_MAX];
+	int builtin;
+	int external;
+	int vendored;
+};
+
 struct init_context {
 	const struct qstar_init_options *options;
 	const char *shape;
 	const char *directory;
-	const char *language;
+	const char *primary_language;
+	struct init_language languages[QSTAR_INIT_MAX_LANGUAGES];
+	size_t language_len;
 	char project_name[128];
 	char project_lua[256];
 	char project_ident[128];
 	char header_guard[160];
+	char activation_block[4096];
+	char tool_entries[8192];
 };
+
+static int appendf(char *dst, size_t dstlen, char *error, size_t error_len,
+    const char *fmt, ...);
 
 /** Write a stable message to the init error buffer. */
 static int
@@ -60,6 +86,86 @@ path_is_dir(const char *path)
 	struct stat st;
 
 	return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+static int
+path_is_regular(const char *path)
+{
+	struct stat st;
+
+	return stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+static int
+copy_existing_path(const char *path, char *dst, size_t dstlen)
+{
+	if (snprintf(dst, dstlen, "%s", path) >= (int)dstlen)
+		return -1;
+	return 0;
+}
+
+static int
+current_executable_path(char *dst, size_t dstlen)
+{
+	char raw[QSTAR_PATH_MAX];
+#if defined(__APPLE__) && defined(__MACH__)
+	uint32_t len;
+
+	len = (uint32_t)sizeof(raw);
+	if (_NSGetExecutablePath(raw, &len) != 0)
+		return -1;
+	return copy_existing_path(raw, dst, dstlen);
+#elif defined(__linux__)
+	ssize_t n;
+
+	n = readlink("/proc/self/exe", raw, sizeof(raw) - 1);
+	if (n < 0 || (size_t)n >= sizeof(raw))
+		return -1;
+	raw[n] = '\0';
+	return copy_existing_path(raw, dst, dstlen);
+#else
+	(void)dst;
+	(void)dstlen;
+	(void)raw;
+	return -1;
+#endif
+}
+
+static int
+valid_language_id(const char *s)
+{
+	const unsigned char *p;
+
+	if (!s || !*s)
+		return 0;
+	for (p = (const unsigned char *)s; *p; p++) {
+		if (!(isalnum(*p) || *p == '_' || *p == '-'))
+			return 0;
+	}
+	return 1;
+}
+
+static int
+language_id_is_builtin(const char *id)
+{
+	return strcmp(id, "c") == 0 || strcmp(id, "cxx") == 0 ||
+	    strcmp(id, "asm") == 0;
+}
+
+static const char *
+default_compiler_for_language(const char *id)
+{
+	if (strcmp(id, "c") == 0)
+		return "cc";
+	if (strcmp(id, "cxx") == 0)
+		return "c++";
+	if (strcmp(id, "asm") == 0)
+		return "cc";
+	if (strcmp(id, "rust") == 0)
+		return "rustc";
+	if (strcmp(id, "cuda") == 0)
+		return "nvcc";
+	return id && *id ? id : "cc";
 }
 
 /** Create a directory and any missing parents. */
@@ -127,6 +233,59 @@ string_in_list(const char *value, const char *const *list)
 		if (strcmp(value, list[i]) == 0)
 			return 1;
 	}
+	return 0;
+}
+
+static int
+provider_manifest_from_base(const char *base, const char *id, char *dir, size_t dir_len)
+{
+	char candidate_dir[QSTAR_PATH_MAX], manifest[QSTAR_PATH_MAX];
+
+	if (!base || !*base)
+		return 0;
+	if (qstar_path_join(base, id, candidate_dir, sizeof(candidate_dir)) < 0 ||
+	    snprintf(manifest, sizeof(manifest), "%s/%s.qsm", candidate_dir, id) >=
+	    (int)sizeof(manifest))
+		return -1;
+	if (!path_is_regular(manifest))
+		return 0;
+	return copy_existing_path(candidate_dir, dir, dir_len) < 0 ? -1 : 1;
+}
+
+static int
+resolve_provider_source_dir(const char *id, char *dir, size_t dir_len)
+{
+	const char *env_dir;
+	char exe[QSTAR_PATH_MAX], bin_dir[QSTAR_PATH_MAX], prefix[QSTAR_PATH_MAX];
+	char source_build[QSTAR_PATH_MAX], source_root[QSTAR_PATH_MAX];
+	char base[QSTAR_PATH_MAX];
+	int rc;
+
+	env_dir = getenv("QSTAR_PROVIDER_DIR");
+	rc = provider_manifest_from_base(env_dir, id, dir, dir_len);
+	if (rc != 0)
+		return rc;
+	if (current_executable_path(exe, sizeof(exe)) == 0 &&
+	    qstar_dirname(exe, bin_dir, sizeof(bin_dir)) == 0) {
+		if (qstar_dirname(bin_dir, prefix, sizeof(prefix)) == 0 &&
+		    qstar_path_join(prefix, "share/qstar/languages", base,
+		    sizeof(base)) == 0) {
+			rc = provider_manifest_from_base(base, id, dir, dir_len);
+			if (rc != 0)
+				return rc;
+		}
+		if (qstar_dirname(bin_dir, source_build, sizeof(source_build)) == 0 &&
+		    qstar_dirname(source_build, source_root, sizeof(source_root)) == 0 &&
+		    qstar_path_join(source_root, "qstar/languages", base,
+		    sizeof(base)) == 0) {
+			rc = provider_manifest_from_base(base, id, dir, dir_len);
+			if (rc != 0)
+				return rc;
+		}
+	}
+	rc = provider_manifest_from_base("qstar/languages", id, dir, dir_len);
+	if (rc != 0)
+		return rc;
 	return 0;
 }
 
@@ -239,6 +398,37 @@ make_header_guard(const char *ident, char *dst, size_t dstlen)
 	dst[out] = '\0';
 }
 
+static void
+make_language_local_name(const char *id, char *dst, size_t dstlen)
+{
+	size_t i, out;
+	unsigned char c;
+	int direct;
+
+	direct = id && (ident_start((unsigned char)id[0]));
+	for (i = 0; direct && id[i]; i++) {
+		c = (unsigned char)id[i];
+		if (!(ident_char(c) && c != '-'))
+			direct = 0;
+	}
+	if (direct) {
+		snprintf(dst, dstlen, "%s", id);
+		return;
+	}
+	out = 0;
+	if (dstlen > 5) {
+		memcpy(dst, "lang_", 5);
+		out = 5;
+	}
+	for (i = 0; id && id[i] && out + 1 < dstlen; i++) {
+		c = (unsigned char)id[i];
+		dst[out++] = (ident_char(c) && c != '-') ? (char)c : '_';
+	}
+	if (out == 5 && out + 1 < dstlen)
+		dst[out++] = 'x';
+	dst[out] = '\0';
+}
+
 static int
 escape_lua_string(const char *src, char *dst, size_t dstlen)
 {
@@ -276,6 +466,199 @@ escape_lua_string(const char *src, char *dst, size_t dstlen)
 }
 
 static int
+language_selected(const struct init_context *ctx, const char *id)
+{
+	size_t i;
+
+	for (i = 0; i < ctx->language_len; i++) {
+		if (strcmp(ctx->languages[i].id, id) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+static int
+copy_trimmed_language(char *dst, size_t dstlen, const char *start, size_t n)
+{
+	while (n > 0 && isspace((unsigned char)*start)) {
+		start++;
+		n--;
+	}
+	while (n > 0 && isspace((unsigned char)start[n - 1]))
+		n--;
+	if (n == 0 || n + 1 > dstlen)
+		return -1;
+	memcpy(dst, start, n);
+	dst[n] = '\0';
+	return 0;
+}
+
+static int
+add_init_language(struct init_context *ctx, const char *id, char *error,
+    size_t error_len)
+{
+	struct init_language *language;
+	char source_dir[QSTAR_PATH_MAX];
+	int rc;
+
+	if (!valid_language_id(id))
+		return init_error(error, error_len,
+		    "qstar: invalid init language id '%s'", id);
+	if (language_selected(ctx, id))
+		return 0;
+	if (ctx->language_len >= QSTAR_INIT_MAX_LANGUAGES)
+		return init_error(error, error_len,
+		    "qstar: too many init languages; first unsupported id was '%s'", id);
+	language = &ctx->languages[ctx->language_len];
+	memset(language, 0, sizeof(*language));
+	if (snprintf(language->id, sizeof(language->id), "%s", id) >=
+	    (int)sizeof(language->id))
+		return init_error(error, error_len,
+		    "qstar: init language id is too long '%s'", id);
+	language->builtin = language_id_is_builtin(id);
+	language->external = !language->builtin;
+	if (language->external) {
+		rc = resolve_provider_source_dir(id, source_dir, sizeof(source_dir));
+		if (rc < 0)
+			return init_error(error, error_len,
+			    "qstar: standard language provider path for '%s' is too long",
+			    id);
+		if (rc == 0) {
+			if (error && error_len)
+				snprintf(error, error_len,
+				    "qstar: language provider '%s' not found; expected provider manifest in qstar/languages/%s, QSTAR_PROVIDER_DIR/%s, installed share/qstar/languages/%s, or dev checkout qstar/languages/%s",
+				    id, id, id, id, id);
+			return -1;
+		}
+		if (snprintf(language->source_dir, sizeof(language->source_dir), "%s",
+		    source_dir) >= (int)sizeof(language->source_dir))
+			return init_error(error, error_len,
+			    "qstar: standard language provider path for '%s' is too long",
+			    id);
+		make_language_local_name(id, language->local_name,
+		    sizeof(language->local_name));
+	}
+	ctx->language_len++;
+	return 0;
+}
+
+static int
+parse_init_languages(struct init_context *ctx, const char *raw, char *error,
+    size_t error_len)
+{
+	const char *p, *start;
+	char id[QSTAR_INIT_LANGUAGE_MAX];
+	size_t n;
+
+	if (!raw || !*raw)
+		raw = "c";
+	p = raw;
+	while (1) {
+		start = p;
+		while (*p && *p != ',')
+			p++;
+		n = (size_t)(p - start);
+		if (copy_trimmed_language(id, sizeof(id), start, n) < 0)
+			return init_error(error, error_len,
+			    "qstar: init --use-language contains an empty or too-long language id near '%s'",
+			    start);
+		if (add_init_language(ctx, id, error, error_len) < 0)
+			return -1;
+		if (!*p)
+			break;
+		p++;
+	}
+	if (ctx->language_len == 0)
+		return init_error(error, error_len,
+		    "qstar: init --use-language did not name any languages", raw);
+	ctx->primary_language = ctx->languages[0].id;
+	return 0;
+}
+
+static int
+append_builtin_tool_entry(struct init_context *ctx, const char *id, char *error,
+    size_t error_len)
+{
+	const char *tool;
+
+	tool = default_compiler_for_language(id);
+	return appendf(ctx->tool_entries, sizeof(ctx->tool_entries), error, error_len,
+	    "    %s = {\n"
+	    "      compiler = qstar.cli {\"%s\"},\n"
+	    "    },\n",
+	    id, tool);
+}
+
+static int
+build_language_snippets(struct init_context *ctx, char *error, size_t error_len)
+{
+	size_t i;
+	char id_lua[QSTAR_INIT_LANGUAGE_MAX * 2];
+
+	ctx->activation_block[0] = '\0';
+	ctx->tool_entries[0] = '\0';
+	if (append_builtin_tool_entry(ctx, "c", error, error_len) < 0)
+		return -1;
+	if (language_selected(ctx, "cxx") &&
+	    append_builtin_tool_entry(ctx, "cxx", error, error_len) < 0)
+		return -1;
+	if (language_selected(ctx, "asm") &&
+	    append_builtin_tool_entry(ctx, "asm", error, error_len) < 0)
+		return -1;
+	for (i = 0; i < ctx->language_len; i++) {
+		if (!ctx->languages[i].external)
+			continue;
+		if (escape_lua_string(ctx->languages[i].id, id_lua,
+		    sizeof(id_lua)) < 0)
+			return init_error(error, error_len,
+			    "qstar: init language id is too long '%s'",
+			    ctx->languages[i].id);
+		if (appendf(ctx->activation_block, sizeof(ctx->activation_block),
+		    error, error_len, "local %s = qstar.use_language(\"%s\")\n",
+		    ctx->languages[i].local_name, id_lua) < 0)
+			return -1;
+		if (appendf(ctx->tool_entries, sizeof(ctx->tool_entries), error,
+		    error_len,
+		    "    [\"%s\"] = %s.tools {\n"
+		    "      compiler = qstar.cli {\"%s\"},\n"
+		    "    },\n",
+		    id_lua, ctx->languages[i].local_name,
+		    default_compiler_for_language(ctx->languages[i].id)) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+static int
+appendf(char *dst, size_t dstlen, char *error, size_t error_len, const char *fmt, ...)
+{
+	va_list ap;
+	size_t used;
+	int n;
+
+	used = strlen(dst);
+	if (used >= dstlen)
+		return init_error(error, error_len, "qstar: init template too large for '%s'",
+		    "qstar.lua");
+	va_start(ap, fmt);
+	n = vsnprintf(dst + used, dstlen - used, fmt, ap);
+	va_end(ap);
+	if (n < 0 || (size_t)n >= dstlen - used)
+		return init_error(error, error_len, "qstar: init template too large for '%s'",
+		    "qstar.lua");
+	return 0;
+}
+
+static int
+string_item_compare(const void *a, const void *b)
+{
+	const char *const *sa = (const char *const *)a;
+	const char *const *sb = (const char *const *)b;
+
+	return strcmp(*sa, *sb);
+}
+
+static int
 format_body(char *dst, size_t dstlen, char *error, size_t error_len, const char *path,
     const char *fmt, ...)
 {
@@ -288,6 +671,42 @@ format_body(char *dst, size_t dstlen, char *error, size_t error_len, const char 
 	if (n < 0 || n >= (int)dstlen)
 		return init_error(error, error_len, "qstar: init template too large for '%s'",
 		    path);
+	return 0;
+}
+
+static int
+format_qstar_lua(const struct init_context *ctx, char *dst, size_t dstlen,
+    char *error, size_t error_len, const char *target_body)
+{
+	const char *gap;
+	int n;
+
+	gap = ctx->activation_block[0] ? "\n" : "";
+	n = snprintf(dst, dstlen,
+	    "%s%s"
+	    "qstar.project {\n"
+	    "  name = \"%s\",\n"
+	    "  version = \"0.1.0\",\n"
+	    "  root = \".\",\n"
+	    "}\n"
+	    "\n"
+	    "qstar.toolset \"host\" {\n"
+	    "  tools = {\n"
+	    "    archive = qstar.cli {\"ar\"},\n"
+	    "    link = qstar.cli {\"cc\"},\n"
+	    "%s"
+	    "  },\n"
+	    "}\n"
+	    "\n"
+	    "qstar.config \"debug\" {\n"
+	    "  toolset = \"//:host\",\n"
+	    "}\n"
+	    "%s",
+	    ctx->activation_block, gap, ctx->project_lua, ctx->tool_entries,
+	    target_body ? target_body : "");
+	if (n < 0 || (size_t)n >= dstlen)
+		return init_error(error, error_len, "qstar: init template too large for '%s'",
+		    "qstar.lua");
 	return 0;
 }
 
@@ -362,36 +781,177 @@ ensure_dir(const struct init_context *ctx, const char *rel, FILE *out, char *err
 }
 
 static int
+copy_regular_file(const struct init_context *ctx, const char *src, const char *rel,
+    FILE *out, char *error, size_t error_len)
+{
+	char dst[QSTAR_PATH_MAX], buf[8192];
+	FILE *in, *f;
+	size_t n;
+	int failed;
+
+	if (qstar_path_join(ctx->directory, rel, dst, sizeof(dst)) < 0)
+		return init_error(error, error_len, "qstar: init path too long '%s'", rel);
+	if (ctx->options->dry_run) {
+		fprintf(out, "would_create %s\n", rel);
+		return 0;
+	}
+	if (path_exists(dst))
+		return init_error(error, error_len,
+		    "qstar: init refuses to overwrite existing file '%s'", dst);
+	if (mkdir_parent(dst, error, error_len) < 0)
+		return -1;
+	in = fopen(src, "rb");
+	if (!in)
+		return init_error(error, error_len,
+		    "qstar: init could not read provider file '%s'", src);
+	f = fopen(dst, "wb");
+	if (!f) {
+		fclose(in);
+		return init_error(error, error_len,
+		    "qstar: init could not create file '%s'", dst);
+	}
+	failed = 0;
+	while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+		if (fwrite(buf, 1, n, f) != n) {
+			failed = 1;
+			break;
+		}
+	}
+	if (ferror(in))
+		failed = 1;
+	if (fclose(in) < 0)
+		failed = 1;
+	if (fclose(f) < 0)
+		failed = 1;
+	if (failed)
+		return init_error(error, error_len,
+		    "qstar: init could not copy provider file '%s'", src);
+	fprintf(out, "create %s\n", rel);
+	return 0;
+}
+
+static int
+copy_provider_tree(const struct init_context *ctx, const char *src_dir,
+    const char *dst_rel, FILE *out, char *error, size_t error_len)
+{
+	struct qstar_string_list names;
+	struct dirent *entry;
+	DIR *dir;
+	size_t i;
+	char src_child[QSTAR_PATH_MAX], dst_child[QSTAR_PATH_MAX];
+	struct stat st;
+
+	if (ensure_dir(ctx, dst_rel, out, error, error_len) < 0)
+		return -1;
+	memset(&names, 0, sizeof(names));
+	dir = opendir(src_dir);
+	if (!dir)
+		return init_error(error, error_len,
+		    "qstar: init could not read provider directory '%s'", src_dir);
+	while ((entry = readdir(dir)) != NULL) {
+		if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+			continue;
+		if (qstar_string_list_push(&names, entry->d_name) < 0) {
+			closedir(dir);
+			qstar_string_list_free(&names);
+			return init_error(error, error_len, "qstar: out of memory", "");
+		}
+	}
+	closedir(dir);
+	qsort(names.items, names.len, sizeof(names.items[0]), string_item_compare);
+	for (i = 0; i < names.len; i++) {
+		if (qstar_path_join(src_dir, names.items[i], src_child,
+		    sizeof(src_child)) < 0 ||
+		    qstar_path_join(dst_rel, names.items[i], dst_child,
+		    sizeof(dst_child)) < 0) {
+			qstar_string_list_free(&names);
+			return init_error(error, error_len,
+			    "qstar: init provider path too long '%s'", names.items[i]);
+		}
+		if (stat(src_child, &st) < 0) {
+			qstar_string_list_free(&names);
+			return init_error(error, error_len,
+			    "qstar: init could not stat provider path '%s'", src_child);
+		}
+		if (S_ISDIR(st.st_mode)) {
+			if (copy_provider_tree(ctx, src_child, dst_child, out, error,
+			    error_len) < 0) {
+				qstar_string_list_free(&names);
+				return -1;
+			}
+		} else if (S_ISREG(st.st_mode)) {
+			if (copy_regular_file(ctx, src_child, dst_child, out, error,
+			    error_len) < 0) {
+				qstar_string_list_free(&names);
+				return -1;
+			}
+		} else {
+			qstar_string_list_free(&names);
+			return init_error(error, error_len,
+			    "qstar: init provider path is not a regular file or directory '%s'",
+			    src_child);
+		}
+	}
+	qstar_string_list_free(&names);
+	return 0;
+}
+
+static int
+has_external_languages(const struct init_context *ctx)
+{
+	size_t i;
+
+	for (i = 0; i < ctx->language_len; i++) {
+		if (ctx->languages[i].external)
+			return 1;
+	}
+	return 0;
+}
+
+static int
+vendor_language_providers(struct init_context *ctx, FILE *out, char *error,
+    size_t error_len)
+{
+	size_t i;
+	char dst_rel[QSTAR_PATH_MAX];
+
+	if (!has_external_languages(ctx))
+		return 0;
+	if (ensure_dir(ctx, "qstar", out, error, error_len) < 0 ||
+	    ensure_dir(ctx, "qstar/languages", out, error, error_len) < 0)
+		return -1;
+	for (i = 0; i < ctx->language_len; i++) {
+		if (!ctx->languages[i].external)
+			continue;
+		if (snprintf(dst_rel, sizeof(dst_rel), "qstar/languages/%s",
+		    ctx->languages[i].id) >= (int)sizeof(dst_rel))
+			return init_error(error, error_len,
+			    "qstar: init provider path too long '%s'",
+			    ctx->languages[i].id);
+		fprintf(out, "vendor %s\n", dst_rel);
+		if (copy_provider_tree(ctx, ctx->languages[i].source_dir, dst_rel,
+		    out, error, error_len) < 0)
+			return -1;
+		ctx->languages[i].vendored = 1;
+		fprintf(out, "activate %s\n", ctx->languages[i].id);
+	}
+	return 0;
+}
+
+static int
 write_app_shape(const struct init_context *ctx, FILE *out, char *error, size_t error_len)
 {
-	char body[8192];
+	char body[16384], target_body[2048];
 
-	if (format_body(body, sizeof(body), error, error_len, "qstar.lua",
-	    "qstar.project {\n"
-	    "  name = \"%s\",\n"
-	    "  version = \"0.1.0\",\n"
-	    "  root = \".\",\n"
-	    "}\n"
-	    "\n"
-	    "qstar.toolset \"host\" {\n"
-	    "  tools = {\n"
-	    "    archive = qstar.cli {\"ar\"},\n"
-	    "    link = qstar.cli {\"cc\"},\n"
-	    "    c = {\n"
-	    "      compiler = qstar.cli {\"cc\"},\n"
-	    "    },\n"
-	    "  },\n"
-	    "}\n"
-	    "\n"
-	    "qstar.config \"debug\" {\n"
-	    "  toolset = \"//:host\",\n"
-	    "}\n"
+	if (format_body(target_body, sizeof(target_body), error, error_len, "qstar.lua",
 	    "\n"
 	    "qstar.executable \"app\" {\n"
 	    "  configs = {\"//:debug\"},\n"
 	    "  sources = {\"src/main.c\"},\n"
 	    "}\n",
-	    ctx->project_lua) < 0)
+	    "") < 0 ||
+	    format_qstar_lua(ctx, body, sizeof(body), error, error_len,
+	    target_body) < 0)
 		return -1;
 	if (ensure_dir(ctx, "src", out, error, error_len) < 0 ||
 	    write_text_file(ctx, "qstar.lua", body, 0, out, error, error_len) < 0 ||
@@ -408,28 +968,9 @@ write_app_shape(const struct init_context *ctx, FILE *out, char *error, size_t e
 static int
 write_lib_shape(const struct init_context *ctx, FILE *out, char *error, size_t error_len)
 {
-	char body[8192], path[QSTAR_PATH_MAX];
+	char body[16384], target_body[4096], path[QSTAR_PATH_MAX];
 
-	if (format_body(body, sizeof(body), error, error_len, "qstar.lua",
-	    "qstar.project {\n"
-	    "  name = \"%s\",\n"
-	    "  version = \"0.1.0\",\n"
-	    "  root = \".\",\n"
-	    "}\n"
-	    "\n"
-	    "qstar.toolset \"host\" {\n"
-	    "  tools = {\n"
-	    "    archive = qstar.cli {\"ar\"},\n"
-	    "    link = qstar.cli {\"cc\"},\n"
-	    "    c = {\n"
-	    "      compiler = qstar.cli {\"cc\"},\n"
-	    "    },\n"
-	    "  },\n"
-	    "}\n"
-	    "\n"
-	    "qstar.config \"debug\" {\n"
-	    "  toolset = \"//:host\",\n"
-	    "}\n"
+	if (format_body(target_body, sizeof(target_body), error, error_len, "qstar.lua",
 	    "\n"
 	    "qstar.staticlib \"core\" {\n"
 	    "  configs = {\"//:debug\"},\n"
@@ -447,7 +988,9 @@ write_lib_shape(const struct init_context *ctx, FILE *out, char *error, size_t e
 	    "  sources = {\"tests/unit.c\"},\n"
 	    "  deps = {\"//:core\"},\n"
 	    "}\n",
-	    ctx->project_lua, ctx->project_ident, ctx->project_ident) < 0)
+	    ctx->project_ident, ctx->project_ident) < 0 ||
+	    format_qstar_lua(ctx, body, sizeof(body), error, error_len,
+	    target_body) < 0)
 		return -1;
 	if (ensure_dir(ctx, "include", out, error, error_len) < 0 ||
 	    ensure_dir(ctx, "src", out, error, error_len) < 0 ||
@@ -498,28 +1041,9 @@ write_lib_shape(const struct init_context *ctx, FILE *out, char *error, size_t e
 static int
 write_tool_shape(const struct init_context *ctx, FILE *out, char *error, size_t error_len)
 {
-	char body[8192], path[QSTAR_PATH_MAX];
+	char body[16384], target_body[4096], path[QSTAR_PATH_MAX];
 
-	if (format_body(body, sizeof(body), error, error_len, "qstar.lua",
-	    "qstar.project {\n"
-	    "  name = \"%s\",\n"
-	    "  version = \"0.1.0\",\n"
-	    "  root = \".\",\n"
-	    "}\n"
-	    "\n"
-	    "qstar.toolset \"host\" {\n"
-	    "  tools = {\n"
-	    "    archive = qstar.cli {\"ar\"},\n"
-	    "    link = qstar.cli {\"cc\"},\n"
-	    "    c = {\n"
-	    "      compiler = qstar.cli {\"cc\"},\n"
-	    "    },\n"
-	    "  },\n"
-	    "}\n"
-	    "\n"
-	    "qstar.config \"debug\" {\n"
-	    "  toolset = \"//:host\",\n"
-	    "}\n"
+	if (format_body(target_body, sizeof(target_body), error, error_len, "qstar.lua",
 	    "\n"
 	    "qstar.executable \"tool\" {\n"
 	    "  configs = {\"//:debug\"},\n"
@@ -530,7 +1054,9 @@ write_tool_shape(const struct init_context *ctx, FILE *out, char *error, size_t 
 	    "  deps = {\"//:tool\"},\n"
 	    "  command = qstar.cli {qstar.target_file(\"//:tool\")},\n"
 	    "}\n",
-	    ctx->project_lua, ctx->project_ident) < 0)
+	    ctx->project_ident) < 0 ||
+	    format_qstar_lua(ctx, body, sizeof(body), error, error_len,
+	    target_body) < 0)
 		return -1;
 	if (ensure_dir(ctx, "tools", out, error, error_len) < 0)
 		return -1;
@@ -557,15 +1083,9 @@ write_tool_shape(const struct init_context *ctx, FILE *out, char *error, size_t 
 static int
 write_empty_shape(const struct init_context *ctx, FILE *out, char *error, size_t error_len)
 {
-	char body[1024];
+	char body[16384];
 
-	if (format_body(body, sizeof(body), error, error_len, "qstar.lua",
-	    "qstar.project {\n"
-	    "  name = \"%s\",\n"
-	    "  version = \"0.1.0\",\n"
-	    "  root = \".\",\n"
-	    "}\n",
-	    ctx->project_lua) < 0)
+	if (format_qstar_lua(ctx, body, sizeof(body), error, error_len, "") < 0)
 		return -1;
 	return write_text_file(ctx, "qstar.lua", body, 0, out, error, error_len) < 0 ?
 	    -1 : write_gitignore(ctx, out, error, error_len);
@@ -575,28 +1095,9 @@ static int
 write_workspace_shape(const struct init_context *ctx, FILE *out, char *error,
     size_t error_len)
 {
-	char body[8192];
+	char body[16384], target_body[4096];
 
-	if (format_body(body, sizeof(body), error, error_len, "qstar.lua",
-	    "qstar.project {\n"
-	    "  name = \"%s\",\n"
-	    "  version = \"0.1.0\",\n"
-	    "  root = \".\",\n"
-	    "}\n"
-	    "\n"
-	    "qstar.toolset \"host\" {\n"
-	    "  tools = {\n"
-	    "    archive = qstar.cli {\"ar\"},\n"
-	    "    link = qstar.cli {\"cc\"},\n"
-	    "    c = {\n"
-	    "      compiler = qstar.cli {\"cc\"},\n"
-	    "    },\n"
-	    "  },\n"
-	    "}\n"
-	    "\n"
-	    "qstar.config \"debug\" {\n"
-	    "  toolset = \"//:host\",\n"
-	    "}\n"
+	if (format_body(target_body, sizeof(target_body), error, error_len, "qstar.lua",
 	    "\n"
 	    "qstar.subdir(\"packages/core\")\n"
 	    "qstar.subdir(\"packages/app\")\n"
@@ -607,7 +1108,9 @@ write_workspace_shape(const struct init_context *ctx, FILE *out, char *error,
 	    "    \"//packages/app:app\",\n"
 	    "  },\n"
 	    "}\n",
-	    ctx->project_lua) < 0)
+	    "") < 0 ||
+	    format_qstar_lua(ctx, body, sizeof(body), error, error_len,
+	    target_body) < 0)
 		return -1;
 	if (ensure_dir(ctx, "packages", out, error, error_len) < 0 ||
 	    ensure_dir(ctx, "packages/core", out, error, error_len) < 0 ||
@@ -678,6 +1181,124 @@ qstar_init_print_shapes(FILE *out)
 }
 
 static int
+id_list_contains(const struct qstar_string_list *list, const char *id)
+{
+	size_t i;
+
+	for (i = 0; i < list->len; i++) {
+		if (strcmp(list->items[i], id) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+static int
+collect_provider_ids_from_base(const char *base, struct qstar_string_list *ids,
+    char *error, size_t error_len)
+{
+	struct qstar_string_list names;
+	struct dirent *entry;
+	DIR *dir;
+	size_t i;
+	char manifest[QSTAR_PATH_MAX], provider_dir[QSTAR_PATH_MAX];
+
+	if (!base || !*base || !path_is_dir(base))
+		return 0;
+	memset(&names, 0, sizeof(names));
+	dir = opendir(base);
+	if (!dir)
+		return init_error(error, error_len,
+		    "qstar: init could not read provider directory '%s'", base);
+	while ((entry = readdir(dir)) != NULL) {
+		if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+			continue;
+		if (qstar_string_list_push(&names, entry->d_name) < 0) {
+			closedir(dir);
+			qstar_string_list_free(&names);
+			return init_error(error, error_len, "qstar: out of memory", "");
+		}
+	}
+	closedir(dir);
+	qsort(names.items, names.len, sizeof(names.items[0]), string_item_compare);
+	for (i = 0; i < names.len; i++) {
+		if (!valid_language_id(names.items[i]) || id_list_contains(ids, names.items[i]))
+			continue;
+		if (qstar_path_join(base, names.items[i], provider_dir,
+		    sizeof(provider_dir)) < 0 ||
+		    snprintf(manifest, sizeof(manifest), "%s/%s.qsm", provider_dir,
+		    names.items[i]) >= (int)sizeof(manifest)) {
+			qstar_string_list_free(&names);
+			return init_error(error, error_len,
+			    "qstar: init provider path too long '%s'", names.items[i]);
+		}
+		if (path_is_regular(manifest) &&
+		    qstar_string_list_push(ids, names.items[i]) < 0) {
+			qstar_string_list_free(&names);
+			return init_error(error, error_len, "qstar: out of memory", "");
+		}
+	}
+	qstar_string_list_free(&names);
+	return 0;
+}
+
+static int
+collect_provider_ids(struct qstar_string_list *ids, char *error, size_t error_len)
+{
+	const char *env_dir;
+	char exe[QSTAR_PATH_MAX], bin_dir[QSTAR_PATH_MAX], prefix[QSTAR_PATH_MAX];
+	char source_build[QSTAR_PATH_MAX], source_root[QSTAR_PATH_MAX];
+	char base[QSTAR_PATH_MAX];
+
+	env_dir = getenv("QSTAR_PROVIDER_DIR");
+	if (collect_provider_ids_from_base(env_dir, ids, error, error_len) < 0)
+		return -1;
+	if (current_executable_path(exe, sizeof(exe)) == 0 &&
+	    qstar_dirname(exe, bin_dir, sizeof(bin_dir)) == 0) {
+		if (qstar_dirname(bin_dir, prefix, sizeof(prefix)) == 0 &&
+		    qstar_path_join(prefix, "share/qstar/languages", base,
+		    sizeof(base)) == 0 &&
+		    collect_provider_ids_from_base(base, ids, error, error_len) < 0)
+			return -1;
+		if (qstar_dirname(bin_dir, source_build, sizeof(source_build)) == 0 &&
+		    qstar_dirname(source_build, source_root, sizeof(source_root)) == 0 &&
+		    qstar_path_join(source_root, "qstar/languages", base,
+		    sizeof(base)) == 0 &&
+		    collect_provider_ids_from_base(base, ids, error, error_len) < 0)
+			return -1;
+	}
+	if (collect_provider_ids_from_base("qstar/languages", ids, error,
+	    error_len) < 0)
+		return -1;
+	return 0;
+}
+
+int
+qstar_init_print_languages(FILE *out, char *error, size_t error_len)
+{
+	struct qstar_string_list ids;
+	char source_dir[QSTAR_PATH_MAX];
+	size_t i;
+
+	memset(&ids, 0, sizeof(ids));
+	if (collect_provider_ids(&ids, error, error_len) < 0) {
+		qstar_string_list_free(&ids);
+		return -1;
+	}
+	qsort(ids.items, ids.len, sizeof(ids.items[0]), string_item_compare);
+	fputs("qstar init languages\n", out);
+	fputs("builtin c\n", out);
+	fputs("builtin cxx\n", out);
+	fputs("builtin asm\n", out);
+	for (i = 0; i < ids.len; i++) {
+		if (resolve_provider_source_dir(ids.items[i], source_dir,
+		    sizeof(source_dir)) > 0)
+			fprintf(out, "provider %s source=%s\n", ids.items[i], source_dir);
+	}
+	qstar_string_list_free(&ids);
+	return 0;
+}
+
+static int
 prepare_context(struct init_context *ctx, const struct qstar_init_options *options,
     char *error, size_t error_len)
 {
@@ -688,8 +1309,6 @@ prepare_context(struct init_context *ctx, const struct qstar_init_options *optio
 	ctx->shape = options && options->shape ? options->shape : "";
 	ctx->directory = options && options->directory && *options->directory ?
 	    options->directory : ".";
-	ctx->language = options && options->use_language && *options->use_language ?
-	    options->use_language : "c";
 	replacement = legacy_shape_replacement(ctx->shape);
 	if (replacement)
 		return init_error2(error, error_len,
@@ -698,10 +1317,9 @@ prepare_context(struct init_context *ctx, const struct qstar_init_options *optio
 	if (!string_in_list(ctx->shape, init_shapes))
 		return init_error(error, error_len, "qstar: unknown init shape '%s'",
 		    ctx->shape);
-	if (strcmp(ctx->language, "c") != 0)
-		return init_error(error, error_len,
-		    "qstar: init scaffold for language '%s' is not available yet; use --use-language=c",
-		    ctx->language);
+	if (parse_init_languages(ctx, options ? options->use_language : NULL, error,
+	    error_len) < 0)
+		return -1;
 	if (options && options->name && *options->name) {
 		if (snprintf(ctx->project_name, sizeof(ctx->project_name), "%s",
 		    options->name) >= (int)sizeof(ctx->project_name))
@@ -720,6 +1338,8 @@ prepare_context(struct init_context *ctx, const struct qstar_init_options *optio
 	    sizeof(ctx->project_lua)) < 0)
 		return init_error(error, error_len,
 		    "qstar: init project name is too long '%s'", ctx->project_name);
+	if (build_language_snippets(ctx, error, error_len) < 0)
+		return -1;
 	return 0;
 }
 
@@ -737,11 +1357,17 @@ qstar_init_project(const struct qstar_init_options *options, FILE *out, char *er
 		return -1;
 	fprintf(out, "qstar init v2\n");
 	fprintf(out, "shape %s\n", ctx.shape);
-	fprintf(out, "language %s\n", ctx.language);
+	fprintf(out, "language %s\n", ctx.primary_language);
 	fprintf(out, "project %s\n", ctx.project_name);
 	fprintf(out, "directory %s\n", ctx.directory);
 	if (ctx.options->dry_run)
 		fputs("dry_run true\n", out);
+	if (strcmp(ctx.primary_language, "c") != 0)
+		fprintf(out,
+		    "warning language '%s' has no init scaffold for shape '%s'; using builtin c scaffold\n",
+		    ctx.primary_language, ctx.shape);
+	if (vendor_language_providers(&ctx, out, error, error_len) < 0)
+		return -1;
 	if (strcmp(ctx.shape, "app") == 0)
 		rc = write_app_shape(&ctx, out, error, error_len);
 	else if (strcmp(ctx.shape, "lib") == 0)

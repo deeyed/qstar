@@ -5931,6 +5931,13 @@ contains "$tmp/init-shapes.out" "qstar init shapes"
 contains "$tmp/init-shapes.out" "app"
 contains "$tmp/init-shapes.out" "workspace"
 
+"$qstar" init --list-languages > "$tmp/init-languages.out" 2> "$tmp/init-languages.err"
+contains "$tmp/init-languages.out" "qstar init languages"
+contains "$tmp/init-languages.out" "builtin c"
+contains "$tmp/init-languages.out" "builtin cxx"
+contains "$tmp/init-languages.out" "builtin asm"
+contains "$tmp/init-languages.out" "provider zig"
+
 "$qstar" init app "$tmp/init-app" > "$tmp/init-app.out" 2> "$tmp/init-app.err"
 contains "$tmp/init-app.out" "qstar init v2"
 contains "$tmp/init-app.out" "shape app"
@@ -5987,10 +5994,71 @@ if "$qstar" init c-app "$tmp/init-legacy" > "$tmp/init-legacy.out" 2> "$tmp/init
 fi
 contains "$tmp/init-legacy.err" "init template 'c-app' was removed"
 
-if "$qstar" init app "$tmp/init-zig" --use-language=zig > "$tmp/init-zig.out" 2> "$tmp/init-zig.err"; then
-	fail "qstar init unexpectedly scaffolded zig before provider scaffold support"
+"$qstar" init app "$tmp/init-zig" --use-language=zig > "$tmp/init-zig.out" 2> "$tmp/init-zig.err"
+contains "$tmp/init-zig.out" "language zig"
+contains "$tmp/init-zig.out" "warning language 'zig' has no init scaffold for shape 'app'; using builtin c scaffold"
+contains "$tmp/init-zig.out" "vendor qstar/languages/zig"
+contains "$tmp/init-zig.out" "activate zig"
+contains "$tmp/init-zig/qstar.lua" "local zig = qstar.use_language(\"zig\")"
+contains "$tmp/init-zig/qstar.lua" "[\"zig\"] = zig.tools"
+contains "$tmp/init-zig/qstar.lua" "compiler = qstar.cli {\"zig\"}"
+test -f "$tmp/init-zig/qstar/languages/zig/zig.qsm" || fail "init did not vendor zig manifest"
+test -f "$tmp/init-zig/qstar/languages/zig/provider.lua" || fail "init did not vendor zig provider"
+"$qstar" --file "$tmp/init-zig/qstar.lua" check //... > "$tmp/init-zig-check.out" 2> "$tmp/init-zig-check.err"
+contains "$tmp/init-zig-check.out" "status ok"
+"$qstar" --file "$tmp/init-zig/qstar.lua" --dump-graph > "$tmp/init-zig-graph.out" 2> "$tmp/init-zig-graph.err"
+contains "$tmp/init-zig-graph.out" "language_provider namespace=zig id=zig"
+contains "$tmp/init-zig-graph.out" "dir=qstar/languages/zig"
+contains "$tmp/init-zig-graph.out" "tools.zig.compiler [zig]"
+
+mkdir -p "$tmp/init-provider-dir/rust"
+cat > "$tmp/init-provider-dir/rust/rust.qsm" <<'EOF'
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "rust",
+  version = "0.1",
+  namespace = "rust",
+  implementation = "provider.lua",
+  tools = {
+    compiler = {
+      role = "rust.compiler",
+      required = true,
+    },
+  },
+  exports = {
+    tools = "tools",
+  },
+}
+EOF
+cat > "$tmp/init-provider-dir/rust/provider.lua" <<'EOF'
+local P = {}
+
+function P.tools(t)
+  return qstar.provider_tools("rust", {
+    compiler = t.compiler,
+  })
+end
+
+return P
+EOF
+QSTAR_PROVIDER_DIR="$tmp/init-provider-dir" "$qstar" init --list-languages > "$tmp/init-provider-languages.out" 2> "$tmp/init-provider-languages.err"
+contains "$tmp/init-provider-languages.out" "provider rust"
+QSTAR_PROVIDER_DIR="$tmp/init-provider-dir" "$qstar" init app "$tmp/init-mixed" --use-language=zig,rust > "$tmp/init-mixed.out" 2> "$tmp/init-mixed.err"
+contains "$tmp/init-mixed.out" "language zig"
+contains "$tmp/init-mixed.out" "vendor qstar/languages/zig"
+contains "$tmp/init-mixed.out" "vendor qstar/languages/rust"
+contains "$tmp/init-mixed.out" "activate rust"
+contains "$tmp/init-mixed/qstar.lua" "local rust = qstar.use_language(\"rust\")"
+contains "$tmp/init-mixed/qstar.lua" "[\"rust\"] = rust.tools"
+contains "$tmp/init-mixed/qstar.lua" "compiler = qstar.cli {\"rustc\"}"
+test -f "$tmp/init-mixed/qstar/languages/rust/rust.qsm" || fail "init did not vendor rust manifest"
+"$qstar" --file "$tmp/init-mixed/qstar.lua" check //... > "$tmp/init-mixed-check.out" 2> "$tmp/init-mixed-check.err"
+contains "$tmp/init-mixed-check.out" "status ok"
+
+if "$qstar" init app "$tmp/init-missing-language" --use-language=definitely_missing --dry-run > "$tmp/init-missing-language.out" 2> "$tmp/init-missing-language.err"; then
+	fail "qstar init unexpectedly accepted a missing language provider"
 fi
-contains "$tmp/init-zig.err" "init scaffold for language 'zig' is not available yet"
+contains "$tmp/init-missing-language.err" "language provider 'definitely_missing' not found"
 
 if "$qstar" init app "$tmp/init-app" > "$tmp/init-overwrite.out" 2> "$tmp/init-overwrite.err"; then
 	fail "qstar init unexpectedly overwrote existing files"

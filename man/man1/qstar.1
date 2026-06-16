@@ -303,9 +303,18 @@ Use
 .Fl -name
 to override the project name,
 .Fl -use-language
-to select the scaffold language, and
+to select one or more comma-separated languages,
 .Fl -dry-run
 to preview the plan without writing files.
+Use
+.Ic qstar init --list-languages
+to list builtin languages and discoverable external providers.
+External providers selected with
+.Fl -use-language
+are copied into
+.Pa qstar/languages/<id>
+and activated from the generated
+.Pa qstar.lua .
 .It Ic --dump-graph
 Print the raw Graph IR for debugging and drift tests.
 .El

@@ -3,7 +3,8 @@
 이 문서는 `qstar init`을 generic project scaffolder로 개편하고, Generic
 Language Provider(GLP)가 언어별 project layout과 sample source를 선언하는 방향을
 정리한다. Q208에서 public init surface는 `qstar init app|lib|tool|empty|workspace`
-project shape로 전환되었다. Provider vendoring과 provider-defined scaffold metadata는
+project shape로 전환되었고, Q210에서 `--use-language` language selection과 external
+provider vendoring이 실제 init flow에 들어왔다. Provider-defined scaffold metadata는
 후속 GLP scaffold 라운드에서 완성한다.
 
 ## 배경
@@ -188,7 +189,7 @@ provider를 project-local `qstar/languages/zig`로 복사한다. 생성된 `qsta
 
 Q208 이전에 존재하던 `c-app`, `c-lib`, `generated` 형태는 제거 대상이다.
 
-Q208에서 실제 지원하는 현재 구조:
+Q210에서 실제 지원하는 현재 구조:
 
 ```sh
 qstar init <shape> [directory]
@@ -197,37 +198,47 @@ qstar init empty sandbox
 qstar init workspace demo
 qstar init app hello --name hello_app
 qstar init app hello --use-language=c --dry-run
-qstar init --list-shapes
-```
-
-Q208 현재 구현에서 `--use-language`는 builtin fallback scaffold인 `c`만 받는다.
-`zig`, `rust`, `cuda`, `cxx`, `c,zig` 같은 provider-defined scaffold는 후속 GLP
-scaffold 라운드에서 열어야 한다.
-
-GLP scaffold 완성 후 목표 구조:
-
-```sh
-qstar init lib core --use-language=cxx
-qstar init tool assetc --use-language=rust
+qstar init app hello --use-language=zig
 qstar init workspace demo --use-language=c,zig
-qstar init app hello --use-language=zig --dry-run
+qstar init --list-shapes
 qstar init --list-languages
 ```
 
-완성형 `--use-language`는 comma-separated list를 받는다.
+`--use-language`는 comma-separated list를 받는다.
 
 ```sh
 qstar init app mixed --use-language=zig,rust,cuda
 ```
 
-장기적으로 반복 option도 허용할 수 있다.
+반복 option은 아직 지원하지 않는다. 장기적으로는 아래 형태도 허용할 수 있다.
 
 ```sh
 qstar init app mixed --use-language zig --use-language rust
 ```
 
 언어를 생략하면 기본값은 `c`다. C는 builtin이고 provider vendoring이 필요 없으며,
-바로 build 가능한 skeleton을 만들 수 있다.
+바로 build 가능한 skeleton을 만들 수 있다. `cxx`와 `asm`도 builtin language로 판별되며
+generated `qstar.lua`의 `tools.cxx.compiler`, `tools.asm.compiler` entry를 만들 수 있다.
+다만 provider-defined scaffold metadata가 아직 구현되지 않았기 때문에, primary language가
+`c`가 아니면 현재는 C fallback scaffold를 만들고 warning을 출력한다.
+
+```sh
+qstar init app hello --use-language=zig
+```
+
+위 명령은 현재 다음을 수행한다.
+
+- installed standard provider bundle 또는 dev checkout에서 `zig` provider를 찾는다.
+- `qstar/languages/zig`에 provider package를 복사한다.
+- `qstar.lua` 상단에 `local zig = qstar.use_language("zig")`를 생성한다.
+- `qstar.toolset`에 `["zig"] = zig.tools { compiler = qstar.cli {"zig"} }` entry를 생성한다.
+- provider-specific source scaffold가 아직 없으므로 `src/main.c` C fallback target을 만든다.
+
+여러 언어가 들어오면 첫 번째 언어가 primary scaffold language다. 현재 primary가 external
+provider여도 C fallback scaffold를 쓰며, 나머지 언어는 provider vendoring, activation,
+toolset entry까지만 생성한다. Provider-defined scaffold가 완성되면 primary language의
+shape-specific scaffold가 `src/main.zig`, `src/crates/...`, `kernels/...` 같은 언어별 layout을
+책임진다.
 
 `qstar init app hello`에서 `hello`는 생성 directory다. 기본 project name은 directory
 basename인 `hello`가 된다.
@@ -292,7 +303,7 @@ hello/
     main.c
 ```
 
-Zig provider scaffold 예:
+Provider-defined scaffold 완성 후 Zig provider scaffold 예:
 
 ```txt
 hello/
@@ -328,11 +339,6 @@ qstar.toolset "host" {
 
 qstar.config "debug" {
   toolset = "//:host",
-  lang = {
-    c = {
-      compile_options = {},
-    },
-  },
 }
 
 qstar.executable "app" {
@@ -341,7 +347,7 @@ qstar.executable "app" {
 }
 ```
 
-Zig scaffold `qstar.lua` 예:
+Provider-defined scaffold 완성 후 Zig `qstar.lua` 예:
 
 ```lua
 local zig = qstar.use_language("zig")
@@ -494,6 +500,20 @@ qstar.project {
   version = "0.1.0",
   root = ".",
 }
+
+qstar.toolset "host" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+    c = {
+      compiler = qstar.cli {"cc"},
+    },
+  },
+}
+
+qstar.config "debug" {
+  toolset = "//:host",
+}
 ```
 
 `--use-language=zig`를 같이 주면 provider vendoring과 activation만 생성하고, target/source는
@@ -506,6 +526,23 @@ qstar.project {
   name = "hello",
   version = "0.1.0",
   root = ".",
+}
+
+qstar.toolset "host" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+    c = {
+      compiler = qstar.cli {"cc"},
+    },
+    ["zig"] = zig.tools {
+      compiler = qstar.cli {"zig"},
+    },
+  },
+}
+
+qstar.config "debug" {
+  toolset = "//:host",
 }
 ```
 
@@ -806,8 +843,7 @@ Provider가 요청한 shape를 제공하지 않으면 C fallback scaffold를 사
 예:
 
 ```txt
-warning: language provider 'rust' has no scaffold for shape 'tool'; using builtin c scaffold
-warning: requested provider 'rust' was vendored, but no rust sample target was generated
+warning language 'rust' has no init scaffold for shape 'tool'; using builtin c scaffold
 ```
 
 Fallback 의미:
@@ -847,9 +883,9 @@ local zig = qstar.use_language("zig")
 4. language list를 결정한다. 생략 시 `c`.
 5. 각 language가 builtin인지 external provider인지 판별한다.
 6. external provider는 installed standard bundle 또는 source checkout fallback에서 찾는다.
-7. external provider manifest를 읽고 scaffold metadata를 검증한다.
+7. external provider manifest file 존재를 확인한다.
 8. external provider를 project-local `qstar/languages/<id>`로 복사할 plan을 만든다.
-9. shape별 scaffold plan을 선택한다.
+9. shape별 scaffold plan을 선택한다. 현재는 builtin C fallback plan만 구현되어 있다.
 10. provider scaffold가 없으면 C fallback plan과 warning을 만든다.
 11. directory, `qstar.lua`, `.gitignore`, source file, fragment file 생성 plan을 만든다.
 12. `--dry-run`이면 plan만 출력한다.
@@ -864,14 +900,16 @@ local zig = qstar.use_language("zig")
 ```txt
 qstar init v2
 shape app
-directory hello
-project hello
 language zig
+project hello
+directory hello
+warning language 'zig' has no init scaffold for shape 'app'; using builtin c scaffold
 vendor qstar/languages/zig
+activate zig
 create_dir src
 create qstar.lua
 create .gitignore
-create src/main.zig
+create src/main.c
 status ok
 ```
 
@@ -880,11 +918,12 @@ Fallback이 있으면:
 ```txt
 qstar init v2
 shape tool
-directory helper
-project helper
 language rust
+project helper
+directory helper
+warning language 'rust' has no init scaffold for shape 'tool'; using builtin c scaffold
 vendor qstar/languages/rust
-warning language provider 'rust' has no scaffold for shape 'tool'; using builtin c scaffold
+activate rust
 create_dir tools
 create_dir tools/helper
 create qstar.lua

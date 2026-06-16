@@ -33,7 +33,7 @@ usage(FILE *out)
 	fputs("       qstar [options] replay <action-id>\n", out);
 	fputs("       qstar [options] daemon --socket path --start|--stop|--serve|--status|--query method  # beta\n", out);
 	fputs("       qstar lsp --stdio\n", out);
-	fputs("       qstar init app|lib|tool|empty|workspace [directory] [--name name] [--use-language language] [--dry-run]\n", out);
+	fputs("       qstar init app|lib|tool|empty|workspace [directory] [--name name] [--use-language list] [--dry-run]\n", out);
 	fputs("       qstar [options] --dump-graph\n", out);
 	fputs("options:\n", out);
 	fputs("       --file qstar.lua\n", out);
@@ -102,12 +102,13 @@ command_help(FILE *out, const char *cmd)
 		return;
 	}
 	if (strcmp(cmd, "init") == 0) {
-		fputs("usage: qstar init app|lib|tool|empty|workspace [directory] [--name name] [--use-language language] [--dry-run]\n", out);
+		fputs("usage: qstar init app|lib|tool|empty|workspace [directory] [--name name] [--use-language list] [--dry-run]\n", out);
 		fputs("       qstar init --list-shapes\n", out);
+		fputs("       qstar init --list-languages\n", out);
 		fputs("Create a starter project from a generic project shape.\n", out);
-		fputs("The default language is c. Provider vendoring and non-C scaffolds are GLP follow-up work.\n", out);
+		fputs("The default language is c. External language providers are vendored into qstar/languages/<id>.\n", out);
 		fputs("--name overrides the project name inferred from the directory basename.\n", out);
-		fputs("--use-language currently accepts c for the built-in fallback scaffold.\n", out);
+		fputs("--use-language accepts a comma-separated list such as c,zig; the first language is primary.\n", out);
 		fputs("--dry-run prints the creation plan without writing files.\n", out);
 		return;
 	}
@@ -688,7 +689,7 @@ main(int argc, char **argv)
 		struct qstar_init_options init_options;
 		const char *positionals[2];
 		size_t positional_count;
-		int list_shapes;
+		int list_shapes, list_languages;
 
 		memset(&init_options, 0, sizeof(init_options));
 		init_options.directory = ".";
@@ -697,12 +698,16 @@ main(int argc, char **argv)
 		positionals[1] = NULL;
 		positional_count = 0;
 		list_shapes = 0;
+		list_languages = 0;
 		while (arg < argc) {
 			if (strcmp(argv[arg], "--dry-run") == 0) {
 				init_options.dry_run = 1;
 				arg++;
 			} else if (strcmp(argv[arg], "--list-shapes") == 0) {
 				list_shapes = 1;
+				arg++;
+			} else if (strcmp(argv[arg], "--list-languages") == 0) {
+				list_languages = 1;
 				arg++;
 			} else if (strcmp(argv[arg], "--name") == 0) {
 				if (arg + 1 >= argc) {
@@ -739,15 +744,26 @@ main(int argc, char **argv)
 				positionals[positional_count++] = argv[arg++];
 			}
 		}
-		if (list_shapes) {
+		if (list_shapes || list_languages) {
 			if (positional_count != 0 || init_options.name ||
 			    strcmp(init_options.use_language, "c") != 0 ||
-			    init_options.dry_run) {
+			    init_options.dry_run || (list_shapes && list_languages)) {
 				usage(stderr);
 				qstar_graph_free(&graph);
 				return 2;
 			}
-			qstar_init_print_shapes(stdout);
+			if (list_shapes) {
+				qstar_init_print_shapes(stdout);
+			} else {
+				init_error[0] = '\0';
+				if (qstar_init_print_languages(stdout, init_error,
+				    sizeof(init_error)) < 0) {
+					fprintf(stderr, "%s\n", init_error[0] ? init_error :
+					    "qstar: init failed");
+					qstar_graph_free(&graph);
+					return 1;
+				}
+			}
 			qstar_graph_free(&graph);
 			return 0;
 		}

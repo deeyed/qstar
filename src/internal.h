@@ -264,6 +264,9 @@ struct qstar_init_options {
 /** qstar init shape 목록을 출력한다. */
 void qstar_init_print_shapes(FILE *out);
 
+/** qstar init에서 선택 가능한 builtin/provider language 목록을 출력한다. */
+int qstar_init_print_languages(FILE *out, char *error, size_t error_len);
+
 /** qstar init shape를 지정된 directory에 생성한다. */
 int qstar_init_project(const struct qstar_init_options *options, FILE *out,
     char *error, size_t error_len);
