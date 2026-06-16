@@ -98,6 +98,10 @@ test -f "$install_root/share/doc/qstar/wiki/AI_INDEX.md" || fail "installed wiki
 test -f "$install_root/share/doc/qstar/wiki/README.md" || fail "installed wiki README.md missing"
 test -f "$install_root/share/doc/qstar/wiki/reference/qstar-lua.md" || \
 	fail "installed wiki reference/qstar-lua.md missing"
+test -f "$install_root/share/qstar/languages/zig/zig.qsm" || \
+	fail "installed Zig language provider manifest missing"
+test -f "$install_root/share/qstar/languages/zig/provider.lua" || \
+	fail "installed Zig language provider implementation missing"
 test -s "$install_root/share/man/man1/qstar.1" || fail "installed qstar(1) manpage missing"
 test -s "$install_root/share/man/man5/qstar-lua.5" || fail "installed qstar-lua(5) manpage missing"
 
@@ -168,6 +172,8 @@ for entry in \
 	share/doc/qstar/wiki/AI_INDEX.md \
 	share/doc/qstar/wiki/README.md \
 	share/doc/qstar/wiki/reference/qstar-lua.md \
+	share/qstar/languages/zig/zig.qsm \
+	share/qstar/languages/zig/provider.lua \
 	share/man/man1/qstar.1 \
 	share/man/man5/qstar-lua.5 \
 	README.md \
@@ -215,6 +221,10 @@ grep -F "qstar.project" "$extract_docs_show_report" >/dev/null || \
 	fail "extracted docs --show reference/qstar-lua.md did not print qstar-lua reference"
 test -s "$extract_root/share/man/man1/qstar.1" || fail "extracted qstar(1) manpage missing"
 test -s "$extract_root/share/man/man5/qstar-lua.5" || fail "extracted qstar-lua(5) manpage missing"
+test -f "$extract_root/share/qstar/languages/zig/zig.qsm" || \
+	fail "extracted Zig language provider manifest missing"
+test -f "$extract_root/share/qstar/languages/zig/provider.lua" || \
+	fail "extracted Zig language provider implementation missing"
 
 if command -v file >/dev/null 2>&1; then
 	file "$extract_root/bin/qstar" > "$extract_file_report"

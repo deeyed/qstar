@@ -10,6 +10,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(__linux__)
+#include <unistd.h>
+#endif
+
+#if defined(__APPLE__) && defined(__MACH__)
+#include <mach-o/dyld.h>
+#endif
+
 struct qstar_lua_context {
 	struct qstar_graph *graph;
 	char root_dir[QSTAR_PATH_MAX];
@@ -39,6 +47,29 @@ static int lower_provider_source_unit(lua_State *L, int source_token,
     struct qstar_provider_action_template *action);
 static int qstar_lua_abs_index(lua_State *L, int idx);
 static int valid_tool_role_name(const char *s);
+
+static int
+fs_path_is_absolute(const char *path)
+{
+	if (!path || !*path)
+		return 0;
+	if (path[0] == '/')
+		return 1;
+	return isalpha((unsigned char)path[0]) && path[1] == ':' &&
+	    (path[2] == '/' || path[2] == '\\');
+}
+
+static int
+path_join_root_or_absolute(const char *root, const char *path, char *dst,
+    size_t dstlen)
+{
+	if (fs_path_is_absolute(path)) {
+		if (snprintf(dst, dstlen, "%s", path) >= (int)dstlen)
+			return -1;
+		return 0;
+	}
+	return qstar_path_join(root, path, dst, dstlen);
+}
 
 static const char *
 qstar_host_os(void)
@@ -4571,6 +4602,117 @@ path_basename_component(const char *path)
 	return slash ? slash + 1 : path;
 }
 
+static int
+filesystem_file_exists(const char *path)
+{
+	FILE *f;
+
+	f = fopen(path, "rb");
+	if (!f)
+		return 0;
+	fclose(f);
+	return 1;
+}
+
+static int
+canonical_existing_path(const char *path, char *dst, size_t dstlen)
+{
+	char resolved[QSTAR_PATH_MAX];
+
+	if (realpath(path, resolved)) {
+		if (snprintf(dst, dstlen, "%s", resolved) >= (int)dstlen)
+			return -1;
+		return 0;
+	}
+	if (snprintf(dst, dstlen, "%s", path) >= (int)dstlen)
+		return -1;
+	return 0;
+}
+
+static int
+current_executable_path(char *dst, size_t dstlen)
+{
+	char raw[QSTAR_PATH_MAX];
+#if defined(__APPLE__) && defined(__MACH__)
+	uint32_t len;
+
+	len = (uint32_t)sizeof(raw);
+	if (_NSGetExecutablePath(raw, &len) != 0)
+		return -1;
+	return canonical_existing_path(raw, dst, dstlen);
+#elif defined(__linux__)
+	ssize_t n;
+
+	n = readlink("/proc/self/exe", raw, sizeof(raw) - 1);
+	if (n < 0 || (size_t)n >= sizeof(raw))
+		return -1;
+	raw[n] = '\0';
+	return canonical_existing_path(raw, dst, dstlen);
+#else
+	(void)dst;
+	(void)dstlen;
+	(void)raw;
+	return -1;
+#endif
+}
+
+static int
+standard_provider_manifest_from_base(const char *base, const char *id,
+    char *dir, size_t dir_len, char *manifest, size_t manifest_len)
+{
+	char candidate_dir[QSTAR_PATH_MAX], candidate_manifest[QSTAR_PATH_MAX];
+
+	if (!base || !*base)
+		return 0;
+	if (qstar_path_join(base, id, candidate_dir, sizeof(candidate_dir)) < 0 ||
+	    snprintf(candidate_manifest, sizeof(candidate_manifest), "%s/%s.qsm",
+	    candidate_dir, id) >= (int)sizeof(candidate_manifest))
+		return -1;
+	if (!filesystem_file_exists(candidate_manifest))
+		return 0;
+	if (canonical_existing_path(candidate_dir, dir, dir_len) < 0 ||
+	    canonical_existing_path(candidate_manifest, manifest,
+	    manifest_len) < 0)
+		return -1;
+	return 1;
+}
+
+static int
+resolve_standard_language_provider_path(const char *id, char *dir, size_t dir_len,
+    char *manifest, size_t manifest_len)
+{
+	const char *env_dir;
+	char exe[QSTAR_PATH_MAX], bin_dir[QSTAR_PATH_MAX], prefix[QSTAR_PATH_MAX];
+	char source_build[QSTAR_PATH_MAX], source_root[QSTAR_PATH_MAX];
+	char base[QSTAR_PATH_MAX];
+	int rc;
+
+	env_dir = getenv("QSTAR_PROVIDER_DIR");
+	rc = standard_provider_manifest_from_base(env_dir, id, dir, dir_len, manifest,
+	    manifest_len);
+	if (rc != 0)
+		return rc;
+	if (current_executable_path(exe, sizeof(exe)) < 0 ||
+	    qstar_dirname(exe, bin_dir, sizeof(bin_dir)) < 0)
+		return 0;
+	if (qstar_dirname(bin_dir, prefix, sizeof(prefix)) == 0 &&
+	    qstar_path_join(prefix, "share/qstar/languages", base, sizeof(base)) == 0) {
+		rc = standard_provider_manifest_from_base(base, id, dir, dir_len,
+		    manifest, manifest_len);
+		if (rc != 0)
+			return rc;
+	}
+	if (qstar_dirname(bin_dir, source_build, sizeof(source_build)) == 0 &&
+	    qstar_dirname(source_build, source_root, sizeof(source_root)) == 0 &&
+	    qstar_path_join(source_root, "qstar/languages", base, sizeof(base)) == 0) {
+		rc = standard_provider_manifest_from_base(base, id, dir, dir_len,
+		    manifest, manifest_len);
+		if (rc != 0)
+			return rc;
+	}
+	return 0;
+}
+
 /** qstar.import_file("path.qst")로 명시적 graph fragment를 평가한다. */
 static int
 qstar_lua_import_file(lua_State *L)
@@ -4687,7 +4829,9 @@ resolve_language_provider_path(struct qstar_lua_context *ctx, const char *raw,
 {
 	const char *base;
 	char standard_dir[QSTAR_PATH_MAX];
+	char standard_manifest[QSTAR_PATH_MAX];
 	size_t n;
+	int is_id, standard_rc;
 
 	if (!raw || !*raw)
 		return qstar_set_error(ctx->graph, "qstar: use_language id is empty");
@@ -4701,6 +4845,7 @@ resolve_language_provider_path(struct qstar_lua_context *ctx, const char *raw,
 		return qstar_set_error(ctx->graph,
 		    "qstar: use_language expects a normalized provider path, not '%s'",
 		    raw);
+	is_id = strchr(raw, '/') == NULL;
 	if (strchr(raw, '/')) {
 		if (!qstar_path_is_package_relative(raw))
 			return qstar_set_error(ctx->graph,
@@ -4727,6 +4872,28 @@ resolve_language_provider_path(struct qstar_lua_context *ctx, const char *raw,
 	    qstar_path_join(ctx->root_dir, rel, full, full_len) < 0)
 		return qstar_set_error(ctx->graph,
 		    "qstar: use_language path '%s' is too long", raw);
+	if (filesystem_file_exists(full))
+		return 0;
+	if (is_id) {
+		standard_rc = resolve_standard_language_provider_path(raw, standard_dir,
+		    sizeof(standard_dir), standard_manifest, sizeof(standard_manifest));
+		if (standard_rc < 0)
+			return qstar_set_error(ctx->graph,
+			    "qstar: standard language provider path for '%s' is too long",
+			    raw);
+		if (standard_rc > 0) {
+			if (snprintf(rel_dir, rel_dir_len, "%s", standard_dir) >=
+			    (int)rel_dir_len ||
+			    snprintf(rel, rel_len, "%s", standard_manifest) >=
+			    (int)rel_len ||
+			    snprintf(full, full_len, "%s", standard_manifest) >=
+			    (int)full_len)
+				return qstar_set_error(ctx->graph,
+				    "qstar: standard language provider path for '%s' is too long",
+				    raw);
+			return 0;
+		}
+	}
 	return 0;
 }
 
@@ -4952,7 +5119,8 @@ qstar_lua_use_language(lua_State *L)
 		return luaL_error(L, "%s", graph->error);
 	}
 	if (qstar_path_join(rel_dir, impl_name, impl_rel, sizeof(impl_rel)) < 0 ||
-	    qstar_path_join(ctx->root_dir, impl_rel, impl_full, sizeof(impl_full)) < 0) {
+	    path_join_root_or_absolute(ctx->root_dir, impl_rel, impl_full,
+	    sizeof(impl_full)) < 0) {
 		lua_pop(L, 1);
 		return luaL_error(L,
 		    "qstar: language provider '%s' implementation path is too long",

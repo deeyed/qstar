@@ -8,6 +8,8 @@ Generic Language Provider(GLP)는 이 경계를 확장하는 정식 provider sur
 runtime은 `qstar.use_language("zig")` 같은 provider 활성화와 `lang.zig` 동적 namespace
 gate를 제공한다. Provider manifest는 `qstar.language_provider { api = "qstar.lang/1",
 ... }` schema로 검증되고, `provider.lua` implementation은 제한 sandbox에서 로드된다.
+`zig`는 QStar가 함께 설치하는 표준 provider이며, 같은 ID의 project-local provider가 있으면
+그 manifest가 먼저 사용된다.
 Provider가 선언한 `options` schema는 `lang.<namespace>` table의 key와 value type을 검증한다.
 Provider가 선언한 `units` schema와 exported helper는 `zig.object("src/main.zig")` 같은
 source token을 만들 수 있고, backend는 provider lowering function이 반환한 `command`,
@@ -19,9 +21,9 @@ hand-written 외부 compiler flow를 위해 계속 지원한다. 자세한 설�
 이 wiki는 구현 요약이 아니라 “이것만 보고 QStar project를 작성할 수 있는” 한국어
 사용 설명서다. Root file은 `qstar.lua`, subdir fragment는 `<folder>.qst`, helper
 module은 `<folder>/<folder>.qsm`, 언어별 option은 `lang.*` 아래에 둔다.
-Project-local language provider는 `qstar/languages/<id>/<id>.qsm` manifest를 갖고
-`provider.lua` implementation을 함께 둔 뒤 `qstar.use_language("<id>")`로 명시적으로
-활성화한다.
+Language provider는 `qstar.use_language("<id>")`로 명시적으로 활성화한다. Short id는
+먼저 project-local `qstar/languages/<id>/<id>.qsm` manifest를 찾고, 없으면 installed
+standard bundle의 `share/qstar/languages/<id>/<id>.qsm`을 사용한다.
 
 AI agent가 빠르게 구조를 파악해야 한다면 [AI Index](AI_INDEX.md)를 먼저 읽는다.
 

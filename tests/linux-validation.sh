@@ -201,10 +201,73 @@ test -f "$install_root/share/man/man1/qstar.1" ||
 	fail "installed qstar(1) manpage missing"
 test -f "$install_root/share/man/man5/qstar-lua.5" ||
 	fail "installed qstar-lua(5) manpage missing"
+test -f "$install_root/share/qstar/languages/zig/zig.qsm" ||
+	fail "installed Zig language provider manifest missing"
+test -f "$install_root/share/qstar/languages/zig/provider.lua" ||
+	fail "installed Zig language provider implementation missing"
 QSTAR_DOC_DIR="$install_root/share/doc/qstar" \
 	"$install_root/bin/qstar" docs --path > "$tmp/install-docs-path.out" \
 	2> "$tmp/install-docs-path.err"
 contains "$tmp/install-docs-path.out" "$install_root/share/doc/qstar/wiki"
+
+installed_zig="$tmp/installed-zig"
+mkdir -p "$installed_zig/src" "$installed_zig/tools"
+cat > "$installed_zig/src/main.zig" <<'EOF'
+pub export fn installed_value() i32 {
+    return 23;
+}
+EOF
+cat > "$installed_zig/tools/fake-zig" <<'EOF'
+#!/bin/sh
+out=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -femit-bin=*)
+      out=${1#-femit-bin=}
+      ;;
+  esac
+  shift
+done
+test -n "$out" || exit 2
+mkdir -p "$(dirname "$out")"
+printf 'installed zig object\n' > "$out"
+EOF
+chmod +x "$installed_zig/tools/fake-zig"
+cat > "$installed_zig/qstar.lua" <<'EOF'
+local zig = qstar.use_language("zig")
+
+qstar.toolset "host" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    zig = zig.tools {
+      compiler = qstar.cli {"tools/fake-zig"},
+    },
+  },
+}
+
+qstar.config "zig_release" {
+  toolset = "//:host",
+  lang = {
+    zig = zig.options {
+      optimize = "ReleaseSafe",
+    },
+  },
+}
+
+qstar.staticlib "core" {
+  configs = {
+    "//:zig_release",
+  },
+  sources = {
+    zig.object("src/main.zig"),
+  },
+}
+EOF
+"$install_root/bin/qstar" --file "$installed_zig/qstar.lua" build //:core \
+	> "$tmp/install-zig-provider.out" 2> "$tmp/install-zig-provider.err"
+contains "$tmp/install-zig-provider.out" "status ok"
+test -f "$installed_zig/build/qstar/out/___core/obj0.o" ||
+	fail "installed standard Zig provider did not produce object"
 
 printf 'qstar-linux-validation: install_prefix=%s\n' "$install_root"
 printf 'qstar-linux-validation: passed\n'

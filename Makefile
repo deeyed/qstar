@@ -6,6 +6,7 @@ BIN_DIR ?= $(BUILD_DIR)/bin
 PREFIX ?= /usr/local
 DOC_DIR ?= $(PREFIX)/share/doc/qstar
 MAN_DIR ?= $(PREFIX)/share/man
+PROVIDER_DIR ?= $(PREFIX)/share/qstar/languages
 QSTAR_BUILD = $(BUILD_DIR)/obj
 LUA_DIR = vendor/lua
 CFLAGS ?= -g -O0 -pipe
@@ -263,6 +264,9 @@ install: all
 	mkdir -p "$(DOC_DIR)"
 	rm -rf "$(DOC_DIR)/wiki"
 	cp -R wiki "$(DOC_DIR)/wiki"
+	mkdir -p "$(PROVIDER_DIR)"
+	rm -rf "$(PROVIDER_DIR)/zig"
+	cp -R qstar/languages/zig "$(PROVIDER_DIR)/zig"
 	mkdir -p "$(MAN_DIR)/man1" "$(MAN_DIR)/man5"
 	cp man/man1/qstar.1 "$(MAN_DIR)/man1/qstar.1"
 	cp man/man5/qstar-lua.5 "$(MAN_DIR)/man5/qstar-lua.5"

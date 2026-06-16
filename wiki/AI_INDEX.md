@@ -18,7 +18,9 @@ Generic Language Provider(GLP)는 이 경계를 정식 provider surface로 확�
 `lang.zig` activation gate, provider-defined option schema, `qstar.source(...)` 기반 source
 unit object lowering을 제공한다. Provider implementation의 lowering function은 `command`,
 `inputs`, `outputs`, `depfile` action template을 만들고, Stella와 Ninja는 이 template을 같은
-backend contract로 실행한다. 설계 정본은 root `glp_roadmap.md`다.
+backend contract로 실행한다. `zig` provider는 installed standard provider bundle에 포함되고,
+project-local `qstar/languages/zig/zig.qsm`이 있으면 그 manifest가 우선한다. 설계 정본은 root
+`glp_roadmap.md`다.
 
 QStar가 하지 않는 일:
 
@@ -54,9 +56,10 @@ QStar가 하지 않는 일:
   token을 만들고, QStar가 consuming target 소유의 object output으로 낮춘다. 더 세밀한 외부
   compiler 호출이 필요하면 `qstar.custom_target`과 `qstar.output(path, {format = "object"})`
   bridge도 계속 사용할 수 있다.
-- GLP provider는 `qstar/languages/<id>/<id>.qsm` manifest와 `provider.lua` implementation을
-  가진다. Manifest는 `qstar.language_provider { api = "qstar.lang/1", ... }` schema로
-  검증되고, implementation은 제한 provider sandbox에서 로드된다. 사용자는
+- GLP provider는 project-local `qstar/languages/<id>/<id>.qsm` manifest 또는 installed
+  standard bundle `share/qstar/languages/<id>/<id>.qsm` manifest와 `provider.lua`
+  implementation을 가진다. Manifest는 `qstar.language_provider { api = "qstar.lang/1", ... }`
+  schema로 검증되고, implementation은 제한 provider sandbox에서 로드된다. 사용자는
   `qstar.use_language("<id>")`가 반환한 exported helper table을 통해 `zig.tools`,
   `zig.options`, `zig.object` 같은 helper를 사용한다. `lang.<namespace>`는 provider activation
   이후에만 유효하며, provider-defined `options` schema가 unknown option, string, bool, list,

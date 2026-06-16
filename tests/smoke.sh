@@ -2278,6 +2278,124 @@ if "$qstar" --file "$tmp/provider-source-unit/qstar.lua" check > "$tmp/provider-
 fi
 contains "$tmp/provider-source-unit-suffix.err" "does not match suffixes for unit 'zig.object'"
 
+mkdir -p "$tmp/standard-zig/src" "$tmp/standard-zig/tools"
+cat > "$tmp/standard-zig/src/main.zig" <<'EOF'
+pub export fn value() i32 {
+    return 7;
+}
+EOF
+cat > "$tmp/standard-zig/tools/fake-zig" <<'EOF'
+#!/bin/sh
+out=
+parse_arg() {
+  case "$1" in
+    -femit-bin=*)
+      out=${1#-femit-bin=}
+      ;;
+  esac
+}
+if [ "$#" -eq 1 ]; then
+  case "$1" in
+    @*)
+      rsp=${1#@}
+      while IFS= read -r arg; do
+        parse_arg "$arg"
+      done < "$rsp"
+      ;;
+  esac
+fi
+while [ "$#" -gt 0 ]; do
+  parse_arg "$1"
+  shift
+done
+if [ -z "$out" ]; then
+  exit 2
+fi
+mkdir -p "$(dirname "$out")"
+printf 'standard zig object\n' > "$out"
+EOF
+chmod +x "$tmp/standard-zig/tools/fake-zig"
+cat > "$tmp/standard-zig/qstar.lua" <<'EOF'
+local zig = qstar.use_language("zig")
+
+qstar.project {
+  name = "standard-zig",
+  version = "0.1.0",
+  root = ".",
+  build_dir = "build/qstar",
+}
+
+qstar.toolset "host" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    zig = zig.tools {
+      compiler = qstar.cli {"tools/fake-zig"},
+    },
+  },
+  response_files = "on",
+  response_style = "posix",
+}
+
+qstar.config "zig_release" {
+  toolset = "//:host",
+  lang = {
+    zig = zig.options {
+      target = "x86_64-linux-gnu",
+      optimize = "ReleaseFast",
+      compile_options = {
+        "--cache-dir",
+        "build/zig-cache",
+        "--very-long-standard-provider-option-000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "--very-long-standard-provider-option-111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+      },
+    },
+  },
+}
+
+qstar.staticlib "core" {
+  configs = {
+    "//:zig_release",
+  },
+  sources = {
+    zig.object("src/main.zig"),
+  },
+}
+EOF
+test ! -d "$tmp/standard-zig/qstar/languages" ||
+  fail "standard Zig fixture must not vendor qstar/languages"
+"$qstar" --file "$tmp/standard-zig/qstar.lua" check > "$tmp/standard-zig-check.out" 2> "$tmp/standard-zig-check.err"
+"$qstar" --file "$tmp/standard-zig/qstar.lua" --dump-graph > "$tmp/standard-zig-graph.out" 2> "$tmp/standard-zig-graph.err"
+contains "$tmp/standard-zig-graph.out" "language_provider namespace=zig id=zig api=qstar.lang/1 version=0.1"
+contains "$tmp/standard-zig-graph.out" "qstar/languages/zig/zig.qsm"
+contains "$tmp/standard-zig-graph.out" "tools.zig.compiler [tools/fake-zig]"
+"$qstar" --file "$tmp/standard-zig/qstar.lua" explain //:core > "$tmp/standard-zig-explain.out" 2> "$tmp/standard-zig-explain.err"
+contains "$tmp/standard-zig-explain.out" "source_file path=src/main.zig language=zig tool=provider-compiler provider=zig provider_role=compiler toolset_role=zig.compiler output_group=objects role=compile"
+contains "$tmp/standard-zig-explain.out" "build-obj"
+contains "$tmp/standard-zig-explain.out" "-O, ReleaseFast"
+contains "$tmp/standard-zig-explain.out" "-target, x86_64-linux-gnu"
+contains "$tmp/standard-zig-explain.out" "-femit-bin=build/qstar/out/___core/obj0.o"
+"$qstar" --file "$tmp/standard-zig/qstar.lua" dry-run //:core > "$tmp/standard-zig-dry-run.out" 2> "$tmp/standard-zig-dry-run.err"
+contains "$tmp/standard-zig-dry-run.out" "dry_run_step id=//:core:compile:0 owner=//:core kind=compile language=zig tool=provider-compiler"
+contains "$tmp/standard-zig-dry-run.out" "argv=[tools/fake-zig, build-obj, src/main.zig"
+contains "$tmp/standard-zig-dry-run.out" "-O, ReleaseFast"
+contains "$tmp/standard-zig-dry-run.out" "response=skeleton"
+contains "$tmp/standard-zig-dry-run.out" "response_file=build/qstar/rsp/"
+"$qstar" --file "$tmp/standard-zig/qstar.lua" build //:core > "$tmp/standard-zig-build.out" 2> "$tmp/standard-zig-build.err"
+if ! find "$tmp/standard-zig/build" -name obj0.o -type f | grep -q .; then
+  fail "standard Zig provider object was not produced"
+fi
+"$qstar" --file "$tmp/standard-zig/qstar.lua" action-log //:core:compile:0 > "$tmp/standard-zig-action-log.out" 2> "$tmp/standard-zig-action-log.err"
+contains "$tmp/standard-zig-action-log.out" "tools/fake-zig"
+contains "$tmp/standard-zig-action-log.out" "build-obj"
+"$qstar" --file "$tmp/standard-zig/qstar.lua" replay //:core:compile:0 > "$tmp/standard-zig-replay.out" 2> "$tmp/standard-zig-replay.err"
+contains "$tmp/standard-zig-replay.out" "tools/fake-zig"
+contains "$tmp/standard-zig-replay.out" "-target x86_64-linux-gnu"
+"$qstar" --file "$tmp/standard-zig/qstar.lua" -B build-ninja -G ninja build //:core > "$tmp/standard-zig-ninja-build.out" 2> "$tmp/standard-zig-ninja-build.err"
+contains "$tmp/standard-zig-ninja-build.out" "backend ninja"
+if ! find "$tmp/standard-zig/build-ninja" -name obj0.o -type f | grep -q .; then
+  fail "standard Zig provider object was not produced by Ninja"
+fi
+
 mkdir -p "$tmp/language-provider-options/qstar/languages/zig"
 cat > "$tmp/language-provider-options/qstar/languages/zig/zig.qsm" <<'EOF'
 return qstar.language_provider {
@@ -2457,12 +2575,12 @@ contains "$tmp/language-provider-unknown.err" "unknown language namespace lang.z
 
 mkdir -p "$tmp/language-provider-missing"
 cat > "$tmp/language-provider-missing/qstar.lua" <<'EOF'
-qstar.use_language("zig")
+qstar.use_language("definitely_missing")
 EOF
 if "$qstar" --file "$tmp/language-provider-missing/qstar.lua" check > "$tmp/language-provider-missing.out" 2> "$tmp/language-provider-missing.err"; then
   fail "missing language provider unexpectedly succeeded"
 fi
-contains "$tmp/language-provider-missing.err" "expected provider manifest 'qstar/languages/zig/zig.qsm'"
+contains "$tmp/language-provider-missing.err" "expected provider manifest 'qstar/languages/definitely_missing/definitely_missing.qsm'"
 
 mkdir -p "$tmp/language-provider-duplicate/qstar/languages/zig"
 cat > "$tmp/language-provider-duplicate/qstar/languages/zig/zig.qsm" <<'EOF'

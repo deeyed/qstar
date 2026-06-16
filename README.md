@@ -6,9 +6,10 @@ QStar is a standalone build system with a Lua-based project DSL, a fast native
 executor named Stella, and an optional Ninja backend. It focuses on deterministic
 build graphs, explicit command vectors, reusable target configuration, and
 tooling-friendly diagnostics for C, C++, assembly, generated files, and
-external object artifact flows. Project-local language providers can be
-activated with `qstar.use_language(...)`; provider source units lower through
-the same Stella/Ninja backend action contract.
+external object artifact flows. Language providers can be activated with
+`qstar.use_language(...)`; QStar ships a standard Zig provider and also accepts
+project-local provider packages. Provider source units lower through the same
+Stella/Ninja backend action contract.
 
 QStar is currently in beta. The current release-prep line is `v0.7.0-beta`,
 with macOS arm64 and Linux x86_64 runtime tarballs. Linux assets
@@ -30,8 +31,8 @@ hotfixes.
   groups
 - `qstar.toolset` declarations for compiler, archive, link, response-file, and
   external tool policy
-- `qstar.use_language(...)` activation for project-local language provider
-  namespaces
+- `qstar.use_language(...)` activation for bundled or project-local language
+  provider namespaces
 - Reusable `qstar.config` bundles for large projects with repeated compiler
   options
 - Stella native executor with compact progress output

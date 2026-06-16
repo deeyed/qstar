@@ -98,6 +98,7 @@ command_help(FILE *out, const char *cmd)
 		fputs("usage: qstar docs [--path|--ai-index|--show wiki-relative.md]\n", out);
 		fputs("Print local QStar documentation entrypoints for users and AI agents.\n", out);
 		fputs("--path prints the wiki root; --ai-index prints AI_INDEX.md; --show prints a document.\n", out);
+		fputs("Language provider docs cover bundled standard providers such as zig and project-local providers.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "test") == 0) {
