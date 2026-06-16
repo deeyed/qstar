@@ -1,9 +1,14 @@
 # Language Providers
 
-QStar는 특정 언어에 종속되지 않는 빌드시스템이다. 현재 runtime은 C/C++/ASM compile
-provider를 직접 소유하고, 그 밖의 언어는 source suffix나 언어별 namespace를 QStar DSL에
-추가하지 않는다. 외부 compiler가 object artifact를 만들게 한 뒤 그 object를 consuming
-target에 연결한다. 이 현재 경계를 object artifact bridge라고 부른다.
+QStar는 특정 언어에 종속되지 않는 빌드시스템이다. 현재 runtime은 built-in `c`, `cxx`,
+`asm` provider namespace를 preloaded registry로 다룬다. Public syntax의 `lang.c`,
+`lang.cxx`, `lang.asm`은 초보자 친화 표면으로 계속 유지되지만, 내부 source
+classification과 tool role은 `c.compiler`, `cxx.compiler`, `asm.compiler` 같은 provider
+role로 내려간다.
+
+그 밖의 언어는 아직 source suffix나 언어별 namespace를 QStar DSL에 추가하지 않는다. 외부
+compiler가 object artifact를 만들게 한 뒤 그 object를 consuming target에 연결한다. 이
+현재 경계를 object artifact bridge라고 부른다.
 
 Generic Language Provider(GLP)는 이 문서의 다음 정식 provider 경로다. GLP가 구현되면
 `qstar.use_language("zig")`로 provider를 활성화하고, provider가 등록한 `lang.zig` 같은
@@ -12,7 +17,8 @@ root의 `glp_roadmap.md`에 둔다.
 
 ## 현재 경로: object artifact bridge
 
-GLP가 runtime에 들어오기 전까지 외부 언어 source를 직접 `sources`에 넣지 않는다.
+GLP가 외부 provider까지 확장되기 전까지 built-in `c`/`cxx`/`asm` 외 언어 source를 직접
+`sources`에 넣지 않는다.
 외부 compiler 호출은 `qstar.custom_target`으로 작성하고, 결과 object를
 `qstar.output(path, {format = "object"})`로 표시한다.
 
@@ -49,7 +55,7 @@ qstar.executable "bad" {
 }
 ```
 
-외부 언어 source를 `sources`에 직접 넣지 않는다. 외부 compiler를 호출하는
+Built-in provider가 없는 외부 언어 source를 `sources`에 직접 넣지 않는다. 외부 compiler를 호출하는
 `qstar.custom_target`을 만들고 `qstar.output(path, {format = "object"})` output을 consuming
 target의 `sources`에 넣는다.
 
@@ -106,8 +112,8 @@ qstar.executable "app" {
 }
 ```
 
-이 문법은 roadmap surface다. 현재 stable runtime에서는 위 구조를 object artifact bridge로
-표현한다.
+이 문법은 external provider roadmap surface다. 현재 stable runtime에서는 built-in
+`c`/`cxx`/`asm` provider 외 언어를 object artifact bridge로 표현한다.
 
 ## 관련 CLI
 

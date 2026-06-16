@@ -6,6 +6,8 @@ generic build system 표면을 갖는다. 다만 언어 option 표면은 아직 
 `lang.cxx`, `lang.asm`처럼 beginner-friendly builtin namespace로 남아 있다.
 Q200부터 toolset compiler role은 `tools.c.compiler`처럼 provider namespace table로
 표현하고, `tools.c = qstar.cli {...}` 같은 직접 compiler slot은 제거한다.
+Q201부터 C/C++/ASM source classification은 preloaded built-in provider registry의
+`c`, `cxx`, `asm` namespace 위에서 동작한다.
 
 GLP의 목표는 기존 초보자 친화적인 C/C++/ASM 문법을 유지하면서도, QStar core가 특정
 언어를 직접 알지 않고 새 언어를 provider package로 추가할 수 있게 만드는 것이다.

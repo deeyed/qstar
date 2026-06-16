@@ -368,37 +368,6 @@ collect_compile_include_dirs(const struct qstar_graph *graph, const struct qstar
 	return 0;
 }
 
-/** source language가 assembler 계열인지 확인한다. */
-static int
-source_is_asm(const struct qstar_source_info *source)
-{
-	return strcmp(source->language, "asm") == 0 ||
-	    strcmp(source->language, "asm-cpp") == 0;
-}
-
-/** ASM source가 C preprocessor를 거쳐야 하는지 확인한다. */
-static int
-source_uses_asm_preprocessor(const struct qstar_target *target,
-    const struct qstar_source_info *source)
-{
-	return strcmp(source->language, "asm-cpp") == 0 ||
-	    (strcmp(source->language, "asm") == 0 && target->asm_preprocess);
-}
-
-/** source registry 기준으로 compile action이 필요한 입력인지 확인한다. */
-static int
-source_requires_compile(const struct qstar_source_info *source)
-{
-	return source->compile_input;
-}
-
-/** 이미 만들어진 object 파일을 final archive 입력으로 직접 소비하는지 확인한다. */
-static int
-source_is_link_object(const struct qstar_source_info *source)
-{
-	return strcmp(source->language, "object") == 0;
-}
-
 /** Ninja backend가 처리할 수 있는 compile source인지 검증한다. */
 static int
 validate_ninja_compile_source(struct qstar_graph *graph, const struct qstar_target *target,
@@ -409,13 +378,13 @@ validate_ninja_compile_source(struct qstar_graph *graph, const struct qstar_targ
 		    "sources", target->label,
 		    "qstar: header source '%s' must be listed as lang.*.public_headers/private_headers",
 		    target->sources.items[index]);
-	if (strcmp(source->language, "cxx-module") == 0)
+	if (qstar_source_is_cxx_module(source))
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "sources", target->label,
 		    "qstar: ninja backend MVP does not support C++ module source '%s'",
 		    target->sources.items[index]);
-	if (strcmp(source->language, "c") != 0 && strcmp(source->language, "cxx") != 0 &&
-	    !source_is_asm(source))
+	if (!qstar_language_provider_lookup(source->provider) ||
+	    !qstar_source_toolset_role(source)[0])
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "sources", target->label,
 		    "qstar: ninja backend MVP does not support source '%s' with language '%s'",
@@ -433,7 +402,7 @@ target_source_object_input(struct qstar_graph *graph, const struct qstar_target 
 	if (qstar_source_classify(target->sources.items[index], &source) < 0)
 		return qstar_set_error(graph, "qstar: unsupported source '%s'",
 		    target->sources.items[index]);
-	if (source_is_link_object(&source)) {
+	if (qstar_source_is_link_object(&source)) {
 		return snprintf(dst, dstlen, "%s", target->sources.items[index]) <
 		    (int)dstlen ? 0 : -1;
 	}
@@ -1491,7 +1460,7 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 
 	memset(&argv, 0, sizeof(argv));
 	qstar_source_classify(target->sources.items[index], &source);
-	if (!source_requires_compile(&source))
+	if (!qstar_source_requires_compile(&source))
 		return 0;
 	if (validate_ninja_compile_source(graph, target, &source, index) < 0)
 		return -1;
@@ -1502,16 +1471,19 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	memset(&includes, 0, sizeof(includes));
 	if (collect_compile_include_dirs(graph, target, &includes) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
-	is_asm = source_is_asm(&source);
-	is_cxx = strcmp(source.language, "cxx") == 0;
-	wants_depfile = strcmp(source.language, "c") == 0 || is_cxx ||
-	    source_uses_asm_preprocessor(target, &source);
+	is_asm = qstar_source_is_asm(&source);
+	is_cxx = strcmp(source.provider, "cxx") == 0;
+	wants_depfile = strcmp(source.provider, "c") == 0 || is_cxx ||
+	    qstar_source_uses_asm_preprocessor(target, &source);
 	snprintf(action_id, sizeof(action_id), "%s:compile:%zu", target->label, index);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s",
 	    target->cxx_standard ? target->cxx_standard : "");
-	compiler = is_asm ? toolchain->asm_ : is_cxx ? toolchain->cxx : toolchain->cc;
+	compiler = qstar_resolved_toolchain_provider_tool(toolchain, source.provider,
+	    source.provider_role);
+	if (!compiler)
+		compiler = toolchain->cc;
 	if (ninja_argv_push_tool_role(graph, &argv, target, toolchain,
-	    is_asm ? "asm.compiler" : is_cxx ? "cxx.compiler" : "c.compiler",
+	    qstar_source_toolset_role(&source),
 	    compiler) < 0)
 		goto fail;
 	if (target_compile_needs_pic(target, toolchain, is_asm) &&
@@ -1520,7 +1492,7 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	if (is_asm &&
 	    (ninja_argv_push(graph, &argv, "-x") < 0 ||
 	    ninja_argv_push(graph, &argv,
-	    source_uses_asm_preprocessor(target, &source) ?
+	    qstar_source_uses_asm_preprocessor(target, &source) ?
 	    "assembler-with-cpp" : "assembler") < 0))
 		goto fail;
 	if (ninja_argv_push(graph, &argv, "-c") < 0 ||
@@ -1630,21 +1602,6 @@ write_dep_aliases(struct qstar_graph *graph, FILE *f, const struct qstar_target 
 	return 0;
 }
 
-/** target source list에 C++ compile input이 있는지 확인한다. */
-static int
-target_has_cxx_source(const struct qstar_target *target)
-{
-	struct qstar_source_info source;
-	size_t i;
-
-	for (i = 0; i < target->sources.len; i++) {
-		if (qstar_source_classify(target->sources.items[i], &source) == 0 &&
-		    strcmp(source.language, "cxx") == 0)
-			return 1;
-	}
-	return 0;
-}
-
 /** artifact path에서 basename component를 반환한다. */
 static const char *
 artifact_basename(const char *path)
@@ -1738,7 +1695,8 @@ toolchain_needs_msvc_link_boundary(const struct qstar_resolved_toolchain *toolch
 
 	if (!toolchain || !target || strcmp(toolchain->link_style, "msvc") != 0)
 		return 0;
-	tool = target_has_cxx_source(target) ? toolchain->cxx : toolchain->linker;
+	tool = qstar_target_has_compile_provider(target, "cxx") ? toolchain->cxx :
+	    toolchain->linker;
 	return strstr(tool, "clang-cl") != NULL || strstr(tool, "cl.exe") != NULL;
 }
 
@@ -1751,7 +1709,8 @@ toolchain_uses_msvc_out_arg(const struct qstar_resolved_toolchain *toolchain,
 
 	if (!toolchain || !target)
 		return 0;
-	tool = target_has_cxx_source(target) ? toolchain->cxx : toolchain->linker;
+	tool = qstar_target_has_compile_provider(target, "cxx") ? toolchain->cxx :
+	    toolchain->linker;
 	return strstr(tool, "lld-link") != NULL || strstr(tool, "link.exe") != NULL;
 }
 
@@ -2041,7 +2000,8 @@ emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 
 		if (qstar_source_classify(target->sources.items[i], &source) < 0)
 			goto fail;
-		if (!source_requires_compile(&source) && !source_is_link_object(&source))
+		if (!qstar_source_requires_compile(&source) &&
+		    !qstar_source_is_link_object(&source))
 			continue;
 		if (target_source_object_input(graph, target, i, object, sizeof(object)) < 0)
 			goto fail;
@@ -2060,7 +2020,8 @@ emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 
 		if (qstar_source_classify(target->sources.items[i], &source) < 0)
 			goto fail;
-		if (!source_requires_compile(&source) && !source_is_link_object(&source))
+		if (!qstar_source_requires_compile(&source) &&
+		    !qstar_source_is_link_object(&source))
 			continue;
 		if (target_source_object_input(graph, target, i, object, sizeof(object)) < 0)
 			goto fail;
@@ -2129,7 +2090,8 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	final_action = qstar_target_final_action(target);
 	snprintf(action_id, sizeof(action_id), "%s:%s:0", target->label, final_action);
 	if (ninja_argv_push_tool_role(graph, &argv, target, toolchain, "link",
-	    target_has_cxx_source(target) ? toolchain->cxx : toolchain->linker) < 0)
+	    qstar_target_has_compile_provider(target, "cxx") ? toolchain->cxx :
+	    toolchain->linker) < 0)
 		goto fail;
 	if (toolchain_uses_msvc_out_arg(toolchain, target)) {
 		if (ninja_argv_pushf(graph, &argv, "/out:%s", artifact) < 0)
@@ -2147,7 +2109,8 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 
 		if (qstar_source_classify(target->sources.items[i], &source) < 0)
 			goto fail;
-		if (!source_requires_compile(&source) && !source_is_link_object(&source))
+		if (!qstar_source_requires_compile(&source) &&
+		    !qstar_source_is_link_object(&source))
 			continue;
 		if (target_source_object_input(graph, target, i, object, sizeof(object)) < 0)
 			goto fail;
@@ -2180,7 +2143,8 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 
 		if (qstar_source_classify(target->sources.items[i], &source) < 0)
 			goto fail;
-		if (!source_requires_compile(&source) && !source_is_link_object(&source))
+		if (!qstar_source_requires_compile(&source) &&
+		    !qstar_source_is_link_object(&source))
 			continue;
 		if (target_source_object_input(graph, target, i, object, sizeof(object)) < 0)
 			goto fail;

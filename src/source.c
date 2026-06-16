@@ -898,8 +898,9 @@ dump_source(FILE *out, const char *path)
 	if (qstar_source_classify(path, &info) < 0)
 		return;
 	fprintf(out,
-	    "  source_file path=%s language=%s tool=%s provider=%s output_group=%s role=compile\n",
-	    path, info.language, info.tool_role, info.provider, info.output_group);
+	    "  source_file path=%s language=%s tool=%s provider=%s provider_role=%s toolset_role=%s output_group=%s role=compile\n",
+	    path, info.language, info.tool_role, info.provider, info.provider_role,
+	    info.toolset_role, info.output_group);
 }
 
 /** QStar target의 source discovery skeleton을 출력한다. */

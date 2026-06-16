@@ -115,6 +115,11 @@ int qstar_label_package_path(const char *label, char *dst, size_t dstlen);
 int qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *target,
     struct qstar_resolved_toolchain *resolved);
 
+/** resolved toolchain에서 provider namespace와 role에 맞는 fallback tool을 찾는다. */
+const char *qstar_resolved_toolchain_provider_tool(
+    const struct qstar_resolved_toolchain *resolved, const char *provider,
+    const char *provider_role);
+
 /** Graph에서 canonical toolset label을 찾는다. */
 const struct qstar_toolset *qstar_graph_find_toolset(const struct qstar_graph *graph,
     const char *label);

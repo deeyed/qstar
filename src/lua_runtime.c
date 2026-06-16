@@ -1236,9 +1236,6 @@ static int
 read_lang_options(lua_State *L, int table, struct qstar_target *target,
     struct qstar_graph *graph)
 {
-	static const char *const allowed_langs[] = {
-		"c", "cxx", "asm", NULL
-	};
 	const char *key;
 	int rc;
 
@@ -1256,7 +1253,7 @@ read_lang_options(lua_State *L, int table, struct qstar_target *target,
 	lua_pushnil(L);
 	while (lua_next(L, -2) != 0) {
 		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
-		if (!key || !string_in_set(key, allowed_langs)) {
+		if (!key || !qstar_language_provider_is_preloaded(key)) {
 			lua_pop(L, 2);
 			return qstar_set_error(graph, "qstar: unknown language namespace lang.%s",
 			    key ? key : "<non-string>");

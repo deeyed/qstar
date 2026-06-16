@@ -157,7 +157,8 @@ qstar.toolset "bad" {
 }
 ```
 
-Tool role은 `c`, `cxx`, `asm`, `archive`, `link`만 허용된다.
+Direct tool role은 `archive`, `link`만 허용된다. Compiler tool은
+`tools.c.compiler`처럼 built-in 또는 external provider namespace table 아래에 둔다.
 
 ## GLP 목표 문법
 

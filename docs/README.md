@@ -19,10 +19,12 @@ Current DSL surface:
 - authoring helpers: `qstar.files`, `qstar.join`, `qstar.copy`, `qstar.append`,
   `qstar.merge`, `qstar.extend`
 
-Generic Language Provider (GLP) note: the current runtime supports C/C++/ASM
-compile providers directly and uses the object artifact bridge for other
-languages. The formal roadmap for making language providers a first-class,
-language-neutral extension surface is tracked in `../glp_roadmap.md`.
+Generic Language Provider (GLP) note: the current runtime preloads built-in
+`c`, `cxx`, and `asm` provider namespaces for C/C++/ASM source handling.
+External language providers are still roadmap work; unsupported languages use
+the object artifact bridge. The formal roadmap for making language providers a
+first-class, language-neutral extension surface is tracked in
+`../glp_roadmap.md`.
 
 Important documents:
 

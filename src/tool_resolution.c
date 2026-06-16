@@ -119,6 +119,41 @@ response_files_enabled(const char *value, int default_value)
 	return 1;
 }
 
+const char *
+qstar_resolved_toolchain_provider_tool(const struct qstar_resolved_toolchain *resolved,
+    const char *provider, const char *provider_role)
+{
+	if (!resolved || !provider || !provider_role ||
+	    strcmp(provider_role, "compiler") != 0)
+		return NULL;
+	if (strcmp(provider, "c") == 0)
+		return resolved->cc;
+	if (strcmp(provider, "cxx") == 0)
+		return resolved->cxx;
+	if (strcmp(provider, "asm") == 0)
+		return resolved->asm_;
+	return NULL;
+}
+
+static void
+apply_builtin_provider_tool(const struct qstar_toolset *toolset, const char *provider_name,
+    char *dst, size_t dstlen)
+{
+	const struct qstar_language_provider_info *provider;
+	const struct qstar_string_list *role;
+	char role_name[128];
+
+	provider = qstar_language_provider_lookup(provider_name);
+	if (!provider || !provider->compiler_role || !provider->compiler_role[0])
+		return;
+	if (snprintf(role_name, sizeof(role_name), "%s.%s", provider->namespace,
+	    provider->compiler_role) >= (int)sizeof(role_name))
+		return;
+	role = qstar_toolset_role_argv(toolset, role_name);
+	if (role)
+		snprintf(dst, dstlen, "%s", role->items[0]);
+}
+
 /** target/build context 입력을 tool role metadata로 결정한다. */
 int
 qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *target,
@@ -186,16 +221,13 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 	    qstar_graph_find_toolset(graph, target->toolset) : NULL;
 	if (toolset) {
 		snprintf(resolved->toolset, sizeof(resolved->toolset), "%s", toolset->label);
-		role = qstar_toolset_role_argv(toolset, "c.compiler");
-		if (role)
-			snprintf(resolved->cc, sizeof(resolved->cc), "%s", role->items[0]);
-		role = qstar_toolset_role_argv(toolset, "cxx.compiler");
-		if (role)
-			snprintf(resolved->cxx, sizeof(resolved->cxx), "%s", role->items[0]);
-		role = qstar_toolset_role_argv(toolset, "asm.compiler");
-		if (role)
-			snprintf(resolved->asm_, sizeof(resolved->asm_), "%s", role->items[0]);
-		else
+		apply_builtin_provider_tool(toolset, "c", resolved->cc,
+		    sizeof(resolved->cc));
+		apply_builtin_provider_tool(toolset, "cxx", resolved->cxx,
+		    sizeof(resolved->cxx));
+		apply_builtin_provider_tool(toolset, "asm", resolved->asm_,
+		    sizeof(resolved->asm_));
+		if (!qstar_toolset_role_argv(toolset, "asm.compiler"))
 			snprintf(resolved->asm_, sizeof(resolved->asm_), "%s", resolved->cc);
 		role = qstar_toolset_role_argv(toolset, "archive");
 		if (role)

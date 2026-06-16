@@ -209,11 +209,20 @@ struct qstar_lint_diagnostic {
 	int line;
 };
 
+struct qstar_language_provider_info {
+	const char *namespace;
+	const char *display_name;
+	const char *compiler_role;
+	int preloaded;
+};
+
 struct qstar_source_info {
 	const char *path;
 	const char *language;
 	const char *tool_role;
 	const char *provider;
+	const char *provider_role;
+	const char *toolset_role;
 	const char *output_group;
 	int compile_input;
 	int header_input;
@@ -414,6 +423,36 @@ int qstar_source_classify(const char *path, struct qstar_source_info *info);
 
 /** QStar source kind registry에서 path suffix에 맞는 항목을 찾는다. */
 const struct qstar_source_info *qstar_source_kind_lookup_path(const char *path);
+
+/** Built-in/preloaded language provider namespace metadata를 조회한다. */
+const struct qstar_language_provider_info *qstar_language_provider_lookup(
+    const char *namespace);
+
+/** language provider namespace가 public lang table에서 preloaded되어 있는지 확인한다. */
+int qstar_language_provider_is_preloaded(const char *namespace);
+
+/** source kind가 compile action을 요구하는지 확인한다. */
+int qstar_source_requires_compile(const struct qstar_source_info *source);
+
+/** source kind가 이미 만들어진 object artifact인지 확인한다. */
+int qstar_source_is_link_object(const struct qstar_source_info *source);
+
+/** source kind가 assembler provider에 속하는지 확인한다. */
+int qstar_source_is_asm(const struct qstar_source_info *source);
+
+/** source kind가 ASM preprocess mode를 사용해야 하는지 확인한다. */
+int qstar_source_uses_asm_preprocessor(const struct qstar_target *target,
+    const struct qstar_source_info *source);
+
+/** source kind가 unsupported C++ module provider source인지 확인한다. */
+int qstar_source_is_cxx_module(const struct qstar_source_info *source);
+
+/** target source list에 특정 compile provider namespace가 있는지 확인한다. */
+int qstar_target_has_compile_provider(const struct qstar_target *target,
+    const char *provider);
+
+/** source kind의 provider toolset role name을 반환한다. */
+const char *qstar_source_toolset_role(const struct qstar_source_info *source);
 
 /** QStar target rule registry에서 target kind에 맞는 rule을 찾는다. */
 const struct qstar_target_rule_info *qstar_target_rule_lookup(const char *kind);

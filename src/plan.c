@@ -682,30 +682,6 @@ dump_effective_compile_merge(FILE *out, const struct qstar_graph *graph,
 	fputc('\n', out);
 }
 
-/** source language가 assembler 계열인지 확인한다. */
-static int
-source_is_asm(const struct qstar_source_info *source)
-{
-	return strcmp(source->language, "asm") == 0 ||
-	    strcmp(source->language, "asm-cpp") == 0;
-}
-
-/** ASM source가 C preprocessor를 거쳐야 하는지 확인한다. */
-static int
-source_uses_asm_preprocessor(const struct qstar_target *target,
-    const struct qstar_source_info *source)
-{
-	return strcmp(source->language, "asm-cpp") == 0 ||
-	    (strcmp(source->language, "asm") == 0 && target->asm_preprocess);
-}
-
-/** source registry 기준으로 compile action이 필요한 입력인지 확인한다. */
-static int
-source_requires_compile(const struct qstar_source_info *source)
-{
-	return source->compile_input;
-}
-
 /** artifact path에서 basename component를 반환한다. */
 static const char *
 artifact_basename(const char *path)
@@ -779,12 +755,15 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	collect_compile_include_dirs(graph, target, &includes);
 	snprintf(id, sizeof(id), "%s:compile:%zu", target->label, index);
 	qstar_graph_depfile_output_path(graph, target, index, depfile, sizeof(depfile));
-	is_asm = source_is_asm(source);
-	is_cxx = strcmp(source->language, "cxx") == 0;
-	wants_depfile = (strcmp(source->language, "c") == 0 || is_cxx ||
-	    source_uses_asm_preprocessor(target, source));
-	role = is_asm ? "asm.compiler" : is_cxx ? "cxx.compiler" : "c.compiler";
-	tool = is_asm ? toolchain->asm_ : is_cxx ? toolchain->cxx : toolchain->cc;
+	is_asm = qstar_source_is_asm(source);
+	is_cxx = strcmp(source->provider, "cxx") == 0;
+	wants_depfile = (strcmp(source->provider, "c") == 0 || is_cxx ||
+	    qstar_source_uses_asm_preprocessor(target, source));
+	role = qstar_source_toolset_role(source);
+	tool = qstar_resolved_toolchain_provider_tool(toolchain, source->provider,
+	    source->provider_role);
+	if (!tool)
+		tool = toolchain->cc;
 	argc = 5 + plan_tool_role_argc(graph, target, toolchain, role) - 1 +
 	    graph->build_context.compile_options.len +
 	    graph->build_context.include_dirs.len * 2 +
@@ -807,7 +786,7 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 		argv_item(out, &dump, "-fPIC");
 	if (is_asm) {
 		argv_item(out, &dump, "-x");
-		argv_item(out, &dump, source_uses_asm_preprocessor(target, source) ?
+		argv_item(out, &dump, qstar_source_uses_asm_preprocessor(target, source) ?
 		    "assembler-with-cpp" : "assembler");
 	}
 	argv_item(out, &dump, "-c");
@@ -849,21 +828,6 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	qstar_string_list_free(&includes);
 }
 
-/** target source list에 C++ compile input이 있는지 확인한다. */
-static int
-target_has_cxx_source(const struct qstar_target *target)
-{
-	struct qstar_source_info source;
-	size_t i;
-
-	for (i = 0; i < target->sources.len; i++) {
-		if (qstar_source_classify(target->sources.items[i], &source) == 0 &&
-		    strcmp(source.language, "cxx") == 0)
-			return 1;
-	}
-	return 0;
-}
-
 /** MSVC target에서 clang-cl style driver가 link flag boundary를 필요로 하는지 본다. */
 static int
 toolchain_needs_msvc_link_boundary(const struct qstar_resolved_toolchain *toolchain,
@@ -873,7 +837,8 @@ toolchain_needs_msvc_link_boundary(const struct qstar_resolved_toolchain *toolch
 
 	if (strcmp(toolchain->link_style, "msvc") != 0)
 		return 0;
-	tool = target_has_cxx_source(target) ? toolchain->cxx : toolchain->linker;
+	tool = qstar_target_has_compile_provider(target, "cxx") ? toolchain->cxx :
+	    toolchain->linker;
 	return strstr(tool, "clang-cl") != NULL || strstr(tool, "cl.exe") != NULL;
 }
 
@@ -886,7 +851,8 @@ toolchain_uses_msvc_out_arg(const struct qstar_resolved_toolchain *toolchain,
 
 	if (!toolchain || !target)
 		return 0;
-	tool = target_has_cxx_source(target) ? toolchain->cxx : toolchain->linker;
+	tool = qstar_target_has_compile_provider(target, "cxx") ? toolchain->cxx :
+	    toolchain->linker;
 	return strstr(tool, "lld-link") != NULL || strstr(tool, "link.exe") != NULL;
 }
 
@@ -1027,7 +993,7 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 		argv_item(out, &dump, "<target-objects>");
 	} else {
 		plan_argv_tool_role(out, &dump, graph, target, toolchain, "link",
-		    target_has_cxx_source(target) ? toolchain->cxx :
+		    qstar_target_has_compile_provider(target, "cxx") ? toolchain->cxx :
 		    toolchain->linker);
 		if (msvc_out) {
 			snprintf(buf, sizeof(buf), "/out:%s", output);
@@ -1737,7 +1703,7 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	dump_effective_compile_merge(out, plan->graph, target, &toolchain);
 	for (i = 0; i < target->sources.len; i++) {
 		qstar_source_classify(target->sources.items[i], &source);
-		if (!source_requires_compile(&source)) {
+		if (!qstar_source_requires_compile(&source)) {
 			fprintf(out,
 			    "  action link-input source=%s language=%s output=%s\n",
 			    target->sources.items[i], source.language, target->sources.items[i]);
@@ -1884,7 +1850,7 @@ dump_dry_run_compiles(FILE *out, const struct qstar_plan *plan,
 		return -1;
 	for (i = 0; i < target->sources.len; i++) {
 		qstar_source_classify(target->sources.items[i], &source);
-		if (!source_requires_compile(&source)) {
+		if (!qstar_source_requires_compile(&source)) {
 			fprintf(out,
 			    "dry_run_step id=%s:link-input:%zu owner=%s kind=link-input "
 			    "language=%s tool=%s toolchain=%s input=%s output=%s execute=no\n",

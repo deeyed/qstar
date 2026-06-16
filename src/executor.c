@@ -4472,42 +4472,11 @@ collect_compile_include_dirs(const struct qstar_graph *graph, const struct qstar
 	return 0;
 }
 
-/** source language가 assembler 계열인지 확인한다. */
-static int
-source_is_asm(const struct qstar_source_info *source)
-{
-	return strcmp(source->language, "asm") == 0 ||
-	    strcmp(source->language, "asm-cpp") == 0;
-}
-
-/** ASM source가 C preprocessor를 거쳐야 하는지 확인한다. */
-static int
-source_uses_asm_preprocessor(const struct qstar_target *target,
-    const struct qstar_source_info *source)
-{
-	return strcmp(source->language, "asm-cpp") == 0 ||
-	    (strcmp(source->language, "asm") == 0 && target->asm_preprocess);
-}
-
 static int validate_compile_source(struct qstar_graph *graph,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
     const struct qstar_source_info *source, size_t index);
 static int target_compile_needs_pic(const struct qstar_target *target,
     const struct qstar_resolved_toolchain *toolchain, int is_asm);
-
-/** source registry 기준으로 compile action이 필요한 입력인지 확인한다. */
-static int
-source_requires_compile(const struct qstar_source_info *source)
-{
-	return source->compile_input;
-}
-
-/** 이미 만들어진 object 파일을 final archive/link 입력으로 직접 소비하는지 확인한다. */
-static int
-source_is_link_object(const struct qstar_source_info *source)
-{
-	return strcmp(source->language, "object") == 0;
-}
 
 /** target source가 final action에 제공하는 object path를 계산한다. */
 static int
@@ -4519,7 +4488,7 @@ target_source_object_input(struct qstar_graph *graph, const struct qstar_target 
 	if (qstar_source_classify(target->sources.items[index], &source) < 0)
 		return qstar_set_error(graph, "qstar: unsupported source '%s'",
 		    target->sources.items[index]);
-	if (source_is_link_object(&source)) {
+	if (qstar_source_is_link_object(&source)) {
 		return snprintf(dst, dstlen, "%s", target->sources.items[index]) <
 		    (int)dstlen ? 0 : -1;
 	}
@@ -4536,7 +4505,7 @@ target_compile_input_count(const struct qstar_target *target)
 	count = 0;
 	for (i = 0; i < target->sources.len; i++) {
 		if (qstar_source_classify(target->sources.items[i], &source) == 0 &&
-		    source_requires_compile(&source))
+		    qstar_source_requires_compile(&source))
 			count++;
 	}
 	return count;
@@ -4552,7 +4521,8 @@ validate_noncompile_sources(struct qstar_graph *graph, const struct qstar_target
 
 	for (i = 0; i < target->sources.len; i++) {
 		qstar_source_classify(target->sources.items[i], &source);
-		if (source_requires_compile(&source) || source_is_link_object(&source))
+		if (qstar_source_requires_compile(&source) ||
+		    qstar_source_is_link_object(&source))
 			continue;
 		if (validate_compile_source(graph, target, toolchain, &source, i) < 0)
 			return -1;
@@ -4601,7 +4571,7 @@ target_compile_consumes_genrule(const struct qstar_target *target,
 			if (strcmp(genrule->outputs.items[i], target->sources.items[j]) != 0)
 				continue;
 			if (qstar_source_classify(target->sources.items[j], &source) == 0 &&
-			    source_requires_compile(&source))
+			    qstar_source_requires_compile(&source))
 				return 1;
 		}
 	}
@@ -5658,23 +5628,23 @@ validate_compile_source(struct qstar_graph *graph, const struct qstar_target *ta
 		    "sources", target->label,
 		    "qstar: header source '%s' must be listed as lang.*.public_headers/private_headers",
 		    target->sources.items[index]);
-	if (strcmp(source->language, "cxx-module") == 0)
+	if (qstar_source_is_cxx_module(source))
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "sources", target->label,
 		    "qstar: C++ modules are not supported in QStar local executor v1");
-	if (strcmp(source->language, "c") != 0 && strcmp(source->language, "cxx") != 0 &&
-	    !source_is_asm(source))
+	if (!qstar_language_provider_lookup(source->provider) ||
+	    !qstar_source_toolset_role(source)[0])
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "sources", target->label,
 		    "qstar: local executor does not support source '%s' with language '%s'",
 		    target->sources.items[index], source->language);
-	if (strcmp(source->language, "cxx") == 0 &&
+	if (strcmp(source->provider, "cxx") == 0 &&
 	    !command_exists_in_graph(graph, toolchain->cxx))
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "sources", target->label,
 		    "qstar: C++ compiler '%s' not found for source '%s'",
 		    toolchain->cxx, target->sources.items[index]);
-	if (source_is_asm(source) && !command_exists_in_graph(graph, toolchain->asm_))
+	if (qstar_source_is_asm(source) && !command_exists_in_graph(graph, toolchain->asm_))
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "sources", target->label,
 		    "qstar: assembler compiler driver '%s' not found for source '%s'",
@@ -5849,10 +5819,10 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	memset(&includes, 0, sizeof(includes));
 	if (collect_compile_include_dirs(graph, target, &includes) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
-	is_asm = source_is_asm(&source);
-	is_cxx = strcmp(source.language, "cxx") == 0;
-	wants_depfile = (strcmp(source.language, "c") == 0 || is_cxx ||
-	    source_uses_asm_preprocessor(target, &source));
+	is_asm = qstar_source_is_asm(&source);
+	is_cxx = strcmp(source.provider, "cxx") == 0;
+	wants_depfile = (strcmp(source.provider, "c") == 0 || is_cxx ||
+	    qstar_source_uses_asm_preprocessor(target, &source));
 	action->wants_depfile = wants_depfile;
 	if (graph->build_context.compile_options.len +
 	    graph->build_context.include_dirs.len * 2 +
@@ -5871,8 +5841,11 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		return qstar_set_error(graph, "qstar: compile action description too long");
 	}
 	snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
-	role = is_asm ? "asm.compiler" : is_cxx ? "cxx.compiler" : "c.compiler";
-	compiler = is_asm ? toolchain->asm_ : is_cxx ? toolchain->cxx : toolchain->cc;
+	role = qstar_source_toolset_role(&source);
+	compiler = qstar_resolved_toolchain_provider_tool(toolchain, source.provider,
+	    source.provider_role);
+	if (!compiler)
+		compiler = toolchain->cc;
 	if (prepared_action_push_tool_role(graph, action, target, role, compiler) < 0)
 		goto fail;
 	if (target_compile_needs_pic(target, toolchain, is_asm) &&
@@ -5881,7 +5854,7 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	if (is_asm) {
 		if (prepared_action_push_argv(graph, action, "-x") < 0 ||
 		    prepared_action_push_argv(graph, action,
-		    source_uses_asm_preprocessor(target, &source) ?
+		    qstar_source_uses_asm_preprocessor(target, &source) ?
 		    "assembler-with-cpp" : "assembler") < 0)
 			goto fail;
 	}
@@ -6010,8 +5983,8 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
 	int rc;
 
 	qstar_source_classify(target->sources.items[index], &source);
-	if (!source_requires_compile(&source)) {
-		if (!source_is_link_object(&source))
+	if (!qstar_source_requires_compile(&source)) {
+		if (!qstar_source_is_link_object(&source))
 			return validate_compile_source(graph, target, toolchain, &source, index);
 		return 0;
 	}
@@ -6267,7 +6240,7 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	for (i = 0, j = 0; i < target->sources.len; i++) {
 		qstar_source_classify(target->sources.items[i], &source);
-		if (source_requires_compile(&source))
+		if (qstar_source_requires_compile(&source))
 			indices[j++] = i;
 	}
 	for (i = 0; i < compile_count; i++) {
@@ -6604,21 +6577,6 @@ append_sharedlib_runtime_rpaths(struct qstar_graph *graph,
 	return rc;
 }
 
-/** target source list에 C++ compile input이 있는지 확인한다. */
-static int
-target_has_cxx_source(const struct qstar_target *target)
-{
-	struct qstar_source_info source;
-	size_t i;
-
-	for (i = 0; i < target->sources.len; i++) {
-		if (qstar_source_classify(target->sources.items[i], &source) == 0 &&
-		    strcmp(source.language, "cxx") == 0)
-			return 1;
-	}
-	return 0;
-}
-
 /** artifact path에서 basename component를 반환한다. */
 static const char *
 artifact_basename(const char *path)
@@ -6711,7 +6669,8 @@ toolchain_needs_msvc_link_boundary(const struct qstar_resolved_toolchain *toolch
 
 	if (!toolchain || !target || strcmp(toolchain->link_style, "msvc") != 0)
 		return 0;
-	tool = target_has_cxx_source(target) ? toolchain->cxx : toolchain->linker;
+	tool = qstar_target_has_compile_provider(target, "cxx") ? toolchain->cxx :
+	    toolchain->linker;
 	return strstr(tool, "clang-cl") != NULL || strstr(tool, "cl.exe") != NULL;
 }
 
@@ -6724,7 +6683,8 @@ toolchain_uses_msvc_out_arg(const struct qstar_resolved_toolchain *toolchain,
 
 	if (!toolchain || !target)
 		return 0;
-	tool = target_has_cxx_source(target) ? toolchain->cxx : toolchain->linker;
+	tool = qstar_target_has_compile_provider(target, "cxx") ? toolchain->cxx :
+	    toolchain->linker;
 	return strstr(tool, "lld-link") != NULL || strstr(tool, "link.exe") != NULL;
 }
 
@@ -6869,7 +6829,7 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			return -1;
 		snprintf(id, sizeof(id), "%s:%s:0", target->label, final_action);
 		if (append_raw_tool_role(graph, argv, &argc, target, toolchain, "link",
-		    target_has_cxx_source(target) ? toolchain->cxx :
+		    qstar_target_has_compile_provider(target, "cxx") ? toolchain->cxx :
 		    toolchain->linker) < 0)
 			return -1;
 		if (toolchain_uses_msvc_out_arg(toolchain, target)) {
@@ -7193,7 +7153,7 @@ lowered_cache_visit(struct qstar_graph *graph, const struct qstar_target *target
 		return -1;
 	for (i = 0; i < target->sources.len; i++) {
 		qstar_source_classify(target->sources.items[i], &source);
-		if (!source_requires_compile(&source))
+		if (!qstar_source_requires_compile(&source))
 			continue;
 		if (prepare_compile_action(graph, &ctx->build, target, &toolchain, i,
 		    &action) < 0)
@@ -7773,7 +7733,7 @@ scheduler_create_target_nodes(struct qstar_scheduler *sched, const struct qstar_
 	compile_ordinal = 0;
 	for (i = 0; i < target->sources.len; i++) {
 		qstar_source_classify(target->sources.items[i], &source);
-		if (!source_requires_compile(&source))
+		if (!qstar_source_requires_compile(&source))
 			continue;
 		if (scheduler_add_node(sched, QSTAR_SCHED_COMPILE, target, NULL, i,
 		    compile_ordinal, &node_index) < 0)
@@ -9570,7 +9530,7 @@ push_target_lazy_logs(struct qstar_graph *graph, const struct qstar_build_ctx *c
 		return 0;
 	for (i = 0; i < target->sources.len; i++) {
 		qstar_source_classify(target->sources.items[i], &source);
-		if (!source_requires_compile(&source))
+		if (!qstar_source_requires_compile(&source))
 			continue;
 		snprintf(id, sizeof(id), "%s:compile:%zu", target->label, i);
 		if (push_state_log_if_present(graph, ctx, names, len, cap, id) < 0)

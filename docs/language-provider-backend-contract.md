@@ -1,8 +1,10 @@
 # QStar Language Provider Backend Contract
 
-QStar core는 C/C++/ASM provider만 직접 소유한다. 그 밖의 언어는 QStar DSL에 provider
-namespace를 추가하지 않고, 외부 compiler가 생성한 object artifact를 통해 build graph에
-연결한다.
+QStar runtime은 built-in `c`, `cxx`, `asm` provider namespace를 preloaded registry로
+갖고 있다. Public syntax의 `lang.c`, `lang.cxx`, `lang.asm`은 그대로 유지되지만, 내부
+source classification과 tool role은 `c.compiler`, `cxx.compiler`, `asm.compiler` 같은
+provider role로 내려간다. 그 밖의 언어는 아직 QStar DSL에 provider namespace를 추가하지
+않고, 외부 compiler가 생성한 object artifact를 통해 build graph에 연결한다.
 
 ## 결정
 
@@ -25,6 +27,7 @@ namespace를 추가하지 않고, 외부 compiler가 생성한 object artifact�
 
 ## Future 조건
 
-새 언어를 QStar core provider로 승격하려면 stable argv, depfile/discovered input,
+새 언어를 QStar provider로 승격하려면 stable argv, depfile/discovered input,
 response-file, generated artifact ownership, action-log/replay, backend parity 계약을 먼저
-문서화해야 한다. 그 전까지는 object artifact bridge가 정본 경로다.
+문서화해야 한다. 그 전까지 built-in `c`/`cxx`/`asm` 외 언어는 object artifact bridge가
+정본 경로다.

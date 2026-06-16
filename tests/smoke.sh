@@ -5013,7 +5013,7 @@ contains "$tmp/init-overwrite.err" "refuses to overwrite existing file"
 
 "$qstar" --file "$tmp/init-c-lib/qstar.lua" explain //:core > "$tmp/rule-explain.out" 2> "$tmp/rule-explain.err"
 contains "$tmp/rule-explain.out" "rule provider=native final_action=archive output_group=libs"
-contains "$tmp/rule-explain.out" "source_file path=src/core.c language=c tool=c-compiler provider=c output_group=objects role=compile"
+contains "$tmp/rule-explain.out" "source_file path=src/core.c language=c tool=c-compiler provider=c provider_role=compiler toolset_role=c.compiler output_group=objects role=compile"
 
 step "depfile handling"
 mkdir -p "$tmp/depfile/include" "$tmp/depfile/src"

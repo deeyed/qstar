@@ -9,20 +9,38 @@ struct source_rule {
 	struct qstar_source_info info;
 };
 
+static const struct qstar_language_provider_info builtin_language_providers[] = {
+	{ "c", "C", "compiler", 1 },
+	{ "cxx", "C++", "compiler", 1 },
+	{ "asm", "Assembly", "compiler", 1 },
+};
+
 static const struct source_rule source_rules[] = {
-	{ ".c", { NULL, "c", "c-compiler", "c", "objects", 1, 0 } },
-	{ ".cc", { NULL, "cxx", "cxx-compiler", "cxx", "objects", 1, 0 } },
-	{ ".cpp", { NULL, "cxx", "cxx-compiler", "cxx", "objects", 1, 0 } },
-	{ ".cxx", { NULL, "cxx", "cxx-compiler", "cxx", "objects", 1, 0 } },
-	{ ".cppm", { NULL, "cxx-module", "cxx-module-scanner", "cxx", "modules", 0, 0 } },
-	{ ".ixx", { NULL, "cxx-module", "cxx-module-scanner", "cxx", "modules", 0, 0 } },
-	{ ".h", { NULL, "header", "header-input", "c", "headers", 0, 1 } },
-	{ ".hpp", { NULL, "cxx-header", "header-input", "cxx", "headers", 0, 1 } },
-	{ ".hh", { NULL, "cxx-header", "header-input", "cxx", "headers", 0, 1 } },
-	{ ".s", { NULL, "asm", "assembler", "asm", "objects", 1, 0 } },
-	{ ".S", { NULL, "asm-cpp", "preprocessed-assembler", "asm", "objects", 1, 0 } },
-	{ ".o", { NULL, "object", "link-object", "native", "objects", 0, 0 } },
-	{ ".obj", { NULL, "object", "link-object", "native", "objects", 0, 0 } },
+	{ ".c", { NULL, "c", "c-compiler", "c", "compiler", "c.compiler",
+	    "objects", 1, 0 } },
+	{ ".cc", { NULL, "cxx", "cxx-compiler", "cxx", "compiler",
+	    "cxx.compiler", "objects", 1, 0 } },
+	{ ".cpp", { NULL, "cxx", "cxx-compiler", "cxx", "compiler",
+	    "cxx.compiler", "objects", 1, 0 } },
+	{ ".cxx", { NULL, "cxx", "cxx-compiler", "cxx", "compiler",
+	    "cxx.compiler", "objects", 1, 0 } },
+	{ ".cppm", { NULL, "cxx-module", "cxx-module-scanner", "cxx", "scanner",
+	    "cxx.scanner", "modules", 0, 0 } },
+	{ ".ixx", { NULL, "cxx-module", "cxx-module-scanner", "cxx", "scanner",
+	    "cxx.scanner", "modules", 0, 0 } },
+	{ ".h", { NULL, "header", "header-input", "c", "", "", "headers", 0, 1 } },
+	{ ".hpp", { NULL, "cxx-header", "header-input", "cxx", "", "", "headers",
+	    0, 1 } },
+	{ ".hh", { NULL, "cxx-header", "header-input", "cxx", "", "", "headers",
+	    0, 1 } },
+	{ ".s", { NULL, "asm", "assembler", "asm", "compiler", "asm.compiler",
+	    "objects", 1, 0 } },
+	{ ".S", { NULL, "asm-cpp", "preprocessed-assembler", "asm", "compiler",
+	    "asm.compiler", "objects", 1, 0 } },
+	{ ".o", { NULL, "object", "link-object", "native", "", "", "objects", 0,
+	    0 } },
+	{ ".obj", { NULL, "object", "link-object", "native", "", "", "objects", 0,
+	    0 } },
 };
 
 static const struct qstar_target_rule_info target_rules[] = {
@@ -45,6 +63,90 @@ has_suffix(const char *path, const char *suffix)
 	npath = strlen(path);
 	nsuffix = strlen(suffix);
 	return npath >= nsuffix && strcmp(path + npath - nsuffix, suffix) == 0;
+}
+
+const struct qstar_language_provider_info *
+qstar_language_provider_lookup(const char *namespace)
+{
+	size_t i;
+
+	if (!namespace || !*namespace)
+		return NULL;
+	for (i = 0;
+	    i < sizeof(builtin_language_providers) / sizeof(builtin_language_providers[0]);
+	    i++) {
+		if (strcmp(builtin_language_providers[i].namespace, namespace) == 0)
+			return &builtin_language_providers[i];
+	}
+	return NULL;
+}
+
+int
+qstar_language_provider_is_preloaded(const char *namespace)
+{
+	const struct qstar_language_provider_info *provider;
+
+	provider = qstar_language_provider_lookup(namespace);
+	return provider && provider->preloaded;
+}
+
+int
+qstar_source_requires_compile(const struct qstar_source_info *source)
+{
+	return source && source->compile_input;
+}
+
+int
+qstar_source_is_link_object(const struct qstar_source_info *source)
+{
+	return source && strcmp(source->language, "object") == 0;
+}
+
+int
+qstar_source_is_asm(const struct qstar_source_info *source)
+{
+	return source && strcmp(source->provider, "asm") == 0 && source->compile_input;
+}
+
+int
+qstar_source_uses_asm_preprocessor(const struct qstar_target *target,
+    const struct qstar_source_info *source)
+{
+	return qstar_source_is_asm(source) &&
+	    (strcmp(source->language, "asm-cpp") == 0 ||
+	    (strcmp(source->language, "asm") == 0 && target && target->asm_preprocess));
+}
+
+int
+qstar_source_is_cxx_module(const struct qstar_source_info *source)
+{
+	return source && strcmp(source->provider, "cxx") == 0 &&
+	    strcmp(source->language, "cxx-module") == 0;
+}
+
+int
+qstar_target_has_compile_provider(const struct qstar_target *target, const char *provider)
+{
+	struct qstar_source_info source;
+	size_t i;
+
+	if (!target || !provider)
+		return 0;
+	for (i = 0; i < target->sources.len; i++) {
+		if (qstar_source_classify(target->sources.items[i], &source) == 0 &&
+		    qstar_source_requires_compile(&source) &&
+		    strcmp(source.provider, provider) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+const char *
+qstar_source_toolset_role(const struct qstar_source_info *source)
+{
+	if (!source || !source->toolset_role)
+		return "";
+	return source->toolset_role;
 }
 
 /** QStar source kind registry에서 path suffix에 맞는 항목을 찾는다. */
@@ -73,6 +175,8 @@ qstar_source_classify(const char *path, struct qstar_source_info *info)
 			info->language = "unknown";
 			info->tool_role = "unsupported";
 			info->provider = "unknown";
+			info->provider_role = "";
+			info->toolset_role = "";
 			info->output_group = "unknown";
 			info->compile_input = 0;
 			info->header_input = 0;

@@ -7,14 +7,16 @@
 ## 1. QStar의 역할
 
 QStar는 C/C++/ASM을 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다.
-QStar는 build graph, command plan, local executor, stage/package, run smoke, lint/LSP
-authoring UX를 담당한다. C/C++/ASM 외 언어의 의미론은 외부 compiler와 object artifact
-bridge가 맡는다.
+현재 runtime은 built-in `c`, `cxx`, `asm` provider namespace를 preloaded registry로
+다루며, public `lang.c`, `lang.cxx`, `lang.asm` syntax는 계속 유지한다. QStar는 build
+graph, command plan, local executor, stage/package, run smoke, lint/LSP authoring UX를
+담당한다. C/C++/ASM 외 언어의 의미론은 외부 compiler와 object artifact bridge가 맡는다.
 
 Generic Language Provider(GLP)는 이 경계를 다음 정식 provider surface로 확장하는
-로드맵이다. 현재 runtime에서는 object artifact bridge가 정식 경로이고, GLP가 구현되면
-`qstar.use_language("zig")`, provider namespace toolset, 동적 `lang.zig` 같은 surface가
-정식 경로가 된다. 설계 정본은 root `glp_roadmap.md`다.
+로드맵이다. 현재 runtime에서는 built-in provider 외 언어에 object artifact bridge가 정식
+경로이고, GLP가 외부 provider까지 구현되면 `qstar.use_language("zig")`, provider namespace
+toolset, 동적 `lang.zig` 같은 surface가 정식 경로가 된다. 설계 정본은 root
+`glp_roadmap.md`다.
 
 QStar가 하지 않는 일:
 
@@ -337,7 +339,8 @@ qstar.staticlib "core" {
 - `lang.c`: C headers, include dirs, defines, compile options
 - `lang.cxx`: C++ headers, include dirs, standard, modules skeleton, compile options
 - `lang.asm`: assembler include dirs, compile options, preprocess flag
-- `wiki/reference/language-providers.md`: external object artifact bridge boundary
+- `wiki/reference/language-providers.md`: built-in provider registry와 external object
+  artifact bridge boundary
 - `glp_roadmap.md`: dynamic language provider namespace와 최종 GLP 문법
 
 공통 option은 target top-level로 되돌리지 말고 `qstar.config`로 선언한다. Config label은
