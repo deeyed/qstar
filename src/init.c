@@ -2154,6 +2154,11 @@ write_scaffold_fragments(lua_State *L, int shape, const struct init_context *ctx
 			return -1;
 		}
 		lua_pop(L, 1);
+		if (root_body[0] == '\0' &&
+		    appendf(root_body, root_body_len, error, error_len, "\n") < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
 		if (fragment_import_line(fragment_path, import_line,
 		    sizeof(import_line), error, error_len) < 0 ||
 		    appendf(root_body, root_body_len, error, error_len, "%s",

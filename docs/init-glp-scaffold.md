@@ -638,7 +638,10 @@ qstar.executable "app" {
 ```
 
 External provider workspace scaffold는 root에 provider activation과 vendored provider를 추가하고,
-fragments 안에서 provider helper를 사용할 수 있어야 한다.
+fragments 안에서도 같은 provider helper를 다시 얻어 사용할 수 있어야 한다. Standard Zig
+provider는 workspace shape에서 `packages/core/core.qst`와 `packages/app/app.qst`를 만들고,
+root `qstar.lua`는 두 fragment를 `qstar.subdir("packages/core")`,
+`qstar.subdir("packages/app")`로 연결한다.
 
 ## Provider Scaffold Contract
 
@@ -868,7 +871,7 @@ Standard provider는 가능하면 `app`, `lib`, `tool`, `empty`, `workspace` 다
 Workspace에서는 root `qstar.lua`와 여러 fragment가 같은 provider를 참조할 수 있다.
 따라서 `qstar.use_language("zig")`는 같은 manifest에 대해 idempotent해야 한다.
 
-권장 동작:
+현재 동작:
 
 - 같은 manifest, 같은 namespace면 기존 export table을 다시 반환한다.
 - 다른 manifest가 같은 namespace를 차지하려 하면 error를 낸다.

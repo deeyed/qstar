@@ -38,6 +38,11 @@ the folder form
 .Ic qstar.use_language("qstar/languages/zig")
 loads
 .Pa qstar/languages/zig/zig.qsm .
+Calling
+.Ic qstar.use_language
+again for the same manifest returns the cached provider helper table, so root
+files and workspace fragments can reuse the same provider. A different
+manifest that declares an already active namespace remains an error.
 The returned provider table may expose helper functions such as
 .Ic zig.tools
 or

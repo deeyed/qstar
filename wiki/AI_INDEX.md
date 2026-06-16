@@ -66,7 +66,9 @@ QStar가 하지 않는 일:
   enum, default metadata를 검증한다. Optional `scaffold` schema는
   `api = "qstar.scaffold/1"`, default tools/options, shape files/targets/fragments를
   package-relative declarative data로 검증하며, `qstar init`은 primary provider shape를
-  실제 `qstar.lua`, source file, workspace fragment로 materialize한다. Source unit lowering은 `ctx.tool`,
+  실제 `qstar.lua`, source file, workspace fragment로 materialize한다. 같은 manifest의
+  `qstar.use_language(...)`는 root와 fragment에서 idempotent하게 helper table을 재사용한다.
+  Source unit lowering은 `ctx.tool`,
   `ctx.input`, `ctx.output`, `ctx.option`으로 작성한 action template을 Stella/Ninja 양쪽에
   공유한다.
 - CLI `-B path`는 `qstar.project.build_dir`보다 우선한다.

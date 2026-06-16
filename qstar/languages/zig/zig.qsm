@@ -111,11 +111,11 @@ return qstar.language_provider {
       workspace = {
         fragments = {
           {
-            path = "packages/${project_ident}/${project_ident}.qst",
+            path = "packages/core/core.qst",
             files = {
               {
-                path = "packages/${project_ident}/src/main.zig",
-                body = "pub export fn ${project_ident}_value() i32 { return 42; }\n",
+                path = "packages/core/src/core.zig",
+                body = "pub export fn core_value() i32 { return 42; }\n",
               },
             },
             target = {
@@ -124,15 +124,38 @@ return qstar.language_provider {
               sources = {
                 {
                   helper = "object",
-                  path = "packages/${project_ident}/src/main.zig",
+                  path = "packages/core/src/core.zig",
                 },
               },
+            },
+          },
+          {
+            path = "packages/app/app.qst",
+            files = {
+              {
+                path = "packages/app/src/main.zig",
+                body = "pub fn main() void {}\n",
+              },
+            },
+            target = {
+              kind = "executable",
+              name = "app",
+              sources = {
+                {
+                  helper = "object",
+                  path = "packages/app/src/main.zig",
+                },
+              },
+              deps = {"//packages/core:core"},
             },
           },
         },
         group = {
           name = "all",
-          deps = {"//packages/${project_ident}:core"},
+          deps = {
+            "//packages/core:core",
+            "//packages/app:app",
+          },
         },
       },
     },

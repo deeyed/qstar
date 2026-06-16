@@ -139,6 +139,9 @@ return qstar.language_provider {
 provider의 shape plan을 읽어 provider별 folder layout, sample source, root `qstar.lua`,
 workspace fragment를 materialize한다. Provider가 요청한 shape를 제공하지 않으면 C fallback
 scaffold와 warning을 사용한다.
+Workspace scaffold에서는 root와 각 fragment가 같은 provider manifest를 다시 활성화할 수
+있다. 같은 manifest의 `qstar.use_language("zig")`는 기존 export table을 반환하고, 다른
+manifest가 같은 namespace를 차지하면 duplicate namespace error를 유지한다.
 
 검증 규칙:
 
