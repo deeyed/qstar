@@ -10,7 +10,7 @@ Current DSL surface:
 - `qstar.toolset`
 - `qstar.use_language`
 - provider authoring: `qstar.language_provider`, `qstar.provider_tools`,
-  `qstar.language_options`, `qstar.source`
+  `qstar.language_options`, `qstar.source`, `qstar.argv`
 - `qstar.config`
 - artifact targets: `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`,
   `qstar.test`
@@ -33,9 +33,10 @@ are returned to user code. Provider-defined `options` schemas now validate
 `lang.<namespace>` tables with string, bool, list, enum, and default metadata.
 Provider-defined `units` can now expose helpers such as
 `zig.object("src/main.zig")`; these lower to consuming-target-owned object
-artifacts through the generic `compiler -c <source> -o <object>` contract.
-The object artifact bridge remains available for provider-specific command
-shapes until richer provider argv lowering exists.
+artifacts through provider lowering functions. The lowered `command`, `inputs`,
+`outputs`, and `depfile` action template is shared by Stella and Ninja, including
+response-file handling and action-log/replay. The object artifact bridge remains
+available for hand-written foreign compiler flows.
 The formal roadmap for making language providers a first-class,
 language-neutral extension surface is tracked in `../glp_roadmap.md`.
 

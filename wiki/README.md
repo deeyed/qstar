@@ -4,16 +4,17 @@ QStar는 C/C++/ASM과 external object artifact flow를 잘 지원하지만 특�
 build/test/install/stage 실행을 맡고, 언어 의미론 자체는 각 compiler와 GLP source unit 또는
 object artifact bridge가 맡는다.
 
-Generic Language Provider(GLP)는 이 경계를 다음 단계로 확장하는 정식 로드맵이다. 현재
+Generic Language Provider(GLP)는 이 경계를 확장하는 정식 provider surface다. 현재
 runtime은 `qstar.use_language("zig")` 같은 provider 활성화와 `lang.zig` 동적 namespace
 gate를 제공한다. Provider manifest는 `qstar.language_provider { api = "qstar.lang/1",
 ... }` schema로 검증되고, `provider.lua` implementation은 제한 sandbox에서 로드된다.
 Provider가 선언한 `options` schema는 `lang.<namespace>` table의 key와 value type을 검증한다.
 Provider가 선언한 `units` schema와 exported helper는 `zig.object("src/main.zig")` 같은
-source token을 만들 수 있고, 현재 backend는 이를 consuming target 소유 object artifact로
-낮춘다. Provider별 복잡한 argv lowering은 아직 후속 작업이므로 그 경우에는
-`qstar.custom_target`과 `qstar.output(..., {format = "object"})` object artifact bridge로
-연결한다. 자세한 설계는 [GLP Roadmap](../glp_roadmap.md)에 둔다.
+source token을 만들 수 있고, backend는 provider lowering function이 반환한 `command`,
+`inputs`, `outputs`, `depfile` action template을 Stella와 Ninja에서 동일하게 실행한다.
+`qstar.custom_target`과 `qstar.output(..., {format = "object"})` object artifact bridge도
+hand-written 외부 compiler flow를 위해 계속 지원한다. 자세한 설계는
+[GLP Roadmap](../glp_roadmap.md)에 둔다.
 
 이 wiki는 구현 요약이 아니라 “이것만 보고 QStar project를 작성할 수 있는” 한국어
 사용 설명서다. Root file은 `qstar.lua`, subdir fragment는 `<folder>.qst`, helper
@@ -173,7 +174,7 @@ make -C qstar qstar-pilot-readiness-tests
 이 gate는 QStar binary, sample corpus, lint/LSP, VSCode package, executor, cache/replay,
 generic project corpus, medium project Stella/Ninja timing gate,
 formatter, subcommand help, wiki/CLI drift guard를 함께
-검증한다. 아직 remote package fetch와 provider-specific argv lowering은 정식 surface가 아니다.
+검증한다. 아직 remote package fetch는 정식 surface가 아니다.
 현재 외부 언어의 기본 경로는 GLP source unit 또는 object artifact bridge다. Ninja backend는
 C/C++/ASM compile, provider source unit object lowering, generated action, staticlib,
 sharedlib, executable/test link, `qstar.run_target` wrapper, `qstar.group` phony

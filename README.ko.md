@@ -6,7 +6,7 @@ QStar는 Lua 기반 프로젝트 DSL, Stella 네이티브 executor, 선택형 Ni
 독립 빌드시스템이다. 목표는 deterministic build graph, 명시적 argv-vector command,
 대형 프로젝트용 reusable config, 도구가 읽기 쉬운 diagnostic을 제공하는 것이다.
 Project-local language provider는 `qstar.use_language(...)`로 활성화할 수 있으며, 외부
-source lowering은 provider backend 후속 작업 뒤에 붙는다.
+source unit은 Stella/Ninja 공통 backend action contract로 lowering된다.
 
 현재 공개 버전은 베타다. 현재 release-prep line은 `v0.7.0-beta`이며 macOS arm64와
 Linux x86_64 runtime tarball을 대상으로 한다. Linux asset은 Ubuntu release workflow 또는
@@ -218,8 +218,8 @@ qstar replay <action-id>
 | Linux x86_64 | Ubuntu release workflow 또는 clean Linux host 산출 0.7 beta release-prep artifact |
 | Windows | MSYS2 UCRT64 기반 manual native CI alpha, public asset 없음 |
 
-QStar는 명시적 toolset, config, argv-vector command, object artifact bridge로 custom
-toolchain과 cross-compilation target을 표현한다. Host 지원 선언은 보수적으로 가져간다.
+QStar는 명시적 toolset, config, argv-vector command, language provider source unit,
+object artifact bridge로 custom toolchain과 cross-compilation target을 표현한다. Host 지원 선언은 보수적으로 가져간다.
 1.0은 macOS, Linux, Windows release artifact와 CI가 갖춰진 뒤에 올린다.
 
 ## 문서

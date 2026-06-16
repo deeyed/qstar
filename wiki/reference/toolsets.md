@@ -182,7 +182,8 @@ qstar.toolset "host" {
 이 문법에서 `zig`는 문자열 key이면서 `qstar.use_language("zig")`가 반환한 provider module
 value와 authoring convention으로 연결된다. 내부 role은 `zig.compiler`처럼 저장되지만,
 사용자는 provider helper를 통해 tool을 선언한다. 현재 runtime은 nested provider tool table을
-role map으로 저장하고, provider-specific source lowering은 후속 GLP backend 작업에서 붙는다.
+role map으로 저장하고, provider source lowering은 이 role map을 Stella/Ninja 공통 action
+template에서 해석한다.
 
 기존 `tools.c = qstar.cli {...}`, `tools.cxx = qstar.cli {...}`,
 `tools.asm = qstar.cli {...}` 직접 문법은 제거됐다. C/C++/ASM 자체는 사라지지 않고

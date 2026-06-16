@@ -36,6 +36,7 @@ static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 	{ "qstar.language_provider", "Declare and validate a provider manifest; valid only inside provider .qsm manifests." },
 	{ "qstar.provider_tools", "Provider implementation helper that returns a validated provider tool table." },
 	{ "qstar.language_options", "Provider implementation helper that returns a language option table for the provider namespace." },
+	{ "qstar.argv", "Provider implementation helper for constructing lowered action argv vectors." },
 	{ "qstar.config", "Declare a reusable target option bundle for configs = { ... }." },
 	{ "qstar.executable", "Create an executable target." },
 	{ "qstar.staticlib", "Create a static library target." },

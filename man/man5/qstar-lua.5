@@ -249,7 +249,9 @@ are returned to user code. Provider
 .Ic options
 schemas validate dynamic
 .Ic lang.<namespace>
-tables.
+tables. Provider implementations build lowered action argv vectors with
+.Ic qstar.argv
+inside the restricted provider sandbox.
 .Sh CONSTANTS
 .Nm
 provides constants such as

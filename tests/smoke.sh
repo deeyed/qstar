@@ -2006,10 +2006,32 @@ EOF
 cat > "$tmp/provider-source-unit/tools/zigcc" <<'EOF'
 #!/bin/sh
 out=
+depfile=
+if [ "$#" -eq 1 ]; then
+  case "$1" in
+    @*)
+      rsp=${1#@}
+      while IFS= read -r arg; do
+        if [ "$prev" = "-o" ]; then
+          out=$arg
+          prev=
+        elif [ "$prev" = "-MF" ]; then
+          depfile=$arg
+          prev=
+        elif [ "$arg" = "-o" ] || [ "$arg" = "-MF" ]; then
+          prev=$arg
+        fi
+      done < "$rsp"
+      ;;
+  esac
+fi
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "-o" ]; then
     shift
     out=$1
+  elif [ "$1" = "-MF" ]; then
+    shift
+    depfile=$1
   fi
   shift
 done
@@ -2018,6 +2040,10 @@ if [ -z "$out" ]; then
 fi
 mkdir -p "$(dirname "$out")"
 printf 'provider object\n' > "$out"
+if [ -n "$depfile" ]; then
+  mkdir -p "$(dirname "$depfile")"
+  printf '%s: src/main.zig\n' "$out" > "$depfile"
+fi
 EOF
 chmod +x "$tmp/provider-source-unit/tools/zigcc"
 cat > "$tmp/provider-source-unit/qstar/languages/zig/zig.qsm" <<'EOF'
@@ -2030,16 +2056,28 @@ return qstar.language_provider {
   tools = {
     compiler = {role = "zig.compiler", required = true},
   },
+  options = {
+    optimize = {
+      type = "enum",
+      values = {"Debug", "ReleaseFast"},
+      default = "Debug",
+    },
+    compile_options = {
+      type = "list",
+      default = {},
+    },
+  },
   units = {
     object = {
       suffixes = {".zig"},
       emits = "object",
       lower = "compile_object",
-      deps = "none",
+      deps = "make",
     },
   },
   exports = {
     tools = "tools",
+    options = "options",
     object = "object",
   },
 }
@@ -2053,11 +2091,37 @@ function P.tools(t)
   })
 end
 
+function P.options(t)
+  return qstar.language_options("zig", t or {})
+end
+
 function P.object(path, opts)
   return qstar.source(path, qstar.merge({
     language = "zig",
     unit = "object",
   }, opts or {}))
+end
+
+function P.compile_object(ctx)
+  local argv = qstar.argv()
+
+  argv:add(ctx.tool("compiler"))
+  argv:add("-c")
+  argv:add(ctx.input("source"))
+  argv:add("-o")
+  argv:add(ctx.output("object"))
+  argv:add("-MMD")
+  argv:add("-MF")
+  argv:add(ctx.output("depfile"))
+  argv:add("--optimize=" .. ctx.option("optimize"))
+  argv:add_all(ctx.option("compile_options"))
+
+  return {
+    command = argv,
+    inputs = {ctx.input("source")},
+    outputs = {ctx.output("object")},
+    depfile = ctx.output("depfile"),
+  }
 end
 
 return P
@@ -2072,31 +2136,68 @@ qstar.toolset "host" {
       compiler = qstar.cli {"tools/zigcc"},
     },
   },
+  response_files = "on",
+  response_style = "posix",
 }
 
 qstar.config "use_host" {
   toolset = "//:host",
+  lang = {
+    zig = zig.options {
+      optimize = "Debug",
+      compile_options = {
+        "--from-config",
+        "--very-long-provider-option-000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "--very-long-provider-option-111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+        "--very-long-provider-option-222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222",
+        "--very-long-provider-option-333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333",
+      },
+    },
+  },
 }
 
 qstar.staticlib "core" {
   configs = {"//:use_host"},
   sources = {
-    zig.object("src/main.zig"),
+    zig.object("src/main.zig", {optimize = "ReleaseFast"}),
   },
 }
 EOF
 "$qstar" --file "$tmp/provider-source-unit/qstar.lua" check > "$tmp/provider-source-unit-check.out" 2> "$tmp/provider-source-unit-check.err"
 "$qstar" --file "$tmp/provider-source-unit/qstar.lua" --dump-graph > "$tmp/provider-source-unit-graph.out" 2> "$tmp/provider-source-unit-graph.err"
-contains "$tmp/provider-source-unit-graph.out" "unit object emits=object lower=compile_object deps=none suffixes [.zig]"
+contains "$tmp/provider-source-unit-graph.out" "unit object emits=object lower=compile_object deps=make suffixes [.zig]"
 "$qstar" --file "$tmp/provider-source-unit/qstar.lua" explain //:core > "$tmp/provider-source-unit-explain.out" 2> "$tmp/provider-source-unit-explain.err"
 contains "$tmp/provider-source-unit-explain.out" "source_file path=src/main.zig language=zig tool=provider-compiler provider=zig provider_role=compiler toolset_role=zig.compiler output_group=objects role=compile"
+contains "$tmp/provider-source-unit-explain.out" "--optimize=ReleaseFast"
+contains "$tmp/provider-source-unit-explain.out" "--from-config"
+contains "$tmp/provider-source-unit-explain.out" "response=skeleton"
 "$qstar" --file "$tmp/provider-source-unit/qstar.lua" dry-run //:core > "$tmp/provider-source-unit-dry-run.out" 2> "$tmp/provider-source-unit-dry-run.err"
 contains "$tmp/provider-source-unit-dry-run.out" "dry_run_step id=//:core:compile:0 owner=//:core kind=compile language=zig tool=provider-compiler"
 contains "$tmp/provider-source-unit-dry-run.out" "tools/zigcc"
+contains "$tmp/provider-source-unit-dry-run.out" "--optimize=ReleaseFast"
 "$qstar" --file "$tmp/provider-source-unit/qstar.lua" build //:core > "$tmp/provider-source-unit-build.out" 2> "$tmp/provider-source-unit-build.err"
 if ! find "$tmp/provider-source-unit/build" -name obj0.o -type f | grep -q .; then
   fail "provider source object was not produced"
 fi
+contains "$tmp/provider-source-unit-build.out" "response_file id=//:core:compile:0"
+"$qstar" --file "$tmp/provider-source-unit/qstar.lua" action-log //:core:compile:0 > "$tmp/provider-source-unit-action-log.out" 2> "$tmp/provider-source-unit-action-log.err"
+contains "$tmp/provider-source-unit-action-log.out" "tools/zigcc"
+contains "$tmp/provider-source-unit-action-log.out" "--optimize=ReleaseFast"
+"$qstar" --file "$tmp/provider-source-unit/qstar.lua" replay //:core:compile:0 > "$tmp/provider-source-unit-replay.out" 2> "$tmp/provider-source-unit-replay.err"
+contains "$tmp/provider-source-unit-replay.out" "tools/zigcc"
+contains "$tmp/provider-source-unit-replay.out" "--from-config"
+"$qstar" --file "$tmp/provider-source-unit/qstar.lua" doctor > "$tmp/provider-source-unit-doctor.out" 2> "$tmp/provider-source-unit-doctor.err"
+contains "$tmp/provider-source-unit-doctor.out" "provider-tool role=zig.compiler required=true status=configured"
+"$qstar" --file "$tmp/provider-source-unit/qstar.lua" -B build-ninja -G ninja build //:core > "$tmp/provider-source-unit-ninja-build.out" 2> "$tmp/provider-source-unit-ninja-build.err"
+if ! find "$tmp/provider-source-unit/build-ninja" -name obj0.o -type f | grep -q .; then
+  fail "provider source object was not produced by ninja"
+fi
+"$qstar" --file "$tmp/provider-source-unit/qstar.lua" -B build-ninja -G ninja action-log //:core:compile:0 > "$tmp/provider-source-unit-ninja-action-log.out" 2> "$tmp/provider-source-unit-ninja-action-log.err"
+contains "$tmp/provider-source-unit-ninja-action-log.out" "backend=ninja"
+contains "$tmp/provider-source-unit-ninja-action-log.out" "tools/zigcc"
+"$qstar" --file "$tmp/provider-source-unit/qstar.lua" -B build-ninja -G ninja replay //:core:compile:0 > "$tmp/provider-source-unit-ninja-replay.out" 2> "$tmp/provider-source-unit-ninja-replay.err"
+contains "$tmp/provider-source-unit-ninja-replay.out" "tools/zigcc"
+contains "$tmp/provider-source-unit-ninja-replay.out" "--optimize=ReleaseFast"
 cat > "$tmp/provider-source-unit/qstar.lua" <<'EOF'
 local zig = qstar.use_language("zig")
 

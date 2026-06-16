@@ -7,8 +7,8 @@ executor named Stella, and an optional Ninja backend. It focuses on deterministi
 build graphs, explicit command vectors, reusable target configuration, and
 tooling-friendly diagnostics for C, C++, assembly, generated files, and
 external object artifact flows. Project-local language providers can be
-activated with `qstar.use_language(...)`; full external source lowering remains
-behind provider backend work.
+activated with `qstar.use_language(...)`; provider source units lower through
+the same Stella/Ninja backend action contract.
 
 QStar is currently in beta. The current release-prep line is `v0.7.0-beta`,
 with macOS arm64 and Linux x86_64 runtime tarballs. Linux assets
@@ -237,7 +237,8 @@ qstar replay <action-id>
 | Windows | Manual native CI alpha through MSYS2 UCRT64; no public asset yet |
 
 QStar can model custom toolchains and cross-compilation targets through explicit
-toolsets, configs, argv-vector commands, and object artifact bridges. Official
+toolsets, configs, argv-vector commands, language provider source units, and
+object artifact bridges. Official
 host support is intentionally conservative. The 1.0 milestone requires
 validated release artifacts and CI coverage for macOS, Linux, and Windows.
 

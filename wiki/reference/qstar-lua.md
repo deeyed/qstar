@@ -64,6 +64,7 @@ Provider-only author APIs:
 - `qstar.provider_tools`: provider implementation helper for returning a provider tool table.
 - `qstar.language_options`: provider implementation helper for returning `lang.<namespace>` option tables.
 - `qstar.source`: provider/user helper for returning typed source unit tokens such as `zig.object("src/main.zig")`.
+- `qstar.argv`: provider implementation helper for constructing lowered action argv vectors.
 
 `qstar.sharedlib`는 macOS platform context에서는 `.dylib`, Linux platform context에서는 `.so`를
 생성한다. sharedlib dependency를 link하는 artifact target은 build-tree 실행을 위해

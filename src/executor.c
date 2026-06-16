@@ -213,6 +213,7 @@ struct qstar_prepared_action {
 	char depfile[QSTAR_PATH_MAX];
 	char source_path[QSTAR_PATH_MAX];
 	char description[QSTAR_PATH_MAX];
+	size_t source_index;
 	int wants_depfile;
 	struct qstar_action_material material;
 	char *argv[QSTAR_EXEC_MAX_ARGV];
@@ -234,6 +235,12 @@ struct qstar_running_action {
 	struct qstar_child_capture capture;
 	int timeout_sec;
 };
+
+static int copy_string_list(struct qstar_string_list *dst,
+    const struct qstar_string_list *src);
+static int copy_static_inputs(struct qstar_string_list *dst,
+    const struct qstar_string_list *inputs,
+    const struct qstar_string_list *depfile_inputs);
 
 enum qstar_sched_node_kind {
 	QSTAR_SCHED_COMPILE,
@@ -5685,13 +5692,10 @@ refresh_compile_state_after_depfile(struct qstar_graph *graph, struct qstar_buil
 
 	memset(&inputs, 0, sizeof(inputs));
 	memset(&dep_inputs, 0, sizeof(dep_inputs));
-	if (qstar_string_list_push(&inputs, action->source_path) < 0) {
+	if (copy_static_inputs(&inputs, &action->inputs,
+	    &action->depfile_inputs) < 0) {
 		qstar_string_list_free(&inputs);
 		return qstar_set_error(graph, "qstar: out of memory");
-	}
-	if (push_target_header_inputs(graph, target, &inputs) < 0) {
-		qstar_string_list_free(&inputs);
-		return -1;
 	}
 	if (action->wants_depfile &&
 	    push_depfile_inputs(graph, ctx, action->depfile, &dep_inputs) < 0) {
@@ -5790,6 +5794,32 @@ prepared_action_push_tool_role(struct qstar_graph *graph, struct qstar_prepared_
 	return 0;
 }
 
+static int
+prepared_action_push_provider_template(struct qstar_graph *graph,
+    struct qstar_prepared_action *action, const struct qstar_target *target,
+    const struct qstar_string_list *argv)
+{
+	char role[128];
+	size_t i;
+	int rc;
+
+	for (i = 0; argv && i < argv->len; i++) {
+		rc = qstar_provider_tool_token_role(argv->items[i], role, sizeof(role));
+		if (rc < 0)
+			return qstar_set_error(graph,
+			    "qstar: malformed provider tool placeholder");
+		if (rc == 1) {
+			if (prepared_action_push_tool_role(graph, action, target, role,
+			    NULL) < 0)
+				return -1;
+			continue;
+		}
+		if (prepared_action_push_argv(graph, action, argv->items[i]) < 0)
+			return -1;
+	}
+	return 0;
+}
+
 /** C/C++/ASM source 하나를 compile action으로 준비한다. */
 static int
 prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
@@ -5797,6 +5827,7 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
     size_t index, struct qstar_prepared_action *action)
 {
 	struct qstar_source_info source;
+	const struct qstar_provider_source_unit *provider_unit;
 	char object[QSTAR_PATH_MAX], std_arg[128];
 	const char *role;
 	const char *compiler;
@@ -5810,6 +5841,7 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	snprintf(action->kind, sizeof(action->kind), "compile");
 	snprintf(action->source_path, sizeof(action->source_path), "%s",
 	    target->sources.items[index]);
+	action->source_index = index;
 	qstar_target_source_classify(target, index, &source);
 	if (validate_compile_source(graph, target, toolchain, &source, index) < 0)
 		return -1;
@@ -5824,7 +5856,8 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		return qstar_set_error(graph, "qstar: out of memory");
 	is_asm = qstar_source_is_asm(&source);
 	is_cxx = strcmp(source.provider, "cxx") == 0;
-	provider_source = qstar_target_provider_source_unit(target, index) != NULL;
+	provider_unit = qstar_target_provider_source_unit(target, index);
+	provider_source = provider_unit != NULL;
 	wants_depfile = !provider_source &&
 	    (strcmp(source.provider, "c") == 0 || is_cxx ||
 	    qstar_source_uses_asm_preprocessor(target, &source));
@@ -5845,6 +5878,70 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	    action->description, sizeof(action->description)) < 0) {
 		qstar_string_list_free(&includes);
 		return qstar_set_error(graph, "qstar: compile action description too long");
+	}
+	if (provider_unit) {
+		if (provider_unit->action.argv.len == 0) {
+			qstar_string_list_free(&includes);
+			return qstar_set_error(graph,
+			    "qstar: provider source '%s' has no lowered command",
+			    target->sources.items[index]);
+		}
+		action->wants_depfile = provider_unit->action.wants_depfile;
+		if (provider_unit->action.depfile && *provider_unit->action.depfile)
+			snprintf(action->depfile, sizeof(action->depfile), "%s",
+			    provider_unit->action.depfile);
+		if (prepared_action_push_provider_template(graph, action, target,
+		    &provider_unit->action.argv) < 0)
+			goto fail;
+		memset(&inputs, 0, sizeof(inputs));
+		memset(&dep_inputs, 0, sizeof(dep_inputs));
+		memset(&outputs, 0, sizeof(outputs));
+		if (copy_string_list(&inputs, &provider_unit->action.inputs) < 0 ||
+		    copy_string_list(&outputs, &provider_unit->action.outputs) < 0)
+			goto oom_provider;
+		for (i = 0; i < outputs.len; i++) {
+			if (mkdir_parent_under_root(graph, outputs.items[i]) < 0) {
+				qstar_string_list_free(&inputs);
+				qstar_string_list_free(&dep_inputs);
+				qstar_string_list_free(&outputs);
+				qstar_string_list_free(&includes);
+				return qstar_set_error(graph,
+				    "qstar: could not create provider output directory");
+			}
+		}
+		if (!ctx->lowering_cache_prepare &&
+		    strcmp(qstar_graph_compile_commands_policy(graph), "off") != 0 &&
+		    compile_db_push(ctx, graph->package_root ? graph->package_root : ".",
+		    target->sources.items[index], object, action->argv) < 0)
+			goto oom_provider;
+		if (!ctx->lowering_cache_prepare && action->wants_depfile &&
+		    push_depfile_inputs(graph, ctx, action->depfile,
+		    &dep_inputs) < 0) {
+			qstar_string_list_free(&inputs);
+			qstar_string_list_free(&dep_inputs);
+			qstar_string_list_free(&outputs);
+			qstar_string_list_free(&includes);
+			return -1;
+		}
+		for (i = 0; i < dep_inputs.len; i++) {
+			if (qstar_string_list_push(&inputs, dep_inputs.items[i]) < 0)
+				goto oom_provider;
+		}
+		if (!ctx->lowering_cache_prepare)
+			compute_action_key(ctx, graph, target, toolchain, action->id,
+			    "compile", action->argv, &inputs, &dep_inputs, object,
+			    action->key, sizeof(action->key), &action->material);
+		action->inputs = inputs;
+		action->depfile_inputs = dep_inputs;
+		action->outputs = outputs;
+		qstar_string_list_free(&includes);
+		return 0;
+oom_provider:
+		qstar_string_list_free(&inputs);
+		qstar_string_list_free(&dep_inputs);
+		qstar_string_list_free(&outputs);
+		qstar_string_list_free(&includes);
+		return qstar_set_error(graph, "qstar: out of memory");
 	}
 	snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
 	role = qstar_source_toolset_role(&source);
@@ -7084,6 +7181,7 @@ prepare_cached_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	    cached->depfile ? cached->depfile : "");
 	snprintf(action->source_path, sizeof(action->source_path), "%s",
 	    cached->source_path ? cached->source_path : "");
+	action->source_index = cached->source_index;
 	action->wants_depfile = cached->wants_depfile;
 	if (copy_string_list(&action->outputs, &cached->outputs) < 0 ||
 	    copy_string_list(&action->inputs, &cached->inputs) < 0) {

@@ -19,6 +19,22 @@ struct qstar_string_list {
 	size_t cap;
 };
 
+struct qstar_provider_option_value {
+	char *provider;
+	char *name;
+	char *type;
+	char *value;
+	struct qstar_string_list list;
+};
+
+struct qstar_provider_action_template {
+	struct qstar_string_list argv;
+	struct qstar_string_list inputs;
+	struct qstar_string_list outputs;
+	char *depfile;
+	int wants_depfile;
+};
+
 struct qstar_modules {
 	int present;
 	char *root;
@@ -34,6 +50,7 @@ struct qstar_provider_source_unit {
 	char *emits;
 	char *lower;
 	char *toolset_role;
+	struct qstar_provider_action_template action;
 };
 
 struct qstar_target {
@@ -68,6 +85,9 @@ struct qstar_target {
 	struct qstar_string_list cxxflags;
 	struct qstar_string_list asm_include_dirs;
 	struct qstar_string_list asm_compile_options;
+	struct qstar_provider_option_value *provider_options;
+	size_t provider_option_len;
+	size_t provider_option_cap;
 	struct qstar_string_list run_command;
 	char *description;
 	char *artifact_name;
@@ -434,7 +454,15 @@ int qstar_language_provider_add_unit_schema(struct qstar_graph *graph,
 /** QStar target source list entry에 provider source unit metadata를 붙인다. */
 int qstar_target_add_provider_source_unit(struct qstar_graph *graph,
     struct qstar_target *target, size_t source_index, const char *path,
-    const char *provider, const char *unit, const char *emits, const char *lower);
+    const char *provider, const char *unit, const char *emits, const char *lower,
+    const struct qstar_provider_action_template *action);
+
+int qstar_target_set_provider_option(struct qstar_graph *graph,
+    struct qstar_target *target, const char *provider, const char *name,
+    const char *type, const char *value, const struct qstar_string_list *list);
+
+const struct qstar_provider_option_value *qstar_target_provider_option(
+    const struct qstar_target *target, const char *provider, const char *name);
 
 /** QStar target에 선언된 configs list를 target option field로 병합한다. */
 int qstar_graph_apply_target_configs(struct qstar_graph *graph, struct qstar_target *target);

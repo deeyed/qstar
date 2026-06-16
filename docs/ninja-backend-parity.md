@@ -44,10 +44,10 @@ Windows shared library policy remains deferred. QStar emits a stable diagnostic
 for Windows `qstar.sharedlib` targets until `.dll`, import library, PDB,
 runtime search path, and install layout behavior are validated on Windows.
 
-Unsupported source-language lowering through Ninja is not a separate provider
-contract. Use the object artifact bridge: a `qstar.custom_target` produces
-`qstar.output(path, {format = "object"})`, and the consuming target lists that
-generated object in `sources`.
+Provider source-language lowering uses the same provider action template as
+Stella. The object artifact bridge remains available: a `qstar.custom_target`
+produces `qstar.output(path, {format = "object"})`, and the consuming target
+lists that generated object in `sources`.
 
 ## Regression Gate
 

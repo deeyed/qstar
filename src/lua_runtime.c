@@ -19,7 +19,26 @@ struct qstar_lua_context {
 	int module_depth;
 };
 
+struct qstar_provider_lowering_ctx {
+	struct qstar_graph *graph;
+	const struct qstar_target *target;
+	const struct qstar_language_provider *provider;
+	const struct qstar_language_unit_schema *unit;
+	const char *source;
+	const char *object;
+	const char *depfile;
+	int source_options_ref;
+};
+
 #define QSTAR_STATUS_DESCRIPTION_MAX 240
+
+static int lower_provider_source_unit(lua_State *L, int source_token,
+    struct qstar_target *target, struct qstar_graph *graph, size_t source_index,
+    const char *path, const char *provider, const char *unit_name,
+    const struct qstar_language_unit_schema *unit,
+    struct qstar_provider_action_template *action);
+static int qstar_lua_abs_index(lua_State *L, int idx);
+static int valid_tool_role_name(const char *s);
 
 static const char *
 qstar_host_os(void)
@@ -451,16 +470,34 @@ push_source_unit_item(lua_State *L, int idx, struct qstar_target *target,
 {
 	const struct qstar_language_unit_schema *unit;
 	const char *path, *provider, *unit_name;
+	struct qstar_provider_action_template action;
 	size_t source_index;
+	int rc;
 
+	memset(&action, 0, sizeof(action));
 	if (read_source_unit_table(L, idx, graph, field, &path, &provider,
 	    &unit_name, &unit) < 0)
 		return -1;
 	source_index = target->sources.len;
 	if (qstar_string_list_push(&target->sources, path) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
-	return qstar_target_add_provider_source_unit(graph, target, source_index, path,
-	    provider, unit_name, unit->emits, unit->lower);
+	if (lower_provider_source_unit(L, idx, target, graph, source_index, path,
+	    provider, unit_name, unit, &action) < 0) {
+		qstar_string_list_free(&action.argv);
+		qstar_string_list_free(&action.inputs);
+		qstar_string_list_free(&action.outputs);
+		free(action.depfile);
+		return -1;
+	}
+	rc = qstar_target_add_provider_source_unit(graph, target, source_index, path,
+	    provider, unit_name, unit->emits, unit->lower, &action);
+	qstar_string_list_free(&action.argv);
+	qstar_string_list_free(&action.inputs);
+	qstar_string_list_free(&action.outputs);
+	free(action.depfile);
+	if (rc < 0)
+		return -1;
+	return 0;
 }
 
 static int
@@ -1496,16 +1533,18 @@ read_lang_asm(lua_State *L, int lang, struct qstar_target *target, struct qstar_
 
 static int
 read_provider_lang_options(lua_State *L, int table, struct qstar_graph *graph,
-    const struct qstar_language_provider *provider)
+    struct qstar_target *target, const struct qstar_language_provider *provider)
 {
 	const struct qstar_language_option_schema *schema;
-	const char *key;
+	const char *key, *value;
+	struct qstar_string_list list;
 	char owner[192];
 
 	if (table < 0)
 		table = lua_gettop(L) + table + 1;
 	lua_pushnil(L);
 	while (lua_next(L, table) != 0) {
+		memset(&list, 0, sizeof(list));
 		key = lua_type(L, -2) == LUA_TSTRING ? lua_tostring(L, -2) : NULL;
 		schema = qstar_language_provider_find_option(provider, key);
 		if (!key || !schema) {
@@ -1519,6 +1558,25 @@ read_provider_lang_options(lua_State *L, int table, struct qstar_graph *graph,
 			lua_pop(L, 2);
 			return -1;
 		}
+		value = "";
+		if (strcmp(schema->type, "bool") == 0) {
+			value = lua_toboolean(L, -1) ? "true" : "false";
+		} else if (strcmp(schema->type, "list") == 0) {
+			if (read_exact_string_list_value(L, -1, &list, graph, owner) < 0) {
+				lua_pop(L, 2);
+				qstar_string_list_free(&list);
+				return -1;
+			}
+		} else {
+			value = lua_tostring(L, -1);
+		}
+		if (qstar_target_set_provider_option(graph, target,
+		    provider->namespace, key, schema->type, value, &list) < 0) {
+			lua_pop(L, 2);
+			qstar_string_list_free(&list);
+			return -1;
+		}
+		qstar_string_list_free(&list);
 		lua_pop(L, 1);
 	}
 	return 0;
@@ -1572,7 +1630,7 @@ read_lang_options(lua_State *L, int table, struct qstar_target *target,
 			const struct qstar_language_provider *provider;
 			provider = qstar_graph_find_language_provider(graph, key);
 			if (!provider || read_provider_lang_options(L, -1, graph,
-			    provider) < 0) {
+			    target, provider) < 0) {
 				lua_pop(L, 2);
 				return -1;
 			}
@@ -1696,6 +1754,44 @@ valid_tool_role_component(const char *s)
 }
 
 static int
+copy_source_unit_options(lua_State *L, int metadata, int options,
+    struct qstar_graph *graph, const struct qstar_language_provider *provider)
+{
+	const struct qstar_language_option_schema *schema;
+	const char *key;
+	char owner[192];
+
+	metadata = qstar_lua_abs_index(L, metadata);
+	options = qstar_lua_abs_index(L, options);
+	lua_pushnil(L);
+	while (lua_next(L, metadata) != 0) {
+		key = lua_type(L, -2) == LUA_TSTRING ? lua_tostring(L, -2) : NULL;
+		if (key && (strcmp(key, "language") == 0 ||
+		    strcmp(key, "provider") == 0 || strcmp(key, "unit") == 0)) {
+			lua_pop(L, 1);
+			continue;
+		}
+		schema = qstar_language_provider_find_option(provider, key);
+		if (!key || !schema) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph, "qstar: unknown source option %s.%s",
+			    provider->namespace, key ? key : "<non-string>");
+		}
+		snprintf(owner, sizeof(owner), "source.%s.%s", provider->namespace, key);
+		if (validate_provider_option_value(L, -1, graph, owner, schema->type,
+		    &schema->values) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		lua_pushvalue(L, -2);
+		lua_pushvalue(L, -2);
+		lua_settable(L, options);
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
 qstar_lua_source(lua_State *L)
 {
 	struct qstar_lua_context *ctx;
@@ -1750,6 +1846,10 @@ qstar_lua_source(lua_State *L)
 	lua_setfield(L, -2, "provider");
 	lua_pushstring(L, unit);
 	lua_setfield(L, -2, "unit");
+	lua_newtable(L);
+	if (copy_source_unit_options(L, 2, -1, graph, provider) < 0)
+		return luaL_error(L, "%s", graph->error);
+	lua_setfield(L, -2, "options");
 	return 1;
 }
 
@@ -1777,6 +1877,349 @@ valid_tool_role_name(const char *s)
 		p = dot + 1;
 	}
 	return 1;
+}
+
+static void
+push_provider_string_list(lua_State *L, const struct qstar_string_list *list)
+{
+	size_t i;
+
+	lua_newtable(L);
+	for (i = 0; list && i < list->len; i++) {
+		lua_pushstring(L, list->items[i]);
+		lua_rawseti(L, -2, (lua_Integer)i + 1);
+	}
+}
+
+static int
+push_provider_option_lua_value(lua_State *L, const char *type, const char *value,
+    const struct qstar_string_list *list)
+{
+	if (strcmp(type, "bool") == 0) {
+		lua_pushboolean(L, value && strcmp(value, "true") == 0);
+		return 1;
+	}
+	if (strcmp(type, "list") == 0) {
+		push_provider_string_list(L, list);
+		return 1;
+	}
+	lua_pushstring(L, value ? value : "");
+	return 1;
+}
+
+static int
+provider_ctx_tool(lua_State *L)
+{
+	struct qstar_provider_lowering_ctx *ctx;
+	const char *raw, *role;
+	char resolved[128], token[160];
+
+	ctx = lua_touserdata(L, lua_upvalueindex(1));
+	raw = luaL_checkstring(L, 1);
+	if (strchr(raw, '.')) {
+		role = raw;
+	} else {
+		if (snprintf(resolved, sizeof(resolved), "%s.%s",
+		    ctx->provider->namespace, raw) >= (int)sizeof(resolved))
+			return luaL_error(L, "qstar: provider tool role is too long");
+		role = resolved;
+	}
+	if (!valid_tool_role_name(role))
+		return luaL_error(L, "qstar: invalid provider tool role '%s'", role);
+	if (snprintf(token, sizeof(token), "<qstar-tool:%s>", role) >=
+	    (int)sizeof(token))
+		return luaL_error(L, "qstar: provider tool token is too long");
+	lua_pushstring(L, token);
+	return 1;
+}
+
+static int
+provider_ctx_input(lua_State *L)
+{
+	struct qstar_provider_lowering_ctx *ctx;
+	const char *name;
+
+	ctx = lua_touserdata(L, lua_upvalueindex(1));
+	name = luaL_checkstring(L, 1);
+	if (strcmp(name, "source") != 0)
+		return luaL_error(L, "qstar: unknown provider input '%s'", name);
+	lua_pushstring(L, ctx->source);
+	return 1;
+}
+
+static int
+provider_ctx_output(lua_State *L)
+{
+	struct qstar_provider_lowering_ctx *ctx;
+	const char *name;
+
+	ctx = lua_touserdata(L, lua_upvalueindex(1));
+	name = luaL_checkstring(L, 1);
+	if (strcmp(name, "object") == 0) {
+		lua_pushstring(L, ctx->object);
+		return 1;
+	}
+	if (strcmp(name, "depfile") == 0) {
+		lua_pushstring(L, ctx->depfile);
+		return 1;
+	}
+	return luaL_error(L, "qstar: unknown provider output '%s'", name);
+}
+
+static int
+provider_ctx_option(lua_State *L)
+{
+	struct qstar_provider_lowering_ctx *ctx;
+	const struct qstar_language_option_schema *schema;
+	const struct qstar_provider_option_value *value;
+	const char *name;
+
+	ctx = lua_touserdata(L, lua_upvalueindex(1));
+	name = luaL_checkstring(L, 1);
+	schema = qstar_language_provider_find_option(ctx->provider, name);
+	if (!schema)
+		return luaL_error(L, "qstar: unknown provider option '%s.%s'",
+		    ctx->provider->namespace, name);
+	if (ctx->source_options_ref != LUA_NOREF) {
+		lua_rawgeti(L, LUA_REGISTRYINDEX, ctx->source_options_ref);
+		lua_getfield(L, -1, name);
+		if (!lua_isnil(L, -1)) {
+			lua_remove(L, -2);
+			return 1;
+		}
+		lua_pop(L, 2);
+	}
+	value = qstar_target_provider_option(ctx->target, ctx->provider->namespace,
+	    name);
+	if (value)
+		return push_provider_option_lua_value(L, value->type, value->value,
+		    &value->list);
+	if (!schema->has_default) {
+		lua_pushnil(L);
+		return 1;
+	}
+	return push_provider_option_lua_value(L, schema->type, schema->default_value,
+	    &schema->default_list);
+}
+
+static void
+push_provider_lowering_context(lua_State *L, struct qstar_provider_lowering_ctx *ctx)
+{
+	lua_newtable(L);
+	lua_pushlightuserdata(L, ctx);
+	lua_pushcclosure(L, provider_ctx_tool, 1);
+	lua_setfield(L, -2, "tool");
+	lua_pushlightuserdata(L, ctx);
+	lua_pushcclosure(L, provider_ctx_input, 1);
+	lua_setfield(L, -2, "input");
+	lua_pushlightuserdata(L, ctx);
+	lua_pushcclosure(L, provider_ctx_output, 1);
+	lua_setfield(L, -2, "output");
+	lua_pushlightuserdata(L, ctx);
+	lua_pushcclosure(L, provider_ctx_option, 1);
+	lua_setfield(L, -2, "option");
+}
+
+static int
+read_provider_string_list_result(lua_State *L, int table,
+    struct qstar_string_list *dst, struct qstar_graph *graph, const char *field,
+    const char *fallback)
+{
+	char owner[128];
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_getfield(L, table, field);
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return fallback ? qstar_string_list_push(dst, fallback) : 0;
+	}
+	snprintf(owner, sizeof(owner), "provider action %s", field);
+	if (read_exact_string_list_value(L, -1, dst, graph, owner) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+static int
+read_provider_command_result(lua_State *L, int table,
+    struct qstar_provider_action_template *action, struct qstar_graph *graph)
+{
+	const char *kind, *item;
+	size_t i, n;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_getfield(L, table, "command");
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph,
+		    "qstar: provider lowering result must include command = qstar.argv() or a string list");
+	}
+	kind = qstar_table_kind(L, -1);
+	if (kind && strcmp(kind, "argv") != 0) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph,
+		    "qstar: provider lowering command must be qstar.argv() or a string list");
+	}
+	n = lua_rawlen(L, -1);
+	if (n == 0) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph,
+		    "qstar: provider lowering command must not be empty");
+	}
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, -1, (lua_Integer)i);
+		item = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : NULL;
+		if (!item) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: provider lowering command contains non-string argv item");
+		}
+		if (qstar_string_list_push(&action->argv, item) < 0) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph, "qstar: out of memory");
+		}
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+static int
+provider_outputs_contain_object(const struct qstar_provider_action_template *action,
+    const char *object)
+{
+	size_t i;
+
+	for (i = 0; i < action->outputs.len; i++) {
+		if (strcmp(action->outputs.items[i], object) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+static int
+read_provider_lowering_result(lua_State *L, int result,
+    struct qstar_provider_action_template *action, struct qstar_graph *graph,
+    const struct qstar_language_unit_schema *unit, const char *source,
+    const char *object, const char *depfile)
+{
+	const char *explicit_depfile;
+
+	result = qstar_lua_abs_index(L, result);
+	if (!lua_istable(L, result))
+		return qstar_set_error(graph,
+		    "qstar: provider lowering must return an action table");
+	if (read_provider_command_result(L, result, action, graph) < 0 ||
+	    read_provider_string_list_result(L, result, &action->inputs, graph,
+	    "inputs", source) < 0 ||
+	    read_provider_string_list_result(L, result, &action->outputs, graph,
+	    "outputs", object) < 0)
+		return -1;
+	if (!provider_outputs_contain_object(action, object))
+		return qstar_set_error(graph,
+		    "qstar: provider lowering outputs must include ctx.output(\"object\")");
+	lua_getfield(L, result, "depfile");
+	explicit_depfile = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+	if (!lua_isnil(L, -1) && !explicit_depfile) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph,
+		    "qstar: provider lowering depfile must be a string");
+	}
+	action->wants_depfile = explicit_depfile ||
+	    (unit->deps && strcmp(unit->deps, "make") == 0);
+	action->depfile = qstar_strdup(explicit_depfile ? explicit_depfile :
+	    action->wants_depfile ? depfile : "");
+	lua_pop(L, 1);
+	if (!action->depfile)
+		return qstar_set_error(graph, "qstar: out of memory");
+	return 0;
+}
+
+static int
+lower_provider_source_unit(lua_State *L, int source_token,
+    struct qstar_target *target, struct qstar_graph *graph, size_t source_index,
+    const char *path, const char *provider_name, const char *unit_name,
+    const struct qstar_language_unit_schema *unit,
+    struct qstar_provider_action_template *action)
+{
+	struct qstar_provider_lowering_ctx lowering;
+	const struct qstar_language_provider *provider;
+	char object[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX];
+	const char *message;
+	int rc;
+
+	(void)unit_name;
+	source_token = qstar_lua_abs_index(L, source_token);
+	provider = qstar_graph_find_language_provider(graph, provider_name);
+	if (!provider)
+		return qstar_set_error(graph,
+		    "qstar: source token uses inactive language provider '%s'",
+		    provider_name);
+	if (qstar_graph_object_output_path(graph, target, source_index, object,
+	    sizeof(object)) < 0 ||
+	    qstar_graph_depfile_output_path(graph, target, source_index, depfile,
+	    sizeof(depfile)) < 0)
+		return qstar_set_error(graph, "qstar: provider source output path too long");
+	memset(&lowering, 0, sizeof(lowering));
+	lowering.graph = graph;
+	lowering.target = target;
+	lowering.provider = provider;
+	lowering.unit = unit;
+	lowering.source = path;
+	lowering.object = object;
+	lowering.depfile = depfile;
+	lowering.source_options_ref = LUA_NOREF;
+	lua_getfield(L, source_token, "options");
+	if (lua_istable(L, -1))
+		lowering.source_options_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+	else
+		lua_pop(L, 1);
+	lua_getfield(L, LUA_REGISTRYINDEX, "qstar.provider.implementations");
+	if (!lua_istable(L, -1)) {
+		if (lowering.source_options_ref != LUA_NOREF)
+			luaL_unref(L, LUA_REGISTRYINDEX, lowering.source_options_ref);
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: provider implementation registry is empty");
+	}
+	lua_getfield(L, -1, provider_name);
+	lua_remove(L, -2);
+	if (!lua_istable(L, -1)) {
+		if (lowering.source_options_ref != LUA_NOREF)
+			luaL_unref(L, LUA_REGISTRYINDEX, lowering.source_options_ref);
+		lua_pop(L, 1);
+		return qstar_set_error(graph,
+		    "qstar: provider implementation for '%s' is not loaded",
+		    provider_name);
+	}
+	lua_getfield(L, -1, unit->lower);
+	lua_remove(L, -2);
+	if (!lua_isfunction(L, -1)) {
+		if (lowering.source_options_ref != LUA_NOREF)
+			luaL_unref(L, LUA_REGISTRYINDEX, lowering.source_options_ref);
+		lua_pop(L, 1);
+		return qstar_set_error(graph,
+		    "qstar: provider '%s' implementation has no lowering function '%s'",
+		    provider_name, unit->lower);
+	}
+	push_provider_lowering_context(L, &lowering);
+	if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+		message = lua_tostring(L, -1);
+		if (lowering.source_options_ref != LUA_NOREF)
+			luaL_unref(L, LUA_REGISTRYINDEX, lowering.source_options_ref);
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: provider lowering failed: %s",
+		    message ? message : "<unknown>");
+	}
+	rc = read_provider_lowering_result(L, -1, action, graph, unit, path, object,
+	    depfile);
+	lua_pop(L, 1);
+	if (lowering.source_options_ref != LUA_NOREF)
+		luaL_unref(L, LUA_REGISTRYINDEX, lowering.source_options_ref);
+	return rc;
 }
 
 static int
@@ -2340,6 +2783,7 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	if (read_list_field(L, table_index, "configs", &target->configs, graph, 1,
 	    target->fragment_dir) < 0 ||
 	    qstar_graph_apply_target_configs(graph, target) < 0 ||
+	    read_lang_options(L, table_index, target, graph) < 0 ||
 	    read_sources_field(L, table_index, "sources", target, graph) < 0 ||
 	    read_list_field(L, table_index, "deps", &target->deps, graph, 1, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "public_deps", &target->deps, graph, 1, target->fragment_dir) < 0 ||
@@ -2350,8 +2794,7 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	    read_link_options(L, table_index, target, graph, "target") < 0 ||
 	    read_list_field(L, table_index, "link_options", &target->link_options, graph, 0, target->fragment_dir) < 0 ||
 	    read_target_file_list_field(L, table_index, "link_inputs",
-	    &target->link_inputs, graph) < 0 ||
-	    read_lang_options(L, table_index, target, graph) < 0)
+	    &target->link_inputs, graph) < 0)
 		return luaL_error(L, "%s", graph->error);
 	artifact_name = check_string_field(L, table_index, "artifact_name");
 	if (read_label_scalar_field(L, table_index, "toolset", &target->toolset, graph,
@@ -3966,6 +4409,56 @@ qstar_lua_cli(lua_State *L)
 	return 1;
 }
 
+static int
+qstar_lua_argv_add(lua_State *L)
+{
+	size_t n;
+
+	luaL_checktype(L, 1, LUA_TTABLE);
+	if (lua_type(L, 2) != LUA_TSTRING)
+		return luaL_error(L, "qstar: argv:add expects a string");
+	n = lua_rawlen(L, 1);
+	lua_pushvalue(L, 2);
+	lua_rawseti(L, 1, (lua_Integer)n + 1);
+	return 0;
+}
+
+static int
+qstar_lua_argv_add_all(lua_State *L)
+{
+	size_t i, n, dst;
+
+	luaL_checktype(L, 1, LUA_TTABLE);
+	if (lua_isnil(L, 2))
+		return 0;
+	luaL_checktype(L, 2, LUA_TTABLE);
+	dst = lua_rawlen(L, 1);
+	n = lua_rawlen(L, 2);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, 2, (lua_Integer)i);
+		if (lua_type(L, -1) != LUA_TSTRING) {
+			lua_pop(L, 1);
+			return luaL_error(L,
+			    "qstar: argv:add_all expects a list of strings");
+		}
+		lua_rawseti(L, 1, (lua_Integer)(++dst));
+	}
+	return 0;
+}
+
+static int
+qstar_lua_argv(lua_State *L)
+{
+	lua_newtable(L);
+	lua_pushstring(L, "argv");
+	lua_setfield(L, -2, "__qstar_kind");
+	lua_pushcfunction(L, qstar_lua_argv_add);
+	lua_setfield(L, -2, "add");
+	lua_pushcfunction(L, qstar_lua_argv_add_all);
+	lua_setfield(L, -2, "add_all");
+	return 1;
+}
+
 /** qstar.status("...")를 description field 전용 validated helper table로 만든다. */
 static int
 qstar_lua_status(lua_State *L)
@@ -4483,6 +4976,16 @@ qstar_lua_use_language(lua_State *L)
 		lua_pop(L, 2);
 		return luaL_error(L, "%s", graph->error);
 	}
+	lua_getfield(L, LUA_REGISTRYINDEX, "qstar.provider.implementations");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		lua_newtable(L);
+		lua_pushvalue(L, -1);
+		lua_setfield(L, LUA_REGISTRYINDEX, "qstar.provider.implementations");
+	}
+	lua_pushvalue(L, implementation_idx);
+	lua_setfield(L, -2, namespace);
+	lua_pop(L, 1);
 	provider = qstar_graph_add_language_provider(graph, api, id, namespace, version,
 	    rel_dir, rel, impl_rel);
 	if (!provider) {
@@ -4688,6 +5191,7 @@ push_provider_env(lua_State *L)
 	set_table_cfunction(L, qstar, "provider_tools", qstar_lua_provider_tools);
 	set_table_cfunction(L, qstar, "language_options", qstar_lua_language_options);
 	set_table_cfunction(L, qstar, "source", qstar_lua_source);
+	set_table_cfunction(L, qstar, "argv", qstar_lua_argv);
 	set_table_cfunction(L, qstar, "join", qstar_lua_join);
 	set_table_cfunction(L, qstar, "copy", qstar_lua_copy);
 	set_table_cfunction(L, qstar, "append", qstar_lua_append);

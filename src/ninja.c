@@ -58,6 +58,10 @@ static int target_compile_needs_pic(const struct qstar_target *target,
 static int ninja_argv_push_tool_role(struct qstar_graph *graph, struct ninja_argv *argv,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
     const char *role, const char *fallback);
+static int ninja_argv_push_provider_template(struct qstar_graph *graph,
+    struct ninja_argv *argv, const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain,
+    const struct qstar_string_list *template);
 
 /** graph에서 canonical label target을 찾는다. */
 static const struct qstar_target *
@@ -1449,6 +1453,7 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
     size_t index)
 {
 	struct qstar_source_info source;
+	const struct qstar_provider_source_unit *provider_unit;
 	struct qstar_string_list includes;
 	struct ninja_argv argv;
 	char object[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], out_dir[QSTAR_PATH_MAX];
@@ -1473,13 +1478,63 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		return qstar_set_error(graph, "qstar: out of memory");
 	is_asm = qstar_source_is_asm(&source);
 	is_cxx = strcmp(source.provider, "cxx") == 0;
-	provider_source = qstar_target_provider_source_unit(target, index) != NULL;
+	provider_unit = qstar_target_provider_source_unit(target, index);
+	provider_source = provider_unit != NULL;
 	wants_depfile = !provider_source &&
 	    (strcmp(source.provider, "c") == 0 || is_cxx ||
 	    qstar_source_uses_asm_preprocessor(target, &source));
 	snprintf(action_id, sizeof(action_id), "%s:compile:%zu", target->label, index);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s",
 	    target->cxx_standard ? target->cxx_standard : "");
+	if (provider_unit) {
+		const char *provider_depfile;
+
+		wants_depfile = provider_unit->action.wants_depfile;
+		provider_depfile = provider_unit->action.depfile &&
+		    *provider_unit->action.depfile ? provider_unit->action.depfile :
+		    depfile;
+		if (ninja_argv_push_provider_template(graph, &argv, target,
+		    toolchain, &provider_unit->action.argv) < 0)
+			goto fail;
+		if (qstar_action_description_compile(target, &source, object,
+		    description, sizeof(description)) < 0)
+			goto fail;
+		fprintf(ctx->ninja, "# qstar-action-id: %s\n", action_id);
+		fputs("build", ctx->ninja);
+		for (i = 0; i < provider_unit->action.outputs.len; i++) {
+			fputc(' ', ctx->ninja);
+			ninja_path(ctx->ninja, provider_unit->action.outputs.items[i]);
+		}
+		fprintf(ctx->ninja, ": %s", wants_depfile ? "qstar_compile" :
+		    "qstar_compile_nodep");
+		for (i = 0; i < provider_unit->action.inputs.len; i++) {
+			fputc(' ', ctx->ninja);
+			ninja_path(ctx->ninja, provider_unit->action.inputs.items[i]);
+		}
+		fputc('\n', ctx->ninja);
+		fputs("  command = ", ctx->ninja);
+		if (write_edge_command(graph, ctx, action_id, toolchain, &argv,
+		    description) < 0)
+			goto fail;
+		fputc('\n', ctx->ninja);
+		if (wants_depfile) {
+			fputs("  depfile = ", ctx->ninja);
+			ninja_path(ctx->ninja, provider_depfile);
+			fputc('\n', ctx->ninja);
+		}
+		fputs("  out_dir = ", ctx->ninja);
+		shell_arg(ctx->ninja, out_dir);
+		fputs("\n  description = ", ctx->ninja);
+		ninja_var_text(ctx->ninja, description);
+		fputc('\n', ctx->ninja);
+		fprintf(ctx->ninja, "  qstar_action_id = %s\n\n", action_id);
+		write_compile_command(ctx, graph->package_root ? graph->package_root : ".",
+		    target->sources.items[index], object, &argv);
+		ctx->edge_count++;
+		qstar_string_list_free(&includes);
+		ninja_argv_free(&argv);
+		return 0;
+	}
 	compiler = qstar_resolved_toolchain_provider_tool(toolchain, source.provider,
 	    source.provider_role);
 	if (!compiler && !provider_source)
@@ -1637,6 +1692,34 @@ ninja_argv_push_tool_role(struct qstar_graph *graph, struct ninja_argv *argv,
 		return ninja_argv_push(graph, argv, fallback);
 	for (i = 0; i < role_argv->len; i++) {
 		if (ninja_argv_push(graph, argv, role_argv->items[i]) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+static int
+ninja_argv_push_provider_template(struct qstar_graph *graph,
+    struct ninja_argv *argv, const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain,
+    const struct qstar_string_list *template)
+{
+	char role[128];
+	size_t i;
+	int rc;
+
+	for (i = 0; template && i < template->len; i++) {
+		rc = qstar_provider_tool_token_role(template->items[i], role,
+		    sizeof(role));
+		if (rc < 0)
+			return qstar_set_error(graph,
+			    "qstar: malformed provider tool placeholder");
+		if (rc == 1) {
+			if (ninja_argv_push_tool_role(graph, argv, target, toolchain,
+			    role, NULL) < 0)
+				return -1;
+			continue;
+		}
+		if (ninja_argv_push(graph, argv, template->items[i]) < 0)
 			return -1;
 	}
 	return 0;

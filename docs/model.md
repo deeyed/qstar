@@ -13,9 +13,11 @@ Core entities:
 - package-relative source, header, generated, stage, and install paths
 
 Language semantics are intentionally narrow. QStar directly classifies C, C++,
-and ASM sources. Other languages enter through generated object artifacts:
-`qstar.custom_target` creates `qstar.output(path, {format = "object"})`, and a
-consumer target lists that object in `sources`.
+and ASM sources through preloaded provider namespaces. Other languages enter
+through activated GLP source units or generated object artifacts. A provider
+source unit lowers to an object-producing action template owned by the consuming
+target; the object artifact bridge still uses `qstar.custom_target` plus
+`qstar.output(path, {format = "object"})`.
 
 Toolsets do not infer execution environment policy. If a compiler needs special
 argv items, the project writes them in `qstar.config` or target-local fields.

@@ -13,12 +13,12 @@ graph, command plan, local executor, stage/package, run smoke, lint/LSP authorin
 담당한다. C/C++/ASM 외 언어의 의미론은 외부 compiler와 GLP source unit 또는 object artifact
 bridge가 맡는다.
 
-Generic Language Provider(GLP)는 이 경계를 다음 정식 provider surface로 확장하는
-로드맵이다. 현재 runtime은 `qstar.use_language("zig")`, provider namespace toolset, 동적
+Generic Language Provider(GLP)는 이 경계를 정식 provider surface로 확장한다. 현재 runtime은
+`qstar.use_language("zig")`, provider namespace toolset, 동적
 `lang.zig` activation gate, provider-defined option schema, `qstar.source(...)` 기반 source
-unit object lowering을 제공한다. 현재 source unit lowering은 generic
-`compiler -c <source> -o <object>` contract이며, provider별 복잡한 argv lowering은 후속 GLP
-작업이다. 설계 정본은 root `glp_roadmap.md`다.
+unit object lowering을 제공한다. Provider implementation의 lowering function은 `command`,
+`inputs`, `outputs`, `depfile` action template을 만들고, Stella와 Ninja는 이 template을 같은
+backend contract로 실행한다. 설계 정본은 root `glp_roadmap.md`다.
 
 QStar가 하지 않는 일:
 
@@ -60,8 +60,8 @@ QStar가 하지 않는 일:
   `qstar.use_language("<id>")`가 반환한 exported helper table을 통해 `zig.tools`,
   `zig.options`, `zig.object` 같은 helper를 사용한다. `lang.<namespace>`는 provider activation
   이후에만 유효하며, provider-defined `options` schema가 unknown option, string, bool, list,
-  enum, default metadata를 검증한다. 현재 source unit lowering은 generic
-  `compiler -c <source> -o <object>` contract이며 provider별 argv lowering은 후속 작업이다.
+  enum, default metadata를 검증한다. Source unit lowering은 `ctx.tool`, `ctx.input`,
+  `ctx.output`, `ctx.option`으로 작성한 action template을 Stella/Ninja 양쪽에 공유한다.
 - CLI `-B path`는 `qstar.project.build_dir`보다 우선한다.
 - CLI `-G auto`는 현재 `stella`로 resolve된다.
 - CLI `-G ninja build [label]`은 C/C++/ASM compile, `qstar.configure_file`,

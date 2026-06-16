@@ -199,6 +199,9 @@ const struct qstar_genrule *qstar_graph_find_genrule(const struct qstar_graph *g
 /** qstar.target_file placeholder token에서 canonical label을 추출한다. */
 int qstar_target_file_token_label(const char *arg, char *label, size_t labellen);
 
+/** provider lowering의 tool placeholder token에서 tool role 이름을 추출한다. */
+int qstar_provider_tool_token_role(const char *arg, char *role, size_t rolelen);
+
 /** stage/package rule label로 staging rule을 찾는다. */
 const struct qstar_stage *qstar_graph_find_stage(const struct qstar_graph *graph,
     const char *label);

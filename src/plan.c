@@ -34,6 +34,7 @@ struct doctor_tool_requirements {
 	int cxx;
 	int ar;
 	int linker;
+	struct qstar_string_list provider_roles;
 };
 
 /** build context 문자열이 없을 때 explain dump에 쓸 기본값을 반환한다. */
@@ -736,6 +737,57 @@ plan_argv_tool_role(FILE *out, struct qstar_argv_dump *dump,
 		argv_item(out, dump, argv->items[i]);
 }
 
+static size_t
+plan_provider_template_argc(const struct qstar_graph *graph,
+    const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain,
+    const struct qstar_string_list *argv)
+{
+	char role[128];
+	size_t argc, i;
+	int rc;
+
+	argc = 0;
+	for (i = 0; argv && i < argv->len; i++) {
+		rc = qstar_provider_tool_token_role(argv->items[i], role, sizeof(role));
+		if (rc == 1)
+			argc += plan_tool_role_argc(graph, target, toolchain, role);
+		else
+			argc++;
+	}
+	return argc;
+}
+
+static void
+plan_argv_provider_template(FILE *out, struct qstar_argv_dump *dump,
+    const struct qstar_graph *graph, const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain,
+    const struct qstar_string_list *argv)
+{
+	const struct qstar_string_list *role_argv;
+	char role[128], missing[160];
+	size_t i, j;
+	int rc;
+
+	for (i = 0; argv && i < argv->len; i++) {
+		rc = qstar_provider_tool_token_role(argv->items[i], role, sizeof(role));
+		if (rc == 1) {
+			role_argv = plan_resolved_tool_role_argv(graph, target,
+			    toolchain, role);
+			if (!role_argv) {
+				snprintf(missing, sizeof(missing), "<missing-tool:%s>",
+				    role);
+				argv_item(out, dump, missing);
+				continue;
+			}
+			for (j = 0; j < role_argv->len; j++)
+				argv_item(out, dump, role_argv->items[j]);
+			continue;
+		}
+		argv_item(out, dump, argv->items[i]);
+	}
+}
+
 /** compile action의 실제 argv plan을 출력한다. */
 static void
 dump_compile_argv(FILE *out, const struct qstar_target *target,
@@ -743,6 +795,7 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
     const struct qstar_resolved_toolchain *toolchain, const struct qstar_source_info *source,
     const char *input, const char *output, size_t index)
 {
+	const struct qstar_provider_source_unit *provider_unit;
 	char id[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], std_arg[128];
 	const char *role;
 	const char *tool;
@@ -757,10 +810,21 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	qstar_graph_depfile_output_path(graph, target, index, depfile, sizeof(depfile));
 	is_asm = qstar_source_is_asm(source);
 	is_cxx = strcmp(source->provider, "cxx") == 0;
-	provider_source = qstar_target_provider_source_unit(target, index) != NULL;
+	provider_unit = qstar_target_provider_source_unit(target, index);
+	provider_source = provider_unit != NULL;
 	wants_depfile = !provider_source &&
 	    (strcmp(source->provider, "c") == 0 || is_cxx ||
 	    qstar_source_uses_asm_preprocessor(target, source));
+	if (provider_unit) {
+		argc = plan_provider_template_argc(graph, target, toolchain,
+		    &provider_unit->action.argv);
+		begin_argv(out, &dump, id, argc, toolchain);
+		plan_argv_provider_template(out, &dump, graph, target, toolchain,
+		    &provider_unit->action.argv);
+		end_argv(out, &dump);
+		qstar_string_list_free(&includes);
+		return;
+	}
 	role = qstar_source_toolset_role(source);
 	tool = qstar_resolved_toolchain_provider_tool(toolchain, source->provider,
 	    source->provider_role);
@@ -1555,6 +1619,9 @@ collect_doctor_tool_requirements(const struct qstar_plan *plan,
 			    strcmp(source.language, "asm") == 0 ||
 			    strcmp(source.language, "asm-cpp") == 0)
 				req->cc = 1;
+			else if (source.toolset_role && *source.toolset_role)
+				(void)push_unique_tmp(&req->provider_roles,
+				    source.toolset_role);
 		}
 		action = qstar_target_final_action(plan->order[i]);
 		if (strcmp(action, "archive") == 0)
@@ -1595,6 +1662,48 @@ dump_depfile_doctor(FILE *out, const struct doctor_tool_requirements *req,
 	fprintf(out,
 	    "depfile-behavior compiler=%s platform=%s flags=-MMD,-MF status=%s behavior=%s\n",
 	    compiler, platform, status, behavior);
+}
+
+static void
+dump_provider_tool_doctor(FILE *out, const struct qstar_plan *plan,
+    const struct doctor_tool_requirements *req)
+{
+	const struct qstar_string_list *argv;
+	struct qstar_source_info source;
+	struct qstar_resolved_toolchain toolchain;
+	const char *role;
+	size_t i, j, k;
+	int configured;
+
+	for (i = 0; i < req->provider_roles.len; i++) {
+		role = req->provider_roles.items[i];
+		argv = NULL;
+		configured = 0;
+		for (j = 0; j < plan->len && !configured; j++) {
+			if (qstar_resolve_toolchain(plan->graph, plan->order[j],
+			    &toolchain) < 0)
+				continue;
+			for (k = 0; k < plan->order[j]->sources.len; k++) {
+				if (qstar_target_source_classify(plan->order[j], k,
+				    &source) < 0 || !source.compile_input ||
+				    !source.toolset_role ||
+				    strcmp(source.toolset_role, role) != 0)
+					continue;
+				argv = plan_resolved_tool_role_argv(plan->graph,
+				    plan->order[j], &toolchain, role);
+				configured = argv != NULL;
+				break;
+			}
+		}
+		fprintf(out,
+		    "provider-tool role=%s required=true status=%s argv=",
+		    role, configured ? "configured" : "missing");
+		if (argv)
+			dump_list(out, argv);
+		else
+			fputs("[]", out);
+		fputc('\n', out);
+	}
 }
 
 /** target 하나의 non-executing command-plan record를 출력한다. */
@@ -2094,6 +2203,7 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 			dump_toolchain_tool_doctor(out, graph, "ar", toolchain.ar, tool_req.ar);
 		dump_toolchain_tool_doctor(out, graph, "linker", toolchain.linker,
 		    tool_req.linker);
+		dump_provider_tool_doctor(out, &plan, &tool_req);
 		dump_build_context_path_doctor(out, graph, "sysroot", graph->build_context.sysroot, 1);
 		dump_build_context_path_doctor(out, graph, "resource_dir",
 		    graph->build_context.resource_dir, 1);
@@ -2115,10 +2225,11 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 	    graph->build_context.stdlib_policy ? graph->build_context.stdlib_policy : "system");
 	fprintf(out, "build-context-options include_dirs=%zu lib_dirs=%zu\n",
 	    graph->build_context.include_dirs.len, graph->build_context.lib_dirs.len);
-		dump_external_tool_doctor(out, &plan);
+	dump_external_tool_doctor(out, &plan);
 	fputs("diagnostics ok\n", out);
 	fputs("file-inputs ok\n", out);
 	fputs("status ok\n", out);
+	qstar_string_list_free(&tool_req.provider_roles);
 	free_plan(&plan);
 	return 0;
 }

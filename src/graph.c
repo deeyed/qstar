@@ -122,6 +122,10 @@ free_target(struct qstar_target *target)
 		free(target->provider_sources[i].emits);
 		free(target->provider_sources[i].lower);
 		free(target->provider_sources[i].toolset_role);
+		qstar_string_list_free(&target->provider_sources[i].action.argv);
+		qstar_string_list_free(&target->provider_sources[i].action.inputs);
+		qstar_string_list_free(&target->provider_sources[i].action.outputs);
+		free(target->provider_sources[i].action.depfile);
 	}
 	free(target->provider_sources);
 	qstar_string_list_free(&target->public_headers);
@@ -143,6 +147,14 @@ free_target(struct qstar_target *target)
 	qstar_string_list_free(&target->cxxflags);
 	qstar_string_list_free(&target->asm_include_dirs);
 	qstar_string_list_free(&target->asm_compile_options);
+	for (i = 0; i < target->provider_option_len; i++) {
+		free(target->provider_options[i].provider);
+		free(target->provider_options[i].name);
+		free(target->provider_options[i].type);
+		free(target->provider_options[i].value);
+		qstar_string_list_free(&target->provider_options[i].list);
+	}
+	free(target->provider_options);
 	qstar_string_list_free(&target->run_command);
 	free(target->description);
 	free(target->artifact_name);
@@ -1283,7 +1295,8 @@ qstar_language_provider_add_unit_schema(struct qstar_graph *graph,
 int
 qstar_target_add_provider_source_unit(struct qstar_graph *graph,
     struct qstar_target *target, size_t source_index, const char *path,
-    const char *provider, const char *unit, const char *emits, const char *lower)
+    const char *provider, const char *unit, const char *emits, const char *lower,
+    const struct qstar_provider_action_template *action)
 {
 	struct qstar_provider_source_unit *items, *item;
 	char role[128];
@@ -1319,10 +1332,78 @@ qstar_target_add_provider_source_unit(struct qstar_graph *graph,
 	item->emits = qstar_strdup(emits);
 	item->lower = qstar_strdup(lower);
 	item->toolset_role = qstar_strdup(role);
+	item->action.depfile = qstar_strdup(action && action->depfile ?
+	    action->depfile : "");
+	item->action.wants_depfile = action ? action->wants_depfile : 0;
 	if (!item->path || !item->provider || !item->unit || !item->emits ||
-	    !item->lower || !item->toolset_role)
+	    !item->lower || !item->toolset_role || !item->action.depfile)
+		return qstar_set_error(graph, "qstar: out of memory");
+	if (action && (copy_string_list(&item->action.argv, &action->argv) < 0 ||
+	    copy_string_list(&item->action.inputs, &action->inputs) < 0 ||
+	    copy_string_list(&item->action.outputs, &action->outputs) < 0))
 		return qstar_set_error(graph, "qstar: out of memory");
 	return 0;
+}
+
+int
+qstar_target_set_provider_option(struct qstar_graph *graph,
+    struct qstar_target *target, const char *provider, const char *name,
+    const char *type, const char *value, const struct qstar_string_list *list)
+{
+	struct qstar_provider_option_value *items, *item;
+	size_t cap, i;
+
+	if (!target || !provider || !*provider || !name || !*name || !type || !*type)
+		return qstar_set_error(graph, "qstar: invalid provider option");
+	for (i = 0; i < target->provider_option_len; i++) {
+		item = &target->provider_options[i];
+		if (strcmp(item->provider, provider) == 0 &&
+		    strcmp(item->name, name) == 0)
+			goto replace;
+	}
+	if (target->provider_option_len == target->provider_option_cap) {
+		cap = target->provider_option_cap ? target->provider_option_cap * 2 : 8;
+		items = realloc(target->provider_options,
+		    cap * sizeof(target->provider_options[0]));
+		if (!items)
+			return qstar_set_error(graph, "qstar: out of memory");
+		target->provider_options = items;
+		target->provider_option_cap = cap;
+	}
+	item = &target->provider_options[target->provider_option_len++];
+	memset(item, 0, sizeof(*item));
+	item->provider = qstar_strdup(provider);
+	item->name = qstar_strdup(name);
+	if (!item->provider || !item->name)
+		return qstar_set_error(graph, "qstar: out of memory");
+
+replace:
+	free(item->type);
+	free(item->value);
+	qstar_string_list_free(&item->list);
+	item->type = qstar_strdup(type);
+	item->value = qstar_strdup(value ? value : "");
+	if (!item->type || !item->value)
+		return qstar_set_error(graph, "qstar: out of memory");
+	if (list && copy_string_list(&item->list, list) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	return 0;
+}
+
+const struct qstar_provider_option_value *
+qstar_target_provider_option(const struct qstar_target *target,
+    const char *provider, const char *name)
+{
+	size_t i;
+
+	if (!target || !provider || !name)
+		return NULL;
+	for (i = 0; i < target->provider_option_len; i++) {
+		if (strcmp(target->provider_options[i].provider, provider) == 0 &&
+		    strcmp(target->provider_options[i].name, name) == 0)
+			return &target->provider_options[i];
+	}
+	return NULL;
 }
 
 const struct qstar_language_option_schema *
@@ -1431,6 +1512,14 @@ merge_config_lists(struct qstar_graph *graph, struct qstar_target *target,
 	MERGE_LIST(asm_include_dirs);
 	MERGE_LIST(asm_compile_options);
 #undef MERGE_LIST
+	for (size_t i = 0; i < options->provider_option_len; i++) {
+		const struct qstar_provider_option_value *option;
+
+		option = &options->provider_options[i];
+		if (qstar_target_set_provider_option(graph, target, option->provider,
+		    option->name, option->type, option->value, &option->list) < 0)
+			return -1;
+	}
 	return 0;
 }
 
@@ -1716,6 +1805,25 @@ qstar_target_file_token_label(const char *arg, char *label, size_t labellen)
 		return -1;
 	memcpy(label, arg + strlen(prefix), payload);
 	label[payload] = '\0';
+	return 1;
+}
+
+int
+qstar_provider_tool_token_role(const char *arg, char *role, size_t rolelen)
+{
+	const char *prefix = "<qstar-tool:";
+	size_t n, payload;
+
+	if (!arg || strncmp(arg, prefix, strlen(prefix)) != 0)
+		return 0;
+	n = strlen(arg);
+	if (n <= strlen(prefix) + 1 || arg[n - 1] != '>')
+		return -1;
+	payload = n - strlen(prefix) - 1;
+	if (payload + 1 > rolelen)
+		return -1;
+	memcpy(role, arg + strlen(prefix), payload);
+	role[payload] = '\0';
 	return 1;
 }
 

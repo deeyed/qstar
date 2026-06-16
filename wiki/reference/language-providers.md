@@ -9,10 +9,9 @@ role로 내려간다.
 외부 provider는 `qstar.use_language(...)`로 명시적으로 활성화한다. Activation은 provider
 manifest를 읽고 `lang.<namespace>`를 허용하는 registry를 갱신하며, manifest의 `options`
 schema로 `lang.<namespace>` table을 검증한다. Manifest의 `units` schema는 provider helper가
-`qstar.source(...)` token을 만들 수 있게 하고, 현재 backend는 이 token을 consuming target이
-소유하는 object artifact로 낮춘다. Provider별 복잡한 argv lowering은 아직 후속 GLP 작업이므로,
-그 경우에는 외부 compiler가 object artifact를 만들게 한 뒤 그 object를 consuming target에
-연결하는 object artifact bridge를 계속 쓴다.
+`qstar.source(...)` token을 만들 수 있게 하고, backend는 provider implementation의 lowering
+function이 반환한 action template을 consuming target 소유 object artifact로 낮춘다.
+외부 compiler 호출을 직접 손으로 제어해야 하는 경우에는 object artifact bridge를 계속 쓴다.
 
 ## Provider Activation
 
@@ -131,7 +130,8 @@ dependency를 활성화하는 경우만 허용된다.
 
 외부 언어 source는 raw string으로 `sources`에 넣지 않는다. Provider가 노출한 helper가
 `qstar.source(path, {language = "...", unit = "..."})` token을 반환하고, target reader가
-그 token을 object-producing source unit으로 Graph IR에 낮춘다. 예를 들어
+provider implementation의 `lower` 함수로 그 token을 object-producing action template으로
+낮춘다. 예를 들어
 `zig.object("src/main.zig")`는 consuming target이 소유하는 deterministic object output을
 만든다.
 
@@ -139,9 +139,35 @@ dependency를 활성화하는 경우만 허용된다.
 `qstar.custom_target`으로 작성하고, 결과 object를 `qstar.output(path, {format = "object"})`로
 표시한 뒤 consuming target의 `sources`에 넣는다.
 
-현재 provider source unit lowering은 provider compiler role을 사용해
-`compiler -c <source> -o <object>` 형태의 generic object contract로 실행된다. provider별
-정교한 argv lowering 함수는 후속 backend API에서 확장한다.
+Provider source unit lowering은 Stella와 Ninja가 같은 backend contract로 실행한다.
+Provider implementation은 `qstar.argv()`와 `ctx.tool`, `ctx.input`, `ctx.output`,
+`ctx.option`으로 action을 만든다. QStar는 그 결과의 `command`, `inputs`, `outputs`,
+`depfile`을 Graph IR에 저장하고 action-log/replay, response file, depfile-discovered input,
+Ninja emission에 같은 값을 사용한다.
+
+```lua
+function P.compile_object(ctx)
+  local argv = qstar.argv()
+  argv:add(ctx.tool("compiler"))
+  argv:add("-c")
+  argv:add(ctx.input("source"))
+  argv:add("-o")
+  argv:add(ctx.output("object"))
+
+  if ctx.option("optimize") then
+    argv:add("--optimize=" .. ctx.option("optimize"))
+  end
+
+  argv:add_all(ctx.option("compile_options"))
+
+  return {
+    command = argv,
+    inputs = {ctx.input("source")},
+    outputs = {ctx.output("object")},
+    depfile = ctx.output("depfile"),
+  }
+end
+```
 
 ## 최소 예제
 
@@ -183,16 +209,15 @@ target의 `sources`에 넣는다.
 ## 계약
 
 - QStar는 외부 언어의 AST, module system, header semantics를 해석하지 않는다.
-- 외부 compiler 호출은 `qstar.custom_target`과 `qstar.cli` argv-vector로 표현한다.
-- 생성된 object는 `qstar.output(path, {format = "object"})`로 표시한다.
-- Stella와 Ninja backend는 generated object artifact를 link/archive input으로 소비한다.
+- provider source unit은 provider lowering action으로 표현한다.
+- object artifact bridge는 `qstar.custom_target`과 `qstar.output(path, {format = "object"})`를 쓴다.
+- Stella와 Ninja backend는 provider action과 generated object artifact를 같은 action/log/replay contract로 처리한다.
 - 언어별 package manager, semantic import/export, compiler internal API 호출은 QStar 책임이 아니다.
 
-## 다음 경로: GLP Lowering
+## GLP Lowering
 
-다음 GLP 작업은 활성화된 provider가 source suffix, source helper, backend lowering을 실제
-build action으로 연결하는 경로다. Provider package는 이미 `<id>.qsm` manifest와
-`provider.lua` implementation을 가진다.
+활성화된 provider는 source suffix, source helper, backend lowering을 실제 build action으로
+연결한다. Provider package는 `<id>.qsm` manifest와 `provider.lua` implementation을 가진다.
 
 ```txt
 qstar/
@@ -239,8 +264,8 @@ qstar.executable "app" {
 
 이 문법 중 provider activation, manifest validation, `provider.lua` sandbox loading,
 `lang.zig` namespace gate, provider-defined option schema validation, `zig.object` source
-token, object output allocation은 구현되어 있다. Provider별 정교한 argv lowering은 아직
-후속 GLP backend 작업이다.
+token, object output allocation, provider action lowering, Stella/Ninja backend execution은
+구현되어 있다.
 
 ## 관련 CLI
 

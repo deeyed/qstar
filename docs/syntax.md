@@ -126,9 +126,10 @@ qstar.staticlib "core" {
 
 Provider `units` schemas let exported helpers create typed source tokens. A
 source helper such as `zig.object("src/main.zig")` lowers to an object artifact
-owned by the consuming target. The current GLP backend uses the provider
-compiler role and the generic object contract `compiler -c <source> -o <object>`;
-provider-specific argv lowering is reserved for a later provider backend API.
+owned by the consuming target. The GLP backend calls the unit `lower` function
+from `provider.lua` during graph evaluation and stores its action template in
+Graph IR. Stella and Ninja then consume the same `command`, `inputs`, `outputs`,
+and `depfile` contract.
 
 ## Toolsets
 
