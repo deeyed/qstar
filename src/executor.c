@@ -5704,6 +5704,8 @@ refresh_compile_state_after_depfile(struct qstar_graph *graph, struct qstar_buil
 		return -1;
 	}
 	for (i = 0; i < dep_inputs.len; i++) {
+		if (string_list_contains(&inputs, dep_inputs.items[i]))
+			continue;
 		if (qstar_string_list_push(&inputs, dep_inputs.items[i]) < 0) {
 			qstar_string_list_free(&inputs);
 			qstar_string_list_free(&dep_inputs);
@@ -5924,6 +5926,8 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			return -1;
 		}
 		for (i = 0; i < dep_inputs.len; i++) {
+			if (string_list_contains(&inputs, dep_inputs.items[i]))
+				continue;
 			if (qstar_string_list_push(&inputs, dep_inputs.items[i]) < 0)
 				goto oom_provider;
 		}
@@ -6050,6 +6054,8 @@ oom_provider:
 		return -1;
 	}
 	for (i = 0; i < dep_inputs.len; i++) {
+		if (string_list_contains(&inputs, dep_inputs.items[i]))
+			continue;
 		if (qstar_string_list_push(&inputs, dep_inputs.items[i]) < 0) {
 			qstar_string_list_free(&inputs);
 			qstar_string_list_free(&dep_inputs);
@@ -7197,6 +7203,9 @@ prepare_cached_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			return -1;
 		}
 		for (i = 0; i < action->depfile_inputs.len; i++) {
+			if (string_list_contains(&action->inputs,
+			    action->depfile_inputs.items[i]))
+				continue;
 			if (qstar_string_list_push(&action->inputs,
 			    action->depfile_inputs.items[i]) < 0) {
 				prepared_action_free(action);
