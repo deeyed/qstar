@@ -50,7 +50,7 @@ qstar X.Y.Z-beta.N
 ## Validate
 
 ```sh
-qstar init c-app /tmp/qstar-hello
+qstar init app /tmp/qstar-hello
 qstar --file /tmp/qstar-hello/qstar.lua build //:app --progress plain
 /tmp/qstar-hello/build/qstar/out/___app/app
 ```

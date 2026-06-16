@@ -33,7 +33,7 @@ usage(FILE *out)
 	fputs("       qstar [options] replay <action-id>\n", out);
 	fputs("       qstar [options] daemon --socket path --start|--stop|--serve|--status|--query method  # beta\n", out);
 	fputs("       qstar lsp --stdio\n", out);
-	fputs("       qstar init c-app|c-lib|generated [directory]\n", out);
+	fputs("       qstar init app|lib|tool|empty|workspace [directory] [--name name] [--use-language language] [--dry-run]\n", out);
 	fputs("       qstar [options] --dump-graph\n", out);
 	fputs("options:\n", out);
 	fputs("       --file qstar.lua\n", out);
@@ -99,6 +99,16 @@ command_help(FILE *out, const char *cmd)
 		fputs("Print local QStar documentation entrypoints for users and AI agents.\n", out);
 		fputs("--path prints the wiki root; --ai-index prints AI_INDEX.md; --show prints a document.\n", out);
 		fputs("Language provider docs cover bundled standard providers such as zig and project-local providers.\n", out);
+		return;
+	}
+	if (strcmp(cmd, "init") == 0) {
+		fputs("usage: qstar init app|lib|tool|empty|workspace [directory] [--name name] [--use-language language] [--dry-run]\n", out);
+		fputs("       qstar init --list-shapes\n", out);
+		fputs("Create a starter project from a generic project shape.\n", out);
+		fputs("The default language is c. Provider vendoring and non-C scaffolds are GLP follow-up work.\n", out);
+		fputs("--name overrides the project name inferred from the directory basename.\n", out);
+		fputs("--use-language currently accepts c for the built-in fallback scaffold.\n", out);
+		fputs("--dry-run prints the creation plan without writing files.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "test") == 0) {
@@ -675,25 +685,82 @@ main(int argc, char **argv)
 		return 0;
 	}
 	if (strcmp(cmd, "init") == 0) {
-		const char *template_name, *directory;
+		struct qstar_init_options init_options;
+		const char *positionals[2];
+		size_t positional_count;
+		int list_shapes;
 
-		if (arg >= argc) {
+		memset(&init_options, 0, sizeof(init_options));
+		init_options.directory = ".";
+		init_options.use_language = "c";
+		positionals[0] = NULL;
+		positionals[1] = NULL;
+		positional_count = 0;
+		list_shapes = 0;
+		while (arg < argc) {
+			if (strcmp(argv[arg], "--dry-run") == 0) {
+				init_options.dry_run = 1;
+				arg++;
+			} else if (strcmp(argv[arg], "--list-shapes") == 0) {
+				list_shapes = 1;
+				arg++;
+			} else if (strcmp(argv[arg], "--name") == 0) {
+				if (arg + 1 >= argc) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				init_options.name = argv[arg + 1];
+				arg += 2;
+			} else if (strncmp(argv[arg], "--name=", 7) == 0) {
+				init_options.name = argv[arg] + 7;
+				arg++;
+			} else if (strcmp(argv[arg], "--use-language") == 0) {
+				if (arg + 1 >= argc) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				init_options.use_language = argv[arg + 1];
+				arg += 2;
+			} else if (strncmp(argv[arg], "--use-language=", 15) == 0) {
+				init_options.use_language = argv[arg] + 15;
+				arg++;
+			} else if (strncmp(argv[arg], "--", 2) == 0) {
+				usage(stderr);
+				qstar_graph_free(&graph);
+				return 2;
+			} else {
+				if (positional_count >= 2) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				positionals[positional_count++] = argv[arg++];
+			}
+		}
+		if (list_shapes) {
+			if (positional_count != 0 || init_options.name ||
+			    strcmp(init_options.use_language, "c") != 0 ||
+			    init_options.dry_run) {
+				usage(stderr);
+				qstar_graph_free(&graph);
+				return 2;
+			}
+			qstar_init_print_shapes(stdout);
+			qstar_graph_free(&graph);
+			return 0;
+		}
+		if (positional_count == 0) {
 			usage(stderr);
 			qstar_graph_free(&graph);
 			return 2;
 		}
-		template_name = argv[arg++];
-		directory = ".";
-		if (arg < argc)
-			directory = argv[arg++];
-		if (arg != argc) {
-			usage(stderr);
-			qstar_graph_free(&graph);
-			return 2;
-		}
+		init_options.shape = positionals[0];
+		if (positional_count > 1)
+			init_options.directory = positionals[1];
 		init_error[0] = '\0';
-		rc = qstar_init_project(template_name, directory, stdout, init_error,
-		    sizeof(init_error));
+		rc = qstar_init_project(&init_options, stdout, init_error, sizeof(init_error));
 		if (rc < 0) {
 			fprintf(stderr, "%s\n", init_error[0] ? init_error :
 			    "qstar: init failed");

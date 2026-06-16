@@ -58,7 +58,7 @@ qstar.custom_target "b" { outputs = {qstar.output("generated/value.c")} }
 ## 관련 CLI
 
 ```sh
-qstar init generated /tmp/generated
+qstar init app /tmp/generated
 qstar --file /tmp/generated/qstar.lua build //:app --explain-cache
 qstar --file /tmp/generated/qstar.lua why-rebuild //:app
 ```

@@ -54,7 +54,7 @@ Header를 `sources`에 넣으면 lint warning 대상이다. Header surface는 `l
 ## 관련 CLI
 
 ```sh
-qstar init c-app /tmp/c-app
+qstar init app /tmp/c-app
 qstar --file /tmp/c-app/qstar.lua build //:app
 qstar --file /tmp/c-app/qstar.lua clean --target //:app
 ```

@@ -292,10 +292,20 @@ Print the replay command and description metadata for an action id.
 Run the QStar language server with
 .Fl -stdio .
 .It Ic init
-Create a starter project from
-.Ar c-app ,
-.Ar c-lib ,
-.Ar generated .
+Create a starter project from a generic project shape:
+.Ar app ,
+.Ar lib ,
+.Ar tool ,
+.Ar empty ,
+or
+.Ar workspace .
+Use
+.Fl -name
+to override the project name,
+.Fl -use-language
+to select the scaffold language, and
+.Fl -dry-run
+to preview the plan without writing files.
 .It Ic --dump-graph
 Print the raw Graph IR for debugging and drift tests.
 .El

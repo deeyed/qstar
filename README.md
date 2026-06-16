@@ -96,7 +96,7 @@ make qstar-public-beta-download-smoke
 Create and build a small C application:
 
 ```sh
-qstar init c-app hello
+qstar init app hello
 cd hello
 qstar build //:app --progress plain
 ./build/qstar/out/___app/app
@@ -207,7 +207,7 @@ qstar docs --path
 qstar docs --ai-index
 qstar docs --show reference/qstar-lua.md
 
-qstar init c-app hello
+qstar init app hello
 qstar check //...
 qstar lint //...
 qstar fmt --check qstar.lua

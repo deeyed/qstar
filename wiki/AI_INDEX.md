@@ -549,7 +549,7 @@ qstar --version
 qstar version
 qstar help
 qstar help build
-qstar init c-app hello
+qstar init app hello
 qstar --file qstar.lua check //...
 qstar --file qstar.lua lint //...
 qstar --file qstar.lua fmt --check qstar.lua

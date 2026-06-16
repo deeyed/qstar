@@ -123,7 +123,7 @@ typical flow is:
 
 ```txt
 make -C qstar
-qstar/build/bin/qstar init c-app /tmp/my-qstar-app
+qstar/build/bin/qstar init app /tmp/my-qstar-app
 cd /tmp/my-qstar-app
 /path/to/qstar/build/bin/qstar --file qstar.lua build //:app
 /path/to/qstar/build/bin/qstar --file qstar.lua test //:unit

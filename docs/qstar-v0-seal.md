@@ -31,7 +31,7 @@ stable public protocol은 아니다.
 - `qstar.sharedlib`는 local executor에서 stable unsupported 또는 plan-only surface로만 유지.
 - `qstar.custom_target`, `qstar.run_target`, `qstar.configure_file`, `qstar.output`,
   `qstar.cli`.
-- `qstar init c-app|c-lib|generated|generated-extra`.
+- `qstar init app|lib|tool|empty|workspace`.
 - `qstar.modules`, `qstar.files`, `qstar.join`,
   `qstar.subdir`.
 - labels: `:local`, `//:name`, `//path:name`, `@pkg//path:name`.
@@ -90,15 +90,15 @@ cd "$tmp/generated-extra"
 
 ## qstar init
 
-Round 21부터 `qstar init`은 manual sample corpus와 같은 authoring skeleton을 만든다.
-현재 template은 `c-app`, `c-lib`, `generated`, `generated-extra`이다. 기존 파일은 덮어쓰지
-않는다.
+Round 21부터 `qstar init`은 manual sample corpus와 같은 authoring skeleton을 만들었다.
+Q208부터 current public init surface는 language-specific template 이름이 아니라
+`app`, `lib`, `tool`, `empty`, `workspace` project shape다. 기존 파일은 덮어쓰지 않는다.
 
 ```txt
-qstar init c-app my-app
-qstar init c-lib my-lib
-qstar init generated my-generated-app
-qstar init generated-extra my-mixed-app
+qstar init app my-app
+qstar init lib my-lib
+qstar init tool my-tool
+qstar init workspace my-workspace
 ```
 
 `qstar init`은 package registry, remote dependency, workspace policy를 만들지

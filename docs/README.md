@@ -52,6 +52,8 @@ Important documents:
 - `rule-model.md`: target rule and link model notes.
 - `ninja-backend-parity.md`: Ninja lowering parity contract.
 - `language-provider-backend-contract.md`: external object artifact bridge boundary.
+- `init-glp-scaffold.md`: Korean design for the generic `qstar init` shape
+  model, provider vendoring, and provider-defined scaffold metadata.
 - `../glp_roadmap.md`: Generic Language Provider roadmap and final provider
   syntax direction.
 - `performance-gates.md`: Stella/Ninja performance gate contract.

@@ -31,7 +31,7 @@ AI agent가 빠르게 구조를 파악해야 한다면 [AI Index](AI_INDEX.md)�
 
 ```sh
 make -C qstar
-qstar/build/bin/qstar init c-app /tmp/qstar-hello
+qstar/build/bin/qstar init app /tmp/qstar-hello
 qstar/build/bin/qstar --file /tmp/qstar-hello/qstar.lua lint //...
 qstar/build/bin/qstar --file /tmp/qstar-hello/qstar.lua build //:app
 qstar/build/bin/qstar docs

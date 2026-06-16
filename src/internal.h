@@ -253,8 +253,19 @@ int qstar_action_description_stage(const struct qstar_stage *stage, char *dst, s
 /** install action의 사용자-facing description을 만든다. */
 int qstar_action_description_install(const char *artifact, char *dst, size_t dstlen);
 
-/** qstar init template을 지정된 directory에 생성한다. */
-int qstar_init_project(const char *template_name, const char *directory, FILE *out,
+struct qstar_init_options {
+	const char *shape;
+	const char *directory;
+	const char *name;
+	const char *use_language;
+	int dry_run;
+};
+
+/** qstar init shape 목록을 출력한다. */
+void qstar_init_print_shapes(FILE *out);
+
+/** qstar init shape를 지정된 directory에 생성한다. */
+int qstar_init_project(const struct qstar_init_options *options, FILE *out,
     char *error, size_t error_len);
 
 /** qstar authoring file 하나를 simple canonical style로 format/check한다. */

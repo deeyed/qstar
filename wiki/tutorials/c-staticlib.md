@@ -64,7 +64,7 @@ Public header는 install/export surface이므로 `include/` 아래에 두는 것
 ## 관련 CLI
 
 ```sh
-qstar init c-lib /tmp/c-lib
+qstar init lib /tmp/c-lib
 qstar --file /tmp/c-lib/qstar.lua test //:unit
 qstar --file /tmp/c-lib/qstar.lua install //:core --prefix /tmp/prefix
 ```

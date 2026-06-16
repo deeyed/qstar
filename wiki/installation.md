@@ -34,7 +34,7 @@ make qstar-linux-validation-tests
 make qstar-windows-prep-tests
 make qstar-windows-native-alpha-tests
 make install PREFIX="$HOME/.local"
-qstar init c-app /tmp/qstar-install-smoke
+qstar init app /tmp/qstar-install-smoke
 qstar --file /tmp/qstar-install-smoke/qstar.lua build //:app
 ```
 

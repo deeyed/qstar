@@ -5925,36 +5925,68 @@ contains "wiki/tutorials/package-artifact.md" "qstar.custom_target"
 contains "wiki/cookbook/run-target-smoke.md" "qstar.run_target"
 contains "wiki/migration/from-cmake.md" "target_include_directories"
 
-step "init templates"
-"$qstar" init c-app "$tmp/init-c-app" > "$tmp/init-c-app.out" 2> "$tmp/init-c-app.err"
-contains "$tmp/init-c-app.out" "qstar init v1"
-contains "$tmp/init-c-app.out" "template c-app"
-"$qstar" --file "$tmp/init-c-app/qstar.lua" build //:app > "$tmp/init-c-app-build.out" 2> "$tmp/init-c-app-build.err"
-contains "$tmp/init-c-app-build.out" "status ok"
-"$tmp/init-c-app/build/qstar/out/___app/app" || fail "init c-app binary failed"
+step "init shapes"
+"$qstar" init --list-shapes > "$tmp/init-shapes.out" 2> "$tmp/init-shapes.err"
+contains "$tmp/init-shapes.out" "qstar init shapes"
+contains "$tmp/init-shapes.out" "app"
+contains "$tmp/init-shapes.out" "workspace"
 
-"$qstar" init c-lib "$tmp/init-c-lib" > "$tmp/init-c-lib.out" 2> "$tmp/init-c-lib.err"
-contains "$tmp/init-c-lib.out" "template c-lib"
-"$qstar" --file "$tmp/init-c-lib/qstar.lua" test //:unit > "$tmp/init-c-lib-test.out" 2> "$tmp/init-c-lib-test.err"
-contains "$tmp/init-c-lib-test.out" "test_result label=//:unit status=pass"
-"$qstar" --file "$tmp/init-c-lib/qstar.lua" install //:core --prefix "$tmp/init-c-lib-prefix" > "$tmp/init-c-lib-install.out" 2> "$tmp/init-c-lib-install.err"
-test -f "$tmp/init-c-lib-prefix/lib/libcore.a" || fail "init c-lib did not install static library"
+"$qstar" init app "$tmp/init-app" > "$tmp/init-app.out" 2> "$tmp/init-app.err"
+contains "$tmp/init-app.out" "qstar init v2"
+contains "$tmp/init-app.out" "shape app"
+contains "$tmp/init-app.out" "language c"
+"$qstar" --file "$tmp/init-app/qstar.lua" build //:app > "$tmp/init-app-build.out" 2> "$tmp/init-app-build.err"
+contains "$tmp/init-app-build.out" "status ok"
+"$tmp/init-app/build/qstar/out/___app/app" || fail "init app binary failed"
 
-"$qstar" init generated "$tmp/init-generated" > "$tmp/init-generated.out" 2> "$tmp/init-generated.err"
-contains "$tmp/init-generated.out" "template generated"
-"$qstar" --file "$tmp/init-generated/qstar.lua" build //:app > "$tmp/init-generated-build.out" 2> "$tmp/init-generated-build.err"
-contains "$tmp/init-generated-build.out" "status ok"
-test -f "$tmp/init-generated/generated/config.h" || fail "init generated missing config header"
-"$tmp/init-generated/build/qstar/out/___app/app" || fail "init generated binary failed"
+"$qstar" init lib "$tmp/init-lib" --name initlib > "$tmp/init-lib.out" 2> "$tmp/init-lib.err"
+contains "$tmp/init-lib.out" "shape lib"
+contains "$tmp/init-lib/qstar.lua" "name = \"initlib\""
+"$qstar" --file "$tmp/init-lib/qstar.lua" test //:unit > "$tmp/init-lib-test.out" 2> "$tmp/init-lib-test.err"
+contains "$tmp/init-lib-test.out" "test_result label=//:unit status=pass"
+"$qstar" --file "$tmp/init-lib/qstar.lua" install //:core --prefix "$tmp/init-lib-prefix" > "$tmp/init-lib-install.out" 2> "$tmp/init-lib-install.err"
+test -f "$tmp/init-lib-prefix/lib/libcore.a" || fail "init lib did not install static library"
+test -f "$tmp/init-lib-prefix/include/initlib.h" || fail "init lib did not install public header"
 
-if "$qstar" init c-app "$tmp/init-c-app" > "$tmp/init-overwrite.out" 2> "$tmp/init-overwrite.err"; then
+"$qstar" init tool "$tmp/init-tool" --name inittool > "$tmp/init-tool.out" 2> "$tmp/init-tool.err"
+contains "$tmp/init-tool.out" "shape tool"
+"$qstar" --file "$tmp/init-tool/qstar.lua" build //:run > "$tmp/init-tool-run.out" 2> "$tmp/init-tool-run.err"
+contains "$tmp/init-tool-run.out" "Built target run"
+
+"$qstar" init empty "$tmp/init-empty" > "$tmp/init-empty.out" 2> "$tmp/init-empty.err"
+contains "$tmp/init-empty.out" "shape empty"
+"$qstar" --file "$tmp/init-empty/qstar.lua" check //... > "$tmp/init-empty-check.out" 2> "$tmp/init-empty-check.err"
+contains "$tmp/init-empty-check.out" "target-count 0"
+
+"$qstar" init workspace "$tmp/init-workspace" > "$tmp/init-workspace.out" 2> "$tmp/init-workspace.err"
+contains "$tmp/init-workspace.out" "shape workspace"
+"$qstar" --file "$tmp/init-workspace/qstar.lua" build //:all > "$tmp/init-workspace-build.out" 2> "$tmp/init-workspace-build.err"
+contains "$tmp/init-workspace-build.out" "Built target all"
+"$tmp/init-workspace/build/qstar/out/__packages_app_app/app" || fail "init workspace app binary failed"
+
+"$qstar" init app "$tmp/init-dry" --dry-run > "$tmp/init-dry.out" 2> "$tmp/init-dry.err"
+contains "$tmp/init-dry.out" "dry_run true"
+contains "$tmp/init-dry.out" "would_create qstar.lua"
+test ! -e "$tmp/init-dry" || fail "init dry-run created project directory"
+
+if "$qstar" init c-app "$tmp/init-legacy" > "$tmp/init-legacy.out" 2> "$tmp/init-legacy.err"; then
+	fail "qstar init unexpectedly accepted legacy c-app template"
+fi
+contains "$tmp/init-legacy.err" "init template 'c-app' was removed"
+
+if "$qstar" init app "$tmp/init-zig" --use-language=zig > "$tmp/init-zig.out" 2> "$tmp/init-zig.err"; then
+	fail "qstar init unexpectedly scaffolded zig before provider scaffold support"
+fi
+contains "$tmp/init-zig.err" "init scaffold for language 'zig' is not available yet"
+
+if "$qstar" init app "$tmp/init-app" > "$tmp/init-overwrite.out" 2> "$tmp/init-overwrite.err"; then
 	fail "qstar init unexpectedly overwrote existing files"
 fi
 contains "$tmp/init-overwrite.err" "refuses to overwrite existing file"
 
-"$qstar" --file "$tmp/init-c-lib/qstar.lua" explain //:core > "$tmp/rule-explain.out" 2> "$tmp/rule-explain.err"
+"$qstar" --file "$tmp/init-lib/qstar.lua" explain //:core > "$tmp/rule-explain.out" 2> "$tmp/rule-explain.err"
 contains "$tmp/rule-explain.out" "rule provider=native final_action=archive output_group=libs"
-contains "$tmp/rule-explain.out" "source_file path=src/core.c language=c tool=c-compiler provider=c provider_role=compiler toolset_role=c.compiler output_group=objects role=compile"
+contains "$tmp/rule-explain.out" "source_file path=src/initlib.c language=c tool=c-compiler provider=c provider_role=compiler toolset_role=c.compiler output_group=objects role=compile"
 
 step "depfile handling"
 mkdir -p "$tmp/depfile/include" "$tmp/depfile/src"
