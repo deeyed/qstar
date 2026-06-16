@@ -28,6 +28,61 @@ not_contains() {
 	fi
 }
 
+write_fake_zig_bin() {
+	dir=$1
+	mkdir -p "$dir"
+	cat > "$dir/zig" <<'EOF'
+#!/bin/sh
+set -eu
+
+out=
+src=
+
+parse_arg() {
+	case "$1" in
+		-femit-bin=*)
+			out=${1#-femit-bin=}
+			;;
+		*.zig)
+			if [ -z "$src" ]; then
+				src=$1
+			fi
+			;;
+	esac
+}
+
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		@*)
+			rsp=${1#@}
+			while IFS= read -r arg; do
+				parse_arg "$arg"
+			done < "$rsp"
+			;;
+		*)
+			parse_arg "$1"
+			;;
+	esac
+	shift
+done
+
+test -n "$out" || exit 2
+mkdir -p "$(dirname "$out")"
+tmp_c="$out.c"
+case "$src" in
+	*main.zig)
+		printf 'int main(void) { return 0; }\n' > "$tmp_c"
+		;;
+	*)
+		printf 'int qstar_fake_zig_value(void) { return 42; }\n' > "$tmp_c"
+		;;
+esac
+"${QSTAR_FAKE_ZIG_CC:-cc}" -x c -c "$tmp_c" -o "$out"
+rm -f "$tmp_c"
+EOF
+	chmod +x "$dir/zig"
+}
+
 rm -rf "$tmp"
 mkdir -p "$project/src" "$project/include" "$project/tools" \
 	"$project/qstar/modules/paths"
@@ -268,6 +323,24 @@ EOF
 contains "$tmp/install-zig-provider.out" "status ok"
 test -f "$installed_zig/build/qstar/out/___core/obj0.o" ||
 	fail "installed standard Zig provider did not produce object"
+
+installed_init_zig="$tmp/installed-init-zig"
+installed_fake_zig_bin="$tmp/installed-fake-zig-bin"
+write_fake_zig_bin "$installed_fake_zig_bin"
+"$install_root/bin/qstar" init app "$installed_init_zig" --use-language=zig \
+	> "$tmp/install-init-zig.out" 2> "$tmp/install-init-zig.err"
+contains "$tmp/install-init-zig.out" "vendor qstar/languages/zig"
+contains "$tmp/install-init-zig.out" "scaffold zig app"
+test -f "$installed_init_zig/qstar/languages/zig/zig.qsm" ||
+	fail "installed qstar init did not vendor Zig manifest"
+test -f "$installed_init_zig/qstar/languages/zig/provider.lua" ||
+	fail "installed qstar init did not vendor Zig implementation"
+QSTAR_FAKE_ZIG_CC="$validation_cc" PATH="$installed_fake_zig_bin:$PATH" \
+	"$install_root/bin/qstar" --file "$installed_init_zig/qstar.lua" build //:app \
+	> "$tmp/install-init-zig-build.out" 2> "$tmp/install-init-zig-build.err"
+contains "$tmp/install-init-zig-build.out" "status ok"
+"$installed_init_zig/build/qstar/out/___app/app" ||
+	fail "installed qstar init Zig app binary failed"
 
 printf 'qstar-linux-validation: install_prefix=%s\n' "$install_root"
 printf 'qstar-linux-validation: passed\n'

@@ -108,6 +108,106 @@ not_contains() {
 	fi
 }
 
+write_fake_zig_bin() {
+	dir=$1
+	mkdir -p "$dir"
+	cat > "$dir/zig" <<'EOF'
+#!/bin/sh
+set -eu
+
+out=
+src=
+
+parse_arg() {
+	case "$1" in
+		-femit-bin=*)
+			out=${1#-femit-bin=}
+			;;
+		*.zig)
+			if [ -z "$src" ]; then
+				src=$1
+			fi
+			;;
+	esac
+}
+
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		@*)
+			rsp=${1#@}
+			while IFS= read -r arg; do
+				parse_arg "$arg"
+			done < "$rsp"
+			;;
+		*)
+			parse_arg "$1"
+			;;
+	esac
+	shift
+done
+
+test -n "$out" || exit 2
+mkdir -p "$(dirname "$out")"
+tmp_c="$out.c"
+case "$src" in
+	*main.zig)
+		printf 'int main(void) { return 0; }\n' > "$tmp_c"
+		;;
+	*)
+		printf 'int qstar_fake_zig_value(void) { return 42; }\n' > "$tmp_c"
+		;;
+esac
+"${QSTAR_FAKE_ZIG_CC:-${CC:-cc}}" -x c -c "$tmp_c" -o "$out"
+rm -f "$tmp_c"
+EOF
+	chmod +x "$dir/zig"
+}
+
+check_init_zig_backend_contract() {
+	project=$1
+	prefix=$2
+	explain_target=$3
+	build_target=$4
+	action_id=$5
+	output_name=$6
+	run_output=$7
+
+	PATH="$fake_zig_bin:$PATH" "$qstar" --file "$project/qstar.lua" explain "$explain_target" > "$tmp/$prefix-explain.out" 2> "$tmp/$prefix-explain.err"
+	contains "$tmp/$prefix-explain.out" "language=zig"
+	contains "$tmp/$prefix-explain.out" "provider=zig"
+	contains "$tmp/$prefix-explain.out" "build-obj"
+	PATH="$fake_zig_bin:$PATH" "$qstar" --file "$project/qstar.lua" dry-run "$build_target" > "$tmp/$prefix-dry-run.out" 2> "$tmp/$prefix-dry-run.err"
+	contains "$tmp/$prefix-dry-run.out" "dry_run_step id=$action_id"
+	contains "$tmp/$prefix-dry-run.out" "argv=[zig, build-obj"
+	PATH="$fake_zig_bin:$PATH" "$qstar" --file "$project/qstar.lua" build "$build_target" > "$tmp/$prefix-build.out" 2> "$tmp/$prefix-build.err"
+	contains "$tmp/$prefix-build.out" "status ok"
+	PATH="$fake_zig_bin:$PATH" "$qstar" --file "$project/qstar.lua" action-log "$action_id" > "$tmp/$prefix-action-log.out" 2> "$tmp/$prefix-action-log.err"
+	contains "$tmp/$prefix-action-log.out" "zig"
+	contains "$tmp/$prefix-action-log.out" "build-obj"
+	PATH="$fake_zig_bin:$PATH" "$qstar" --file "$project/qstar.lua" replay "$action_id" > "$tmp/$prefix-replay.out" 2> "$tmp/$prefix-replay.err"
+	contains "$tmp/$prefix-replay.out" "zig"
+	contains "$tmp/$prefix-replay.out" "build-obj"
+	PATH="$fake_zig_bin:$PATH" "$qstar" --file "$project/qstar.lua" -B build-ninja -G ninja build "$build_target" > "$tmp/$prefix-ninja-build.out" 2> "$tmp/$prefix-ninja-build.err"
+	contains "$tmp/$prefix-ninja-build.out" "backend ninja"
+	PATH="$fake_zig_bin:$PATH" "$qstar" --file "$project/qstar.lua" -B build-ninja -G ninja action-log "$action_id" > "$tmp/$prefix-ninja-action-log.out" 2> "$tmp/$prefix-ninja-action-log.err"
+	contains "$tmp/$prefix-ninja-action-log.out" "backend=ninja"
+	contains "$tmp/$prefix-ninja-action-log.out" "zig"
+	PATH="$fake_zig_bin:$PATH" "$qstar" --file "$project/qstar.lua" -B build-ninja -G ninja replay "$action_id" > "$tmp/$prefix-ninja-replay.out" 2> "$tmp/$prefix-ninja-replay.err"
+	contains "$tmp/$prefix-ninja-replay.out" "zig"
+	contains "$tmp/$prefix-ninja-replay.out" "build-obj"
+
+	if [ -n "$output_name" ]; then
+		stella_output=$(find "$project/build/qstar" -name "$output_name" -type f | sed -n '1p')
+		test -n "$stella_output" || fail "init Zig Stella output '$output_name' missing for $prefix"
+		ninja_output=$(find "$project/build-ninja" -name "$output_name" -type f | sed -n '1p')
+		test -n "$ninja_output" || fail "init Zig Ninja output '$output_name' missing for $prefix"
+		if [ "$run_output" = "yes" ]; then
+			"$stella_output" || fail "init Zig Stella output '$output_name' failed for $prefix"
+			"$ninja_output" || fail "init Zig Ninja output '$output_name' failed for $prefix"
+		fi
+	fi
+}
+
 send_lsp() {
 	payload=$1
 	len=$(printf "%s" "$payload" | wc -c | tr -d ' ')
@@ -6348,6 +6448,33 @@ contains "$tmp/init-zig-graph.out" "language_provider namespace=zig id=zig"
 contains "$tmp/init-zig-graph.out" "dir=qstar/languages/zig"
 contains "$tmp/init-zig-graph.out" "tools.zig.compiler [zig]"
 
+fake_zig_bin="$tmp/init-zig-bin"
+write_fake_zig_bin "$fake_zig_bin"
+check_init_zig_backend_contract "$tmp/init-zig" init-zig-app //:app //:app //:app:compile:0 app yes
+
+"$qstar" init lib "$tmp/init-zig-lib" --use-language=zig > "$tmp/init-zig-lib.out" 2> "$tmp/init-zig-lib.err"
+contains "$tmp/init-zig-lib.out" "scaffold zig lib"
+contains "$tmp/init-zig-lib/qstar.lua" "zig.object(\"src/init_zig_lib.zig\")"
+test -f "$tmp/init-zig-lib/src/init_zig_lib.zig" || fail "init did not materialize zig lib source"
+test -f "$tmp/init-zig-lib/qstar/languages/zig/zig.qsm" || fail "init did not vendor zig manifest for lib"
+check_init_zig_backend_contract "$tmp/init-zig-lib" init-zig-lib //:core //:core //:core:compile:0 libcore.a no
+
+"$qstar" init tool "$tmp/init-zig-tool" --use-language=zig > "$tmp/init-zig-tool.out" 2> "$tmp/init-zig-tool.err"
+contains "$tmp/init-zig-tool.out" "scaffold zig tool"
+contains "$tmp/init-zig-tool/qstar.lua" "zig.object(\"tools/init_zig_tool/main.zig\")"
+test -f "$tmp/init-zig-tool/tools/init_zig_tool/main.zig" || fail "init did not materialize zig tool source"
+test -f "$tmp/init-zig-tool/qstar/languages/zig/provider.lua" || fail "init did not vendor zig provider for tool"
+check_init_zig_backend_contract "$tmp/init-zig-tool" init-zig-tool //:tool //:tool //:tool:compile:0 tool yes
+
+"$qstar" init empty "$tmp/init-zig-empty" --use-language=zig > "$tmp/init-zig-empty.out" 2> "$tmp/init-zig-empty.err"
+contains "$tmp/init-zig-empty.out" "scaffold zig empty"
+contains "$tmp/init-zig-empty/qstar.lua" "local zig = qstar.use_language(\"zig\")"
+test -f "$tmp/init-zig-empty/qstar/languages/zig/zig.qsm" || fail "init did not vendor zig manifest for empty"
+PATH="$fake_zig_bin:$PATH" "$qstar" --file "$tmp/init-zig-empty/qstar.lua" check //... > "$tmp/init-zig-empty-check.out" 2> "$tmp/init-zig-empty-check.err"
+contains "$tmp/init-zig-empty-check.out" "target-count 0"
+PATH="$fake_zig_bin:$PATH" "$qstar" --file "$tmp/init-zig-empty/qstar.lua" --dump-graph > "$tmp/init-zig-empty-graph.out" 2> "$tmp/init-zig-empty-graph.err"
+contains "$tmp/init-zig-empty-graph.out" "language_provider namespace=zig id=zig"
+
 "$qstar" init workspace "$tmp/init-zig-workspace" --use-language=zig > "$tmp/init-zig-workspace.out" 2> "$tmp/init-zig-workspace.err"
 contains "$tmp/init-zig-workspace.out" "scaffold zig workspace"
 contains "$tmp/init-zig-workspace/qstar.lua" "qstar.subdir(\"packages/core\")"
@@ -6367,6 +6494,7 @@ contains "$tmp/init-zig-workspace-check.out" "status ok"
 contains "$tmp/init-zig-workspace-graph.out" "target //packages/core:core"
 contains "$tmp/init-zig-workspace-graph.out" "target //packages/app:app"
 contains "$tmp/init-zig-workspace-graph.out" "language_provider namespace=zig id=zig"
+check_init_zig_backend_contract "$tmp/init-zig-workspace" init-zig-workspace //packages/app:app //:all //packages/app:app:compile:0 app yes
 
 mkdir -p "$tmp/init-provider-dir/rust"
 cat > "$tmp/init-provider-dir/rust/rust.qsm" <<'EOF'
