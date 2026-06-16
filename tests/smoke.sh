@@ -2693,10 +2693,52 @@ cat > "$tmp/language-provider-duplicate/qstar.lua" <<'EOF'
 qstar.use_language("zig")
 qstar.use_language("zig")
 EOF
-if "$qstar" --file "$tmp/language-provider-duplicate/qstar.lua" check > "$tmp/language-provider-duplicate.out" 2> "$tmp/language-provider-duplicate.err"; then
-  fail "duplicate language provider unexpectedly succeeded"
+"$qstar" --file "$tmp/language-provider-duplicate/qstar.lua" check > "$tmp/language-provider-duplicate.out" 2> "$tmp/language-provider-duplicate.err"
+contains "$tmp/language-provider-duplicate.out" "status ok"
+
+mkdir -p "$tmp/language-provider-namespace-conflict/qstar/languages/zig" "$tmp/language-provider-namespace-conflict/qstar/languages/zig_alt"
+cat > "$tmp/language-provider-namespace-conflict/qstar/languages/zig/zig.qsm" <<'EOF'
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig",
+  version = "0.1",
+  namespace = "zig",
+  implementation = "provider.lua",
+  exports = {
+    options = "options",
+  },
+}
+EOF
+cat > "$tmp/language-provider-namespace-conflict/qstar/languages/zig_alt/zig_alt.qsm" <<'EOF'
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig_alt",
+  version = "0.1",
+  namespace = "zig",
+  implementation = "provider.lua",
+  exports = {
+    options = "options",
+  },
+}
+EOF
+cat > "$tmp/language-provider-namespace-conflict/qstar/languages/zig/provider.lua" <<'EOF'
+local P = {}
+
+function P.options(t)
+  return qstar.language_options("zig", t or {})
+end
+
+return P
+EOF
+cp "$tmp/language-provider-namespace-conflict/qstar/languages/zig/provider.lua" "$tmp/language-provider-namespace-conflict/qstar/languages/zig_alt/provider.lua"
+cat > "$tmp/language-provider-namespace-conflict/qstar.lua" <<'EOF'
+qstar.use_language("zig")
+qstar.use_language("zig_alt")
+EOF
+if "$qstar" --file "$tmp/language-provider-namespace-conflict/qstar.lua" check > "$tmp/language-provider-namespace-conflict.out" 2> "$tmp/language-provider-namespace-conflict.err"; then
+  fail "language provider namespace conflict unexpectedly succeeded"
 fi
-contains "$tmp/language-provider-duplicate.err" "duplicate language provider 'qstar/languages/zig/zig.qsm'"
+contains "$tmp/language-provider-namespace-conflict.err" "duplicate language provider namespace lang.zig"
 
 mkdir -p "$tmp/language-provider-circular/qstar/languages/loop"
 cat > "$tmp/language-provider-circular/qstar/languages/loop/loop.qsm" <<'EOF'
@@ -6286,12 +6328,17 @@ contains "$tmp/init-legacy.err" "init template 'c-app' was removed"
 
 "$qstar" init app "$tmp/init-zig" --use-language=zig > "$tmp/init-zig.out" 2> "$tmp/init-zig.err"
 contains "$tmp/init-zig.out" "language zig"
-contains "$tmp/init-zig.out" "warning language 'zig' has no init scaffold for shape 'app'; using builtin c scaffold"
+not_contains "$tmp/init-zig.out" "using builtin c scaffold"
 contains "$tmp/init-zig.out" "vendor qstar/languages/zig"
 contains "$tmp/init-zig.out" "activate zig"
+contains "$tmp/init-zig.out" "scaffold zig app"
 contains "$tmp/init-zig/qstar.lua" "local zig = qstar.use_language(\"zig\")"
-contains "$tmp/init-zig/qstar.lua" "[\"zig\"] = zig.tools"
+contains "$tmp/init-zig/qstar.lua" "zig = zig.tools"
+contains "$tmp/init-zig/qstar.lua" "zig = zig.options"
+contains "$tmp/init-zig/qstar.lua" "zig.object(\"src/main.zig\")"
 contains "$tmp/init-zig/qstar.lua" "compiler = qstar.cli {\"zig\"}"
+test -f "$tmp/init-zig/src/main.zig" || fail "init did not materialize zig app source"
+test ! -f "$tmp/init-zig/src/main.c" || fail "init zig app unexpectedly used C fallback source"
 test -f "$tmp/init-zig/qstar/languages/zig/zig.qsm" || fail "init did not vendor zig manifest"
 test -f "$tmp/init-zig/qstar/languages/zig/provider.lua" || fail "init did not vendor zig provider"
 "$qstar" --file "$tmp/init-zig/qstar.lua" check //... > "$tmp/init-zig-check.out" 2> "$tmp/init-zig-check.err"
@@ -6300,6 +6347,15 @@ contains "$tmp/init-zig-check.out" "status ok"
 contains "$tmp/init-zig-graph.out" "language_provider namespace=zig id=zig"
 contains "$tmp/init-zig-graph.out" "dir=qstar/languages/zig"
 contains "$tmp/init-zig-graph.out" "tools.zig.compiler [zig]"
+
+"$qstar" init workspace "$tmp/init-zig-workspace" --use-language=zig > "$tmp/init-zig-workspace.out" 2> "$tmp/init-zig-workspace.err"
+contains "$tmp/init-zig-workspace.out" "scaffold zig workspace"
+contains "$tmp/init-zig-workspace/qstar.lua" "qstar.subdir(\"packages/init_zig_workspace\")"
+contains "$tmp/init-zig-workspace/packages/init_zig_workspace/init_zig_workspace.qst" "local zig = qstar.use_language(\"zig\")"
+contains "$tmp/init-zig-workspace/packages/init_zig_workspace/init_zig_workspace.qst" "zig.object(\"packages/init_zig_workspace/src/main.zig\")"
+test -f "$tmp/init-zig-workspace/packages/init_zig_workspace/src/main.zig" || fail "init did not materialize zig workspace source"
+"$qstar" --file "$tmp/init-zig-workspace/qstar.lua" check //... > "$tmp/init-zig-workspace-check.out" 2> "$tmp/init-zig-workspace-check.err"
+contains "$tmp/init-zig-workspace-check.out" "status ok"
 
 mkdir -p "$tmp/init-provider-dir/rust"
 cat > "$tmp/init-provider-dir/rust/rust.qsm" <<'EOF'
@@ -6339,7 +6395,7 @@ contains "$tmp/init-mixed.out" "vendor qstar/languages/zig"
 contains "$tmp/init-mixed.out" "vendor qstar/languages/rust"
 contains "$tmp/init-mixed.out" "activate rust"
 contains "$tmp/init-mixed/qstar.lua" "local rust = qstar.use_language(\"rust\")"
-contains "$tmp/init-mixed/qstar.lua" "[\"rust\"] = rust.tools"
+contains "$tmp/init-mixed/qstar.lua" "rust = rust.tools"
 contains "$tmp/init-mixed/qstar.lua" "compiler = qstar.cli {\"rustc\"}"
 test -f "$tmp/init-mixed/qstar/languages/rust/rust.qsm" || fail "init did not vendor rust manifest"
 "$qstar" --file "$tmp/init-mixed/qstar.lua" check //... > "$tmp/init-mixed-check.out" 2> "$tmp/init-mixed-check.err"

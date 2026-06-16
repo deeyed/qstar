@@ -61,8 +61,11 @@ The optional
 .Ic scaffold
 field declares validated init metadata with
 .Li api = "qstar.scaffold/1" .
-Scaffold file and fragment paths must be package-relative; command, script,
-fetch, network, and absolute-path surfaces are not part of the schema.
+When a primary provider shape is available,
+.Ic qstar init
+materializes its files, targets, fragments, default tools, and default
+options. Scaffold file and fragment paths must be package-relative; command,
+script, fetch, network, and absolute-path surfaces are not part of the schema.
 .It Ic qstar.config
 Reusable target option bundle referenced by target
 .Ic configs
@@ -263,9 +266,9 @@ schemas validate dynamic
 tables. Provider
 .Ic scaffold
 metadata validates optional project-shape files, targets, fragments, default
-tools, and default options for future
+tools, and default options consumed by
 .Ic qstar init
-consumption. Provider implementations build lowered action argv vectors with
+when that provider is the primary init language. Provider implementations build lowered action argv vectors with
 .Ic qstar.argv
 inside the restricted provider sandbox.
 .Sh CONSTANTS

@@ -5,8 +5,8 @@ Language Provider(GLP)가 언어별 project layout과 sample source를 선언하
 정리한다. Q208에서 public init surface는 `qstar init app|lib|tool|empty|workspace`
 project shape로 전환되었고, Q210에서 `--use-language` language selection과 external
 provider vendoring이 실제 init flow에 들어왔다. Q211에서 provider manifest의 optional
-`scaffold` root는 정식 schema로 검증된다. 다만 `qstar init`이 이 metadata를 소비해
-provider별 파일을 생성하는 단계는 후속 GLP scaffold 라운드에서 완성한다.
+`scaffold` root는 정식 schema로 검증되기 시작했고, Q212에서 `qstar init`은 이 metadata를
+소비해 provider별 `qstar.lua`, source file, workspace fragment를 생성한다.
 
 ## 배경
 
@@ -220,9 +220,9 @@ qstar init app mixed --use-language zig --use-language rust
 언어를 생략하면 기본값은 `c`다. C는 builtin이고 provider vendoring이 필요 없으며,
 바로 build 가능한 skeleton을 만들 수 있다. `cxx`와 `asm`도 builtin language로 판별되며
 generated `qstar.lua`의 `tools.cxx.compiler`, `tools.asm.compiler` entry를 만들 수 있다.
-다만 provider-defined scaffold metadata는 현재 manifest schema로만 검증되고 `qstar init`이
-아직 소비하지 않기 때문에, primary language가 `c`가 아니면 현재는 C fallback scaffold를
-만들고 warning을 출력한다.
+External provider가 요청한 shape의 scaffold를 제공하면 `qstar init`은 그 provider plan을
+materialize한다. Provider가 해당 shape를 제공하지 않을 때만 C fallback scaffold를 만들고
+warning을 출력한다.
 
 ```sh
 qstar init app hello --use-language=zig
@@ -233,14 +233,14 @@ qstar init app hello --use-language=zig
 - installed standard provider bundle 또는 dev checkout에서 `zig` provider를 찾는다.
 - `qstar/languages/zig`에 provider package를 복사한다.
 - `qstar.lua` 상단에 `local zig = qstar.use_language("zig")`를 생성한다.
-- `qstar.toolset`에 `["zig"] = zig.tools { compiler = qstar.cli {"zig"} }` entry를 생성한다.
-- provider-specific source scaffold가 아직 없으므로 `src/main.c` C fallback target을 만든다.
+- `qstar.toolset`에 `zig = zig.tools { compiler = qstar.cli {"zig"} }` entry를 생성한다.
+- `qstar.config`에 `zig = zig.options { ... }` default option entry를 생성한다.
+- provider scaffold plan에 따라 `src/main.zig`와 `zig.object("src/main.zig")` target을 만든다.
 
-여러 언어가 들어오면 첫 번째 언어가 primary scaffold language다. 현재 primary가 external
-provider여도 C fallback scaffold를 쓰며, 나머지 언어는 provider vendoring, activation,
-toolset entry까지만 생성한다. Provider-defined scaffold가 완성되면 primary language의
-shape-specific scaffold가 `src/main.zig`, `src/crates/...`, `kernels/...` 같은 언어별 layout을
-책임진다.
+여러 언어가 들어오면 첫 번째 언어가 primary scaffold language다. Primary provider가
+shape-specific scaffold를 제공하면 그 layout이 `src/main.zig`, `src/crates/...`,
+`kernels/...` 같은 언어별 layout을 책임진다. 나머지 언어는 provider vendoring, activation,
+toolset/config entry까지만 생성한다.
 
 `qstar init app hello`에서 `hello`는 생성 directory다. 기본 project name은 directory
 basename인 `hello`가 된다.
@@ -518,8 +518,8 @@ qstar.config "debug" {
 }
 ```
 
-`--use-language=zig`를 같이 주면 provider vendoring과 activation만 생성하고, target/source는
-만들지 않는다.
+`--use-language=zig`를 같이 주면 provider vendoring, activation, provider tool/default
+option entry를 생성하고, target/source는 만들지 않는다.
 
 ```lua
 local zig = qstar.use_language("zig")
@@ -534,10 +534,7 @@ qstar.toolset "host" {
   tools = {
     archive = qstar.cli {"ar"},
     link = qstar.cli {"cc"},
-    c = {
-      compiler = qstar.cli {"cc"},
-    },
-    ["zig"] = zig.tools {
+    zig = zig.tools {
       compiler = qstar.cli {"zig"},
     },
   },
@@ -545,6 +542,12 @@ qstar.toolset "host" {
 
 qstar.config "debug" {
   toolset = "//:host",
+  lang = {
+    zig = zig.options {
+      optimize = "Debug",
+      target = "native",
+    },
+  },
 }
 ```
 
@@ -716,8 +719,8 @@ return qstar.language_provider {
 
 이 `scaffold` table은 선언적 plan이다. Provider는 init 시점에 shell command를 실행하지 않고,
 프로젝트 파일을 직접 쓰지도 않는다. QStar core가 scaffold plan을 검증한 뒤 파일을 생성한다.
-Q211 현재 QStar는 manifest load 시점에 이 schema를 검증하지만, 아직 init scaffold 생성에는
-사용하지 않는다.
+Q212 현재 QStar는 manifest load 시점에 이 schema를 검증하고, `qstar init`이 primary
+provider의 shape plan을 실제 project files로 materialize한다.
 
 ## Scaffold Schema
 
@@ -889,7 +892,7 @@ local zig = qstar.use_language("zig")
 6. external provider는 installed standard bundle 또는 source checkout fallback에서 찾는다.
 7. external provider manifest file 존재를 확인한다.
 8. external provider를 project-local `qstar/languages/<id>`로 복사할 plan을 만든다.
-9. shape별 scaffold plan을 선택한다. 현재는 builtin C fallback plan만 구현되어 있다.
+9. shape별 scaffold plan을 선택한다. Primary provider가 shape plan을 제공하면 그것을 쓴다.
 10. provider scaffold가 없으면 C fallback plan과 warning을 만든다.
 11. directory, `qstar.lua`, `.gitignore`, source file, fragment file 생성 plan을 만든다.
 12. `--dry-run`이면 plan만 출력한다.
@@ -907,13 +910,13 @@ shape app
 language zig
 project hello
 directory hello
-warning language 'zig' has no init scaffold for shape 'app'; using builtin c scaffold
 vendor qstar/languages/zig
 activate zig
+scaffold zig app
 create_dir src
 create qstar.lua
 create .gitignore
-create src/main.c
+create src/main.zig
 status ok
 ```
 

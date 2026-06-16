@@ -39,6 +39,104 @@ return qstar.language_provider {
       lower = "compile_object",
     },
   },
+  scaffold = {
+    api = "qstar.scaffold/1",
+    tools = {
+      compiler = {"zig"},
+    },
+    options = {
+      target = "native",
+      optimize = "Debug",
+      compile_options = {},
+    },
+    shapes = {
+      app = {
+        directories = {"src"},
+        files = {
+          {
+            path = "src/main.zig",
+            body = "pub fn main() void {}\n",
+          },
+        },
+        target = {
+          kind = "executable",
+          name = "app",
+          sources = {
+            {
+              helper = "object",
+              path = "src/main.zig",
+            },
+          },
+        },
+      },
+      lib = {
+        directories = {"src"},
+        files = {
+          {
+            path = "src/${project_ident}.zig",
+            body = "pub export fn ${project_ident}_value() i32 { return 42; }\n",
+          },
+        },
+        target = {
+          kind = "staticlib",
+          name = "core",
+          sources = {
+            {
+              helper = "object",
+              path = "src/${project_ident}.zig",
+            },
+          },
+        },
+      },
+      tool = {
+        directories = {"tools/${project_ident}"},
+        files = {
+          {
+            path = "tools/${project_ident}/main.zig",
+            body = "pub fn main() void {}\n",
+          },
+        },
+        target = {
+          kind = "executable",
+          name = "tool",
+          sources = {
+            {
+              helper = "object",
+              path = "tools/${project_ident}/main.zig",
+            },
+          },
+        },
+      },
+      empty = {},
+      workspace = {
+        fragments = {
+          {
+            path = "packages/${project_ident}/${project_ident}.qst",
+            files = {
+              {
+                path = "packages/${project_ident}/src/main.zig",
+                body = "pub export fn ${project_ident}_value() i32 { return 42; }\n",
+              },
+            },
+            target = {
+              kind = "staticlib",
+              name = "core",
+              sources = {
+                {
+                  helper = "object",
+                  path = "packages/${project_ident}/src/main.zig",
+                },
+              },
+            },
+          },
+        },
+        group = {
+          name = "all",
+          deps = {"//packages/${project_ident}:core"},
+        },
+      },
+    },
+  },
   exports = {
     tools = "tools",
     options = "options",

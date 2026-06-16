@@ -139,7 +139,7 @@ qstar: import_module expects a folder path, not file 'qstar/modules/paths/paths.
 qstar: import_module 'qstar/modules/missing' not found; expected module entry 'qstar/modules/missing/missing.qsm'
 qstar: qstar.config is forbidden inside .qsm module; modules must return a helper table
 qstar: circular import chain: qstar.lua -> qstar/modules/a/a.qsm -> qstar/modules/b/b.qsm -> qstar/modules/a/a.qsm
-qstar: duplicate language provider 'qstar/languages/zig/zig.qsm'
+qstar: duplicate language provider namespace lang.zig
 qstar: circular language provider activation: qstar.lua -> qstar/languages/loop/loop.qsm -> qstar/languages/loop/loop.qsm
 qstar: qstar.use_language is forbidden inside ordinary .qsm module
 ```

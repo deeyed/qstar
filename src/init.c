@@ -1,5 +1,8 @@
 #include "internal.h"
 
+#include "lauxlib.h"
+#include "lua.h"
+
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
@@ -29,11 +32,16 @@ static const char *const init_shapes[] = {
 
 struct init_language {
 	char id[QSTAR_INIT_LANGUAGE_MAX];
+	char namespace[QSTAR_INIT_LANGUAGE_MAX];
 	char local_name[QSTAR_INIT_LANGUAGE_MAX + 8];
 	char source_dir[QSTAR_PATH_MAX];
+	char source_ext[32];
 	int builtin;
 	int external;
 	int vendored;
+	int scaffold_loaded;
+	int has_scaffold;
+	int has_shape;
 };
 
 struct init_context {
@@ -49,10 +57,12 @@ struct init_context {
 	char header_guard[160];
 	char activation_block[4096];
 	char tool_entries[8192];
+	char config_lang_entries[8192];
 };
 
 static int appendf(char *dst, size_t dstlen, char *error, size_t error_len,
     const char *fmt, ...);
+static int string_item_compare(const void *a, const void *b);
 
 /** Write a stable message to the init error buffer. */
 static int
@@ -466,6 +476,288 @@ escape_lua_string(const char *src, char *dst, size_t dstlen)
 }
 
 static int
+lua_identifier(const char *s)
+{
+	size_t i;
+
+	if (!s || !ident_start((unsigned char)s[0]))
+		return 0;
+	for (i = 1; s[i]; i++) {
+		if (!ident_char((unsigned char)s[i]))
+			return 0;
+	}
+	return 1;
+}
+
+static int
+append_lua_key(char *dst, size_t dstlen, char *error, size_t error_len,
+    const char *key)
+{
+	char escaped[QSTAR_INIT_LANGUAGE_MAX * 2];
+
+	if (lua_identifier(key))
+		return appendf(dst, dstlen, error, error_len, "%s", key);
+	if (escape_lua_string(key, escaped, sizeof(escaped)) < 0)
+		return init_error(error, error_len, "qstar: init key is too long '%s'",
+		    key);
+	return appendf(dst, dstlen, error, error_len, "[\"%s\"]", escaped);
+}
+
+static int
+init_lua_language_provider(lua_State *L)
+{
+	luaL_checktype(L, 1, LUA_TTABLE);
+	lua_pushvalue(L, 1);
+	return 1;
+}
+
+static lua_State *
+load_provider_manifest(const struct init_language *language, char *error,
+    size_t error_len)
+{
+	lua_State *L;
+	char manifest[QSTAR_PATH_MAX];
+
+	if (!language || !language->external)
+		return NULL;
+	if (snprintf(manifest, sizeof(manifest), "%s/%s.qsm", language->source_dir,
+	    language->id) >= (int)sizeof(manifest)) {
+		init_error(error, error_len,
+		    "qstar: init provider manifest path too long for '%s'",
+		    language->id);
+		return NULL;
+	}
+	L = luaL_newstate();
+	if (!L) {
+		init_error(error, error_len, "qstar: out of memory", "");
+		return NULL;
+	}
+	lua_newtable(L);
+	lua_pushcfunction(L, init_lua_language_provider);
+	lua_setfield(L, -2, "language_provider");
+	lua_setglobal(L, "qstar");
+	if (luaL_loadfilex(L, manifest, "t") != LUA_OK ||
+	    lua_pcall(L, 0, 1, 0) != LUA_OK) {
+		if (error && error_len)
+			snprintf(error, error_len,
+			    "qstar: init could not load language provider '%s': %s",
+			    language->id, lua_tostring(L, -1));
+		lua_close(L);
+		return NULL;
+	}
+	if (!lua_istable(L, -1)) {
+		init_error(error, error_len,
+		    "qstar: init language provider '%s' must return a table",
+		    language->id);
+		lua_close(L);
+		return NULL;
+	}
+	return L;
+}
+
+static void
+manifest_string_field(lua_State *L, int table, const char *field, char *dst,
+    size_t dstlen, const char *fallback)
+{
+	const char *value;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_getfield(L, table, field);
+	value = lua_isstring(L, -1) ? lua_tostring(L, -1) : fallback;
+	snprintf(dst, dstlen, "%s", value ? value : "");
+	lua_pop(L, 1);
+}
+
+static void
+manifest_source_ext(lua_State *L, int manifest, char *dst, size_t dstlen)
+{
+	if (dstlen)
+		dst[0] = '\0';
+	if (manifest < 0)
+		manifest = lua_gettop(L) + manifest + 1;
+	lua_getfield(L, manifest, "units");
+	if (lua_istable(L, -1)) {
+		lua_getfield(L, -1, "object");
+		if (lua_istable(L, -1)) {
+			lua_getfield(L, -1, "suffixes");
+			if (lua_istable(L, -1)) {
+				lua_rawgeti(L, -1, 1);
+				if (lua_isstring(L, -1))
+					snprintf(dst, dstlen, "%s",
+					    lua_tostring(L, -1));
+				lua_pop(L, 1);
+			}
+			lua_pop(L, 1);
+		}
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+}
+
+static int
+scaffold_shape_exists(lua_State *L, int manifest, const char *shape)
+{
+	int exists;
+
+	if (manifest < 0)
+		manifest = lua_gettop(L) + manifest + 1;
+	exists = 0;
+	lua_getfield(L, manifest, "scaffold");
+	if (lua_istable(L, -1)) {
+		lua_getfield(L, -1, "shapes");
+		if (lua_istable(L, -1)) {
+			lua_getfield(L, -1, shape);
+			exists = lua_istable(L, -1);
+			lua_pop(L, 1);
+		}
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	return exists;
+}
+
+static int
+load_language_scaffold_metadata(struct init_context *ctx, char *error,
+    size_t error_len)
+{
+	size_t i;
+	lua_State *L;
+
+	for (i = 0; i < ctx->language_len; i++) {
+		if (ctx->languages[i].builtin) {
+			snprintf(ctx->languages[i].namespace,
+			    sizeof(ctx->languages[i].namespace), "%s",
+			    ctx->languages[i].id);
+			continue;
+		}
+		L = load_provider_manifest(&ctx->languages[i], error, error_len);
+		if (!L)
+			return -1;
+		manifest_string_field(L, -1, "namespace",
+		    ctx->languages[i].namespace, sizeof(ctx->languages[i].namespace),
+		    ctx->languages[i].id);
+		manifest_source_ext(L, -1, ctx->languages[i].source_ext,
+		    sizeof(ctx->languages[i].source_ext));
+		lua_getfield(L, -1, "scaffold");
+		ctx->languages[i].has_scaffold = lua_istable(L, -1);
+		lua_pop(L, 1);
+		ctx->languages[i].has_shape = scaffold_shape_exists(L, -1,
+		    ctx->shape);
+		ctx->languages[i].scaffold_loaded = 1;
+		lua_close(L);
+	}
+	return 0;
+}
+
+static const char *
+init_default_target_name(const struct init_context *ctx)
+{
+	if (strcmp(ctx->shape, "lib") == 0)
+		return "core";
+	if (strcmp(ctx->shape, "tool") == 0)
+		return "tool";
+	if (strcmp(ctx->shape, "workspace") == 0)
+		return "all";
+	if (strcmp(ctx->shape, "empty") == 0)
+		return "";
+	return "app";
+}
+
+static int
+expand_template(const struct init_context *ctx, const struct init_language *language,
+    const char *src, const char *target_name, char *dst, size_t dstlen,
+    char *error, size_t error_len)
+{
+	size_t i, out, n;
+	const char *value, *end, *name;
+
+	out = 0;
+	for (i = 0; src && src[i];) {
+		if (src[i] != '$') {
+			if (out + 1 >= dstlen)
+				return init_error(error, error_len,
+				    "qstar: init template expansion too large for '%s'",
+				    src);
+			dst[out++] = src[i++];
+			continue;
+		}
+		if (src[i + 1] != '{')
+			return init_error(error, error_len,
+			    "qstar: init scaffold template contains unsupported '$' in '%s'",
+			    src);
+		name = src + i + 2;
+		end = strchr(name, '}');
+		if (!end)
+			return init_error(error, error_len,
+			    "qstar: init scaffold template has unterminated variable in '%s'",
+			    src);
+		n = (size_t)(end - name);
+		value = NULL;
+		if (n == strlen("project_name") &&
+		    strncmp(name, "project_name", n) == 0)
+			value = ctx->project_name;
+		else if (n == strlen("project_ident") &&
+		    strncmp(name, "project_ident", n) == 0)
+			value = ctx->project_ident;
+		else if (n == strlen("namespace") && strncmp(name, "namespace", n) == 0)
+			value = language->namespace;
+		else if (n == strlen("shape") && strncmp(name, "shape", n) == 0)
+			value = ctx->shape;
+		else if (n == strlen("target_name") &&
+		    strncmp(name, "target_name", n) == 0)
+			value = target_name ? target_name : init_default_target_name(ctx);
+		else if (n == strlen("source_ext") &&
+		    strncmp(name, "source_ext", n) == 0)
+			value = language->source_ext;
+		if (!value)
+			return init_error(error, error_len,
+			    "qstar: init scaffold template has unknown variable in '%s'",
+			    src);
+		n = strlen(value);
+		if (out + n >= dstlen)
+			return init_error(error, error_len,
+			    "qstar: init template expansion too large for '%s'", src);
+		memcpy(dst + out, value, n);
+		out += n;
+		i = (size_t)(end - src) + 1;
+	}
+	if (out >= dstlen)
+		return init_error(error, error_len,
+		    "qstar: init template expansion too large for '%s'", src ? src : "");
+	dst[out] = '\0';
+	return 0;
+}
+
+static int
+expand_scaffold_path(const struct init_context *ctx,
+    const struct init_language *language, const char *src, const char *target_name,
+    int file_path, char *dst, size_t dstlen, char *error, size_t error_len)
+{
+	const char *reason;
+	size_t n;
+
+	if (expand_template(ctx, language, src, target_name, dst, dstlen, error,
+	    error_len) < 0)
+		return -1;
+	if (!qstar_path_is_package_relative(dst)) {
+		reason = qstar_path_package_relative_reason(dst);
+		if (error && error_len)
+			snprintf(error, error_len,
+			    "qstar: init scaffold path '%s' must be package-relative%s%s",
+			    dst, reason && *reason ? ": " : "",
+			    reason && *reason ? reason : "");
+		return -1;
+	}
+	n = strlen(dst);
+	if (file_path && n > 0 && dst[n - 1] == '/')
+		return init_error(error, error_len,
+		    "qstar: init scaffold file path must not end with '/' in '%s'",
+		    dst);
+	return 0;
+}
+
+static int
 language_selected(const struct init_context *ctx, const char *id)
 {
 	size_t i;
@@ -590,14 +882,219 @@ append_builtin_tool_entry(struct init_context *ctx, const char *id, char *error,
 }
 
 static int
+append_lua_string_list_literal(lua_State *L, int table, char *dst, size_t dstlen,
+    char *error, size_t error_len)
+{
+	size_t i, n;
+	char escaped[1024];
+	const char *value;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	if (!lua_istable(L, table))
+		return appendf(dst, dstlen, error, error_len, "{}");
+	if (appendf(dst, dstlen, error, error_len, "{") < 0)
+		return -1;
+	n = lua_rawlen(L, table);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, table, (lua_Integer)i);
+		value = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+		if (escape_lua_string(value, escaped, sizeof(escaped)) < 0) {
+			lua_pop(L, 1);
+			return init_error(error, error_len,
+			    "qstar: init scaffold string is too long '%s'", value);
+		}
+		if (appendf(dst, dstlen, error, error_len, "%s\"%s\"",
+		    i == 1 ? "" : ", ", escaped) < 0) {
+			lua_pop(L, 1);
+			return -1;
+		}
+		lua_pop(L, 1);
+	}
+	return appendf(dst, dstlen, error, error_len, "}");
+}
+
+static int
+append_scaffold_value(lua_State *L, int value, char *dst, size_t dstlen,
+    char *error, size_t error_len)
+{
+	const char *s;
+	char escaped[1024];
+
+	if (value < 0)
+		value = lua_gettop(L) + value + 1;
+	if (lua_isboolean(L, value))
+		return appendf(dst, dstlen, error, error_len, "%s",
+		    lua_toboolean(L, value) ? "true" : "false");
+	if (lua_isstring(L, value)) {
+		s = lua_tostring(L, value);
+		if (escape_lua_string(s, escaped, sizeof(escaped)) < 0)
+			return init_error(error, error_len,
+			    "qstar: init scaffold string is too long '%s'", s);
+		return appendf(dst, dstlen, error, error_len, "\"%s\"", escaped);
+	}
+	if (lua_istable(L, value))
+		return append_lua_string_list_literal(L, value, dst, dstlen, error,
+		    error_len);
+	return appendf(dst, dstlen, error, error_len, "nil");
+}
+
+static int
+collect_table_string_keys(lua_State *L, int table, struct qstar_string_list *keys,
+    char *error, size_t error_len)
+{
+	const char *key;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	if (!lua_istable(L, table))
+		return 0;
+	lua_pushnil(L);
+	while (lua_next(L, table) != 0) {
+		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (key && qstar_string_list_push(keys, key) < 0) {
+			lua_pop(L, 2);
+			return init_error(error, error_len, "qstar: out of memory", "");
+		}
+		lua_pop(L, 1);
+	}
+	qsort(keys->items, keys->len, sizeof(keys->items[0]), string_item_compare);
+	return 0;
+}
+
+static int
+append_provider_tool_entry(struct init_context *ctx, struct init_language *language,
+    lua_State *L, int scaffold, char *error, size_t error_len)
+{
+	struct qstar_string_list roles;
+	size_t i;
+
+	memset(&roles, 0, sizeof(roles));
+	if (appendf(ctx->tool_entries, sizeof(ctx->tool_entries), error, error_len,
+	    "    ") < 0 ||
+	    append_lua_key(ctx->tool_entries, sizeof(ctx->tool_entries), error,
+	    error_len, language->namespace) < 0 ||
+	    appendf(ctx->tool_entries, sizeof(ctx->tool_entries), error, error_len,
+	    " = %s.tools {\n", language->local_name) < 0)
+		return -1;
+	if (scaffold < 0)
+		scaffold = lua_gettop(L) + scaffold + 1;
+	if (lua_istable(L, scaffold))
+		lua_getfield(L, scaffold, "tools");
+	else
+		lua_pushnil(L);
+	if (lua_istable(L, -1) && collect_table_string_keys(L, -1, &roles, error,
+	    error_len) < 0) {
+		qstar_string_list_free(&roles);
+		lua_pop(L, 1);
+		return -1;
+	}
+	if (roles.len == 0) {
+		if (appendf(ctx->tool_entries, sizeof(ctx->tool_entries), error,
+		    error_len,
+		    "      compiler = qstar.cli {\"%s\"},\n",
+		    default_compiler_for_language(language->id)) < 0) {
+			qstar_string_list_free(&roles);
+			lua_pop(L, 1);
+			return -1;
+		}
+	} else {
+		for (i = 0; i < roles.len; i++) {
+			lua_getfield(L, -1, roles.items[i]);
+			if (appendf(ctx->tool_entries, sizeof(ctx->tool_entries),
+			    error, error_len, "      %s = qstar.cli ",
+			    roles.items[i]) < 0 ||
+			    append_lua_string_list_literal(L, -1, ctx->tool_entries,
+			    sizeof(ctx->tool_entries), error, error_len) < 0 ||
+			    appendf(ctx->tool_entries, sizeof(ctx->tool_entries),
+			    error, error_len, ",\n") < 0) {
+				lua_pop(L, 2);
+				qstar_string_list_free(&roles);
+				return -1;
+			}
+			lua_pop(L, 1);
+		}
+	}
+	lua_pop(L, 1);
+	qstar_string_list_free(&roles);
+	return appendf(ctx->tool_entries, sizeof(ctx->tool_entries), error,
+	    error_len, "    },\n");
+}
+
+static int
+append_provider_config_options(struct init_context *ctx,
+    struct init_language *language, lua_State *L, int scaffold, char *error,
+    size_t error_len)
+{
+	struct qstar_string_list keys;
+	size_t i;
+
+	memset(&keys, 0, sizeof(keys));
+	if (scaffold < 0)
+		scaffold = lua_gettop(L) + scaffold + 1;
+	if (lua_istable(L, scaffold))
+		lua_getfield(L, scaffold, "options");
+	else
+		lua_pushnil(L);
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (collect_table_string_keys(L, -1, &keys, error, error_len) < 0) {
+		qstar_string_list_free(&keys);
+		lua_pop(L, 1);
+		return -1;
+	}
+	if (keys.len == 0) {
+		qstar_string_list_free(&keys);
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (appendf(ctx->config_lang_entries, sizeof(ctx->config_lang_entries),
+	    error, error_len, "    ") < 0 ||
+	    append_lua_key(ctx->config_lang_entries,
+	    sizeof(ctx->config_lang_entries), error, error_len,
+	    language->namespace) < 0 ||
+	    appendf(ctx->config_lang_entries, sizeof(ctx->config_lang_entries),
+	    error, error_len, " = %s.options {\n", language->local_name) < 0) {
+		qstar_string_list_free(&keys);
+		lua_pop(L, 1);
+		return -1;
+	}
+	for (i = 0; i < keys.len; i++) {
+		lua_getfield(L, -1, keys.items[i]);
+		if (appendf(ctx->config_lang_entries, sizeof(ctx->config_lang_entries),
+		    error, error_len, "      %s = ", keys.items[i]) < 0 ||
+		    append_scaffold_value(L, -1, ctx->config_lang_entries,
+		    sizeof(ctx->config_lang_entries), error, error_len) < 0 ||
+		    appendf(ctx->config_lang_entries, sizeof(ctx->config_lang_entries),
+		    error, error_len, ",\n") < 0) {
+			lua_pop(L, 2);
+			qstar_string_list_free(&keys);
+			return -1;
+		}
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	qstar_string_list_free(&keys);
+	return appendf(ctx->config_lang_entries, sizeof(ctx->config_lang_entries),
+	    error, error_len, "    },\n");
+}
+
+static int
 build_language_snippets(struct init_context *ctx, char *error, size_t error_len)
 {
 	size_t i;
 	char id_lua[QSTAR_INIT_LANGUAGE_MAX * 2];
+	lua_State *L;
+	int need_c_tool;
 
 	ctx->activation_block[0] = '\0';
 	ctx->tool_entries[0] = '\0';
-	if (append_builtin_tool_entry(ctx, "c", error, error_len) < 0)
+	ctx->config_lang_entries[0] = '\0';
+	need_c_tool = language_selected(ctx, "c") ||
+	    (ctx->languages[0].external && !ctx->languages[0].has_shape);
+	if (need_c_tool && append_builtin_tool_entry(ctx, "c", error, error_len) < 0)
 		return -1;
 	if (language_selected(ctx, "cxx") &&
 	    append_builtin_tool_entry(ctx, "cxx", error, error_len) < 0)
@@ -617,14 +1114,18 @@ build_language_snippets(struct init_context *ctx, char *error, size_t error_len)
 		    error, error_len, "local %s = qstar.use_language(\"%s\")\n",
 		    ctx->languages[i].local_name, id_lua) < 0)
 			return -1;
-		if (appendf(ctx->tool_entries, sizeof(ctx->tool_entries), error,
-		    error_len,
-		    "    [\"%s\"] = %s.tools {\n"
-		    "      compiler = qstar.cli {\"%s\"},\n"
-		    "    },\n",
-		    id_lua, ctx->languages[i].local_name,
-		    default_compiler_for_language(ctx->languages[i].id)) < 0)
+		L = load_provider_manifest(&ctx->languages[i], error, error_len);
+		if (!L)
 			return -1;
+		lua_getfield(L, -1, "scaffold");
+		if (append_provider_tool_entry(ctx, &ctx->languages[i], L, -1,
+		    error, error_len) < 0 ||
+		    append_provider_config_options(ctx, &ctx->languages[i], L, -1,
+		    error, error_len) < 0) {
+			lua_close(L);
+			return -1;
+		}
+		lua_close(L);
 	}
 	return 0;
 }
@@ -682,28 +1183,57 @@ format_qstar_lua(const struct init_context *ctx, char *dst, size_t dstlen,
 	int n;
 
 	gap = ctx->activation_block[0] ? "\n" : "";
-	n = snprintf(dst, dstlen,
-	    "%s%s"
-	    "qstar.project {\n"
-	    "  name = \"%s\",\n"
-	    "  version = \"0.1.0\",\n"
-	    "  root = \".\",\n"
-	    "}\n"
-	    "\n"
-	    "qstar.toolset \"host\" {\n"
-	    "  tools = {\n"
-	    "    archive = qstar.cli {\"ar\"},\n"
-	    "    link = qstar.cli {\"cc\"},\n"
-	    "%s"
-	    "  },\n"
-	    "}\n"
-	    "\n"
-	    "qstar.config \"debug\" {\n"
-	    "  toolset = \"//:host\",\n"
-	    "}\n"
-	    "%s",
-	    ctx->activation_block, gap, ctx->project_lua, ctx->tool_entries,
-	    target_body ? target_body : "");
+	if (ctx->config_lang_entries[0]) {
+		n = snprintf(dst, dstlen,
+		    "%s%s"
+		    "qstar.project {\n"
+		    "  name = \"%s\",\n"
+		    "  version = \"0.1.0\",\n"
+		    "  root = \".\",\n"
+		    "}\n"
+		    "\n"
+		    "qstar.toolset \"host\" {\n"
+		    "  tools = {\n"
+		    "    archive = qstar.cli {\"ar\"},\n"
+		    "    link = qstar.cli {\"cc\"},\n"
+		    "%s"
+		    "  },\n"
+		    "}\n"
+		    "\n"
+		    "qstar.config \"debug\" {\n"
+		    "  toolset = \"//:host\",\n"
+		    "  lang = {\n"
+		    "%s"
+		    "  },\n"
+		    "}\n"
+		    "%s",
+		    ctx->activation_block, gap, ctx->project_lua,
+		    ctx->tool_entries, ctx->config_lang_entries,
+		    target_body ? target_body : "");
+	} else {
+		n = snprintf(dst, dstlen,
+		    "%s%s"
+		    "qstar.project {\n"
+		    "  name = \"%s\",\n"
+		    "  version = \"0.1.0\",\n"
+		    "  root = \".\",\n"
+		    "}\n"
+		    "\n"
+		    "qstar.toolset \"host\" {\n"
+		    "  tools = {\n"
+		    "    archive = qstar.cli {\"ar\"},\n"
+		    "    link = qstar.cli {\"cc\"},\n"
+		    "%s"
+		    "  },\n"
+		    "}\n"
+		    "\n"
+		    "qstar.config \"debug\" {\n"
+		    "  toolset = \"//:host\",\n"
+		    "}\n"
+		    "%s",
+		    ctx->activation_block, gap, ctx->project_lua,
+		    ctx->tool_entries, target_body ? target_body : "");
+	}
 	if (n < 0 || (size_t)n >= dstlen)
 		return init_error(error, error_len, "qstar: init template too large for '%s'",
 		    "qstar.lua");
@@ -1169,6 +1699,533 @@ write_workspace_shape(const struct init_context *ctx, FILE *out, char *error,
 	return 0;
 }
 
+static const char *
+scaffold_target_function(const char *kind)
+{
+	if (strcmp(kind, "executable") == 0)
+		return "qstar.executable";
+	if (strcmp(kind, "staticlib") == 0)
+		return "qstar.staticlib";
+	if (strcmp(kind, "sharedlib") == 0)
+		return "qstar.sharedlib";
+	if (strcmp(kind, "test") == 0)
+		return "qstar.test";
+	if (strcmp(kind, "run_target") == 0)
+		return "qstar.run_target";
+	return "qstar.group";
+}
+
+static int
+append_scaffold_option_table(lua_State *L, int table, char *dst, size_t dstlen,
+    char *error, size_t error_len, const char *indent)
+{
+	struct qstar_string_list keys;
+	size_t i;
+
+	memset(&keys, 0, sizeof(keys));
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	if (!lua_istable(L, table))
+		return appendf(dst, dstlen, error, error_len, "{}");
+	if (collect_table_string_keys(L, table, &keys, error, error_len) < 0) {
+		qstar_string_list_free(&keys);
+		return -1;
+	}
+	if (appendf(dst, dstlen, error, error_len, "{\n") < 0) {
+		qstar_string_list_free(&keys);
+		return -1;
+	}
+	for (i = 0; i < keys.len; i++) {
+		lua_getfield(L, table, keys.items[i]);
+		if (appendf(dst, dstlen, error, error_len, "%s  %s = ", indent,
+		    keys.items[i]) < 0 ||
+		    append_scaffold_value(L, -1, dst, dstlen, error, error_len) < 0 ||
+		    appendf(dst, dstlen, error, error_len, ",\n") < 0) {
+			lua_pop(L, 1);
+			qstar_string_list_free(&keys);
+			return -1;
+		}
+		lua_pop(L, 1);
+	}
+	qstar_string_list_free(&keys);
+	return appendf(dst, dstlen, error, error_len, "%s}", indent);
+}
+
+static int
+append_scaffold_deps(lua_State *L, int table, const struct init_context *ctx,
+    const struct init_language *language, const char *target_name, char *dst,
+    size_t dstlen, char *error, size_t error_len)
+{
+	size_t i, n;
+	const char *dep;
+	char expanded[QSTAR_PATH_MAX], escaped[QSTAR_PATH_MAX * 2];
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	if (!lua_istable(L, table) || lua_rawlen(L, table) == 0)
+		return 0;
+	if (appendf(dst, dstlen, error, error_len, "  deps = {\n") < 0)
+		return -1;
+	n = lua_rawlen(L, table);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, table, (lua_Integer)i);
+		dep = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+		if (expand_template(ctx, language, dep, target_name, expanded,
+		    sizeof(expanded), error, error_len) < 0 ||
+		    escape_lua_string(expanded, escaped, sizeof(escaped)) < 0) {
+			lua_pop(L, 1);
+			return -1;
+		}
+		if (appendf(dst, dstlen, error, error_len, "    \"%s\",\n",
+		    escaped) < 0) {
+			lua_pop(L, 1);
+			return -1;
+		}
+		lua_pop(L, 1);
+	}
+	return appendf(dst, dstlen, error, error_len, "  },\n");
+}
+
+static int
+append_scaffold_sources(lua_State *L, int table, const struct init_context *ctx,
+    const struct init_language *language, const char *target_name, char *dst,
+    size_t dstlen, char *error, size_t error_len)
+{
+	size_t i, n;
+	const char *path, *helper;
+	char expanded[QSTAR_PATH_MAX], escaped[QSTAR_PATH_MAX * 2];
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	if (!lua_istable(L, table) || lua_rawlen(L, table) == 0)
+		return 0;
+	if (appendf(dst, dstlen, error, error_len, "  sources = {\n") < 0)
+		return -1;
+	n = lua_rawlen(L, table);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, table, (lua_Integer)i);
+		if (lua_isstring(L, -1)) {
+			path = lua_tostring(L, -1);
+			if (expand_scaffold_path(ctx, language, path, target_name, 1,
+			    expanded, sizeof(expanded), error, error_len) < 0 ||
+			    escape_lua_string(expanded, escaped, sizeof(escaped)) < 0) {
+				lua_pop(L, 1);
+				return -1;
+			}
+			if (appendf(dst, dstlen, error, error_len,
+			    "    \"%s\",\n", escaped) < 0) {
+				lua_pop(L, 1);
+				return -1;
+			}
+		} else if (lua_istable(L, -1)) {
+			lua_getfield(L, -1, "helper");
+			helper = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+			lua_pop(L, 1);
+			lua_getfield(L, -1, "path");
+			path = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+			if (expand_scaffold_path(ctx, language, path, target_name, 1,
+			    expanded, sizeof(expanded), error, error_len) < 0 ||
+			    escape_lua_string(expanded, escaped, sizeof(escaped)) < 0) {
+				lua_pop(L, 2);
+				return -1;
+			}
+			lua_pop(L, 1);
+			if (!helper || !lua_identifier(helper)) {
+				lua_pop(L, 1);
+				return init_error(error, error_len,
+				    "qstar: init scaffold helper is invalid '%s'",
+				    helper ? helper : "<missing>");
+			}
+			if (appendf(dst, dstlen, error, error_len,
+			    "    %s.%s(\"%s\"", language->local_name, helper,
+			    escaped) < 0) {
+				lua_pop(L, 1);
+				return -1;
+			}
+			lua_getfield(L, -1, "options");
+			if (lua_istable(L, -1)) {
+				if (appendf(dst, dstlen, error, error_len, ", ") < 0 ||
+				    append_scaffold_option_table(L, -1, dst,
+				    dstlen, error, error_len, "    ") < 0) {
+					lua_pop(L, 2);
+					return -1;
+				}
+			}
+			lua_pop(L, 1);
+			if (appendf(dst, dstlen, error, error_len, "),\n") < 0) {
+				lua_pop(L, 1);
+				return -1;
+			}
+		}
+		lua_pop(L, 1);
+	}
+	return appendf(dst, dstlen, error, error_len, "  },\n");
+}
+
+static int
+append_scaffold_lang(lua_State *L, int table, const struct init_language *language,
+    char *dst, size_t dstlen, char *error, size_t error_len)
+{
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	if (!lua_istable(L, table))
+		return 0;
+	lua_getfield(L, table, language->namespace);
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (appendf(dst, dstlen, error, error_len, "  lang = {\n    ") < 0 ||
+	    append_lua_key(dst, dstlen, error, error_len, language->namespace) < 0 ||
+	    appendf(dst, dstlen, error, error_len, " = %s.options ",
+	    language->local_name) < 0 ||
+	    append_scaffold_option_table(L, -1, dst, dstlen, error, error_len,
+	    "    ") < 0 ||
+	    appendf(dst, dstlen, error, error_len, ",\n  },\n") < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+static int
+append_scaffold_target(lua_State *L, int target, const struct init_context *ctx,
+    const struct init_language *language, char *dst, size_t dstlen, char *error,
+    size_t error_len)
+{
+	const char *kind, *name;
+	char expanded_name[128], escaped_name[256];
+
+	if (target < 0)
+		target = lua_gettop(L) + target + 1;
+	lua_getfield(L, target, "kind");
+	kind = lua_isstring(L, -1) ? lua_tostring(L, -1) : "executable";
+	lua_pop(L, 1);
+	lua_getfield(L, target, "name");
+	name = lua_isstring(L, -1) ? lua_tostring(L, -1) :
+	    init_default_target_name(ctx);
+	if (expand_template(ctx, language, name, name, expanded_name,
+	    sizeof(expanded_name), error, error_len) < 0 ||
+	    escape_lua_string(expanded_name, escaped_name, sizeof(escaped_name)) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	if (appendf(dst, dstlen, error, error_len, "\n%s \"%s\" {\n",
+	    scaffold_target_function(kind), escaped_name) < 0)
+		return -1;
+	if (strcmp(kind, "group") != 0 && strcmp(kind, "run_target") != 0 &&
+	    appendf(dst, dstlen, error, error_len,
+	    "  configs = {\"//:debug\"},\n") < 0)
+		return -1;
+	lua_getfield(L, target, "sources");
+	if (append_scaffold_sources(L, -1, ctx, language, expanded_name, dst,
+	    dstlen, error, error_len) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, target, "deps");
+	if (append_scaffold_deps(L, -1, ctx, language, expanded_name, dst, dstlen,
+	    error, error_len) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, target, "lang");
+	if (append_scaffold_lang(L, -1, language, dst, dstlen, error,
+	    error_len) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	return appendf(dst, dstlen, error, error_len, "}\n");
+}
+
+static int
+append_scaffold_group(lua_State *L, int group, const struct init_context *ctx,
+    const struct init_language *language, char *dst, size_t dstlen, char *error,
+    size_t error_len)
+{
+	const char *name;
+	char expanded_name[128], escaped_name[256];
+
+	if (group < 0)
+		group = lua_gettop(L) + group + 1;
+	lua_getfield(L, group, "name");
+	name = lua_isstring(L, -1) ? lua_tostring(L, -1) : "all";
+	if (expand_template(ctx, language, name, name, expanded_name,
+	    sizeof(expanded_name), error, error_len) < 0 ||
+	    escape_lua_string(expanded_name, escaped_name, sizeof(escaped_name)) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	if (appendf(dst, dstlen, error, error_len, "\nqstar.group \"%s\" {\n",
+	    escaped_name) < 0)
+		return -1;
+	lua_getfield(L, group, "deps");
+	if (append_scaffold_deps(L, -1, ctx, language, expanded_name, dst, dstlen,
+	    error, error_len) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	return appendf(dst, dstlen, error, error_len, "}\n");
+}
+
+static int
+append_scaffold_targets(lua_State *L, int shape, const struct init_context *ctx,
+    const struct init_language *language, char *dst, size_t dstlen, char *error,
+    size_t error_len)
+{
+	size_t i, n;
+
+	if (shape < 0)
+		shape = lua_gettop(L) + shape + 1;
+	lua_getfield(L, shape, "targets");
+	if (lua_istable(L, -1)) {
+		n = lua_rawlen(L, -1);
+		for (i = 1; i <= n; i++) {
+			lua_rawgeti(L, -1, (lua_Integer)i);
+			if (append_scaffold_target(L, -1, ctx, language, dst,
+			    dstlen, error, error_len) < 0) {
+				lua_pop(L, 2);
+				return -1;
+			}
+			lua_pop(L, 1);
+		}
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, shape, "target");
+	if (lua_istable(L, -1) && append_scaffold_target(L, -1, ctx, language,
+	    dst, dstlen, error, error_len) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, shape, "group");
+	if (lua_istable(L, -1) && append_scaffold_group(L, -1, ctx, language,
+	    dst, dstlen, error, error_len) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+static int
+ensure_scaffold_directories(lua_State *L, int shape, const struct init_context *ctx,
+    const struct init_language *language, FILE *out, char *error,
+    size_t error_len)
+{
+	size_t i, n;
+	const char *path;
+	char expanded[QSTAR_PATH_MAX];
+
+	if (shape < 0)
+		shape = lua_gettop(L) + shape + 1;
+	lua_getfield(L, shape, "directories");
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	n = lua_rawlen(L, -1);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, -1, (lua_Integer)i);
+		path = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+		if (expand_scaffold_path(ctx, language, path,
+		    init_default_target_name(ctx), 0, expanded, sizeof(expanded),
+		    error, error_len) < 0 ||
+		    ensure_dir(ctx, expanded, out, error, error_len) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+static int
+write_scaffold_files(lua_State *L, int shape, const struct init_context *ctx,
+    const struct init_language *language, FILE *out, char *error,
+    size_t error_len)
+{
+	size_t i, n;
+	const char *path, *body;
+	char expanded_path[QSTAR_PATH_MAX], expanded_body[16384];
+	int executable;
+
+	if (shape < 0)
+		shape = lua_gettop(L) + shape + 1;
+	lua_getfield(L, shape, "files");
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	n = lua_rawlen(L, -1);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, -1, (lua_Integer)i);
+		lua_getfield(L, -1, "path");
+		path = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+		if (expand_scaffold_path(ctx, language, path,
+		    init_default_target_name(ctx), 1, expanded_path,
+		    sizeof(expanded_path), error, error_len) < 0) {
+			lua_pop(L, 3);
+			return -1;
+		}
+		lua_pop(L, 1);
+		lua_getfield(L, -1, "body");
+		body = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+		if (expand_template(ctx, language, body, init_default_target_name(ctx),
+		    expanded_body, sizeof(expanded_body), error, error_len) < 0) {
+			lua_pop(L, 3);
+			return -1;
+		}
+		lua_pop(L, 1);
+		lua_getfield(L, -1, "executable");
+		executable = lua_isboolean(L, -1) ? lua_toboolean(L, -1) : 0;
+		lua_pop(L, 1);
+		if (write_text_file(ctx, expanded_path, expanded_body, executable, out,
+		    error, error_len) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+static int
+fragment_import_line(const char *fragment_path, char *dst, size_t dstlen,
+    char *error, size_t error_len)
+{
+	char dir[QSTAR_PATH_MAX], escaped[QSTAR_PATH_MAX * 2];
+	char *slash;
+
+	if (strlen(fragment_path) >= sizeof(dir))
+		return init_error(error, error_len, "qstar: init path too long '%s'",
+		    fragment_path);
+	strcpy(dir, fragment_path);
+	slash = strrchr(dir, '/');
+	if (slash) {
+		*slash = '\0';
+		if (escape_lua_string(dir, escaped, sizeof(escaped)) < 0)
+			return init_error(error, error_len,
+			    "qstar: init path too long '%s'", dir);
+		return snprintf(dst, dstlen, "qstar.subdir(\"%s\")\n", escaped) >=
+		    (int)dstlen ? -1 : 0;
+	}
+	if (escape_lua_string(fragment_path, escaped, sizeof(escaped)) < 0)
+		return init_error(error, error_len, "qstar: init path too long '%s'",
+		    fragment_path);
+	return snprintf(dst, dstlen, "qstar.import_file(\"%s\")\n", escaped) >=
+	    (int)dstlen ? -1 : 0;
+}
+
+static int
+write_scaffold_fragments(lua_State *L, int shape, const struct init_context *ctx,
+    const struct init_language *language, FILE *out, char *root_body,
+    size_t root_body_len, char *error, size_t error_len)
+{
+	size_t i, n;
+	const char *path;
+	char fragment_path[QSTAR_PATH_MAX], fragment_body[32768], import_line[QSTAR_PATH_MAX * 2];
+
+	if (shape < 0)
+		shape = lua_gettop(L) + shape + 1;
+	lua_getfield(L, shape, "fragments");
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	n = lua_rawlen(L, -1);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, -1, (lua_Integer)i);
+		lua_getfield(L, -1, "path");
+		path = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+		if (expand_scaffold_path(ctx, language, path,
+		    init_default_target_name(ctx), 1, fragment_path,
+		    sizeof(fragment_path), error, error_len) < 0) {
+			lua_pop(L, 3);
+			return -1;
+		}
+		lua_pop(L, 1);
+		if (fragment_import_line(fragment_path, import_line,
+		    sizeof(import_line), error, error_len) < 0 ||
+		    appendf(root_body, root_body_len, error, error_len, "%s",
+		    import_line) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		if (ensure_scaffold_directories(L, -1, ctx, language, out, error,
+		    error_len) < 0 ||
+		    write_scaffold_files(L, -1, ctx, language, out, error,
+		    error_len) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		fragment_body[0] = '\0';
+		if (appendf(fragment_body, sizeof(fragment_body), error, error_len,
+		    "local %s = qstar.use_language(\"%s\")\n",
+		    language->local_name, language->id) < 0 ||
+		    append_scaffold_targets(L, -1, ctx, language, fragment_body,
+		    sizeof(fragment_body), error, error_len) < 0 ||
+		    write_text_file(ctx, fragment_path, fragment_body, 0, out, error,
+		    error_len) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+static int
+write_provider_shape(const struct init_context *ctx,
+    const struct init_language *language, FILE *out, char *error,
+    size_t error_len)
+{
+	lua_State *L;
+	char root_body[65536], qstar_body[65536];
+
+	L = load_provider_manifest(language, error, error_len);
+	if (!L)
+		return -1;
+	lua_getfield(L, -1, "scaffold");
+	lua_getfield(L, -1, "shapes");
+	lua_getfield(L, -1, ctx->shape);
+	if (!lua_istable(L, -1)) {
+		lua_close(L);
+		return init_error(error, error_len,
+		    "qstar: init scaffold for language '%s' shape '%s' disappeared",
+		    language->id);
+	}
+	fprintf(out, "scaffold %s %s\n", language->namespace, ctx->shape);
+	root_body[0] = '\0';
+	if (ensure_scaffold_directories(L, -1, ctx, language, out, error,
+	    error_len) < 0 ||
+	    write_scaffold_fragments(L, -1, ctx, language, out, root_body,
+	    sizeof(root_body), error, error_len) < 0 ||
+	    append_scaffold_targets(L, -1, ctx, language, root_body,
+	    sizeof(root_body), error, error_len) < 0 ||
+	    format_qstar_lua(ctx, qstar_body, sizeof(qstar_body), error, error_len,
+	    root_body) < 0 ||
+	    write_text_file(ctx, "qstar.lua", qstar_body, 0, out, error,
+	    error_len) < 0 ||
+	    write_gitignore(ctx, out, error, error_len) < 0 ||
+	    write_scaffold_files(L, -1, ctx, language, out, error, error_len) < 0) {
+		lua_close(L);
+		return -1;
+	}
+	lua_close(L);
+	return 0;
+}
+
 /** Print the supported qstar init shapes. */
 void
 qstar_init_print_shapes(FILE *out)
@@ -1338,6 +2395,8 @@ prepare_context(struct init_context *ctx, const struct qstar_init_options *optio
 	    sizeof(ctx->project_lua)) < 0)
 		return init_error(error, error_len,
 		    "qstar: init project name is too long '%s'", ctx->project_name);
+	if (load_language_scaffold_metadata(ctx, error, error_len) < 0)
+		return -1;
 	if (build_language_snippets(ctx, error, error_len) < 0)
 		return -1;
 	return 0;
@@ -1349,6 +2408,7 @@ qstar_init_project(const struct qstar_init_options *options, FILE *out, char *er
     size_t error_len)
 {
 	struct init_context ctx;
+	const struct init_language *primary;
 	int rc;
 
 	if (prepare_context(&ctx, options, error, error_len) < 0)
@@ -1362,13 +2422,16 @@ qstar_init_project(const struct qstar_init_options *options, FILE *out, char *er
 	fprintf(out, "directory %s\n", ctx.directory);
 	if (ctx.options->dry_run)
 		fputs("dry_run true\n", out);
-	if (strcmp(ctx.primary_language, "c") != 0)
+	primary = &ctx.languages[0];
+	if (primary->external && !primary->has_shape)
 		fprintf(out,
 		    "warning language '%s' has no init scaffold for shape '%s'; using builtin c scaffold\n",
 		    ctx.primary_language, ctx.shape);
 	if (vendor_language_providers(&ctx, out, error, error_len) < 0)
 		return -1;
-	if (strcmp(ctx.shape, "app") == 0)
+	if (primary->external && primary->has_shape)
+		rc = write_provider_shape(&ctx, primary, out, error, error_len);
+	else if (strcmp(ctx.shape, "app") == 0)
 		rc = write_app_shape(&ctx, out, error, error_len);
 	else if (strcmp(ctx.shape, "lib") == 0)
 		rc = write_lib_shape(&ctx, out, error, error_len);

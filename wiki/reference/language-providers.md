@@ -135,9 +135,10 @@ return qstar.language_provider {
 ## Provider Init Scaffold Metadata
 
 `scaffold`는 선택 field다. 있으면 QStar는 `api = "qstar.scaffold/1"`, `tools`,
-`options`, `shapes`를 manifest load 시점에 검증한다. Q211 현재 이 metadata는 검증만
-되고 `qstar init`이 아직 소비하지 않는다. 다음 init scaffold round에서 이 선언을 읽어
-provider별 folder layout과 sample source를 생성한다.
+`options`, `shapes`를 manifest load 시점에 검증한다. Q212부터 `qstar init`은 primary
+provider의 shape plan을 읽어 provider별 folder layout, sample source, root `qstar.lua`,
+workspace fragment를 materialize한다. Provider가 요청한 shape를 제공하지 않으면 C fallback
+scaffold와 warning을 사용한다.
 
 검증 규칙:
 
@@ -341,7 +342,7 @@ qstar --file qstar.lua -G ninja build //:app
 - `qstar: unknown language namespace lang.zig`
 - `qstar: unknown field lang.zig.<option>`
 - `qstar: lang.zig.<option> has unsupported enum value '...'`
-- `qstar: duplicate language provider 'qstar/languages/zig/zig.qsm'`
+- `qstar: duplicate language provider namespace lang.zig`
 - `qstar: circular language provider activation`
 
 ## 관련 문서

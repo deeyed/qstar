@@ -5967,9 +5967,21 @@ qstar_lua_use_language(lua_State *L)
 		return luaL_error(L,
 		    "qstar: circular language provider activation: %s", chain);
 	}
-	if (qstar_graph_find_language_provider_manifest(graph, rel))
-		return luaL_error(L, "qstar: duplicate language provider '%s'",
+	if (qstar_graph_find_language_provider_manifest(graph, rel)) {
+		lua_getfield(L, LUA_REGISTRYINDEX, "qstar.provider.exports");
+		if (lua_istable(L, -1)) {
+			lua_getfield(L, -1, rel);
+			if (lua_istable(L, -1)) {
+				lua_remove(L, -2);
+				return 1;
+			}
+			lua_pop(L, 1);
+		}
+		lua_pop(L, 1);
+		return luaL_error(L,
+		    "qstar: duplicate language provider '%s' has no cached exports",
 		    rel);
+	}
 	f = fopen(full, "r");
 	if (!f)
 		return luaL_error(L,
@@ -6040,6 +6052,16 @@ qstar_lua_use_language(lua_State *L)
 		lua_pop(L, 3);
 		return luaL_error(L, "%s", graph->error);
 	}
+	lua_getfield(L, LUA_REGISTRYINDEX, "qstar.provider.exports");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		lua_newtable(L);
+		lua_pushvalue(L, -1);
+		lua_setfield(L, LUA_REGISTRYINDEX, "qstar.provider.exports");
+	}
+	lua_pushvalue(L, -2);
+	lua_setfield(L, -2, rel);
+	lua_pop(L, 1);
 	lua_remove(L, implementation_idx);
 	lua_remove(L, manifest_idx);
 	return 1;

@@ -133,10 +133,12 @@ return P
 
 `provider.lua` runs in a restricted provider sandbox. It cannot declare targets
 or call graph entrypoints; only the manifest `exports` are returned to user code.
-Provider `scaffold` metadata is optional validated init data. It can name
-default tools/options and shape-local files/targets/fragments, but all path
-fields must be package-relative and the schema has no shell command, script,
-fetch, or network fields.
+Provider `scaffold` metadata is optional validated init data. `qstar init`
+materializes the primary provider shape into `qstar.lua`, source files, and
+workspace fragments when that shape is available. It can name default
+tools/options and shape-local files/targets/fragments, but all path fields must
+be package-relative and the schema has no shell command, script, fetch, or
+network fields.
 Provider `options` schemas validate `lang.<namespace>` keys and values when
 user code writes tables such as:
 
