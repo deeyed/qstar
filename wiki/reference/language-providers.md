@@ -36,33 +36,64 @@ local zig = qstar.use_language("zig")
 같은 provider를 두 번 활성화하면 duplicate diagnostic이 난다. Provider끼리 서로를 다시
 활성화하는 circular chain도 error다.
 
-`zig.qsm`은 일반 `.qsm`처럼 table을 반환하지만, `qstar.import_module(...)`로 조용히 graph
-semantics를 바꾸지 않는다. 반드시 `qstar.use_language(...)`를 통해 활성화해야 한다.
-일반 helper `.qsm` 평가 중 `qstar.use_language(...)`를 호출하는 것도 금지된다. Provider
-manifest 안에서 다른 provider dependency를 활성화하는 경우만 허용된다.
+`zig.qsm`은 일반 helper `.qsm`이 아니라 provider manifest다. 반드시
+`qstar.language_provider { ... }`를 반환해야 하며, QStar는 `api`, `id`, `version`,
+`namespace`, `implementation`, `tools`, `units`, `options`, `exports` schema를 검증한다.
+`provider.lua`는 별도의 제한 sandbox에서 로드되는 implementation이다. Provider 작성자 API와
+사용자 API는 `exports` table로 분리된다.
 
 ```lua
-local M = {
-  name = "zig",
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig",
   version = "0.1",
   namespace = "zig",
+  implementation = "provider.lua",
+  tools = {
+    compiler = {
+      role = "zig.compiler",
+      required = true,
+    },
+  },
+  options = {
+    optimize = {
+      type = "enum",
+      values = {"Debug", "ReleaseFast"},
+      default = "Debug",
+    },
+  },
+  exports = {
+    tools = "tools",
+    options = "options",
+  },
 }
-
-function M.tools(t)
-  return t
-end
-
-function M.options(t)
-  return t or {}
-end
-
-return M
 ```
 
-현재 manifest에서 runtime이 읽는 built-in metadata는 `name` 또는 `id`, `version`,
-`namespace` 또는 단일 항목 `namespaces = {...}`다. `tools`, `options`, `object` 같은 helper는
-provider table이 사용자 code에 돌려주는 Lua helper이며, QStar core가 fixed keyword로
-해석하지 않는다.
+`provider.lua`는 graph declaration API를 볼 수 없다. 아래처럼 provider helper만 작성한다.
+
+```lua
+local P = {}
+
+function P.tools(t)
+  return qstar.provider_tools("zig", {
+    compiler = t.compiler,
+  })
+end
+
+function P.options(t)
+  return qstar.language_options("zig", t or {})
+end
+
+return P
+```
+
+현재 runtime은 manifest와 implementation을 모두 읽고 검증한 뒤, `exports`가 가리키는
+implementation field만 `qstar.use_language(...)`의 반환 table에 노출한다. 예를 들어 위
+manifest에서는 사용자 코드가 `zig.tools`와 `zig.options`만 볼 수 있다.
+
+`qstar.import_module(...)`로 provider를 조용히 등록할 수 없다. 일반 helper `.qsm` 평가 중
+`qstar.use_language(...)`를 호출하는 것도 금지된다. Provider manifest 안에서 다른 provider
+dependency를 활성화하는 경우만 허용된다.
 
 ## 현재 source 경로: object artifact bridge
 
@@ -118,9 +149,9 @@ target의 `sources`에 넣는다.
 
 ## 다음 경로: GLP Lowering
 
-다음 GLP 작업은 활성화된 provider가 source suffix, source helper, option schema, backend
-lowering을 등록하는 경로다. Provider package는 `<id>.qsm` manifest와 `provider.lua`
-implementation을 가진다.
+다음 GLP 작업은 활성화된 provider가 source suffix, source helper, backend lowering을 실제
+build action으로 연결하는 경로다. Provider package는 이미 `<id>.qsm` manifest와
+`provider.lua` implementation을 가진다.
 
 ```txt
 qstar/
@@ -162,9 +193,10 @@ qstar.executable "app" {
 }
 ```
 
-이 문법 중 provider activation과 `lang.zig` namespace gate는 구현되어 있다. `zig.object`
-같은 source helper와 외부 source lowering은 후속 GLP backend 작업이므로, 아직 stable
-runtime에서는 object artifact bridge를 사용한다.
+이 문법 중 provider activation, manifest validation, `provider.lua` sandbox loading,
+`lang.zig` namespace gate는 구현되어 있다. `zig.object` 같은 source helper와 외부 source
+lowering은 후속 GLP backend 작업이므로, 아직 stable runtime에서는 object artifact bridge를
+사용한다.
 
 ## 관련 CLI
 

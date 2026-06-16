@@ -30,6 +30,46 @@ local zig = qstar.use_language("zig")
 `qstar.use_language` activates a provider namespace before `lang.<namespace>`
 is accepted. Built-in `lang.c`, `lang.cxx`, and `lang.asm` are preloaded.
 
+Provider packages use a manifest plus implementation split:
+
+```lua
+-- qstar/languages/zig/zig.qsm
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig",
+  version = "0.1.0",
+  namespace = "zig",
+  implementation = "provider.lua",
+  tools = {
+    compiler = {role = "zig.compiler", required = true},
+  },
+  exports = {
+    tools = "tools",
+    options = "options",
+  },
+}
+```
+
+```lua
+-- qstar/languages/zig/provider.lua
+local P = {}
+
+function P.tools(t)
+  return qstar.provider_tools("zig", {
+    compiler = t.compiler,
+  })
+end
+
+function P.options(t)
+  return qstar.language_options("zig", t or {})
+end
+
+return P
+```
+
+`provider.lua` runs in a restricted provider sandbox. It cannot declare targets
+or call graph entrypoints; only the manifest `exports` are returned to user code.
+
 ## Toolsets
 
 ```lua

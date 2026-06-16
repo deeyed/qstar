@@ -1,4 +1,4 @@
-.Dd June 13, 2026
+.Dd June 16, 2026
 .Dt QSTAR-LUA 5
 .Os
 .Sh NAME
@@ -40,6 +40,16 @@ The returned provider table may expose helper functions such as
 .Ic zig.tools
 or
 .Ic zig.options .
+.It Ic qstar.language_provider
+Declare a provider manifest. This API is valid only inside provider
+.Pa .qsm
+manifests, must use
+.Li api = "qstar.lang/1" ,
+and names the restricted
+.Pa provider.lua
+implementation through the
+.Ic implementation
+field.
 .It Ic qstar.config
 Reusable target option bundle referenced by target
 .Ic configs
@@ -224,7 +234,13 @@ module entry. Definitions on
 .Ic qstar.use_language
 strings resolve to the provider manifest
 .Pa qstar/languages/<id>/<id>.qsm
-or the explicit provider folder form.
+or the explicit provider folder form. The manifest is validated with
+.Ic qstar.language_provider ,
+then its
+.Pa provider.lua
+implementation is loaded in a restricted provider sandbox and only manifest
+.Ic exports
+are returned to user code.
 .Sh CONSTANTS
 .Nm
 provides constants such as

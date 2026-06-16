@@ -179,11 +179,13 @@ free_toolset(struct qstar_toolset *toolset)
 static void
 free_language_provider(struct qstar_language_provider *provider)
 {
+	free(provider->api);
 	free(provider->id);
 	free(provider->namespace);
 	free(provider->version);
 	free(provider->dir);
 	free(provider->manifest);
+	free(provider->implementation);
 }
 
 /** generated action skeleton이 소유한 문자열과 list를 해제한다. */
@@ -1122,14 +1124,16 @@ qstar_graph_add_toolset(struct qstar_graph *graph, const char *label, const char
 }
 
 struct qstar_language_provider *
-qstar_graph_add_language_provider(struct qstar_graph *graph, const char *id,
-    const char *namespace, const char *version, const char *dir, const char *manifest)
+qstar_graph_add_language_provider(struct qstar_graph *graph, const char *api,
+    const char *id, const char *namespace, const char *version, const char *dir,
+    const char *manifest, const char *implementation)
 {
 	struct qstar_language_provider *providers, *provider;
 	size_t cap;
 
-	if (!id || !*id || !namespace || !*namespace || !dir || !*dir ||
-	    !manifest || !*manifest) {
+	if (!api || !*api || !id || !*id || !namespace || !*namespace ||
+	    !dir || !*dir || !manifest || !*manifest || !implementation ||
+	    !*implementation) {
 		qstar_set_error(graph, "qstar: invalid language provider manifest");
 		return NULL;
 	}
@@ -1161,13 +1165,16 @@ qstar_graph_add_language_provider(struct qstar_graph *graph, const char *id,
 	}
 	provider = &graph->language_providers[graph->language_provider_len++];
 	memset(provider, 0, sizeof(*provider));
+	provider->api = qstar_strdup(api);
 	provider->id = qstar_strdup(id);
 	provider->namespace = qstar_strdup(namespace);
 	provider->version = qstar_strdup(version ? version : "");
 	provider->dir = qstar_strdup(dir);
 	provider->manifest = qstar_strdup(manifest);
-	if (!provider->id || !provider->namespace || !provider->version ||
-	    !provider->dir || !provider->manifest) {
+	provider->implementation = qstar_strdup(implementation);
+	if (!provider->api || !provider->id || !provider->namespace ||
+	    !provider->version || !provider->dir || !provider->manifest ||
+	    !provider->implementation) {
 		qstar_set_error(graph, "qstar: out of memory");
 		return NULL;
 	}
@@ -2000,12 +2007,16 @@ dump_toolset(const struct qstar_toolset *toolset, FILE *out)
 static void
 dump_language_provider(const struct qstar_language_provider *provider, FILE *out)
 {
-	fprintf(out, "language_provider namespace=%s id=%s version=%s dir=%s manifest=%s\n",
+	fprintf(out,
+	    "language_provider namespace=%s id=%s api=%s version=%s dir=%s manifest=%s implementation=%s\n",
 	    provider->namespace && *provider->namespace ? provider->namespace : "<unknown>",
 	    provider->id && *provider->id ? provider->id : "<unknown>",
+	    provider->api && *provider->api ? provider->api : "<unknown>",
 	    provider->version && *provider->version ? provider->version : "<unspecified>",
 	    provider->dir && *provider->dir ? provider->dir : "<unknown>",
-	    provider->manifest && *provider->manifest ? provider->manifest : "<unknown>");
+	    provider->manifest && *provider->manifest ? provider->manifest : "<unknown>",
+	    provider->implementation && *provider->implementation ?
+	    provider->implementation : "<unknown>");
 }
 
 /** QStar Graph IR를 deterministic explain text로 출력한다. */
@@ -2297,8 +2308,9 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 		    toolsets[i]->origin_line);
 	fprintf(out, "language-provider-count %zu\n", graph->language_provider_len);
 	for (i = 0; i < graph->language_provider_len; i++)
-		fprintf(out, "language_provider namespace=%s id=%s manifest=%s\n",
-		    providers[i]->namespace, providers[i]->id, providers[i]->manifest);
+		fprintf(out, "language_provider namespace=%s id=%s manifest=%s implementation=%s\n",
+		    providers[i]->namespace, providers[i]->id, providers[i]->manifest,
+		    providers[i]->implementation);
 	fprintf(out, "stage-count %zu\n", graph->stage_len);
 	for (i = 0; i < graph->stage_len; i++)
 		fprintf(out, "stage %s root=%s origin=%s:%d\n", stages[i]->label,
@@ -2506,6 +2518,8 @@ dump_language_provider_json(FILE *out, const struct qstar_language_provider *pro
 	dump_json_string(out, provider->namespace);
 	fputs(",\"id\":", out);
 	dump_json_string(out, provider->id);
+	fputs(",\"api\":", out);
+	dump_json_string(out, provider->api);
 	fputs(",\"version\":", out);
 	dump_json_string(out, provider->version && *provider->version ?
 	    provider->version : "");
@@ -2513,6 +2527,8 @@ dump_language_provider_json(FILE *out, const struct qstar_language_provider *pro
 	dump_json_string(out, provider->dir);
 	fputs(",\"manifest\":", out);
 	dump_json_string(out, provider->manifest);
+	fputs(",\"implementation\":", out);
+	dump_json_string(out, provider->implementation);
 	fputc('}', out);
 }
 

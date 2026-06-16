@@ -107,11 +107,13 @@ struct qstar_toolset {
 };
 
 struct qstar_language_provider {
+	char *api;
 	char *id;
 	char *namespace;
 	char *version;
 	char *dir;
 	char *manifest;
+	char *implementation;
 };
 
 struct qstar_genrule {
@@ -378,8 +380,8 @@ struct qstar_toolset *qstar_graph_add_toolset(struct qstar_graph *graph, const c
 
 /** Project-local language provider activation을 graph registry에 추가한다. */
 struct qstar_language_provider *qstar_graph_add_language_provider(struct qstar_graph *graph,
-    const char *id, const char *namespace, const char *version, const char *dir,
-    const char *manifest);
+    const char *api, const char *id, const char *namespace, const char *version,
+    const char *dir, const char *manifest, const char *implementation);
 
 /** QStar target에 선언된 configs list를 target option field로 병합한다. */
 int qstar_graph_apply_target_configs(struct qstar_graph *graph, struct qstar_target *target);

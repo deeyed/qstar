@@ -6,15 +6,18 @@ artifact bridge가 맡는다.
 
 Generic Language Provider(GLP)는 이 경계를 다음 단계로 확장하는 정식 로드맵이다. 현재
 runtime은 `qstar.use_language("zig")` 같은 provider 활성화와 `lang.zig` 동적 namespace
-gate를 제공한다. 외부 언어 source lowering은 아직 provider backend가 필요하므로, 그 전에는
-`qstar.custom_target`과 `qstar.output(..., {format = "object"})` object artifact bridge로
-연결한다. 자세한 설계는 [GLP Roadmap](../glp_roadmap.md)에 둔다.
+gate를 제공한다. Provider manifest는 `qstar.language_provider { api = "qstar.lang/1",
+... }` schema로 검증되고, `provider.lua` implementation은 제한 sandbox에서 로드된다.
+외부 언어 source lowering은 아직 provider backend가 필요하므로, 그 전에는 `qstar.custom_target`과
+`qstar.output(..., {format = "object"})` object artifact bridge로 연결한다. 자세한 설계는
+[GLP Roadmap](../glp_roadmap.md)에 둔다.
 
 이 wiki는 구현 요약이 아니라 “이것만 보고 QStar project를 작성할 수 있는” 한국어
 사용 설명서다. Root file은 `qstar.lua`, subdir fragment는 `<folder>.qst`, helper
 module은 `<folder>/<folder>.qsm`, 언어별 option은 `lang.*` 아래에 둔다.
 Project-local language provider는 `qstar/languages/<id>/<id>.qsm` manifest를 갖고
-`qstar.use_language("<id>")`로 명시적으로 활성화한다.
+`provider.lua` implementation을 함께 둔 뒤 `qstar.use_language("<id>")`로 명시적으로
+활성화한다.
 
 AI agent가 빠르게 구조를 파악해야 한다면 [AI Index](AI_INDEX.md)를 먼저 읽는다.
 

@@ -181,6 +181,26 @@
     ],
     "description": "Activate a project-local language provider."
   },
+  "Language provider manifest": {
+    "prefix": "qlanguageprovider",
+    "body": [
+      "return qstar.language_provider {",
+      "  api = \"qstar.lang/1\",",
+      "  id = \"${1:zig}\",",
+      "  version = \"${2:0.1.0}\",",
+      "  namespace = \"${1:zig}\",",
+      "  implementation = \"provider.lua\",",
+      "  tools = {",
+      "    compiler = {role = \"${1:zig}.compiler\", required = true},",
+      "  },",
+      "  exports = {",
+      "    tools = \"tools\",",
+      "    options = \"options\",",
+      "  },",
+      "}"
+    ],
+    "description": "Create a provider manifest for qstar/languages/<id>/<id>.qsm."
+  },
   "Module table": {
     "prefix": "qmodule",
     "body": [

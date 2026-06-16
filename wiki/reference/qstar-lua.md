@@ -58,6 +58,12 @@ qstar.staticlib "core" {
 - `qstar.subdir`, `qstar.import_file`, `qstar.import_module`: explicit graph/module loading.
 - `qstar.use_language`: activate a project-local language provider and return its helper table.
 
+Provider-only author APIs:
+
+- `qstar.language_provider`: validate and return a provider manifest; valid only inside provider `.qsm` files.
+- `qstar.provider_tools`: provider implementation helper for returning a provider tool table.
+- `qstar.language_options`: provider implementation helper for returning `lang.<namespace>` option tables.
+
 `qstar.sharedlib`는 macOS platform context에서는 `.dylib`, Linux platform context에서는 `.so`를
 생성한다. sharedlib dependency를 link하는 artifact target은 build-tree 실행을 위해
 macOS `@loader_path`, Linux `$ORIGIN` 기반 rpath를 자동으로 받는다. Windows
@@ -119,7 +125,8 @@ declaration을 포함할 수 있고 once-only로 평가된다.
 `.qsm` 안에서는 target/toolset/project/subdir/import_file 같은 graph declaration이 금지된다.
 
 `qstar.use_language("zig")`는 `qstar/languages/zig/zig.qsm` provider manifest를 읽고,
-반환된 provider table을 돌려준다. 명시적 folder form인
+manifest의 `implementation = "provider.lua"` 파일을 제한 provider sandbox에서 로드한 뒤
+`exports`에 지정된 helper table만 돌려준다. 명시적 folder form인
 `qstar.use_language("qstar/languages/zig")`도 같은 `<dir>/<id>.qsm` 규칙을 쓴다. Provider
 activation 이후에만 `lang.zig` 같은 dynamic language namespace가 허용된다. 같은 provider를
 두 번 활성화하거나 provider activation이 circular chain을 만들면 error다.

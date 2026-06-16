@@ -53,7 +53,9 @@ QStar가 하지 않는 일:
   Objective-C, Rust, Zig, Swift 같은 언어 의미론을 파싱하거나 소유하지 않고 object artifact
   edge만 관리한다.
 - GLP provider는 `qstar/languages/<id>/<id>.qsm` manifest와 `provider.lua` implementation을
-  가진다. 사용자는 `qstar.use_language("<id>")`가 반환한 module value를 통해 `zig.tools`,
+  가진다. Manifest는 `qstar.language_provider { api = "qstar.lang/1", ... }` schema로
+  검증되고, implementation은 제한 provider sandbox에서 로드된다. 사용자는
+  `qstar.use_language("<id>")`가 반환한 exported helper table을 통해 `zig.tools`,
   `zig.options` 같은 helper를 사용한다. `lang.<namespace>`는 provider activation 이후에만
   유효하다. `zig.object` 같은 source helper와 backend lowering은 후속 작업이다.
 - CLI `-B path`는 `qstar.project.build_dir`보다 우선한다.

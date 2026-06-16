@@ -1653,21 +1653,36 @@ if "$qstar" --file "$tmp/config-scalar/qstar.lua" check > "$tmp/target-stdlib.ou
 fi
 contains "$tmp/target-stdlib.err" "unknown target field 'stdlib'"
 
+step "toolset provider namespace corpus" "toolset-check"
 mkdir -p "$tmp/toolset/src" "$tmp/toolset/qstar/languages/zig"
 cat > "$tmp/toolset/src/main.c" <<'EOF'
 int toolset_value(void) { return 0; }
 EOF
 cat > "$tmp/toolset/qstar/languages/zig/zig.qsm" <<'EOF'
-local M = {
-  name = "zig",
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig",
+  version = "0.1",
   namespace = "zig",
+  implementation = "provider.lua",
+  tools = {
+    compiler = {role = "zig.compiler", required = true},
+  },
+  exports = {
+    tools = "tools",
+  },
 }
+EOF
+cat > "$tmp/toolset/qstar/languages/zig/provider.lua" <<'EOF'
+local P = {}
 
-function M.tools(t)
-  return t
+function P.tools(t)
+  return qstar.provider_tools("zig", {
+    compiler = t.compiler,
+  })
 end
 
-return M
+return P
 EOF
 cat > "$tmp/toolset/qstar.lua" <<'EOF'
 local zig = qstar.use_language("zig")
@@ -1893,21 +1908,42 @@ cat > "$tmp/language-provider/src/main.c" <<'EOF'
 int glp_value(void) { return 0; }
 EOF
 cat > "$tmp/language-provider/qstar/languages/zig/zig.qsm" <<'EOF'
-local M = {
-  name = "zig",
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig",
   version = "0.1",
   namespace = "zig",
+  implementation = "provider.lua",
+  tools = {
+    compiler = {role = "zig.compiler", required = true},
+  },
+  options = {
+    optimize = {
+      type = "enum",
+      values = {"Debug", "ReleaseFast"},
+      default = "Debug",
+    },
+  },
+  exports = {
+    tools = "tools",
+    options = "options",
+  },
 }
+EOF
+cat > "$tmp/language-provider/qstar/languages/zig/provider.lua" <<'EOF'
+local P = {}
 
-function M.tools(t)
-  return t
+function P.tools(t)
+  return qstar.provider_tools("zig", {
+    compiler = t.compiler,
+  })
 end
 
-function M.options(t)
-  return t or {}
+function P.options(t)
+  return qstar.language_options("zig", t or {})
 end
 
-return M
+return P
 EOF
 cat > "$tmp/language-provider/qstar.lua" <<'EOF'
 local zig = qstar.use_language("zig")
@@ -1939,18 +1975,34 @@ qstar.staticlib "core" {
 EOF
 "$qstar" --file "$tmp/language-provider/qstar.lua" check > "$tmp/language-provider-check.out" 2> "$tmp/language-provider-check.err"
 "$qstar" --file "$tmp/language-provider/qstar.lua" --dump-graph > "$tmp/language-provider-graph.out" 2> "$tmp/language-provider-graph.err"
-contains "$tmp/language-provider-graph.out" "language_provider namespace=zig id=zig version=0.1 dir=qstar/languages/zig manifest=qstar/languages/zig/zig.qsm"
+contains "$tmp/language-provider-graph.out" "language_provider namespace=zig id=zig api=qstar.lang/1 version=0.1 dir=qstar/languages/zig manifest=qstar/languages/zig/zig.qsm implementation=qstar/languages/zig/provider.lua"
 contains "$tmp/language-provider-graph.out" "tools.zig.compiler [zig]"
 "$qstar" --file "$tmp/language-provider/qstar.lua" list-targets --format json > "$tmp/language-provider-json.out" 2> "$tmp/language-provider-json.err"
 contains "$tmp/language-provider-json.out" "\"language_provider_count\":1"
 contains "$tmp/language-provider-json.out" "\"namespace\":\"zig\""
+contains "$tmp/language-provider-json.out" "\"implementation\":\"qstar/languages/zig/provider.lua\""
 
 mkdir -p "$tmp/language-provider-path/qstar/languages/zig"
 cat > "$tmp/language-provider-path/qstar/languages/zig/zig.qsm" <<'EOF'
-return {
-  name = "zig",
-  namespaces = {"zig"},
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig",
+  version = "0.1",
+  namespace = "zig",
+  implementation = "provider.lua",
+  exports = {
+    options = "options",
+  },
 }
+EOF
+cat > "$tmp/language-provider-path/qstar/languages/zig/provider.lua" <<'EOF'
+local P = {}
+
+function P.options(t)
+  return qstar.language_options("zig", t or {})
+end
+
+return P
 EOF
 cat > "$tmp/language-provider-path/qstar.lua" <<'EOF'
 qstar.use_language("qstar/languages/zig")
@@ -1986,10 +2038,25 @@ contains "$tmp/language-provider-missing.err" "expected provider manifest 'qstar
 
 mkdir -p "$tmp/language-provider-duplicate/qstar/languages/zig"
 cat > "$tmp/language-provider-duplicate/qstar/languages/zig/zig.qsm" <<'EOF'
-return {
-  name = "zig",
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig",
+  version = "0.1",
   namespace = "zig",
+  implementation = "provider.lua",
+  exports = {
+    options = "options",
+  },
 }
+EOF
+cat > "$tmp/language-provider-duplicate/qstar/languages/zig/provider.lua" <<'EOF'
+local P = {}
+
+function P.options(t)
+  return qstar.language_options("zig", t or {})
+end
+
+return P
 EOF
 cat > "$tmp/language-provider-duplicate/qstar.lua" <<'EOF'
 qstar.use_language("zig")
@@ -2003,9 +2070,15 @@ contains "$tmp/language-provider-duplicate.err" "duplicate language provider 'qs
 mkdir -p "$tmp/language-provider-circular/qstar/languages/loop"
 cat > "$tmp/language-provider-circular/qstar/languages/loop/loop.qsm" <<'EOF'
 qstar.use_language("loop")
-return {
-  name = "loop",
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "loop",
+  version = "0.1",
   namespace = "loop",
+  implementation = "provider.lua",
+  exports = {
+    options = "options",
+  },
 }
 EOF
 cat > "$tmp/language-provider-circular/qstar.lua" <<'EOF'
@@ -2018,10 +2091,25 @@ contains "$tmp/language-provider-circular.err" "circular language provider activ
 
 mkdir -p "$tmp/language-provider-module/mods/a" "$tmp/language-provider-module/qstar/languages/zig"
 cat > "$tmp/language-provider-module/qstar/languages/zig/zig.qsm" <<'EOF'
-return {
-  name = "zig",
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig",
+  version = "0.1",
   namespace = "zig",
+  implementation = "provider.lua",
+  exports = {
+    options = "options",
+  },
 }
+EOF
+cat > "$tmp/language-provider-module/qstar/languages/zig/provider.lua" <<'EOF'
+local P = {}
+
+function P.options(t)
+  return qstar.language_options("zig", t or {})
+end
+
+return P
 EOF
 cat > "$tmp/language-provider-module/mods/a/a.qsm" <<'EOF'
 qstar.use_language("zig")
@@ -2034,6 +2122,111 @@ if "$qstar" --file "$tmp/language-provider-module/qstar.lua" check > "$tmp/langu
   fail "ordinary module language provider activation unexpectedly succeeded"
 fi
 contains "$tmp/language-provider-module.err" "qstar.use_language is forbidden inside ordinary .qsm module"
+
+mkdir -p "$tmp/language-provider-raw/qstar/languages/zig"
+cat > "$tmp/language-provider-raw/qstar/languages/zig/zig.qsm" <<'EOF'
+return {
+  name = "zig",
+  namespace = "zig",
+}
+EOF
+cat > "$tmp/language-provider-raw/qstar.lua" <<'EOF'
+qstar.use_language("zig")
+EOF
+if "$qstar" --file "$tmp/language-provider-raw/qstar.lua" check > "$tmp/language-provider-raw.out" 2> "$tmp/language-provider-raw.err"; then
+  fail "raw language provider manifest unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-raw.err" "provider manifest must return qstar.language_provider"
+
+mkdir -p "$tmp/language-provider-bad-api/qstar/languages/zig"
+cat > "$tmp/language-provider-bad-api/qstar/languages/zig/zig.qsm" <<'EOF'
+return qstar.language_provider {
+  api = "qstar.lang/999",
+  id = "zig",
+  version = "0.1",
+  namespace = "zig",
+  implementation = "provider.lua",
+  exports = {
+    options = "options",
+  },
+}
+EOF
+cat > "$tmp/language-provider-bad-api/qstar.lua" <<'EOF'
+qstar.use_language("zig")
+EOF
+if "$qstar" --file "$tmp/language-provider-bad-api/qstar.lua" check > "$tmp/language-provider-bad-api.out" 2> "$tmp/language-provider-bad-api.err"; then
+  fail "bad language provider api unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-bad-api.err" "language provider api must be \"qstar.lang/1\""
+
+mkdir -p "$tmp/language-provider-missing-impl/qstar/languages/zig"
+cat > "$tmp/language-provider-missing-impl/qstar/languages/zig/zig.qsm" <<'EOF'
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig",
+  version = "0.1",
+  namespace = "zig",
+  implementation = "provider.lua",
+  exports = {
+    options = "options",
+  },
+}
+EOF
+cat > "$tmp/language-provider-missing-impl/qstar.lua" <<'EOF'
+qstar.use_language("zig")
+EOF
+if "$qstar" --file "$tmp/language-provider-missing-impl/qstar.lua" check > "$tmp/language-provider-missing-impl.out" 2> "$tmp/language-provider-missing-impl.err"; then
+  fail "missing language provider implementation unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-missing-impl.err" "expected provider implementation 'qstar/languages/zig/provider.lua'"
+
+mkdir -p "$tmp/language-provider-bad-impl/qstar/languages/zig"
+cat > "$tmp/language-provider-bad-impl/qstar/languages/zig/zig.qsm" <<'EOF'
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig",
+  version = "0.1",
+  namespace = "zig",
+  implementation = "provider.lua",
+  exports = {
+    options = "options",
+  },
+}
+EOF
+cat > "$tmp/language-provider-bad-impl/qstar/languages/zig/provider.lua" <<'EOF'
+return true
+EOF
+cat > "$tmp/language-provider-bad-impl/qstar.lua" <<'EOF'
+qstar.use_language("zig")
+EOF
+if "$qstar" --file "$tmp/language-provider-bad-impl/qstar.lua" check > "$tmp/language-provider-bad-impl.out" 2> "$tmp/language-provider-bad-impl.err"; then
+  fail "bad language provider implementation unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-bad-impl.err" "provider implementation 'qstar/languages/zig/provider.lua' must return a table"
+
+mkdir -p "$tmp/language-provider-export/qstar/languages/zig"
+cat > "$tmp/language-provider-export/qstar/languages/zig/zig.qsm" <<'EOF'
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "zig",
+  version = "0.1",
+  namespace = "zig",
+  implementation = "provider.lua",
+  exports = {
+    options = "missing_options",
+  },
+}
+EOF
+cat > "$tmp/language-provider-export/qstar/languages/zig/provider.lua" <<'EOF'
+return {}
+EOF
+cat > "$tmp/language-provider-export/qstar.lua" <<'EOF'
+qstar.use_language("zig")
+EOF
+if "$qstar" --file "$tmp/language-provider-export/qstar.lua" check > "$tmp/language-provider-export.out" 2> "$tmp/language-provider-export.err"; then
+  fail "missing language provider export unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-export.err" "export 'options' references missing implementation field 'missing_options'"
 
 mkdir -p "$tmp/toolset-missing"
 cat > "$tmp/toolset-missing/qstar.lua" <<'EOF'
