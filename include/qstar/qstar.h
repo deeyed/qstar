@@ -106,6 +106,14 @@ struct qstar_toolset {
 	char *allow_absolute_tools;
 };
 
+struct qstar_language_provider {
+	char *id;
+	char *namespace;
+	char *version;
+	char *dir;
+	char *manifest;
+};
+
 struct qstar_genrule {
 	char *label;
 	char *name;
@@ -250,6 +258,9 @@ struct qstar_graph {
 	struct qstar_toolset *toolsets;
 	size_t toolset_len;
 	size_t toolset_cap;
+	struct qstar_language_provider *language_providers;
+	size_t language_provider_len;
+	size_t language_provider_cap;
 	char *package_root;
 	struct qstar_package_alias *packages;
 	size_t package_len;
@@ -365,6 +376,11 @@ struct qstar_config *qstar_graph_add_config(struct qstar_graph *graph, const cha
 struct qstar_toolset *qstar_graph_add_toolset(struct qstar_graph *graph, const char *label,
     const char *name, const char *fragment_dir, const char *origin_file, int origin_line);
 
+/** Project-local language provider activation을 graph registry에 추가한다. */
+struct qstar_language_provider *qstar_graph_add_language_provider(struct qstar_graph *graph,
+    const char *id, const char *namespace, const char *version, const char *dir,
+    const char *manifest);
+
 /** QStar target에 선언된 configs list를 target option field로 병합한다. */
 int qstar_graph_apply_target_configs(struct qstar_graph *graph, struct qstar_target *target);
 
@@ -430,6 +446,18 @@ const struct qstar_language_provider_info *qstar_language_provider_lookup(
 
 /** language provider namespace가 public lang table에서 preloaded되어 있는지 확인한다. */
 int qstar_language_provider_is_preloaded(const char *namespace);
+
+/** graph-local language provider namespace가 qstar.use_language로 활성화됐는지 확인한다. */
+const struct qstar_language_provider *qstar_graph_find_language_provider(
+    const struct qstar_graph *graph, const char *namespace);
+
+/** qstar.use_language manifest path가 이미 활성화됐는지 확인한다. */
+const struct qstar_language_provider *qstar_graph_find_language_provider_manifest(
+    const struct qstar_graph *graph, const char *manifest);
+
+/** public lang table에서 preloaded 또는 graph-local activated namespace인지 확인한다. */
+int qstar_graph_language_provider_is_available(const struct qstar_graph *graph,
+    const char *namespace);
 
 /** source kind가 compile action을 요구하는지 확인한다. */
 int qstar_source_requires_compile(const struct qstar_source_info *source);

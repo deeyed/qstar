@@ -175,6 +175,17 @@ free_toolset(struct qstar_toolset *toolset)
 	free(toolset->allow_absolute_tools);
 }
 
+/** activated language provider entry가 소유한 문자열을 해제한다. */
+static void
+free_language_provider(struct qstar_language_provider *provider)
+{
+	free(provider->id);
+	free(provider->namespace);
+	free(provider->version);
+	free(provider->dir);
+	free(provider->manifest);
+}
+
 /** generated action skeleton이 소유한 문자열과 list를 해제한다. */
 static void
 free_genrule(struct qstar_genrule *genrule)
@@ -307,6 +318,8 @@ qstar_graph_free(struct qstar_graph *graph)
 		free_config(&graph->configs[i]);
 	for (i = 0; i < graph->toolset_len; i++)
 		free_toolset(&graph->toolsets[i]);
+	for (i = 0; i < graph->language_provider_len; i++)
+		free_language_provider(&graph->language_providers[i]);
 	for (i = 0; i < graph->genrule_len; i++)
 		free_genrule(&graph->genrules[i]);
 	for (i = 0; i < graph->stage_len; i++)
@@ -327,6 +340,7 @@ qstar_graph_free(struct qstar_graph *graph)
 	free(graph->targets);
 	free(graph->configs);
 	free(graph->toolsets);
+	free(graph->language_providers);
 	free(graph->packages);
 	free(graph->genrules);
 	free(graph->stages);
@@ -652,6 +666,45 @@ qstar_graph_find_toolset(const struct qstar_graph *graph, const char *label)
 			return &graph->toolsets[i];
 	}
 	return NULL;
+}
+
+const struct qstar_language_provider *
+qstar_graph_find_language_provider(const struct qstar_graph *graph, const char *namespace)
+{
+	size_t i;
+
+	if (!graph || !namespace || !*namespace)
+		return NULL;
+	for (i = 0; i < graph->language_provider_len; i++) {
+		if (graph->language_providers[i].namespace &&
+		    strcmp(graph->language_providers[i].namespace, namespace) == 0)
+			return &graph->language_providers[i];
+	}
+	return NULL;
+}
+
+const struct qstar_language_provider *
+qstar_graph_find_language_provider_manifest(const struct qstar_graph *graph,
+    const char *manifest)
+{
+	size_t i;
+
+	if (!graph || !manifest || !*manifest)
+		return NULL;
+	for (i = 0; i < graph->language_provider_len; i++) {
+		if (graph->language_providers[i].manifest &&
+		    strcmp(graph->language_providers[i].manifest, manifest) == 0)
+			return &graph->language_providers[i];
+	}
+	return NULL;
+}
+
+int
+qstar_graph_language_provider_is_available(const struct qstar_graph *graph,
+    const char *namespace)
+{
+	return qstar_language_provider_is_preloaded(namespace) ||
+	    qstar_graph_find_language_provider(graph, namespace) != NULL;
 }
 
 /** toolset에서 compile/archive/link role argv-vector를 찾는다. */
@@ -1066,6 +1119,59 @@ qstar_graph_add_toolset(struct qstar_graph *graph, const char *label, const char
 		return NULL;
 	}
 	return toolset;
+}
+
+struct qstar_language_provider *
+qstar_graph_add_language_provider(struct qstar_graph *graph, const char *id,
+    const char *namespace, const char *version, const char *dir, const char *manifest)
+{
+	struct qstar_language_provider *providers, *provider;
+	size_t cap;
+
+	if (!id || !*id || !namespace || !*namespace || !dir || !*dir ||
+	    !manifest || !*manifest) {
+		qstar_set_error(graph, "qstar: invalid language provider manifest");
+		return NULL;
+	}
+	if (qstar_language_provider_is_preloaded(namespace)) {
+		qstar_set_error(graph,
+		    "qstar: language namespace lang.%s is preloaded by QStar", namespace);
+		return NULL;
+	}
+	if (qstar_graph_find_language_provider(graph, namespace)) {
+		qstar_set_error(graph,
+		    "qstar: duplicate language provider namespace lang.%s", namespace);
+		return NULL;
+	}
+	if (qstar_graph_find_language_provider_manifest(graph, manifest)) {
+		qstar_set_error(graph, "qstar: duplicate language provider '%s'",
+		    manifest);
+		return NULL;
+	}
+	if (graph->language_provider_len == graph->language_provider_cap) {
+		cap = graph->language_provider_cap ? graph->language_provider_cap * 2 : 4;
+		providers = realloc(graph->language_providers,
+		    cap * sizeof(graph->language_providers[0]));
+		if (!providers) {
+			qstar_set_error(graph, "qstar: out of memory");
+			return NULL;
+		}
+		graph->language_providers = providers;
+		graph->language_provider_cap = cap;
+	}
+	provider = &graph->language_providers[graph->language_provider_len++];
+	memset(provider, 0, sizeof(*provider));
+	provider->id = qstar_strdup(id);
+	provider->namespace = qstar_strdup(namespace);
+	provider->version = qstar_strdup(version ? version : "");
+	provider->dir = qstar_strdup(dir);
+	provider->manifest = qstar_strdup(manifest);
+	if (!provider->id || !provider->namespace || !provider->version ||
+	    !provider->dir || !provider->manifest) {
+		qstar_set_error(graph, "qstar: out of memory");
+		return NULL;
+	}
+	return provider;
 }
 
 /** config label로 reusable config declaration을 찾는다. */
@@ -1890,6 +1996,18 @@ dump_toolset(const struct qstar_toolset *toolset, FILE *out)
 	fputc('\n', out);
 }
 
+/** activated language provider registry entry를 Graph IR dump 형식으로 출력한다. */
+static void
+dump_language_provider(const struct qstar_language_provider *provider, FILE *out)
+{
+	fprintf(out, "language_provider namespace=%s id=%s version=%s dir=%s manifest=%s\n",
+	    provider->namespace && *provider->namespace ? provider->namespace : "<unknown>",
+	    provider->id && *provider->id ? provider->id : "<unknown>",
+	    provider->version && *provider->version ? provider->version : "<unspecified>",
+	    provider->dir && *provider->dir ? provider->dir : "<unknown>",
+	    provider->manifest && *provider->manifest ? provider->manifest : "<unknown>");
+}
+
 /** QStar Graph IR를 deterministic explain text로 출력한다. */
 int
 qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
@@ -1948,6 +2066,8 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 	dump_list(out, &graph->build_context.tool_overrides);
 	fputc('\n', out);
 	dump_package_aliases(out, graph);
+	for (i = 0; i < graph->language_provider_len; i++)
+		dump_language_provider(&graph->language_providers[i], out);
 	for (i = 0; i < graph->toolset_len; i++)
 		dump_toolset(&graph->toolsets[i], out);
 	for (i = 0; i < graph->config_len; i++)
@@ -2002,6 +2122,24 @@ sort_toolset_ptrs(const struct qstar_toolset **toolsets, size_t n)
 			j--;
 		}
 		toolsets[j] = v;
+	}
+}
+
+/** language provider pointer list를 namespace 순서로 정렬한다. */
+static void
+sort_language_provider_ptrs(const struct qstar_language_provider **providers, size_t n)
+{
+	size_t i, j;
+	const struct qstar_language_provider *v;
+
+	for (i = 1; i < n; i++) {
+		v = providers[i];
+		j = i;
+		while (j > 0 && strcmp(providers[j - 1]->namespace, v->namespace) > 0) {
+			providers[j] = providers[j - 1];
+			j--;
+		}
+		providers[j] = v;
 	}
 }
 
@@ -2097,6 +2235,7 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 	const struct qstar_target **targets;
 	const struct qstar_config **configs;
 	const struct qstar_toolset **toolsets;
+	const struct qstar_language_provider **providers;
 	const struct qstar_stage **stages;
 	const struct qstar_target_family **families;
 	size_t i;
@@ -2105,12 +2244,15 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 	configs = malloc((graph->config_len ? graph->config_len : 1) * sizeof(configs[0]));
 	toolsets = malloc((graph->toolset_len ? graph->toolset_len : 1) *
 	    sizeof(toolsets[0]));
+	providers = malloc((graph->language_provider_len ? graph->language_provider_len : 1) *
+	    sizeof(providers[0]));
 	stages = malloc((graph->stage_len ? graph->stage_len : 1) * sizeof(stages[0]));
 	families = malloc((graph->family_len ? graph->family_len : 1) * sizeof(families[0]));
-	if (!targets || !configs || !toolsets || !stages || !families) {
+	if (!targets || !configs || !toolsets || !providers || !stages || !families) {
 		free(targets);
 		free(configs);
 		free(toolsets);
+		free(providers);
 		free(stages);
 		free(families);
 		return -1;
@@ -2121,6 +2263,8 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 		configs[i] = &graph->configs[i];
 	for (i = 0; i < graph->toolset_len; i++)
 		toolsets[i] = &graph->toolsets[i];
+	for (i = 0; i < graph->language_provider_len; i++)
+		providers[i] = &graph->language_providers[i];
 	for (i = 0; i < graph->stage_len; i++)
 		stages[i] = &graph->stages[i];
 	for (i = 0; i < graph->family_len; i++)
@@ -2128,6 +2272,7 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 	sort_target_ptrs(targets, graph->len);
 	sort_config_ptrs(configs, graph->config_len);
 	sort_toolset_ptrs(toolsets, graph->toolset_len);
+	sort_language_provider_ptrs(providers, graph->language_provider_len);
 	sort_stage_ptrs(stages, graph->stage_len);
 	sort_family_ptrs(families, graph->family_len);
 	fputs("qstar targets v1\n", out);
@@ -2150,6 +2295,10 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 		    toolsets[i]->origin_file && *toolsets[i]->origin_file ?
 		    toolsets[i]->origin_file : "<unknown>",
 		    toolsets[i]->origin_line);
+	fprintf(out, "language-provider-count %zu\n", graph->language_provider_len);
+	for (i = 0; i < graph->language_provider_len; i++)
+		fprintf(out, "language_provider namespace=%s id=%s manifest=%s\n",
+		    providers[i]->namespace, providers[i]->id, providers[i]->manifest);
 	fprintf(out, "stage-count %zu\n", graph->stage_len);
 	for (i = 0; i < graph->stage_len; i++)
 		fprintf(out, "stage %s root=%s origin=%s:%d\n", stages[i]->label,
@@ -2167,6 +2316,7 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 	free(targets);
 	free(configs);
 	free(toolsets);
+	free(providers);
 	free(stages);
 	free(families);
 	return 0;
@@ -2348,6 +2498,24 @@ dump_toolset_json(FILE *out, const struct qstar_toolset *toolset)
 	fputc('}', out);
 }
 
+/** activated language provider 하나를 machine-readable JSON record로 출력한다. */
+static void
+dump_language_provider_json(FILE *out, const struct qstar_language_provider *provider)
+{
+	fputs("{\"namespace\":", out);
+	dump_json_string(out, provider->namespace);
+	fputs(",\"id\":", out);
+	dump_json_string(out, provider->id);
+	fputs(",\"version\":", out);
+	dump_json_string(out, provider->version && *provider->version ?
+	    provider->version : "");
+	fputs(",\"dir\":", out);
+	dump_json_string(out, provider->dir);
+	fputs(",\"manifest\":", out);
+	dump_json_string(out, provider->manifest);
+	fputc('}', out);
+}
+
 /** generated action 하나를 machine-readable JSON record로 출력한다. */
 static void
 dump_genrule_json(FILE *out, const struct qstar_genrule *genrule)
@@ -2460,6 +2628,7 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	const struct qstar_target **targets;
 	const struct qstar_config **configs;
 	const struct qstar_toolset **toolsets;
+	const struct qstar_language_provider **providers;
 	const struct qstar_genrule **genrules;
 	const struct qstar_stage **stages;
 	const struct qstar_target_family **families;
@@ -2469,13 +2638,17 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	configs = malloc((graph->config_len ? graph->config_len : 1) * sizeof(configs[0]));
 	toolsets = malloc((graph->toolset_len ? graph->toolset_len : 1) *
 	    sizeof(toolsets[0]));
+	providers = malloc((graph->language_provider_len ? graph->language_provider_len : 1) *
+	    sizeof(providers[0]));
 	genrules = malloc((graph->genrule_len ? graph->genrule_len : 1) * sizeof(genrules[0]));
 	stages = malloc((graph->stage_len ? graph->stage_len : 1) * sizeof(stages[0]));
 	families = malloc((graph->family_len ? graph->family_len : 1) * sizeof(families[0]));
-	if (!targets || !configs || !toolsets || !genrules || !stages || !families) {
+	if (!targets || !configs || !toolsets || !providers || !genrules || !stages ||
+	    !families) {
 		free(targets);
 		free(configs);
 		free(toolsets);
+		free(providers);
 		free(genrules);
 		free(stages);
 		free(families);
@@ -2487,6 +2660,8 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 		configs[i] = &graph->configs[i];
 	for (i = 0; i < graph->toolset_len; i++)
 		toolsets[i] = &graph->toolsets[i];
+	for (i = 0; i < graph->language_provider_len; i++)
+		providers[i] = &graph->language_providers[i];
 	for (i = 0; i < graph->genrule_len; i++)
 		genrules[i] = &graph->genrules[i];
 	for (i = 0; i < graph->stage_len; i++)
@@ -2496,6 +2671,7 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	sort_target_ptrs(targets, graph->len);
 	sort_config_ptrs(configs, graph->config_len);
 	sort_toolset_ptrs(toolsets, graph->toolset_len);
+	sort_language_provider_ptrs(providers, graph->language_provider_len);
 	sort_genrule_ptrs(genrules, graph->genrule_len);
 	sort_stage_ptrs(stages, graph->stage_len);
 	sort_family_ptrs(families, graph->family_len);
@@ -2523,9 +2699,11 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	fputc('}', out);
 	fprintf(out,
 	    ",\"target_count\":%zu,\"config_count\":%zu,\"toolset_count\":%zu,"
+	    "\"language_provider_count\":%zu,"
 	    "\"generated_action_count\":%zu,\"stage_count\":%zu,\"target_family_count\":%zu",
-	    graph->len, graph->config_len, graph->toolset_len, graph->genrule_len,
-	    graph->stage_len, graph->family_len);
+	    graph->len, graph->config_len, graph->toolset_len,
+	    graph->language_provider_len, graph->genrule_len, graph->stage_len,
+	    graph->family_len);
 	fputs(",\"targets\":[", out);
 	for (i = 0; i < graph->len; i++) {
 		if (i)
@@ -2543,6 +2721,12 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 		if (i)
 			fputc(',', out);
 		dump_toolset_json(out, toolsets[i]);
+	}
+	fputs("],\"language_providers\":[", out);
+	for (i = 0; i < graph->language_provider_len; i++) {
+		if (i)
+			fputc(',', out);
+		dump_language_provider_json(out, providers[i]);
 	}
 	fputs("],\"generated_actions\":[", out);
 	for (i = 0; i < graph->genrule_len; i++) {
@@ -2566,6 +2750,7 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	free(targets);
 	free(configs);
 	free(toolsets);
+	free(providers);
 	free(genrules);
 	free(stages);
 	free(families);

@@ -6,9 +6,10 @@ domain-specific 의미를 해석하지 않는다. 그런 값이 필요하면 `qs
 `compile_options`, `link_options`, `link_inputs`에 그대로 작성한다.
 
 현재 runtime의 direct core role은 `archive`, `link`다. Compiler role은 `c`, `cxx`,
-`asm` 같은 provider namespace table 아래에 둔다. 장기 GLP 문법은
+`asm` 같은 provider namespace table 아래에 둔다. 외부 provider는
+`qstar.use_language("zig")`로 활성화한 뒤
 `tools.zig = zig.tools { compiler = qstar.cli {"zig"} }`처럼 provider가 자기 tool role을
-정의하는 구조다.
+정의하는 구조를 사용한다.
 
 ## 최소 예제
 
@@ -160,9 +161,9 @@ qstar.toolset "bad" {
 Direct tool role은 `archive`, `link`만 허용된다. Compiler tool은
 `tools.c.compiler`처럼 built-in 또는 external provider namespace table 아래에 둔다.
 
-## GLP 목표 문법
+## GLP Provider Tool Syntax
 
-GLP가 구현되면 toolset은 provider namespace를 직접 받을 수 있어야 한다.
+Provider activation 후 toolset은 provider namespace table을 직접 받을 수 있다.
 
 ```lua
 local zig = qstar.use_language("zig")
@@ -178,9 +179,10 @@ qstar.toolset "host" {
 }
 ```
 
-이 문법에서 `zig`는 문자열 key가 아니라 `qstar.use_language("zig")`가 반환한 provider
-module value와 연결된다. 내부 role은 `zig.compiler`처럼 저장되지만, 사용자는 provider
-helper를 통해 tool을 선언한다.
+이 문법에서 `zig`는 문자열 key이면서 `qstar.use_language("zig")`가 반환한 provider module
+value와 authoring convention으로 연결된다. 내부 role은 `zig.compiler`처럼 저장되지만,
+사용자는 provider helper를 통해 tool을 선언한다. 현재 runtime은 nested provider tool table을
+role map으로 저장하고, provider-specific source lowering은 후속 GLP backend 작업에서 붙는다.
 
 기존 `tools.c = qstar.cli {...}`, `tools.cxx = qstar.cli {...}`,
 `tools.asm = qstar.cli {...}` 직접 문법은 제거됐다. C/C++/ASM 자체는 사라지지 않고
@@ -193,5 +195,6 @@ built-in provider namespace로 `tools.c.compiler`, `tools.cxx.compiler`,
 - `qstar: unknown toolset field`
 - `qstar: toolset '...' requires tools table`
 - `qstar: unknown toolset tool role`
+- `qstar: unknown toolset provider namespace tools.zig`
 - `qstar: target '...' references unknown toolset`
 - `external tool is not allowed by toolset policy`

@@ -32,6 +32,7 @@ struct qstar_lsp_hover_entry {
 static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 	{ "qstar.project", "Declare package-root project metadata, build_dir, generated_dir, and compile database policy." },
 	{ "qstar.toolset", "Declare a tool role bundle with core archive/link roles and provider namespace tool tables." },
+	{ "qstar.use_language", "Activate a project-local or standard language provider and return its helper table." },
 	{ "qstar.config", "Declare a reusable target option bundle for configs = { ... }." },
 	{ "qstar.executable", "Create an executable target." },
 	{ "qstar.staticlib", "Create a static library target." },
@@ -806,16 +807,17 @@ line_prefix_contains_call(const char *row, size_t end, const char *call)
 	return 0;
 }
 
-/** import_file/import_module token을 definition 대상 파일로 해석한다. */
+/** import_file/import_module/use_language token을 definition 대상 파일로 해석한다. */
 static int
 resolve_import_definition(struct qstar_lsp_doc *doc, int line, int character,
     const char *token, char *dst, size_t dstlen)
 {
 	char root_file[QSTAR_PATH_MAX], root_dir[QSTAR_PATH_MAX], rel[QSTAR_PATH_MAX];
+	char lang_dir[QSTAR_PATH_MAX];
 	const char *row, *base;
 	size_t len, start;
 	char *range_token;
-	int is_file, is_module;
+	int is_file, is_module, is_language;
 
 	if (!doc || !token || !*token || !qstar_path_is_package_relative(token))
 		return 0;
@@ -826,7 +828,8 @@ resolve_import_definition(struct qstar_lsp_doc *doc, int line, int character,
 		return 0;
 	is_file = line_prefix_contains_call(row, start, "qstar.import_file");
 	is_module = line_prefix_contains_call(row, start, "qstar.import_module");
-	if (!is_file && !is_module)
+	is_language = line_prefix_contains_call(row, start, "qstar.use_language");
+	if (!is_file && !is_module && !is_language)
 		return 0;
 	if (find_root_file(doc->path, root_file, sizeof(root_file)) < 0 ||
 	    qstar_dirname(root_file, root_dir, sizeof(root_dir)) < 0)
@@ -836,7 +839,7 @@ resolve_import_definition(struct qstar_lsp_doc *doc, int line, int character,
 			return 0;
 		if (snprintf(rel, sizeof(rel), "%s", token) >= (int)sizeof(rel))
 			return -1;
-	} else {
+	} else if (is_module) {
 		if (lsp_path_has_suffix(token, ".qst") ||
 		    lsp_path_has_suffix(token, ".qsm") || strcmp(token, "qstar.lua") == 0)
 			return 0;
@@ -844,6 +847,23 @@ resolve_import_definition(struct qstar_lsp_doc *doc, int line, int character,
 		base = base ? base + 1 : token;
 		if (!*base || snprintf(rel, sizeof(rel), "%s/%s.qsm", token, base) >=
 		    (int)sizeof(rel))
+			return -1;
+	} else {
+		if (lsp_path_has_suffix(token, ".qst") ||
+		    lsp_path_has_suffix(token, ".qsm") || strcmp(token, "qstar.lua") == 0)
+			return 0;
+		if (strchr(token, '/')) {
+			if (snprintf(lang_dir, sizeof(lang_dir), "%s", token) >=
+			    (int)sizeof(lang_dir))
+				return -1;
+		} else if (snprintf(lang_dir, sizeof(lang_dir), "qstar/languages/%s",
+		    token) >= (int)sizeof(lang_dir)) {
+			return -1;
+		}
+		base = strrchr(lang_dir, '/');
+		base = base ? base + 1 : lang_dir;
+		if (!*base || snprintf(rel, sizeof(rel), "%s/%s.qsm", lang_dir,
+		    base) >= (int)sizeof(rel))
 			return -1;
 	}
 	if (qstar_path_join(root_dir, rel, dst, dstlen) < 0)

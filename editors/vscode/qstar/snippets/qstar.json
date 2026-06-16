@@ -31,9 +31,9 @@
     "body": [
       "qstar.toolset \"${1:host}\" {",
       "  tools = {",
-      "    c = qstar.cli {\"${2:cc}\"},",
-      "    cxx = qstar.cli {\"${3:c++}\"},",
-      "    asm = qstar.cli {\"${4:cc}\"},",
+      "    c = { compiler = qstar.cli {\"${2:cc}\"} },",
+      "    cxx = { compiler = qstar.cli {\"${3:c++}\"} },",
+      "    asm = { compiler = qstar.cli {\"${4:cc}\"} },",
       "    archive = qstar.cli {\"${5:ar}\"},",
       "    link = qstar.cli {\"${6:cc}\"},",
       "  },",
@@ -173,6 +173,13 @@
       "local ${1:mod} = qstar.import_module(\"${2:qstar/modules/common}\")"
     ],
     "description": "Import a package-relative .qsm helper module folder."
+  },
+  "Use language provider": {
+    "prefix": "quselanguage",
+    "body": [
+      "local ${1:zig} = qstar.use_language(\"${2:zig}\")"
+    ],
+    "description": "Activate a project-local language provider."
   },
   "Module table": {
     "prefix": "qmodule",

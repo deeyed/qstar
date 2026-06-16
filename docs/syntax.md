@@ -21,6 +21,15 @@ local paths = qstar.import_module("qstar/modules/paths")
 qstar.subdir("src")
 ```
 
+```lua
+local zig = qstar.use_language("zig")
+-- Resolves qstar/languages/zig/zig.qsm.
+-- qstar.use_language("qstar/languages/zig") is the explicit folder form.
+```
+
+`qstar.use_language` activates a provider namespace before `lang.<namespace>`
+is accepted. Built-in `lang.c`, `lang.cxx`, and `lang.asm` are preloaded.
+
 ## Toolsets
 
 ```lua

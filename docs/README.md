@@ -8,6 +8,7 @@ Current DSL surface:
 
 - `qstar.project`
 - `qstar.toolset`
+- `qstar.use_language`
 - `qstar.config`
 - artifact targets: `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`,
   `qstar.test`
@@ -21,9 +22,12 @@ Current DSL surface:
 
 Generic Language Provider (GLP) note: the current runtime preloads built-in
 `c`, `cxx`, and `asm` provider namespaces for C/C++/ASM source handling.
-External language providers are still roadmap work; unsupported languages use
-the object artifact bridge. The formal roadmap for making language providers a
-first-class, language-neutral extension surface is tracked in
+`qstar.use_language("id")` now activates project-local provider manifests at
+`qstar/languages/<id>/<id>.qsm`, or an explicit folder form such as
+`qstar.use_language("qstar/languages/zig")`. Full external source lowering is
+still roadmap work, so unsupported source languages use the object artifact
+bridge until their provider backend exists. The formal roadmap for making
+language providers a first-class, language-neutral extension surface is tracked in
 `../glp_roadmap.md`.
 
 Important documents:

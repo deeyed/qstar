@@ -56,6 +56,7 @@ qstar.staticlib "core" {
 - `qstar.stage`: copy-only package/stage tree.
 - `qstar.target_family`: shared-source lint grouping.
 - `qstar.subdir`, `qstar.import_file`, `qstar.import_module`: explicit graph/module loading.
+- `qstar.use_language`: activate a project-local language provider and return its helper table.
 
 `qstar.sharedlib`는 macOS platform context에서는 `.dylib`, Linux platform context에서는 `.so`를
 생성한다. sharedlib dependency를 link하는 artifact target은 build-tree 실행을 위해
@@ -116,6 +117,12 @@ declaration을 포함할 수 있고 once-only로 평가된다.
 `qstar.import_module`은 folder path만 받는다. `qstar.import_module("qstar/modules/paths")`는
 `qstar/modules/paths/paths.qsm`을 읽고, module은 반드시 table을 반환해야 한다.
 `.qsm` 안에서는 target/toolset/project/subdir/import_file 같은 graph declaration이 금지된다.
+
+`qstar.use_language("zig")`는 `qstar/languages/zig/zig.qsm` provider manifest를 읽고,
+반환된 provider table을 돌려준다. 명시적 folder form인
+`qstar.use_language("qstar/languages/zig")`도 같은 `<dir>/<id>.qsm` 규칙을 쓴다. Provider
+activation 이후에만 `lang.zig` 같은 dynamic language namespace가 허용된다. 같은 provider를
+두 번 활성화하거나 provider activation이 circular chain을 만들면 error다.
 
 ```lua
 local M = {}

@@ -1653,17 +1653,31 @@ if "$qstar" --file "$tmp/config-scalar/qstar.lua" check > "$tmp/target-stdlib.ou
 fi
 contains "$tmp/target-stdlib.err" "unknown target field 'stdlib'"
 
-mkdir -p "$tmp/toolset/src"
+mkdir -p "$tmp/toolset/src" "$tmp/toolset/qstar/languages/zig"
 cat > "$tmp/toolset/src/main.c" <<'EOF'
 int toolset_value(void) { return 0; }
 EOF
+cat > "$tmp/toolset/qstar/languages/zig/zig.qsm" <<'EOF'
+local M = {
+  name = "zig",
+  namespace = "zig",
+}
+
+function M.tools(t)
+  return t
+end
+
+return M
+EOF
 cat > "$tmp/toolset/qstar.lua" <<'EOF'
+local zig = qstar.use_language("zig")
+
 qstar.toolset "clang_like" {
   tools = {
     c = { compiler = qstar.cli {"clang"} },
     cxx = { compiler = qstar.cli {"clang++"} },
     asm = { compiler = qstar.cli {"clang"} },
-    zig = { compiler = qstar.cli {"zig"} },
+    zig = zig.tools { compiler = qstar.cli {"zig"} },
     archive = qstar.cli {"llvm-ar"},
     link = qstar.cli {"clang"},
   },
@@ -1848,6 +1862,19 @@ if "$qstar" --file "$tmp/toolset-bad-role/qstar.lua" check > "$tmp/toolset-bad-r
 fi
 contains "$tmp/toolset-bad-role.err" "unknown direct tool role 'ar'"
 
+mkdir -p "$tmp/toolset-unactivated-provider"
+cat > "$tmp/toolset-unactivated-provider/qstar.lua" <<'EOF'
+qstar.toolset "bad" {
+  tools = {
+    zig = { compiler = qstar.cli {"zig"} },
+  },
+}
+EOF
+if "$qstar" --file "$tmp/toolset-unactivated-provider/qstar.lua" check > "$tmp/toolset-unactivated-provider.out" 2> "$tmp/toolset-unactivated-provider.err"; then
+  fail "unactivated toolset provider namespace unexpectedly succeeded"
+fi
+contains "$tmp/toolset-unactivated-provider.err" "unknown toolset provider namespace tools.zig"
+
 mkdir -p "$tmp/toolset-direct-compiler-role"
 cat > "$tmp/toolset-direct-compiler-role/qstar.lua" <<'EOF'
 qstar.toolset "bad" {
@@ -1860,6 +1887,153 @@ if "$qstar" --file "$tmp/toolset-direct-compiler-role/qstar.lua" check > "$tmp/t
   fail "direct compiler toolset role unexpectedly succeeded"
 fi
 contains "$tmp/toolset-direct-compiler-role.err" "tools.c direct compiler role is removed"
+
+mkdir -p "$tmp/language-provider/src" "$tmp/language-provider/qstar/languages/zig"
+cat > "$tmp/language-provider/src/main.c" <<'EOF'
+int glp_value(void) { return 0; }
+EOF
+cat > "$tmp/language-provider/qstar/languages/zig/zig.qsm" <<'EOF'
+local M = {
+  name = "zig",
+  version = "0.1",
+  namespace = "zig",
+}
+
+function M.tools(t)
+  return t
+end
+
+function M.options(t)
+  return t or {}
+end
+
+return M
+EOF
+cat > "$tmp/language-provider/qstar.lua" <<'EOF'
+local zig = qstar.use_language("zig")
+
+qstar.toolset "host" {
+  tools = {
+    c = { compiler = qstar.cli {"cc"} },
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+    zig = zig.tools {
+      compiler = qstar.cli {"zig"},
+    },
+  },
+}
+
+qstar.config "debug" {
+  toolset = "//:host",
+  lang = {
+    zig = zig.options {
+      optimize = "Debug",
+    },
+  },
+}
+
+qstar.staticlib "core" {
+  configs = {"//:debug"},
+  sources = {"src/main.c"},
+}
+EOF
+"$qstar" --file "$tmp/language-provider/qstar.lua" check > "$tmp/language-provider-check.out" 2> "$tmp/language-provider-check.err"
+"$qstar" --file "$tmp/language-provider/qstar.lua" --dump-graph > "$tmp/language-provider-graph.out" 2> "$tmp/language-provider-graph.err"
+contains "$tmp/language-provider-graph.out" "language_provider namespace=zig id=zig version=0.1 dir=qstar/languages/zig manifest=qstar/languages/zig/zig.qsm"
+contains "$tmp/language-provider-graph.out" "tools.zig.compiler [zig]"
+"$qstar" --file "$tmp/language-provider/qstar.lua" list-targets --format json > "$tmp/language-provider-json.out" 2> "$tmp/language-provider-json.err"
+contains "$tmp/language-provider-json.out" "\"language_provider_count\":1"
+contains "$tmp/language-provider-json.out" "\"namespace\":\"zig\""
+
+mkdir -p "$tmp/language-provider-path/qstar/languages/zig"
+cat > "$tmp/language-provider-path/qstar/languages/zig/zig.qsm" <<'EOF'
+return {
+  name = "zig",
+  namespaces = {"zig"},
+}
+EOF
+cat > "$tmp/language-provider-path/qstar.lua" <<'EOF'
+qstar.use_language("qstar/languages/zig")
+qstar.config "debug" {
+  lang = {
+    zig = {},
+  },
+}
+EOF
+"$qstar" --file "$tmp/language-provider-path/qstar.lua" check > "$tmp/language-provider-path.out" 2> "$tmp/language-provider-path.err"
+
+mkdir -p "$tmp/language-provider-unknown"
+cat > "$tmp/language-provider-unknown/qstar.lua" <<'EOF'
+qstar.config "bad" {
+  lang = {
+    zig = {},
+  },
+}
+EOF
+if "$qstar" --file "$tmp/language-provider-unknown/qstar.lua" check > "$tmp/language-provider-unknown.out" 2> "$tmp/language-provider-unknown.err"; then
+  fail "unactivated language namespace unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-unknown.err" "unknown language namespace lang.zig"
+
+mkdir -p "$tmp/language-provider-missing"
+cat > "$tmp/language-provider-missing/qstar.lua" <<'EOF'
+qstar.use_language("zig")
+EOF
+if "$qstar" --file "$tmp/language-provider-missing/qstar.lua" check > "$tmp/language-provider-missing.out" 2> "$tmp/language-provider-missing.err"; then
+  fail "missing language provider unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-missing.err" "expected provider manifest 'qstar/languages/zig/zig.qsm'"
+
+mkdir -p "$tmp/language-provider-duplicate/qstar/languages/zig"
+cat > "$tmp/language-provider-duplicate/qstar/languages/zig/zig.qsm" <<'EOF'
+return {
+  name = "zig",
+  namespace = "zig",
+}
+EOF
+cat > "$tmp/language-provider-duplicate/qstar.lua" <<'EOF'
+qstar.use_language("zig")
+qstar.use_language("zig")
+EOF
+if "$qstar" --file "$tmp/language-provider-duplicate/qstar.lua" check > "$tmp/language-provider-duplicate.out" 2> "$tmp/language-provider-duplicate.err"; then
+  fail "duplicate language provider unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-duplicate.err" "duplicate language provider 'qstar/languages/zig/zig.qsm'"
+
+mkdir -p "$tmp/language-provider-circular/qstar/languages/loop"
+cat > "$tmp/language-provider-circular/qstar/languages/loop/loop.qsm" <<'EOF'
+qstar.use_language("loop")
+return {
+  name = "loop",
+  namespace = "loop",
+}
+EOF
+cat > "$tmp/language-provider-circular/qstar.lua" <<'EOF'
+qstar.use_language("loop")
+EOF
+if "$qstar" --file "$tmp/language-provider-circular/qstar.lua" check > "$tmp/language-provider-circular.out" 2> "$tmp/language-provider-circular.err"; then
+  fail "circular language provider unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-circular.err" "circular language provider activation"
+
+mkdir -p "$tmp/language-provider-module/mods/a" "$tmp/language-provider-module/qstar/languages/zig"
+cat > "$tmp/language-provider-module/qstar/languages/zig/zig.qsm" <<'EOF'
+return {
+  name = "zig",
+  namespace = "zig",
+}
+EOF
+cat > "$tmp/language-provider-module/mods/a/a.qsm" <<'EOF'
+qstar.use_language("zig")
+return {}
+EOF
+cat > "$tmp/language-provider-module/qstar.lua" <<'EOF'
+qstar.import_module("mods/a")
+EOF
+if "$qstar" --file "$tmp/language-provider-module/qstar.lua" check > "$tmp/language-provider-module.out" 2> "$tmp/language-provider-module.err"; then
+  fail "ordinary module language provider activation unexpectedly succeeded"
+fi
+contains "$tmp/language-provider-module.err" "qstar.use_language is forbidden inside ordinary .qsm module"
 
 mkdir -p "$tmp/toolset-missing"
 cat > "$tmp/toolset-missing/qstar.lua" <<'EOF'

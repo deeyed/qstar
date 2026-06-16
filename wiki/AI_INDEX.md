@@ -13,10 +13,10 @@ graph, command plan, local executor, stage/package, run smoke, lint/LSP authorin
 담당한다. C/C++/ASM 외 언어의 의미론은 외부 compiler와 object artifact bridge가 맡는다.
 
 Generic Language Provider(GLP)는 이 경계를 다음 정식 provider surface로 확장하는
-로드맵이다. 현재 runtime에서는 built-in provider 외 언어에 object artifact bridge가 정식
-경로이고, GLP가 외부 provider까지 구현되면 `qstar.use_language("zig")`, provider namespace
-toolset, 동적 `lang.zig` 같은 surface가 정식 경로가 된다. 설계 정본은 root
-`glp_roadmap.md`다.
+로드맵이다. 현재 runtime은 `qstar.use_language("zig")`, provider namespace toolset, 동적
+`lang.zig` activation gate를 제공한다. 외부 source suffix classification과 backend lowering은
+아직 후속 GLP 작업이므로, provider backend가 없는 언어는 object artifact bridge가 정식
+경로다. 설계 정본은 root `glp_roadmap.md`다.
 
 QStar가 하지 않는 일:
 
@@ -52,10 +52,10 @@ QStar가 하지 않는 일:
   `.obj`를 만든 뒤, consuming target의 `sources`에 그 generated object를 넣는다. QStar는
   Objective-C, Rust, Zig, Swift 같은 언어 의미론을 파싱하거나 소유하지 않고 object artifact
   edge만 관리한다.
-- GLP roadmap은 object bridge boilerplate를 provider가 흡수하는 다음 경로다. Provider는
-  `qstar/languages/<id>/<id>.qsm` manifest와 `provider.lua` implementation을 가지며,
-  사용자는 `qstar.use_language("<id>")`가 반환한 module value를 통해 `zig.tools`,
-  `zig.options`, `zig.object` 같은 helper를 사용한다.
+- GLP provider는 `qstar/languages/<id>/<id>.qsm` manifest와 `provider.lua` implementation을
+  가진다. 사용자는 `qstar.use_language("<id>")`가 반환한 module value를 통해 `zig.tools`,
+  `zig.options` 같은 helper를 사용한다. `lang.<namespace>`는 provider activation 이후에만
+  유효하다. `zig.object` 같은 source helper와 backend lowering은 후속 작업이다.
 - CLI `-B path`는 `qstar.project.build_dir`보다 우선한다.
 - CLI `-G auto`는 현재 `stella`로 resolve된다.
 - CLI `-G ninja build [label]`은 C/C++/ASM compile, `qstar.configure_file`,
@@ -294,6 +294,7 @@ Command/path helper:
 - `qstar.subdir`
 - `qstar.import_file`
 - `qstar.import_module`
+- `qstar.use_language`
 - `qstar.join`
 - `qstar.copy`
 - `qstar.append`
@@ -306,7 +307,7 @@ Toolset/build policy:
 - `tools.archive`와 `tools.link`는 core role이며 `qstar.cli { ... }` argv-vector다.
 - compiler role은 provider namespace table 아래에 둔다:
   `tools = { c = { compiler = qstar.cli {"cc"} }, archive = qstar.cli {"ar"}, link = qstar.cli {"cc"} }`.
-- GLP toolset 목표 문법도 provider namespace를 직접 받는 형태다:
+- External provider toolset 문법도 provider namespace를 직접 받는 형태다:
   `tools = { archive = qstar.cli {"ar"}, link = qstar.cli {"cc"}, zig = zig.tools { compiler = qstar.cli {"zig"} } }`.
 - `response_files`, `response_style`
 - `path_tools`, `allow_absolute_tools`

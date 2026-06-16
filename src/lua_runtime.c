@@ -15,6 +15,7 @@ struct qstar_lua_context {
 	char root_dir[QSTAR_PATH_MAX];
 	char current_dir[QSTAR_PATH_MAX];
 	struct qstar_string_list import_stack;
+	struct qstar_string_list provider_stack;
 	int module_depth;
 };
 
@@ -1253,10 +1254,15 @@ read_lang_options(lua_State *L, int table, struct qstar_target *target,
 	lua_pushnil(L);
 	while (lua_next(L, -2) != 0) {
 		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
-		if (!key || !qstar_language_provider_is_preloaded(key)) {
+		if (!key || !qstar_graph_language_provider_is_available(graph, key)) {
 			lua_pop(L, 2);
 			return qstar_set_error(graph, "qstar: unknown language namespace lang.%s",
 			    key ? key : "<non-string>");
+		}
+		if (!lua_istable(L, -1)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph, "qstar: lang.%s must be a table",
+			    key);
 		}
 		lua_pop(L, 1);
 	}
@@ -1431,6 +1437,10 @@ read_toolset_provider_tools(lua_State *L, int table, struct qstar_toolset *tools
 		return qstar_set_error(graph,
 		    "qstar: tools.%s is a core role and must be qstar.cli { ... }",
 		    namespace);
+	if (!qstar_graph_language_provider_is_available(graph, namespace))
+		return qstar_set_error(graph,
+		    "qstar: unknown toolset provider namespace tools.%s; activate a language provider with qstar.use_language(\"%s\")",
+		    namespace, namespace);
 	if (table < 0)
 		table = lua_gettop(L) + table + 1;
 	if (!lua_istable(L, table))
@@ -3307,6 +3317,235 @@ qstar_lua_import_module(lua_State *L)
 	return 1;
 }
 
+/** qstar.use_language("zig") 또는 qstar.use_language("qstar/languages/zig")를 manifest로 해석한다. */
+static int
+resolve_language_provider_path(struct qstar_lua_context *ctx, const char *raw,
+    char *rel_dir, size_t rel_dir_len, char *rel, size_t rel_len, char *full,
+    size_t full_len)
+{
+	const char *base;
+	char standard_dir[QSTAR_PATH_MAX];
+	size_t n;
+
+	if (!raw || !*raw)
+		return qstar_set_error(ctx->graph, "qstar: use_language id is empty");
+	if (path_has_suffix(raw, ".qsm") || path_has_suffix(raw, ".qst") ||
+	    strcmp(raw, "qstar.lua") == 0)
+		return qstar_set_error(ctx->graph,
+		    "qstar: use_language expects a provider id or folder path, not file '%s'",
+		    raw);
+	n = strlen(raw);
+	if (raw[n - 1] == '/')
+		return qstar_set_error(ctx->graph,
+		    "qstar: use_language expects a normalized provider path, not '%s'",
+		    raw);
+	if (strchr(raw, '/')) {
+		if (!qstar_path_is_package_relative(raw))
+			return qstar_set_error(ctx->graph,
+			    "qstar: use_language path '%s' must be package-relative", raw);
+		if (snprintf(rel_dir, rel_dir_len, "%s", raw) >= (int)rel_dir_len)
+			return qstar_set_error(ctx->graph,
+			    "qstar: use_language path '%s' is too long", raw);
+	} else {
+		if (!valid_tool_role_component(raw))
+			return qstar_set_error(ctx->graph,
+			    "qstar: invalid language provider id '%s'", raw);
+		if (snprintf(standard_dir, sizeof(standard_dir), "qstar/languages/%s",
+		    raw) >= (int)sizeof(standard_dir) ||
+		    snprintf(rel_dir, rel_dir_len, "%s", standard_dir) >=
+		    (int)rel_dir_len)
+			return qstar_set_error(ctx->graph,
+			    "qstar: use_language id '%s' is too long", raw);
+	}
+	base = path_basename_component(rel_dir);
+	if (!base || !*base)
+		return qstar_set_error(ctx->graph,
+		    "qstar: use_language path '%s' has no provider basename", raw);
+	if (snprintf(rel, rel_len, "%s/%s.qsm", rel_dir, base) >= (int)rel_len ||
+	    qstar_path_join(ctx->root_dir, rel, full, full_len) < 0)
+		return qstar_set_error(ctx->graph,
+		    "qstar: use_language path '%s' is too long", raw);
+	return 0;
+}
+
+static int
+copy_optional_string_field(lua_State *L, int table, const char *field, char *dst,
+    size_t dstlen)
+{
+	const char *value;
+
+	if (!dstlen)
+		return -1;
+	lua_getfield(L, table, field);
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_isstring(L, -1)) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	value = lua_tostring(L, -1);
+	if (snprintf(dst, dstlen, "%s", value) >= (int)dstlen) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	return 1;
+}
+
+static int
+read_language_provider_namespace(lua_State *L, int table,
+    struct qstar_graph *graph, const char *id, char *namespace, size_t namespace_len)
+{
+	size_t n;
+	int has_namespace;
+
+	has_namespace = copy_optional_string_field(L, table, "namespace", namespace,
+	    namespace_len);
+	if (has_namespace < 0)
+		return qstar_set_error(graph,
+		    "qstar: language provider '%s' namespace must be a string", id);
+	if (has_namespace > 0)
+		goto validate;
+	lua_getfield(L, table, "namespaces");
+	if (!lua_isnil(L, -1)) {
+		if (!lua_istable(L, -1)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph,
+			    "qstar: language provider '%s' namespaces must be a list",
+			    id);
+		}
+		n = lua_rawlen(L, -1);
+		if (n != 1) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph,
+			    "qstar: language provider '%s' must declare exactly one namespace in this runtime",
+			    id);
+		}
+		lua_rawgeti(L, -1, 1);
+		if (!lua_isstring(L, -1)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: language provider '%s' namespaces contains non-string item",
+			    id);
+		}
+		if (snprintf(namespace, namespace_len, "%s", lua_tostring(L, -1)) >=
+		    (int)namespace_len) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: language provider '%s' namespace is too long", id);
+		}
+		lua_pop(L, 2);
+		goto validate;
+	}
+	lua_pop(L, 1);
+	if (snprintf(namespace, namespace_len, "%s", id) >= (int)namespace_len)
+		return qstar_set_error(graph,
+		    "qstar: language provider '%s' namespace is too long", id);
+
+validate:
+	if (!valid_tool_role_component(namespace))
+		return qstar_set_error(graph,
+		    "qstar: invalid language provider namespace '%s'", namespace);
+	return 0;
+}
+
+static int
+read_language_provider_manifest(lua_State *L, int table, struct qstar_graph *graph,
+    const char *fallback_id, char *id, size_t id_len, char *namespace,
+    size_t namespace_len, char *version, size_t version_len)
+{
+	int rc;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	if (!lua_istable(L, table))
+		return qstar_set_error(graph,
+		    "qstar: language provider '%s' must return a table", fallback_id);
+	if (snprintf(id, id_len, "%s", fallback_id) >= (int)id_len)
+		return qstar_set_error(graph,
+		    "qstar: language provider id '%s' is too long", fallback_id);
+	rc = copy_optional_string_field(L, table, "id", id, id_len);
+	if (rc < 0)
+		return qstar_set_error(graph,
+		    "qstar: language provider '%s' id must be a string", fallback_id);
+	if (rc == 0) {
+		rc = copy_optional_string_field(L, table, "name", id, id_len);
+		if (rc < 0)
+			return qstar_set_error(graph,
+			    "qstar: language provider '%s' name must be a string",
+			    fallback_id);
+	}
+	if (!valid_tool_role_component(id))
+		return qstar_set_error(graph,
+		    "qstar: invalid language provider id '%s'", id);
+	version[0] = '\0';
+	rc = copy_optional_string_field(L, table, "version", version, version_len);
+	if (rc < 0)
+		return qstar_set_error(graph,
+		    "qstar: language provider '%s' version must be a string", id);
+	return read_language_provider_namespace(L, table, graph, id, namespace,
+	    namespace_len);
+}
+
+/** qstar.use_language("id"): provider manifest를 읽고 lang.<namespace>를 활성화한다. */
+static int
+qstar_lua_use_language(lua_State *L)
+{
+	struct qstar_lua_context *ctx;
+	struct qstar_graph *graph;
+	const char *raw, *base;
+	char rel_dir[QSTAR_PATH_MAX], rel[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX];
+	char chain[512];
+	char id[128], namespace[128], version[128];
+	FILE *f;
+
+	ctx = get_context(L);
+	graph = ctx->graph;
+	if (ctx->module_depth > 0 && ctx->provider_stack.len == 0)
+		return luaL_error(L,
+		    "qstar: qstar.use_language is forbidden inside ordinary .qsm module; activate providers from qstar.lua or from another provider manifest");
+	raw = luaL_checkstring(L, 1);
+	if (resolve_language_provider_path(ctx, raw, rel_dir, sizeof(rel_dir), rel,
+	    sizeof(rel), full, sizeof(full)) < 0)
+		return luaL_error(L, "%s", graph->error);
+	if (string_list_contains(&ctx->import_stack, rel) ||
+	    string_list_contains(&ctx->provider_stack, rel)) {
+		format_import_chain(ctx, rel, chain, sizeof(chain));
+		return luaL_error(L,
+		    "qstar: circular language provider activation: %s", chain);
+	}
+	if (qstar_graph_find_language_provider_manifest(graph, rel))
+		return luaL_error(L, "qstar: duplicate language provider '%s'",
+		    rel);
+	f = fopen(full, "r");
+	if (!f)
+		return luaL_error(L,
+		    "qstar: language provider '%s' not found; expected provider manifest '%s'",
+		    raw, rel);
+	fclose(f);
+	if (qstar_string_list_push(&ctx->provider_stack, rel) < 0)
+		return luaL_error(L, "qstar: out of memory");
+	if (eval_module(L, ctx, full, rel_dir, rel) < 0) {
+		string_list_pop(&ctx->provider_stack);
+		return lua_error(L);
+	}
+	string_list_pop(&ctx->provider_stack);
+	base = path_basename_component(rel_dir);
+	if (read_language_provider_manifest(L, -1, graph, base, id, sizeof(id),
+	    namespace, sizeof(namespace), version, sizeof(version)) < 0) {
+		lua_pop(L, 1);
+		return luaL_error(L, "%s", graph->error);
+	}
+	if (!qstar_graph_add_language_provider(graph, id, namespace, version, rel_dir,
+	    rel)) {
+		lua_pop(L, 1);
+		return luaL_error(L, "%s", graph->error);
+	}
+	return 1;
+}
+
 static int
 qstar_lua_subdir(lua_State *L)
 {
@@ -3593,6 +3832,8 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "import_file");
 	lua_pushcfunction(L, qstar_lua_import_module);
 	lua_setfield(L, -2, "import_module");
+	lua_pushcfunction(L, qstar_lua_use_language);
+	lua_setfield(L, -2, "use_language");
 	lua_pushcfunction(L, qstar_lua_subdir);
 	lua_setfield(L, -2, "subdir");
 	lua_setglobal(L, "qstar");
@@ -3777,5 +4018,6 @@ qstar_lua_eval_file(struct qstar_graph *graph, const char *file)
 		qstar_set_error(graph, "%s", lua_tostring(L, -1));
 	lua_close(L);
 	qstar_string_list_free(&ctx.import_stack);
+	qstar_string_list_free(&ctx.provider_stack);
 	return rc;
 }

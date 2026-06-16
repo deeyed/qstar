@@ -60,8 +60,10 @@ Generic Language Provider(GLP)는 일반 helper module과 다르다. 일반 `.qs
 뿐 build graph semantics를 바꾸지 않는다. 반면 language provider는 source classification,
 tool role, `lang.<namespace>` option schema, backend lowering에 영향을 준다.
 
-따라서 provider는 `qstar.import_module(...)`로 조용히 등록하지 않는다. GLP 구현 후에는
-`qstar.use_language(...)`가 provider activation의 명시적 entrypoint가 된다.
+따라서 provider는 `qstar.import_module(...)`로 조용히 등록하지 않는다.
+`qstar.use_language(...)`가 provider activation의 명시적 entrypoint다. 예를 들어
+`qstar.use_language("zig")`는 `qstar/languages/zig/zig.qsm` manifest를 읽고, 그 provider가
+등록한 namespace만 `lang.zig` 같은 language option table에서 허용한다.
 
 권장 provider 배치:
 
@@ -134,6 +136,9 @@ qstar: import_module expects a folder path, not file 'qstar/modules/paths/paths.
 qstar: import_module 'qstar/modules/missing' not found; expected module entry 'qstar/modules/missing/missing.qsm'
 qstar: qstar.config is forbidden inside .qsm module; modules must return a helper table
 qstar: circular import chain: qstar.lua -> qstar/modules/a/a.qsm -> qstar/modules/b/b.qsm -> qstar/modules/a/a.qsm
+qstar: duplicate language provider 'qstar/languages/zig/zig.qsm'
+qstar: circular language provider activation: qstar.lua -> qstar/languages/loop/loop.qsm -> qstar/languages/loop/loop.qsm
+qstar: qstar.use_language is forbidden inside ordinary .qsm module
 ```
 
 LSP definition navigation은 import 문자열도 해석한다. `qstar.import_file("foo/bar.qst")`

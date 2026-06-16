@@ -27,6 +27,19 @@ outputs and defaults to
 .Pa generated .
 .It Ic qstar.toolset
 Explicit compiler, archive, link, response-file, and external tool role bundle.
+.It Ic qstar.use_language
+Activate a project-local language provider. The short form
+.Ic qstar.use_language("zig")
+loads
+.Pa qstar/languages/zig/zig.qsm ;
+the folder form
+.Ic qstar.use_language("qstar/languages/zig")
+loads
+.Pa qstar/languages/zig/zig.qsm .
+The returned provider table may expose helper functions such as
+.Ic zig.tools
+or
+.Ic zig.options .
 .It Ic qstar.config
 Reusable target option bundle referenced by target
 .Ic configs
@@ -207,7 +220,11 @@ files and definitions on
 .Ic qstar.import_module
 strings to the corresponding
 .Pa <name>/<name>.qsm
-module entry.
+module entry. Definitions on
+.Ic qstar.use_language
+strings resolve to the provider manifest
+.Pa qstar/languages/<id>/<id>.qsm
+or the explicit provider folder form.
 .Sh CONSTANTS
 .Nm
 provides constants such as

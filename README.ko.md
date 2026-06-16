@@ -5,6 +5,8 @@
 QStar는 Lua 기반 프로젝트 DSL, Stella 네이티브 executor, 선택형 Ninja backend를 갖춘
 독립 빌드시스템이다. 목표는 deterministic build graph, 명시적 argv-vector command,
 대형 프로젝트용 reusable config, 도구가 읽기 쉬운 diagnostic을 제공하는 것이다.
+Project-local language provider는 `qstar.use_language(...)`로 활성화할 수 있으며, 외부
+source lowering은 provider backend 후속 작업 뒤에 붙는다.
 
 현재 공개 버전은 베타다. 현재 release-prep line은 `v0.7.0-beta`이며 macOS arm64와
 Linux x86_64 runtime tarball을 대상으로 한다. Linux asset은 Ubuntu release workflow 또는
@@ -23,6 +25,7 @@ QStar 1.0은 macOS, Linux, Windows 공식 지원이 모두 갖춰진 뒤에 올�
   stage/install 지원
 - 반복 옵션을 줄이는 `qstar.config`
 - compiler/archive/link/response-file/external tool 정책을 선언하는 `qstar.toolset`
+- project-local language provider namespace를 활성화하는 `qstar.use_language(...)`
 - Stella native executor와 C/C++/ASM/generated graph용 `-G ninja` backend
 - 반복 로컬 빌드와 IDE read API를 위한 Stella daemon beta opt-in workflow
 - `compile_commands.json`, LSP, VSCode extension, replay/action log, manpage,
