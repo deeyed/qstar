@@ -851,7 +851,7 @@ local zig = qstar.use_language("zig")
 8. external provider를 project-local `qstar/languages/<id>`로 복사할 plan을 만든다.
 9. shape별 scaffold plan을 선택한다.
 10. provider scaffold가 없으면 C fallback plan과 warning을 만든다.
-11. `qstar.lua`, `.gitignore`, source file, fragment file 생성 plan을 만든다.
+11. directory, `qstar.lua`, `.gitignore`, source file, fragment file 생성 plan을 만든다.
 12. `--dry-run`이면 plan만 출력한다.
 13. 실제 write 전에 overwrite conflict를 검사한다.
 14. directory와 file을 생성한다.
@@ -868,6 +868,7 @@ directory hello
 project hello
 language zig
 vendor qstar/languages/zig
+create_dir src
 create qstar.lua
 create .gitignore
 create src/main.zig
@@ -884,6 +885,8 @@ project helper
 language rust
 vendor qstar/languages/rust
 warning language provider 'rust' has no scaffold for shape 'tool'; using builtin c scaffold
+create_dir tools
+create_dir tools/helper
 create qstar.lua
 create .gitignore
 create tools/helper/main.c

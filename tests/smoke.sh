@@ -5935,21 +5935,30 @@ contains "$tmp/init-shapes.out" "workspace"
 contains "$tmp/init-app.out" "qstar init v2"
 contains "$tmp/init-app.out" "shape app"
 contains "$tmp/init-app.out" "language c"
+contains "$tmp/init-app.out" "project init-app"
+contains "$tmp/init-app.out" "create_dir src"
+contains "$tmp/init-app/qstar.lua" "name = \"init-app\""
+test -f "$tmp/init-app/.gitignore" || fail "init app missing .gitignore"
 "$qstar" --file "$tmp/init-app/qstar.lua" build //:app > "$tmp/init-app-build.out" 2> "$tmp/init-app-build.err"
 contains "$tmp/init-app-build.out" "status ok"
 "$tmp/init-app/build/qstar/out/___app/app" || fail "init app binary failed"
 
-"$qstar" init lib "$tmp/init-lib" --name initlib > "$tmp/init-lib.out" 2> "$tmp/init-lib.err"
+"$qstar" init lib "$tmp/init-lib" --name init-lib > "$tmp/init-lib.out" 2> "$tmp/init-lib.err"
 contains "$tmp/init-lib.out" "shape lib"
-contains "$tmp/init-lib/qstar.lua" "name = \"initlib\""
+contains "$tmp/init-lib.out" "create_dir include"
+contains "$tmp/init-lib.out" "create_dir tests"
+contains "$tmp/init-lib/qstar.lua" "name = \"init-lib\""
+test -f "$tmp/init-lib/src/init_lib.c" || fail "init lib did not apply project_ident source path"
 "$qstar" --file "$tmp/init-lib/qstar.lua" test //:unit > "$tmp/init-lib-test.out" 2> "$tmp/init-lib-test.err"
 contains "$tmp/init-lib-test.out" "test_result label=//:unit status=pass"
 "$qstar" --file "$tmp/init-lib/qstar.lua" install //:core --prefix "$tmp/init-lib-prefix" > "$tmp/init-lib-install.out" 2> "$tmp/init-lib-install.err"
 test -f "$tmp/init-lib-prefix/lib/libcore.a" || fail "init lib did not install static library"
-test -f "$tmp/init-lib-prefix/include/initlib.h" || fail "init lib did not install public header"
+test -f "$tmp/init-lib-prefix/include/init_lib.h" || fail "init lib did not install public header"
 
-"$qstar" init tool "$tmp/init-tool" --name inittool > "$tmp/init-tool.out" 2> "$tmp/init-tool.err"
+"$qstar" init tool "$tmp/init-tool" --name init-tool > "$tmp/init-tool.out" 2> "$tmp/init-tool.err"
 contains "$tmp/init-tool.out" "shape tool"
+contains "$tmp/init-tool.out" "create_dir tools/init_tool"
+test -f "$tmp/init-tool/tools/init_tool/main.c" || fail "init tool did not apply project_ident source path"
 "$qstar" --file "$tmp/init-tool/qstar.lua" build //:run > "$tmp/init-tool-run.out" 2> "$tmp/init-tool-run.err"
 contains "$tmp/init-tool-run.out" "Built target run"
 
@@ -5960,13 +5969,17 @@ contains "$tmp/init-empty-check.out" "target-count 0"
 
 "$qstar" init workspace "$tmp/init-workspace" > "$tmp/init-workspace.out" 2> "$tmp/init-workspace.err"
 contains "$tmp/init-workspace.out" "shape workspace"
+contains "$tmp/init-workspace.out" "create_dir packages/core/include"
+contains "$tmp/init-workspace.out" "create_dir packages/app/src"
 "$qstar" --file "$tmp/init-workspace/qstar.lua" build //:all > "$tmp/init-workspace-build.out" 2> "$tmp/init-workspace-build.err"
 contains "$tmp/init-workspace-build.out" "Built target all"
 "$tmp/init-workspace/build/qstar/out/__packages_app_app/app" || fail "init workspace app binary failed"
 
 "$qstar" init app "$tmp/init-dry" --dry-run > "$tmp/init-dry.out" 2> "$tmp/init-dry.err"
 contains "$tmp/init-dry.out" "dry_run true"
+contains "$tmp/init-dry.out" "would_create_dir src"
 contains "$tmp/init-dry.out" "would_create qstar.lua"
+contains "$tmp/init-dry.out" "would_create .gitignore"
 test ! -e "$tmp/init-dry" || fail "init dry-run created project directory"
 
 if "$qstar" init c-app "$tmp/init-legacy" > "$tmp/init-legacy.out" 2> "$tmp/init-legacy.err"; then
@@ -5984,9 +5997,15 @@ if "$qstar" init app "$tmp/init-app" > "$tmp/init-overwrite.out" 2> "$tmp/init-o
 fi
 contains "$tmp/init-overwrite.err" "refuses to overwrite existing file"
 
+touch "$tmp/init-file-path"
+if "$qstar" init app "$tmp/init-file-path" > "$tmp/init-file-path.out" 2> "$tmp/init-file-path.err"; then
+	fail "qstar init unexpectedly accepted a file as project directory"
+fi
+contains "$tmp/init-file-path.err" "path exists but is not a directory"
+
 "$qstar" --file "$tmp/init-lib/qstar.lua" explain //:core > "$tmp/rule-explain.out" 2> "$tmp/rule-explain.err"
 contains "$tmp/rule-explain.out" "rule provider=native final_action=archive output_group=libs"
-contains "$tmp/rule-explain.out" "source_file path=src/initlib.c language=c tool=c-compiler provider=c provider_role=compiler toolset_role=c.compiler output_group=objects role=compile"
+contains "$tmp/rule-explain.out" "source_file path=src/init_lib.c language=c tool=c-compiler provider=c provider_role=compiler toolset_role=c.compiler output_group=objects role=compile"
 
 step "depfile handling"
 mkdir -p "$tmp/depfile/include" "$tmp/depfile/src"

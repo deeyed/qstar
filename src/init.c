@@ -54,6 +54,14 @@ path_exists(const char *path)
 	return stat(path, &st) == 0;
 }
 
+static int
+path_is_dir(const char *path)
+{
+	struct stat st;
+
+	return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
 /** Create a directory and any missing parents. */
 static int
 mkdir_p(const char *path, char *error, size_t error_len)
@@ -69,14 +77,25 @@ mkdir_p(const char *path, char *error, size_t error_len)
 		if (buf[i] != '/')
 			continue;
 		buf[i] = '\0';
-		if (buf[0] && qstar_platform_mkdir(buf, 0777) < 0 && errno != EEXIST)
-			return init_error(error, error_len,
-			    "qstar: init could not create directory '%s'", buf);
+		if (buf[0] && qstar_platform_mkdir(buf, 0777) < 0) {
+			if (errno != EEXIST)
+				return init_error(error, error_len,
+				    "qstar: init could not create directory '%s'", buf);
+			if (!path_is_dir(buf))
+				return init_error(error, error_len,
+				    "qstar: init path exists but is not a directory '%s'",
+				    buf);
+		}
 		buf[i] = '/';
 	}
-	if (qstar_platform_mkdir(buf, 0777) < 0 && errno != EEXIST)
-		return init_error(error, error_len,
-		    "qstar: init could not create directory '%s'", buf);
+	if (qstar_platform_mkdir(buf, 0777) < 0) {
+		if (errno != EEXIST)
+			return init_error(error, error_len,
+			    "qstar: init could not create directory '%s'", buf);
+		if (!path_is_dir(buf))
+			return init_error(error, error_len,
+			    "qstar: init path exists but is not a directory '%s'", buf);
+	}
 	return 0;
 }
 
@@ -319,6 +338,30 @@ write_gitignore(const struct init_context *ctx, FILE *out, char *error, size_t e
 }
 
 static int
+ensure_dir(const struct init_context *ctx, const char *rel, FILE *out, char *error,
+    size_t error_len)
+{
+	char path[QSTAR_PATH_MAX];
+
+	if (qstar_path_join(ctx->directory, rel, path, sizeof(path)) < 0)
+		return init_error(error, error_len, "qstar: init path too long '%s'", rel);
+	if (ctx->options->dry_run) {
+		fprintf(out, "would_create_dir %s\n", rel);
+		return 0;
+	}
+	if (path_exists(path)) {
+		if (!path_is_dir(path))
+			return init_error(error, error_len,
+			    "qstar: init path exists but is not a directory '%s'", path);
+		return 0;
+	}
+	if (mkdir_p(path, error, error_len) < 0)
+		return -1;
+	fprintf(out, "create_dir %s\n", rel);
+	return 0;
+}
+
+static int
 write_app_shape(const struct init_context *ctx, FILE *out, char *error, size_t error_len)
 {
 	char body[8192];
@@ -350,7 +393,8 @@ write_app_shape(const struct init_context *ctx, FILE *out, char *error, size_t e
 	    "}\n",
 	    ctx->project_lua) < 0)
 		return -1;
-	if (write_text_file(ctx, "qstar.lua", body, 0, out, error, error_len) < 0 ||
+	if (ensure_dir(ctx, "src", out, error, error_len) < 0 ||
+	    write_text_file(ctx, "qstar.lua", body, 0, out, error, error_len) < 0 ||
 	    write_gitignore(ctx, out, error, error_len) < 0)
 		return -1;
 	return write_text_file(ctx, "src/main.c",
@@ -405,7 +449,10 @@ write_lib_shape(const struct init_context *ctx, FILE *out, char *error, size_t e
 	    "}\n",
 	    ctx->project_lua, ctx->project_ident, ctx->project_ident) < 0)
 		return -1;
-	if (write_text_file(ctx, "qstar.lua", body, 0, out, error, error_len) < 0 ||
+	if (ensure_dir(ctx, "include", out, error, error_len) < 0 ||
+	    ensure_dir(ctx, "src", out, error, error_len) < 0 ||
+	    ensure_dir(ctx, "tests", out, error, error_len) < 0 ||
+	    write_text_file(ctx, "qstar.lua", body, 0, out, error, error_len) < 0 ||
 	    write_gitignore(ctx, out, error, error_len) < 0)
 		return -1;
 	if (snprintf(path, sizeof(path), "include/%s.h", ctx->project_ident) >=
@@ -485,7 +532,14 @@ write_tool_shape(const struct init_context *ctx, FILE *out, char *error, size_t 
 	    "}\n",
 	    ctx->project_lua, ctx->project_ident) < 0)
 		return -1;
-	if (write_text_file(ctx, "qstar.lua", body, 0, out, error, error_len) < 0 ||
+	if (ensure_dir(ctx, "tools", out, error, error_len) < 0)
+		return -1;
+	if (snprintf(path, sizeof(path), "tools/%s", ctx->project_ident) >=
+	    (int)sizeof(path))
+		return init_error(error, error_len, "qstar: init path too long '%s'",
+		    ctx->project_ident);
+	if (ensure_dir(ctx, path, out, error, error_len) < 0 ||
+	    write_text_file(ctx, "qstar.lua", body, 0, out, error, error_len) < 0 ||
 	    write_gitignore(ctx, out, error, error_len) < 0)
 		return -1;
 	if (snprintf(path, sizeof(path), "tools/%s/main.c", ctx->project_ident) >=
@@ -555,7 +609,13 @@ write_workspace_shape(const struct init_context *ctx, FILE *out, char *error,
 	    "}\n",
 	    ctx->project_lua) < 0)
 		return -1;
-	if (write_text_file(ctx, "qstar.lua", body, 0, out, error, error_len) < 0 ||
+	if (ensure_dir(ctx, "packages", out, error, error_len) < 0 ||
+	    ensure_dir(ctx, "packages/core", out, error, error_len) < 0 ||
+	    ensure_dir(ctx, "packages/core/include", out, error, error_len) < 0 ||
+	    ensure_dir(ctx, "packages/core/src", out, error, error_len) < 0 ||
+	    ensure_dir(ctx, "packages/app", out, error, error_len) < 0 ||
+	    ensure_dir(ctx, "packages/app/src", out, error, error_len) < 0 ||
+	    write_text_file(ctx, "qstar.lua", body, 0, out, error, error_len) < 0 ||
 	    write_gitignore(ctx, out, error, error_len) < 0)
 		return -1;
 	if (write_text_file(ctx, "packages/core/include/core.h",
