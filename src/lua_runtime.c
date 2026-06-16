@@ -416,6 +416,62 @@ read_source_unit_table(lua_State *L, int idx, struct qstar_graph *graph,
 	return 0;
 }
 
+static int
+find_raw_provider_source_unit(struct qstar_graph *graph, const char *path,
+    const char **provider_name, const char **unit_name,
+    const struct qstar_language_unit_schema **unit)
+{
+	const struct qstar_language_provider *provider, *matched_provider;
+	const struct qstar_language_unit_schema *candidate, *matched_unit;
+	const struct qstar_source_info *builtin;
+	size_t i, j;
+
+	*provider_name = NULL;
+	*unit_name = NULL;
+	*unit = NULL;
+	matched_provider = NULL;
+	matched_unit = NULL;
+	builtin = qstar_source_kind_lookup_path(path);
+	for (i = 0; i < graph->language_provider_len; i++) {
+		provider = &graph->language_providers[i];
+		for (j = 0; j < provider->unit_len; j++) {
+			candidate = &provider->units[j];
+			if (!candidate->emits || strcmp(candidate->emits, "object") != 0 ||
+			    !source_unit_suffix_matches(candidate, path))
+				continue;
+			if (matched_provider) {
+				return qstar_set_error(graph,
+				    "qstar: source '%s' matches multiple provider source units (%s.%s and %s.%s); use an explicit provider helper such as %s.%s(\"%s\")",
+				    path,
+				    matched_provider->namespace ? matched_provider->namespace :
+				    "<unknown>",
+				    matched_unit->name ? matched_unit->name : "<unknown>",
+				    provider->namespace ? provider->namespace : "<unknown>",
+				    candidate->name ? candidate->name : "<unknown>",
+				    provider->namespace ? provider->namespace : "<provider>",
+				    candidate->name ? candidate->name : "object", path);
+			}
+			matched_provider = provider;
+			matched_unit = candidate;
+		}
+	}
+	if (!matched_provider)
+		return 0;
+	if (builtin) {
+		return qstar_set_error(graph,
+		    "qstar: source '%s' matches both a built-in source suffix and provider source unit %s.%s; use an explicit provider helper such as %s.%s(\"%s\")",
+		    path,
+		    matched_provider->namespace ? matched_provider->namespace : "<unknown>",
+		    matched_unit->name ? matched_unit->name : "<unknown>",
+		    matched_provider->namespace ? matched_provider->namespace : "<provider>",
+		    matched_unit->name ? matched_unit->name : "object", path);
+	}
+	*provider_name = matched_provider->namespace;
+	*unit_name = matched_unit->name;
+	*unit = matched_unit;
+	return 1;
+}
+
 /** QStar Lua helper가 넘긴 placeholder table을 argv token 문자열로 변환한다. */
 static int
 format_placeholder_token(lua_State *L, int idx, char *dst, size_t dstlen)
@@ -496,23 +552,19 @@ read_cli_command(lua_State *L, int idx, struct qstar_string_list *list,
 }
 
 static int
-push_source_unit_item(lua_State *L, int idx, struct qstar_target *target,
-    struct qstar_graph *graph, const char *field)
+push_provider_source_item(lua_State *L, int source_token, struct qstar_target *target,
+    struct qstar_graph *graph, const char *path, const char *provider,
+    const char *unit_name, const struct qstar_language_unit_schema *unit)
 {
-	const struct qstar_language_unit_schema *unit;
-	const char *path, *provider, *unit_name;
 	struct qstar_provider_action_template action;
 	size_t source_index;
 	int rc;
 
 	memset(&action, 0, sizeof(action));
-	if (read_source_unit_table(L, idx, graph, field, &path, &provider,
-	    &unit_name, &unit) < 0)
-		return -1;
 	source_index = target->sources.len;
 	if (qstar_string_list_push(&target->sources, path) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
-	if (lower_provider_source_unit(L, idx, target, graph, source_index, path,
+	if (lower_provider_source_unit(L, source_token, target, graph, source_index, path,
 	    provider, unit_name, unit, &action) < 0) {
 		qstar_string_list_free(&action.argv);
 		qstar_string_list_free(&action.inputs);
@@ -529,6 +581,38 @@ push_source_unit_item(lua_State *L, int idx, struct qstar_target *target,
 	if (rc < 0)
 		return -1;
 	return 0;
+}
+
+static int
+push_source_unit_item(lua_State *L, int idx, struct qstar_target *target,
+    struct qstar_graph *graph, const char *field)
+{
+	const struct qstar_language_unit_schema *unit;
+	const char *path, *provider, *unit_name;
+
+	if (read_source_unit_table(L, idx, graph, field, &path, &provider,
+	    &unit_name, &unit) < 0)
+		return -1;
+	return push_provider_source_item(L, idx, target, graph, path, provider,
+	    unit_name, unit);
+}
+
+static int
+push_source_string_item(lua_State *L, const char *path, struct qstar_target *target,
+    struct qstar_graph *graph)
+{
+	const struct qstar_language_unit_schema *unit;
+	const char *provider, *unit_name;
+	int rc;
+
+	rc = find_raw_provider_source_unit(graph, path, &provider, &unit_name, &unit);
+	if (rc < 0)
+		return -1;
+	if (rc > 0)
+		return push_provider_source_item(L, 0, target, graph, path, provider,
+		    unit_name, unit);
+	return qstar_string_list_push(&target->sources, path) < 0 ?
+	    qstar_set_error(graph, "qstar: out of memory") : 0;
 }
 
 static int
@@ -552,9 +636,9 @@ read_sources_field(lua_State *L, int table, const char *field,
 		lua_rawgeti(L, -1, (lua_Integer)i);
 		if (lua_isstring(L, -1)) {
 			s = lua_tostring(L, -1);
-			if (qstar_string_list_push(&target->sources, s) < 0) {
+			if (push_source_string_item(L, s, target, graph) < 0) {
 				lua_pop(L, 2);
-				return qstar_set_error(graph, "qstar: out of memory");
+				return -1;
 			}
 		} else if (lua_istable(L, -1)) {
 			kind = qstar_table_kind(L, -1);
@@ -2184,7 +2268,6 @@ lower_provider_source_unit(lua_State *L, int source_token,
 	int rc;
 
 	(void)unit_name;
-	source_token = qstar_lua_abs_index(L, source_token);
 	provider = qstar_graph_find_language_provider(graph, provider_name);
 	if (!provider)
 		return qstar_set_error(graph,
@@ -2204,11 +2287,14 @@ lower_provider_source_unit(lua_State *L, int source_token,
 	lowering.object = object;
 	lowering.depfile = depfile;
 	lowering.source_options_ref = LUA_NOREF;
-	lua_getfield(L, source_token, "options");
-	if (lua_istable(L, -1))
-		lowering.source_options_ref = luaL_ref(L, LUA_REGISTRYINDEX);
-	else
-		lua_pop(L, 1);
+	if (source_token != 0) {
+		source_token = qstar_lua_abs_index(L, source_token);
+		lua_getfield(L, source_token, "options");
+		if (lua_istable(L, -1))
+			lowering.source_options_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+		else
+			lua_pop(L, 1);
+	}
 	lua_getfield(L, LUA_REGISTRYINDEX, "qstar.provider.implementations");
 	if (!lua_istable(L, -1)) {
 		if (lowering.source_options_ref != LUA_NOREF)

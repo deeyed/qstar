@@ -99,8 +99,9 @@ qstar.executable "bad" {
 }
 ```
 
-지원되지 않는 source suffix를 `sources`에 직접 넣으면 QStar는 그 언어를 compile할 provider를
-찾지 않는다. 이런 source는 `qstar.custom_target`으로 object artifact를 먼저 만들고,
+지원되지 않는 source suffix를 `sources`에 직접 넣으면 QStar는 built-in source registry나
+활성화된 GLP provider source registry에서 compiler 경로를 찾지 못해 diagnostic을 낸다. 해당
+언어 provider를 활성화할 수 없다면 `qstar.custom_target`으로 object artifact를 먼저 만들고,
 generated `.o` 또는 `.obj`를 consuming target의 `sources`에 넣는다.
 
 ## 관련 CLI

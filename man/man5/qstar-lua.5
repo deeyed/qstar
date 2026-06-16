@@ -57,6 +57,12 @@ Provider-declared
 schemas validate dynamic
 .Ic lang.<namespace>
 tables, including string, bool, list, enum, and default metadata.
+Provider-declared source unit suffixes are registered with the graph-level
+source registry, so an activated provider can classify raw source strings such as
+.Pa src/main.zig
+into provider-owned object actions.
+Explicit provider helpers remain useful for source-local options or suffix
+collision disambiguation.
 .It Ic qstar.language_provider
 Declare a provider manifest. This API is valid only inside provider
 .Pa .qsm

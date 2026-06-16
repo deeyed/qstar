@@ -11,9 +11,10 @@ namespace는 `qstar.use_language("<id>")`로 provider manifest를 먼저 활성�
 `cuda`도 같은 규칙을 따른다. 그 뒤에만 `lang.zig = { ... }` 같은 provider namespace가
 유효해진다. Provider manifest가 `options` schema를 선언하면 QStar는
 `lang.zig`의 unknown option과 string/bool/list/enum 값을 검증한다. Provider가 source unit과
-lowering function을 제공하면 `zig.object("src/main.zig")` 같은 helper가 Stella/Ninja 공통
-object-producing action으로 내려간다. 손으로 외부 compiler command를 제어해야 하면 object
-artifact bridge를 계속 쓴다.
+lowering function을 제공하면 `sources = {"src/main.zig"}` 같은 raw source string이
+Stella/Ninja 공통 object-producing action으로 내려간다. `zig.object("src/main.zig", {...})`
+같은 helper는 source-local option이나 suffix 충돌 해소가 필요할 때 쓰는 명시 경로다. 손으로
+외부 compiler command를 제어해야 하면 object artifact bridge를 계속 쓴다.
 
 ## 최소 예제
 

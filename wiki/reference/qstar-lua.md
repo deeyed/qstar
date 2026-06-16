@@ -63,7 +63,7 @@ Provider-only author APIs:
 - `qstar.language_provider`: validate and return a provider manifest; valid only inside provider `.qsm` files.
 - `qstar.provider_tools`: provider implementation helper for returning a provider tool table.
 - `qstar.language_options`: provider implementation helper for returning `lang.<namespace>` option tables.
-- `qstar.source`: provider/user helper for returning typed source unit tokens such as `zig.object("src/main.zig")`.
+- `qstar.source`: provider/user helper for returning explicit typed source unit tokens such as `zig.object("src/main.zig", {...})`; activated provider suffixes can also classify raw source strings.
 - `qstar.argv`: provider implementation helper for constructing lowered action argv vectors.
 
 `qstar.sharedlib`는 macOS platform context에서는 `.dylib`, Linux platform context에서는 `.so`를

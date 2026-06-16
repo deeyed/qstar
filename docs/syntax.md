@@ -95,10 +95,7 @@ return qstar.language_provider {
             kind = "executable",
             name = "app",
             sources = {
-              {
-                helper = "object",
-                path = "src/main.zig",
-              },
+              "src/main.zig",
             },
           },
         },
@@ -159,17 +156,23 @@ qstar.config "debug_zig" {
 qstar.staticlib "core" {
   configs = {"//:debug_zig"},
   sources = {
-    zig.object("src/main.zig"),
+    "src/main.zig",
   },
 }
 ```
 
-Provider `units` schemas let exported helpers create typed source tokens. A
-source helper such as `zig.object("src/main.zig")` lowers to an object artifact
-owned by the consuming target. The GLP backend calls the unit `lower` function
-from `provider.lua` during graph evaluation and stores its action template in
-Graph IR. Stella and Ninja then consume the same `command`, `inputs`, `outputs`,
-and `depfile` contract.
+Provider `units` schemas register source suffixes with the graph-level source
+registry. Once `qstar.use_language("zig")` activates the provider, a raw source
+string such as `"src/main.zig"` lowers to the provider's object unit just like
+built-in C/C++/ASM sources do. Exported helpers such as
+`zig.object("src/main.zig", {optimize = "ReleaseFast"})` remain available for
+source-local options or for disambiguating suffix collisions. If a raw string
+matches more than one provider unit, or both a built-in suffix and a provider
+unit, QStar asks the user to use an explicit provider helper.
+
+The GLP backend calls the unit `lower` function from `provider.lua` during graph
+evaluation and stores its action template in Graph IR. Stella and Ninja then
+consume the same `command`, `inputs`, `outputs`, and `depfile` contract.
 
 Standard external providers follow the same shape:
 

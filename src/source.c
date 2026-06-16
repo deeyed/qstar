@@ -61,9 +61,10 @@ unsupported_source_bridge_hint(const char *path)
 	if (source_path_has_suffix(path, ".rs") ||
 	    source_path_has_suffix(path, ".zig") ||
 	    source_path_has_suffix(path, ".swift"))
-		return "this language is not a QStar compile provider; use an external "
-		    "compiler through qstar.custom_target, declare qstar.output(..., "
-		    "{format = \"object\"}), and list the generated .o/.obj in sources";
+		return "activate a language provider with qstar.use_language(...) before "
+		    "listing this source, or use an external compiler through "
+		    "qstar.custom_target, declare qstar.output(..., {format = \"object\"}), "
+		    "and list the generated .o/.obj in sources";
 	return "use qstar.custom_target to produce a supported generated file, or produce "
 	    "an object artifact with qstar.output(..., {format = \"object\"}) and list "
 	    "that .o/.obj in sources";

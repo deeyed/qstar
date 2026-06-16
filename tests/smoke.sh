@@ -2640,10 +2640,11 @@ qstar.staticlib "bad" {
   sources = {"src/main.zig"},
 }
 EOF
-if "$qstar" --file "$tmp/provider-source-unit/qstar.lua" check > "$tmp/provider-source-unit-raw.out" 2> "$tmp/provider-source-unit-raw.err"; then
-  fail "raw provider source unexpectedly succeeded"
-fi
-contains "$tmp/provider-source-unit-raw.err" "unsupported source extension 'src/main.zig'"
+"$qstar" --file "$tmp/provider-source-unit/qstar.lua" check > "$tmp/provider-source-unit-raw.out" 2> "$tmp/provider-source-unit-raw.err"
+contains "$tmp/provider-source-unit-raw.out" "status ok"
+"$qstar" --file "$tmp/provider-source-unit/qstar.lua" explain //:bad > "$tmp/provider-source-unit-raw-explain.out" 2> "$tmp/provider-source-unit-raw-explain.err"
+contains "$tmp/provider-source-unit-raw-explain.out" "source_file path=src/main.zig language=zig tool=provider-compiler provider=zig provider_role=compiler toolset_role=zig.compiler output_group=objects role=compile"
+contains "$tmp/provider-source-unit-raw-explain.out" "--optimize=Debug"
 cat > "$tmp/provider-source-unit/src/not_zig.c" <<'EOF'
 int not_zig(void) { return 0; }
 EOF
@@ -2674,6 +2675,211 @@ if "$qstar" --file "$tmp/provider-source-unit/qstar.lua" check > "$tmp/provider-
   fail "provider source suffix mismatch unexpectedly succeeded"
 fi
 contains "$tmp/provider-source-unit-suffix.err" "does not match suffixes for unit 'zig.object'"
+
+mkdir -p "$tmp/provider-source-collision/src" \
+  "$tmp/provider-source-collision/qstar/languages/zig" \
+  "$tmp/provider-source-collision/qstar/languages/alt" \
+  "$tmp/provider-source-collision/qstar/languages/cdup"
+cat > "$tmp/provider-source-collision/src/main.zig" <<'EOF'
+pub fn value() i32 { return 1; }
+EOF
+cat > "$tmp/provider-source-collision/src/main.c" <<'EOF'
+int value(void) { return 1; }
+EOF
+cp "$tmp/provider-source-unit/qstar/languages/zig/zig.qsm" \
+  "$tmp/provider-source-collision/qstar/languages/zig/zig.qsm"
+cp "$tmp/provider-source-unit/qstar/languages/zig/provider.lua" \
+  "$tmp/provider-source-collision/qstar/languages/zig/provider.lua"
+cat > "$tmp/provider-source-collision/qstar/languages/alt/alt.qsm" <<'EOF'
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "alt",
+  version = "0.1",
+  namespace = "alt",
+  implementation = "provider.lua",
+  tools = {
+    compiler = {role = "alt.compiler", required = true},
+  },
+  units = {
+    object = {
+      suffixes = {".zig"},
+      emits = "object",
+      lower = "compile_object",
+    },
+  },
+  exports = {
+    tools = "tools",
+    object = "object",
+  },
+}
+EOF
+cat > "$tmp/provider-source-collision/qstar/languages/alt/provider.lua" <<'EOF'
+local P = {}
+
+function P.tools(t)
+  return qstar.provider_tools("alt", {
+    compiler = t.compiler,
+  })
+end
+
+function P.object(path, opts)
+  return qstar.source(path, qstar.merge({
+    language = "alt",
+    unit = "object",
+  }, opts or {}))
+end
+
+function P.compile_object(ctx)
+  local argv = qstar.argv()
+  argv:add(ctx.tool("compiler"))
+  argv:add("-c")
+  argv:add(ctx.input("source"))
+  argv:add("-o")
+  argv:add(ctx.output("object"))
+  return {
+    command = argv,
+    inputs = {ctx.input("source")},
+    outputs = {ctx.output("object")},
+  }
+end
+
+return P
+EOF
+cat > "$tmp/provider-source-collision/qstar/languages/cdup/cdup.qsm" <<'EOF'
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "cdup",
+  version = "0.1",
+  namespace = "cdup",
+  implementation = "provider.lua",
+  tools = {
+    compiler = {role = "cdup.compiler", required = true},
+  },
+  units = {
+    object = {
+      suffixes = {".c"},
+      emits = "object",
+      lower = "compile_object",
+    },
+  },
+  exports = {
+    tools = "tools",
+    object = "object",
+  },
+}
+EOF
+cat > "$tmp/provider-source-collision/qstar/languages/cdup/provider.lua" <<'EOF'
+local P = {}
+
+function P.tools(t)
+  return qstar.provider_tools("cdup", {
+    compiler = t.compiler,
+  })
+end
+
+function P.object(path, opts)
+  return qstar.source(path, qstar.merge({
+    language = "cdup",
+    unit = "object",
+  }, opts or {}))
+end
+
+function P.compile_object(ctx)
+  local argv = qstar.argv()
+  argv:add(ctx.tool("compiler"))
+  argv:add("-c")
+  argv:add(ctx.input("source"))
+  argv:add("-o")
+  argv:add(ctx.output("object"))
+  return {
+    command = argv,
+    inputs = {ctx.input("source")},
+    outputs = {ctx.output("object")},
+  }
+end
+
+return P
+EOF
+cat > "$tmp/provider-source-collision/qstar.lua" <<'EOF'
+local zig = qstar.use_language("zig")
+local alt = qstar.use_language("alt")
+
+qstar.staticlib "bad" {
+  sources = {"src/main.zig"},
+}
+EOF
+if "$qstar" --file "$tmp/provider-source-collision/qstar.lua" check > "$tmp/provider-source-collision-multiple.out" 2> "$tmp/provider-source-collision-multiple.err"; then
+  fail "provider source suffix collision unexpectedly succeeded"
+fi
+contains "$tmp/provider-source-collision-multiple.err" "matches multiple provider source units"
+contains "$tmp/provider-source-collision-multiple.err" "use an explicit provider helper"
+cat > "$tmp/provider-source-collision/qstar.lua" <<'EOF'
+local zig = qstar.use_language("zig")
+local alt = qstar.use_language("alt")
+
+qstar.toolset "host" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    alt = alt.tools {
+      compiler = qstar.cli {"tools/altcc"},
+    },
+  },
+}
+
+qstar.config "use_host" {
+  toolset = "//:host",
+}
+
+qstar.staticlib "good" {
+  configs = {"//:use_host"},
+  sources = {
+    alt.object("src/main.zig"),
+  },
+}
+EOF
+"$qstar" --file "$tmp/provider-source-collision/qstar.lua" check > "$tmp/provider-source-collision-explicit.out" 2> "$tmp/provider-source-collision-explicit.err"
+contains "$tmp/provider-source-collision-explicit.out" "status ok"
+"$qstar" --file "$tmp/provider-source-collision/qstar.lua" explain //:good > "$tmp/provider-source-collision-explicit-explain.out" 2> "$tmp/provider-source-collision-explicit-explain.err"
+contains "$tmp/provider-source-collision-explicit-explain.out" "source_file path=src/main.zig language=alt tool=provider-compiler provider=alt provider_role=compiler toolset_role=alt.compiler output_group=objects role=compile"
+cat > "$tmp/provider-source-collision/qstar.lua" <<'EOF'
+local cdup = qstar.use_language("cdup")
+
+qstar.staticlib "bad" {
+  sources = {"src/main.c"},
+}
+EOF
+if "$qstar" --file "$tmp/provider-source-collision/qstar.lua" check > "$tmp/provider-source-collision-builtin.out" 2> "$tmp/provider-source-collision-builtin.err"; then
+  fail "provider source built-in suffix collision unexpectedly succeeded"
+fi
+contains "$tmp/provider-source-collision-builtin.err" "matches both a built-in source suffix and provider source unit cdup.object"
+contains "$tmp/provider-source-collision-builtin.err" "use an explicit provider helper"
+cat > "$tmp/provider-source-collision/qstar.lua" <<'EOF'
+local cdup = qstar.use_language("cdup")
+
+qstar.toolset "host" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    cdup = cdup.tools {
+      compiler = qstar.cli {"tools/cdupcc"},
+    },
+  },
+}
+
+qstar.config "use_host" {
+  toolset = "//:host",
+}
+
+qstar.staticlib "good" {
+  configs = {"//:use_host"},
+  sources = {
+    cdup.object("src/main.c"),
+  },
+}
+EOF
+"$qstar" --file "$tmp/provider-source-collision/qstar.lua" check > "$tmp/provider-source-collision-builtin-explicit.out" 2> "$tmp/provider-source-collision-builtin-explicit.err"
+contains "$tmp/provider-source-collision-builtin-explicit.out" "status ok"
+"$qstar" --file "$tmp/provider-source-collision/qstar.lua" explain //:good > "$tmp/provider-source-collision-builtin-explicit-explain.out" 2> "$tmp/provider-source-collision-builtin-explicit-explain.err"
+contains "$tmp/provider-source-collision-builtin-explicit-explain.out" "source_file path=src/main.c language=cdup tool=provider-compiler provider=cdup provider_role=compiler toolset_role=cdup.compiler output_group=objects role=compile"
 
 mkdir -p "$tmp/standard-zig/src" "$tmp/standard-zig/tools"
 cat > "$tmp/standard-zig/src/main.zig" <<'EOF'
@@ -2754,7 +2960,7 @@ qstar.staticlib "core" {
     "//:zig_release",
   },
   sources = {
-    zig.object("src/main.zig"),
+    "src/main.zig",
   },
 }
 EOF
@@ -2845,7 +3051,7 @@ qstar.staticlib "core" {
     "//:rust_release",
   },
   sources = {
-    rust.object("src/main.rs"),
+    "src/main.rs",
   },
 }
 EOF
@@ -2935,7 +3141,7 @@ qstar.staticlib "core" {
     "//:cuda_release",
   },
   sources = {
-    cuda.object("src/main.cu"),
+    "src/main.cu",
   },
 }
 EOF
@@ -5081,7 +5287,7 @@ step "unsupported Objective-C++ source detail" "unsupported-mm"
 contains "$tmp/unsupported-mm.err" "Objective-C++ provider is not available"
 
 step "unsupported external language source detail" "unsupported-rs"
-contains "$tmp/unsupported-rs.err" "this language is not a QStar compile provider"
+contains "$tmp/unsupported-rs.err" "activate a language provider with qstar.use_language(...)"
 
 step "usage requirements corpus setup" "usage-requirements"
 mkdir -p "$tmp/include" "$tmp/src/core_private" "$tmp/lib"
@@ -6835,7 +7041,8 @@ contains "$tmp/init-zig.out" "scaffold zig app"
 contains "$tmp/init-zig/qstar.lua" "local zig = qstar.use_language(\"zig\")"
 contains "$tmp/init-zig/qstar.lua" "zig = zig.tools"
 contains "$tmp/init-zig/qstar.lua" "zig = zig.options"
-contains "$tmp/init-zig/qstar.lua" "zig.object(\"src/main.zig\")"
+contains "$tmp/init-zig/qstar.lua" "\"src/main.zig\""
+not_contains "$tmp/init-zig/qstar.lua" "zig.object("
 contains "$tmp/init-zig/qstar.lua" "compiler = qstar.cli {\"zig\"}"
 test -f "$tmp/init-zig/src/main.zig" || fail "init did not materialize zig app source"
 test ! -f "$tmp/init-zig/src/main.c" || fail "init zig app unexpectedly used C fallback source"
@@ -6854,14 +7061,16 @@ check_init_zig_backend_contract "$tmp/init-zig" init-zig-app //:app //:app //:ap
 
 "$qstar" init lib "$tmp/init-zig-lib" --use-language=zig > "$tmp/init-zig-lib.out" 2> "$tmp/init-zig-lib.err"
 contains "$tmp/init-zig-lib.out" "scaffold zig lib"
-contains "$tmp/init-zig-lib/qstar.lua" "zig.object(\"src/init_zig_lib.zig\")"
+contains "$tmp/init-zig-lib/qstar.lua" "\"src/init_zig_lib.zig\""
+not_contains "$tmp/init-zig-lib/qstar.lua" "zig.object("
 test -f "$tmp/init-zig-lib/src/init_zig_lib.zig" || fail "init did not materialize zig lib source"
 test -f "$tmp/init-zig-lib/qstar/languages/zig/zig.qsm" || fail "init did not vendor zig manifest for lib"
 check_init_zig_backend_contract "$tmp/init-zig-lib" init-zig-lib //:core //:core //:core:compile:0 libcore.a no
 
 "$qstar" init tool "$tmp/init-zig-tool" --use-language=zig > "$tmp/init-zig-tool.out" 2> "$tmp/init-zig-tool.err"
 contains "$tmp/init-zig-tool.out" "scaffold zig tool"
-contains "$tmp/init-zig-tool/qstar.lua" "zig.object(\"tools/init_zig_tool/main.zig\")"
+contains "$tmp/init-zig-tool/qstar.lua" "\"tools/init_zig_tool/main.zig\""
+not_contains "$tmp/init-zig-tool/qstar.lua" "zig.object("
 test -f "$tmp/init-zig-tool/tools/init_zig_tool/main.zig" || fail "init did not materialize zig tool source"
 test -f "$tmp/init-zig-tool/qstar/languages/zig/provider.lua" || fail "init did not vendor zig provider for tool"
 check_init_zig_backend_contract "$tmp/init-zig-tool" init-zig-tool //:tool //:tool //:tool:compile:0 tool yes
@@ -6882,9 +7091,11 @@ contains "$tmp/init-zig-workspace/qstar.lua" "qstar.subdir(\"packages/app\")"
 contains "$tmp/init-zig-workspace/qstar.lua" "\"//packages/core:core\""
 contains "$tmp/init-zig-workspace/qstar.lua" "\"//packages/app:app\""
 contains "$tmp/init-zig-workspace/packages/core/core.qst" "local zig = qstar.use_language(\"zig\")"
-contains "$tmp/init-zig-workspace/packages/core/core.qst" "zig.object(\"packages/core/src/core.zig\")"
+contains "$tmp/init-zig-workspace/packages/core/core.qst" "\"packages/core/src/core.zig\""
+not_contains "$tmp/init-zig-workspace/packages/core/core.qst" "zig.object("
 contains "$tmp/init-zig-workspace/packages/app/app.qst" "local zig = qstar.use_language(\"zig\")"
-contains "$tmp/init-zig-workspace/packages/app/app.qst" "zig.object(\"packages/app/src/main.zig\")"
+contains "$tmp/init-zig-workspace/packages/app/app.qst" "\"packages/app/src/main.zig\""
+not_contains "$tmp/init-zig-workspace/packages/app/app.qst" "zig.object("
 contains "$tmp/init-zig-workspace/packages/app/app.qst" "\"//packages/core:core\""
 test -f "$tmp/init-zig-workspace/packages/core/src/core.zig" || fail "init did not materialize zig core workspace source"
 test -f "$tmp/init-zig-workspace/packages/app/src/main.zig" || fail "init did not materialize zig app workspace source"
@@ -6905,7 +7116,8 @@ contains "$tmp/init-rust.out" "scaffold rust app"
 contains "$tmp/init-rust/qstar.lua" "local rust = qstar.use_language(\"rust\")"
 contains "$tmp/init-rust/qstar.lua" "rust = rust.tools"
 contains "$tmp/init-rust/qstar.lua" "rust = rust.options"
-contains "$tmp/init-rust/qstar.lua" "rust.object(\"src/main.rs\")"
+contains "$tmp/init-rust/qstar.lua" "\"src/main.rs\""
+not_contains "$tmp/init-rust/qstar.lua" "rust.object("
 contains "$tmp/init-rust/qstar.lua" "compiler = qstar.cli {\"rustc\"}"
 test -f "$tmp/init-rust/src/main.rs" || fail "init did not materialize rust app source"
 test ! -f "$tmp/init-rust/src/main.c" || fail "init rust app unexpectedly used C fallback source"
@@ -6924,14 +7136,16 @@ check_init_rust_backend_contract "$tmp/init-rust" init-rust-app //:app //:app //
 
 "$qstar" init lib "$tmp/init-rust-lib" --use-language=rust > "$tmp/init-rust-lib.out" 2> "$tmp/init-rust-lib.err"
 contains "$tmp/init-rust-lib.out" "scaffold rust lib"
-contains "$tmp/init-rust-lib/qstar.lua" "rust.object(\"src/init_rust_lib.rs\")"
+contains "$tmp/init-rust-lib/qstar.lua" "\"src/init_rust_lib.rs\""
+not_contains "$tmp/init-rust-lib/qstar.lua" "rust.object("
 test -f "$tmp/init-rust-lib/src/init_rust_lib.rs" || fail "init did not materialize rust lib source"
 test -f "$tmp/init-rust-lib/qstar/languages/rust/rust.qsm" || fail "init did not vendor rust manifest for lib"
 check_init_rust_backend_contract "$tmp/init-rust-lib" init-rust-lib //:core //:core //:core:compile:0 libcore.a no
 
 "$qstar" init tool "$tmp/init-rust-tool" --use-language=rust > "$tmp/init-rust-tool.out" 2> "$tmp/init-rust-tool.err"
 contains "$tmp/init-rust-tool.out" "scaffold rust tool"
-contains "$tmp/init-rust-tool/qstar.lua" "rust.object(\"tools/init_rust_tool/main.rs\")"
+contains "$tmp/init-rust-tool/qstar.lua" "\"tools/init_rust_tool/main.rs\""
+not_contains "$tmp/init-rust-tool/qstar.lua" "rust.object("
 test -f "$tmp/init-rust-tool/tools/init_rust_tool/main.rs" || fail "init did not materialize rust tool source"
 test -f "$tmp/init-rust-tool/qstar/languages/rust/provider.lua" || fail "init did not vendor rust provider for tool"
 check_init_rust_backend_contract "$tmp/init-rust-tool" init-rust-tool //:tool //:tool //:tool:compile:0 tool yes
@@ -6952,9 +7166,11 @@ contains "$tmp/init-rust-workspace/qstar.lua" "qstar.subdir(\"packages/app\")"
 contains "$tmp/init-rust-workspace/qstar.lua" "\"//packages/core:core\""
 contains "$tmp/init-rust-workspace/qstar.lua" "\"//packages/app:app\""
 contains "$tmp/init-rust-workspace/packages/core/core.qst" "local rust = qstar.use_language(\"rust\")"
-contains "$tmp/init-rust-workspace/packages/core/core.qst" "rust.object(\"packages/core/src/lib.rs\")"
+contains "$tmp/init-rust-workspace/packages/core/core.qst" "\"packages/core/src/lib.rs\""
+not_contains "$tmp/init-rust-workspace/packages/core/core.qst" "rust.object("
 contains "$tmp/init-rust-workspace/packages/app/app.qst" "local rust = qstar.use_language(\"rust\")"
-contains "$tmp/init-rust-workspace/packages/app/app.qst" "rust.object(\"packages/app/src/main.rs\")"
+contains "$tmp/init-rust-workspace/packages/app/app.qst" "\"packages/app/src/main.rs\""
+not_contains "$tmp/init-rust-workspace/packages/app/app.qst" "rust.object("
 contains "$tmp/init-rust-workspace/packages/app/app.qst" "\"//packages/core:core\""
 test -f "$tmp/init-rust-workspace/packages/core/src/lib.rs" || fail "init did not materialize rust core workspace source"
 test -f "$tmp/init-rust-workspace/packages/app/src/main.rs" || fail "init did not materialize rust app workspace source"
@@ -6975,7 +7191,8 @@ contains "$tmp/init-cuda.out" "scaffold cuda app"
 contains "$tmp/init-cuda/qstar.lua" "local cuda = qstar.use_language(\"cuda\")"
 contains "$tmp/init-cuda/qstar.lua" "cuda = cuda.tools"
 contains "$tmp/init-cuda/qstar.lua" "cuda = cuda.options"
-contains "$tmp/init-cuda/qstar.lua" "cuda.object(\"src/main.cu\")"
+contains "$tmp/init-cuda/qstar.lua" "\"src/main.cu\""
+not_contains "$tmp/init-cuda/qstar.lua" "cuda.object("
 contains "$tmp/init-cuda/qstar.lua" "compiler = qstar.cli {\"nvcc\"}"
 test -f "$tmp/init-cuda/src/main.cu" || fail "init did not materialize cuda app source"
 test ! -f "$tmp/init-cuda/src/main.c" || fail "init cuda app unexpectedly used C fallback source"
@@ -6994,14 +7211,16 @@ check_init_cuda_backend_contract "$tmp/init-cuda" init-cuda-app //:app //:app //
 
 "$qstar" init lib "$tmp/init-cuda-lib" --use-language=cuda > "$tmp/init-cuda-lib.out" 2> "$tmp/init-cuda-lib.err"
 contains "$tmp/init-cuda-lib.out" "scaffold cuda lib"
-contains "$tmp/init-cuda-lib/qstar.lua" "cuda.object(\"src/init_cuda_lib.cu\")"
+contains "$tmp/init-cuda-lib/qstar.lua" "\"src/init_cuda_lib.cu\""
+not_contains "$tmp/init-cuda-lib/qstar.lua" "cuda.object("
 test -f "$tmp/init-cuda-lib/src/init_cuda_lib.cu" || fail "init did not materialize cuda lib source"
 test -f "$tmp/init-cuda-lib/qstar/languages/cuda/cuda.qsm" || fail "init did not vendor cuda manifest for lib"
 check_init_cuda_backend_contract "$tmp/init-cuda-lib" init-cuda-lib //:core //:core //:core:compile:0 libcore.a no
 
 "$qstar" init tool "$tmp/init-cuda-tool" --use-language=cuda > "$tmp/init-cuda-tool.out" 2> "$tmp/init-cuda-tool.err"
 contains "$tmp/init-cuda-tool.out" "scaffold cuda tool"
-contains "$tmp/init-cuda-tool/qstar.lua" "cuda.object(\"tools/init_cuda_tool/main.cu\")"
+contains "$tmp/init-cuda-tool/qstar.lua" "\"tools/init_cuda_tool/main.cu\""
+not_contains "$tmp/init-cuda-tool/qstar.lua" "cuda.object("
 test -f "$tmp/init-cuda-tool/tools/init_cuda_tool/main.cu" || fail "init did not materialize cuda tool source"
 test -f "$tmp/init-cuda-tool/qstar/languages/cuda/provider.lua" || fail "init did not vendor cuda provider for tool"
 check_init_cuda_backend_contract "$tmp/init-cuda-tool" init-cuda-tool //:tool //:tool //:tool:compile:0 tool yes
@@ -7022,9 +7241,11 @@ contains "$tmp/init-cuda-workspace/qstar.lua" "qstar.subdir(\"packages/app\")"
 contains "$tmp/init-cuda-workspace/qstar.lua" "\"//packages/core:core\""
 contains "$tmp/init-cuda-workspace/qstar.lua" "\"//packages/app:app\""
 contains "$tmp/init-cuda-workspace/packages/core/core.qst" "local cuda = qstar.use_language(\"cuda\")"
-contains "$tmp/init-cuda-workspace/packages/core/core.qst" "cuda.object(\"packages/core/src/core.cu\")"
+contains "$tmp/init-cuda-workspace/packages/core/core.qst" "\"packages/core/src/core.cu\""
+not_contains "$tmp/init-cuda-workspace/packages/core/core.qst" "cuda.object("
 contains "$tmp/init-cuda-workspace/packages/app/app.qst" "local cuda = qstar.use_language(\"cuda\")"
-contains "$tmp/init-cuda-workspace/packages/app/app.qst" "cuda.object(\"packages/app/src/main.cu\")"
+contains "$tmp/init-cuda-workspace/packages/app/app.qst" "\"packages/app/src/main.cu\""
+not_contains "$tmp/init-cuda-workspace/packages/app/app.qst" "cuda.object("
 contains "$tmp/init-cuda-workspace/packages/app/app.qst" "\"//packages/core:core\""
 test -f "$tmp/init-cuda-workspace/packages/core/src/core.cu" || fail "init did not materialize cuda core workspace source"
 test -f "$tmp/init-cuda-workspace/packages/app/src/main.cu" || fail "init did not materialize cuda app workspace source"

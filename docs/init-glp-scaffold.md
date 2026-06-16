@@ -22,11 +22,11 @@ QStar는 C/C++/ASM을 잘 지원하지만 특정 언어에 종속되지 않는 �
   반환한다.
 - provider는 `tools`, `units`, `options`, `exports`를 선언한다.
 - provider implementation인 `provider.lua`는 제한 sandbox에서 로드된다.
-- 사용자에게는 `zig.tools`, `zig.options`, `zig.object` 같은 exported helper만
+- 사용자에게는 `zig.tools`, `zig.options`, `zig.object` 같은 exported helper가
   노출된다.
 - `lang.<namespace>` table은 provider option schema로 검증된다.
-- provider source unit은 `qstar.source(...)` token을 통해 object-producing action으로
-  낮아진다.
+- provider source unit suffix는 graph-level source registry에 등록되며, raw string
+  source와 explicit `qstar.source(...)` token 모두 object-producing action으로 낮아진다.
 - Stella와 Ninja는 같은 provider action contract를 실행한다.
 
 이전 `qstar init`은 GLP 철학을 충분히 반영하지 못했다. `c-app`, `c-lib` 같은
@@ -90,7 +90,8 @@ qstar.toolset "host" {
 ```
 
 이 정책의 의미는 C/C++/ASM이 "특화되어 있으나 독점하지 않는" builtin이라는 것이다.
-외부 언어도 `tools.zig`, `lang.zig`, `zig.object(...)` 같은 같은 급의 구조를 얻는다.
+외부 언어도 `tools.zig`, `lang.zig`, raw string `sources = {"src/main.zig"}`, explicit
+`zig.object(...)` 같은 같은 급의 구조를 얻는다.
 
 ## GLP 정책
 
@@ -126,7 +127,7 @@ qstar.config "debug" {
 qstar.executable "app" {
   configs = {"//:debug"},
   sources = {
-    zig.object("src/main.zig"),
+    "src/main.zig",
   },
 }
 ```
@@ -137,6 +138,7 @@ Provider는 다음을 담당한다.
 - tool role: `zig.compiler`, `rust.compiler`, `cuda.compiler`.
 - option schema: `optimize`, `edition`, `target`, `arch`, `compile_options`.
 - source unit: `object`.
+- source suffix registry: `.zig`, `.rs`, `.cu` 같은 raw source classification.
 - lowering function: source unit을 object-producing action으로 변환.
 - 사용자 helper export: `zig.tools`, `rust.options`, `cuda.object`.
 
@@ -235,12 +237,13 @@ qstar init app hello --use-language=zig
 - `qstar.lua` 상단에 `local zig = qstar.use_language("zig")`를 생성한다.
 - `qstar.toolset`에 `zig = zig.tools { compiler = qstar.cli {"zig"} }` entry를 생성한다.
 - `qstar.config`에 `zig = zig.options { ... }` default option entry를 생성한다.
-- provider scaffold plan에 따라 `src/main.zig`와 `zig.object("src/main.zig")` target을 만든다.
+- provider scaffold plan에 따라 `src/main.zig`와 raw string `sources = {"src/main.zig"}`
+  target을 만든다.
 
 `--use-language=rust`와 `--use-language=cuda`도 같은 흐름을 사용한다. 표준 Rust provider는
-`qstar/languages/rust`, `rust.tools`, `rust.options`, `rust.object("src/main.rs")`를
+`qstar/languages/rust`, `rust.tools`, `rust.options`, raw string `"src/main.rs"`를
 생성하고, 표준 CUDA provider는 `qstar/languages/cuda`, `cuda.tools`, `cuda.options`,
-`cuda.object("src/main.cu")`를 생성한다.
+raw string `"src/main.cu"`를 생성한다.
 
 여러 언어가 들어오면 첫 번째 언어가 primary scaffold language다. Primary provider가
 shape-specific scaffold를 제공하면 그 layout이 `src/main.zig`, `src/crates/...`,
@@ -387,7 +390,7 @@ qstar.config "debug" {
 qstar.executable "app" {
   configs = {"//:debug"},
   sources = {
-    zig.object("src/main.zig"),
+    "src/main.zig",
   },
 }
 ```
@@ -713,10 +716,7 @@ return qstar.language_provider {
           kind = "executable",
           name = "app",
           sources = {
-            {
-              helper = "object",
-              path = "src/crates/${project_ident}/main.rs",
-            },
+            "src/crates/${project_ident}/main.rs",
           },
         },
       },
@@ -799,23 +799,38 @@ zig = zig.options {
 | --- | --- | --- |
 | `kind` | string | `executable`, `staticlib`, `sharedlib`, `test`, `run_target`, `group` |
 | `name` | string | target name |
-| `sources` | list | raw source 또는 provider helper reference |
+| `sources` | list | raw source string 또는 provider helper reference |
 | `deps` | list(string) | target deps |
 | `lang` | table | target-local lang options |
 
-Provider helper reference:
+Raw source string은 generated `qstar.lua`에 그대로 출력되며, provider가 활성화되어 있고 suffix가
+해당 provider unit에 등록되어 있으면 build graph에서 provider object unit으로 낮아진다.
+
+```lua
+sources = {
+  "src/main.zig",
+}
+```
+
+Provider helper reference는 source-local option이 필요하거나 suffix 충돌을 명시적으로 해결해야 할 때
+쓴다.
 
 ```lua
 {
   helper = "object",
   path = "src/main.zig",
+  options = {
+    optimize = "ReleaseFast",
+  },
 }
 ```
 
 이 값은 generated `qstar.lua`에서 다음으로 변환된다.
 
 ```lua
-zig.object("src/main.zig")
+zig.object("src/main.zig", {
+  optimize = "ReleaseFast",
+})
 ```
 
 ## Template Variables

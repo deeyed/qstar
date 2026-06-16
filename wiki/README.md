@@ -11,9 +11,12 @@ gate를 제공한다. Provider manifest는 `qstar.language_provider { api = "qst
 `zig`, `rust`, `cuda`는 QStar가 함께 설치하는 표준 provider이며, 같은 ID의
 project-local provider가 있으면 그 manifest가 먼저 사용된다.
 Provider가 선언한 `options` schema는 `lang.<namespace>` table의 key와 value type을 검증한다.
-Provider가 선언한 `units` schema와 exported helper는 `zig.object("src/main.zig")` 같은
-source token을 만들 수 있고, backend는 provider lowering function이 반환한 `command`,
-`inputs`, `outputs`, `depfile` action template을 Stella와 Ninja에서 동일하게 실행한다.
+Provider가 선언한 `units` schema는 source suffix를 graph-level registry에 등록하므로, 활성화된
+provider의 source는 `sources = {"src/main.zig"}` 같은 raw string으로도 built-in 언어와 같은
+경로를 탄다. Exported helper인 `zig.object("src/main.zig", {...})`는 source-local option이나
+suffix 충돌 해소가 필요할 때 쓰는 명시 경로다. Backend는 provider lowering function이 반환한
+`command`, `inputs`, `outputs`, `depfile` action template을 Stella와 Ninja에서 동일하게
+실행한다.
 `qstar.custom_target`과 `qstar.output(..., {format = "object"})` object artifact bridge도
 hand-written 외부 compiler flow를 위해 계속 지원한다. 자세한 문법은
 [Language Providers](reference/language-providers.md)에 둔다.

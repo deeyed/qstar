@@ -4,13 +4,17 @@ QStar runtime은 built-in `c`, `cxx`, `asm` provider namespace를 preloaded regi
 갖고 있다. Public syntax의 `lang.c`, `lang.cxx`, `lang.asm`은 그대로 유지되지만, 내부
 source classification과 tool role은 `c.compiler`, `cxx.compiler`, `asm.compiler` 같은
 provider role로 내려간다. 외부 provider는 `qstar.use_language(...)`로 활성화하고,
-provider source unit은 provider implementation의 lowering function이 반환한 action
+provider source unit suffix는 graph-level source registry에 등록된다. Raw string source와
+explicit provider helper token은 provider implementation의 lowering function이 반환한 action
 template으로 Graph IR에 저장된다.
 
 ## 결정
 
-- 외부 언어 source는 raw string으로 `sources`에 직접 넣지 않는다.
-- provider helper는 `qstar.source(path, {language = "...", unit = "..."})` token을 만든다.
+- 활성화된 외부 provider의 source suffix는 raw string `sources` classification에 참여한다.
+- provider helper는 source-local option이나 suffix 충돌 해소를 위한 explicit
+  `qstar.source(path, {language = "...", unit = "..."})` token을 만든다.
+- raw string이 여러 provider source unit과 match되거나 built-in source suffix와 provider unit
+  모두에 match되면 QStar는 explicit provider helper를 요구한다.
 - source unit은 `ctx.tool`, `ctx.input`, `ctx.output`, `ctx.option`으로 lowering된다.
 - lowered action의 argv, inputs, outputs, depfile은 Stella와 Ninja가 같은 contract로 실행한다.
 - object artifact bridge도 계속 지원된다.

@@ -51,19 +51,20 @@ QStar가 하지 않는 일:
 - 산출물 기본 위치는 `build/qstar`다.
 - generated action output 기본 root는 `generated`이고, `qstar.project.generated_dir`로
   package-relative generated root를 바꿀 수 있다.
-- QStar가 직접 지원하지 않는 언어 source는 raw string으로 `sources`에 그대로 넣지 않는다.
-  활성화된 GLP provider가 `zig.object("src/main.zig")` 같은 helper로 `qstar.source(...)`
-  token을 만들고, QStar가 consuming target 소유의 object output으로 낮춘다. 더 세밀한 외부
-  compiler 호출이 필요하면 `qstar.custom_target`과 `qstar.output(path, {format = "object"})`
-  bridge도 계속 사용할 수 있다.
+- QStar가 직접 지원하지 않는 언어 source도 활성화된 GLP provider가 `units.*.suffixes`로 등록하면
+  raw string `sources` classification에 참여한다. 예를 들어 `qstar.use_language("zig")` 이후
+  `sources = {"src/main.zig"}`는 consuming target 소유의 provider object output으로 낮아진다.
+  `zig.object("src/main.zig", {...})` 같은 helper는 source-local option이나 suffix 충돌 해소용
+  명시 경로다. 더 세밀한 외부 compiler 호출이 필요하면 `qstar.custom_target`과
+  `qstar.output(path, {format = "object"})` bridge도 계속 사용할 수 있다.
 - GLP provider는 project-local `qstar/languages/<id>/<id>.qsm` manifest 또는 installed
   standard bundle `share/qstar/languages/<id>/<id>.qsm` manifest와 `provider.lua`
   implementation을 가진다. Manifest는 `qstar.language_provider { api = "qstar.lang/1", ... }`
   schema로 검증되고, implementation은 제한 provider sandbox에서 로드된다. 사용자는
   `qstar.use_language("<id>")`가 반환한 exported helper table을 통해 `zig.tools`,
-  `rust.options`, `cuda.object` 같은 helper를 사용한다. `lang.<namespace>`는 provider activation
-  이후에만 유효하며, provider-defined `options` schema가 unknown option, string, bool, list,
-  enum, default metadata를 검증한다. Optional `scaffold` schema는
+  `rust.options`, `cuda.object` 같은 helper를 사용한다. `lang.<namespace>`와 raw provider source
+  classification은 provider activation 이후에만 유효하며, provider-defined `options` schema가
+  unknown option, string, bool, list, enum, default metadata를 검증한다. Optional `scaffold` schema는
   `api = "qstar.scaffold/1"`, default tools/options, shape files/targets/fragments를
   package-relative declarative data로 검증하며, `qstar init`은 primary provider shape를
   실제 `qstar.lua`, source file, workspace fragment로 materialize한다. 같은 manifest의

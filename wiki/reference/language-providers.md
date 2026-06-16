@@ -9,8 +9,10 @@ role로 내려간다.
 외부 provider는 `qstar.use_language(...)`로 명시적으로 활성화한다. Activation은 provider
 manifest를 읽고 `lang.<namespace>`를 허용하는 registry를 갱신하며, manifest의 `options`
 schema로 `lang.<namespace>` table을 검증한다. Manifest의 `units` schema는 provider helper가
-`qstar.source(...)` token을 만들 수 있게 하고, backend는 provider implementation의 lowering
-function이 반환한 action template을 consuming target 소유 object artifact로 낮춘다.
+`qstar.source(...)` token을 만들 수 있게 하며, 같은 suffix 정보를 graph-level source registry에
+등록한다. 따라서 활성화된 provider의 `.zig`, `.rs`, `.cu` 같은 source는 raw string source
+classification에도 참여한다. Backend는 provider implementation의 lowering function이 반환한
+action template을 consuming target 소유 object artifact로 낮춘다.
 외부 compiler 호출을 직접 손으로 제어해야 하는 경우에는 object artifact bridge를 계속 쓴다.
 
 ## Provider Activation
@@ -120,10 +122,7 @@ return qstar.language_provider {
             kind = "executable",
             name = "app",
             sources = {
-              {
-                helper = "object",
-                path = "src/main.zig",
-              },
+              "src/main.zig",
             },
           },
         },
@@ -193,12 +192,31 @@ dependency를 활성화하는 경우만 허용된다.
 
 ## 현재 source 경로
 
-외부 언어 source는 raw string으로 `sources`에 넣지 않는다. Provider가 노출한 helper가
-`qstar.source(path, {language = "...", unit = "..."})` token을 반환하고, target reader가
-provider implementation의 `lower` 함수로 그 token을 object-producing action template으로
-낮춘다. 예를 들어
-`zig.object("src/main.zig")`는 consuming target이 소유하는 deterministic object output을
-만든다.
+외부 provider source도 raw string `sources` classification에 참여한다. Provider manifest의
+`units.<unit>.suffixes`가 graph-level source registry에 등록되므로, provider가 활성화된 뒤에는
+`"src/main.zig"` 같은 source string이 provider object unit으로 바로 낮아진다. 예를 들어
+`qstar.use_language("zig")` 이후 `sources = {"src/main.zig"}`는 `zig.object` helper를 직접
+쓰지 않아도 consuming target이 소유하는 deterministic object output을 만든다.
+
+Provider가 노출한 helper도 계속 정식 문법이다. Helper는
+`qstar.source(path, {language = "...", unit = "..."})` token을 반환하고, source-local option이
+필요하거나 suffix가 여러 provider와 충돌할 때 명시 경로로 쓴다.
+
+```lua
+local zig = qstar.use_language("zig")
+
+qstar.staticlib "core" {
+  sources = {
+    "src/main.zig",
+    zig.object("src/special.zig", {optimize = "ReleaseFast"}),
+  },
+}
+```
+
+Raw string이 활성화된 provider source unit 두 개 이상과 동시에 match되면 QStar는 ambiguous
+source diagnostic을 낸다. Raw string이 built-in C/C++/ASM suffix와 provider source unit 모두에
+match되어도 같은 이유로 거절된다. 이 경우에는 diagnostic이 제안하는 explicit provider helper를
+써서 의도를 고정한다.
 
 기존 object artifact bridge도 계속 유효하다. 외부 compiler 호출을 더 세밀하게 제어해야 하면
 `qstar.custom_target`으로 작성하고, 결과 object를 `qstar.output(path, {format = "object"})`로
@@ -321,15 +339,15 @@ qstar.config "debug" {
 qstar.executable "app" {
   configs = {"//:debug"},
   sources = {
-    zig.object("src/main.zig"),
+    "src/main.zig",
   },
 }
 ```
 
 이 문법 중 provider activation, manifest validation, `provider.lua` sandbox loading,
-`lang.zig` namespace gate, provider-defined option schema validation, `zig.object` source
-token, object output allocation, provider action lowering, Stella/Ninja backend execution은
-구현되어 있다.
+`lang.zig` namespace gate, provider-defined option schema validation, raw provider source
+classification, explicit provider helper source token, object output allocation, provider action
+lowering, Stella/Ninja backend execution은 구현되어 있다.
 
 ## 관련 CLI
 
@@ -341,13 +359,15 @@ qstar --file qstar.lua -G ninja build //:app
 
 ## 관련 diagnostic
 
-- `this language is not a QStar compile provider`
+- `activate a language provider with qstar.use_language(...) before listing this source`
 - `qstar.output(..., {format = "object"})`
 - `qstar: unknown language namespace lang.zig`
 - `qstar: unknown field lang.zig.<option>`
 - `qstar: lang.zig.<option> has unsupported enum value '...'`
 - `qstar: duplicate language provider namespace lang.zig`
 - `qstar: circular language provider activation`
+- `qstar: source '...' matches multiple provider source units (...)`
+- `qstar: source '...' matches both a built-in source suffix and provider source unit ...`
 
 ## 관련 문서
 

@@ -204,7 +204,7 @@
       "    },",
       "  },",
       "  sources = {",
-      "    zig.object(\"${7:src/main.zig}\"),",
+      "    \"${7:src/main.zig}\",",
       "  },",
       "}"
     ],
@@ -238,7 +238,7 @@
       "qstar.executable \"${7:app}\" {",
       "  configs = {\"//:${5:cuda_debug}\"},",
       "  sources = {",
-      "    cuda.object(\"${8:src/main.cu}\"),",
+      "    \"${8:src/main.cu}\",",
       "  },",
       "}"
     ],

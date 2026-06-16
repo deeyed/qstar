@@ -62,10 +62,7 @@ return qstar.language_provider {
           kind = "executable",
           name = "app",
           sources = {
-            {
-              helper = "object",
-              path = "src/main.zig",
-            },
+            "src/main.zig",
           },
         },
       },
@@ -81,10 +78,7 @@ return qstar.language_provider {
           kind = "staticlib",
           name = "core",
           sources = {
-            {
-              helper = "object",
-              path = "src/${project_ident}.zig",
-            },
+            "src/${project_ident}.zig",
           },
         },
       },
@@ -100,10 +94,7 @@ return qstar.language_provider {
           kind = "executable",
           name = "tool",
           sources = {
-            {
-              helper = "object",
-              path = "tools/${project_ident}/main.zig",
-            },
+            "tools/${project_ident}/main.zig",
           },
         },
       },
@@ -122,10 +113,7 @@ return qstar.language_provider {
               kind = "staticlib",
               name = "core",
               sources = {
-                {
-                  helper = "object",
-                  path = "packages/core/src/core.zig",
-                },
+                "packages/core/src/core.zig",
               },
             },
           },
@@ -141,10 +129,7 @@ return qstar.language_provider {
               kind = "executable",
               name = "app",
               sources = {
-                {
-                  helper = "object",
-                  path = "packages/app/src/main.zig",
-                },
+                "packages/app/src/main.zig",
               },
               deps = {"//packages/core:core"},
             },

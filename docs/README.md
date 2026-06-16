@@ -34,9 +34,11 @@ manifests must return
 implementation is loaded in a restricted provider sandbox and only `exports`
 are returned to user code. Provider-defined `options` schemas now validate
 `lang.<namespace>` tables with string, bool, list, enum, and default metadata.
-Provider-defined `units` can now expose helpers such as
-`zig.object("src/main.zig")`; these lower to consuming-target-owned object
-artifacts through provider lowering functions. The lowered `command`, `inputs`,
+Provider-defined `units` register source suffixes with the graph-level source
+registry, so activated providers can classify raw source strings such as
+`"src/main.zig"` into consuming-target-owned object artifacts. Explicit helpers
+such as `zig.object("src/main.zig", {...})` remain available for source-local
+options and suffix collision disambiguation. The lowered `command`, `inputs`,
 `outputs`, and `depfile` action template is shared by Stella and Ninja, including
 response-file handling and action-log/replay. The object artifact bridge remains
 available for hand-written foreign compiler flows.

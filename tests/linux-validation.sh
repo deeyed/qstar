@@ -444,7 +444,7 @@ qstar.staticlib "core" {
     "//:zig_release",
   },
   sources = {
-    zig.object("src/main.zig"),
+    "src/main.zig",
   },
 }
 EOF

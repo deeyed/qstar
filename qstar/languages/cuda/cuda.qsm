@@ -51,10 +51,7 @@ return qstar.language_provider {
           kind = "executable",
           name = "app",
           sources = {
-            {
-              helper = "object",
-              path = "src/main.cu",
-            },
+            "src/main.cu",
           },
         },
       },
@@ -70,10 +67,7 @@ return qstar.language_provider {
           kind = "staticlib",
           name = "core",
           sources = {
-            {
-              helper = "object",
-              path = "src/${project_ident}.cu",
-            },
+            "src/${project_ident}.cu",
           },
         },
       },
@@ -89,10 +83,7 @@ return qstar.language_provider {
           kind = "executable",
           name = "tool",
           sources = {
-            {
-              helper = "object",
-              path = "tools/${project_ident}/main.cu",
-            },
+            "tools/${project_ident}/main.cu",
           },
         },
       },
@@ -111,10 +102,7 @@ return qstar.language_provider {
               kind = "staticlib",
               name = "core",
               sources = {
-                {
-                  helper = "object",
-                  path = "packages/core/src/core.cu",
-                },
+                "packages/core/src/core.cu",
               },
             },
           },
@@ -130,10 +118,7 @@ return qstar.language_provider {
               kind = "executable",
               name = "app",
               sources = {
-                {
-                  helper = "object",
-                  path = "packages/app/src/main.cu",
-                },
+                "packages/app/src/main.cu",
               },
               deps = {"//packages/core:core"},
             },
