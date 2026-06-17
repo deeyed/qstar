@@ -136,10 +136,10 @@ qstar.custom_target "probe" {
 QStar must pass each list item as one argv element. It must not expand `$VAR`,
 split on spaces, interpret semicolons, or run commands through a shell. The
 Windows port uses the platform process API with the same argv-vector semantics.
-For MSYS2 alpha fixtures only, Q220 allows the platform layer to execute a
-package-local `.sh` program as the effective command line `sh <script>.sh ...`;
-QStar's logged argv, dependency key, and DSL contract remain the original argv
-vector.
+For MSYS2 alpha fixtures only, Q220 allows the Stella platform layer and Ninja
+edge emission to execute a package-local `.sh` program as the effective command
+line `sh <script>.sh ...`; QStar's logged argv, dependency key, and DSL contract
+remain the original argv vector.
 
 `_WIN32` Stella build/test execution now uses the CreateProcess runner. The
 `qstar check`, `qstar dry-run`, and `qstar emit-ninja` commands continue

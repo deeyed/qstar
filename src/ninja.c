@@ -472,6 +472,28 @@ shell_argv(FILE *f, const struct ninja_argv *argv)
 	}
 }
 
+static int
+ninja_arg_is_sh_script(const char *s)
+{
+	size_t n;
+
+	if (!s)
+		return 0;
+	n = strlen(s);
+	return n > 3 && strcmp(s + n - 3, ".sh") == 0;
+}
+
+/** Windows Ninja cannot CreateProcess package-local shell scripts directly. */
+static void
+shell_argv_ninja_command(FILE *f, const struct ninja_argv *argv, int windows)
+{
+	if (windows && argv && argv->len > 0 && ninja_arg_is_sh_script(argv->items[0])) {
+		shell_arg(f, "sh");
+		fputc(' ', f);
+	}
+	shell_argv(f, argv);
+}
+
 /** Ninja variable value에서 special token을 escape해 한 줄로 출력한다. */
 static void
 ninja_var_text(FILE *f, const char *s)
@@ -647,7 +669,8 @@ write_edge_command(struct qstar_graph *graph, struct ninja_ctx *ctx, const char 
 	if (prepare_ninja_response_file(graph, id, toolchain, argv, &run, rsp_rel,
 	    sizeof(rsp_rel)) < 0)
 		return -1;
-	shell_argv(ctx->ninja, &run);
+	shell_argv_ninja_command(ctx->ninja, &run,
+	    toolchain && qstar_platform_is_windows(toolchain->platform));
 	ninja_argv_free(&run);
 	return write_ninja_action_log(graph, id, argv, rsp_rel, description);
 }
