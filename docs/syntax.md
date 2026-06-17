@@ -306,6 +306,18 @@ qstar.custom_target "package_blob" {
 }
 ```
 
+Single-input/single-output transforms can use the readable sugar form. It lowers
+to the same generated action contract as `qstar.custom_target`.
+
+```lua
+qstar.transform "package_blob" {
+  input = qstar.target_file("//:app"),
+  output = qstar.output("build/qstar/generated/app.bin", {group = "packages"}),
+  command = qstar.cli {"tools/package-object", qstar.input(0), qstar.output(0)},
+  description = qstar.status("Packaging app.bin"),
+}
+```
+
 Generated object outputs use the same surface:
 
 ```lua
@@ -343,9 +355,9 @@ feed the stage, materializes the layout, writes its manifest, and only then runs
 the consuming action on both Stella and Ninja backends:
 
 ```lua
-qstar.custom_target "image" {
-  inputs = {qstar.target_file("//:app")},
-  outputs = {qstar.output("build/qstar/generated/app.img")},
+qstar.transform "image" {
+  input = qstar.target_file("//:app"),
+  output = qstar.output("build/qstar/generated/app.img"),
   command = qstar.cli {"tools/transform", qstar.input(0), qstar.output(0)},
 }
 

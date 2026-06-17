@@ -8533,6 +8533,85 @@ contains "$tmp/artifact-targets-json.out" "\"output_artifacts\""
 contains "$tmp/artifact-targets-json.out" "\"group\":\"images\""
 contains "$tmp/artifact-targets-json.out" "\"format\":\"file\""
 
+step "artifact transform sugar" "artifact-transform"
+mkdir -p "$tmp/transform/tools" "$tmp/transform/fixtures"
+cp "$tmp/artifact/tools/fake-objcopy.sh" "$tmp/transform/tools/fake-objcopy.sh"
+chmod +x "$tmp/transform/tools/fake-objcopy.sh"
+cat > "$tmp/transform/fixtures/payload.elf" <<'EOF'
+ELF-STUB
+transform-payload
+EOF
+cat > "$tmp/transform/qstar.lua" <<'EOF'
+qstar.transform "payload_image" {
+  input = "fixtures/payload.elf",
+  output = qstar.output("generated/payload.img", {
+    group = "images",
+  }),
+  command = qstar.cli {
+    "tools/fake-objcopy.sh",
+    "-O",
+    "binary",
+    qstar.input(0),
+    qstar.output(0),
+  },
+}
+
+qstar.run_target "smoke" {
+  inputs = {
+    qstar.target_file("//:payload_image"),
+  },
+  command = qstar.cli {
+    "tools/fake-objcopy.sh",
+    "-O",
+    "binary",
+    qstar.input(0),
+    "generated/copy.img",
+  },
+}
+EOF
+"$qstar" --file "$tmp/transform/qstar.lua" explain //:payload_image > "$tmp/transform-explain.out" 2> "$tmp/transform-explain.err"
+contains "$tmp/transform-explain.out" "plan_generated_action //:payload_image"
+contains "$tmp/transform-explain.out" "generated_artifact output=generated/payload.img group=images format=file"
+"$qstar" --file "$tmp/transform/qstar.lua" dry-run //:payload_image > "$tmp/transform-dry.out" 2> "$tmp/transform-dry.err"
+contains "$tmp/transform-dry.out" "dry_run_generated_action //:payload_image"
+contains "$tmp/transform-dry.out" "argv=[tools/fake-objcopy.sh, -O, binary, fixtures/payload.elf, generated/payload.img]"
+"$qstar" --file "$tmp/transform/qstar.lua" build //:smoke --progress off > "$tmp/transform-smoke.out" 2> "$tmp/transform-smoke.err"
+contains "$tmp/transform-smoke.out" "run_target label=//:smoke"
+contains "$tmp/transform-smoke.out" "status ok"
+cmp "$tmp/transform/fixtures/payload.elf" "$tmp/transform/generated/payload.img" >/dev/null || fail "transform output content drifted"
+cmp "$tmp/transform/fixtures/payload.elf" "$tmp/transform/generated/copy.img" >/dev/null || fail "transform run_target input content drifted"
+if command -v ninja >/dev/null 2>&1; then
+	rm -rf "$tmp/transform/build/qstar" "$tmp/transform/generated"
+	"$qstar" --file "$tmp/transform/qstar.lua" -G ninja build //:smoke --progress off > "$tmp/transform-ninja.out" 2> "$tmp/transform-ninja.err"
+	contains "$tmp/transform-ninja.out" "backend ninja"
+	contains "$tmp/transform-ninja.out" "status ok"
+	cmp "$tmp/transform/fixtures/payload.elf" "$tmp/transform/generated/copy.img" >/dev/null || fail "ninja transform run_target input content drifted"
+fi
+
+mkdir -p "$tmp/transform-bad"
+cat > "$tmp/transform-bad/qstar.lua" <<'EOF'
+qstar.transform "bad" {
+  input = "qstar.lua",
+  output = qstar.output("generated/bad.img"),
+  outputs = {qstar.output("generated/extra.img")},
+  command = qstar.cli {"tools/write", qstar.input(0), qstar.output(0)},
+}
+EOF
+if "$qstar" --file "$tmp/transform-bad/qstar.lua" check > "$tmp/transform-bad-field.out" 2> "$tmp/transform-bad-field.err"; then
+	fail "unknown transform field unexpectedly succeeded"
+fi
+contains "$tmp/transform-bad-field.err" "unknown transform field 'outputs'"
+cat > "$tmp/transform-bad/qstar.lua" <<'EOF'
+qstar.transform "bad" {
+  output = qstar.output("generated/bad.img"),
+  command = qstar.cli {"tools/write", qstar.input(0), qstar.output(0)},
+}
+EOF
+if "$qstar" --file "$tmp/transform-bad/qstar.lua" check > "$tmp/transform-bad-input.out" 2> "$tmp/transform-bad-input.err"; then
+	fail "missing transform input unexpectedly succeeded"
+fi
+contains "$tmp/transform-bad-input.err" "transform '//:bad' requires input"
+
 step "artifact dependency edges"
 mkdir -p "$tmp/artifact-dep/tools" "$tmp/artifact-dep/src" "$tmp/artifact-dep/fixtures"
 cat > "$tmp/artifact-dep/tools/fake-objcopy.sh" <<'EOF'
@@ -9667,6 +9746,18 @@ if "$qstar" --file "$tmp/project-command-bad/qstar.lua" commands > "$tmp/project
 	fail "reserved project command unexpectedly succeeded"
 fi
 contains "$tmp/project-command-reserved.err" "project command name 'build' is reserved"
+cat > "$tmp/project-command-bad/qstar.lua" <<'EOF'
+qstar.command "install" {
+  steps = {
+    qstar.step.check("//..."),
+  },
+}
+EOF
+if "$qstar" --file "$tmp/project-command-bad/qstar.lua" commands > "$tmp/project-command-install-reserved.out" 2> "$tmp/project-command-install-reserved.err"; then
+	fail "install project command unexpectedly succeeded"
+fi
+contains "$tmp/project-command-install-reserved.err" "project command name 'install' is reserved by the qstar CLI compatibility artifact install command"
+contains "$tmp/project-command-install-reserved.err" "qstar.step.export_stage"
 
 mkdir -p "$tmp/project-command-bad-runtime"
 cat > "$tmp/project-command-bad-runtime/qstar.lua" <<'EOF'

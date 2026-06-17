@@ -460,7 +460,9 @@ Merge rule:
 
 ## 5. Generated artifact와 stage
 
-Generated file이나 package 변환은 `qstar.custom_target`으로 표현한다.
+Generated file이나 복수 입출력 generator는 `qstar.custom_target`으로 표현한다. 단일 input을
+단일 output으로 바꾸는 artifact transform은 `qstar.transform` sugar를 쓸 수 있으며, 이는
+같은 generated action contract로 낮아진다.
 
 ```lua
 qstar.custom_target "package_blob" {

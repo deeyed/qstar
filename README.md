@@ -201,9 +201,9 @@ qstar.group "all_libs" {
 Commands are argv vectors, not shell strings:
 
 ```lua
-qstar.custom_target "image" {
-  inputs = {qstar.target_file("//:app")},
-  outputs = {qstar.output("generated/app.bin")},
+qstar.transform "image" {
+  input = qstar.target_file("//:app"),
+  output = qstar.output("generated/app.bin"),
   command = qstar.cli {
     "tools/package-object",
     qstar.input(0),
@@ -212,6 +212,10 @@ qstar.custom_target "image" {
   description = qstar.status("Packaging app.bin"),
 }
 ```
+
+Use `qstar.custom_target` when a generated action needs multiple inputs or outputs;
+`qstar.transform` is single-input/single-output sugar over the same generated
+artifact contract.
 
 ## Common Commands
 

@@ -1999,6 +1999,19 @@ project_command_name_reserved(const char *name)
 	return 0;
 }
 
+static void
+set_project_command_reserved_error(struct qstar_graph *graph, const char *name)
+{
+	if (name && strcmp(name, "install") == 0) {
+		qstar_set_error(graph,
+		    "qstar: project command name 'install' is reserved by the qstar CLI compatibility artifact install command; use qstar.step.export_stage in a differently named command for explicit layout export");
+		return;
+	}
+	qstar_set_error(graph,
+	    "qstar: project command name '%s' is reserved by the qstar CLI",
+	    name ? name : "");
+}
+
 static int
 has_project_command_name(const struct qstar_graph *graph, const char *name)
 {
@@ -2028,9 +2041,7 @@ qstar_graph_add_project_command(struct qstar_graph *graph, const char *name,
 		return NULL;
 	}
 	if (project_command_name_reserved(name)) {
-		qstar_set_error(graph,
-		    "qstar: project command name '%s' is reserved by the qstar CLI",
-		    name);
+		set_project_command_reserved_error(graph, name);
 		return NULL;
 	}
 	if (has_project_command_name(graph, name)) {
@@ -2632,11 +2643,17 @@ qstar_graph_validate_project_commands(struct qstar_graph *graph)
 			    command->origin_line, "name", command->name,
 			    "qstar: invalid project command name '%s'",
 			    command->name ? command->name : "");
-		if (project_command_name_reserved(command->name))
+		if (project_command_name_reserved(command->name)) {
+			if (command->name && strcmp(command->name, "install") == 0)
+				return qstar_set_error_origin(graph,
+				    command->origin_file, command->origin_line,
+				    "name", command->name,
+				    "qstar: project command name 'install' is reserved by the qstar CLI compatibility artifact install command; use qstar.step.export_stage in a differently named command for explicit layout export");
 			return qstar_set_error_origin(graph, command->origin_file,
 			    command->origin_line, "name", command->name,
 			    "qstar: project command name '%s' is reserved by the qstar CLI",
 			    command->name);
+		}
 		if (command->working_dir && *command->working_dir &&
 		    !qstar_path_is_package_relative(command->working_dir))
 			return qstar_set_error_origin(graph, command->origin_file,
@@ -2655,11 +2672,17 @@ qstar_graph_validate_project_commands(struct qstar_graph *graph)
 				    command->origin_line, "aliases", command->name,
 				    "qstar: invalid alias '%s' in project command '%s'",
 				    command->aliases.items[j], command->name);
-			if (project_command_name_reserved(command->aliases.items[j]))
+			if (project_command_name_reserved(command->aliases.items[j])) {
+				if (strcmp(command->aliases.items[j], "install") == 0)
+					return qstar_set_error_origin(graph,
+					    command->origin_file, command->origin_line,
+					    "aliases", command->name,
+					    "qstar: project command alias 'install' is reserved by the qstar CLI compatibility artifact install command; use qstar.step.export_stage in a differently named command for explicit layout export");
 				return qstar_set_error_origin(graph, command->origin_file,
 				    command->origin_line, "aliases", command->name,
 				    "qstar: project command alias '%s' is reserved by the qstar CLI",
 				    command->aliases.items[j]);
+			}
 		}
 		for (j = 0; j < command->option_len; j++) {
 			if (validate_project_command_option(graph, command,

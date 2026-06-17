@@ -283,8 +283,13 @@ immediately.
 .It Ic test
 Build and run QStar test targets.
 .It Ic install
-Build a target artifact if needed, copy it into a prefix, and write install
-manifest state. Use
+Compatibility command for conventional target artifact installation. It builds
+the target artifact if needed, copies it into a prefix, and writes install
+manifest state. For explicit project-defined layouts, use
+.Ic qstar.stage
+with
+.Ic qstar.step.export_stage
+from a project command. Use
 .Fl -dry-run
 to preview the copy plan.
 .It Ic stage

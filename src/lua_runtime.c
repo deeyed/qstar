@@ -53,6 +53,7 @@ static int lower_provider_final_action(lua_State *L, struct qstar_target *target
     struct qstar_graph *graph);
 static int qstar_lua_abs_index(lua_State *L, int idx);
 static int readonly_table_assignment_forbidden(lua_State *L);
+static int string_in_set(const char *s, const char *const *items);
 static int valid_tool_role_name(const char *s);
 
 static int
@@ -1134,7 +1135,7 @@ valid_output_format(const char *format)
 /** generated output path와 metadata를 genrule parallel lists에 추가한다. */
 static int
 push_genrule_output(lua_State *L, int idx, struct qstar_genrule *genrule,
-    struct qstar_graph *graph)
+    struct qstar_graph *graph, const char *field)
 {
 	const char *path, *group, *format;
 	const char *kind;
@@ -1149,7 +1150,7 @@ push_genrule_output(lua_State *L, int idx, struct qstar_genrule *genrule,
 		kind = qstar_table_kind(L, idx);
 		if (!kind || strcmp(kind, "output_path") != 0)
 			return qstar_set_error(graph,
-			    "qstar: field 'outputs' contains non-output item");
+			    "qstar: field '%s' contains non-output item", field);
 		path = output_path_table_path(L, idx);
 		lua_getfield(L, idx, "group");
 		group = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
@@ -1163,7 +1164,8 @@ push_genrule_output(lua_State *L, int idx, struct qstar_genrule *genrule,
 		format = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
 		lua_pop(L, 1);
 	} else {
-		return qstar_set_error(graph, "qstar: field 'outputs' contains non-string item");
+		return qstar_set_error(graph,
+		    "qstar: field '%s' contains non-string item", field);
 	}
 	if (!path || !*path)
 		return qstar_set_error(graph, "qstar: generated output path is empty");
@@ -1202,7 +1204,7 @@ read_outputs_field(lua_State *L, int table, struct qstar_genrule *genrule,
 	n = lua_rawlen(L, -1);
 	for (i = 1; i <= n; i++) {
 		lua_rawgeti(L, -1, (lua_Integer)i);
-		rc = push_genrule_output(L, -1, genrule, graph);
+		rc = push_genrule_output(L, -1, genrule, graph, "outputs");
 		lua_pop(L, 1);
 		if (rc < 0) {
 			lua_pop(L, 1);
@@ -1216,7 +1218,7 @@ read_outputs_field(lua_State *L, int table, struct qstar_genrule *genrule,
 /** generated action input item을 파일 path 또는 target artifact edge로 추가한다. */
 static int
 push_genrule_input(lua_State *L, int idx, struct qstar_genrule *genrule,
-    struct qstar_graph *graph)
+    struct qstar_graph *graph, const char *field)
 {
 	const char *kind, *path;
 	char token[QSTAR_PATH_MAX];
@@ -1230,11 +1232,12 @@ push_genrule_input(lua_State *L, int idx, struct qstar_genrule *genrule,
 		if (!kind || strcmp(kind, "target_file") != 0 ||
 		    format_placeholder_token(L, idx, token, sizeof(token)) < 0)
 			return qstar_set_error(graph,
-			    "qstar: field 'inputs' contains non-string or target_file item");
+			    "qstar: field '%s' contains non-string or target_file item",
+			    field);
 		path = token;
 	} else {
 		return qstar_set_error(graph,
-		    "qstar: field 'inputs' contains non-string or target_file item");
+		    "qstar: field '%s' contains non-string or target_file item", field);
 	}
 	if (!path || !*path)
 		return qstar_set_error(graph, "qstar: generated input path is empty");
@@ -1263,7 +1266,7 @@ read_genrule_inputs_field(lua_State *L, int table, struct qstar_genrule *genrule
 	n = lua_rawlen(L, -1);
 	for (i = 1; i <= n; i++) {
 		lua_rawgeti(L, -1, (lua_Integer)i);
-		rc = push_genrule_input(L, -1, genrule, graph);
+		rc = push_genrule_input(L, -1, genrule, graph, "inputs");
 		lua_pop(L, 1);
 		if (rc < 0) {
 			lua_pop(L, 1);
@@ -1272,6 +1275,64 @@ read_genrule_inputs_field(lua_State *L, int table, struct qstar_genrule *genrule
 	}
 	lua_pop(L, 1);
 	return 0;
+}
+
+static int
+validate_transform_fields(lua_State *L, int table, struct qstar_graph *graph)
+{
+	static const char *const allowed[] = {
+		"input", "output", "command", "description", NULL
+	};
+	const char *key;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_pushnil(L);
+	while (lua_next(L, table) != 0) {
+		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (!key || !string_in_set(key, allowed)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph,
+			    "qstar: unknown transform field '%s'",
+			    key ? key : "<non-string>");
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
+read_transform_input_field(lua_State *L, int table, struct qstar_genrule *genrule,
+    struct qstar_graph *graph)
+{
+	int rc;
+
+	lua_getfield(L, table, "input");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: transform '%s' requires input",
+		    genrule->label);
+	}
+	rc = push_genrule_input(L, -1, genrule, graph, "input");
+	lua_pop(L, 1);
+	return rc;
+}
+
+static int
+read_transform_output_field(lua_State *L, int table, struct qstar_genrule *genrule,
+    struct qstar_graph *graph)
+{
+	int rc;
+
+	lua_getfield(L, table, "output");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: transform '%s' requires output",
+		    genrule->label);
+	}
+	rc = push_genrule_output(L, -1, genrule, graph, "output");
+	lua_pop(L, 1);
+	return rc;
 }
 
 static int
@@ -1335,6 +1396,34 @@ resolve_cli_placeholders(struct qstar_graph *graph, struct qstar_string_list *co
 	}
 	qstar_string_list_free(command);
 	*command = resolved;
+	return 0;
+}
+
+static int
+finish_generated_command(lua_State *L, int table, struct qstar_genrule *genrule,
+    struct qstar_graph *graph, const char *api, const char *placeholder_field)
+{
+	size_t i;
+
+	if (read_status_description_field(L, table, graph,
+	    &genrule->description) < 0 ||
+	    read_command_field(L, table, "command", &genrule->command, graph) < 0 ||
+	    resolve_cli_placeholders(graph, &genrule->command, &genrule->inputs,
+	    &genrule->outputs, placeholder_field) < 0)
+		return -1;
+	if (genrule->command.len == 0)
+		return qstar_set_error(graph,
+		    "qstar: %s '%s' requires command = qstar.cli { ... }",
+		    api, genrule->label);
+	free(genrule->tool);
+	genrule->tool = qstar_strdup(genrule->command.items[0]);
+	if (!genrule->tool)
+		return qstar_set_error(graph, "qstar: out of memory");
+	for (i = 1; i < genrule->command.len; i++) {
+		if (qstar_string_list_push(&genrule->args,
+		    genrule->command.items[i]) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+	}
 	return 0;
 }
 
@@ -3343,7 +3432,6 @@ add_genrule(lua_State *L, const char *name, int table_index, const char *fragmen
 	struct qstar_lua_context *ctx;
 	struct qstar_genrule *genrule;
 	struct qstar_graph *graph;
-	const char *tool;
 	char label[QSTAR_PATH_MAX], rawlabel[QSTAR_PATH_MAX];
 	char origin_file[QSTAR_PATH_MAX];
 	int origin_line;
@@ -3374,33 +3462,58 @@ add_genrule(lua_State *L, const char *name, int table_index, const char *fragmen
 	    legacy_field_present(L, table_index, "args"))
 		return luaL_error(L,
 		    "qstar: custom_target uses command = qstar.cli { ... }; tool/args are removed");
-	tool = check_string_field(L, table_index, "tool");
-	if (tool) {
-		free(genrule->tool);
-		genrule->tool = qstar_strdup(tool);
-	}
-	if (read_status_description_field(L, table_index, graph,
-	    &genrule->description) < 0 ||
-	    read_genrule_inputs_field(L, table_index, genrule, graph) < 0 ||
+	if (read_genrule_inputs_field(L, table_index, genrule, graph) < 0 ||
 	    read_outputs_field(L, table_index, genrule, graph) < 0 ||
-	    read_command_field(L, table_index, "command", &genrule->command, graph) < 0 ||
-	    resolve_cli_placeholders(graph, &genrule->command, &genrule->inputs,
-	    &genrule->outputs, "custom_target command") < 0)
+	    finish_generated_command(L, table_index, genrule, graph,
+	    "custom_target", "custom_target command") < 0)
 		return luaL_error(L, "%s", graph->error);
-	if (genrule->command.len == 0)
-		return luaL_error(L,
-		    "qstar: custom_target '%s' requires command = qstar.cli { ... }",
-		    genrule->label);
-	free(genrule->tool);
-	genrule->tool = qstar_strdup(genrule->command.items[0]);
-	if (!genrule->tool)
-		return luaL_error(L, "qstar: out of memory");
-	for (size_t i = 1; i < genrule->command.len; i++) {
-		if (qstar_string_list_push(&genrule->args, genrule->command.items[i]) < 0)
-			return luaL_error(L, "qstar: out of memory");
+	return 0;
+}
+
+static int
+add_transform(lua_State *L, const char *name, int table_index,
+    const char *fragment_dir)
+{
+	struct qstar_lua_context *ctx;
+	struct qstar_genrule *genrule;
+	struct qstar_graph *graph;
+	char label[QSTAR_PATH_MAX], rawlabel[QSTAR_PATH_MAX];
+	char origin_file[QSTAR_PATH_MAX];
+	int origin_line;
+
+	if (table_index < 0)
+		table_index = lua_gettop(L) + table_index + 1;
+	ctx = get_context(L);
+	graph = ctx->graph;
+	if (reject_graph_declaration_in_module(L, "qstar.transform") != 0)
+		return 1;
+	luaL_checktype(L, table_index, LUA_TTABLE);
+	if (!name[0])
+		return luaL_error(L, "qstar: transform name is empty");
+	if (name[0] == ':' || name[0] == '/' || name[0] == '@') {
+		if (qstar_label_canonicalize(name, ctx->current_dir, label,
+		    sizeof(label)) < 0)
+			return luaL_error(L, "qstar: invalid transform name '%s'",
+			    name);
+	} else {
+		if (snprintf(rawlabel, sizeof(rawlabel), ":%s", name) >=
+		    (int)sizeof(rawlabel) ||
+		    qstar_label_canonicalize(rawlabel, ctx->current_dir, label,
+		    sizeof(label)) < 0)
+			return luaL_error(L, "qstar: invalid transform name '%s'",
+			    name);
 	}
-	if (!genrule->tool)
-		return luaL_error(L, "qstar: out of memory");
+	current_origin(L, origin_file, sizeof(origin_file), &origin_line);
+	genrule = qstar_graph_add_genrule(graph, label, name, fragment_dir,
+	    origin_file, origin_line);
+	if (!genrule)
+		return luaL_error(L, "%s", graph->error);
+	if (validate_transform_fields(L, table_index, graph) < 0 ||
+	    read_transform_input_field(L, table_index, genrule, graph) < 0 ||
+	    read_transform_output_field(L, table_index, genrule, graph) < 0 ||
+	    finish_generated_command(L, table_index, genrule, graph,
+	    "transform", "transform command") < 0)
+		return luaL_error(L, "%s", graph->error);
 	return 0;
 }
 
@@ -3483,6 +3596,35 @@ qstar_lua_genrule(lua_State *L)
 		return 1;
 	}
 	return add_genrule(L, name, 2, ctx->current_dir);
+}
+
+static int
+qstar_lua_transform_finish(lua_State *L)
+{
+	const char *name, *fragment_dir;
+
+	name = lua_tostring(L, lua_upvalueindex(1));
+	fragment_dir = lua_tostring(L, lua_upvalueindex(2));
+	return add_transform(L, name, 1, fragment_dir);
+}
+
+static int
+qstar_lua_transform(lua_State *L)
+{
+	struct qstar_lua_context *ctx;
+	const char *name;
+
+	ctx = get_context(L);
+	if (reject_graph_declaration_in_module(L, "qstar.transform") != 0)
+		return 1;
+	name = luaL_checkstring(L, 1);
+	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
+		lua_pushstring(L, name);
+		lua_pushstring(L, ctx->current_dir);
+		lua_pushcclosure(L, qstar_lua_transform_finish, 2);
+		return 1;
+	}
+	return add_transform(L, name, 2, ctx->current_dir);
 }
 
 static int
@@ -8052,6 +8194,8 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "test");
 	lua_pushcfunction(L, qstar_lua_genrule);
 	lua_setfield(L, -2, "custom_target");
+	lua_pushcfunction(L, qstar_lua_transform);
+	lua_setfield(L, -2, "transform");
 	lua_pushcfunction(L, qstar_lua_config_header);
 	lua_setfield(L, -2, "configure_file");
 	lua_pushcfunction(L, qstar_lua_stage);

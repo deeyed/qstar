@@ -1,7 +1,8 @@
 # Custom Target
 
 QStar는 C/C++를 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. 언어에 특화되지
-않은 생성 작업은 `qstar.custom_target`과 `qstar.cli`로 표현한다.
+않은 생성 작업은 `qstar.custom_target`과 `qstar.cli`로 표현한다. 단일 input을 단일
+output으로 바꾸는 읽기 쉬운 artifact transform은 `qstar.transform` sugar를 사용할 수 있다.
 
 ## 최소 예제
 
@@ -43,6 +44,24 @@ dependency edge가 되며, `qstar.input(N)`으로 command에 전달하면 실제
 `description = qstar.status("...")`를 지정하면 Stella/Ninja progress output에서 action id 대신
 사용자-facing status message가 표시된다. 같은 description은 `qstar action-log`,
 `qstar replay`, `qstar last-failure`에도 `description=` metadata로 보존된다.
+
+`qstar.transform`은 같은 generated action contract로 낮아진다. 복수 input/output이나 더
+복잡한 generator는 `qstar.custom_target`을 사용한다.
+
+```lua
+qstar.transform "package_blob" {
+  input = qstar.target_file("//:app"),
+  output = qstar.output("generated/app.bin", {
+    group = "packages",
+  }),
+  command = qstar.cli {
+    "tools/package-object",
+    qstar.input(0),
+    qstar.output(0),
+  },
+  description = qstar.status("Packaging app.bin"),
+}
+```
 
 `outputs`는 effective `qstar.project.generated_dir` 아래에 있어야 한다. 기본값은
 `generated`이므로 기존 프로젝트는 `generated/foo.c`를 계속 쓸 수 있다. Generated

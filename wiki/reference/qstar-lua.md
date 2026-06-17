@@ -50,7 +50,7 @@ qstar.staticlib "core" {
 - `qstar.toolset`: explicit compiler/archive/link/response-file/external tool role bundle.
 - `qstar.config`: reusable option bundle used through target `configs`.
 - `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`, `qstar.test`: artifact targets.
-- `qstar.custom_target`, `qstar.configure_file`: generated outputs.
+- `qstar.custom_target`, `qstar.transform`, `qstar.configure_file`: generated outputs.
 - `qstar.run_target`: external smoke/run action.
 - `qstar.group`: deps-only aggregate with no command, output, install surface, or artifact.
 - `qstar.stage`: copy-only package/stage tree.

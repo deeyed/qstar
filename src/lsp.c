@@ -43,6 +43,7 @@ static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 	{ "qstar.sharedlib", "Create a shared library target when the selected platform policy supports it." },
 	{ "qstar.test", "Create a test executable target." },
 	{ "qstar.custom_target", "Create a package-local generated action." },
+	{ "qstar.transform", "Create a single-input single-output generated artifact transform." },
 	{ "qstar.run_target", "Declare a named external run action." },
 	{ "qstar.group", "Declare a deps-only aggregate target with no artifact." },
 	{ "qstar.configure_file", "Generate a deterministic config header or configured file." },

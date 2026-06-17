@@ -61,6 +61,11 @@ Important documents:
   real rustc staticlib consumer path, and executable support boundary.
 - `init-glp-scaffold.md`: Korean reference for the generic `qstar init` shape
   model, provider vendoring, and provider-defined scaffold metadata.
+- `generic-command-artifact-workflow.md`: Korean design contract for future
+  root-only project commands, `run_target.inputs`, stage-as-input layout,
+  generated artifact consumption, typed command options, bool argument helpers,
+  module import cache/reuse, and explicit layout export without domain-specific
+  syntax.
 - `../tests/corpus/real-glp/README.md`: optional real Rust/Zig compiler corpus
   for GLP provider validation beyond fake compiler shims.
 - `real-glp-compiler-ci.md`: hosted Linux/macOS `workflow_dispatch` lane for

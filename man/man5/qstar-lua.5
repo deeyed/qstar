@@ -131,6 +131,10 @@ Darwin-specific branch as
 Generated action using a
 .Ic qstar.cli
 argv vector.
+.It Ic qstar.transform
+Single-input single-output generated artifact transform sugar. It lowers to the
+same generated action contract as
+.Ic qstar.custom_target .
 .It Ic qstar.configure_file
 Deterministic configured file or config header generator using
 .Ic qstar.output .
