@@ -134,8 +134,12 @@ jobs:
           archive="zig-$zig_target-$ZIG_VERSION.tar.xz"
           url="https://ziglang.org/download/$ZIG_VERSION/$archive"
           if [ ! -x "$install_dir/zig" ]; then
+            mkdir -p "$(dirname "$install_dir")"
             rm -rf "$install_dir"
             tmp_archive="$RUNNER_TEMP/$archive"
+            extract_dir="$RUNNER_TEMP/zig-extract-$ZIG_VERSION"
+            rm -rf "$extract_dir"
+            mkdir -p "$extract_dir"
             if ! curl -fsSL "$url" -o "$tmp_archive"; then
               printf 'status=skipped tool=zig reason=download-failed url=%s\n' "$url" | tee "$status"
               if [ "$require" -eq 1 ]; then
@@ -143,8 +147,16 @@ jobs:
               fi
               exit 0
             fi
-            tar -xf "$tmp_archive" -C "$RUNNER_TEMP"
-            mv "$RUNNER_TEMP/zig-$zig_target-$ZIG_VERSION" "$install_dir"
+            tar -xf "$tmp_archive" -C "$extract_dir"
+            zig_bin=$(find "$extract_dir" -type f -name zig -print | sed -n '1p')
+            if [ -z "$zig_bin" ] || [ ! -x "$zig_bin" ]; then
+              printf 'status=skipped tool=zig reason=archive-missing-zig url=%s\n' "$url" | tee "$status"
+              if [ "$require" -eq 1 ]; then
+                exit 1
+              fi
+              exit 0
+            fi
+            mv "$(dirname "$zig_bin")" "$install_dir"
           fi
           echo "$install_dir" >> "$GITHUB_PATH"
           "$install_dir/zig" version | tee "$QSTAR_REAL_GLP_REPORT_DIR/zig-version.txt"
