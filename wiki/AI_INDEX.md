@@ -94,6 +94,9 @@ QStar가 하지 않는 일:
   archive와 C consumer executable까지 Stella/Ninja 양쪽에서 빌드/실행하는지 확인한다.
   Rust fixture는 `lang.rust.crate_type = "lib"`를 통해 `rustc --crate-type lib --emit=obj`
   경로를 검증한다.
+  Zig fixture는 project-local `ZIG_GLOBAL_CACHE_DIR`/`ZIG_LOCAL_CACHE_DIR` env redaction,
+  macOS `lang.zig.macos_min_version` target ergonomics, static consumer, 그리고 C ABI
+  `main`을 노출하는 Zig-only executable fixture를 검증한다.
   compiler가 없으면 해당 language는 실패가 아니라 명시적 skip으로 기록된다.
 - `qstar emit-ninja [label]`은 `build/qstar/ninja/build.ninja`와 policy-controlled
   `compile_commands.json`을 생성한다.

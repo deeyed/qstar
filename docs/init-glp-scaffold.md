@@ -120,6 +120,7 @@ qstar.config "debug" {
     zig = zig.options {
       optimize = "Debug",
       target = "native",
+      macos_min_version = "",
     },
   },
 }
@@ -554,6 +555,7 @@ qstar.config "debug" {
     zig = zig.options {
       optimize = "Debug",
       target = "native",
+      macos_min_version = "",
     },
   },
 }
@@ -773,6 +775,7 @@ zig = zig.tools {
 options = {
   optimize = "Debug",
   target = "native",
+  macos_min_version = "",
 }
 ```
 
@@ -782,6 +785,7 @@ options = {
 zig = zig.options {
   optimize = "Debug",
   target = "native",
+  macos_min_version = "",
 }
 ```
 

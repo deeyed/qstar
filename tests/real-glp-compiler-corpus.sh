@@ -52,8 +52,9 @@ run_qstar() {
 copy_fixture() {
 	language=$1
 	backend=$2
-	fixture=$repo_dir/tests/corpus/real-glp/$language-static-consumer
-	project=$tmp/$language-$backend
+	fixture_name=${3:-$language-static-consumer}
+	fixture=$repo_dir/tests/corpus/real-glp/$fixture_name
+	project=$tmp/$fixture_name-$backend
 
 	rm -rf "$project"
 	mkdir -p "$(dirname "$project")"
@@ -98,6 +99,10 @@ run_backend() {
 	esac
 	contains "$out_prefix-build.out" "run_expect label=//:smoke status=matched contains=$expected"
 	contains "$out_prefix-build.out" "status ok"
+	if [ "$language" = zig ]; then
+		not_contains "$out_prefix-build.out" "built for newer 'macOS' version"
+		not_contains "$out_prefix-build.err" "built for newer 'macOS' version"
+	fi
 
 	if [ "$backend" = ninja ]; then
 		run_qstar "$project" -G ninja action-log "$action_id" \
@@ -114,6 +119,12 @@ run_backend() {
 		contains "$out_prefix-action-log.out" "env[0]=ZIG_GLOBAL_CACHE_DIR=<redacted>"
 		contains "$out_prefix-action-log.out" "env[1]=ZIG_LOCAL_CACHE_DIR=<redacted>"
 		not_contains "$out_prefix-action-log.out" "zig-global"
+		case "$(uname -s 2>/dev/null || printf unknown)" in
+		Darwin)
+			contains "$out_prefix-action-log.out" "-target"
+			contains "$out_prefix-action-log.out" "-macos.11.0"
+			;;
+		esac
 		if [ "$backend" = ninja ]; then
 			test -d "$project/build/qstar/out/___zig_core/cache/zig-global" ||
 				test -d "$project/build-ninja/qstar/out/___zig_core/cache/zig-global" ||
@@ -159,6 +170,81 @@ run_language() {
 		"$extra_argv_pattern" "$object_path" "$archive_path" "$exe_path"
 }
 
+run_zig_executable_backend() {
+	backend=$1
+	project=$(copy_fixture zig "$backend" zig-executable)
+	out_prefix=$tmp/zig-executable-$backend
+	action_id=//:app:compile:0
+
+	run_qstar "$project" check //... > "$out_prefix-check.out" 2> "$out_prefix-check.err"
+	contains "$out_prefix-check.out" "status ok"
+	run_qstar "$project" --dump-graph > "$out_prefix-graph.out" 2> "$out_prefix-graph.err"
+	contains "$out_prefix-graph.out" "language_provider namespace=zig id=zig"
+	contains "$out_prefix-graph.out" "target //:app"
+	contains "$out_prefix-graph.out" "kind exe"
+	contains "$out_prefix-graph.out" "sources [src/main.zig]"
+
+	case "$backend" in
+	stella)
+		run_qstar "$project" build //:smoke > "$out_prefix-build.out" 2> "$out_prefix-build.err"
+		;;
+	ninja)
+		if [ "$ninja_available" -eq 0 ]; then
+			printf 'real_glp_compiler language=zig fixture=executable backend=ninja status=skipped reason=ninja-not-found\n'
+			return 0
+		fi
+		run_qstar "$project" -G ninja build //:smoke > "$out_prefix-build.out" 2> "$out_prefix-build.err"
+		contains "$out_prefix-build.out" "backend ninja"
+		;;
+	*)
+		fail "unknown backend '$backend'"
+		;;
+	esac
+	contains "$out_prefix-build.out" "run_expect label=//:smoke status=matched contains=zig-exe-ok"
+	contains "$out_prefix-build.out" "status ok"
+	not_contains "$out_prefix-build.out" "built for newer 'macOS' version"
+	not_contains "$out_prefix-build.err" "built for newer 'macOS' version"
+
+	if [ "$backend" = ninja ]; then
+		run_qstar "$project" -G ninja action-log "$action_id" \
+			> "$out_prefix-action-log.out" 2> "$out_prefix-action-log.err"
+	else
+		run_qstar "$project" action-log "$action_id" \
+			> "$out_prefix-action-log.out" 2> "$out_prefix-action-log.err"
+	fi
+	contains "$out_prefix-action-log.out" "argv[0]=zig"
+	contains "$out_prefix-action-log.out" "build-obj"
+	contains "$out_prefix-action-log.out" "env[0]=ZIG_GLOBAL_CACHE_DIR=<redacted>"
+	contains "$out_prefix-action-log.out" "env[1]=ZIG_LOCAL_CACHE_DIR=<redacted>"
+	not_contains "$out_prefix-action-log.out" "zig-global"
+	case "$(uname -s 2>/dev/null || printf unknown)" in
+	Darwin)
+		contains "$out_prefix-action-log.out" "-target"
+		contains "$out_prefix-action-log.out" "-macos.11.0"
+		;;
+	esac
+
+	test -f "$project/build/qstar/out/___app/obj0.o" ||
+		fail "zig $backend executable object missing"
+	test -x "$project/build/qstar/out/___app/app" ||
+		fail "zig $backend executable missing"
+	"$project/build/qstar/out/___app/app" > "$out_prefix-exe.out" 2> "$out_prefix-exe.err"
+	contains "$out_prefix-exe.out" "zig-exe-ok"
+
+	printf 'real_glp_compiler language=zig fixture=executable backend=%s status=ok compiler=zig\n' \
+		"$backend"
+}
+
+run_zig_executable() {
+	if ! command -v zig >/dev/null 2>&1; then
+		printf 'real_glp_compiler language=zig fixture=executable status=skipped reason=compiler-not-found compiler=zig\n'
+		return 0
+	fi
+
+	run_zig_executable_backend stella
+	run_zig_executable_backend ninja
+}
+
 rm -rf "$tmp"
 mkdir -p "$tmp"
 trap cleanup EXIT HUP INT TERM
@@ -181,6 +267,7 @@ run_language zig zig //:zig_core:compile:0 zig-value=88 zig \
 	build/qstar/out/___zig_core/obj0.o \
 	build/qstar/out/___zig_core/libzig_core.a \
 	build/qstar/out/___consumer/consumer
+run_zig_executable
 
 printf 'real_glp_compiler_corpus status=ok\n'
 printf 'qstar-real-glp-compiler-corpus: passed\n'

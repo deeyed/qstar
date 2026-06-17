@@ -52,6 +52,8 @@ Important documents:
 - `rule-model.md`: target rule and link model notes.
 - `ninja-backend-parity.md`: Ninja lowering parity contract.
 - `language-provider-backend-contract.md`: external object artifact bridge boundary.
+- `zig-provider.md`: standard Zig provider options, cache behavior, macOS target
+  ergonomics, and real Zig staticlib/executable fixtures.
 - `rust-provider.md`: standard Rust provider options, real rustc staticlib
   consumer path, and current executable limitation.
 - `init-glp-scaffold.md`: Korean reference for the generic `qstar init` shape

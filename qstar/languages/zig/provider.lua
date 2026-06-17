@@ -17,9 +17,24 @@ function P.object(path, opts)
   }, opts or {}))
 end
 
+local function effective_target(target, macos_min_version)
+  if target == nil or target == "" then
+    return nil
+  end
+  if macos_min_version ~= nil and macos_min_version ~= "" then
+    if string.match(target, "%-macos$") then
+      return target .. "." .. macos_min_version
+    end
+  end
+  return target
+end
+
 function P.compile_object(ctx)
   local argv = qstar.argv()
-  local target = ctx.option("target")
+  local target = effective_target(
+    ctx.option("target"),
+    ctx.option("macos_min_version")
+  )
 
   argv:add(ctx.tool("compiler"))
   argv:add("build-obj")

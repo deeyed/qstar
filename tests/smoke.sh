@@ -2971,8 +2971,9 @@ qstar.config "zig_release" {
   toolset = "//:host",
   lang = {
     zig = zig.options {
-      target = "x86_64-linux-gnu",
+      target = "aarch64-macos",
       optimize = "ReleaseFast",
+      macos_min_version = "11.0",
       compile_options = {
         "--cache-dir",
         "build/zig-cache",
@@ -3003,7 +3004,7 @@ contains "$tmp/standard-zig-graph.out" "tools.zig.compiler [tools/fake-zig]"
 contains "$tmp/standard-zig-explain.out" "source_file path=src/main.zig language=zig tool=provider-compiler provider=zig provider_role=compiler toolset_role=zig.compiler output_group=objects role=compile"
 contains "$tmp/standard-zig-explain.out" "build-obj"
 contains "$tmp/standard-zig-explain.out" "-O, ReleaseFast"
-contains "$tmp/standard-zig-explain.out" "-target, x86_64-linux-gnu"
+contains "$tmp/standard-zig-explain.out" "-target, aarch64-macos.11.0"
 contains "$tmp/standard-zig-explain.out" "-femit-bin=build/qstar/out/___core/obj0.o"
 "$qstar" --file "$tmp/standard-zig/qstar.lua" dry-run //:core > "$tmp/standard-zig-dry-run.out" 2> "$tmp/standard-zig-dry-run.err"
 contains "$tmp/standard-zig-dry-run.out" "dry_run_step id=//:core:compile:0 owner=//:core kind=compile language=zig tool=provider-compiler"
@@ -3020,7 +3021,7 @@ contains "$tmp/standard-zig-action-log.out" "tools/fake-zig"
 contains "$tmp/standard-zig-action-log.out" "build-obj"
 "$qstar" --file "$tmp/standard-zig/qstar.lua" replay //:core:compile:0 > "$tmp/standard-zig-replay.out" 2> "$tmp/standard-zig-replay.err"
 contains "$tmp/standard-zig-replay.out" "tools/fake-zig"
-contains "$tmp/standard-zig-replay.out" "-target x86_64-linux-gnu"
+contains "$tmp/standard-zig-replay.out" "-target aarch64-macos.11.0"
 "$qstar" --file "$tmp/standard-zig/qstar.lua" -B build-ninja -G ninja build //:core > "$tmp/standard-zig-ninja-build.out" 2> "$tmp/standard-zig-ninja-build.err"
 contains "$tmp/standard-zig-ninja-build.out" "backend ninja"
 if ! find "$tmp/standard-zig/build-ninja" -name obj0.o -type f | grep -q .; then

@@ -25,6 +25,10 @@ return qstar.language_provider {
       },
       default = "Debug",
     },
+    macos_min_version = {
+      type = "string",
+      default = "",
+    },
     compile_options = {
       type = "list",
       default = {},
@@ -47,6 +51,7 @@ return qstar.language_provider {
     options = {
       target = "native",
       optimize = "Debug",
+      macos_min_version = "",
       compile_options = {},
     },
     shapes = {

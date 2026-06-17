@@ -31,6 +31,9 @@ local zig = qstar.use_language("zig")
 `qstar.use_language` activates a provider namespace before `lang.<namespace>`
 is accepted. Built-in `lang.c`, `lang.cxx`, and `lang.asm` are preloaded.
 QStar ships standard `zig`, `rust`, and `cuda` providers.
+The Zig provider's real `zig build-obj` path is documented in `docs/zig-provider.md`;
+it exposes `target`, `optimize`, `macos_min_version`, and `compile_options`, and
+uses provider action env for project-local Zig caches.
 The Rust provider's real `rustc` path is documented in `docs/rust-provider.md`;
 it exposes `crate_type` for `rustc --crate-type` and currently treats full Rust
 executable final linking as a future provider final-action extension.
@@ -66,6 +69,10 @@ return qstar.language_provider {
       type = "string",
       default = "native",
     },
+    macos_min_version = {
+      type = "string",
+      default = "",
+    },
     compile_options = {
       type = "list",
       default = {},
@@ -84,6 +91,7 @@ return qstar.language_provider {
     options = {
       optimize = "Debug",
       target = "native",
+      macos_min_version = "",
     },
     shapes = {
       app = {
@@ -151,6 +159,7 @@ qstar.config "debug_zig" {
     zig = zig.options {
       optimize = "Debug",
       target = "native",
+      macos_min_version = "",
       compile_options = {"-Ddemo"},
     },
   },

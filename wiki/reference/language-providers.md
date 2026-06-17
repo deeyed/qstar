@@ -108,6 +108,7 @@ return qstar.language_provider {
     options = {
       optimize = "Debug",
       target = "native",
+      macos_min_version = "",
     },
     shapes = {
       app = {
@@ -217,6 +218,71 @@ Raw string이 활성화된 provider source unit 두 개 이상과 동시에 matc
 source diagnostic을 낸다. Raw string이 built-in C/C++/ASM suffix와 provider source unit 모두에
 match되어도 같은 이유로 거절된다. 이 경우에는 diagnostic이 제안하는 explicit provider helper를
 써서 의도를 고정한다.
+
+## Zig Provider Notes
+
+표준 Zig provider는 real `zig build-obj` 경로를 지원한다. 기본 option은 `target = "native"`,
+`optimize = "Debug"`, `macos_min_version = ""`, `compile_options = {}`이다.
+
+```lua
+local zig = qstar.use_language("zig")
+
+qstar.toolset "host" {
+  tools = {
+    c = { compiler = qstar.cli {"cc"} },
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+    zig = zig.tools {
+      compiler = qstar.cli {"zig"},
+    },
+  },
+}
+
+qstar.config "native" {
+  toolset = "//:host",
+  lang = {
+    zig = zig.options {
+      target = "native",
+      optimize = "Debug",
+      macos_min_version = "",
+    },
+  },
+}
+
+qstar.staticlib "zig_core" {
+  configs = {"//:native"},
+  sources = {"src/zig_core.zig"},
+}
+```
+
+Provider action은 `ZIG_GLOBAL_CACHE_DIR`와 `ZIG_LOCAL_CACHE_DIR`를 action-local cache로
+설정한다. 실제 process에는 cache path가 전달되지만, action-log/replay에는
+`NAME=<redacted>`로만 기록된다.
+
+macOS에서 Zig object가 patch-level OS version으로 찍히고 C linker가 major.0 minimum으로
+링크하면서 warning을 낼 수 있다. 이 경우에는 host 조건을 사용자 Lua에서 명시하고,
+provider에는 Zig target base와 minimum version을 넘긴다.
+
+```lua
+local zig_target = "native"
+local zig_macos_min_version = ""
+
+if qstar.host.os == "macos" then
+  zig_target = qstar.host.arch .. "-macos"
+  zig_macos_min_version = "11.0"
+end
+
+zig = zig.options {
+  target = zig_target,
+  optimize = "Debug",
+  macos_min_version = zig_macos_min_version,
+}
+```
+
+작은 Zig executable도 `export fn main() c_int`처럼 C ABI `main` symbol을 제공하면 QStar
+`executable` target으로 빌드할 수 있다. 이 경로는 Zig package graph나 `build.zig`를
+해석하는 기능이 아니라, Zig source를 object로 낮춘 뒤 QStar의 C-style final linker가
+마무리하는 경로다. 자세한 예제와 한계는 `docs/zig-provider.md`에 둔다.
 
 ## Rust Provider Notes
 
@@ -379,6 +445,7 @@ qstar.config "debug" {
     zig = zig.options {
       target = "native",
       optimize = "Debug",
+      macos_min_version = "",
       compile_options = {"-Ddemo"},
     },
   },

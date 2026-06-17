@@ -8,7 +8,7 @@ if qstar.host.os == "macos" then
 end
 
 qstar.project {
-  name = "zig-static-consumer",
+  name = "zig-executable",
   version = "0.1",
   root = ".",
   build_dir = "build/qstar",
@@ -16,7 +16,6 @@ qstar.project {
 
 qstar.toolset "host" {
   tools = {
-    c = { compiler = qstar.cli {"cc"} },
     archive = qstar.cli {"ar"},
     link = qstar.cli {"cc"},
     zig = zig.tools {
@@ -28,9 +27,6 @@ qstar.toolset "host" {
 qstar.config "native" {
   toolset = "//:host",
   lang = {
-    c = {
-      compile_options = {"-std=c11", "-Wall", "-Wextra"},
-    },
     zig = zig.options {
       target = zig_target,
       optimize = "Debug",
@@ -39,31 +35,21 @@ qstar.config "native" {
   },
 }
 
-qstar.staticlib "zig_core" {
+qstar.executable "app" {
   configs = {"//:native"},
   sources = {
-    "src/zig_core.zig",
-  },
-}
-
-qstar.executable "consumer" {
-  configs = {"//:native"},
-  sources = {
-    "src/consumer.c",
-  },
-  deps = {
-    "//:zig_core",
+    "src/main.zig",
   },
 }
 
 qstar.run_target "smoke" {
   deps = {
-    "//:consumer",
+    "//:app",
   },
   command = qstar.cli {
-    qstar.target_file("//:consumer"),
+    qstar.target_file("//:app"),
   },
   expect = {
-    contains = "zig-value=88",
+    contains = "zig-exe-ok",
   },
 }
