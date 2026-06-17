@@ -1,8 +1,8 @@
 # QStar Book
 
-QStar는 C/C++/ASM과 external object artifact flow를 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. CMake나 Meson처럼 project graph, command plan,
+QStar는 C/C++/ASM과 external language provider flow를 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. CMake나 Meson처럼 project graph, command plan,
 build/test/install/stage 실행을 맡고, 언어 의미론 자체는 각 compiler와 GLP source unit 또는
-object artifact bridge가 맡는다.
+provider final action, object artifact bridge가 맡는다.
 
 Generic Language Provider(GLP)는 이 경계를 확장하는 정식 provider surface다. 현재
 runtime은 `qstar.use_language("zig")` 같은 provider 활성화와 `lang.zig` 동적 namespace
@@ -13,7 +13,8 @@ project-local provider가 있으면 그 manifest가 먼저 사용된다.
 Provider가 선언한 `options` schema는 `lang.<namespace>` table의 key와 value type을 검증한다.
 Provider가 선언한 `units` schema는 source suffix를 graph-level registry에 등록하므로, 활성화된
 provider의 source는 `sources = {"src/main.zig"}` 같은 raw string으로도 built-in 언어와 같은
-경로를 탄다. Exported helper인 `zig.object("src/main.zig", {...})`는 source-local option이나
+경로를 탄다. Provider가 `finals` schema를 선언하면 pure provider target의 executable/staticlib/sharedlib
+최종 산출물도 provider-owned action으로 만들 수 있다. Exported helper인 `zig.object("src/main.zig", {...})`는 source-local option이나
 suffix 충돌 해소가 필요할 때 쓰는 명시 경로다. Backend는 provider lowering function이 반환한
 `command`, `env`, `inputs`, `outputs`, `depfile` action template을 Stella와 Ninja에서
 동일하게 실행한다. Env 값은 process에는 실제로 전달되지만 action-log/replay에는
@@ -180,8 +181,8 @@ make -C qstar qstar-pilot-readiness-tests
 generic project corpus, medium project Stella/Ninja timing gate,
 formatter, subcommand help, wiki/CLI drift guard를 함께
 검증한다. 아직 remote package fetch는 정식 surface가 아니다.
-현재 외부 언어의 기본 경로는 GLP source unit 또는 object artifact bridge다. Ninja backend는
-C/C++/ASM compile, provider source unit object lowering, generated action, staticlib,
+현재 외부 언어의 기본 경로는 GLP source unit, provider final action, 또는 object artifact bridge다. Ninja backend는
+C/C++/ASM compile, provider source unit object lowering, provider final artifact lowering, generated action, staticlib,
 sharedlib, executable/test link, `qstar.run_target` wrapper, `qstar.group` phony
 lowering/execution을 지원한다. `stage`/`install`은 copy와 manifest를
 QStar가 맡고, 참조 artifact build는 effective generator를 따른다. `sharedlib`는

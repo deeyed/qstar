@@ -31,6 +31,7 @@ qstar.config "native" {
       target = zig_target,
       optimize = "Debug",
       macos_min_version = zig_macos_min_version,
+      compile_options = {"-lc"},
     },
   },
 }

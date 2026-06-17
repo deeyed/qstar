@@ -54,6 +54,14 @@ struct qstar_provider_source_unit {
 	struct qstar_provider_action_template action;
 };
 
+struct qstar_provider_final_action {
+	int present;
+	char *provider;
+	char *kind;
+	char *lower;
+	struct qstar_provider_action_template action;
+};
+
 struct qstar_target {
 	char *label;
 	char *name;
@@ -67,6 +75,7 @@ struct qstar_target {
 	struct qstar_provider_source_unit *provider_sources;
 	size_t provider_source_len;
 	size_t provider_source_cap;
+	struct qstar_provider_final_action provider_final;
 	struct qstar_string_list public_headers;
 	struct qstar_string_list private_headers;
 	struct qstar_string_list include_dirs;
@@ -157,6 +166,11 @@ struct qstar_language_unit_schema {
 	char *deps;
 };
 
+struct qstar_language_final_schema {
+	char *kind;
+	char *lower;
+};
+
 struct qstar_language_provider {
 	char *api;
 	char *id;
@@ -171,6 +185,9 @@ struct qstar_language_provider {
 	struct qstar_language_unit_schema *units;
 	size_t unit_len;
 	size_t unit_cap;
+	struct qstar_language_final_schema *finals;
+	size_t final_len;
+	size_t final_cap;
 };
 
 struct qstar_genrule {
@@ -467,11 +484,20 @@ int qstar_language_provider_add_unit_schema(struct qstar_graph *graph,
     const struct qstar_string_list *suffixes, const char *emits, const char *lower,
     const char *deps);
 
+/** Activated language provider에 final artifact schema를 추가한다. */
+int qstar_language_provider_add_final_schema(struct qstar_graph *graph,
+    struct qstar_language_provider *provider, const char *kind, const char *lower);
+
 /** QStar target source list entry에 provider source unit metadata를 붙인다. */
 int qstar_target_add_provider_source_unit(struct qstar_graph *graph,
     struct qstar_target *target, size_t source_index, const char *path,
     const char *provider, const char *unit, const char *emits, const char *lower,
     const struct qstar_provider_action_template *action);
+
+/** QStar target에 provider-owned final artifact action metadata를 붙인다. */
+int qstar_target_set_provider_final_action(struct qstar_graph *graph,
+    struct qstar_target *target, const char *provider, const char *kind,
+    const char *lower, const struct qstar_provider_action_template *action);
 
 int qstar_target_set_provider_option(struct qstar_graph *graph,
     struct qstar_target *target, const char *provider, const char *name,
@@ -562,9 +588,16 @@ const struct qstar_language_option_schema *qstar_language_provider_find_option(
 const struct qstar_language_unit_schema *qstar_language_provider_find_unit(
     const struct qstar_language_provider *provider, const char *name);
 
+/** Activated language provider에서 final artifact schema를 찾는다. */
+const struct qstar_language_final_schema *qstar_language_provider_find_final(
+    const struct qstar_language_provider *provider, const char *kind);
+
 /** public lang table에서 preloaded 또는 graph-local activated namespace인지 확인한다. */
 int qstar_graph_language_provider_is_available(const struct qstar_graph *graph,
     const char *namespace);
+
+/** target이 provider-owned final artifact action을 갖는지 확인한다. */
+int qstar_target_has_provider_final_action(const struct qstar_target *target);
 
 /** target source index에 붙은 provider source unit metadata를 찾는다. */
 const struct qstar_provider_source_unit *qstar_target_provider_source_unit(

@@ -1,6 +1,5 @@
-extern "c" fn puts([*:0]const u8) c_int;
+extern fn puts([*:0]const u8) c_int;
 
-export fn main() c_int {
+pub fn main() void {
     _ = puts("zig-exe-ok");
-    return 0;
 }

@@ -36,7 +36,10 @@ are returned to user code. Provider-defined `options` schemas now validate
 `lang.<namespace>` tables with string, bool, list, enum, and default metadata.
 Provider-defined `units` register source suffixes with the graph-level source
 registry, so activated providers can classify raw source strings such as
-`"src/main.zig"` into consuming-target-owned object artifacts. Explicit helpers
+`"src/main.zig"` into consuming-target-owned object artifacts. Provider-defined
+`finals` let pure provider targets lower `executable`, `staticlib`, and
+`sharedlib` final artifacts through provider-owned compiler actions instead of
+the native C-style linker/archive path. Explicit helpers
 such as `zig.object("src/main.zig", {...})` remain available for source-local
 options and suffix collision disambiguation. The lowered `command`, `inputs`,
 `env`, `outputs`, and `depfile` action template is shared by Stella and Ninja,
@@ -52,10 +55,10 @@ Important documents:
 - `rule-model.md`: target rule and link model notes.
 - `ninja-backend-parity.md`: Ninja lowering parity contract.
 - `language-provider-backend-contract.md`: external object artifact bridge boundary.
-- `zig-provider.md`: standard Zig provider options, cache behavior, macOS target
-  ergonomics, and real Zig staticlib/executable fixtures.
-- `rust-provider.md`: standard Rust provider options, real rustc staticlib
-  consumer path, and current executable limitation.
+- `zig-provider.md`: standard Zig provider options, final artifact lowering,
+  cache behavior, macOS target ergonomics, and real Zig staticlib/executable fixtures.
+- `rust-provider.md`: standard Rust provider options, final artifact lowering,
+  real rustc staticlib consumer path, and executable support boundary.
 - `init-glp-scaffold.md`: Korean reference for the generic `qstar init` shape
   model, provider vendoring, and provider-defined scaffold metadata.
 - `../tests/corpus/real-glp/README.md`: optional real Rust/Zig compiler corpus

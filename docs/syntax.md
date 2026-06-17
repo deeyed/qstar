@@ -32,11 +32,12 @@ local zig = qstar.use_language("zig")
 is accepted. Built-in `lang.c`, `lang.cxx`, and `lang.asm` are preloaded.
 QStar ships standard `zig`, `rust`, and `cuda` providers.
 The Zig provider's real `zig build-obj` path is documented in `docs/zig-provider.md`;
-it exposes `target`, `optimize`, `macos_min_version`, and `compile_options`, and
-uses provider action env for project-local Zig caches.
+it also supports `zig build-exe`/`zig build-lib` provider final actions, exposes
+`target`, `optimize`, `macos_min_version`, and `compile_options`, and uses provider
+action env for project-local Zig caches.
 The Rust provider's real `rustc` path is documented in `docs/rust-provider.md`;
-it exposes `crate_type` for `rustc --crate-type` and currently treats full Rust
-executable final linking as a future provider final-action extension.
+it exposes `crate_type` for object units and supports provider final actions for
+`bin`, `staticlib`, and `cdylib` artifacts.
 
 Provider packages use a manifest plus implementation split:
 
@@ -58,6 +59,11 @@ return qstar.language_provider {
       lower = "compile_object",
       deps = "none",
     },
+  },
+  finals = {
+    executable = {lower = "link_executable"},
+    staticlib = {lower = "archive_staticlib"},
+    sharedlib = {lower = "link_sharedlib"},
   },
   options = {
     optimize = {
@@ -137,6 +143,15 @@ function P.object(path, opts)
   }, opts or {}))
 end
 
+function P.link_executable(ctx)
+  local argv = qstar.argv()
+  argv:add(ctx.tool("compiler"))
+  argv:add("build-exe")
+  argv:add_all(ctx.input("sources"))
+  argv:add("-femit-bin=" .. ctx.output("artifact"))
+  return {command = argv, inputs = ctx.input("sources"), outputs = {ctx.output("artifact")}}
+end
+
 return P
 ```
 
@@ -184,8 +199,15 @@ source-local options or for disambiguating suffix collisions. If a raw string
 matches more than one provider unit, or both a built-in suffix and a provider
 unit, QStar asks the user to use an explicit provider helper.
 
+Provider `finals` schemas declare provider-owned final artifact hooks. If a target's
+compile sources all come from the same external provider and the target has no
+native link deps/inputs, QStar calls the matching final lowering function and uses
+`ctx.input("sources")`, `ctx.output("artifact")`, and `ctx.kind()` instead of
+creating object compile edges plus a native C-style final linker/archive edge.
+
 The GLP backend calls the unit `lower` function from `provider.lua` during graph
-evaluation and stores its action template in Graph IR. Stella and Ninja then
+evaluation, and calls final lowering functions for pure provider final artifacts.
+It stores the resulting action template in Graph IR. Stella and Ninja then
 consume the same `command`, `env`, `inputs`, `outputs`, and `depfile` contract.
 Env entries use `NAME=value`; process runners receive the values, while
 action-log/replay show only `NAME=<redacted>`.

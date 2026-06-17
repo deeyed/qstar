@@ -2199,6 +2199,99 @@ append_sharedlib_runtime_rpaths(struct qstar_graph *graph,
 
 /** staticlib final archive action을 Ninja edge로 lower한다. */
 static int
+emit_provider_final_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain)
+{
+	const struct qstar_provider_action_template *tmpl;
+	struct ninja_argv argv;
+	char artifact[QSTAR_PATH_MAX], alias[QSTAR_PATH_MAX], out_dir[QSTAR_PATH_MAX];
+	char action_id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
+	const char *final_action, *rule, *depfile;
+	size_t i;
+
+	if (!qstar_target_has_provider_final_action(target))
+		return 0;
+	memset(&argv, 0, sizeof(argv));
+	tmpl = &target->provider_final.action;
+	final_action = qstar_target_final_action(target);
+	if (qstar_graph_artifact_output_path(graph, target, artifact,
+	    sizeof(artifact)) < 0 ||
+	    ninja_alias_path(graph, target->label, alias, sizeof(alias)) < 0 ||
+	    path_dirname(artifact, out_dir, sizeof(out_dir)) < 0)
+		return qstar_set_error(graph, "qstar: ninja provider final path too long");
+	if (qstar_action_description_final(target, final_action, artifact, description,
+	    sizeof(description)) < 0)
+		return qstar_set_error(graph, "qstar: provider final description too long");
+	if (ninja_argv_push_provider_template(graph, &argv, target, toolchain,
+	    &tmpl->argv) < 0)
+		goto fail;
+	for (i = 0; i < tmpl->outputs.len; i++) {
+		if (mkdir_parent_under_root(graph, tmpl->outputs.items[i]) < 0)
+			goto fail;
+	}
+	if (tmpl->outputs.len == 0) {
+		qstar_set_error(graph, "qstar: provider final action has no outputs");
+		goto fail;
+	}
+	snprintf(action_id, sizeof(action_id), "%s:%s:0", target->label,
+	    final_action);
+	rule = tmpl->wants_depfile ? "qstar_compile" :
+	    strcmp(final_action, "archive") == 0 ? "qstar_archive" : "qstar_link";
+	depfile = tmpl->depfile && *tmpl->depfile ? tmpl->depfile : "";
+	fprintf(ctx->ninja, "# qstar-action-id: %s\n", action_id);
+	fputs("build", ctx->ninja);
+	for (i = 0; i < tmpl->outputs.len; i++) {
+		fputc(' ', ctx->ninja);
+		ninja_path(ctx->ninja, tmpl->outputs.items[i]);
+	}
+	fprintf(ctx->ninja, ": %s", rule);
+	for (i = 0; i < tmpl->inputs.len; i++) {
+		fputc(' ', ctx->ninja);
+		ninja_path(ctx->ninja, tmpl->inputs.items[i]);
+	}
+	if (target->link_inputs.len) {
+		fputs(" |", ctx->ninja);
+		for (i = 0; i < target->link_inputs.len; i++) {
+			if (write_genrule_dep_item(graph, ctx->ninja,
+			    target->link_inputs.items[i]) < 0)
+				goto fail;
+		}
+	}
+	fputc('\n', ctx->ninja);
+	fputs("  command = ", ctx->ninja);
+	if (write_edge_command(graph, ctx, action_id, toolchain, &argv,
+	    description, &tmpl->env, &tmpl->outputs) < 0)
+		goto fail;
+	fputc('\n', ctx->ninja);
+	if (tmpl->wants_depfile) {
+		fputs("  depfile = ", ctx->ninja);
+		ninja_path(ctx->ninja, depfile);
+		fputc('\n', ctx->ninja);
+	}
+	fputs("  out_dir = ", ctx->ninja);
+	shell_arg(ctx->ninja, out_dir);
+	fputs("\n  description = ", ctx->ninja);
+	ninja_var_text(ctx->ninja, description);
+	fputc('\n', ctx->ninja);
+	fprintf(ctx->ninja, "  qstar_action_id = %s\n\n", action_id);
+	fprintf(ctx->ninja, "# qstar-action-id: %s:alias\n", target->label);
+	fputs("build ", ctx->ninja);
+	ninja_path(ctx->ninja, alias);
+	fputs(": phony", ctx->ninja);
+	for (i = 0; i < tmpl->outputs.len; i++) {
+		fputc(' ', ctx->ninja);
+		ninja_path(ctx->ninja, tmpl->outputs.items[i]);
+	}
+	fprintf(ctx->ninja, "\n  qstar_action_id = %s:alias\n\n", target->label);
+	ctx->edge_count += 2;
+	ninja_argv_free(&argv);
+	return 1;
+fail:
+	ninja_argv_free(&argv);
+	return -1;
+}
+
+static int
 emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain)
 {
@@ -2698,10 +2791,14 @@ emit_target(struct qstar_graph *graph, const struct qstar_target *target, size_t
 	if (emit_consumed_genrules(graph, ctx, target) < 0 ||
 	    emit_target_link_input_producers(graph, ctx, target) < 0)
 		return -1;
-	for (i = 0; i < target->sources.len; i++) {
+	for (i = 0; !qstar_target_has_provider_final_action(target) &&
+	    i < target->sources.len; i++) {
 		if (emit_compile_edge(graph, ctx, target, &toolchain, i) < 0)
 			return -1;
 	}
+	if (qstar_target_has_provider_final_action(target))
+		return emit_provider_final_edge(graph, ctx, target, &toolchain) < 0 ?
+		    -1 : 0;
 	if (strcmp(target->kind, "staticlib") == 0)
 		return emit_staticlib_edge(graph, ctx, target, &toolchain);
 	return emit_link_edge(graph, ctx, target, &toolchain);

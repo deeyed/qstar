@@ -37,9 +37,13 @@ set -eu
 
 out=
 src=
+mode=
 
 parse_arg() {
 	case "$1" in
+		build-obj|build-exe|build-lib)
+			mode=$1
+			;;
 		-femit-bin=*)
 			out=${1#-femit-bin=}
 			;;
@@ -77,7 +81,21 @@ case "$src" in
 		printf 'int qstar_fake_zig_value(void) { return 42; }\n' > "$tmp_c"
 		;;
 esac
-"${QSTAR_FAKE_ZIG_CC:-cc}" -x c -c "$tmp_c" -o "$out"
+mode=${mode:-build-obj}
+case "$mode" in
+	build-exe)
+		"${QSTAR_FAKE_ZIG_CC:-cc}" -x c "$tmp_c" -o "$out"
+		;;
+	build-lib)
+		tmp_o="$out.o"
+		"${QSTAR_FAKE_ZIG_CC:-cc}" -x c -c "$tmp_c" -o "$tmp_o"
+		"${AR:-ar}" rcs "$out" "$tmp_o"
+		rm -f "$tmp_o"
+		;;
+	*)
+		"${QSTAR_FAKE_ZIG_CC:-cc}" -x c -c "$tmp_c" -o "$out"
+		;;
+esac
 rm -f "$tmp_c"
 EOF
 	chmod +x "$dir/zig"
@@ -93,6 +111,9 @@ set -eu
 out=
 src=
 need_out=0
+need_crate_type=0
+crate_type=
+emit_obj=0
 
 parse_arg() {
 	if [ "$need_out" -ne 0 ]; then
@@ -100,9 +121,20 @@ parse_arg() {
 		need_out=0
 		return
 	fi
+	if [ "$need_crate_type" -ne 0 ]; then
+		crate_type=$1
+		need_crate_type=0
+		return
+	fi
 	case "$1" in
 		-o)
 			need_out=1
+			;;
+		--crate-type)
+			need_crate_type=1
+			;;
+		--emit=obj)
+			emit_obj=1
 			;;
 		*.rs)
 			if [ -z "$src" ]; then
@@ -138,7 +170,20 @@ case "$src" in
 		printf 'int qstar_fake_rust_value(void) { return 42; }\n' > "$tmp_c"
 		;;
 esac
-"${QSTAR_FAKE_RUST_CC:-cc}" -x c -c "$tmp_c" -o "$out"
+case "$crate_type:$emit_obj" in
+	bin:*)
+		"${QSTAR_FAKE_RUST_CC:-cc}" -x c "$tmp_c" -o "$out"
+		;;
+	staticlib:*)
+		tmp_o="$out.o"
+		"${QSTAR_FAKE_RUST_CC:-cc}" -x c -c "$tmp_c" -o "$tmp_o"
+		"${AR:-ar}" rcs "$out" "$tmp_o"
+		rm -f "$tmp_o"
+		;;
+	*)
+		"${QSTAR_FAKE_RUST_CC:-cc}" -x c -c "$tmp_c" -o "$out"
+		;;
+esac
 rm -f "$tmp_c"
 EOF
 	chmod +x "$dir/rustc"
@@ -451,8 +496,8 @@ EOF
 "$install_root/bin/qstar" --file "$installed_zig/qstar.lua" build //:core \
 	> "$tmp/install-zig-provider.out" 2> "$tmp/install-zig-provider.err"
 contains "$tmp/install-zig-provider.out" "status ok"
-test -f "$installed_zig/build/qstar/out/___core/obj0.o" ||
-	fail "installed standard Zig provider did not produce object"
+test -f "$installed_zig/build/qstar/out/___core/libcore.a" ||
+	fail "installed standard Zig provider did not produce staticlib"
 
 installed_init_zig="$tmp/installed-init-zig"
 installed_fake_zig_bin="$tmp/installed-fake-zig-bin"

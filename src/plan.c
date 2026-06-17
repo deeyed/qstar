@@ -1149,6 +1149,24 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 	end_argv(out, &dump);
 }
 
+static void
+dump_provider_final_argv(FILE *out, const struct qstar_target *target,
+    const struct qstar_graph *graph, const struct qstar_resolved_toolchain *toolchain,
+    const char *action)
+{
+	struct qstar_argv_dump dump;
+	char id[QSTAR_PATH_MAX];
+	size_t argc;
+
+	snprintf(id, sizeof(id), "%s:%s:0", target->label, action);
+	argc = plan_provider_template_argc(graph, target, toolchain,
+	    &target->provider_final.action.argv);
+	begin_argv(out, &dump, id, argc, toolchain);
+	plan_argv_provider_template(out, &dump, graph, target, toolchain,
+	    &target->provider_final.action.argv);
+	end_argv(out, &dump);
+}
+
 /** generated output list가 target의 파일 입력 list에 소비되는지 확인한다. */
 static int
 genrule_output_in_list(const struct qstar_genrule *genrule,
@@ -1626,10 +1644,22 @@ collect_doctor_tool_requirements(const struct qstar_plan *plan,
 {
 	struct qstar_source_info source;
 	const char *action;
+	char role[128];
+	int rc;
 	size_t i, j;
 
 	memset(req, 0, sizeof(*req));
 	for (i = 0; i < plan->len; i++) {
+		if (qstar_target_has_provider_final_action(plan->order[i])) {
+			for (j = 0; j < plan->order[i]->provider_final.action.argv.len; j++) {
+				rc = qstar_provider_tool_token_role(
+				    plan->order[i]->provider_final.action.argv.items[j],
+				    role, sizeof(role));
+				if (rc == 1)
+					(void)push_unique_tmp(&req->provider_roles, role);
+			}
+			continue;
+		}
 		for (j = 0; j < plan->order[i]->sources.len; j++) {
 			if (qstar_target_source_classify(plan->order[i], j,
 			    &source) < 0 || !source.compile_input)
@@ -1836,7 +1866,8 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	if (dump_resolved_toolchain(out, plan, target, &toolchain) < 0)
 		return -1;
 	dump_effective_compile_merge(out, plan->graph, target, &toolchain);
-	for (i = 0; i < target->sources.len; i++) {
+	for (i = 0; !qstar_target_has_provider_final_action(target) &&
+	    i < target->sources.len; i++) {
 		qstar_target_source_classify(target, i, &source);
 		if (!qstar_source_requires_compile(&source)) {
 			fprintf(out,
@@ -1870,6 +1901,8 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	action = qstar_target_final_action(target);
 	final_tool = strcmp(action, "archive") == 0 ? "archiver" :
 	    strcmp(action, "compile-objects") == 0 ? "object-collector" : "linker";
+	if (qstar_target_has_provider_final_action(target))
+		final_tool = target->provider_final.provider;
 	if (qstar_graph_artifact_output_path(plan->graph, target, output, sizeof(output)) < 0)
 		return qstar_set_error(plan->graph, "qstar: artifact output path too long");
 	qstar_dump_target_artifact_map_text(out, plan->graph, target, "  ");
@@ -1879,11 +1912,18 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 		snprintf(description, sizeof(description), "<too-long>");
 	dump_action_description(out, "  ", id, description);
 	fprintf(out, "  action %s output=%s\n", action, output);
-	dump_action_key(out, plan->graph, target, action, "<target-objects>", output,
+	dump_action_key(out, plan->graph, target, action,
+	    qstar_target_has_provider_final_action(target) ? "<provider-sources>" :
+	    "<target-objects>", output,
 	    "artifact", 0);
-	dump_command_skeleton(out, plan->graph, target, action, "<target-objects>",
+	dump_command_skeleton(out, plan->graph, target, action,
+	    qstar_target_has_provider_final_action(target) ? "<provider-sources>" :
+	    "<target-objects>",
 	    output, "artifact", final_tool, 0);
-	dump_final_argv(out, target, plan->graph, &toolchain, action, output);
+	if (qstar_target_has_provider_final_action(target))
+		dump_provider_final_argv(out, target, plan->graph, &toolchain, action);
+	else
+		dump_final_argv(out, target, plan->graph, &toolchain, action, output);
 	return 0;
 }
 
@@ -1984,7 +2024,8 @@ dump_dry_run_compiles(FILE *out, const struct qstar_plan *plan,
 
 	if (qstar_resolve_toolchain(plan->graph, target, &toolchain) < 0)
 		return -1;
-	for (i = 0; i < target->sources.len; i++) {
+	for (i = 0; !qstar_target_has_provider_final_action(target) &&
+	    i < target->sources.len; i++) {
 		qstar_target_source_classify(target, i, &source);
 		if (!qstar_source_requires_compile(&source)) {
 			fprintf(out,
@@ -2027,6 +2068,8 @@ dump_dry_run_final(FILE *out, const struct qstar_plan *plan, const struct qstar_
 	action = qstar_target_final_action(target);
 	tool = strcmp(action, "archive") == 0 ? "archiver" :
 	    strcmp(action, "compile-objects") == 0 ? "object-collector" : "linker";
+	if (qstar_target_has_provider_final_action(target))
+		tool = target->provider_final.provider;
 	if (qstar_graph_artifact_output_path(plan->graph, target, output, sizeof(output)) < 0)
 		return qstar_set_error(plan->graph, "qstar: artifact output path too long");
 	qstar_dump_target_artifact_map_text(out, plan->graph, target, "");
@@ -2037,9 +2080,14 @@ dump_dry_run_final(FILE *out, const struct qstar_plan *plan, const struct qstar_
 	dump_action_description(out, "  ", id, description);
 	fprintf(out,
 	    "dry_run_step id=%s:%s:0 owner=%s kind=%s tool=%s toolchain=%s "
-	    "input=<target-objects> output=%s execute=no\n",
-	    target->label, action, target->label, action, tool, toolchain.name, output);
-	dump_final_argv(out, target, plan->graph, &toolchain, action, output);
+	    "input=%s output=%s execute=no\n",
+	    target->label, action, target->label, action, tool, toolchain.name,
+	    qstar_target_has_provider_final_action(target) ? "<provider-sources>" :
+	    "<target-objects>", output);
+	if (qstar_target_has_provider_final_action(target))
+		dump_provider_final_argv(out, target, plan->graph, &toolchain, action);
+	else
+		dump_final_argv(out, target, plan->graph, &toolchain, action, output);
 	return 0;
 }
 

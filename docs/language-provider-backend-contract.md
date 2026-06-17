@@ -6,7 +6,8 @@ source classification과 tool role은 `c.compiler`, `cxx.compiler`, `asm.compile
 provider role로 내려간다. 외부 provider는 `qstar.use_language(...)`로 활성화하고,
 provider source unit suffix는 graph-level source registry에 등록된다. Raw string source와
 explicit provider helper token은 provider implementation의 lowering function이 반환한 action
-template으로 Graph IR에 저장된다.
+template으로 Graph IR에 저장된다. Provider manifest가 `finals` schema를 선언하면 pure-provider
+artifact target은 provider-owned final action template으로 낮아진다.
 
 ## 결정
 
@@ -16,6 +17,9 @@ template으로 Graph IR에 저장된다.
 - raw string이 여러 provider source unit과 match되거나 built-in source suffix와 provider unit
   모두에 match되면 QStar는 explicit provider helper를 요구한다.
 - source unit은 `ctx.tool`, `ctx.input`, `ctx.output`, `ctx.cache`, `ctx.option`으로 lowering된다.
+- final artifact는 `ctx.input("sources")`, `ctx.output("artifact")`, `ctx.kind()`로 lowering된다.
+- provider final action은 모든 compile source가 같은 외부 provider에 속하고 target이 native
+  deps/link input을 갖지 않을 때 native archive/link action을 대체한다.
 - lowered action의 argv, env, inputs, outputs, depfile은 Stella와 Ninja가 같은 contract로 실행한다.
 - provider action `env`는 `"NAME=value"` string list다. 실행 backend는 값을 실제 process에 넘기지만 action-log/replay에는 `NAME=<redacted>`로만 기록한다.
 - object artifact bridge도 계속 지원된다.
@@ -30,6 +34,7 @@ template으로 Graph IR에 저장된다.
 | C++ | compile action | lowered |
 | ASM | compile action | lowered |
 | Provider source unit | lowered provider action | lowered provider action |
+| Provider final artifact | lowered provider action | lowered provider action |
 | Generated object | archive/link input | archive/link input |
 | Other source suffix | unsupported source diagnostic | unsupported source diagnostic |
 
@@ -70,3 +75,21 @@ backend는 depfile-discovered input을 action key와 incremental state에 반영
 Provider sandbox는 graph entrypoint를 호출할 수 없지만, read-only `qstar.host.os`와
 `qstar.host.arch`는 읽을 수 있다. Provider는 이 값을 사용해 host-specific argv를 만들 수
 있지만, target이나 dependency graph를 새로 선언할 수는 없다.
+
+Provider final lowering도 같은 action table을 반환한다.
+
+```lua
+function P.link_executable(ctx)
+  local argv = qstar.argv()
+  argv:add(ctx.tool("compiler"))
+  argv:add("build-exe")
+  argv:add_all(ctx.input("sources"))
+  argv:add("-femit-bin=" .. ctx.output("artifact"))
+
+  return {
+    command = argv,
+    inputs = ctx.input("sources"),
+    outputs = {ctx.output("artifact")},
+  }
+end
+```

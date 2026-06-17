@@ -72,6 +72,10 @@ run_backend() {
 	object_path=$7
 	archive_path=$8
 	exe_path=$9
+	build_label=//:smoke
+	if [ "$exe_path" = "<none>" ]; then
+		build_label=//:${language}_core
+	fi
 	project=$(copy_fixture "$language" "$backend")
 	out_prefix=$tmp/$language-$backend
 
@@ -79,25 +83,28 @@ run_backend() {
 	contains "$out_prefix-check.out" "status ok"
 	run_qstar "$project" --dump-graph > "$out_prefix-graph.out" 2> "$out_prefix-graph.err"
 	contains "$out_prefix-graph.out" "language_provider namespace=$language id=$language"
+	contains "$out_prefix-graph.out" "provider_final provider=$language kind=staticlib"
 	contains "$out_prefix-graph.out" "sources [src/${language}_core."
 
 	case "$backend" in
 	stella)
-		run_qstar "$project" build //:smoke > "$out_prefix-build.out" 2> "$out_prefix-build.err"
+		run_qstar "$project" build "$build_label" > "$out_prefix-build.out" 2> "$out_prefix-build.err"
 		;;
 	ninja)
 		if [ "$ninja_available" -eq 0 ]; then
 			printf 'real_glp_compiler language=%s backend=ninja status=skipped reason=ninja-not-found\n' "$language"
 			return 0
 		fi
-		run_qstar "$project" -G ninja build //:smoke > "$out_prefix-build.out" 2> "$out_prefix-build.err"
+		run_qstar "$project" -G ninja build "$build_label" > "$out_prefix-build.out" 2> "$out_prefix-build.err"
 		contains "$out_prefix-build.out" "backend ninja"
 		;;
 	*)
 		fail "unknown backend '$backend'"
 		;;
 	esac
-	contains "$out_prefix-build.out" "run_expect label=//:smoke status=matched contains=$expected"
+	if [ "$expected" != "<none>" ]; then
+		contains "$out_prefix-build.out" "run_expect label=//:smoke status=matched contains=$expected"
+	fi
 	contains "$out_prefix-build.out" "status ok"
 	if [ "$language" = zig ]; then
 		not_contains "$out_prefix-build.out" "built for newer 'macOS' version"
@@ -137,11 +144,15 @@ run_backend() {
 		contains "$out_prefix-action-log.out" "envc=0"
 	fi
 
-	test -f "$project/$object_path" || fail "$language $backend object missing"
+	if [ "$object_path" != "<none>" ]; then
+		test -f "$project/$object_path" || fail "$language $backend object missing"
+	fi
 	test -f "$project/$archive_path" || fail "$language $backend archive missing"
-	test -x "$project/$exe_path" || fail "$language $backend executable missing"
-	"$project/$exe_path" > "$out_prefix-exe.out" 2> "$out_prefix-exe.err"
-	contains "$out_prefix-exe.out" "$expected"
+	if [ "$exe_path" != "<none>" ]; then
+		test -x "$project/$exe_path" || fail "$language $backend executable missing"
+		"$project/$exe_path" > "$out_prefix-exe.out" 2> "$out_prefix-exe.err"
+		contains "$out_prefix-exe.out" "$expected"
+	fi
 
 	printf 'real_glp_compiler language=%s backend=%s status=ok compiler=%s\n' \
 		"$language" "$backend" "$compiler_argv"
@@ -174,7 +185,7 @@ run_zig_executable_backend() {
 	backend=$1
 	project=$(copy_fixture zig "$backend" zig-executable)
 	out_prefix=$tmp/zig-executable-$backend
-	action_id=//:app:compile:0
+	action_id=//:app:link:0
 
 	run_qstar "$project" check //... > "$out_prefix-check.out" 2> "$out_prefix-check.err"
 	contains "$out_prefix-check.out" "status ok"
@@ -182,6 +193,7 @@ run_zig_executable_backend() {
 	contains "$out_prefix-graph.out" "language_provider namespace=zig id=zig"
 	contains "$out_prefix-graph.out" "target //:app"
 	contains "$out_prefix-graph.out" "kind exe"
+	contains "$out_prefix-graph.out" "provider_final provider=zig kind=executable"
 	contains "$out_prefix-graph.out" "sources [src/main.zig]"
 
 	case "$backend" in
@@ -213,7 +225,7 @@ run_zig_executable_backend() {
 			> "$out_prefix-action-log.out" 2> "$out_prefix-action-log.err"
 	fi
 	contains "$out_prefix-action-log.out" "argv[0]=zig"
-	contains "$out_prefix-action-log.out" "build-obj"
+	contains "$out_prefix-action-log.out" "build-exe"
 	contains "$out_prefix-action-log.out" "env[0]=ZIG_GLOBAL_CACHE_DIR=<redacted>"
 	contains "$out_prefix-action-log.out" "env[1]=ZIG_LOCAL_CACHE_DIR=<redacted>"
 	not_contains "$out_prefix-action-log.out" "zig-global"
@@ -224,8 +236,6 @@ run_zig_executable_backend() {
 		;;
 	esac
 
-	test -f "$project/build/qstar/out/___app/obj0.o" ||
-		fail "zig $backend executable object missing"
 	test -x "$project/build/qstar/out/___app/app" ||
 		fail "zig $backend executable missing"
 	"$project/build/qstar/out/___app/app" > "$out_prefix-exe.out" 2> "$out_prefix-exe.err"
@@ -256,17 +266,17 @@ MINGW*|MSYS*|CYGWIN*)
 	;;
 esac
 
-run_language rust rustc //:rust_core:compile:0 rust-value=77 rustc \
-	"--crate-type" \
-	build/qstar/out/___rust_core/obj0.o \
+run_language rust rustc //:rust_core:archive:0 rust-value=77 rustc \
+	"staticlib" \
+	"<none>" \
 	build/qstar/out/___rust_core/librust_core.a \
 	build/qstar/out/___consumer/consumer
 
-run_language zig zig //:zig_core:compile:0 zig-value=88 zig \
-	"build-obj" \
-	build/qstar/out/___zig_core/obj0.o \
+run_language zig zig //:zig_core:archive:0 "<none>" zig \
+	"build-lib" \
+	"<none>" \
 	build/qstar/out/___zig_core/libzig_core.a \
-	build/qstar/out/___consumer/consumer
+	"<none>"
 run_zig_executable
 
 printf 'real_glp_compiler_corpus status=ok\n'

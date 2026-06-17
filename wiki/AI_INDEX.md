@@ -16,7 +16,9 @@ bridge가 맡는다.
 Generic Language Provider(GLP)는 이 경계를 정식 provider surface로 확장한다. 현재 runtime은
 `qstar.use_language("zig")`, provider namespace toolset, 동적
 `lang.zig` activation gate, provider-defined option schema, `qstar.source(...)` 기반 source
-unit object lowering을 제공한다. Provider implementation의 lowering function은 `command`,
+unit object lowering, provider-owned final artifact lowering을 제공한다. Provider manifest의
+`finals.executable/staticlib/sharedlib` hook은 순수 provider target에서 C-style final
+link/archive action을 대체한다. Provider implementation의 lowering function은 `command`,
 `env`, `inputs`, `outputs`, `depfile` action template을 만들고, Stella와 Ninja는 이 template을
 같은 backend contract로 실행한다. Env 값은 action-log/replay에서 redacted된다. `zig`, `rust`, `cuda` provider는 installed standard provider
 bundle에 포함되고, project-local `qstar/languages/<id>/<id>.qsm`이 있으면 그 manifest가
@@ -53,7 +55,8 @@ QStar가 하지 않는 일:
   package-relative generated root를 바꿀 수 있다.
 - QStar가 직접 지원하지 않는 언어 source도 활성화된 GLP provider가 `units.*.suffixes`로 등록하면
   raw string `sources` classification에 참여한다. 예를 들어 `qstar.use_language("zig")` 이후
-  `sources = {"src/main.zig"}`는 consuming target 소유의 provider object output으로 낮아진다.
+  `sources = {"src/main.zig"}`는 consuming target 소유의 provider object output 또는 pure-provider
+  target의 provider final artifact action으로 낮아진다.
   `zig.object("src/main.zig", {...})` 같은 helper는 source-local option이나 suffix 충돌 해소용
   명시 경로다. 더 세밀한 외부 compiler 호출이 필요하면 `qstar.custom_target`과
   `qstar.output(path, {format = "object"})` bridge도 계속 사용할 수 있다.
@@ -71,7 +74,8 @@ QStar가 하지 않는 일:
   `qstar.use_language(...)`는 root와 fragment에서 idempotent하게 helper table을 재사용한다.
   Source unit lowering은 `ctx.tool`,
   `ctx.input`, `ctx.output`, `ctx.option`으로 작성한 action template을 Stella/Ninja 양쪽에
-  공유한다.
+  공유한다. Final artifact lowering은 `ctx.input("sources")`, `ctx.output("artifact")`,
+  `ctx.kind()`를 사용한다.
 - CLI `-B path`는 `qstar.project.build_dir`보다 우선한다.
 - CLI `-G auto`는 현재 `stella`로 resolve된다.
 - CLI `-G ninja build [label]`은 C/C++/ASM compile, `qstar.configure_file`,
@@ -90,13 +94,12 @@ QStar가 하지 않는 일:
   action-log/replay, Windows sharedlib multi-output lowering, `.ninja_log`/`.ninja_deps` root
   pollution 방지를 확인한다.
 - `make qstar-real-glp-compiler-corpus-tests`는 optional gate다. 실제 `rustc`와 `zig`가
-  PATH에 있으면 Rust/Zig GLP provider가 real source를 object로 컴파일하고, QStar가 static
-  archive와 C consumer executable까지 Stella/Ninja 양쪽에서 빌드/실행하는지 확인한다.
-  Rust fixture는 `lang.rust.crate_type = "lib"`를 통해 `rustc --crate-type lib --emit=obj`
-  경로를 검증한다.
-  Zig fixture는 project-local `ZIG_GLOBAL_CACHE_DIR`/`ZIG_LOCAL_CACHE_DIR` env redaction,
-  macOS `lang.zig.macos_min_version` target ergonomics, static consumer, 그리고 C ABI
-  `main`을 노출하는 Zig-only executable fixture를 검증한다.
+  PATH에 있으면 Rust/Zig GLP provider가 real source를 provider final artifact action으로
+  낮추고 Stella/Ninja 양쪽에서 실행하는지 확인한다. Rust fixture는
+  `rustc --crate-type staticlib` final action과 C consumer link/run을 검증한다.
+  Zig fixture는 `zig build-lib -static` static artifact, `zig build-exe` executable,
+  project-local `ZIG_GLOBAL_CACHE_DIR`/`ZIG_LOCAL_CACHE_DIR` env redaction,
+  macOS `lang.zig.macos_min_version` target ergonomics를 검증한다.
   compiler가 없으면 해당 language는 실패가 아니라 명시적 skip으로 기록된다.
 - `make qstar-real-language-init-scaffold-tests`는 optional gate다. 실제 `rustc`와 `zig`가
   PATH에 있으면 `qstar init --use-language=rust|zig`로 생성한 `app`, `lib`, `tool`,

@@ -43,6 +43,17 @@ return qstar.language_provider {
       lower = "compile_object",
     },
   },
+  finals = {
+    executable = {
+      lower = "link_executable",
+    },
+    staticlib = {
+      lower = "archive_staticlib",
+    },
+    sharedlib = {
+      lower = "link_sharedlib",
+    },
+  },
   scaffold = {
     api = "qstar.scaffold/1",
     tools = {
@@ -60,7 +71,7 @@ return qstar.language_provider {
         files = {
           {
             path = "src/main.zig",
-            body = "export fn main() c_int { return 0; }\n",
+            body = "pub fn main() void {}\n",
           },
         },
         target = {
@@ -92,7 +103,7 @@ return qstar.language_provider {
         files = {
           {
             path = "tools/${project_ident}/main.zig",
-            body = "export fn main() c_int { return 0; }\n",
+            body = "pub fn main() void {}\n",
           },
         },
         target = {
@@ -127,7 +138,7 @@ return qstar.language_provider {
             files = {
               {
                 path = "packages/app/src/main.zig",
-                body = "extern fn core_value() i32;\n\nexport fn main() c_int {\n    return if (core_value() == 42) 0 else 1;\n}\n",
+                body = "pub fn main() void {}\n",
               },
             },
             target = {
@@ -136,7 +147,6 @@ return qstar.language_provider {
               sources = {
                 "packages/app/src/main.zig",
               },
-              deps = {"//packages/core:core"},
             },
           },
         },

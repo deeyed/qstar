@@ -12,7 +12,10 @@ schema로 `lang.<namespace>` table을 검증한다. Manifest의 `units` schema�
 `qstar.source(...)` token을 만들 수 있게 하며, 같은 suffix 정보를 graph-level source registry에
 등록한다. 따라서 활성화된 provider의 `.zig`, `.rs`, `.cu` 같은 source는 raw string source
 classification에도 참여한다. Backend는 provider implementation의 lowering function이 반환한
-action template을 consuming target 소유 object artifact로 낮춘다.
+action template을 consuming target 소유 object artifact 또는 provider-owned final artifact로
+낮춘다. Provider manifest가 `finals.executable`, `finals.staticlib`, `finals.sharedlib`를
+선언하면, 모든 compile source가 같은 외부 provider에 속하고 target이 native deps/link input을
+갖지 않는 경우 QStar는 C-style linker/archive action 대신 provider final action을 선택한다.
 외부 compiler 호출을 직접 손으로 제어해야 하는 경우에는 object artifact bridge를 계속 쓴다.
 
 ## Provider Activation
@@ -54,7 +57,7 @@ local zig = qstar.use_language("zig")
 
 `zig.qsm`은 일반 helper `.qsm`이 아니라 provider manifest다. 반드시
 `qstar.language_provider { ... }`를 반환해야 하며, QStar는 `api`, `id`, `version`,
-`namespace`, `implementation`, `tools`, `units`, `options`, `exports`, `scaffold` schema를
+`namespace`, `implementation`, `tools`, `units`, `finals`, `options`, `exports`, `scaffold` schema를
 검증한다.
 `provider.lua`는 별도의 제한 sandbox에서 로드되는 implementation이다. Provider 작성자 API와
 사용자 API는 `exports` table로 분리된다.
@@ -78,6 +81,17 @@ return qstar.language_provider {
       emits = "object",
       lower = "compile_object",
       deps = "none",
+    },
+  },
+  finals = {
+    executable = {
+      lower = "link_executable",
+    },
+    staticlib = {
+      lower = "archive_staticlib",
+    },
+    sharedlib = {
+      lower = "link_sharedlib",
     },
   },
   options = {
@@ -115,7 +129,7 @@ return qstar.language_provider {
         files = {
           {
             path = "src/main.zig",
-            body = "export fn main() c_int { return 0; }\n",
+            body = "pub fn main() void {}\n",
           },
         },
         targets = {
@@ -178,6 +192,19 @@ function P.object(path, opts)
   }, opts or {}))
 end
 
+function P.link_executable(ctx)
+  local argv = qstar.argv()
+  argv:add(ctx.tool("compiler"))
+  argv:add("build-exe")
+  argv:add_all(ctx.input("sources"))
+  argv:add("-femit-bin=" .. ctx.output("artifact"))
+  return {
+    command = argv,
+    inputs = ctx.input("sources"),
+    outputs = {ctx.output("artifact")},
+  }
+end
+
 return P
 ```
 
@@ -221,8 +248,9 @@ match되어도 같은 이유로 거절된다. 이 경우에는 diagnostic이 제
 
 ## Zig Provider Notes
 
-표준 Zig provider는 real `zig build-obj` 경로를 지원한다. 기본 option은 `target = "native"`,
-`optimize = "Debug"`, `macos_min_version = ""`, `compile_options = {}`이다.
+표준 Zig provider는 real `zig build-obj` object unit과 `zig build-exe`/`zig build-lib`
+provider final action을 지원한다. 기본 option은 `target = "native"`, `optimize = "Debug"`,
+`macos_min_version = ""`, `compile_options = {}`이다.
 
 ```lua
 local zig = qstar.use_language("zig")
@@ -272,15 +300,15 @@ zig = zig.options {
 }
 ```
 
-작은 Zig executable도 `export fn main() c_int`처럼 C ABI `main` symbol을 제공하면 QStar
-`executable` target으로 빌드할 수 있다. 이 경로는 Zig package graph나 `build.zig`를
-해석하는 기능이 아니라, Zig source를 object로 낮춘 뒤 QStar의 C-style final linker가
-마무리하는 경로다. 자세한 예제와 한계는 `docs/zig-provider.md`에 둔다.
+순수 Zig executable은 provider final action으로 `zig build-exe`가 직접 만든다. Zig package
+graph나 `build.zig`를 해석하는 기능은 아니며, 필요한 link option은 `compile_options`에
+명시한다. 자세한 예제와 Zig staticlib macOS consumer caveat는 `docs/zig-provider.md`에 둔다.
 
 ## Rust Provider Notes
 
-표준 Rust provider는 real `rustc --emit=obj` 경로를 지원한다. `crate_type` option은
-`rustc --crate-type`으로 내려가며 기본값은 `lib`이다.
+표준 Rust provider는 real `rustc --emit=obj` object unit과 `rustc --crate-type
+bin/staticlib/cdylib` provider final action을 지원한다. `crate_type` option은 object unit
+lowering에서 `rustc --crate-type`으로 내려가며 기본값은 `lib`이다.
 
 ```lua
 local rust = qstar.use_language("rust")
@@ -312,19 +340,20 @@ qstar.staticlib "rust_core" {
 }
 ```
 
-이 경로는 Rust source를 C ABI object/staticlib로 노출해 다른 QStar target이 소비하는 용도에
-맞춰져 있다. 완전한 Rust executable은 아직 provider final-action contract가 없으므로
-`qstar.executable`의 C-style link action으로 정식 지원하지 않는다. 필요하면 `qstar.custom_target`
-으로 `rustc`/`cargo`를 직접 호출하거나, 후속 GLP final-action 설계에서 provider가 executable
-link action까지 선언하도록 확장해야 한다. 자세한 예제와 한계는 `docs/rust-provider.md`에 둔다.
+이 경로는 Rust provider final action으로 staticlib를 만든 뒤 다른 QStar target이 소비하는
+용도에 맞춰져 있다. 순수 Rust executable도 `qstar.executable`에서 provider final action으로
+빌드할 수 있다. Cargo workspace, build.rs, registry/lockfile resolution은 여전히 QStar core가
+해석하지 않는다. 자세한 예제와 한계는 `docs/rust-provider.md`에 둔다.
 
 기존 object artifact bridge도 계속 유효하다. 외부 compiler 호출을 더 세밀하게 제어해야 하면
 `qstar.custom_target`으로 작성하고, 결과 object를 `qstar.output(path, {format = "object"})`로
 표시한 뒤 consuming target의 `sources`에 넣는다.
 
-Provider source unit lowering은 Stella와 Ninja가 같은 backend contract로 실행한다.
+Provider source unit lowering과 provider final artifact lowering은 Stella와 Ninja가 같은 backend contract로 실행한다.
 Provider implementation은 `qstar.argv()`와 `ctx.tool`, `ctx.input`, `ctx.output`,
-`ctx.cache`, `ctx.option`으로 action을 만든다. QStar는 그 결과의 `command`,
+`ctx.cache`, `ctx.option`으로 action을 만든다. Source action은 `ctx.input("source")`와
+`ctx.output("object")`를 사용하고, final action은 `ctx.input("sources")`,
+`ctx.output("artifact")`, `ctx.kind()`를 사용한다. QStar는 그 결과의 `command`,
 `env`, `inputs`, `outputs`, `depfile`을 Graph IR에 저장하고 action-log/replay,
 response file, depfile-discovered input, Ninja emission에 같은 값을 사용한다.
 `env`는 `"NAME=value"` string list이며, 실행에는 실제 값을 넘기지만 action-log/replay에는

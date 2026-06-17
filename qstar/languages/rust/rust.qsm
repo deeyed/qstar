@@ -42,6 +42,17 @@ return qstar.language_provider {
       lower = "compile_object",
     },
   },
+  finals = {
+    executable = {
+      lower = "link_executable",
+    },
+    staticlib = {
+      lower = "archive_staticlib",
+    },
+    sharedlib = {
+      lower = "link_sharedlib",
+    },
+  },
   scaffold = {
     api = "qstar.scaffold/1",
     tools = {
@@ -60,7 +71,7 @@ return qstar.language_provider {
         files = {
           {
             path = "src/main.rs",
-            body = "#[no_mangle]\npub extern \"C\" fn main() -> i32 { 0 }\n",
+            body = "fn main() {}\n",
           },
         },
         target = {
@@ -92,7 +103,7 @@ return qstar.language_provider {
         files = {
           {
             path = "tools/${project_ident}/main.rs",
-            body = "#[no_mangle]\npub extern \"C\" fn main() -> i32 { 0 }\n",
+            body = "fn main() {}\n",
           },
         },
         target = {
@@ -127,7 +138,7 @@ return qstar.language_provider {
             files = {
               {
                 path = "packages/app/src/main.rs",
-                body = "extern \"C\" {\n    fn core_value() -> i32;\n}\n\n#[no_mangle]\npub extern \"C\" fn main() -> i32 {\n    unsafe { if core_value() == 42 { 0 } else { 1 } }\n}\n",
+                body = "fn main() {}\n",
               },
             },
             target = {
@@ -136,7 +147,6 @@ return qstar.language_provider {
               sources = {
                 "packages/app/src/main.rs",
               },
-              deps = {"//packages/core:core"},
             },
           },
         },

@@ -4301,8 +4301,11 @@ target_compile_input_count(const struct qstar_target *target)
 	struct qstar_source_info source;
 	size_t i, count;
 
+	if (qstar_target_has_provider_final_action(target))
+		return 0;
 	count = 0;
-	for (i = 0; i < target->sources.len; i++) {
+	for (i = 0; !qstar_target_has_provider_final_action(target) &&
+	    i < target->sources.len; i++) {
 		if (qstar_target_source_classify(target, i, &source) == 0 &&
 		    qstar_source_requires_compile(&source))
 			count++;
@@ -6727,6 +6730,96 @@ append_system_link_flags(struct qstar_graph *graph, const struct qstar_target *t
 
 /** target final archive/link action을 prepared action으로 만든다. */
 static int
+prepare_provider_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
+    struct qstar_prepared_action *action)
+{
+	const struct qstar_provider_action_template *tmpl;
+	struct qstar_string_list inputs, dep_inputs, outputs;
+	struct qstar_action_material material;
+	const char *final_action;
+	char artifact[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX], key[32];
+	size_t i;
+
+	if (!qstar_target_has_provider_final_action(target))
+		return 0;
+	tmpl = &target->provider_final.action;
+	if (tmpl->argv.len == 0)
+		return qstar_set_error(graph,
+		    "qstar: provider final action for '%s' has no lowered command",
+		    target->label);
+	if (qstar_graph_artifact_output_path(graph, target, artifact,
+	    sizeof(artifact)) < 0)
+		return qstar_set_error(graph, "qstar: provider final artifact path too long");
+	final_action = qstar_target_final_action(target);
+	memset(action, 0, sizeof(*action));
+	memset(&inputs, 0, sizeof(inputs));
+	memset(&dep_inputs, 0, sizeof(dep_inputs));
+	memset(&outputs, 0, sizeof(outputs));
+	memset(&material, 0, sizeof(material));
+	action->target = target;
+	action->toolchain = toolchain;
+	action->wants_depfile = tmpl->wants_depfile;
+	snprintf(action->kind, sizeof(action->kind), "%s", final_action);
+	snprintf(id, sizeof(id), "%s:%s:0", target->label, final_action);
+	snprintf(action->id, sizeof(action->id), "%s", id);
+	if (tmpl->depfile && *tmpl->depfile)
+		snprintf(action->depfile, sizeof(action->depfile), "%s", tmpl->depfile);
+	if (qstar_action_description_final(target, final_action, artifact,
+	    action->description, sizeof(action->description)) < 0)
+		return qstar_set_error(graph, "qstar: final action description too long");
+	if (prepared_action_push_provider_template(graph, action, target,
+	    &tmpl->argv) < 0)
+		goto fail;
+	if (copy_string_list(&inputs, &tmpl->inputs) < 0 ||
+	    copy_string_list(&action->env, &tmpl->env) < 0 ||
+	    copy_string_list(&outputs, &tmpl->outputs) < 0)
+		goto oom;
+	for (i = 0; i < outputs.len; i++) {
+		if (mkdir_parent_under_root(graph, outputs.items[i]) < 0) {
+			qstar_string_list_free(&inputs);
+			qstar_string_list_free(&dep_inputs);
+			qstar_string_list_free(&outputs);
+			qstar_set_error(graph,
+			    "qstar: could not create provider final output directory");
+			goto fail;
+		}
+	}
+	if (!ctx->lowering_cache_prepare && action->wants_depfile &&
+	    push_depfile_inputs(graph, ctx, action->depfile, &dep_inputs) < 0) {
+		qstar_string_list_free(&inputs);
+		qstar_string_list_free(&dep_inputs);
+		qstar_string_list_free(&outputs);
+		goto fail;
+	}
+	for (i = 0; i < dep_inputs.len; i++) {
+		if (string_list_contains(&inputs, dep_inputs.items[i]))
+			continue;
+		if (qstar_string_list_push(&inputs, dep_inputs.items[i]) < 0)
+			goto oom;
+	}
+	key[0] = '\0';
+	if (!ctx->lowering_cache_prepare)
+		compute_action_key(ctx, graph, target, toolchain, id, final_action,
+		    action->argv, &action->env, &inputs, &dep_inputs, artifact, key,
+		    sizeof(key), &material);
+	snprintf(action->key, sizeof(action->key), "%s", key);
+	action->material = material;
+	action->inputs = inputs;
+	action->depfile_inputs = dep_inputs;
+	action->outputs = outputs;
+	return 1;
+oom:
+	qstar_string_list_free(&inputs);
+	qstar_string_list_free(&dep_inputs);
+	qstar_string_list_free(&outputs);
+	qstar_set_error(graph, "qstar: out of memory");
+fail:
+	prepared_action_free(action);
+	return -1;
+}
+
+static int
 prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
     struct qstar_prepared_action *action)
@@ -6742,6 +6835,8 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	memset(action, 0, sizeof(*action));
 	action->target = target;
 	action->toolchain = toolchain;
+	if (prepare_provider_final_action(graph, ctx, target, toolchain, action) != 0)
+		return graph->error[0] ? -1 : 0;
 	if (!qstar_target_rule_lookup(target->kind) ||
 	    !qstar_target_rule_lookup(target->kind)->local_executor_supported)
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
@@ -7095,7 +7190,8 @@ lowered_cache_visit(struct qstar_graph *graph, const struct qstar_target *target
 	if (qstar_resolve_toolchain(graph, target, &toolchain) < 0 ||
 	    validate_noncompile_sources(graph, target, &toolchain) < 0)
 		return -1;
-	for (i = 0; i < target->sources.len; i++) {
+	for (i = 0; !qstar_target_has_provider_final_action(target) &&
+	    i < target->sources.len; i++) {
 		qstar_target_source_classify(target, i, &source);
 		if (!qstar_source_requires_compile(&source))
 			continue;
@@ -7193,7 +7289,8 @@ build_target(struct qstar_graph *graph, const struct qstar_target *target, size_
 		if (run_compile_parallel(graph, ctx, target, &toolchain) < 0)
 			return -1;
 	} else {
-		for (i = 0; i < target->sources.len; i++) {
+		for (i = 0; !qstar_target_has_provider_final_action(target) &&
+		    i < target->sources.len; i++) {
 			if (run_compile(graph, ctx, target, &toolchain, i) < 0)
 				return -1;
 		}
@@ -7675,7 +7772,8 @@ scheduler_create_target_nodes(struct qstar_scheduler *sched, const struct qstar_
 	if (validate_noncompile_sources(graph, target, toolchain) < 0)
 		return -1;
 	compile_ordinal = 0;
-	for (i = 0; i < target->sources.len; i++) {
+	for (i = 0; !qstar_target_has_provider_final_action(target) &&
+	    i < target->sources.len; i++) {
 		qstar_target_source_classify(target, i, &source);
 		if (!qstar_source_requires_compile(&source))
 			continue;
@@ -9491,7 +9589,8 @@ push_target_lazy_logs(struct qstar_graph *graph, const struct qstar_build_ctx *c
 
 	if (!target)
 		return 0;
-	for (i = 0; i < target->sources.len; i++) {
+	for (i = 0; !qstar_target_has_provider_final_action(target) &&
+	    i < target->sources.len; i++) {
 		qstar_target_source_classify(target, i, &source);
 		if (!qstar_source_requires_compile(&source))
 			continue;

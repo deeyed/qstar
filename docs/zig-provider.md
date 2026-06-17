@@ -1,19 +1,21 @@
 # Zig Provider
 
-QStar의 표준 Zig provider는 현재 `zig build-obj`로 Zig source를 object artifact로 낮춘다.
-이 object는 QStar의 `staticlib`, `executable`, `sharedlib` link graph에서 다른 object와
-같은 방식으로 소비된다. Provider가 Zig package manager나 `build.zig` graph를 해석하지는
-않는다.
+QStar의 표준 Zig provider는 `zig build-obj` object unit lowering과 provider-owned final
+artifact lowering을 함께 지원한다. 순수 Zig `executable`, `staticlib`, `sharedlib` target은
+provider final action을 통해 `zig build-exe` 또는 `zig build-lib`가 직접 최종 산출물을 만든다.
+Provider가 Zig package manager나 `build.zig` graph를 해석하지는 않는다.
 
 ## 지원 범위
 
 - `qstar.use_language("zig")`로 표준 provider를 활성화한다.
 - `tools = { zig = zig.tools { compiler = qstar.cli {"zig"} } }`로 Zig compiler를 지정한다.
-- `lang.zig = zig.options { ... }`로 `zig build-obj` option을 지정한다.
+- `lang.zig = zig.options { ... }`로 Zig compile/final option을 지정한다.
 - 활성화된 provider의 `.zig` suffix는 raw string source classification에 참여한다.
 - `zig.object("path.zig", {...})` helper는 source-local option이 필요할 때 사용한다.
 - Provider action은 `ZIG_GLOBAL_CACHE_DIR`와 `ZIG_LOCAL_CACHE_DIR`를 action-local cache로
   지정한다. 이 값은 process에는 전달되지만 action-log/replay에는 redacted form으로만 남는다.
+- 모든 compile source가 Zig provider source이고 target이 native link input/deps를 갖지 않으면
+  provider final action이 자동 선택된다.
 
 ## Zig Options
 
@@ -48,14 +50,14 @@ qstar.config "native" {
 }
 ```
 
-이 pattern은 macOS에서 Zig object가 현재 patch OS version으로 찍히고 C linker는 major.0
+이 pattern은 macOS에서 Zig object/final artifact가 현재 patch OS version으로 찍히고 C linker는 major.0
 minimum으로 링크하면서 생기는 `built for newer 'macOS' version` warning을 피하기 위한
 권장 경로다. 더 세밀하게 제어하고 싶으면 `target = "aarch64-macos.13.0"`처럼 완성된 Zig
 target 문자열을 직접 쓰면 된다.
 
-## Staticlib Consumer Example
+## Staticlib Artifact Example
 
-Zig object를 QStar static library로 묶고 C executable에서 소비하는 예:
+Zig provider final action으로 static library를 만드는 예:
 
 ```lua
 local zig = qstar.use_language("zig")
@@ -85,12 +87,6 @@ qstar.staticlib "zig_core" {
   configs = {"//:native"},
   sources = {"src/zig_core.zig"},
 }
-
-qstar.executable "consumer" {
-  configs = {"//:native"},
-  sources = {"src/consumer.c"},
-  deps = {"//:zig_core"},
-}
 ```
 
 `src/zig_core.zig`는 C ABI symbol을 노출해야 한다.
@@ -101,12 +97,15 @@ export fn zig_value() i32 {
 }
 ```
 
-이 경로는 `tests/corpus/real-glp/zig-static-consumer`에서 실제 `zig`로 검증한다.
+이 경로는 `tests/corpus/real-glp/zig-static-consumer`에서 실제 `zig build-lib -static`으로
+artifact 생성을 검증한다. macOS Zig 0.16.0에서는 `zig build-lib -static` 산출물을 Apple C
+linker가 바로 소비할 때 archive alignment/index 후처리가 필요할 수 있다. 따라서 현재 real
+corpus는 Zig staticlib artifact 생성과 action-log를 검증하고, C consumer 링크는 Rust staticlib
+fixture에서 검증한다.
 
 ## Executable Example
 
-Zig provider는 object emitter이지만, Zig source가 C ABI `main` symbol만 제공하고 C linker로
-마무리할 수 있는 작은 executable은 QStar `executable` target으로 빌드할 수 있다.
+순수 Zig executable은 C linker를 우회하고 provider final action으로 빌드된다.
 
 ```lua
 qstar.executable "app" {
@@ -116,19 +115,16 @@ qstar.executable "app" {
 ```
 
 ```zig
-extern "c" fn puts([*:0]const u8) c_int;
+extern fn puts([*:0]const u8) c_int;
 
-export fn main() c_int {
+pub fn main() void {
     _ = puts("zig-exe-ok");
-    return 0;
 }
 ```
 
-이 경로는 `tests/corpus/real-glp/zig-executable`에서 Stella/Ninja 양쪽으로 검증한다. 다만
-QStar가 Zig `build.zig`, package graph, Zig std executable link policy를 대신 해석하는 것은
-아니다. 완전한 Zig application graph가 필요하면 지금은 `qstar.custom_target`으로 `zig build`
-또는 `zig build-exe`를 직접 호출하거나, 후속 GLP final-action 확장으로 provider가 executable
-final action을 선언하도록 설계해야 한다.
+이 fixture는 `compile_options = {"-lc"}`로 libc link를 명시한다. 경로는
+`tests/corpus/real-glp/zig-executable`에서 Stella/Ninja 양쪽으로 검증한다. 다만 QStar가 Zig
+`build.zig`, package graph, Zig std executable link policy를 대신 해석하는 것은 아니다.
 
 ## Object Helper Example
 

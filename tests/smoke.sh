@@ -117,9 +117,13 @@ set -eu
 
 out=
 src=
+mode=
 
 parse_arg() {
 	case "$1" in
+		build-obj|build-exe|build-lib)
+			mode=$1
+			;;
 		-femit-bin=*)
 			out=${1#-femit-bin=}
 			;;
@@ -157,7 +161,21 @@ case "$src" in
 		printf 'int qstar_fake_zig_value(void) { return 42; }\n' > "$tmp_c"
 		;;
 esac
-"${QSTAR_FAKE_ZIG_CC:-${CC:-cc}}" -x c -c "$tmp_c" -o "$out"
+mode=${mode:-build-obj}
+case "$mode" in
+	build-exe)
+		"${QSTAR_FAKE_ZIG_CC:-${CC:-cc}}" -x c "$tmp_c" -o "$out"
+		;;
+	build-lib)
+		tmp_o="$out.o"
+		"${QSTAR_FAKE_ZIG_CC:-${CC:-cc}}" -x c -c "$tmp_c" -o "$tmp_o"
+		"${AR:-ar}" rcs "$out" "$tmp_o"
+		rm -f "$tmp_o"
+		;;
+	*)
+		"${QSTAR_FAKE_ZIG_CC:-${CC:-cc}}" -x c -c "$tmp_c" -o "$out"
+		;;
+esac
 rm -f "$tmp_c"
 EOF
 	chmod +x "$dir/zig"
@@ -173,6 +191,9 @@ set -eu
 out=
 src=
 need_out=0
+need_crate_type=0
+crate_type=
+emit_obj=0
 
 parse_arg() {
 	if [ "$need_out" -ne 0 ]; then
@@ -180,9 +201,20 @@ parse_arg() {
 		need_out=0
 		return
 	fi
+	if [ "$need_crate_type" -ne 0 ]; then
+		crate_type=$1
+		need_crate_type=0
+		return
+	fi
 	case "$1" in
 		-o)
 			need_out=1
+			;;
+		--crate-type)
+			need_crate_type=1
+			;;
+		--emit=obj)
+			emit_obj=1
 			;;
 		*.rs)
 			if [ -z "$src" ]; then
@@ -218,7 +250,20 @@ case "$src" in
 		printf 'int qstar_fake_rust_value(void) { return 42; }\n' > "$tmp_c"
 		;;
 esac
-"${QSTAR_FAKE_RUST_CC:-${CC:-cc}}" -x c -c "$tmp_c" -o "$out"
+case "$crate_type:$emit_obj" in
+	bin:*)
+		"${QSTAR_FAKE_RUST_CC:-${CC:-cc}}" -x c "$tmp_c" -o "$out"
+		;;
+	staticlib:*)
+		tmp_o="$out.o"
+		"${QSTAR_FAKE_RUST_CC:-${CC:-cc}}" -x c -c "$tmp_c" -o "$tmp_o"
+		"${AR:-ar}" rcs "$out" "$tmp_o"
+		rm -f "$tmp_o"
+		;;
+	*)
+		"${QSTAR_FAKE_RUST_CC:-${CC:-cc}}" -x c -c "$tmp_c" -o "$out"
+		;;
+esac
 rm -f "$tmp_c"
 EOF
 	chmod +x "$dir/rustc"
@@ -292,23 +337,24 @@ check_init_zig_backend_contract() {
 	build_target=$4
 	action_id=$5
 	output_name=$6
-	run_output=$7
+	provider_cmd=$7
+	run_output=$8
 
 	PATH="$fake_zig_bin:$PATH" "$qstar" --file "$project/qstar.lua" explain "$explain_target" > "$tmp/$prefix-explain.out" 2> "$tmp/$prefix-explain.err"
 	contains "$tmp/$prefix-explain.out" "language=zig"
 	contains "$tmp/$prefix-explain.out" "provider=zig"
-	contains "$tmp/$prefix-explain.out" "build-obj"
+	contains "$tmp/$prefix-explain.out" "$provider_cmd"
 	PATH="$fake_zig_bin:$PATH" "$qstar" --file "$project/qstar.lua" dry-run "$build_target" > "$tmp/$prefix-dry-run.out" 2> "$tmp/$prefix-dry-run.err"
 	contains "$tmp/$prefix-dry-run.out" "dry_run_step id=$action_id"
-	contains "$tmp/$prefix-dry-run.out" "argv=[zig, build-obj"
+	contains "$tmp/$prefix-dry-run.out" "argv=[zig, $provider_cmd"
 	PATH="$fake_zig_bin:$PATH" "$qstar" --file "$project/qstar.lua" build "$build_target" > "$tmp/$prefix-build.out" 2> "$tmp/$prefix-build.err"
 	contains "$tmp/$prefix-build.out" "status ok"
 	PATH="$fake_zig_bin:$PATH" "$qstar" --file "$project/qstar.lua" action-log "$action_id" > "$tmp/$prefix-action-log.out" 2> "$tmp/$prefix-action-log.err"
 	contains "$tmp/$prefix-action-log.out" "zig"
-	contains "$tmp/$prefix-action-log.out" "build-obj"
+	contains "$tmp/$prefix-action-log.out" "$provider_cmd"
 	PATH="$fake_zig_bin:$PATH" "$qstar" --file "$project/qstar.lua" replay "$action_id" > "$tmp/$prefix-replay.out" 2> "$tmp/$prefix-replay.err"
 	contains "$tmp/$prefix-replay.out" "zig"
-	contains "$tmp/$prefix-replay.out" "build-obj"
+	contains "$tmp/$prefix-replay.out" "$provider_cmd"
 	PATH="$fake_zig_bin:$PATH" "$qstar" --file "$project/qstar.lua" -B build-ninja -G ninja build "$build_target" > "$tmp/$prefix-ninja-build.out" 2> "$tmp/$prefix-ninja-build.err"
 	contains "$tmp/$prefix-ninja-build.out" "backend ninja"
 	PATH="$fake_zig_bin:$PATH" "$qstar" --file "$project/qstar.lua" -B build-ninja -G ninja action-log "$action_id" > "$tmp/$prefix-ninja-action-log.out" 2> "$tmp/$prefix-ninja-action-log.err"
@@ -316,7 +362,7 @@ check_init_zig_backend_contract() {
 	contains "$tmp/$prefix-ninja-action-log.out" "zig"
 	PATH="$fake_zig_bin:$PATH" "$qstar" --file "$project/qstar.lua" -B build-ninja -G ninja replay "$action_id" > "$tmp/$prefix-ninja-replay.out" 2> "$tmp/$prefix-ninja-replay.err"
 	contains "$tmp/$prefix-ninja-replay.out" "zig"
-	contains "$tmp/$prefix-ninja-replay.out" "build-obj"
+	contains "$tmp/$prefix-ninja-replay.out" "$provider_cmd"
 
 	if [ -n "$output_name" ]; then
 		stella_output=$(find "$project/build/qstar" -name "$output_name" -type f | sed -n '1p')
@@ -382,24 +428,25 @@ check_init_rust_backend_contract() {
 	build_target=$4
 	action_id=$5
 	output_name=$6
-	run_output=$7
+	crate_type=$7
+	run_output=$8
 
 	PATH="$fake_rust_bin:$PATH" "$qstar" --file "$project/qstar.lua" explain "$explain_target" > "$tmp/$prefix-explain.out" 2> "$tmp/$prefix-explain.err"
 	contains "$tmp/$prefix-explain.out" "language=rust"
 	contains "$tmp/$prefix-explain.out" "provider=rust"
-	contains "$tmp/$prefix-explain.out" "--crate-type, lib"
-	contains "$tmp/$prefix-explain.out" "--emit=obj"
+	contains "$tmp/$prefix-explain.out" "--crate-type, $crate_type"
 	PATH="$fake_rust_bin:$PATH" "$qstar" --file "$project/qstar.lua" dry-run "$build_target" > "$tmp/$prefix-dry-run.out" 2> "$tmp/$prefix-dry-run.err"
 	contains "$tmp/$prefix-dry-run.out" "dry_run_step id=$action_id"
-	contains "$tmp/$prefix-dry-run.out" "argv=[rustc, --edition, 2021, --crate-type, lib, --emit=obj"
+	contains "$tmp/$prefix-dry-run.out" "argv=[rustc, --edition, 2021, --crate-type, $crate_type"
 	PATH="$fake_rust_bin:$PATH" "$qstar" --file "$project/qstar.lua" build "$build_target" > "$tmp/$prefix-build.out" 2> "$tmp/$prefix-build.err"
 	contains "$tmp/$prefix-build.out" "status ok"
 	PATH="$fake_rust_bin:$PATH" "$qstar" --file "$project/qstar.lua" action-log "$action_id" > "$tmp/$prefix-action-log.out" 2> "$tmp/$prefix-action-log.err"
 	contains "$tmp/$prefix-action-log.out" "rustc"
-	contains "$tmp/$prefix-action-log.out" "--emit=obj"
+	contains "$tmp/$prefix-action-log.out" "--crate-type"
+	contains "$tmp/$prefix-action-log.out" "$crate_type"
 	PATH="$fake_rust_bin:$PATH" "$qstar" --file "$project/qstar.lua" replay "$action_id" > "$tmp/$prefix-replay.out" 2> "$tmp/$prefix-replay.err"
 	contains "$tmp/$prefix-replay.out" "rustc"
-	contains "$tmp/$prefix-replay.out" "--emit=obj"
+	contains "$tmp/$prefix-replay.out" "--crate-type $crate_type"
 	PATH="$fake_rust_bin:$PATH" "$qstar" --file "$project/qstar.lua" -B build-ninja -G ninja build "$build_target" > "$tmp/$prefix-ninja-build.out" 2> "$tmp/$prefix-ninja-build.err"
 	contains "$tmp/$prefix-ninja-build.out" "backend ninja"
 	PATH="$fake_rust_bin:$PATH" "$qstar" --file "$project/qstar.lua" -B build-ninja -G ninja action-log "$action_id" > "$tmp/$prefix-ninja-action-log.out" 2> "$tmp/$prefix-ninja-action-log.err"
@@ -407,7 +454,7 @@ check_init_rust_backend_contract() {
 	contains "$tmp/$prefix-ninja-action-log.out" "rustc"
 	PATH="$fake_rust_bin:$PATH" "$qstar" --file "$project/qstar.lua" -B build-ninja -G ninja replay "$action_id" > "$tmp/$prefix-ninja-replay.out" 2> "$tmp/$prefix-ninja-replay.err"
 	contains "$tmp/$prefix-ninja-replay.out" "rustc"
-	contains "$tmp/$prefix-ninja-replay.out" "--emit=obj"
+	contains "$tmp/$prefix-ninja-replay.out" "--crate-type $crate_type"
 
 	if [ -n "$output_name" ]; then
 		stella_output=$(find "$project/build/qstar" -name "$output_name" -type f | sed -n '1p')
@@ -3002,30 +3049,31 @@ contains "$tmp/standard-zig-graph.out" "qstar/languages/zig/zig.qsm"
 contains "$tmp/standard-zig-graph.out" "tools.zig.compiler [tools/fake-zig]"
 "$qstar" --file "$tmp/standard-zig/qstar.lua" explain //:core > "$tmp/standard-zig-explain.out" 2> "$tmp/standard-zig-explain.err"
 contains "$tmp/standard-zig-explain.out" "source_file path=src/main.zig language=zig tool=provider-compiler provider=zig provider_role=compiler toolset_role=zig.compiler output_group=objects role=compile"
-contains "$tmp/standard-zig-explain.out" "build-obj"
+contains "$tmp/standard-zig-explain.out" "build-lib"
+contains "$tmp/standard-zig-explain.out" "-static"
 contains "$tmp/standard-zig-explain.out" "-O, ReleaseFast"
 contains "$tmp/standard-zig-explain.out" "-target, aarch64-macos.11.0"
-contains "$tmp/standard-zig-explain.out" "-femit-bin=build/qstar/out/___core/obj0.o"
+contains "$tmp/standard-zig-explain.out" "-femit-bin=build/qstar/out/___core/libcore.a"
 "$qstar" --file "$tmp/standard-zig/qstar.lua" dry-run //:core > "$tmp/standard-zig-dry-run.out" 2> "$tmp/standard-zig-dry-run.err"
-contains "$tmp/standard-zig-dry-run.out" "dry_run_step id=//:core:compile:0 owner=//:core kind=compile language=zig tool=provider-compiler"
-contains "$tmp/standard-zig-dry-run.out" "argv=[tools/fake-zig, build-obj, src/main.zig"
+contains "$tmp/standard-zig-dry-run.out" "dry_run_step id=//:core:archive:0 owner=//:core kind=archive tool=zig"
+contains "$tmp/standard-zig-dry-run.out" "argv=[tools/fake-zig, build-lib, src/main.zig"
 contains "$tmp/standard-zig-dry-run.out" "-O, ReleaseFast"
 contains "$tmp/standard-zig-dry-run.out" "response=skeleton"
 contains "$tmp/standard-zig-dry-run.out" "response_file=build/qstar/rsp/"
 "$qstar" --file "$tmp/standard-zig/qstar.lua" build //:core > "$tmp/standard-zig-build.out" 2> "$tmp/standard-zig-build.err"
-if ! find "$tmp/standard-zig/build" -name obj0.o -type f | grep -q .; then
-  fail "standard Zig provider object was not produced"
+if ! find "$tmp/standard-zig/build" -name libcore.a -type f | grep -q .; then
+  fail "standard Zig provider staticlib was not produced"
 fi
-"$qstar" --file "$tmp/standard-zig/qstar.lua" action-log //:core:compile:0 > "$tmp/standard-zig-action-log.out" 2> "$tmp/standard-zig-action-log.err"
+"$qstar" --file "$tmp/standard-zig/qstar.lua" action-log //:core:archive:0 > "$tmp/standard-zig-action-log.out" 2> "$tmp/standard-zig-action-log.err"
 contains "$tmp/standard-zig-action-log.out" "tools/fake-zig"
-contains "$tmp/standard-zig-action-log.out" "build-obj"
-"$qstar" --file "$tmp/standard-zig/qstar.lua" replay //:core:compile:0 > "$tmp/standard-zig-replay.out" 2> "$tmp/standard-zig-replay.err"
+contains "$tmp/standard-zig-action-log.out" "build-lib"
+"$qstar" --file "$tmp/standard-zig/qstar.lua" replay //:core:archive:0 > "$tmp/standard-zig-replay.out" 2> "$tmp/standard-zig-replay.err"
 contains "$tmp/standard-zig-replay.out" "tools/fake-zig"
 contains "$tmp/standard-zig-replay.out" "-target aarch64-macos.11.0"
 "$qstar" --file "$tmp/standard-zig/qstar.lua" -B build-ninja -G ninja build //:core > "$tmp/standard-zig-ninja-build.out" 2> "$tmp/standard-zig-ninja-build.err"
 contains "$tmp/standard-zig-ninja-build.out" "backend ninja"
-if ! find "$tmp/standard-zig/build-ninja" -name obj0.o -type f | grep -q .; then
-  fail "standard Zig provider object was not produced by Ninja"
+if ! find "$tmp/standard-zig/build-ninja" -name libcore.a -type f | grep -q .; then
+  fail "standard Zig provider staticlib was not produced by Ninja"
 fi
 
 mkdir -p "$tmp/standard-rust/src" "$tmp/standard-rust/tools" "$tmp/standard-rust/vendor"
@@ -3095,38 +3143,37 @@ contains "$tmp/standard-rust-graph.out" "tools.rust.compiler [tools/rustc]"
 "$qstar" --file "$tmp/standard-rust/qstar.lua" explain //:core > "$tmp/standard-rust-explain.out" 2> "$tmp/standard-rust-explain.err"
 contains "$tmp/standard-rust-explain.out" "source_file path=src/main.rs language=rust tool=provider-compiler provider=rust provider_role=compiler toolset_role=rust.compiler output_group=objects role=compile"
 contains "$tmp/standard-rust-explain.out" "--edition, 2021"
-contains "$tmp/standard-rust-explain.out" "--crate-type, lib"
-contains "$tmp/standard-rust-explain.out" "--emit=obj"
+contains "$tmp/standard-rust-explain.out" "--crate-type, staticlib"
 contains "$tmp/standard-rust-explain.out" "--cfg, feature_demo"
 contains "$tmp/standard-rust-explain.out" "--extern, dep=vendor/libdep.rlib"
 contains "$tmp/standard-rust-explain.out" "-C, panic=abort"
-contains "$tmp/standard-rust-explain.out" "-o, build/qstar/out/___core/obj0.o"
+contains "$tmp/standard-rust-explain.out" "-o, build/qstar/out/___core/libcore.a"
 "$qstar" --file "$tmp/standard-rust/qstar.lua" dry-run //:core > "$tmp/standard-rust-dry-run.out" 2> "$tmp/standard-rust-dry-run.err"
-contains "$tmp/standard-rust-dry-run.out" "dry_run_step id=//:core:compile:0 owner=//:core kind=compile language=rust tool=provider-compiler"
-contains "$tmp/standard-rust-dry-run.out" "argv=[tools/rustc, --edition, 2021, --crate-type, lib, --emit=obj, src/main.rs"
+contains "$tmp/standard-rust-dry-run.out" "dry_run_step id=//:core:archive:0 owner=//:core kind=archive tool=rust"
+contains "$tmp/standard-rust-dry-run.out" "argv=[tools/rustc, --edition, 2021, --crate-type, staticlib, src/main.rs"
 contains "$tmp/standard-rust-dry-run.out" "--cfg, feature_demo"
 contains "$tmp/standard-rust-dry-run.out" "--extern, dep=vendor/libdep.rlib"
 "$qstar" --file "$tmp/standard-rust/qstar.lua" build //:core > "$tmp/standard-rust-build.out" 2> "$tmp/standard-rust-build.err"
 contains "$tmp/standard-rust-build.out" "status ok"
-if ! find "$tmp/standard-rust/build" -name obj0.o -type f | grep -q .; then
-  fail "standard Rust provider object was not produced"
+if ! find "$tmp/standard-rust/build" -name libcore.a -type f | grep -q .; then
+  fail "standard Rust provider staticlib was not produced"
 fi
-"$qstar" --file "$tmp/standard-rust/qstar.lua" action-log //:core:compile:0 > "$tmp/standard-rust-action-log.out" 2> "$tmp/standard-rust-action-log.err"
+"$qstar" --file "$tmp/standard-rust/qstar.lua" action-log //:core:archive:0 > "$tmp/standard-rust-action-log.out" 2> "$tmp/standard-rust-action-log.err"
 contains "$tmp/standard-rust-action-log.out" "tools/rustc"
 contains "$tmp/standard-rust-action-log.out" "--crate-type"
-contains "$tmp/standard-rust-action-log.out" "--emit=obj"
-"$qstar" --file "$tmp/standard-rust/qstar.lua" replay //:core:compile:0 > "$tmp/standard-rust-replay.out" 2> "$tmp/standard-rust-replay.err"
+contains "$tmp/standard-rust-action-log.out" "staticlib"
+"$qstar" --file "$tmp/standard-rust/qstar.lua" replay //:core:archive:0 > "$tmp/standard-rust-replay.out" 2> "$tmp/standard-rust-replay.err"
 contains "$tmp/standard-rust-replay.out" "tools/rustc"
 contains "$tmp/standard-rust-replay.out" "--cfg feature_demo"
 "$qstar" --file "$tmp/standard-rust/qstar.lua" -B build-ninja -G ninja build //:core > "$tmp/standard-rust-ninja-build.out" 2> "$tmp/standard-rust-ninja-build.err"
 contains "$tmp/standard-rust-ninja-build.out" "backend ninja"
-if ! find "$tmp/standard-rust/build-ninja" -name obj0.o -type f | grep -q .; then
-  fail "standard Rust provider object was not produced by Ninja"
+if ! find "$tmp/standard-rust/build-ninja" -name libcore.a -type f | grep -q .; then
+  fail "standard Rust provider staticlib was not produced by Ninja"
 fi
-"$qstar" --file "$tmp/standard-rust/qstar.lua" -B build-ninja -G ninja action-log //:core:compile:0 > "$tmp/standard-rust-ninja-action-log.out" 2> "$tmp/standard-rust-ninja-action-log.err"
+"$qstar" --file "$tmp/standard-rust/qstar.lua" -B build-ninja -G ninja action-log //:core:archive:0 > "$tmp/standard-rust-ninja-action-log.out" 2> "$tmp/standard-rust-ninja-action-log.err"
 contains "$tmp/standard-rust-ninja-action-log.out" "backend=ninja"
 contains "$tmp/standard-rust-ninja-action-log.out" "tools/rustc"
-"$qstar" --file "$tmp/standard-rust/qstar.lua" -B build-ninja -G ninja replay //:core:compile:0 > "$tmp/standard-rust-ninja-replay.out" 2> "$tmp/standard-rust-ninja-replay.err"
+"$qstar" --file "$tmp/standard-rust/qstar.lua" -B build-ninja -G ninja replay //:core:archive:0 > "$tmp/standard-rust-ninja-replay.out" 2> "$tmp/standard-rust-ninja-replay.err"
 contains "$tmp/standard-rust-ninja-replay.out" "tools/rustc"
 contains "$tmp/standard-rust-ninja-replay.out" "--extern dep=vendor/libdep.rlib"
 
@@ -7122,7 +7169,7 @@ contains "$tmp/init-zig-graph.out" "tools.zig.compiler [zig]"
 
 fake_zig_bin="$tmp/init-zig-bin"
 write_fake_zig_bin "$fake_zig_bin"
-check_init_zig_backend_contract "$tmp/init-zig" init-zig-app //:app //:app //:app:compile:0 app yes
+check_init_zig_backend_contract "$tmp/init-zig" init-zig-app //:app //:app //:app:link:0 app build-exe yes
 
 "$qstar" init lib "$tmp/init-zig-lib" --use-language=zig > "$tmp/init-zig-lib.out" 2> "$tmp/init-zig-lib.err"
 contains "$tmp/init-zig-lib.out" "scaffold zig lib"
@@ -7130,7 +7177,7 @@ contains "$tmp/init-zig-lib/qstar.lua" "\"src/init_zig_lib.zig\""
 not_contains "$tmp/init-zig-lib/qstar.lua" "zig.object("
 test -f "$tmp/init-zig-lib/src/init_zig_lib.zig" || fail "init did not materialize zig lib source"
 test -f "$tmp/init-zig-lib/qstar/languages/zig/zig.qsm" || fail "init did not vendor zig manifest for lib"
-check_init_zig_backend_contract "$tmp/init-zig-lib" init-zig-lib //:core //:core //:core:compile:0 libcore.a no
+check_init_zig_backend_contract "$tmp/init-zig-lib" init-zig-lib //:core //:core //:core:archive:0 libcore.a build-lib no
 
 "$qstar" init tool "$tmp/init-zig-tool" --use-language=zig > "$tmp/init-zig-tool.out" 2> "$tmp/init-zig-tool.err"
 contains "$tmp/init-zig-tool.out" "scaffold zig tool"
@@ -7138,7 +7185,7 @@ contains "$tmp/init-zig-tool/qstar.lua" "\"tools/init_zig_tool/main.zig\""
 not_contains "$tmp/init-zig-tool/qstar.lua" "zig.object("
 test -f "$tmp/init-zig-tool/tools/init_zig_tool/main.zig" || fail "init did not materialize zig tool source"
 test -f "$tmp/init-zig-tool/qstar/languages/zig/provider.lua" || fail "init did not vendor zig provider for tool"
-check_init_zig_backend_contract "$tmp/init-zig-tool" init-zig-tool //:tool //:tool //:tool:compile:0 tool yes
+check_init_zig_backend_contract "$tmp/init-zig-tool" init-zig-tool //:tool //:tool //:tool:link:0 tool build-exe yes
 
 "$qstar" init empty "$tmp/init-zig-empty" --use-language=zig > "$tmp/init-zig-empty.out" 2> "$tmp/init-zig-empty.err"
 contains "$tmp/init-zig-empty.out" "scaffold zig empty"
@@ -7161,7 +7208,7 @@ not_contains "$tmp/init-zig-workspace/packages/core/core.qst" "zig.object("
 contains "$tmp/init-zig-workspace/packages/app/app.qst" "local zig = qstar.use_language(\"zig\")"
 contains "$tmp/init-zig-workspace/packages/app/app.qst" "\"packages/app/src/main.zig\""
 not_contains "$tmp/init-zig-workspace/packages/app/app.qst" "zig.object("
-contains "$tmp/init-zig-workspace/packages/app/app.qst" "\"//packages/core:core\""
+not_contains "$tmp/init-zig-workspace/packages/app/app.qst" "\"//packages/core:core\""
 test -f "$tmp/init-zig-workspace/packages/core/src/core.zig" || fail "init did not materialize zig core workspace source"
 test -f "$tmp/init-zig-workspace/packages/app/src/main.zig" || fail "init did not materialize zig app workspace source"
 "$qstar" --file "$tmp/init-zig-workspace/qstar.lua" check //... > "$tmp/init-zig-workspace-check.out" 2> "$tmp/init-zig-workspace-check.err"
@@ -7170,7 +7217,7 @@ contains "$tmp/init-zig-workspace-check.out" "status ok"
 contains "$tmp/init-zig-workspace-graph.out" "target //packages/core:core"
 contains "$tmp/init-zig-workspace-graph.out" "target //packages/app:app"
 contains "$tmp/init-zig-workspace-graph.out" "language_provider namespace=zig id=zig"
-check_init_zig_backend_contract "$tmp/init-zig-workspace" init-zig-workspace //packages/app:app //:all //packages/app:app:compile:0 app yes
+check_init_zig_backend_contract "$tmp/init-zig-workspace" init-zig-workspace //packages/app:app //:all //packages/app:app:link:0 app build-exe yes
 
 "$qstar" init app "$tmp/init-rust" --use-language=rust > "$tmp/init-rust.out" 2> "$tmp/init-rust.err"
 contains "$tmp/init-rust.out" "language rust"
@@ -7197,7 +7244,7 @@ contains "$tmp/init-rust-graph.out" "tools.rust.compiler [rustc]"
 
 fake_rust_bin="$tmp/init-rust-bin"
 write_fake_rust_bin "$fake_rust_bin"
-check_init_rust_backend_contract "$tmp/init-rust" init-rust-app //:app //:app //:app:compile:0 app yes
+check_init_rust_backend_contract "$tmp/init-rust" init-rust-app //:app //:app //:app:link:0 app bin yes
 
 "$qstar" init lib "$tmp/init-rust-lib" --use-language=rust > "$tmp/init-rust-lib.out" 2> "$tmp/init-rust-lib.err"
 contains "$tmp/init-rust-lib.out" "scaffold rust lib"
@@ -7205,7 +7252,7 @@ contains "$tmp/init-rust-lib/qstar.lua" "\"src/init_rust_lib.rs\""
 not_contains "$tmp/init-rust-lib/qstar.lua" "rust.object("
 test -f "$tmp/init-rust-lib/src/init_rust_lib.rs" || fail "init did not materialize rust lib source"
 test -f "$tmp/init-rust-lib/qstar/languages/rust/rust.qsm" || fail "init did not vendor rust manifest for lib"
-check_init_rust_backend_contract "$tmp/init-rust-lib" init-rust-lib //:core //:core //:core:compile:0 libcore.a no
+check_init_rust_backend_contract "$tmp/init-rust-lib" init-rust-lib //:core //:core //:core:archive:0 libcore.a staticlib no
 
 "$qstar" init tool "$tmp/init-rust-tool" --use-language=rust > "$tmp/init-rust-tool.out" 2> "$tmp/init-rust-tool.err"
 contains "$tmp/init-rust-tool.out" "scaffold rust tool"
@@ -7213,7 +7260,7 @@ contains "$tmp/init-rust-tool/qstar.lua" "\"tools/init_rust_tool/main.rs\""
 not_contains "$tmp/init-rust-tool/qstar.lua" "rust.object("
 test -f "$tmp/init-rust-tool/tools/init_rust_tool/main.rs" || fail "init did not materialize rust tool source"
 test -f "$tmp/init-rust-tool/qstar/languages/rust/provider.lua" || fail "init did not vendor rust provider for tool"
-check_init_rust_backend_contract "$tmp/init-rust-tool" init-rust-tool //:tool //:tool //:tool:compile:0 tool yes
+check_init_rust_backend_contract "$tmp/init-rust-tool" init-rust-tool //:tool //:tool //:tool:link:0 tool bin yes
 
 "$qstar" init empty "$tmp/init-rust-empty" --use-language=rust > "$tmp/init-rust-empty.out" 2> "$tmp/init-rust-empty.err"
 contains "$tmp/init-rust-empty.out" "scaffold rust empty"
@@ -7236,7 +7283,7 @@ not_contains "$tmp/init-rust-workspace/packages/core/core.qst" "rust.object("
 contains "$tmp/init-rust-workspace/packages/app/app.qst" "local rust = qstar.use_language(\"rust\")"
 contains "$tmp/init-rust-workspace/packages/app/app.qst" "\"packages/app/src/main.rs\""
 not_contains "$tmp/init-rust-workspace/packages/app/app.qst" "rust.object("
-contains "$tmp/init-rust-workspace/packages/app/app.qst" "\"//packages/core:core\""
+not_contains "$tmp/init-rust-workspace/packages/app/app.qst" "\"//packages/core:core\""
 test -f "$tmp/init-rust-workspace/packages/core/src/lib.rs" || fail "init did not materialize rust core workspace source"
 test -f "$tmp/init-rust-workspace/packages/app/src/main.rs" || fail "init did not materialize rust app workspace source"
 "$qstar" --file "$tmp/init-rust-workspace/qstar.lua" check //... > "$tmp/init-rust-workspace-check.out" 2> "$tmp/init-rust-workspace-check.err"
@@ -7245,7 +7292,7 @@ contains "$tmp/init-rust-workspace-check.out" "status ok"
 contains "$tmp/init-rust-workspace-graph.out" "target //packages/core:core"
 contains "$tmp/init-rust-workspace-graph.out" "target //packages/app:app"
 contains "$tmp/init-rust-workspace-graph.out" "language_provider namespace=rust id=rust"
-check_init_rust_backend_contract "$tmp/init-rust-workspace" init-rust-workspace //packages/app:app //:all //packages/app:app:compile:0 app yes
+check_init_rust_backend_contract "$tmp/init-rust-workspace" init-rust-workspace //packages/app:app //:all //packages/app:app:link:0 app bin yes
 
 "$qstar" init app "$tmp/init-cuda" --use-language=cuda > "$tmp/init-cuda.out" 2> "$tmp/init-cuda.err"
 contains "$tmp/init-cuda.out" "language cuda"
