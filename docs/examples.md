@@ -59,9 +59,9 @@ qstar.executable "app" {
 ## Package Artifact
 
 ```lua
-qstar.custom_target "package_blob" {
-  inputs = {qstar.target_file("//:app")},
-  outputs = {qstar.output("build/qstar/generated/app.bin", {group = "packages"})},
+qstar.transform "package_blob" {
+  input = qstar.target_file("//:app"),
+  output = qstar.output("build/qstar/generated/app.bin", {group = "packages"}),
   command = qstar.cli {"tools/package-object", qstar.input(0), qstar.output(0)},
   description = qstar.status("Packaging app.bin"),
 }
@@ -72,6 +72,48 @@ qstar.stage "bundle" {
   files = {
     qstar.stage_file(qstar.target_file("//:app"), "bin/app"),
     qstar.stage_file(qstar.target_file("//:package_blob"), "share/app.bin"),
+  },
+}
+```
+
+## Generic Workflow Command
+
+```lua
+qstar.run_target "package_smoke" {
+  inputs = {
+    qstar.target_file("//:package_blob"),
+    qstar.stage_dir("//:bundle"),
+  },
+  command = qstar.cli {
+    "tools/check-package",
+    "--artifact", qstar.input(0),
+    "--layout", qstar.input(1),
+  },
+  expect = {
+    contains = "PACKAGE_OK",
+  },
+}
+
+qstar.command "package-local" {
+  options = {
+    out = qstar.param.path { default = "exports/package" },
+    verify = qstar.param.bool { default = true },
+  },
+  steps = {
+    qstar.step.build("//:package_blob"),
+    qstar.step.stage("//:bundle"),
+    qstar.step.run {
+      when = qstar.param("verify"),
+      inputs = {qstar.stage_dir("//:bundle")},
+      command = qstar.cli {
+        "tools/check-package",
+        "--layout", qstar.input(0),
+        qstar.arg_if(qstar.param("verify"), "--verify"),
+      },
+    },
+    qstar.step.export_stage("//:bundle", {
+      to = qstar.param("out"),
+    }),
   },
 }
 ```

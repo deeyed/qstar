@@ -247,6 +247,58 @@ qstar.toolset "host" {
 Toolsets only select tool roles and command materialization policy. Compile and
 link options belong in `qstar.config` or target-local fields.
 
+## Generic Artifact Workflow
+
+```lua
+qstar.transform "payload_artifact" {
+  input = "fixtures/payload.artifact",
+  output = qstar.output("generated/artifacts/payload.artifact", {
+    group = "artifacts",
+  }),
+  command = qstar.cli {
+    "tools/transform-artifact.sh",
+    qstar.input(0),
+    qstar.output(0),
+  },
+}
+
+qstar.stage "workflow_layout" {
+  root = "stage/workflow",
+  files = {
+    qstar.stage_file(qstar.target_file("//:payload_artifact"),
+      "artifacts/payload.artifact"),
+  },
+}
+
+qstar.command "workflow" {
+  options = {
+    out = qstar.param.path { default = "exports/workflow" },
+    verify = qstar.param.bool { default = true },
+  },
+  steps = {
+    qstar.step.build("//:payload_artifact"),
+    qstar.step.stage("//:workflow_layout"),
+    qstar.step.run {
+      when = qstar.param("verify"),
+      inputs = {qstar.stage_dir("//:workflow_layout")},
+      command = qstar.cli {
+        "tools/check-workflow.sh",
+        "--layout",
+        qstar.input(0),
+        qstar.arg_if(qstar.param("verify"), "--verify"),
+      },
+    },
+    qstar.step.export_stage("//:workflow_layout", {
+      to = qstar.param("out"),
+    }),
+  },
+}
+```
+
+`qstar.transform` is single-input/single-output sugar over `qstar.custom_target`.
+`qstar.command` is root-only and exposes Makefile-like project commands without
+shell strings or domain-specific target kinds.
+
 ## Configs
 
 ```lua

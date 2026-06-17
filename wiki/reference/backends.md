@@ -24,6 +24,7 @@ candidate이며,
 - `qstar.test`
 - `qstar.configure_file`
 - `qstar.custom_target`
+- `qstar.transform`
 - `qstar.run_target`
 - `qstar.group`
 - `qstar.sharedlib` on macOS and Linux platform contexts
@@ -35,6 +36,8 @@ candidate이며,
 
 `stage`와 `install`의 copy, diff, manifest 작성은 QStar가 계속 수행한다. 다만
 effective generator가 `ninja`이면 참조된 artifact는 먼저 Ninja backend로 build한다.
+`qstar.command` 안의 `qstar.step.build`, `qstar.step.stage`, `qstar.step.run`,
+`qstar.step.export_stage`도 같은 generator contract를 따른다.
 
 이 구조 덕분에 packaging 정책은 QStar에 남기고, artifact 생산은 Ninja에 맡길 수 있다.
 

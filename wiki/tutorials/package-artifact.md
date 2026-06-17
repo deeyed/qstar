@@ -7,9 +7,9 @@ artifact를 stage tree에 넣는 일반적인 흐름을 보여준다. QStar는 p
 ## 최소 예제
 
 ```lua
-qstar.custom_target "package_blob" {
-  inputs = {qstar.target_file("//:app")},
-  outputs = {qstar.output("build/qstar/generated/app.bin", {group = "packages"})},
+qstar.transform "package_blob" {
+  input = qstar.target_file("//:app"),
+  output = qstar.output("build/qstar/generated/app.bin", {group = "packages"}),
   command = qstar.cli {"tools/package-object.sh", qstar.input(0), qstar.output(0)},
   description = qstar.status("Packaging app.bin"),
 }
@@ -51,13 +51,11 @@ qstar.executable "app" {
   sources = {"src/main.c"},
 }
 
-qstar.custom_target "package_blob" {
-  inputs = {qstar.target_file("//:app")},
-  outputs = {
-    qstar.output("build/qstar/generated/app.bin", {
-      group = "packages",
-    }),
-  },
+qstar.transform "package_blob" {
+  input = qstar.target_file("//:app"),
+  output = qstar.output("build/qstar/generated/app.bin", {
+    group = "packages",
+  }),
   command = qstar.cli {
     "tools/package-object.sh",
     qstar.input(0),
@@ -95,12 +93,13 @@ qstar --file qstar.lua build //:package_blob
 qstar --file qstar.lua stage //:bundle --dry-run
 ```
 
-`qstar.target_file("//:package_blob")`는 custom target의 첫 output path를 가리킨다.
+`qstar.target_file("//:package_blob")`는 generated action의 output path를 가리킨다.
 `qstar.stage`는 install prefix와 별개인 copy-only package tree를 만든다.
 
 ## 관련 문서
 
 - [Custom Target](../reference/custom-target.md)
+- [Generic Workflows](../reference/generic-workflows.md)
 - [Object Artifacts](../reference/object-artifacts.md)
 - [Staging](../cookbook/staging.md)
 

@@ -7,7 +7,7 @@ Q193 release gate다.
 ```txt
 status: generic DSL backend seal
 round: Q193
-surface: qstar.toolset + qstar.config + generated/object/sharedlib
+surface: qstar.toolset + qstar.config + generated/object/sharedlib + generic workflow
 platform scope: macOS local, Linux CI
 timing policy: structural failure is hard fail; timing regression uses perf-summary hard threshold
 ```
@@ -27,6 +27,8 @@ make qstar-generic-dsl-backend-parity-tests
 - Stella generated corpus: `configure_file`, `custom_target`, run target, generated_dir
 - Stella object artifact bridge: generated object를 executable/staticlib/sharedlib가 소비
 - Ninja backend parity: generated/object/sharedlib/stage/install/action-log/replay
+- Generic workflow fixture: `qstar.transform`, `run_target.inputs`, `qstar.stage_dir`,
+  `qstar.command`, bool argv helper, `qstar.step.export_stage`
 - medium performance gate: Stella/Ninja clean, no-op, incremental line protocol
 - Linux validation script: generated_dir, compile database, install docs/man smoke
 
@@ -39,6 +41,8 @@ hard fail이다.
 - `qstar.toolset` 기반 self-host graph가 Stella와 Ninja 양쪽에서 build된다.
 - generated object artifact가 Stella와 Ninja 양쪽에서 link/archive input이 된다.
 - macOS/Linux sharedlib artifact가 Stella/Ninja parity corpus에서 생성된다.
+- `tests/projects/generic-command-artifact-workflow`가 Stella/Ninja 양쪽에서 transform,
+  stage-as-input, run target expect, project command export를 실행한다.
 - medium gate가 Stella/Ninja clean, no-op, incremental phase를 모두 출력한다.
 - `perf-summary` hard threshold를 넘지 않는다.
 

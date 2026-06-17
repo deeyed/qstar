@@ -88,6 +88,18 @@
     ],
     "description": "Create a QStar generated action."
   },
+  "Artifact transform": {
+    "prefix": "qtransform",
+    "body": [
+      "qstar.transform \"${1:artifact}\" {",
+      "  input = ${2:\"fixtures/input.artifact\"},",
+      "  output = qstar.output(\"${3:generated/artifacts/output.artifact}\"),",
+      "  command = qstar.cli {\"${4:tools/transform.sh}\", qstar.input(0), qstar.output(0)},",
+      "  description = qstar.status(\"${5:Transforming artifact}\"),",
+      "}"
+    ],
+    "description": "Create a single-input single-output generated artifact transform."
+  },
   "Config header": {
     "prefix": "qconfig",
     "body": [
@@ -103,17 +115,19 @@
     "prefix": "qrun",
     "body": [
       "qstar.run_target \"${1:smoke}\" {",
-      "  deps = {\"${2://:app}\"},",
-      "  command = qstar.cli {qstar.target_file(\"${2://:app}\")},",
-      "  timeout = ${3:5},",
-      "  expect = {",
-      "    contains = \"${4:OK}\",",
-      "    file = \"${5:smoke.log}\",",
+      "  inputs = {",
+      "    qstar.target_file(\"${2://:artifact}\"),",
       "  },",
-      "  description = qstar.status(\"${6:Running smoke target}\"),",
+      "  command = qstar.cli {\"${3:tools/smoke.sh}\", qstar.input(0)},",
+      "  timeout = ${4:5},",
+      "  expect = {",
+      "    contains = \"${5:OK}\",",
+      "    file = \"${6:smoke.log}\",",
+      "  },",
+      "  description = qstar.status(\"${7:Running smoke target}\"),",
       "}"
     ],
-    "description": "Create an external run target."
+    "description": "Create an external run target with first-class inputs."
   },
   "Group target": {
     "prefix": "qgroup",
@@ -138,6 +152,31 @@
       "}"
     ],
     "description": "Create a copy-only package staging rule."
+  },
+  "Project command workflow": {
+    "prefix": "qcommandworkflow",
+    "body": [
+      "qstar.command \"${1:workflow}\" {",
+      "  description = qstar.status(\"${2:Run workflow}\"),",
+      "  options = {",
+      "    out = qstar.param.path { default = \"${3:exports/workflow}\" },",
+      "    verify = qstar.param.bool { default = true },",
+      "  },",
+      "  steps = {",
+      "    qstar.step.build(\"${4://:artifact}\"),",
+      "    qstar.step.stage(\"${5://:layout}\"),",
+      "    qstar.step.run {",
+      "      when = qstar.param(\"verify\"),",
+      "      inputs = {qstar.stage_dir(\"${5://:layout}\")},",
+      "      command = qstar.cli {\"${6:tools/check.sh}\", qstar.input(0), qstar.arg_if(qstar.param(\"verify\"), \"--verify\")},",
+      "    },",
+      "    qstar.step.export_stage(\"${5://:layout}\", {",
+      "      to = qstar.param(\"out\"),",
+      "    }),",
+      "  },",
+      "}"
+    ],
+    "description": "Create a root project command for generic build, check, and layout export workflows."
   },
   "Status description": {
     "prefix": "qstatus",

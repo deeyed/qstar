@@ -127,6 +127,7 @@ qstar docs --show reference/qstar-lua.md
 5. [Targets And Actions](concepts/targets-and-actions.md)
 6. [Language Namespaces](concepts/language-namespaces.md)
 7. [Language Providers](reference/language-providers.md)
+8. [Generic Workflows](reference/generic-workflows.md)
 
 ## Reference
 
@@ -138,6 +139,7 @@ qstar docs --show reference/qstar-lua.md
 - [C Language Options](reference/lang-c.md)
 - [C++ Language Options](reference/lang-cxx.md)
 - [Language Providers](reference/language-providers.md)
+- [Generic Workflows](reference/generic-workflows.md)
 - [Object Artifacts](reference/object-artifacts.md)
 - [Custom Target](reference/custom-target.md)
 - [Run Target](reference/run-target.md)
@@ -189,3 +191,7 @@ QStar가 맡고, 참조 artifact build는 effective generator를 따른다. `sha
 macOS platform context에서 `.dylib`, Linux platform context에서 `.so`를 만들며 Windows
 runtime `.dll`과 import `.lib`는 Stella/Ninja multi-output lowering으로 지원한다.
 PDB/debug artifact 정책은 아직 deferred다.
+Project-local workflow는 `qstar.transform`, `run_target.inputs`, `qstar.stage_dir`,
+`qstar.command`, typed `qstar.param.*`, bool argv helper, `qstar.step.export_stage`로
+표현한다. 이 표면은 [Generic Workflows](reference/generic-workflows.md)와
+`tests/projects/generic-command-artifact-workflow`에서 Stella/Ninja 양쪽으로 검증된다.

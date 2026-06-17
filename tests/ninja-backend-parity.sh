@@ -6,6 +6,7 @@ tmp=${TMPDIR:-/tmp}/qstar-ninja-backend-parity.$$
 c_app=tests/corpus/c-app
 generated=tests/corpus/generated
 object_bridge=tests/projects/object-artifact-bridge
+workflow=tests/projects/generic-command-artifact-workflow
 host=$(uname -s 2>/dev/null || printf unknown)
 host_windows=0
 case "$host" in
@@ -28,9 +29,11 @@ contains() {
 clean_corpus_outputs() {
 	rm -rf "$c_app/build" "$c_app/stage" "$generated/build" "$generated/stage"
 	rm -rf "$object_bridge/build" "$object_bridge/stage"
+	rm -rf "$workflow/build" "$workflow/stage" "$workflow/generated" "$workflow/exports"
 	rm -f "$c_app/.ninja_log" "$c_app/.ninja_deps"
 	rm -f "$generated/.ninja_log" "$generated/.ninja_deps"
 	rm -f "$object_bridge/.ninja_log" "$object_bridge/.ninja_deps"
+	rm -f "$workflow/.ninja_log" "$workflow/.ninja_deps"
 }
 
 rm -rf "$tmp"
@@ -119,6 +122,20 @@ contains "$tmp/object-bridge-log.out" "description='Building Objective-C object 
 "$qstar" --file "$object_bridge/qstar.lua" replay //:objc_object:generate:0 > "$tmp/object-bridge-replay.out" 2> "$tmp/object-bridge-replay.err"
 contains "$tmp/object-bridge-replay.out" "qstar replay v1"
 contains "$tmp/object-bridge-replay.out" "tools/fake-objc-compile.sh src/AppDelegate.m build/qstar/generated/objc/AppDelegate.o"
+
+"$qstar" --file "$workflow/qstar.lua" emit-ninja //:artifact_smoke > "$tmp/workflow-emit.out" 2> "$tmp/workflow-emit.err"
+contains "$tmp/workflow-emit.out" "ninja_file build/qstar/ninja/build.ninja"
+contains "$workflow/build/qstar/ninja/build.ninja" "qstar_action_id = //:payload_artifact:generate:0"
+contains "$workflow/build/qstar/ninja/build.ninja" "qstar_action_id = //:artifact_smoke:run:0"
+contains "$workflow/build/qstar/ninja/build.ninja" "description = Transforming payload artifact"
+contains "$workflow/build/qstar/ninja/build.ninja" "description = Checking workflow artifact inputs"
+"$qstar" --file "$workflow/qstar.lua" action-log //:payload_artifact:generate:0 > "$tmp/workflow-transform-log.out" 2> "$tmp/workflow-transform-log.err"
+contains "$tmp/workflow-transform-log.out" "qstar action-log v1"
+contains "$tmp/workflow-transform-log.out" "backend=ninja"
+contains "$tmp/workflow-transform-log.out" "description='Transforming payload artifact'"
+"$qstar" --file "$workflow/qstar.lua" replay //:payload_artifact:generate:0 > "$tmp/workflow-transform-replay.out" 2> "$tmp/workflow-transform-replay.err"
+contains "$tmp/workflow-transform-replay.out" "qstar replay v1"
+contains "$tmp/workflow-transform-replay.out" "tools/transform-artifact.sh fixtures/payload.artifact generated/artifacts/payload.artifact"
 
 mkdir -p "$tmp/shared/src"
 cat > "$tmp/shared/qstar.lua" <<'QSTAR'
@@ -294,6 +311,22 @@ if command -v ninja >/dev/null 2>&1; then
 	test -f "$object_bridge/build/qstar/out/___objc_static/libobjc_static.a" || fail "object bridge ninja staticlib missing"
 	test ! -f "$object_bridge/.ninja_log" || fail "object bridge ninja wrote package root .ninja_log"
 	test ! -f "$object_bridge/.ninja_deps" || fail "object bridge ninja wrote package root .ninja_deps"
+
+	"$qstar" --file "$workflow/qstar.lua" -G ninja build //:artifact_smoke --progress off > "$tmp/workflow-build.out" 2> "$tmp/workflow-build.err"
+	contains "$tmp/workflow-build.out" "backend ninja"
+	contains "$tmp/workflow-build.out" "Checking workflow artifact inputs"
+	contains "$tmp/workflow-build.out" "run_expect label=//:artifact_smoke status=matched contains=WORKFLOW_OK"
+	contains "$tmp/workflow-build.out" "status ok"
+	test -f "$workflow/generated/artifacts/payload.artifact" || fail "workflow ninja transform output missing"
+	test -f "$workflow/stage/workflow/artifacts/payload.artifact" || fail "workflow ninja stage artifact missing"
+	"$qstar" --file "$workflow/qstar.lua" -G ninja --progress off workflow --out exports/ninja --mode full > "$tmp/workflow-command.out" 2> "$tmp/workflow-command.err"
+	contains "$tmp/workflow-command.out" "backend ninja"
+	contains "$tmp/workflow-command.out" "command_step 4/4 kind=export_stage label=//:workflow_layout"
+	contains "$tmp/workflow-command.out" "command_export_stage label=//:workflow_layout to=exports/ninja mode=copy"
+	test -f "$workflow/exports/ninja/artifacts/payload.artifact" || fail "workflow ninja export_stage artifact missing"
+	contains "$workflow/generated/check/project-command.txt" "mode=full"
+	test ! -f "$workflow/.ninja_log" || fail "workflow ninja wrote package root .ninja_log"
+	test ! -f "$workflow/.ninja_deps" || fail "workflow ninja wrote package root .ninja_deps"
 
 	"$qstar" --file "$tmp/link-input/qstar.lua" -G ninja build //:app --progress off > "$tmp/link-input-ninja-build.out" 2> "$tmp/link-input-ninja-build.err"
 	contains "$tmp/link-input-ninja-build.out" "backend ninja"

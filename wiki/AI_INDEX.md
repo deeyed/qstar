@@ -118,6 +118,15 @@ QStar가 하지 않는 일:
   root `qstar.lua` self-host graph를 제공한다. `make qstar-self-host-tests`는
   Makefile-built binary와 Stella/Ninja self-host binary의 `--version` 일치, `//:qstar`
   build, `//:self_host` smoke, compile database, Ninja root pollution 방지를 확인한다.
+- Generic workflow surface는 `qstar.transform`, `run_target.inputs`, `qstar.stage_dir`,
+  root-only `qstar.command`, typed `qstar.param.*`, `qstar.arg_if`/`qstar.args_if`,
+  `qstar.step.run`, and `qstar.step.export_stage`로 닫는다. 이 표면은 특정 downstream
+  project, 언어, toolchain, file format, runner semantics를 QStar builtin으로 만들지 않고
+  artifact transform, copy-only layout, external check, explicit layout export를 표현한다.
+  User-facing reference는 `wiki/reference/generic-workflows.md`이고, backend regression
+  fixture는 `tests/projects/generic-command-artifact-workflow`다. `tests/smoke.sh`는
+  Stella path, docs/wiki/man/snippet drift, action-log/replay를 확인하고
+  `tests/ninja-backend-parity.sh`는 같은 fixture를 `-G ninja`로 실행한다.
 - Public beta runtime package는 `make qstar-public-beta-release-tests`로 만든다. 이 gate는
   installed binary version, installed wiki/manpages, macOS codesign, prefix-style
   tarball layout, `SHA256SUMS`, VSCode `.vsix` 미포함 정책을 확인한다. GitHub Wiki
@@ -465,13 +474,11 @@ Generated file이나 복수 입출력 generator는 `qstar.custom_target`으로 �
 같은 generated action contract로 낮아진다.
 
 ```lua
-qstar.custom_target "package_blob" {
-  inputs = {qstar.target_file("//:app")},
-  outputs = {
-    qstar.output("generated/app.bin", {
-      group = "packages",
-    }),
-  },
+qstar.transform "package_blob" {
+  input = qstar.target_file("//:app"),
+  output = qstar.output("generated/app.bin", {
+    group = "packages",
+  }),
   command = qstar.cli {"tools/package-object", qstar.input(0), qstar.output(0)},
 }
 ```

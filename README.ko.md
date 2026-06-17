@@ -170,9 +170,9 @@ qstar.group "all_libs" {
 외부 command는 shell string이 아니라 argv-vector로 쓴다.
 
 ```lua
-qstar.custom_target "image" {
-  inputs = {qstar.target_file("//:app")},
-  outputs = {qstar.output("generated/app.bin")},
+qstar.transform "image" {
+  input = qstar.target_file("//:app"),
+  output = qstar.output("generated/app.bin"),
   command = qstar.cli {
     "tools/package-object",
     qstar.input(0),
@@ -182,6 +182,10 @@ qstar.custom_target "image" {
 }
 ```
 
+복수 input/output이 필요한 generated action은 `qstar.custom_target`을 쓰고, 단일
+input/output artifact 변환은 같은 generated action contract 위의 `qstar.transform` sugar를
+쓴다.
+
 ## 주요 명령
 
 ```sh
@@ -190,6 +194,7 @@ qstar docs
 qstar docs --path
 qstar docs --ai-index
 qstar docs --show reference/qstar-lua.md
+qstar docs --show reference/generic-workflows.md
 
 qstar init app hello
 qstar check //...

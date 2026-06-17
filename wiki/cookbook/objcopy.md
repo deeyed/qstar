@@ -1,15 +1,15 @@
 # Cookbook: Objcopy
 
 QStar는 C/C++를 잘 지원하지만 특정 언어에 종속되지 않는 빌드시스템이다. Object나 executable
-artifact를 다른 package file로 바꾸는 흐름은 `qstar.custom_target`과 toolset/path tool policy로
-표현한다.
+artifact를 다른 package file로 바꾸는 흐름은 단일 input/output이면 `qstar.transform`, 복수
+input/output이면 `qstar.custom_target`과 toolset/path tool policy로 표현한다.
 
 ## 최소 예제
 
 ```lua
-qstar.custom_target "package_blob" {
-  inputs = {qstar.target_file("//:app")},
-  outputs = {qstar.output("generated/app.bin", {group = "packages"})},
+qstar.transform "package_blob" {
+  input = qstar.target_file("//:app"),
+  output = qstar.output("generated/app.bin", {group = "packages"}),
   command = qstar.cli {"tools/package-object", qstar.input(0), qstar.output(0)},
 }
 ```
@@ -17,13 +17,11 @@ qstar.custom_target "package_blob" {
 ## 전체 예제
 
 ```lua
-qstar.custom_target "package_blob" {
-  inputs = {qstar.target_file("//:app")},
-  outputs = {
-    qstar.output("generated/app.bin", {
-      group = "packages",
-    }),
-  },
+qstar.transform "package_blob" {
+  input = qstar.target_file("//:app"),
+  output = qstar.output("generated/app.bin", {
+    group = "packages",
+  }),
   command = qstar.cli {
     "tools/package-object",
     qstar.input(0),
@@ -61,3 +59,4 @@ qstar --file qstar.lua replay //:package_blob:generate:0
 - `failure_kind=custom-tool-failure`
 - `external-tool-changed`
 - `generated output must be under generated_dir`
+- `unknown transform field`

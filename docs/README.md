@@ -14,11 +14,14 @@ Current DSL surface:
 - `qstar.config`
 - artifact targets: `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`,
   `qstar.test`
-- generated actions: `qstar.custom_target`, `qstar.configure_file`
+- generated actions: `qstar.custom_target`, `qstar.transform`,
+  `qstar.configure_file`
 - utility rules: `qstar.run_target`, `qstar.group`, `qstar.stage`
 - imports: `qstar.import_file`, `qstar.import_module`, `qstar.subdir`
+- root project commands: `qstar.command`, `qstar.step.*`, `qstar.param.*`,
+  `qstar.param`, `qstar.arg_if`, `qstar.args_if`
 - command helpers: `qstar.cli`, `qstar.status`, `qstar.input`, `qstar.output`,
-  `qstar.target_file`, `qstar.stage_file`
+  `qstar.target_file`, `qstar.stage_dir`, `qstar.stage_file`
 - authoring helpers: `qstar.files`, `qstar.join`, `qstar.copy`, `qstar.append`,
   `qstar.merge`, `qstar.extend`
 
@@ -61,11 +64,16 @@ Important documents:
   real rustc staticlib consumer path, and executable support boundary.
 - `init-glp-scaffold.md`: Korean reference for the generic `qstar init` shape
   model, provider vendoring, and provider-defined scaffold metadata.
-- `generic-command-artifact-workflow.md`: Korean design contract for future
+- `generic-command-artifact-workflow.md`: Korean design contract and seal for
   root-only project commands, `run_target.inputs`, stage-as-input layout,
-  generated artifact consumption, typed command options, bool argument helpers,
-  module import cache/reuse, and explicit layout export without domain-specific
-  syntax.
+  generated artifact consumption, `qstar.transform`, typed command options,
+  bool argument helpers, module import cache/reuse, and explicit layout export
+  without domain-specific syntax.
+- `../wiki/reference/generic-workflows.md`: user-facing reference for the
+  command/artifact/stage workflow surface.
+- `../tests/projects/generic-command-artifact-workflow`: Stella/Ninja fixture
+  that exercises transform -> stage -> run inputs -> project command
+  `export_stage`.
 - `../tests/corpus/real-glp/README.md`: optional real Rust/Zig compiler corpus
   for GLP provider validation beyond fake compiler shims.
 - `real-glp-compiler-ci.md`: hosted Linux/macOS `workflow_dispatch` lane for

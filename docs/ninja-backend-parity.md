@@ -14,6 +14,7 @@ The Ninja backend lowers:
 - `qstar.test` build plus `qstar test -G ninja`
 - `qstar.configure_file`
 - `qstar.custom_target`
+- `qstar.transform`
 - `qstar.run_target` wrapper actions
 - `qstar.group` phony aliases
 - `qstar.sharedlib` for macOS, Linux, and Windows platform contexts
@@ -40,6 +41,11 @@ effective generator is `ninja`, QStar first builds referenced target artifacts
 through Ninja and then performs copy, diff, manifest, and install layout work
 itself. This keeps package/stage semantics in one implementation while still
 letting Ninja produce the artifacts.
+
+Root project commands also use the effective generator for build-producing
+steps. A command can build a generated artifact, materialize a stage, run a
+generic check with `qstar.stage_dir(...)` inputs, and export the layout with
+`qstar.step.export_stage` without falling back to shell scripts.
 
 ## Deferred Surface
 
@@ -70,7 +76,9 @@ make qstar-generic-dsl-backend-parity-tests
 The gate checks staticlib, sharedlib, sharedlib-linked executable/test,
 generated actions, configure file, run target expect handling, sharedlib
 stage/install producer integration, object artifact bridge parity through
-`tests/projects/object-artifact-bridge`, action-log and replay compatibility,
+`tests/projects/object-artifact-bridge`, generic command/artifact workflow
+parity through `tests/projects/generic-command-artifact-workflow`, action-log
+and replay compatibility,
 Windows sharedlib multi-output lowering and import-library consumer links,
 explicit Windows static `.lib` lowering in the Windows prep corpus, and that
 `.ninja_log` / `.ninja_deps` stay under the QStar build directory rather than
@@ -82,4 +90,5 @@ Manual corpus commands:
 ./build/bin/qstar -G ninja --file tests/corpus/c-app/qstar.lua build //:app
 ./build/bin/qstar -G ninja --file tests/corpus/generated/qstar.lua build //:all
 ./build/bin/qstar -G ninja --file tests/projects/object-artifact-bridge/qstar.lua build //:all
+./build/bin/qstar -G ninja --file tests/projects/generic-command-artifact-workflow/qstar.lua workflow --out exports/ninja
 ```

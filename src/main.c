@@ -123,6 +123,7 @@ command_help(FILE *out, const char *cmd)
 		fputs("Print local QStar documentation entrypoints for users and AI agents.\n", out);
 		fputs("--path prints the wiki root; --ai-index prints AI_INDEX.md; --show prints a document.\n", out);
 		fputs("Language provider docs cover bundled standard providers such as zig and project-local providers.\n", out);
+		fputs("Generic workflow docs cover qstar.transform, run_target.inputs, qstar.command, and explicit layout export.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "init") == 0) {
@@ -174,7 +175,7 @@ command_help(FILE *out, const char *cmd)
 	}
 	if (strcmp(cmd, "commands") == 0) {
 		fputs("usage: qstar [options] commands [--format text|json]\n", out);
-		fputs("List root qstar.command project commands.\n", out);
+		fputs("List root qstar.command project commands made of generic qstar.step.* operations.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "check") == 0) {
@@ -184,7 +185,8 @@ command_help(FILE *out, const char *cmd)
 	}
 	if (strcmp(cmd, "install") == 0) {
 		fputs("usage: qstar [options] install [label] --prefix path [--dry-run]\n", out);
-		fputs("Install executable/staticlib/sharedlib/header artifacts into a prefix.\n", out);
+		fputs("Compatibility command for conventional executable/staticlib/sharedlib/header artifact installation.\n", out);
+		fputs("For explicit project layout export, declare qstar.command with qstar.step.export_stage.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "last-failure") == 0) {

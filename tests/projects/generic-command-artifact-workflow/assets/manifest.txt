@@ -1,0 +1,2 @@
+workflow-manifest-v1
+expected=PAYLOAD:alpha

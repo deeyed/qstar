@@ -225,6 +225,7 @@ qstar docs
 qstar docs --path
 qstar docs --ai-index
 qstar docs --show reference/qstar-lua.md
+qstar docs --show reference/generic-workflows.md
 
 qstar init app hello
 qstar check //...

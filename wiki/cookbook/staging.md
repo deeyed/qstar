@@ -49,11 +49,18 @@ Stage root와 destination은 package-relative여야 한다.
 같은 stage 안에서 `bin`과 `bin/app`처럼 하나가 다른 하나의 parent directory처럼 보이는
 destination도 layout conflict로 거절된다.
 
+Stage layout을 다른 action이나 project command가 소비해야 하면 `qstar.stage_dir("//:bundle")`를
+`run_target.inputs`나 `qstar.step.run.inputs`에 선언하고, command argv에서는
+`qstar.input(N)`으로 참조한다. 사람이 직접 실행하는 layout export는 built-in `install`을
+덮어쓰지 말고 root `qstar.command` 안에서 `qstar.step.export_stage("//:bundle", { to = ... })`로
+표현한다.
+
 ## 관련 CLI
 
 ```sh
 qstar --file qstar.lua stage //:bundle --dry-run
 qstar --file qstar.lua stage //:bundle
+qstar --file qstar.lua workflow-export --out exports/bundle
 qstar --file qstar.lua last-failure
 ```
 
@@ -63,3 +70,4 @@ qstar --file qstar.lua last-failure
 - `stage destination is duplicated`
 - `stage destination layout conflict`
 - `failure_kind=package-failure`
+- `project command name 'install' is reserved`

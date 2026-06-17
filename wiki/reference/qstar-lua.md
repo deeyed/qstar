@@ -230,6 +230,8 @@ stdout/stderr와 선택적 package-relative file에서 문자열을 찾는다.
 Command name과 alias는 `build`, `test`, `stage`, `commands`, `init`, `docs`, `daemon`,
 `check`, `lint`, `query`, `explain`, `action-log`, `replay` 같은 built-in CLI 이름과 충돌할
 수 없다.
+Artifact transform, stage layout input, run target, project command, explicit layout
+export를 함께 쓰는 정본 흐름은 [Generic Workflows](generic-workflows.md)에 둔다.
 
 ## Builtin authoring helpers
 

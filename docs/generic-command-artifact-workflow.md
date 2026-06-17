@@ -1,6 +1,6 @@
 # Generic Command And Artifact Workflow
 
-이 문서는 QStar가 추가로 가져가야 할 generic workflow surface를 정리한다. 목적은 특정
+이 문서는 QStar의 generic workflow surface를 정리하고 drift guard 기준으로 봉인한다. 목적은 특정
 언어, 특정 운영체제, 특정 toolchain, 특정 emulator, 특정 package format을 QStar 문법에
 넣지 않고도 복잡한 project workflow를 표현하는 것이다.
 
@@ -25,11 +25,10 @@ artifact 생성
 -> 사람이 치기 쉬운 project command
 ```
 
-현재 QStar는 `qstar.custom_target`, `qstar.stage`, `qstar.run_target`을 이미 가지고 있다.
-하지만 run action이 사용할 artifact input, stage layout을 다른 action이 소비하는 방식,
-project-local command alias, helper module 재사용이 아직 완전히 닫혀 있지 않다.
+QStar는 `qstar.custom_target`, `qstar.transform`, `qstar.stage`, `qstar.run_target`,
+`qstar.command`, typed command option, module import cache를 함께 제공한다.
 
-이 문서는 그 빈 부분을 generic하게 봉합하는 목표 문법이다.
+이 문서는 그 표면을 generic하게 사용하는 정본 문법이다.
 
 ## 1. `qstar.run_target.inputs`
 
@@ -87,16 +86,14 @@ generated artifact나 stage layout을 smoke command가 읽는 경우 canonical s
 
 ## 2. Generated Artifact Consumption
 
-Generic artifact transform은 계속 `qstar.custom_target`으로 표현한다.
+Generic artifact transform은 단일 input/output이면 `qstar.transform`으로 표현한다.
+복수 input/output이나 더 복잡한 generator는 underlying primitive인 `qstar.custom_target`을
+사용한다.
 
 ```lua
-qstar.custom_target "package_blob" {
-  inputs = {
-    qstar.target_file("//:app"),
-  },
-  outputs = {
-    qstar.output("build/qstar/generated/package/blob.bin"),
-  },
+qstar.transform "package_blob" {
+  input = qstar.target_file("//:app"),
+  output = qstar.output("build/qstar/generated/package/blob.bin"),
   command = qstar.cli {
     "tools/package-object",
     qstar.input(0),
@@ -105,8 +102,7 @@ qstar.custom_target "package_blob" {
 }
 ```
 
-새로 필요한 것은 transform primitive 자체가 아니라, 이 output을 모든 workflow surface가
-같은 방식으로 소비하는 것이다.
+핵심은 이 output을 모든 workflow surface가 같은 방식으로 소비하는 것이다.
 
 Required behavior:
 
@@ -220,7 +216,7 @@ top-level command를 추가하면 project CLI가 fragment evaluation order에 �
 - It must not start with `-`, `:`, `/`, or `@`.
 - It must not contain path separators.
 - It cannot collide with another command or alias.
-- It cannot override reserved core commands unless a future compatibility rule explicitly demotes
+- It cannot override reserved core commands unless a compatibility rule explicitly demotes
   that core command into project-command dispatch.
 
 Reserved names initially include:
@@ -504,17 +500,13 @@ Diagnostics should mention the declaring file and line whenever possible.
 | Can `explain`, `dry-run`, `action-log`, and `replay` work without domain knowledge? | Yes |
 | Can downstream projects keep marker/policy/result logic outside QStar? | Yes |
 
-## 12. Implementation Order
+## 12. Seal Status
 
-권장 순서는 다음이다.
+이 workflow surface는 다음 gate로 봉인한다.
 
-1. `run_target.inputs` and `qstar.input(N)` resolution for run actions.
-2. Generated/custom target producer discovery for run inputs and command steps.
-3. `qstar.stage_dir(label)` and stage-as-consumable layout.
-4. `qstar.command`, command listing, command invocation, reserved-name diagnostics.
-5. Command `options`, bool flag parsing, `when`, `qstar.arg_if`, and `qstar.args_if`.
-6. `qstar.step.run` parity with `run_target`.
-7. `qstar.import_module` cache/reuse and circular import diagnostics.
-8. `qstar.transform`.
-9. Explicit layout export command design.
-10. Docs/wiki/help/man/smoke/drift guards.
+1. `tests/smoke.sh`는 문법, diagnostic, action-log/replay, docs/wiki/man/snippet drift를 확인한다.
+2. `tests/projects/generic-command-artifact-workflow`는 transform, stage input, run input,
+   project command option, bool argv helper, explicit layout export를 하나의 fixture로 묶는다.
+3. `tests/ninja-backend-parity.sh`는 같은 fixture를 Stella와 Ninja 양쪽에서 실행해 producer
+   edge가 backend별로 갈라지지 않는지 확인한다.
+4. `make check`와 GitHub Actions Linux Validation은 이 seal을 기본 회귀 경로에 포함한다.
