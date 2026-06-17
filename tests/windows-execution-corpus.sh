@@ -6,6 +6,7 @@ baseline=${QSTAR_WINDOWS_EXECUTION_BASELINE:-msys2-ucrt64-gcc}
 tmp=${TMPDIR:-/tmp}/qstar-windows-execution.$$
 corpus=tests/corpus/windows-execution
 build_dir=build/qstar
+artifact_dir=${QSTAR_WINDOWS_EXECUTION_ARTIFACT_DIR:-}
 
 fail() {
 	printf 'qstar-windows-execution: %s\n' "$1" >&2
@@ -26,11 +27,38 @@ run_artifact() {
 	"$artifact" > "$out" 2>&1
 }
 
+copy_if_exists() {
+	src=$1
+	dst=$2
+	if test -e "$src"; then
+		rm -rf "$dst"
+		mkdir -p "$(dirname "$dst")"
+		cp -R "$src" "$dst"
+	fi
+}
+
+collect_failure_artifacts() {
+	rc=$1
+	if test "$rc" -eq 0 || test -z "$artifact_dir"; then
+		return 0
+	fi
+	mkdir -p "$artifact_dir/tmp" "$artifact_dir/corpus"
+	printf 'status=fail script=windows-execution-corpus rc=%s tmp=%s\n' "$rc" "$tmp" \
+		> "$artifact_dir/failure.status"
+	if test -d "$tmp"; then
+		find "$tmp" -maxdepth 1 -type f -exec cp {} "$artifact_dir/tmp/" \;
+	fi
+	copy_if_exists "$corpus/$build_dir" "$artifact_dir/corpus/$build_dir"
+	copy_if_exists "$corpus/stage" "$artifact_dir/corpus/stage"
+	copy_if_exists "$corpus/.ninja_log" "$artifact_dir/corpus/.ninja_log"
+	copy_if_exists "$corpus/.ninja_deps" "$artifact_dir/corpus/.ninja_deps"
+}
+
 rm -rf "$tmp"
 mkdir -p "$tmp"
 rm -rf "$corpus/build" "$corpus/stage"
 rm -f "$corpus/.ninja_log" "$corpus/.ninja_deps"
-trap 'rm -rf "$tmp"; rm -rf "$corpus/build" "$corpus/stage"; rm -f "$corpus/.ninja_log" "$corpus/.ninja_deps"' EXIT HUP INT TERM
+trap 'rc=$?; trap - EXIT HUP INT TERM; collect_failure_artifacts "$rc"; rm -rf "$tmp"; rm -rf "$corpus/build" "$corpus/stage"; rm -f "$corpus/.ninja_log" "$corpus/.ninja_deps"; exit "$rc"' EXIT HUP INT TERM
 
 host=$(uname -s 2>/dev/null || printf unknown)
 case "$host" in

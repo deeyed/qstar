@@ -4,6 +4,7 @@ set -eu
 qstar=${QSTAR_TEST_QSTAR:-build/bin/qstar}
 tmp=${TMPDIR:-/tmp}/qstar-windows-native-alpha.$$
 corpus=tests/corpus/response-files
+artifact_dir=${QSTAR_WINDOWS_NATIVE_ALPHA_ARTIFACT_DIR:-}
 
 fail() {
 	printf 'qstar-windows-native-alpha: %s\n' "$1" >&2
@@ -15,6 +16,33 @@ contains() {
 	pattern=$2
 	grep -F -q -- "$pattern" "$file" ||
 		fail "missing pattern '$pattern' in $file"
+}
+
+copy_if_exists() {
+	src=$1
+	dst=$2
+	if test -e "$src"; then
+		rm -rf "$dst"
+		mkdir -p "$(dirname "$dst")"
+		cp -R "$src" "$dst"
+	fi
+}
+
+collect_failure_artifacts() {
+	rc=$1
+	if test "$rc" -eq 0 || test -z "$artifact_dir"; then
+		return 0
+	fi
+	mkdir -p "$artifact_dir/tmp" "$artifact_dir/corpus"
+	printf 'status=fail script=windows-native-alpha rc=%s tmp=%s\n' "$rc" "$tmp" \
+		> "$artifact_dir/failure.status"
+	if test -d "$tmp"; then
+		find "$tmp" -maxdepth 1 -type f -exec cp {} "$artifact_dir/tmp/" \;
+	fi
+	copy_if_exists "$corpus/build" "$artifact_dir/corpus/build"
+	copy_if_exists "$corpus/stage" "$artifact_dir/corpus/stage"
+	copy_if_exists "$corpus/.ninja_log" "$artifact_dir/corpus/.ninja_log"
+	copy_if_exists "$corpus/.ninja_deps" "$artifact_dir/corpus/.ninja_deps"
 }
 
 host=$(uname -s 2>/dev/null || printf unknown)
@@ -29,7 +57,7 @@ esac
 
 rm -rf "$tmp"
 mkdir -p "$tmp"
-trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+trap 'rc=$?; trap - EXIT HUP INT TERM; collect_failure_artifacts "$rc"; rm -rf "$tmp"; exit "$rc"' EXIT HUP INT TERM
 
 printf 'qstar-windows-native-alpha: host=%s mode=%s\n' "$host" "$mode"
 printf 'qstar-windows-native-alpha: baseline=msys2-ucrt64-gcc\n'

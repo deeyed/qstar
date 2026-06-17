@@ -180,7 +180,11 @@ QStar가 하지 않는 일:
   줄인다. Q179 hosted run `https://github.com/deeyed/qstar/actions/runs/27527243941`은
   `make all`, `qstar --version`, native alpha smoke를 통과했고 Windows execution corpus에서
   멈췄다. 다음 Windows 작업은 execution corpus failure dump 개선과 CreateProcess 기반
-  Stella/Ninja launcher 구현이다.
+  Stella/Ninja launcher 구현이다. Q218부터 실패한 `windows-native-alpha`와
+  `windows-execution` script는 `native-alpha-detail/` 또는 `windows-execution-detail/`
+  아래에 inner temp `.out`/`.err`, corpus `build/qstar`, response files, generated files,
+  replay/action-log, Ninja files를 복사한다. 다음 Windows 구현 라운드는 Actions console log보다
+  이 detail bundle을 먼저 본다.
   Q164부터 `src/daemon.c`는 Windows stub을 제공해 Unix socket include 실패를 피하고,
   Windows host에서 `qstar daemon`/`--use-daemon=always`는 named pipe 구현 전까지 deferred
   diagnostic으로 처리한다.

@@ -41,6 +41,16 @@ still deferred until the CreateProcess runner lands. The same round also adds
 small `qstar_platform_mkdir` and `qstar_platform_lstat` helpers so the Windows
 bootstrap does not stop at POSIX `mkdir(path, mode)` and `lstat` signatures.
 
+Round Q218 refreshes the manual alpha artifact contract before the
+CreateProcess rounds. The workflow still records top-level step logs and
+`status/*.status`, but `tests/windows-native-alpha.sh` and
+`tests/windows-execution-corpus.sh` now also copy their inner temporary
+`.out`/`.err` files and corpus build trees into script-specific detail
+directories when they fail. This is intentionally failure-only so successful
+runs stay compact while failed runs preserve the exact QStar diagnostics,
+generated build files, response files, action logs, replay files, Ninja files,
+and corpus outputs needed by the next Windows implementation round.
+
 The first Q172 hosted run was
 `https://github.com/deeyed/qstar/actions/runs/27508325529`. It reached the
 baseline Makefile bootstrap and failed in `src/executor.c` because MSYS2 UCRT64
@@ -54,9 +64,10 @@ The Q179 hosted run was
 Makefile bootstrap, `qstar --version`, and `make qstar-windows-native-alpha-tests
 CC=gcc`. It then failed at `make qstar-windows-execution-corpus-tests CC=gcc`,
 which is the expected next alpha boundary until Stella and the Ninja launcher
-gain a real CreateProcess runner. The execution corpus artifact currently records
-the failing step but not the inner temporary stderr files, so the next Windows
-execution round should also improve failure dumps for that script.
+gain a real CreateProcess runner. Q218 addresses the artifact visibility gap for
+that failure class: a future execution-corpus failure should include
+`windows-execution-detail/` with the inner temp outputs and the
+`tests/corpus/windows-execution/build/qstar` tree.
 
 ## Toolchain Choice
 
@@ -137,6 +148,15 @@ version.log
 native-alpha.log
 windows-prep.log
 install.log
+native-alpha-detail/failure.status
+native-alpha-detail/tmp/*.out
+native-alpha-detail/tmp/*.err
+native-alpha-detail/corpus/build/...
+windows-execution-detail/failure.status
+windows-execution-detail/tmp/*.out
+windows-execution-detail/tmp/*.err
+windows-execution-detail/corpus/build/qstar/...
+windows-execution-detail/corpus/stage/...
 SUMMARY.md
 KNOWN_ISSUES.md
 windows-alpha-status.txt
@@ -154,7 +174,13 @@ If a step fails, its status file is written before the step exits non-zero. The
 final `SUMMARY.md` and `KNOWN_ISSUES.md` steps run with `if: always()` so the
 artifact should still contain a machine-readable failure class. Missing status
 files mean the corresponding step was not reached, usually because an earlier
-baseline step failed.
+baseline step failed. The `native-alpha-detail/` and
+`windows-execution-detail/` directories are created only when the corresponding
+script fails. The `tmp/` subdirectory preserves the script's captured
+`.out`/`.err` files. The `corpus/` subdirectory preserves generated build
+artifacts such as response files, `compile_commands.json`, `ninja/build.ninja`,
+`logs/last-failure.replay`, action logs, generated object bridge outputs, and
+any stage tree that existed before the failure.
 
 ## Local Contract Smoke
 
@@ -208,6 +234,31 @@ and the raw log is:
 windows-execution.log
 ```
 
+When the corpus fails under the hosted Windows workflow, the detail bundle is:
+
+```txt
+windows-execution-detail/
+  failure.status
+  tmp/
+    check.out
+    check.err
+    bridge-dry.out
+    bridge-dry.err
+    ...
+  corpus/
+    build/qstar/
+      compile_commands.json
+      generated/
+      logs/
+      ninja/
+      out/
+      rsp/
+    stage/
+```
+
+The next CreateProcess runner round should start from this detail bundle rather
+than from the full Actions console log.
+
 The corpus deliberately uses `.exe` executable artifact names and a GCC-friendly
 static archive name, `libwinexec_core.a`. Windows `.lib`, runtime `.dll`, import
 library, and PDB/debug behavior remain in the artifact policy track until the
@@ -231,8 +282,11 @@ Current known gaps:
 - Windows filesystem helpers are now split enough for local `_WIN32` object
   compile checks and the Q179 hosted run reached past the previous
   `mkdir`/`lstat` compile failures.
-- `tests/windows-execution-corpus.sh` should dump the failing inner `.out`/`.err`
-  files into the uploaded artifact before deeper Windows execution work.
+- Q218 adds failure-only detail directories for `tests/windows-native-alpha.sh`
+  and `tests/windows-execution-corpus.sh`. If a future Windows alpha failure does
+  not include `native-alpha-detail/` or `windows-execution-detail/` for the
+  failing script, treat that as an artifact-contract regression before deeper
+  Windows execution work.
 - Q172 has not promoted Windows to official support. It only makes
   `msys2-ucrt64-gcc` the baseline lane and ensures failed runs leave structured
   status and known-issue artifacts.

@@ -20,6 +20,8 @@ jobs:
     env:
       QSTAR_WINDOWS_ALPHA_DIR: dist/windows-alpha
       QSTAR_WINDOWS_ALPHA_STATUS_DIR: dist/windows-alpha/status
+      QSTAR_WINDOWS_NATIVE_ALPHA_ARTIFACT_DIR: dist/windows-alpha/native-alpha-detail
+      QSTAR_WINDOWS_EXECUTION_ARTIFACT_DIR: dist/windows-alpha/windows-execution-detail
       QSTAR_WINDOWS_ALPHA_BASELINE: msys2-ucrt64-gcc
     steps:
       - name: Checkout
@@ -108,7 +110,7 @@ jobs:
           if test "$rc" -eq 0; then
             printf 'status=ok step=native-alpha cc=gcc\n' > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/native-alpha.status"
           else
-            printf 'status=fail step=native-alpha cc=gcc rc=%s log=native-alpha.log\n' "$rc" \
+            printf 'status=fail step=native-alpha cc=gcc rc=%s log=native-alpha.log detail=native-alpha-detail\n' "$rc" \
               > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/native-alpha.status"
           fi
           exit "$rc"
@@ -126,7 +128,7 @@ jobs:
             printf 'status=ok step=windows-execution cc=gcc corpus=windows-execution\n' \
               > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/windows-execution.status"
           else
-            printf 'status=fail step=windows-execution cc=gcc rc=%s log=windows-execution.log\n' "$rc" \
+            printf 'status=fail step=windows-execution cc=gcc rc=%s log=windows-execution.log detail=windows-execution-detail\n' "$rc" \
               > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/windows-execution.status"
           fi
           exit "$rc"
@@ -217,6 +219,8 @@ jobs:
             printf '%s\n' "- baseline: \`$QSTAR_WINDOWS_ALPHA_BASELINE\`"
             printf '%s\n' "- run: \`$GITHUB_RUN_ID\`"
             printf '%s\n' "- daemon named pipe: deferred"
+            printf '%s\n' "- native alpha detail dir: \`native-alpha-detail/\` when that script fails"
+            printf '%s\n' "- windows execution detail dir: \`windows-execution-detail/\` when that script fails"
             if grep -q 'status=fail' "$status_line"; then
               printf '\n## Observed Failures\n\n'
               grep 'status=fail' "$status_line" | while IFS= read -r line; do
@@ -242,6 +246,7 @@ jobs:
             printf '%s\n' '- status: see step result and logs in this artifact'
             printf '%s\n' '- status file: `windows-alpha-status.txt`'
             printf '%s\n' '- known issues file: `KNOWN_ISSUES.md`'
+            printf '%s\n' '- failure detail dirs: `native-alpha-detail/`, `windows-execution-detail/` when present'
             printf '%s\n' '- support level: manual alpha validation, not official Windows support'
           } > "$QSTAR_WINDOWS_ALPHA_DIR/SUMMARY.md"
 
