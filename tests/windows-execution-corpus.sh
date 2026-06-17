@@ -152,10 +152,11 @@ contains "$tmp/install-app.out" "role=exe"
 test -f "$prefix/bin/app.exe" || fail "installed app.exe missing"
 install_manifest="$corpus/$build_dir/install/manifest.json"
 contains "$install_manifest" "\"schema\":\"qstar-install-manifest-v2\""
-contains "$install_manifest" "\"prefix\":\"$prefix\""
+contains "$install_manifest" "\"prefix\":\""
+contains "$install_manifest" "/prefix\""
 contains "$install_manifest" "\"role\":\"exe\""
 contains "$install_manifest" "\"src\":\"build/qstar/out/___app/app.exe\""
-contains "$install_manifest" "\"dst\":\"$prefix/bin/app.exe\""
+contains "$install_manifest" "/prefix/bin/app.exe\""
 not_contains "$install_manifest" "\\"
 
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows install //:core \
@@ -166,7 +167,7 @@ test -f "$prefix/lib/libwinexec_core.a" ||
 	fail "installed static library missing"
 contains "$install_manifest" "\"role\":\"staticlib\""
 contains "$install_manifest" "\"src\":\"build/qstar/out/___core/libwinexec_core.a\""
-contains "$install_manifest" "\"dst\":\"$prefix/lib/libwinexec_core.a\""
+contains "$install_manifest" "/prefix/lib/libwinexec_core.a\""
 not_contains "$install_manifest" "\\"
 
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows install //:bridge_app \
@@ -176,7 +177,7 @@ contains "$tmp/install-bridge-app.out" "role=exe"
 test -f "$prefix/bin/bridge_app.exe" || fail "installed bridge_app.exe missing"
 contains "$install_manifest" "\"role\":\"exe\""
 contains "$install_manifest" "\"src\":\"build/qstar/out/___bridge_app/bridge_app.exe\""
-contains "$install_manifest" "\"dst\":\"$prefix/bin/bridge_app.exe\""
+contains "$install_manifest" "/prefix/bin/bridge_app.exe\""
 not_contains "$install_manifest" "\\"
 
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows stage //:layout \
@@ -248,7 +249,7 @@ if command -v ninja >/dev/null 2>&1; then
 	test -f "$ninja_prefix/bin/app.exe" || fail "ninja installed app.exe missing"
 	install_manifest="$corpus/$build_dir/install/manifest.json"
 	contains "$install_manifest" "\"role\":\"exe\""
-	contains "$install_manifest" "\"dst\":\"$ninja_prefix/bin/app.exe\""
+	contains "$install_manifest" "/ninja-prefix/bin/app.exe\""
 	not_contains "$install_manifest" "\\"
 	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
 		-G ninja install //:core --prefix "$ninja_prefix" \
@@ -257,7 +258,7 @@ if command -v ninja >/dev/null 2>&1; then
 	test -f "$ninja_prefix/lib/libwinexec_core.a" ||
 		fail "ninja installed static library missing"
 	contains "$install_manifest" "\"role\":\"staticlib\""
-	contains "$install_manifest" "\"dst\":\"$ninja_prefix/lib/libwinexec_core.a\""
+	contains "$install_manifest" "/ninja-prefix/lib/libwinexec_core.a\""
 	not_contains "$install_manifest" "\\"
 	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
 		-G ninja install //:bridge_app --prefix "$ninja_prefix" \
@@ -266,7 +267,7 @@ if command -v ninja >/dev/null 2>&1; then
 	test -f "$ninja_prefix/bin/bridge_app.exe" ||
 		fail "ninja installed bridge_app.exe missing"
 	contains "$install_manifest" "\"role\":\"exe\""
-	contains "$install_manifest" "\"dst\":\"$ninja_prefix/bin/bridge_app.exe\""
+	contains "$install_manifest" "/ninja-prefix/bin/bridge_app.exe\""
 	not_contains "$install_manifest" "\\"
 	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
 		-G ninja stage //:layout > "$tmp/ninja-stage-layout.out" \

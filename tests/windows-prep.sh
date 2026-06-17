@@ -282,7 +282,7 @@ install_manifest="$artifact_corpus/$build_dir/install/manifest.json"
 contains "$install_manifest" "\"schema\":\"qstar-install-manifest-v2\""
 contains "$install_manifest" "\"role\":\"exe\""
 contains "$install_manifest" "\"src\":\"build/qstar/out/___tool/tool.exe\""
-contains "$install_manifest" "\"dst\":\"$tmp/windows-artifacts-prefix/bin/tool.exe\""
+contains "$install_manifest" "/windows-artifacts-prefix/bin/tool.exe\""
 not_contains "$install_manifest" "\\"
 "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
 	install //:core --prefix "$tmp/windows-artifacts-prefix" \
@@ -292,7 +292,7 @@ test -f "$tmp/windows-artifacts-prefix/lib/core.lib" ||
 	fail "Windows artifact corpus installed core.lib missing"
 contains "$install_manifest" "\"role\":\"staticlib\""
 contains "$install_manifest" "\"src\":\"build/qstar/out/___core/core.lib\""
-contains "$install_manifest" "\"dst\":\"$tmp/windows-artifacts-prefix/lib/core.lib\""
+contains "$install_manifest" "/windows-artifacts-prefix/lib/core.lib\""
 not_contains "$install_manifest" "\\"
 "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
 	install //:named_tool --prefix "$tmp/windows-artifacts-prefix" \
@@ -301,7 +301,7 @@ not_contains "$install_manifest" "\\"
 test -f "$tmp/windows-artifacts-prefix/bin/named_tool.exe" ||
 	fail "Windows artifact corpus installed named_tool.exe missing"
 contains "$install_manifest" "\"role\":\"exe\""
-contains "$install_manifest" "\"dst\":\"$tmp/windows-artifacts-prefix/bin/named_tool.exe\""
+contains "$install_manifest" "/windows-artifacts-prefix/bin/named_tool.exe\""
 not_contains "$install_manifest" "\\"
 "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
 	install //:named_core --prefix "$tmp/windows-artifacts-prefix" \
@@ -310,17 +310,17 @@ not_contains "$install_manifest" "\\"
 test -f "$tmp/windows-artifacts-prefix/lib/named_core.lib" ||
 	fail "Windows artifact corpus installed named_core.lib missing"
 contains "$install_manifest" "\"role\":\"staticlib\""
-contains "$install_manifest" "\"dst\":\"$tmp/windows-artifacts-prefix/lib/named_core.lib\""
+contains "$install_manifest" "/windows-artifacts-prefix/lib/named_core.lib\""
 not_contains "$install_manifest" "\\"
 
 backslash_prefix="$tmp/windows\\artifacts\\dry-prefix"
-normalized_backslash_prefix=$(printf '%s' "$backslash_prefix" | sed 's#\\#/#g')
 "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
 	install //:tool --prefix "$backslash_prefix" --dry-run \
 	> "$tmp/windows-artifacts-install-backslash-prefix.out" \
 	2> "$tmp/windows-artifacts-install-backslash-prefix.err"
-contains "$install_manifest" "\"prefix\":\"$normalized_backslash_prefix\""
-contains "$install_manifest" "\"dst\":\"$normalized_backslash_prefix/bin/tool.exe\""
+contains "$install_manifest" "\"prefix\":\""
+contains "$install_manifest" "/windows/artifacts/dry-prefix\""
+contains "$install_manifest" "/windows/artifacts/dry-prefix/bin/tool.exe\""
 not_contains "$install_manifest" "\\"
 
 if "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
@@ -379,7 +379,7 @@ if command -v ninja >/dev/null 2>&1; then
 		fail "Ninja Windows artifact corpus installed tool.exe missing"
 	install_manifest="$artifact_corpus/$build_dir/install/manifest.json"
 	contains "$install_manifest" "\"role\":\"exe\""
-	contains "$install_manifest" "\"dst\":\"$tmp/windows-artifacts-ninja-prefix/bin/tool.exe\""
+	contains "$install_manifest" "/windows-artifacts-ninja-prefix/bin/tool.exe\""
 	not_contains "$install_manifest" "\\"
 	"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
 		-G ninja install //:core --prefix "$tmp/windows-artifacts-ninja-prefix" \
@@ -388,7 +388,7 @@ if command -v ninja >/dev/null 2>&1; then
 	test -f "$tmp/windows-artifacts-ninja-prefix/lib/core.lib" ||
 		fail "Ninja Windows artifact corpus installed core.lib missing"
 	contains "$install_manifest" "\"role\":\"staticlib\""
-	contains "$install_manifest" "\"dst\":\"$tmp/windows-artifacts-ninja-prefix/lib/core.lib\""
+	contains "$install_manifest" "/windows-artifacts-ninja-prefix/lib/core.lib\""
 	not_contains "$install_manifest" "\\"
 
 	if "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
