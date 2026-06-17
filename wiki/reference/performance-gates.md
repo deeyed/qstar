@@ -76,31 +76,29 @@ socket bind가 sandbox나 host policy 때문에 불가능하면 daemon phase는
 
 ## 최신 베타 스냅샷
 
-Round Q137 local macOS arm64 대표 측정값:
+Round Q233 local macOS arm64 대표 측정값은
+`docs/perf/q233-backend-daemon-refresh.md`에 보존한다. 이 refresh는 GLP/Windows work 이후
+medium, large, Stella daemon, real Rust/Zig compiler corpus를 다시 분리해서 측정한 값이다.
 
-```txt
-medium_project_gate target_count=47 min_targets=40
-medium_project_gate scheduler host_jobs=10
-medium_project_gate scheduler default_jobs=10 ready_width=40 async_final_actions=40 trace_elapsed_ms=257
-medium_project_gate scheduler runner=posix_spawn event_wait=poll
-medium_project_gate backend=stella phase=clean elapsed_ms=247
-medium_project_gate backend=stella phase=noop elapsed_ms=67
-medium_project_gate backend=stella phase=incremental elapsed_ms=89
-medium_project_gate backend=stella-jobs jobs=10 phase=clean elapsed_ms=237
-medium_project_gate backend=stella-jobs jobs=10 phase=noop elapsed_ms=68
-medium_project_gate backend=stella-jobs jobs=10 phase=incremental elapsed_ms=88
-medium_project_gate staticlib_argv_parity=ok target=//modules/core/cache:module_cache
-medium_project_gate backend=ninja phase=clean elapsed_ms=251
-medium_project_gate backend=ninja phase=noop elapsed_ms=73
-medium_project_gate backend=ninja phase=incremental elapsed_ms=97
-medium_project_gate compare phase=clean stella_ms=247 ninja_ms=251 ratio_x100=200 slack_ms=250
-medium_project_gate compare phase=noop stella_ms=67 ninja_ms=73 ratio_x100=200 slack_ms=250
-medium_project_gate compare phase=incremental stella_ms=89 ninja_ms=97 ratio_x100=200 slack_ms=250
-medium_project_gate compare backend=stella-jobs phase=clean stella_ms=237 ninja_ms=251 ratio_x100=200 slack_ms=250
-medium_project_gate compare backend=stella-jobs phase=noop stella_ms=68 ninja_ms=73 ratio_x100=200 slack_ms=250
-medium_project_gate compare backend=stella-jobs phase=incremental stella_ms=88 ninja_ms=97 ratio_x100=200 slack_ms=250
-medium_project_gate status=ok perf_issue_count=0 report_only=1
-```
+Medium corpus, socket-permitting daemon run:
+
+| Backend | Clean | No-op | Incremental | Ninja ratio clean/no-op/incremental |
+| --- | ---: | ---: | ---: | --- |
+| Stella | 244ms | 68ms | 96ms | 0.96x / 0.92x / 0.83x |
+| Stella daemon | 289ms | 68ms | 88ms | 1.14x / 0.92x / 0.76x |
+| Stella explicit jobs | 246ms | 68ms | 89ms | 0.97x / 0.92x / 0.77x |
+| Ninja | 254ms | 74ms | 116ms | baseline |
+
+Large corpus:
+
+| Mode | Backend | Clean | No-op | Incremental | Ninja ratio clean/no-op/incremental |
+| --- | --- | ---: | ---: | ---: | --- |
+| 200 | Stella | 1094ms | 75ms | 134ms | 0.81x / 0.71x / 0.80x |
+| 200 | Stella daemon | 1179ms | 102ms | 126ms | 0.88x / 0.97x / 0.75x |
+| 200 | Ninja | 1344ms | 105ms | 167ms | baseline |
+| 500 | Stella | 2412ms | 105ms | 140ms | 0.88x / 0.67x / 0.66x |
+| 500 | Stella daemon | 2614ms | 107ms | 151ms | 0.96x / 0.69x / 0.72x |
+| 500 | Ninja | 2737ms | 156ms | 211ms | baseline |
 
 Old/new comparison:
 
@@ -109,6 +107,8 @@ Old/new comparison:
 | Q132 representative | 991ms | 79ms | 100ms | 276ms | 89ms | 107ms |
 | Q137 default Stella | 247ms | 67ms | 89ms | 251ms | 73ms | 97ms |
 | Q137 explicit jobs | 237ms | 68ms | 88ms | 251ms | 73ms | 97ms |
+| Q233 medium Stella | 244ms | 68ms | 96ms | 254ms | 74ms | 116ms |
+| Q233 medium daemon | 289ms | 68ms | 88ms | 254ms | 74ms | 116ms |
 
 Stella no-op과 incremental은 이 corpus에서 Ninja급 latency를 보인다. Q125는 clean
 build 중 state/deps/action metadata write path를 buffered write로 정리하고, build
@@ -128,15 +128,17 @@ generated action과 run action도 prepared-action scheduler path에 올렸고, Q
 clean build의 metadata write를 더 줄였다.
 
 Q137 대표 측정에서는 Stella clean이 Ninja 대비 2배 이내 목표를 넘어 1.5배 이내에 들어왔다.
+Q233 대표 측정에서는 GLP/Windows work 이후에도 medium normal Stella가 Ninja와 같은 급이고,
+large 200/500 target corpus에서는 normal Stella와 Stella daemon 모두 Ninja보다 빠르게 나왔다.
 하지만 timing은 host CPU, filesystem cache, compiler warm state에 흔들리므로, 이 수치를
 stable 성능 보장으로 선언하지 않는다. Gate는 default jobs, ready queue width,
 async final action count, staticlib argv parity를 hard check하고, timing ratio는 report-only로
 유지한다.
 
-남은 병목은 더 큰 corpus에서의 compiler process count, plan cache/store 비용,
-host별 process runner 편차다. 다음 목표는 medium gate에서 Stella clean을 Ninja 대비
-1.5배 이내에 더 안정적으로 유지하고, 더 큰 synthetic
-corpus에서도 같은 경향이 나오는지 확인하는 것이다.
+남은 병목은 더 큰 corpus에서의 compiler process count, plan cache/store 비용, daemon
+lifecycle/IPC overhead, host별 process runner 편차다. Real Rust/Zig GLP compiler corpus는
+성능 숫자에 섞지 않고 `make qstar-real-glp-compiler-corpus-tests` correctness gate로
+분리한다.
 
 Round Q92 기준 timing threshold는 기본적으로 report-only다. 파일 누락, graph 실패,
 compiler 실패, compile database 누락은 hard fail이고, 시간 초과는 warning으로 기록된다.

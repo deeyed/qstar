@@ -257,6 +257,12 @@ QStar가 하지 않는 일:
   Q166 repeat-3 local snapshot은 `docs/perf/q166-large-performance-refresh.md`에 보관하며,
   normal Stella가 200/500 target large corpus에서 Ninja median과 같은 급 또는 더 빠른
   수치를 보였다는 0.7 readiness 입력으로 쓴다.
+  Q233 post-GLP/Windows freshness snapshot은
+  `docs/perf/q233-backend-daemon-refresh.md`에 둔다. Q233 기준 medium corpus는 Stella
+  `244/68/96ms`, daemon `289/68/88ms`, Ninja `254/74/116ms`였고, large 500 corpus는
+  Stella `2412/105/140ms`, daemon `2614/107/151ms`, Ninja `2737/156/211ms`였다.
+  Real Rust/Zig GLP compiler corpus는 성능 숫자에 섞지 않고 optional correctness gate로
+  분리한다.
   Round Q149 이후 medium/large gate는 socket이 허용되는 host에서 experimental daemon도
   `backend=stella-daemon`으로 측정한다. Daemon은 `clean`, `noop`, `incremental`을 모두
   기록하고, socket bind가 sandbox 정책으로 막히면
