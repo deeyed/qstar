@@ -1464,6 +1464,16 @@ rename_atomic(const char *tmp, const char *dst)
 {
 	if (rename(tmp, dst) == 0)
 		return 0;
+#if defined(_WIN32)
+	if (errno == EACCES || errno == EEXIST) {
+		if (unlink(dst) < 0 && errno != ENOENT) {
+			unlink(tmp);
+			return -1;
+		}
+		if (rename(tmp, dst) == 0)
+			return 0;
+	}
+#endif
 	unlink(tmp);
 	return -1;
 }
