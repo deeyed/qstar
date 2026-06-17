@@ -856,7 +856,7 @@ qstar.project {
 qstar.toolset "warn" {
   tools = {
     c = { compiler = qstar.cli {"tools/warn-cc.sh"} },
-    archive = qstar.cli {"ar"},
+    archive = qstar.cli {"tools/fake-ar.sh"},
     link = qstar.cli {"cc"},
   },
 }
@@ -905,7 +905,25 @@ if [ -n "$dep" ]; then
   printf "%s: %s\n" "$out" "$src" > "$dep"
 fi
 EOF
+cat > "$tmp/diagnostic-stream/tools/fake-ar.sh" <<'EOF'
+#!/bin/sh
+set -eu
+if [ "$#" -lt 2 ]; then
+  exit 2
+fi
+shift
+out=$1
+shift
+mkdir -p "$(dirname "$out")"
+{
+  printf 'fake archive\n'
+  for input in "$@"; do
+    printf '%s\n' "$input"
+  done
+} > "$out"
+EOF
 chmod +x "$tmp/diagnostic-stream/tools/warn-cc.sh"
+chmod +x "$tmp/diagnostic-stream/tools/fake-ar.sh"
 "$qstar" --file "$tmp/diagnostic-stream/qstar.lua" build //:core --progress plain --color never > "$tmp/diagnostic-stream.out" 2> "$tmp/diagnostic-stream.err"
 contains "$tmp/diagnostic-stream.out" "[ 50%] Building C object build/qstar/out/___core/obj0.o"
 contains "$tmp/diagnostic-stream.out" "warning: stdout diagnostic for src/core.c"
