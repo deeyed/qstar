@@ -22,6 +22,7 @@ jobs:
       QSTAR_WINDOWS_ALPHA_STATUS_DIR: dist/windows-alpha/status
       QSTAR_WINDOWS_NATIVE_ALPHA_ARTIFACT_DIR: dist/windows-alpha/native-alpha-detail
       QSTAR_WINDOWS_EXECUTION_ARTIFACT_DIR: dist/windows-alpha/windows-execution-detail
+      QSTAR_WINDOWS_PREP_ARTIFACT_DIR: dist/windows-alpha/windows-prep-detail
       QSTAR_WINDOWS_ALPHA_BASELINE: msys2-ucrt64-gcc
     steps:
       - name: Checkout
@@ -145,7 +146,7 @@ jobs:
           if test "$rc" -eq 0; then
             printf 'status=ok step=windows-prep cc=gcc\n' > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/windows-prep.status"
           else
-            printf 'status=fail step=windows-prep cc=gcc rc=%s log=windows-prep.log\n' "$rc" \
+            printf 'status=fail step=windows-prep cc=gcc rc=%s log=windows-prep.log detail=windows-prep-detail\n' "$rc" \
               > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/windows-prep.status"
           fi
           exit "$rc"

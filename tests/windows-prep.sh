@@ -6,6 +6,11 @@ tmp=${TMPDIR:-/tmp}/qstar-windows-prep.$$
 corpus=tests/corpus/response-files
 artifact_corpus=tests/corpus/windows-artifacts
 build_dir=build/qstar
+artifact_dir=${QSTAR_WINDOWS_PREP_ARTIFACT_DIR:-}
+
+if test -z "$artifact_dir" && test -n "${QSTAR_WINDOWS_ALPHA_DIR:-}"; then
+	artifact_dir=$QSTAR_WINDOWS_ALPHA_DIR/windows-prep-detail
+fi
 
 fail() {
 	printf 'qstar-windows-prep: %s\n' "$1" >&2
@@ -27,12 +32,42 @@ not_contains() {
 	fi
 }
 
+finish() {
+	rc=$?
+	set +e
+	if test "$rc" -ne 0 && test -n "$artifact_dir"; then
+		mkdir -p "$artifact_dir/tmp"
+		printf 'status=fail script=windows-prep rc=%s tmp=%s\n' "$rc" "$tmp" \
+			> "$artifact_dir/failure.status"
+		if test -d "$tmp"; then
+			cp -R "$tmp"/. "$artifact_dir/tmp"/
+		fi
+		if test -d "$corpus/$build_dir"; then
+			mkdir -p "$artifact_dir/response-files"
+			cp -R "$corpus/$build_dir" "$artifact_dir/response-files/build-qstar"
+		fi
+		if test -d "$artifact_corpus/$build_dir"; then
+			mkdir -p "$artifact_dir/windows-artifacts"
+			cp -R "$artifact_corpus/$build_dir" \
+				"$artifact_dir/windows-artifacts/build-qstar"
+		fi
+		printf 'qstar-windows-prep: failed rc=%s detail=%s\n' "$rc" \
+			"$artifact_dir" >&2
+	fi
+	rm -rf "$tmp"
+	rm -rf "$corpus/build" "$corpus/stage" "$artifact_corpus/build" \
+		"$artifact_corpus/stage"
+	rm -f "$corpus/.ninja_log" "$corpus/.ninja_deps" \
+		"$artifact_corpus/.ninja_log" "$artifact_corpus/.ninja_deps"
+	exit "$rc"
+}
+
 rm -rf "$tmp"
 mkdir -p "$tmp"
 rm -rf "$corpus/build" "$corpus/stage" "$artifact_corpus/build" "$artifact_corpus/stage"
 rm -f "$corpus/.ninja_log" "$corpus/.ninja_deps"
 rm -f "$artifact_corpus/.ninja_log" "$artifact_corpus/.ninja_deps"
-trap 'rm -rf "$tmp"; rm -rf "$corpus/build" "$corpus/stage" "$artifact_corpus/build" "$artifact_corpus/stage"; rm -f "$corpus/.ninja_log" "$corpus/.ninja_deps" "$artifact_corpus/.ninja_log" "$artifact_corpus/.ninja_deps"' EXIT HUP INT TERM
+trap finish EXIT HUP INT TERM
 
 "$qstar" --file "$corpus/qstar.lua" build //:all \
 	--progress off > "$tmp/build.out" 2> "$tmp/build.err"
