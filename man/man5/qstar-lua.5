@@ -209,6 +209,8 @@ rule. Use it in
 and pass it to argv with
 .Ic qstar.input(N)
 so the stage root is tracked as an action input.
+Stella and Ninja both build the stage producer and use its manifest as the
+dependency marker before running the consuming action.
 .It Ic qstar.stage_file
 Map a source artifact or source file into a
 .Ic qstar.stage

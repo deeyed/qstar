@@ -8649,10 +8649,15 @@ if command -v ninja >/dev/null 2>&1; then
 	contains "$tmp/artifact-dep-smoke-ninja.out" "status ok"
 	test -f "$tmp/artifact-dep/generated/blob.smoke" || fail "ninja run_target deps generated artifact was not materialized"
 	cmp "$tmp/artifact-dep/fixtures/blob.bin" "$tmp/artifact-dep/generated/blob.smoke" >/dev/null || fail "ninja run_target generated dependency content drifted"
-	if "$qstar" --file "$tmp/artifact-dep/qstar.lua" -G ninja build //:stage_smoke --progress off > "$tmp/artifact-dep-stage-ninja.out" 2> "$tmp/artifact-dep-stage-ninja.err"; then
-		fail "ninja stage_dir run input unexpectedly succeeded"
-	fi
-	contains "$tmp/artifact-dep-stage-ninja.err" "ninja backend does not support qstar.stage_dir run_target inputs yet"
+	"$qstar" --file "$tmp/artifact-dep/qstar.lua" -G ninja build //:stage_smoke --progress off > "$tmp/artifact-dep-stage-ninja.out" 2> "$tmp/artifact-dep-stage-ninja.err"
+	contains "$tmp/artifact-dep-stage-ninja.out" "stage_layout label=//:blob_stage root=generated/stage-layout"
+	contains "$tmp/artifact-dep-stage-ninja.out" "run_target_result label=//:stage_smoke status=pass"
+	contains "$tmp/artifact-dep-stage-ninja.out" "backend ninja"
+	contains "$tmp/artifact-dep-stage-ninja.out" "status ok"
+	test -f "$tmp/artifact-dep/generated/stage.smoke" || fail "ninja run_target stage_dir input was not consumed"
+	contains "$tmp/artifact-dep/generated/stage.smoke" "stage-ok"
+	contains "$tmp/artifact-dep/build/qstar/stage/___blob_stage/manifest.json" "\"root\":\"generated/stage-layout\""
+	not_contains "$tmp/artifact-dep/build/qstar/stage/___blob_stage/manifest.json" "\\"
 fi
 
 mkdir -p "$tmp/artifact-unknown"

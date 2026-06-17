@@ -213,6 +213,7 @@ enum qstar_sched_node_kind {
 	QSTAR_SCHED_COMPILE,
 	QSTAR_SCHED_FINAL,
 	QSTAR_SCHED_GENERATE,
+	QSTAR_SCHED_STAGE,
 	QSTAR_SCHED_RUN,
 	QSTAR_SCHED_GROUP
 };
@@ -229,6 +230,7 @@ struct qstar_sched_node {
 	enum qstar_sched_node_state state;
 	const struct qstar_target *target;
 	const struct qstar_genrule *genrule;
+	const struct qstar_stage *stage;
 	struct qstar_resolved_toolchain *toolchain;
 	struct qstar_prepared_action action;
 	size_t source_index;
@@ -254,8 +256,10 @@ struct qstar_scheduler {
 	struct qstar_resolved_toolchain *toolchains;
 	int *target_seen;
 	int *genrule_needed;
+	int *stage_needed;
 	int *target_final_node;
 	int *genrule_node;
+	int *stage_node;
 	size_t *ready;
 	size_t ready_head;
 	size_t ready_len;
@@ -390,6 +394,8 @@ progress_stage_name(const struct qstar_sched_node *node)
 		return final_stage_name(node->target);
 	case QSTAR_SCHED_GENERATE:
 		return "generating";
+	case QSTAR_SCHED_STAGE:
+		return "staging";
 	case QSTAR_SCHED_RUN:
 		return "running";
 	case QSTAR_SCHED_GROUP:
@@ -406,6 +412,8 @@ progress_node_label(const struct qstar_sched_node *node)
 		return node->target->label;
 	if (node->genrule)
 		return node->genrule->label;
+	if (node->stage)
+		return node->stage->label;
 	return "<action>";
 }
 
@@ -4709,6 +4717,8 @@ materialize_run_stage_inputs(struct qstar_graph *graph, struct qstar_build_ctx *
 	size_t i;
 	int rc;
 
+	if (ctx->action_scheduler)
+		return 0;
 	for (i = 0; i < target->run_inputs.len; i++) {
 		rc = qstar_stage_dir_token_label(target->run_inputs.items[i], label,
 		    sizeof(label));
@@ -7478,6 +7488,8 @@ sched_kind_name(enum qstar_sched_node_kind kind)
 		return "final";
 	case QSTAR_SCHED_GENERATE:
 		return "generate";
+	case QSTAR_SCHED_STAGE:
+		return "stage";
 	case QSTAR_SCHED_RUN:
 		return "run";
 	case QSTAR_SCHED_GROUP:
@@ -7515,6 +7527,15 @@ sched_genrule_index(const struct qstar_graph *graph, const struct qstar_genrule 
 	return (int)(genrule - graph->genrules);
 }
 
+/** stage pointer를 graph stage index로 변환한다. */
+static int
+sched_stage_index(const struct qstar_graph *graph, const struct qstar_stage *stage)
+{
+	if (!stage || stage < graph->stages || stage >= graph->stages + graph->stage_len)
+		return -1;
+	return (int)(stage - graph->stages);
+}
+
 /** scheduler가 소유한 동적 저장소를 해제한다. */
 static void
 scheduler_free(struct qstar_scheduler *sched)
@@ -7533,8 +7554,10 @@ scheduler_free(struct qstar_scheduler *sched)
 	free(sched->toolchains);
 	free(sched->target_seen);
 	free(sched->genrule_needed);
+	free(sched->stage_needed);
 	free(sched->target_final_node);
 	free(sched->genrule_node);
+	free(sched->stage_node);
 	free(sched->ready);
 	memset(sched, 0, sizeof(*sched));
 }
@@ -7559,8 +7582,13 @@ scheduler_init(struct qstar_scheduler *sched, struct qstar_graph *graph,
 	    sizeof(sched->genrule_needed[0]));
 	sched->genrule_node = malloc((graph->genrule_len ? graph->genrule_len : 1) *
 	    sizeof(sched->genrule_node[0]));
+	sched->stage_needed = calloc(graph->stage_len ? graph->stage_len : 1,
+	    sizeof(sched->stage_needed[0]));
+	sched->stage_node = malloc((graph->stage_len ? graph->stage_len : 1) *
+	    sizeof(sched->stage_node[0]));
 	if (!sched->toolchains || !sched->target_seen || !sched->target_final_node ||
-	    !sched->genrule_needed || !sched->genrule_node) {
+	    !sched->genrule_needed || !sched->genrule_node || !sched->stage_needed ||
+	    !sched->stage_node) {
 		scheduler_free(sched);
 		return qstar_set_error(graph, "qstar: out of memory");
 	}
@@ -7568,6 +7596,8 @@ scheduler_init(struct qstar_scheduler *sched, struct qstar_graph *graph,
 		sched->target_final_node[i] = -1;
 	for (i = 0; i < graph->genrule_len; i++)
 		sched->genrule_node[i] = -1;
+	for (i = 0; i < graph->stage_len; i++)
+		sched->stage_node[i] = -1;
 	return 0;
 }
 
@@ -7625,6 +7655,19 @@ scheduler_mark_genrule(struct qstar_scheduler *sched, const struct qstar_genrule
 	if (index < 0)
 		return qstar_set_error(sched->graph, "qstar: invalid scheduler genrule");
 	sched->genrule_needed[index] = 1;
+	return 0;
+}
+
+/** stage를 scheduler discovery set에 추가한다. */
+static int
+scheduler_mark_stage(struct qstar_scheduler *sched, const struct qstar_stage *stage)
+{
+	int index;
+
+	index = sched_stage_index(sched->graph, stage);
+	if (index < 0)
+		return qstar_set_error(sched->graph, "qstar: invalid scheduler stage");
+	sched->stage_needed[index] = 1;
 	return 0;
 }
 
@@ -7828,7 +7871,7 @@ scheduler_discover_run_inputs(struct qstar_scheduler *sched,
 	const struct qstar_stage *stage;
 	char label[QSTAR_PATH_MAX];
 	size_t i, j;
-	int rc;
+	int rc, stage_index;
 
 	if (strcmp(target->kind, "run_target") != 0)
 		return 0;
@@ -7847,6 +7890,12 @@ scheduler_discover_run_inputs(struct qstar_scheduler *sched,
 				    "inputs", target->label,
 				    "qstar: stage_dir references unknown stage '%s'",
 				    label);
+			stage_index = sched_stage_index(sched->graph, stage);
+			if (stage_index >= 0 && !sched->stage_needed[stage_index]) {
+				if (scheduler_mark_stage(sched, stage) < 0)
+					return -1;
+				*changed = 1;
+			}
 			for (j = 0; j < stage->srcs.len; j++) {
 				if (scheduler_discover_target_file_item(sched,
 				    target, "inputs", stage->srcs.items[j],
@@ -8155,6 +8204,24 @@ scheduler_create_genrule_nodes(struct qstar_scheduler *sched)
 	return 0;
 }
 
+/** needed stage node skeleton을 만든다. */
+static int
+scheduler_create_stage_nodes(struct qstar_scheduler *sched)
+{
+	size_t i, node_index;
+
+	for (i = 0; i < sched->graph->stage_len; i++) {
+		if (!sched->stage_needed[i])
+			continue;
+		if (scheduler_add_node(sched, QSTAR_SCHED_STAGE, NULL, NULL, 0, 0,
+		    &node_index) < 0)
+			return -1;
+		sched->nodes[node_index].stage = &sched->graph->stages[i];
+		sched->stage_node[i] = (int)node_index;
+	}
+	return 0;
+}
+
 /** target_file/plain generated input을 node edge로 연결한다. */
 static int
 scheduler_add_genrule_item_edge(struct qstar_scheduler *sched,
@@ -8232,6 +8299,44 @@ scheduler_add_target_file_item_edge(struct qstar_scheduler *sched,
 	return 0;
 }
 
+/** stage source item의 producer를 stage node edge로 연결한다. */
+static int
+scheduler_add_stage_source_edge(struct qstar_scheduler *sched,
+    const struct qstar_stage *stage, const char *item, size_t user_node)
+{
+	const struct qstar_genrule *owner;
+	char label[QSTAR_PATH_MAX];
+	int rc, target_index, gen_index;
+
+	rc = qstar_target_file_token_label(item, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error_origin(sched->graph, stage->origin_file,
+		    stage->origin_line, "files", stage->label,
+		    "qstar: malformed target_file placeholder");
+	if (rc == 1) {
+		target_index = sched_target_index_label(sched->graph, label);
+		if (target_index >= 0 && sched->target_final_node[target_index] >= 0)
+			return scheduler_add_edge(sched,
+			    (size_t)sched->target_final_node[target_index], user_node);
+		owner = qstar_graph_find_genrule(sched->graph, label);
+		if (owner) {
+			gen_index = sched_genrule_index(sched->graph, owner);
+			if (gen_index >= 0 && sched->genrule_node[gen_index] >= 0)
+				return scheduler_add_edge(sched,
+				    (size_t)sched->genrule_node[gen_index], user_node);
+		}
+		return 0;
+	}
+	owner = qstar_graph_find_output_owner(sched->graph, item);
+	if (owner) {
+		gen_index = sched_genrule_index(sched->graph, owner);
+		if (gen_index >= 0 && sched->genrule_node[gen_index] >= 0)
+			return scheduler_add_edge(sched,
+			    (size_t)sched->genrule_node[gen_index], user_node);
+	}
+	return 0;
+}
+
 /** target link_inputs의 producer를 final action edge로 연결한다. */
 static int
 scheduler_add_target_link_input_edge(struct qstar_scheduler *sched,
@@ -8261,6 +8366,27 @@ scheduler_connect_genrule_edges(struct qstar_scheduler *sched)
 		for (j = 0; j < genrule->args.len; j++) {
 			if (scheduler_add_genrule_item_edge(sched, genrule,
 			    genrule->args.items[j], node_index) < 0)
+				return -1;
+		}
+	}
+	return 0;
+}
+
+/** stage source producer edge를 stage node에 연결한다. */
+static int
+scheduler_connect_stage_edges(struct qstar_scheduler *sched)
+{
+	const struct qstar_stage *stage;
+	size_t i, j, node_index;
+
+	for (i = 0; i < sched->graph->stage_len; i++) {
+		if (sched->stage_node[i] < 0)
+			continue;
+		stage = &sched->graph->stages[i];
+		node_index = (size_t)sched->stage_node[i];
+		for (j = 0; j < stage->srcs.len; j++) {
+			if (scheduler_add_stage_source_edge(sched, stage,
+			    stage->srcs.items[j], node_index) < 0)
 				return -1;
 		}
 	}
@@ -8360,8 +8486,8 @@ scheduler_connect_run_input_edges(struct qstar_scheduler *sched,
 {
 	const struct qstar_stage *stage;
 	char label[QSTAR_PATH_MAX];
-	size_t i, j;
-	int rc;
+	size_t i;
+	int rc, stage_index;
 
 	if (strcmp(target->kind, "run_target") != 0)
 		return 0;
@@ -8380,12 +8506,16 @@ scheduler_connect_run_input_edges(struct qstar_scheduler *sched,
 				    "inputs", target->label,
 				    "qstar: stage_dir references unknown stage '%s'",
 				    label);
-			for (j = 0; j < stage->srcs.len; j++) {
-				if (scheduler_add_target_file_item_edge(sched,
-				    target, "inputs", stage->srcs.items[j],
-				    user_node) < 0)
-					return -1;
-			}
+			stage_index = sched_stage_index(sched->graph, stage);
+			if (stage_index < 0 || sched->stage_node[stage_index] < 0)
+				return qstar_set_error_origin(sched->graph,
+				    target->origin_file, target->origin_line,
+				    "inputs", target->label,
+				    "qstar: stage_dir references unscheduled stage '%s'",
+				    label);
+			if (scheduler_add_edge(sched,
+			    (size_t)sched->stage_node[stage_index], user_node) < 0)
+				return -1;
 			continue;
 		}
 		if (scheduler_add_target_file_item_edge(sched, target, "inputs",
@@ -8452,7 +8582,10 @@ scheduler_build_nodes(struct qstar_scheduler *sched)
 	}
 	if (scheduler_create_genrule_nodes(sched) < 0)
 		return -1;
+	if (scheduler_create_stage_nodes(sched) < 0)
+		return -1;
 	if (scheduler_connect_genrule_edges(sched) < 0 ||
+	    scheduler_connect_stage_edges(sched) < 0 ||
 	    scheduler_connect_target_edges(sched) < 0)
 		return -1;
 	return 0;
@@ -8542,6 +8675,14 @@ scheduler_run_sync_node(struct qstar_scheduler *sched, size_t node_index)
 	if (node->kind == QSTAR_SCHED_GENERATE)
 		return run_one_generated_action(sched->graph, sched->ctx, NULL,
 		    node->genrule);
+	if (node->kind == QSTAR_SCHED_STAGE) {
+		struct qstar_stage_options options;
+
+		memset(&options, 0, sizeof(options));
+		options.dependencies_ready = 1;
+		return qstar_graph_stage(sched->graph, node->stage->label, &options,
+		    sched->ctx->out);
+	}
 	if (node->kind == QSTAR_SCHED_RUN)
 		return run_target_command(sched->graph, sched->ctx, node->target);
 	return qstar_set_error(sched->graph, "qstar: invalid sync scheduler node");

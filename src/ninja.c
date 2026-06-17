@@ -37,6 +37,7 @@ struct ninja_ctx {
 	const char *root_label;
 	int *target_emitted;
 	int *genrule_state;
+	int *stage_state;
 	int compdb_first;
 	int edge_count;
 };
@@ -45,6 +46,8 @@ static int emit_target(struct qstar_graph *graph, const struct qstar_target *tar
     size_t order, void *user);
 static int emit_genrule_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
     const struct qstar_target *target, const struct qstar_genrule *genrule);
+static int emit_stage_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
+    const struct qstar_stage *stage);
 static int target_compile_needs_pic(const struct qstar_target *target,
     const struct qstar_resolved_toolchain *toolchain, int is_asm);
 static int ninja_argv_push_tool_role(struct qstar_graph *graph, struct ninja_argv *argv,
@@ -89,6 +92,19 @@ genrule_index(const struct qstar_graph *graph, const struct qstar_genrule *genru
 
 	for (i = 0; i < graph->genrule_len; i++) {
 		if (&graph->genrules[i] == genrule)
+			return (int)i;
+	}
+	return -1;
+}
+
+/** graph stage pointer의 index를 찾는다. */
+static int
+stage_index(const struct qstar_graph *graph, const struct qstar_stage *stage)
+{
+	size_t i;
+
+	for (i = 0; i < graph->stage_len; i++) {
+		if (&graph->stages[i] == stage)
 			return (int)i;
 	}
 	return -1;
@@ -447,6 +463,34 @@ shell_arg(FILE *f, const char *s)
 		else
 			fputc(*p, f);
 	}
+	fputc('\'', f);
+}
+
+/** JSON string literal 자체를 shell-safe single argument로 출력한다. */
+static void
+shell_json_string_arg(FILE *f, const char *s)
+{
+	const unsigned char *p;
+
+	fputc('\'', f);
+	fputc('"', f);
+	for (p = (const unsigned char *)(s ? s : ""); *p; p++) {
+		if (*p == '\'') {
+			fputs("'\\''", f);
+			continue;
+		}
+		if (*p == '"' || *p == '\\')
+			fprintf(f, "\\%c", *p);
+		else if (*p == '\n')
+			fputs("\\n", f);
+		else if (*p == '\r')
+			fputs("\\r", f);
+		else if (*p == '\t')
+			fputs("\\t", f);
+		else
+			fputc(*p, f);
+	}
+	fputc('"', f);
 	fputc('\'', f);
 }
 
@@ -836,6 +880,33 @@ ninja_alias_path(const struct qstar_graph *graph, const char *label, char *dst,
 	return qstar_graph_build_path(graph, sub, dst, dstlen);
 }
 
+/** stage manifest path를 package-relative build path로 만든다. */
+static int
+stage_manifest_path(const struct qstar_graph *graph, const char *label, char *dst,
+    size_t dstlen)
+{
+	char mangle[QSTAR_PATH_MAX], sub[QSTAR_PATH_MAX];
+
+	qstar_mangle_label(label, mangle, sizeof(mangle));
+	if (snprintf(sub, sizeof(sub), "stage/%s/manifest.json", mangle) >=
+	    (int)sizeof(sub))
+		return -1;
+	return qstar_graph_build_path(graph, sub, dst, dstlen);
+}
+
+/** stage label에 대응하는 Ninja phony alias output path를 만든다. */
+static int
+stage_alias_path(const struct qstar_graph *graph, const char *label, char *dst,
+    size_t dstlen)
+{
+	char mangle[QSTAR_PATH_MAX], sub[QSTAR_PATH_MAX];
+
+	qstar_mangle_label(label, mangle, sizeof(mangle));
+	if (snprintf(sub, sizeof(sub), "ninja/stages/%s", mangle) >= (int)sizeof(sub))
+		return -1;
+	return qstar_graph_build_path(graph, sub, dst, dstlen);
+}
+
 /** compile_commands policy에 맞는 output path를 계산한다. */
 static int
 compile_commands_path(struct qstar_graph *graph, char *rel, size_t rellen,
@@ -942,6 +1013,10 @@ write_ninja_header(FILE *f, const char *builddir, int windows)
 	    "  command = mkdir -p $out_dir && $command\n", f);
 	fputs("  description = [qstar] $description\n\n", f);
 	fputs("rule qstar_generate\n", f);
+	fputs("  command = $command\n", f);
+	fputs("  description = [qstar] $description\n", f);
+	fputs("  restat = 1\n\n", f);
+	fputs("rule qstar_stage\n", f);
 	fputs("  command = $command\n", f);
 	fputs("  description = [qstar] $description\n", f);
 	fputs("  restat = 1\n\n", f);
@@ -1261,6 +1336,185 @@ resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
 	}
 	return qstar_set_error(graph, "qstar: target_file references unknown target '%s'",
 	    label);
+}
+
+/** stage source token을 manifest용 source kind/producer로 분류한다. */
+static void
+stage_source_kind(struct qstar_graph *graph, const char *src_token,
+    const char *src_rel, const char **kind, const char **producer,
+    const char **artifact, char *producer_buf, size_t producer_buf_len,
+    char *artifact_buf, size_t artifact_buf_len)
+{
+	const struct qstar_genrule *owner;
+	const struct qstar_target *target;
+	struct qstar_target_artifact_map map;
+	char label[QSTAR_PATH_MAX], selector[64];
+	int rc;
+
+	*kind = "file";
+	*producer = "<none>";
+	*artifact = "";
+	if (artifact_buf_len)
+		artifact_buf[0] = '\0';
+	rc = qstar_target_file_token_parse(src_token, label, sizeof(label), selector,
+	    sizeof(selector));
+	if (rc == 1) {
+		target = find_target(graph, label);
+		if (target) {
+			*kind = "target";
+			snprintf(producer_buf, producer_buf_len, "%s", label);
+			*producer = producer_buf;
+			if (selector[0]) {
+				snprintf(artifact_buf, artifact_buf_len, "%s", selector);
+			} else if (qstar_graph_target_artifact_map(graph, target, &map) == 0) {
+				size_t i;
+
+				artifact_buf[0] = '\0';
+				for (i = 0; i < map.len; i++) {
+					if (map.items[i].primary) {
+						snprintf(artifact_buf, artifact_buf_len, "%s",
+						    map.items[i].id);
+						break;
+					}
+				}
+			}
+			*artifact = artifact_buf;
+			return;
+		}
+		if (qstar_graph_find_genrule(graph, label)) {
+			*kind = "custom_target";
+			snprintf(producer_buf, producer_buf_len, "%s", label);
+			*producer = producer_buf;
+			*artifact = "primary";
+			return;
+		}
+	}
+	owner = qstar_graph_find_output_owner(graph, src_rel);
+	if (owner) {
+		*kind = "custom_output";
+		snprintf(producer_buf, producer_buf_len, "%s", owner->label);
+		*producer = producer_buf;
+		*artifact = "output";
+	}
+}
+
+/** stage를 Ninja에서 실행할 package-local wrapper script로 쓴다. */
+static int
+write_stage_script(struct qstar_graph *graph, const struct qstar_stage *stage,
+    const char *action_id, const char *manifest, const char *description,
+    char *script_rel, size_t script_rel_len)
+{
+	char name[QSTAR_PATH_MAX], sub[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX];
+	char manifest_dir[QSTAR_PATH_MAX], root_rel[QSTAR_PATH_MAX];
+	FILE *f;
+	size_t i;
+
+	action_log_name(action_id, name, sizeof(name));
+	if (snprintf(sub, sizeof(sub), "ninja/scripts/%s.sh", name) >=
+	    (int)sizeof(sub) ||
+	    qstar_graph_build_path(graph, sub, script_rel, script_rel_len) < 0 ||
+	    full_path_under_root(graph, script_rel, full, sizeof(full)) < 0 ||
+	    path_dirname(manifest, manifest_dir, sizeof(manifest_dir)) < 0)
+		return qstar_set_error(graph, "qstar: stage script path too long");
+	if (mkdir_parent_under_root(graph, script_rel) < 0)
+		return qstar_set_error(graph, "qstar: could not create stage script dir");
+	snprintf(root_rel, sizeof(root_rel), "%s",
+	    stage->root && *stage->root ? stage->root : ".");
+	f = fopen(full, "w");
+	if (!f)
+		return qstar_set_error(graph, "qstar: could not write stage script");
+	fputs("set -eu\n", f);
+	fputs("label=", f);
+	shell_arg(f, stage->label);
+	fputs("\nroot=", f);
+	shell_arg(f, root_rel);
+	fputs("\nmanifest=", f);
+	shell_arg(f, manifest);
+	fputs("\nmanifest_tmp=", f);
+	shell_arg(f, manifest);
+	fputs(".tmp\nmanifest_dir=", f);
+	shell_arg(f, manifest_dir);
+	fputs("\ndescription=", f);
+	shell_arg(f, description && *description ? description : "<none>");
+	fputs("\nmkdir -p \"$manifest_dir\" \"$root\"\n", f);
+	fputs("printf 'qstar stage v2\\n'\n", f);
+	fputs("printf 'root %s\\n' \"$label\"\n", f);
+	fputs("printf 'stage-root %s\\n' \"$root\"\n", f);
+	fputs("printf 'mode copy\\n'\n", f);
+	fputs("printf 'stage_manifest %s\\n' \"$manifest\"\n", f);
+	fprintf(f,
+	    "printf 'stage_layout label=%%s root=%%s files=%zu status=ok\\n' \"$label\" \"$root\"\n",
+	    stage->srcs.len);
+	fputs("cat > \"$manifest_tmp\" <<'QSTAR_STAGE_MANIFEST_HEAD'\n", f);
+	fputs("{\n  \"schema\":\"qstar-stage-manifest-v2\",\n  \"label\":", f);
+	json_string(f, stage->label);
+	fputs(",\n  \"root\":", f);
+	json_string(f, root_rel);
+	fputs(",\n  \"mode\":\"copy\",\n  \"layout\":{\"status\":\"ok\",\"file_count\":", f);
+	fprintf(f, "%zu", stage->srcs.len);
+	fputs("},\n  \"entries\":[\n", f);
+	fputs("QSTAR_STAGE_MANIFEST_HEAD\n", f);
+	fputs("entry_index=0\n", f);
+	for (i = 0; i < stage->srcs.len; i++) {
+		char src_rel[QSTAR_PATH_MAX], dst_stage_rel[QSTAR_PATH_MAX];
+		char producer_buf[QSTAR_PATH_MAX], artifact_buf[64];
+		const char *kind, *producer, *artifact, *artifact_display;
+
+		if (resolve_target_file_token(graph, stage->srcs.items[i], src_rel,
+		    sizeof(src_rel)) < 0) {
+			fclose(f);
+			return -1;
+		}
+		if (qstar_path_join(root_rel, stage->dsts.items[i], dst_stage_rel,
+		    sizeof(dst_stage_rel)) < 0) {
+			fclose(f);
+			return qstar_set_error_origin(graph, stage->origin_file,
+			    stage->origin_line, "package-failure", stage->label,
+			    "qstar: stage destination path too long");
+		}
+		stage_source_kind(graph, stage->srcs.items[i], src_rel, &kind,
+		    &producer, &artifact, producer_buf, sizeof(producer_buf),
+		    artifact_buf, sizeof(artifact_buf));
+		artifact_display = artifact && *artifact ? artifact : "<none>";
+		fputs("src=", f);
+		shell_arg(f, src_rel);
+		fputs("\ndst=", f);
+		shell_arg(f, dst_stage_rel);
+		fputs("\nkind=", f);
+		shell_arg(f, kind);
+		fputs("\nproducer=", f);
+		shell_arg(f, producer);
+		fputs("\nartifact=", f);
+		shell_arg(f, artifact_display);
+		fputs("\nmanifest_artifact=", f);
+		shell_arg(f, artifact && *artifact ? artifact : "");
+		fputs("\nif [ -f \"$dst\" ] && cmp -s \"$src\" \"$dst\"; then action=unchanged; exists=yes\n", f);
+		fputs("elif [ -e \"$dst\" ]; then action=would-update; exists=yes\n", f);
+		fputs("else action=would-create; exists=no\nfi\n", f);
+		fputs("if [ ! -f \"$src\" ]; then printf 'stage_result label=%s status=fail failure_kind=package-failure replay=<none>\\n' \"$label\"; exit 1; fi\n", f);
+		fputs("printf 'stage_file src=%s dst=%s mode=copy kind=%s producer=%s artifact=%s description=\"%s\"\\n' \"$src\" \"$dst\" \"$kind\" \"$producer\" \"$artifact\" \"$description\"\n", f);
+		fputs("printf 'stage_diff dst=%s action=%s exists=%s\\n' \"$dst\" \"$action\" \"$exists\"\n", f);
+		fputs("mkdir -p \"$(dirname \"$dst\")\"\n", f);
+		fputs("cp \"$src\" \"$dst\"\n", f);
+		fputs("if [ \"$entry_index\" -gt 0 ]; then printf ',\\n' >> \"$manifest_tmp\"; fi\n", f);
+		fputs("printf '    {\"src\":%s,\"dst\":%s,\"action\":\"%s\",\"kind\":%s,\"producer\":%s,\"artifact\":%s}' ", f);
+		shell_json_string_arg(f, src_rel);
+		fputc(' ', f);
+		shell_json_string_arg(f, dst_stage_rel);
+		fputs(" \"$action\" ", f);
+		shell_json_string_arg(f, kind);
+		fputc(' ', f);
+		shell_json_string_arg(f, producer);
+		fputc(' ', f);
+		shell_json_string_arg(f, artifact && *artifact ? artifact : "");
+		fputs(" >> \"$manifest_tmp\"\n", f);
+		fputs("entry_index=$((entry_index + 1))\n", f);
+	}
+	fputs("printf '\\n  ],\\n  \"status\":\"ok\"\\n}\\n' >> \"$manifest_tmp\"\n", f);
+	fputs("mv \"$manifest_tmp\" \"$manifest\"\n", f);
+	fputs("printf 'status ok\\n'\n", f);
+	fclose(f);
+	return 0;
 }
 
 /** qstar.stage_dir placeholder를 Ninja run argv용 path로 해석한다. */
@@ -2630,6 +2884,171 @@ emit_group_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	return 0;
 }
 
+/** stage source item이 가리키는 producer edge를 먼저 emit한다. */
+static int
+emit_stage_source_producer(struct qstar_graph *graph, struct ninja_ctx *ctx,
+    const struct qstar_stage *stage, const char *item)
+{
+	const struct qstar_genrule *owner;
+	char label[QSTAR_PATH_MAX];
+	int rc;
+
+	rc = qstar_target_file_token_label(item, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error_origin(graph, stage->origin_file,
+		    stage->origin_line, "files", stage->label,
+		    "qstar: malformed target_file placeholder");
+	if (rc == 1) {
+		if (find_target(graph, label))
+			return emit_target_closure(graph, ctx, label);
+		owner = qstar_graph_find_genrule(graph, label);
+		if (owner)
+			return emit_genrule_edge(graph, ctx, NULL, owner);
+		return 0;
+	}
+	owner = qstar_graph_find_output_owner(graph, item);
+	if (owner)
+		return emit_genrule_edge(graph, ctx, NULL, owner);
+	return 0;
+}
+
+/** stage source item을 Ninja dependency로 출력한다. */
+static int
+write_stage_source_dep(struct qstar_graph *graph, FILE *f, const char *item)
+{
+	const struct qstar_target *target;
+	const struct qstar_genrule *genrule;
+	char label[QSTAR_PATH_MAX], resolved[QSTAR_PATH_MAX], alias[QSTAR_PATH_MAX];
+	int rc;
+
+	rc = qstar_target_file_token_label(item, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: malformed target_file placeholder");
+	if (rc == 1) {
+		target = find_target(graph, label);
+		if (target) {
+			if (ninja_alias_path(graph, label, alias, sizeof(alias)) < 0)
+				return qstar_set_error(graph,
+				    "qstar: ninja alias path too long");
+			fputc(' ', f);
+			ninja_path(f, alias);
+			return 0;
+		}
+		genrule = qstar_graph_find_genrule(graph, label);
+		if (genrule && genrule->outputs.len > 0) {
+			fputc(' ', f);
+			ninja_path(f, genrule->outputs.items[0]);
+		}
+		return 0;
+	}
+	if (resolve_target_file_token(graph, item, resolved, sizeof(resolved)) < 0)
+		return -1;
+	fputc(' ', f);
+	ninja_path(f, resolved);
+	return 0;
+}
+
+/** stage layout을 Ninja producer edge로 lower한다. */
+static int
+emit_stage_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
+    const struct qstar_stage *stage)
+{
+	struct ninja_argv argv;
+	char action_id[QSTAR_PATH_MAX], manifest[QSTAR_PATH_MAX], alias[QSTAR_PATH_MAX];
+	char script_rel[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
+	char root_rel[QSTAR_PATH_MAX];
+	int index;
+	size_t i;
+
+	index = stage_index(graph, stage);
+	if (index < 0)
+		return qstar_set_error(graph, "qstar: invalid ninja stage");
+	if (ctx->stage_state[index] == 2)
+		return 0;
+	if (ctx->stage_state[index] == 1)
+		return qstar_set_error_origin(graph, stage->origin_file, stage->origin_line,
+		    "files", stage->label,
+		    "qstar: circular stage dependency at '%s'", stage->label);
+	ctx->stage_state[index] = 1;
+	for (i = 0; i < stage->srcs.len; i++) {
+		if (emit_stage_source_producer(graph, ctx, stage,
+		    stage->srcs.items[i]) < 0)
+			return -1;
+	}
+	memset(&argv, 0, sizeof(argv));
+	snprintf(action_id, sizeof(action_id), "%s:stage:0", stage->label);
+	if (stage_manifest_path(graph, stage->label, manifest, sizeof(manifest)) < 0 ||
+	    stage_alias_path(graph, stage->label, alias, sizeof(alias)) < 0)
+		return qstar_set_error(graph, "qstar: ninja stage path too long");
+	if (qstar_action_description_stage(stage, description, sizeof(description)) < 0)
+		snprintf(description, sizeof(description), "<too-long>");
+	snprintf(root_rel, sizeof(root_rel), "%s",
+	    stage->root && *stage->root ? stage->root : ".");
+	if (mkdir_parent_under_root(graph, manifest) < 0)
+		return qstar_set_error(graph, "qstar: could not create stage manifest dir");
+	if (write_stage_script(graph, stage, action_id, manifest, description,
+	    script_rel, sizeof(script_rel)) < 0)
+		return -1;
+	if (ninja_argv_push(graph, &argv, "sh") < 0 ||
+	    ninja_argv_push(graph, &argv, script_rel) < 0)
+		goto fail;
+	fprintf(ctx->ninja, "# qstar-action-id: %s\n", action_id);
+	fputs("build ", ctx->ninja);
+	ninja_path(ctx->ninja, manifest);
+	for (i = 0; i < stage->dsts.len; i++) {
+		char staged_output[QSTAR_PATH_MAX];
+
+		if (qstar_path_join(root_rel, stage->dsts.items[i], staged_output,
+		    sizeof(staged_output)) < 0)
+			goto path_fail;
+		fputc(' ', ctx->ninja);
+		ninja_path(ctx->ninja, staged_output);
+	}
+	fputs(": qstar_stage ", ctx->ninja);
+	ninja_path(ctx->ninja, script_rel);
+	if (stage->srcs.len) {
+		fputs(" |", ctx->ninja);
+		for (i = 0; i < stage->srcs.len; i++) {
+			if (write_stage_source_dep(graph, ctx->ninja,
+			    stage->srcs.items[i]) < 0)
+				goto fail;
+		}
+	}
+	fputc('\n', ctx->ninja);
+	fputs("  command = ", ctx->ninja);
+	shell_argv(ctx->ninja, &argv);
+	fputs("\n  description = ", ctx->ninja);
+	ninja_var_text(ctx->ninja, description);
+	fputc('\n', ctx->ninja);
+	fprintf(ctx->ninja, "  qstar_action_id = %s\n\n", action_id);
+	fprintf(ctx->ninja, "# qstar-action-id: %s:alias\n", stage->label);
+	fputs("build ", ctx->ninja);
+	ninja_path(ctx->ninja, alias);
+	fputs(": phony ", ctx->ninja);
+	ninja_path(ctx->ninja, manifest);
+	for (i = 0; i < stage->dsts.len; i++) {
+		char staged_output[QSTAR_PATH_MAX];
+
+		if (qstar_path_join(root_rel, stage->dsts.items[i], staged_output,
+		    sizeof(staged_output)) < 0)
+			goto path_fail;
+		fputc(' ', ctx->ninja);
+		ninja_path(ctx->ninja, staged_output);
+	}
+	fprintf(ctx->ninja, "\n  qstar_action_id = %s:alias\n\n", stage->label);
+	ctx->edge_count += 2;
+	ctx->stage_state[index] = 2;
+	ninja_argv_free(&argv);
+	return 0;
+path_fail:
+	qstar_set_error_origin(graph, stage->origin_file, stage->origin_line,
+	    "package-failure", stage->label,
+	    "qstar: stage destination path too long");
+fail:
+	ninja_argv_free(&argv);
+	return -1;
+}
+
 /** run_target command item이 가리키는 producer edge를 먼저 emit한다. */
 static int
 emit_run_item_producer(struct qstar_graph *graph, struct ninja_ctx *ctx, const char *item)
@@ -2664,9 +3083,15 @@ emit_run_input_producer(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	rc = qstar_stage_dir_token_label(item, label, sizeof(label));
 	if (rc < 0)
 		return qstar_set_error(graph, "qstar: malformed stage_dir placeholder");
-	if (rc == 1)
-		return qstar_set_error(graph,
-		    "qstar: ninja backend does not support qstar.stage_dir run_target inputs yet; use -G stella");
+	if (rc == 1) {
+		const struct qstar_stage *stage;
+
+		stage = qstar_graph_find_stage(graph, label);
+		if (!stage)
+			return qstar_set_error(graph,
+			    "qstar: stage_dir references unknown stage '%s'", label);
+		return emit_stage_edge(graph, ctx, stage);
+	}
 	rc = qstar_target_file_token_label(item, label, sizeof(label));
 	if (rc < 0)
 		return qstar_set_error(graph, "qstar: malformed target_file placeholder");
@@ -2726,9 +3151,13 @@ write_run_input_dep(struct qstar_graph *graph, FILE *f, const char *item)
 	rc = qstar_stage_dir_token_label(item, label, sizeof(label));
 	if (rc < 0)
 		return qstar_set_error(graph, "qstar: malformed stage_dir placeholder");
-	if (rc == 1)
-		return qstar_set_error(graph,
-		    "qstar: ninja backend does not support qstar.stage_dir run_target inputs yet; use -G stella");
+	if (rc == 1) {
+		if (stage_alias_path(graph, label, alias, sizeof(alias)) < 0)
+			return qstar_set_error(graph, "qstar: ninja stage alias path too long");
+		fputc(' ', f);
+		ninja_path(f, alias);
+		return 0;
+	}
 	rc = qstar_target_file_token_label(item, label, sizeof(label));
 	if (rc < 0)
 		return qstar_set_error(graph, "qstar: malformed target_file placeholder");
@@ -2943,11 +3372,15 @@ init_ninja_ctx(struct qstar_graph *graph, const char *label, struct ninja_ctx *c
 	    sizeof(ctx->target_emitted[0]));
 	ctx->genrule_state = calloc(graph->genrule_len ? graph->genrule_len : 1,
 	    sizeof(ctx->genrule_state[0]));
-	if (!ctx->target_emitted || !ctx->genrule_state) {
+	ctx->stage_state = calloc(graph->stage_len ? graph->stage_len : 1,
+	    sizeof(ctx->stage_state[0]));
+	if (!ctx->target_emitted || !ctx->genrule_state || !ctx->stage_state) {
 		free(ctx->target_emitted);
 		free(ctx->genrule_state);
+		free(ctx->stage_state);
 		ctx->target_emitted = NULL;
 		ctx->genrule_state = NULL;
+		ctx->stage_state = NULL;
 		return qstar_set_error(graph, "qstar: out of memory");
 	}
 	if (qstar_graph_build_path(graph, "ninja", ctx->ninja_dir_rel,
@@ -2958,16 +3391,33 @@ init_ninja_ctx(struct qstar_graph *graph, const char *label, struct ninja_ctx *c
 	    sizeof(ctx->ninja_full)) < 0) {
 		free(ctx->target_emitted);
 		free(ctx->genrule_state);
+		free(ctx->stage_state);
 		ctx->target_emitted = NULL;
 		ctx->genrule_state = NULL;
+		ctx->stage_state = NULL;
 		return qstar_set_error(graph, "qstar: ninja file path too long");
+	}
+	if (label && qstar_graph_find_stage(graph, label) && !find_target(graph, label) &&
+	    !qstar_graph_find_genrule(graph, label)) {
+		if (stage_alias_path(graph, label, ctx->default_alias,
+		    sizeof(ctx->default_alias)) >= 0)
+			return 0;
+		free(ctx->target_emitted);
+		free(ctx->genrule_state);
+		free(ctx->stage_state);
+		ctx->target_emitted = NULL;
+		ctx->genrule_state = NULL;
+		ctx->stage_state = NULL;
+		return qstar_set_error(graph, "qstar: ninja default alias path too long");
 	}
 	if (label && ninja_alias_path(graph, label, ctx->default_alias,
 	    sizeof(ctx->default_alias)) < 0) {
 		free(ctx->target_emitted);
 		free(ctx->genrule_state);
+		free(ctx->stage_state);
 		ctx->target_emitted = NULL;
 		ctx->genrule_state = NULL;
+		ctx->stage_state = NULL;
 		return qstar_set_error(graph, "qstar: ninja default alias path too long");
 	}
 	return 0;
@@ -2979,8 +3429,10 @@ ninja_ctx_free(struct ninja_ctx *ctx)
 {
 	free(ctx->target_emitted);
 	free(ctx->genrule_state);
+	free(ctx->stage_state);
 	ctx->target_emitted = NULL;
 	ctx->genrule_state = NULL;
+	ctx->stage_state = NULL;
 }
 
 /** graph closure를 build.ninja와 compile_commands.json으로 출력한다. */
@@ -2989,6 +3441,7 @@ qstar_graph_emit_ninja(struct qstar_graph *graph, const char *label, FILE *out)
 {
 	struct ninja_ctx ctx;
 	const struct qstar_genrule *root_genrule;
+	const struct qstar_stage *root_stage;
 
 	if (init_ninja_ctx(graph, label, &ctx, out) < 0)
 		return -1;
@@ -3007,8 +3460,12 @@ qstar_graph_emit_ninja(struct qstar_graph *graph, const char *label, FILE *out)
 	write_ninja_header(ctx.ninja, ctx.ninja_dir_rel,
 	    qstar_platform_is_windows(qstar_graph_platform(graph)));
 	root_genrule = label && *label ? qstar_graph_find_genrule(graph, label) : NULL;
+	root_stage = label && *label ? qstar_graph_find_stage(graph, label) : NULL;
 	if (root_genrule) {
 		if (emit_genrule_edge(graph, &ctx, NULL, root_genrule) < 0)
+			goto fail;
+	} else if (root_stage) {
+		if (emit_stage_edge(graph, &ctx, root_stage) < 0)
 			goto fail;
 	} else if (qstar_graph_visit_closure(graph, label, emit_target, &ctx) < 0) {
 		goto fail;

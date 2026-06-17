@@ -338,7 +338,9 @@ qstar.stage "bundle" {
 argv. Items may be package-relative files, `qstar.target_file(...)` artifacts, or
 `qstar.stage_dir(...)` layout roots. `qstar.input(N)` inside the command resolves
 to the Nth run input, so the producer edge, input tracking, and argv path stay in
-sync:
+sync. A stage input is a consumable layout artifact: QStar builds the files that
+feed the stage, materializes the layout, writes its manifest, and only then runs
+the consuming action on both Stella and Ninja backends:
 
 ```lua
 qstar.custom_target "image" {

@@ -45,10 +45,9 @@ command, timeout, expect check, log/replay를 제공하는 generic surface다.
 `description = qstar.status("...")`를 지정하면 build progress line에서 run target label 대신
 사용자가 정한 status message가 표시된다. 실패하면 `qstar last-failure`와 `qstar replay`에도
 같은 `description=` metadata가 포함된다.
-`-G ninja`에서도 wrapper action으로 lowering되며, package file과 target/generated artifact
-`inputs`는 `stella` backend와 같은 producer dependency를 사용한다. `qstar.stage_dir(...)`
-run input은 현재 Stella backend에서 materialize되며, Ninja backend에서는 명확한 diagnostic으로
-거절된다.
+`-G ninja`에서도 wrapper action으로 lowering되며, package file, target/generated artifact,
+`qstar.stage_dir(...)` layout input 모두 `stella` backend와 같은 producer dependency를
+사용한다.
 
 ## 실패 예제
 
