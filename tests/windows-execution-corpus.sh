@@ -92,6 +92,25 @@ contains "$tmp/hello-run.out" "windows-execution hello"
 contains "$tmp/hello-smoke.out" "run_target label=//:hello_smoke command=argv"
 contains "$tmp/hello-smoke.out" "run_expect label=//:hello_smoke status=matched contains=windows-execution hello"
 contains "$tmp/hello-smoke.out" "status ok"
+"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
+	action-log //:hello_smoke:run:0 > "$tmp/hello-smoke-log.out" \
+	2> "$tmp/hello-smoke-log.err"
+contains "$tmp/hello-smoke-log.out" "qstar action-log v1"
+contains "$tmp/hello-smoke-log.out" "qstar-action-log v2"
+case "$mode" in
+native-windows-execution)
+	contains "$tmp/hello-smoke-log.out" "windows_command_line="
+	;;
+esac
+"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
+	replay //:hello_smoke:run:0 > "$tmp/hello-smoke-replay.out" \
+	2> "$tmp/hello-smoke-replay.err"
+contains "$tmp/hello-smoke-replay.out" "qstar replay v1"
+case "$mode" in
+native-windows-execution)
+	contains "$tmp/hello-smoke-replay.out" "windows_command_line="
+	;;
+esac
 
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows --progress plain \
 	build //:app > "$tmp/app-build.out" 2> "$tmp/app-build.err"
@@ -131,5 +150,60 @@ test -f "$prefix/bin/app.exe" || fail "installed app.exe missing"
 	--prefix "$prefix" > "$tmp/install-core.out" 2> "$tmp/install-core.err"
 test -f "$prefix/lib/libwinexec_core.a" ||
 	fail "installed static library missing"
+
+if command -v ninja >/dev/null 2>&1; then
+	rm -rf "$corpus/$build_dir" "$corpus/stage"
+	rm -f "$corpus/.ninja_log" "$corpus/.ninja_deps"
+	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
+		-G ninja --progress plain build //:all \
+		> "$tmp/ninja-all.out" 2> "$tmp/ninja-all.err"
+	contains "$tmp/ninja-all.out" "backend ninja"
+	contains "$tmp/ninja-all.out" "run_target label=//:hello_smoke command=argv"
+	contains "$tmp/ninja-all.out" "run_expect label=//:hello_smoke status=matched contains=windows-execution hello"
+	contains "$tmp/ninja-all.out" "status ok"
+	contains "$corpus/$build_dir/ninja/build.ninja" "&& sh tools/build-object.sh"
+	run_artifact "$corpus/$build_dir/out/___hello/hello.exe" "$tmp/ninja-hello-run.out"
+	contains "$tmp/ninja-hello-run.out" "windows-execution hello"
+	test -f "$corpus/$build_dir/out/___core/libwinexec_core.a" ||
+		fail "ninja static library artifact missing"
+	test -f "$corpus/$build_dir/rsp/___response_probe_compile_0.rsp" ||
+		fail "ninja response probe compile response file missing"
+	run_artifact "$corpus/$build_dir/out/___response_probe/response_probe.exe" \
+		"$tmp/ninja-response-run.out"
+	contains "$tmp/ninja-response-run.out" "windows-execution response-probe"
+	test -f "$corpus/$build_dir/generated/bridge/bridge_payload.o" ||
+		fail "ninja generated object bridge output missing"
+	run_artifact "$corpus/$build_dir/out/___bridge_app/bridge_app.exe" \
+		"$tmp/ninja-bridge-run.out"
+	contains "$tmp/ninja-bridge-run.out" "windows-execution bridge=77"
+	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
+		-G ninja action-log //:bridge_object:generate:0 \
+		> "$tmp/ninja-bridge-log.out" 2> "$tmp/ninja-bridge-log.err"
+	contains "$tmp/ninja-bridge-log.out" "qstar action-log v1"
+	contains "$tmp/ninja-bridge-log.out" "backend=ninja"
+	contains "$tmp/ninja-bridge-log.out" "argv[0]=tools/build-object.sh"
+	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
+		-G ninja replay //:bridge_object:generate:0 \
+		> "$tmp/ninja-bridge-replay.out" 2> "$tmp/ninja-bridge-replay.err"
+	contains "$tmp/ninja-bridge-replay.out" "qstar replay v1"
+	contains "$tmp/ninja-bridge-replay.out" "tools/build-object.sh"
+	ninja_prefix="$tmp/ninja-prefix"
+	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
+		-G ninja install //:app --prefix "$ninja_prefix" \
+		> "$tmp/ninja-install-app.out" 2> "$tmp/ninja-install-app.err"
+	contains "$tmp/ninja-install-app.out" "backend ninja"
+	test -f "$ninja_prefix/bin/app.exe" || fail "ninja installed app.exe missing"
+	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
+		-G ninja install //:core --prefix "$ninja_prefix" \
+		> "$tmp/ninja-install-core.out" 2> "$tmp/ninja-install-core.err"
+	contains "$tmp/ninja-install-core.out" "backend ninja"
+	test -f "$ninja_prefix/lib/libwinexec_core.a" ||
+		fail "ninja installed static library missing"
+	test ! -f "$corpus/.ninja_log" || fail "ninja wrote root .ninja_log"
+	test ! -f "$corpus/.ninja_deps" || fail "ninja wrote root .ninja_deps"
+	printf 'qstar-windows-execution: ninja=passed\n'
+else
+	printf 'qstar-windows-execution: ninja=skipped reason=ninja-not-found\n'
+fi
 
 printf 'qstar-windows-execution: passed\n'

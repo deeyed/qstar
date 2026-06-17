@@ -48,6 +48,11 @@ propagate exit codes, enforce timeouts with `TerminateProcess`, and record the
 effective Windows command line in action logs and replay detail. The execution
 corpus also exercises a `run_target` with `expect.contains`, so Windows alpha
 now checks captured program output instead of stopping at graph generation.
+Round Q221 extends the same corpus to `-G ninja`: QStar launches Ninja through
+the platform process layer, emitted Windows Ninja commands adapt package-local
+`.sh` fixtures as `sh <script>.sh ...`, and the corpus verifies Ninja response
+files, generated object bridge actions, run-target expect output, install
+output, action-log/replay metadata, and root `.ninja_*` pollution guards.
 
 ## Status
 
@@ -144,8 +149,9 @@ remain the original argv vector.
 `_WIN32` Stella build/test execution now uses the CreateProcess runner. The
 `qstar check`, `qstar dry-run`, and `qstar emit-ninja` commands continue
 validating graph contracts without launching tools. QStar's Ninja launcher
-shares the same platform process layer, but Windows Ninja parity is a follow-up
-alpha-hardening gate until the optional Windows workflow lane is green.
+shares the same platform process layer, and Q221 makes the Windows execution
+corpus exercise that launcher with `-G ninja`; the optional Windows
+`run_ninja_parity=true` lane remains the broader backend parity gate.
 
 Local non-Windows tests use `tests/corpus/response-files/tools/fake-clang-cl.sh` to
 prove that QStar itself preserves argv structure and response-file escaping. That
@@ -265,11 +271,13 @@ The gate checks:
 
 The execution corpus checks:
 
-- C executable build and run
-- static archive plus executable link and run
-- forced response-file compile/link and executable run
-- generated object artifact bridge dry-run, build, and run
+- C executable build and run through Stella and Ninja
+- `run_target` expect matching through Stella and Ninja
+- static archive plus executable link and run through Stella and Ninja
+- forced response-file compile/link and executable run through Stella and Ninja
+- generated object artifact bridge dry-run, build, run, action-log, and replay
 - install prefix smoke for executable and static archive artifacts
+- root `.ninja_log` and `.ninja_deps` pollution guard for the Ninja path
 
 Manual corpus commands:
 

@@ -70,6 +70,15 @@ the existing execution corpus can exercise real compile, link, custom, and
 `run_target` actions under CreateProcess. This is still manual alpha validation,
 not official Windows host support.
 
+Round Q221 extends that execution corpus through the Ninja backend. QStar's
+Ninja launcher already uses the shared platform process layer; Q221 makes the
+Windows corpus build the same hello/staticlib/response/custom-object/run-target
+graph with `-G ninja`, keeps `.ninja_log` and `.ninja_deps` out of the package
+root, and verifies Ninja action-log/replay metadata for generated object bridge
+actions. Package-local `.sh` fixture commands are adapted in emitted Ninja
+commands as `sh <script>.sh ...` on Windows while preserving the original
+logged argv vector.
+
 The first Q172 hosted run was
 `https://github.com/deeyed/qstar/actions/runs/27508325529`. It reached the
 baseline Makefile bootstrap and failed in `src/executor.c` because MSYS2 UCRT64
@@ -159,7 +168,14 @@ the Stella CreateProcess runner. The execution corpus now includes
 checks not only compile/link actions but also captured program output and expect
 matching through the Stella runner.
 
-The optional `run_ninja_parity=true` input also runs:
+Round Q221 makes the same execution corpus run with `-G ninja` whenever Ninja is
+available. That keeps the alpha lane from becoming Stella-only: the hosted
+Windows workflow now checks QStar-launched Ninja builds, Ninja-generated shell
+script paths, response files, generated object bridge actions, install output,
+and root `.ninja_*` pollution guards in the same corpus.
+
+The optional `run_ninja_parity=true` input also runs the broader cross-corpus
+Ninja backend parity gate:
 
 ```sh
 make qstar-ninja-backend-parity-tests
@@ -306,12 +322,11 @@ Current known gaps:
   process runner boundary and the hosted Q179 run passed `make all`,
   `qstar --version`, and the native alpha smoke.
 - Q220 implements the Stella CreateProcess runner in `src/platform_process.c`.
-  The next hosted manual alpha run is expected to move past the old execution
-  stub boundary and either pass the Q178/Q220 execution corpus or leave a more
-  specific native Windows failure class in `windows-execution-detail/`.
-- QStar's Ninja launcher routes through the same platform process layer, but
-  Q220's validation focus is Stella execution. Treat Ninja parity on Windows as
-  follow-up hardening until the optional `run_ninja_parity=true` lane is green.
+  The hosted Q220 lane reached real compile/link/custom/run execution.
+- Q221 extends the Windows execution corpus to `-G ninja`, so QStar-launched
+  Ninja builds now share the same native Windows alpha evidence as Stella. The
+  optional `run_ninja_parity=true` lane remains the broader cross-corpus Ninja
+  backend gate.
 - Windows filesystem helpers are now split enough for local `_WIN32` object
   compile checks and the Q179 hosted run reached past the previous
   `mkdir`/`lstat` compile failures.
@@ -323,10 +338,11 @@ Current known gaps:
 - Q172 has not promoted Windows to official support. It only makes
   `msys2-ucrt64-gcc` the baseline lane and ensures failed runs leave structured
   status and known-issue artifacts.
-- Q178 adds real build/run/install corpus coverage, and Q220 adds Stella
-  CreateProcess execution for it, but the lane is still manual alpha validation.
-  A green execution corpus does not by itself create a Windows public release
-  asset or official support claim.
+- Q178 adds real build/run/install corpus coverage, Q220 adds Stella
+  CreateProcess execution for it, and Q221 adds Ninja execution coverage for
+  the same corpus. The lane is still manual alpha validation: a green execution
+  corpus does not by itself create a Windows public release asset or official
+  support claim.
 - Stella daemon on Windows is disabled/deferred. The future supported transport
   is a named pipe with Windows ACL rules, not Unix sockets.
 - No Windows public release asset.
