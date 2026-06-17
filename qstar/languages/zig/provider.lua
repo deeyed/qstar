@@ -22,6 +22,9 @@ local function effective_target(target, macos_min_version)
     return nil
   end
   if macos_min_version ~= nil and macos_min_version ~= "" then
+    if target == "native" and qstar.host.os == "macos" then
+      return qstar.host.arch .. "-macos." .. macos_min_version
+    end
     if string.match(target, "%-macos$") then
       return target .. "." .. macos_min_version
     end

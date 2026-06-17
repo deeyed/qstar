@@ -30,26 +30,19 @@ zig = zig.options {
 `optimize`는 `-O` 값이며 `Debug`, `ReleaseSafe`, `ReleaseFast`, `ReleaseSmall`을 받는다.
 `compile_options`는 마지막에 그대로 추가된다.
 
-`macos_min_version`은 `target = "aarch64-macos"` 또는 `target = "x86_64-macos"`처럼 macOS
-target base가 명시되었을 때 `aarch64-macos.11.0` 같은 Zig target 문자열을 만들기 위한
-편의 option이다. Provider sandbox는 `qstar.host`를 보지 않으므로, host 판별은 사용자
-`qstar.lua`에서 명시적으로 한다.
+`macos_min_version`은 macOS minimum target을 지정하기 위한 편의 option이다.
+`target = "native"`와 함께 쓰면 provider가 read-only `qstar.host`를 보고 macOS host에서만
+`aarch64-macos.11.0` 또는 `x86_64-macos.11.0` 같은 Zig target 문자열을 만든다. macOS가 아닌
+host에서는 `native` 그대로 둔다. `target = "aarch64-macos"`처럼 macOS target base를 직접
+명시한 경우에도 `.11.0`을 붙인다.
 
 ```lua
-local zig_target = "native"
-local zig_macos_min_version = ""
-
-if qstar.host.os == "macos" then
-  zig_target = qstar.host.arch .. "-macos"
-  zig_macos_min_version = "11.0"
-end
-
 qstar.config "native" {
   lang = {
     zig = zig.options {
-      target = zig_target,
+      target = "native",
       optimize = "Debug",
-      macos_min_version = zig_macos_min_version,
+      macos_min_version = "11.0",
     },
   },
 }

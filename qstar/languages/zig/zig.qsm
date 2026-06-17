@@ -51,7 +51,7 @@ return qstar.language_provider {
     options = {
       target = "native",
       optimize = "Debug",
-      macos_min_version = "",
+      macos_min_version = "11.0",
       compile_options = {},
     },
     shapes = {
@@ -60,7 +60,7 @@ return qstar.language_provider {
         files = {
           {
             path = "src/main.zig",
-            body = "pub fn main() void {}\n",
+            body = "export fn main() c_int { return 0; }\n",
           },
         },
         target = {
@@ -76,7 +76,7 @@ return qstar.language_provider {
         files = {
           {
             path = "src/${project_ident}.zig",
-            body = "pub export fn ${project_ident}_value() i32 { return 42; }\n",
+            body = "export fn ${project_ident}_value() i32 { return 42; }\n",
           },
         },
         target = {
@@ -92,7 +92,7 @@ return qstar.language_provider {
         files = {
           {
             path = "tools/${project_ident}/main.zig",
-            body = "pub fn main() void {}\n",
+            body = "export fn main() c_int { return 0; }\n",
           },
         },
         target = {
@@ -111,7 +111,7 @@ return qstar.language_provider {
             files = {
               {
                 path = "packages/core/src/core.zig",
-                body = "pub export fn core_value() i32 { return 42; }\n",
+                body = "export fn core_value() i32 { return 42; }\n",
               },
             },
             target = {
@@ -127,7 +127,7 @@ return qstar.language_provider {
             files = {
               {
                 path = "packages/app/src/main.zig",
-                body = "pub fn main() void {}\n",
+                body = "extern fn core_value() i32;\n\nexport fn main() c_int {\n    return if (core_value() == 42) 0 else 1;\n}\n",
               },
             },
             target = {

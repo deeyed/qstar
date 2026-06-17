@@ -63,6 +63,9 @@ jobs:
       - name: Run Linux regression
         run: make check
 
+      - name: Run optional real language init scaffold gate
+        run: make qstar-real-language-init-scaffold-tests
+
       - name: Run explicit Linux validation gate
         run: make qstar-linux-validation-tests
 

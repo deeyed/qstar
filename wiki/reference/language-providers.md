@@ -108,14 +108,14 @@ return qstar.language_provider {
     options = {
       optimize = "Debug",
       target = "native",
-      macos_min_version = "",
+      macos_min_version = "11.0",
     },
     shapes = {
       app = {
         files = {
           {
             path = "src/main.zig",
-            body = "pub fn main() void {}\n",
+            body = "export fn main() c_int { return 0; }\n",
           },
         },
         targets = {
@@ -260,22 +260,15 @@ Provider action은 `ZIG_GLOBAL_CACHE_DIR`와 `ZIG_LOCAL_CACHE_DIR`를 action-loc
 `NAME=<redacted>`로만 기록된다.
 
 macOS에서 Zig object가 patch-level OS version으로 찍히고 C linker가 major.0 minimum으로
-링크하면서 warning을 낼 수 있다. 이 경우에는 host 조건을 사용자 Lua에서 명시하고,
-provider에는 Zig target base와 minimum version을 넘긴다.
+링크하면서 warning을 낼 수 있다. 이 경우에는 `target = "native"`와 `macos_min_version`을
+같이 둔다. Provider는 read-only `qstar.host`를 보고 macOS host에서만 concrete Zig target을
+만들며, macOS가 아닌 host에서는 `native`를 그대로 둔다.
 
 ```lua
-local zig_target = "native"
-local zig_macos_min_version = ""
-
-if qstar.host.os == "macos" then
-  zig_target = qstar.host.arch .. "-macos"
-  zig_macos_min_version = "11.0"
-end
-
 zig = zig.options {
-  target = zig_target,
+  target = "native",
   optimize = "Debug",
-  macos_min_version = zig_macos_min_version,
+  macos_min_version = "11.0",
 }
 ```
 

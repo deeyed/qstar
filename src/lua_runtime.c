@@ -6443,6 +6443,8 @@ set_table_cfunction(lua_State *L, int table, const char *name, lua_CFunction fn)
 	lua_setfield(L, table, name);
 }
 
+static void set_readonly_host_table(lua_State *L);
+
 static void
 push_provider_env(lua_State *L)
 {
@@ -6470,6 +6472,7 @@ push_provider_env(lua_State *L)
 	set_table_cfunction(L, qstar, "append", qstar_lua_append);
 	set_table_cfunction(L, qstar, "merge", qstar_lua_merge);
 	set_table_cfunction(L, qstar, "extend", qstar_lua_extend);
+	set_readonly_host_table(L);
 	lua_setfield(L, env, "qstar");
 	lua_newtable(L);
 	lua_pushcfunction(L, global_assignment_forbidden);

@@ -60,6 +60,9 @@ Important documents:
   model, provider vendoring, and provider-defined scaffold metadata.
 - `../tests/corpus/real-glp/README.md`: optional real Rust/Zig compiler corpus
   for GLP provider validation beyond fake compiler shims.
+- `../tests/real-language-init-scaffold.sh`: optional real Rust/Zig compiler gate
+  that validates `qstar init --use-language=rust|zig` app/lib/tool/workspace
+  scaffolds with Stella and Ninja.
 - `performance-gates.md`: Stella/Ninja performance gate contract.
 - `qstar-generic-dsl-backend-seal.md`: Q193 backend/performance seal after the
   generic DSL hard cut.

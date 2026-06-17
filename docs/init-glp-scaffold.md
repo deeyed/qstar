@@ -120,7 +120,7 @@ qstar.config "debug" {
     zig = zig.options {
       optimize = "Debug",
       target = "native",
-      macos_min_version = "",
+      macos_min_version = "11.0",
     },
   },
 }
@@ -721,7 +721,7 @@ return qstar.language_provider {
         files = {
           {
             path = "src/crates/${project_ident}/main.rs",
-            body = "fn main() {}\n",
+            body = "#[no_mangle]\npub extern \"C\" fn main() -> i32 { 0 }\n",
           },
         },
         target = {
@@ -775,7 +775,7 @@ zig = zig.tools {
 options = {
   optimize = "Debug",
   target = "native",
-  macos_min_version = "",
+  macos_min_version = "11.0",
 }
 ```
 
@@ -785,7 +785,7 @@ options = {
 zig = zig.options {
   optimize = "Debug",
   target = "native",
-  macos_min_version = "",
+  macos_min_version = "11.0",
 }
 ```
 

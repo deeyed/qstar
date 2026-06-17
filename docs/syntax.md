@@ -91,14 +91,14 @@ return qstar.language_provider {
     options = {
       optimize = "Debug",
       target = "native",
-      macos_min_version = "",
+      macos_min_version = "11.0",
     },
     shapes = {
       app = {
         files = {
           {
             path = "src/main.zig",
-            body = "pub fn main() void {}\n",
+            body = "export fn main() c_int { return 0; }\n",
           },
         },
         targets = {
@@ -141,7 +141,9 @@ return P
 ```
 
 `provider.lua` runs in a restricted provider sandbox. It cannot declare targets
-or call graph entrypoints; only the manifest `exports` are returned to user code.
+or call graph entrypoints; it can read read-only `qstar.host.os` and
+`qstar.host.arch` for host-specific argv choices. Only the manifest `exports`
+are returned to user code.
 Provider `scaffold` metadata is optional validated init data. `qstar init`
 materializes the primary provider shape into `qstar.lua`, source files, and
 workspace fragments when that shape is available. It can name default

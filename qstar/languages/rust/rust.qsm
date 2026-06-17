@@ -60,7 +60,7 @@ return qstar.language_provider {
         files = {
           {
             path = "src/main.rs",
-            body = "fn main() {}\n",
+            body = "#[no_mangle]\npub extern \"C\" fn main() -> i32 { 0 }\n",
           },
         },
         target = {
@@ -92,7 +92,7 @@ return qstar.language_provider {
         files = {
           {
             path = "tools/${project_ident}/main.rs",
-            body = "fn main() {}\n",
+            body = "#[no_mangle]\npub extern \"C\" fn main() -> i32 { 0 }\n",
           },
         },
         target = {
@@ -127,7 +127,7 @@ return qstar.language_provider {
             files = {
               {
                 path = "packages/app/src/main.rs",
-                body = "fn main() {}\n",
+                body = "extern \"C\" {\n    fn core_value() -> i32;\n}\n\n#[no_mangle]\npub extern \"C\" fn main() -> i32 {\n    unsafe { if core_value() == 42 { 0 } else { 1 } }\n}\n",
               },
             },
             target = {

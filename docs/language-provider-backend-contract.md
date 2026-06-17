@@ -67,3 +67,6 @@ cache path를 반환한다. `name`은 package-relative path여야 하며 absolut
 `ctx.option(name)`은 source-local option, target/config `lang.<namespace>` option, schema
 default 순서로 값을 반환한다. `depfile`이 있거나 unit schema의 `deps = "make"`가 설정되면
 backend는 depfile-discovered input을 action key와 incremental state에 반영한다.
+Provider sandbox는 graph entrypoint를 호출할 수 없지만, read-only `qstar.host.os`와
+`qstar.host.arch`는 읽을 수 있다. Provider는 이 값을 사용해 host-specific argv를 만들 수
+있지만, target이나 dependency graph를 새로 선언할 수는 없다.

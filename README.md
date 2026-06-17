@@ -85,10 +85,11 @@ build/bin/qstar --file qstar.lua -B build/qstar-self-ninja -G ninja build //:qst
 ```
 
 When real Rust and Zig compilers are available, maintainers can also run the
-optional GLP compiler corpus:
+optional GLP real-compiler gates:
 
 ```sh
 make qstar-real-glp-compiler-corpus-tests
+make qstar-real-language-init-scaffold-tests
 ```
 
 Maintainers can verify the uploaded GitHub release asset, not just the local

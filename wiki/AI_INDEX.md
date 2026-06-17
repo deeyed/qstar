@@ -98,6 +98,10 @@ QStar가 하지 않는 일:
   macOS `lang.zig.macos_min_version` target ergonomics, static consumer, 그리고 C ABI
   `main`을 노출하는 Zig-only executable fixture를 검증한다.
   compiler가 없으면 해당 language는 실패가 아니라 명시적 skip으로 기록된다.
+- `make qstar-real-language-init-scaffold-tests`는 optional gate다. 실제 `rustc`와 `zig`가
+  PATH에 있으면 `qstar init --use-language=rust|zig`로 생성한 `app`, `lib`, `tool`,
+  `workspace` scaffold를 Stella/Ninja 양쪽에서 build하고, executable 산출물은 직접 실행한다.
+  compiler가 없으면 해당 language는 명시적으로 skip된다.
 - `qstar emit-ninja [label]`은 `build/qstar/ninja/build.ninja`와 policy-controlled
   `compile_commands.json`을 생성한다.
 - compile database 기본 위치는 `build/qstar/compile_commands.json`이다.
