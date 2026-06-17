@@ -201,6 +201,16 @@ and
 Project command step that validates the graph or the selected label.
 .It Ic qstar.step.lint
 Project command step that runs authoring lint.
+.It Ic qstar.step.run
+Project command step that executes a command-local argv-vector action. The table
+requires
+.Ic command = qstar.cli { ... }
+and may include
+.Ic working_dir ,
+.Ic description ,
+.Ic env ,
+and
+.Ic when .
 .It Ic qstar.step.call
 Project command step that calls another project command or alias. Cycles are
 errors.
@@ -211,8 +221,21 @@ Declare typed project command option schemas. Common fields are
 .Ic default ,
 and enum
 .Ic choices .
-The core command surface validates command-line option values; argv
-interpolation helpers are separate workflow extensions.
+Command-line option values are validated at dispatch. Bool options accept
+.Fl -flag ,
+.Fl -flag=true ,
+.Fl -flag=false ,
+and
+.Fl -no-flag .
+.Ic qstar.param("name")
+references a runtime option value inside
+.Ic qstar.cli .
+.Ic qstar.arg_if(qstar.param("flag"), arg)
+and
+.Ic qstar.args_if(qstar.param("flag"), args)
+conditionally append argv items when the referenced bool option is true. Step
+.Ic when
+fields also require a bool option reference.
 .It Ic qstar.cli
 Declare an argv-vector command. Shell strings are not accepted.
 .It Ic qstar.status

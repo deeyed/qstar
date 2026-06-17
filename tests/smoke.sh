@@ -9360,10 +9360,22 @@ fi
 contains "$tmp/stage-bad-missing.err" "stage source target '//:missing' in '//:bad' is unknown"
 
 step "project commands"
-mkdir -p "$tmp/project-command/src"
+mkdir -p "$tmp/project-command/src" "$tmp/project-command/tools"
 cat > "$tmp/project-command/src/main.c" <<'EOF'
 int main(void) { return 0; }
 EOF
+cat > "$tmp/project-command/tools/write-args.sh" <<'EOF'
+#!/bin/sh
+set -eu
+out=$1
+shift
+mkdir -p "$(dirname "$out")"
+: > "$out"
+for arg in "$@"; do
+	printf '%s\n' "$arg" >> "$out"
+done
+EOF
+chmod +x "$tmp/project-command/tools/write-args.sh"
 cat > "$tmp/project-command/qstar.lua" <<'EOF'
 qstar.executable "app" {
   sources = {"src/main.c"},
@@ -9412,6 +9424,38 @@ qstar.command "needs-mode" {
     qstar.step.build("//:app"),
   },
 }
+
+qstar.command "write-args" {
+  options = {
+    emit = qstar.param.bool {
+      default = true,
+    },
+    verbose = qstar.param.bool {
+      default = false,
+    },
+    extra = qstar.param.bool {
+      default = false,
+    },
+    mode = qstar.param.enum {
+      choices = {"debug", "release"},
+      default = "debug",
+    },
+    item = qstar.param.list {},
+  },
+  steps = {
+    qstar.step.run {
+      when = qstar.param("emit"),
+      command = qstar.cli {
+        "tools/write-args.sh",
+        "generated/args.txt",
+        qstar.param("mode"),
+        qstar.arg_if(qstar.param("verbose"), "--verbose"),
+        qstar.args_if(qstar.param("extra"), {"--extra", "yes"}),
+        qstar.param("item"),
+      },
+    },
+  },
+}
 EOF
 if ! "$qstar" --file "$tmp/project-command/qstar.lua" commands > "$tmp/project-command-list.out" 2> "$tmp/project-command-list.err"; then
 	cat "$tmp/project-command-list.out" >&2
@@ -9452,6 +9496,29 @@ if ! "$qstar" --file "$tmp/project-command/qstar.lua" --progress off combo > "$t
 fi
 contains "$tmp/project-command-call.out" "command combo"
 contains "$tmp/project-command-call.out" "command make-app"
+rm -f "$tmp/project-command/generated/args.txt"
+if ! "$qstar" --file "$tmp/project-command/qstar.lua" --progress off write-args --mode release --verbose --extra --item one --item two > "$tmp/project-command-write.out" 2> "$tmp/project-command-write.err"; then
+	cat "$tmp/project-command-write.out" >&2
+	cat "$tmp/project-command-write.err" >&2
+	fail "project command run step failed"
+fi
+contains "$tmp/project-command-write.out" "command_step 1/1 kind=run when=emit"
+contains "$tmp/project-command-write.out" "command_run cwd=$tmp/project-command argv=[tools/write-args.sh, generated/args.txt, release, --verbose, --extra, yes, one, two]"
+contains "$tmp/project-command-write.out" "command_status write-args ok"
+contains "$tmp/project-command/generated/args.txt" "release"
+contains "$tmp/project-command/generated/args.txt" "--verbose"
+contains "$tmp/project-command/generated/args.txt" "--extra"
+contains "$tmp/project-command/generated/args.txt" "yes"
+contains "$tmp/project-command/generated/args.txt" "one"
+contains "$tmp/project-command/generated/args.txt" "two"
+rm -f "$tmp/project-command/generated/args.txt"
+if ! "$qstar" --file "$tmp/project-command/qstar.lua" --progress off write-args --no-emit > "$tmp/project-command-skip.out" 2> "$tmp/project-command-skip.err"; then
+	cat "$tmp/project-command-skip.out" >&2
+	cat "$tmp/project-command-skip.err" >&2
+	fail "project command conditional skip failed"
+fi
+contains "$tmp/project-command-skip.out" "command_step_status 1/1 skip when=emit"
+test ! -f "$tmp/project-command/generated/args.txt" || fail "project command skipped run still wrote args"
 if "$qstar" --file "$tmp/project-command/qstar.lua" needs-mode > "$tmp/project-command-required.out" 2> "$tmp/project-command-required.err"; then
 	fail "project command missing required option unexpectedly succeeded"
 fi
@@ -9479,6 +9546,65 @@ if "$qstar" --file "$tmp/project-command-bad/qstar.lua" commands > "$tmp/project
 	fail "reserved project command unexpectedly succeeded"
 fi
 contains "$tmp/project-command-reserved.err" "project command name 'build' is reserved"
+
+mkdir -p "$tmp/project-command-bad-runtime"
+cat > "$tmp/project-command-bad-runtime/qstar.lua" <<'EOF'
+qstar.command "bad-runtime" {
+  options = {
+    mode = qstar.param.enum {
+      choices = {"debug", "release"},
+      default = "debug",
+    },
+  },
+  steps = {
+    qstar.step.run {
+      command = qstar.cli {
+        "echo",
+        qstar.arg_if(qstar.param("mode"), "--verbose"),
+      },
+    },
+  },
+}
+EOF
+if "$qstar" --file "$tmp/project-command-bad-runtime/qstar.lua" commands > "$tmp/project-command-bad-runtime.out" 2> "$tmp/project-command-bad-runtime.err"; then
+	fail "non-bool qstar.arg_if unexpectedly succeeded"
+fi
+contains "$tmp/project-command-bad-runtime.err" "option 'mode' must be bool for command"
+
+cat > "$tmp/project-command-bad-runtime/qstar.lua" <<'EOF'
+qstar.command "bad-missing" {
+  steps = {
+    qstar.step.run {
+      command = qstar.cli {
+        "echo",
+        qstar.param("missing"),
+      },
+    },
+  },
+}
+EOF
+if "$qstar" --file "$tmp/project-command-bad-runtime/qstar.lua" commands > "$tmp/project-command-bad-missing.out" 2> "$tmp/project-command-bad-missing.err"; then
+	fail "unknown qstar.param unexpectedly succeeded"
+fi
+contains "$tmp/project-command-bad-missing.err" "references unknown option 'missing'"
+
+cat > "$tmp/project-command-bad-runtime/qstar.lua" <<'EOF'
+qstar.command "bad-when" {
+  options = {
+    mode = qstar.param.enum {
+      choices = {"debug", "release"},
+      default = "debug",
+    },
+  },
+  steps = {
+    qstar.step.check("//...", {when = qstar.param("mode")}),
+  },
+}
+EOF
+if "$qstar" --file "$tmp/project-command-bad-runtime/qstar.lua" commands > "$tmp/project-command-bad-when.out" 2> "$tmp/project-command-bad-when.err"; then
+	fail "non-bool project command when unexpectedly succeeded"
+fi
+contains "$tmp/project-command-bad-when.err" "option 'mode' must be bool for when"
 mkdir -p "$tmp/project-command-fragment/pkg"
 cat > "$tmp/project-command-fragment/qstar.lua" <<'EOF'
 qstar.subdir("pkg")

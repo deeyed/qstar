@@ -119,10 +119,21 @@ qstar.command "make-bundle" {
       choices = {"debug", "release"},
       default = "debug",
     },
+    verbose = qstar.param.bool {
+      default = false,
+    },
   },
   steps = {
     qstar.step.build("//:artifact"),
     qstar.step.stage("//:bundle", {root = "stage/bundle"}),
+    qstar.step.run {
+      when = qstar.param("verbose"),
+      command = qstar.cli {
+        "tools/inspect-bundle",
+        qstar.param("mode"),
+        qstar.arg_if(qstar.param("verbose"), "--verbose"),
+      },
+    },
   },
 }
 ```
@@ -142,8 +153,8 @@ Field:
 | --- | --- | --- |
 | `description` | `qstar.status("...")` | command list/help에 표시되는 설명. |
 | `options` | table | typed command option schema. |
-| `env` | list string | run-step 계열 확장을 위한 command 환경 entry. 현재 core step에는 적용하지 않고 IR에 보존한다. |
-| `working_dir` | string | run-step 계열 확장을 위한 package-relative working directory. |
+| `env` | list string | command 환경 entry. 현재는 검증/list에 보존하고, 실제 process env overlay는 후속 executor contract로 남긴다. |
+| `working_dir` | string | package-relative working directory. `qstar.step.run`이 step-local `working_dir`을 갖지 않으면 이 값을 쓴다. |
 | `steps` | list | ordered `qstar.step.*` list. |
 | `is_default` | bool | 기본 project command. 하나만 true일 수 있다. |
 | `hidden` | bool | `qstar commands` 목록에서는 숨기지만 직접 호출은 허용한다. |
@@ -161,9 +172,26 @@ Option schema:
 | `qstar.param.list { ... }` | repeated string option. |
 
 공통 option field는 `description`, `required`, `default`, `choices`다. `required = true`와
-`default`는 같이 쓸 수 없고, bool option은 required로 만들 수 없다. 이번 core surface는
-option schema와 CLI validation을 제공한다. option 값을 argv 안에 치환하거나 조건부 step을
-만드는 helper는 command workflow 확장 지점으로 남겨 둔다.
+`default`는 같이 쓸 수 없고, bool option은 required로 만들 수 없다. list option default는
+지원하지 않는다. Runtime option 값은 `qstar.param("name")`으로 참조한다.
+
+Bool option CLI:
+
+| Declared option | CLI | Runtime value |
+| --- | --- | --- |
+| `qstar.param.bool { default = false }` | omitted | `false` |
+| `qstar.param.bool { default = false }` | `--flag`, `--flag=true` | `true` |
+| `qstar.param.bool { default = true }` | omitted | `true` |
+| `qstar.param.bool { default = true }` | `--no-flag`, `--flag=false` | `false` |
+
+Runtime helper:
+
+| Helper | 위치 | Meaning |
+| --- | --- | --- |
+| `qstar.param("name")` | `qstar.cli { ... }` 안 | option 값을 argv로 확장한다. list option은 입력된 값을 모두 확장한다. |
+| `when = qstar.param("flag")` | step option/field | bool option이 true일 때만 step을 실행한다. |
+| `qstar.arg_if(qstar.param("flag"), "--arg")` | `qstar.cli { ... }` 안 | bool option이 true일 때 argv atom 하나를 추가한다. |
+| `qstar.args_if(qstar.param("flag"), {"--a", "b"})` | `qstar.cli { ... }` 안 | bool option이 true일 때 argv atom 여러 개를 추가한다. |
 
 Step:
 
@@ -174,6 +202,7 @@ Step:
 | `qstar.step.stage(label, opts)` | `qstar.stage` layout을 materialize한다. `opts.root`, `opts.dry_run`을 지원한다. |
 | `qstar.step.check(label)` | graph/input validation을 실행한다. 전체 graph는 `"//..."`를 쓴다. |
 | `qstar.step.lint(label)` | authoring lint를 실행한다. 전체 graph는 `"//..."`를 쓴다. |
+| `qstar.step.run { command = qstar.cli { ... } }` | command-local argv-vector action을 실행한다. reusable 산출물이 필요한 작업은 `custom_target`/`run_target`이 우선이다. |
 | `qstar.step.call(name)` | 다른 project command 또는 alias를 호출한다. cycle은 error다. |
 
 Command name과 alias는 `build`, `test`, `stage`, `commands`, `init`, `docs`, `daemon`,

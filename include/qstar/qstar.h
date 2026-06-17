@@ -245,6 +245,11 @@ struct qstar_command_step {
 	char *label;
 	char *command;
 	char *stage_root;
+	char *when;
+	char *working_dir;
+	char *description;
+	struct qstar_string_list run_command;
+	struct qstar_string_list env;
 	int stage_dry_run;
 };
 

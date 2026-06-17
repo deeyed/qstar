@@ -372,10 +372,21 @@ qstar.command "make-bundle" {
       choices = {"debug", "release"},
       default = "debug",
     },
+    verbose = qstar.param.bool {
+      default = false,
+    },
   },
   steps = {
     qstar.step.build("//:image"),
     qstar.step.stage("//:bundle", {root = "stage/bundle"}),
+    qstar.step.run {
+      when = qstar.param("verbose"),
+      command = qstar.cli {
+        "tools/inspect-bundle",
+        qstar.param("mode"),
+        qstar.arg_if(qstar.param("verbose"), "--verbose"),
+      },
+    },
   },
 }
 ```
@@ -395,8 +406,8 @@ Allowed `qstar.command` fields:
 | --- | --- | --- |
 | `description` | `qstar.status("...")` | Command list/help text. |
 | `options` | table | Typed CLI option schema. |
-| `env` | list string | Reserved command environment entries for run-step style extensions. |
-| `working_dir` | string | Package-relative working directory reserved for run-step style extensions. |
+| `env` | list string | Reserved command environment entries. The field is validated and listed; process env overlay is a later executor contract. |
+| `working_dir` | string | Package-relative working directory used by `qstar.step.run` unless the step overrides it. |
 | `steps` | list | Ordered `qstar.step.*` values. |
 | `is_default` | bool | Marks the default project command; only one may be default. |
 | `hidden` | bool | Hides from `qstar commands` while staying callable. |
@@ -406,8 +417,27 @@ Supported option schemas are `qstar.param.string`, `qstar.param.path`,
 `qstar.param.bool`, `qstar.param.int`, `qstar.param.enum`, and
 `qstar.param.list`. Common option fields are `description`, `required`,
 `default`, and `choices` for enum. Command options are validated at CLI
-dispatch. Option value interpolation into argv is intentionally separate from
-this core surface.
+dispatch. `required = true` cannot be combined with `default`, bool options
+cannot be required, and list defaults are not supported. Runtime values are
+referenced with `qstar.param("name")`.
+
+Bool options support these CLI forms:
+
+| Declared option | Accepted CLI form | Runtime value |
+| --- | --- | --- |
+| `qstar.param.bool { default = false }` | omitted | `false` |
+| `qstar.param.bool { default = false }` | `--flag`, `--flag=true` | `true` |
+| `qstar.param.bool { default = true }` | omitted | `true` |
+| `qstar.param.bool { default = true }` | `--no-flag`, `--flag=false` | `false` |
+
+Runtime option helpers:
+
+| Helper | Where | Meaning |
+| --- | --- | --- |
+| `qstar.param("name")` | inside `qstar.cli { ... }` | Expands the option value into argv. A list option expands to all provided values. |
+| `when = qstar.param("flag")` | step option/field | Skips the step unless the referenced bool option is true. |
+| `qstar.arg_if(qstar.param("flag"), "--arg")` | inside `qstar.cli { ... }` | Appends one argv atom only when the referenced bool option is true. |
+| `qstar.args_if(qstar.param("flag"), {"--a", "b"})` | inside `qstar.cli { ... }` | Appends multiple argv atoms only when the referenced bool option is true. |
 
 Supported steps in the core surface are:
 
@@ -418,6 +448,7 @@ Supported steps in the core surface are:
 | `qstar.step.stage(label, opts)` | Materialize a `qstar.stage`; `opts.root` and `opts.dry_run` mirror the stage CLI. |
 | `qstar.step.check(label)` | Run graph/input validation. Use `"//..."` for the whole graph. |
 | `qstar.step.lint(label)` | Run authoring lint. Use `"//..."` for the whole graph. |
+| `qstar.step.run { command = qstar.cli { ... } }` | Execute a command-local argv-vector action. Use `working_dir`, `description`, and `when` fields as needed. |
 | `qstar.step.call(name)` | Call another project command or alias; cycles are rejected. |
 
 The command name and aliases cannot collide with built-in QStar CLI commands

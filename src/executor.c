@@ -9187,6 +9187,75 @@ project_command_option(const struct qstar_project_command *command, const char *
 	return NULL;
 }
 
+struct qstar_command_runtime_value {
+	const struct qstar_command_option *option;
+	char *value;
+	struct qstar_string_list list;
+	int seen;
+	int bool_value;
+};
+
+struct qstar_command_runtime {
+	const struct qstar_project_command *command;
+	struct qstar_command_runtime_value *values;
+	size_t len;
+};
+
+static void
+command_runtime_free(struct qstar_command_runtime *runtime)
+{
+	size_t i;
+
+	if (!runtime)
+		return;
+	for (i = 0; i < runtime->len; i++) {
+		free(runtime->values[i].value);
+		qstar_string_list_free(&runtime->values[i].list);
+	}
+	free(runtime->values);
+	memset(runtime, 0, sizeof(*runtime));
+}
+
+static struct qstar_command_runtime_value *
+command_runtime_value_for_option(struct qstar_command_runtime *runtime,
+    const struct qstar_command_option *option)
+{
+	size_t i;
+
+	for (i = 0; i < runtime->len; i++) {
+		if (runtime->values[i].option == option)
+			return &runtime->values[i];
+	}
+	return NULL;
+}
+
+static const struct qstar_command_runtime_value *
+command_runtime_value_for_name(const struct qstar_command_runtime *runtime,
+    const char *name)
+{
+	size_t i;
+
+	for (i = 0; runtime && i < runtime->len; i++) {
+		if (strcmp(runtime->values[i].option->name, name) == 0)
+			return &runtime->values[i];
+	}
+	return NULL;
+}
+
+static int
+command_runtime_replace_value(struct qstar_command_runtime_value *value,
+    const char *s)
+{
+	char *copy;
+
+	copy = qstar_strdup(s ? s : "");
+	if (!copy)
+		return -1;
+	free(value->value);
+	value->value = copy;
+	return 0;
+}
+
 static int
 parse_command_bool_value(const char *value, int *out)
 {
@@ -9268,126 +9337,375 @@ project_command_help(const struct qstar_project_command *command, FILE *out)
 }
 
 static int
-validate_project_command_args(struct qstar_graph *graph,
-    const struct qstar_project_command *command, int argc, char **argv, FILE *out)
+command_runtime_init(struct qstar_graph *graph,
+    const struct qstar_project_command *command,
+    struct qstar_command_runtime *runtime)
 {
-	unsigned char *seen;
+	size_t i;
+	int bool_value;
+
+	memset(runtime, 0, sizeof(*runtime));
+	runtime->command = command;
+	runtime->len = command->option_len;
+	runtime->values = calloc(runtime->len ? runtime->len : 1,
+	    sizeof(runtime->values[0]));
+	if (!runtime->values)
+		return qstar_set_error(graph, "qstar: out of memory");
+	for (i = 0; i < command->option_len; i++) {
+		const struct qstar_command_option *option = &command->options[i];
+		runtime->values[i].option = option;
+		if (strcmp(option->type, "bool") == 0) {
+			bool_value = 0;
+			if (option->has_default &&
+			    parse_command_bool_value(option->default_value, &bool_value) < 0)
+				bool_value = 0;
+			runtime->values[i].bool_value = bool_value;
+			if (command_runtime_replace_value(&runtime->values[i],
+			    bool_value ? "true" : "false") < 0) {
+				command_runtime_free(runtime);
+				return qstar_set_error(graph, "qstar: out of memory");
+			}
+		} else if (option->has_default &&
+		    command_runtime_replace_value(&runtime->values[i],
+		    option->default_value) < 0) {
+			command_runtime_free(runtime);
+			return qstar_set_error(graph, "qstar: out of memory");
+		} else if (command_runtime_replace_value(&runtime->values[i],
+		    "") < 0) {
+			command_runtime_free(runtime);
+			return qstar_set_error(graph, "qstar: out of memory");
+		}
+	}
+	return 0;
+}
+
+static int
+parse_project_command_args(struct qstar_graph *graph,
+    const struct qstar_project_command *command, int argc, char **argv, FILE *out,
+    struct qstar_command_runtime *runtime)
+{
 	const char *arg, *name, *value, *eq;
 	const struct qstar_command_option *option;
+	struct qstar_command_runtime_value *slot;
 	char optname[128];
 	size_t i, name_len;
 	int bool_value, rc;
 
-	seen = calloc(command->option_len ? command->option_len : 1, sizeof(seen[0]));
-	if (!seen)
-		return qstar_set_error(graph, "qstar: out of memory");
+	if (command_runtime_init(graph, command, runtime) < 0)
+		return -1;
 	for (int ai = 0; ai < argc; ai++) {
 		arg = argv[ai];
 		if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0) {
 			project_command_help(command, out);
-			free(seen);
 			return 1;
 		}
-		if (strncmp(arg, "--", 2) != 0 || strcmp(arg, "--") == 0) {
-			free(seen);
+		if (strncmp(arg, "--", 2) != 0 || strcmp(arg, "--") == 0)
 			return qstar_set_error(graph,
 			    "qstar: command '%s' does not accept positional argument '%s'",
 			    command->name, arg);
-		}
 		name = arg + 2;
 		value = NULL;
+		bool_value = 0;
 		if (strncmp(name, "no-", 3) == 0) {
 			option = project_command_option(command, name + 3);
-			if (!option || strcmp(option->type, "bool") != 0) {
-				free(seen);
+			if (!option || strcmp(option->type, "bool") != 0)
 				return qstar_set_error(graph,
 				    "qstar: unknown bool option '%s' for command '%s'",
 				    arg, command->name);
-			}
 			bool_value = 0;
 		} else {
 			eq = strchr(name, '=');
 			if (eq) {
 				name_len = (size_t)(eq - name);
-				if (name_len == 0 || name_len >= sizeof(optname)) {
-					free(seen);
+				if (name_len == 0 || name_len >= sizeof(optname))
 					return qstar_set_error(graph,
 					    "qstar: invalid command option '%s'", arg);
-				}
 				memcpy(optname, name, name_len);
 				optname[name_len] = '\0';
 				name = optname;
 				value = eq + 1;
 			}
 			option = project_command_option(command, name);
-			if (!option) {
-				free(seen);
+			if (!option)
 				return qstar_set_error(graph,
 				    "qstar: unknown option '--%s' for command '%s'",
 				    name, command->name);
-			}
 			if (strcmp(option->type, "bool") == 0) {
 				if (!value) {
 					bool_value = 1;
 				} else if (parse_command_bool_value(value, &bool_value) < 0) {
-					free(seen);
 					return qstar_set_error(graph,
 					    "qstar: bool option '--%s' for command '%s' must be true or false",
 					    option->name, command->name);
 				}
 			} else {
 				if (!value) {
-					if (ai + 1 >= argc || strncmp(argv[ai + 1], "--", 2) == 0) {
-						free(seen);
+					if (ai + 1 >= argc ||
+					    strncmp(argv[ai + 1], "--", 2) == 0)
 						return qstar_set_error(graph,
 						    "qstar: option '--%s' for command '%s' requires a value",
 						    option->name, command->name);
-					}
 					value = argv[++ai];
 				}
-				rc = validate_command_option_value(graph, command, option, value);
-				if (rc < 0) {
-					free(seen);
+				rc = validate_command_option_value(graph, command, option,
+				    value);
+				if (rc < 0)
 					return rc;
-				}
 			}
 		}
-		(void)bool_value;
-		for (i = 0; i < command->option_len; i++) {
-			if (&command->options[i] == option) {
-				seen[i] = 1;
-				break;
-			}
+		slot = command_runtime_value_for_option(runtime, option);
+		if (!slot)
+			return qstar_set_error(graph, "qstar: internal command option error");
+		slot->seen = 1;
+		if (strcmp(option->type, "bool") == 0) {
+			slot->bool_value = bool_value;
+			if (command_runtime_replace_value(slot,
+			    bool_value ? "true" : "false") < 0)
+				return qstar_set_error(graph, "qstar: out of memory");
+		} else if (strcmp(option->type, "list") == 0) {
+			if (qstar_string_list_push(&slot->list, value) < 0)
+				return qstar_set_error(graph, "qstar: out of memory");
+		} else if (command_runtime_replace_value(slot, value) < 0) {
+			return qstar_set_error(graph, "qstar: out of memory");
 		}
 	}
-	for (i = 0; i < command->option_len; i++) {
-		if (command->options[i].required && !seen[i]) {
-			free(seen);
+	for (i = 0; i < runtime->len; i++) {
+		const struct qstar_command_option *option = runtime->values[i].option;
+		if (option->required && !runtime->values[i].seen)
 			return qstar_set_error(graph,
 			    "qstar: command '%s' missing required option '--%s'",
-			    command->name, command->options[i].name);
-		}
-		if (command->options[i].has_default &&
-		    strcmp(command->options[i].type, "path") == 0 &&
-		    validate_command_option_value(graph, command, &command->options[i],
-		    command->options[i].default_value) < 0) {
-			free(seen);
-			return -1;
-		}
+			    command->name, option->name);
 	}
-	free(seen);
+	return 0;
+}
+
+static int
+command_param_token_name_exec(const char *token, char *name, size_t namelen)
+{
+	const char *prefix = "<qstar-command-param:";
+	size_t prefix_len, len;
+
+	prefix_len = strlen(prefix);
+	len = strlen(token ? token : "");
+	if (len <= prefix_len + 1 || strncmp(token, prefix, prefix_len) != 0 ||
+	    token[len - 1] != '>')
+		return 0;
+	if (len - prefix_len - 1 >= namelen)
+		return -1;
+	memcpy(name, token + prefix_len, len - prefix_len - 1);
+	name[len - prefix_len - 1] = '\0';
+	return 1;
+}
+
+static int
+command_arg_if_token_parse_exec(const char *token, char *name, size_t namelen,
+    char *arg, size_t arglen)
+{
+	const char *prefix = "<qstar-command-arg-if:";
+	const char *p, *colon, *len_start, *arg_start, *end;
+	size_t prefix_len, name_len;
+	char *len_end;
+	long parsed_len;
+
+	prefix_len = strlen(prefix);
+	if (!token || strncmp(token, prefix, prefix_len) != 0)
+		return 0;
+	p = token + prefix_len;
+	colon = strchr(p, ':');
+	if (!colon || colon == p)
+		return -1;
+	name_len = (size_t)(colon - p);
+	if (name_len >= namelen)
+		return -1;
+	memcpy(name, p, name_len);
+	name[name_len] = '\0';
+	len_start = colon + 1;
+	parsed_len = strtol(len_start, &len_end, 10);
+	if (!len_end || *len_end != ':' || parsed_len < 0 ||
+	    (size_t)parsed_len >= arglen)
+		return -1;
+	arg_start = len_end + 1;
+	end = arg_start + parsed_len;
+	if (*end != '>' || end[1] != '\0')
+		return -1;
+	memcpy(arg, arg_start, (size_t)parsed_len);
+	arg[parsed_len] = '\0';
+	return 1;
+}
+
+static int
+command_value_append_argv(struct qstar_graph *graph,
+    const struct qstar_command_runtime *runtime,
+    const struct qstar_command_runtime_value *value,
+    struct qstar_string_list *argv)
+{
+	size_t i;
+
+	if (strcmp(value->option->type, "list") == 0) {
+		for (i = 0; i < value->list.len; i++) {
+			if (qstar_string_list_push(argv, value->list.items[i]) < 0)
+				return qstar_set_error(graph, "qstar: out of memory");
+		}
+		return 0;
+	}
+	(void)runtime;
+	return qstar_string_list_push(argv, value->value ? value->value : "") < 0 ?
+	    qstar_set_error(graph, "qstar: out of memory") : 0;
+}
+
+static int
+resolve_command_runtime_argv(struct qstar_graph *graph,
+    const struct qstar_command_runtime *runtime,
+    const struct qstar_string_list *input, struct qstar_string_list *argv)
+{
+	const struct qstar_command_runtime_value *value;
+	char name[128], arg[QSTAR_PATH_MAX];
+	size_t i;
+	int rc;
+
+	for (i = 0; i < input->len; i++) {
+		rc = command_param_token_name_exec(input->items[i], name, sizeof(name));
+		if (rc < 0)
+			return qstar_set_error(graph, "qstar: malformed qstar.param token");
+		if (rc > 0) {
+			value = command_runtime_value_for_name(runtime, name);
+			if (!value)
+				return qstar_set_error(graph,
+				    "qstar: unknown command option '%s'", name);
+			if (command_value_append_argv(graph, runtime, value, argv) < 0)
+				return -1;
+			continue;
+		}
+		rc = command_arg_if_token_parse_exec(input->items[i], name,
+		    sizeof(name), arg, sizeof(arg));
+		if (rc < 0)
+			return qstar_set_error(graph, "qstar: malformed qstar.arg_if token");
+		if (rc > 0) {
+			value = command_runtime_value_for_name(runtime, name);
+			if (!value)
+				return qstar_set_error(graph,
+				    "qstar: unknown command option '%s'", name);
+			if (strcmp(value->option->type, "bool") != 0)
+				return qstar_set_error(graph,
+				    "qstar: command option '%s' must be bool for qstar.arg_if",
+				    name);
+			if (value->bool_value &&
+			    qstar_string_list_push(argv, arg) < 0)
+				return qstar_set_error(graph, "qstar: out of memory");
+			continue;
+		}
+		if (qstar_string_list_push(argv, input->items[i]) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+	}
+	return 0;
+}
+
+static int
+command_runtime_bool_enabled(struct qstar_graph *graph,
+    const struct qstar_command_runtime *runtime, const char *name, int *enabled)
+{
+	const struct qstar_command_runtime_value *value;
+
+	*enabled = 1;
+	if (!name || !*name)
+		return 0;
+	value = command_runtime_value_for_name(runtime, name);
+	if (!value)
+		return qstar_set_error(graph, "qstar: unknown command option '%s'",
+		    name);
+	if (strcmp(value->option->type, "bool") != 0)
+		return qstar_set_error(graph,
+		    "qstar: command option '%s' must be bool for when", name);
+	*enabled = value->bool_value ? 1 : 0;
+	return 0;
+}
+
+static int
+run_project_command_process(struct qstar_graph *graph,
+    const struct qstar_project_command *command,
+    const struct qstar_command_step *step,
+    const struct qstar_command_runtime *runtime, FILE *out)
+{
+	struct qstar_string_list resolved;
+	char cwd[QSTAR_PATH_MAX], cwd_joined[QSTAR_PATH_MAX];
+	char **argv;
+	qstar_process_id pid;
+	const char *runner;
+	const char *workdir;
+	int status, rc;
+	size_t i;
+
+	memset(&resolved, 0, sizeof(resolved));
+	if (resolve_command_runtime_argv(graph, runtime, &step->run_command,
+	    &resolved) < 0)
+		return -1;
+	if (resolved.len == 0) {
+		qstar_string_list_free(&resolved);
+		return qstar_set_error(graph,
+		    "qstar: project command '%s' run step resolved to empty argv",
+		    command->name);
+	}
+	argv = calloc(resolved.len + 1, sizeof(argv[0]));
+	if (!argv) {
+		qstar_string_list_free(&resolved);
+		return qstar_set_error(graph, "qstar: out of memory");
+	}
+	for (i = 0; i < resolved.len; i++)
+		argv[i] = resolved.items[i];
+	workdir = step->working_dir && *step->working_dir ? step->working_dir :
+	    command->working_dir;
+	if (workdir && *workdir) {
+		if (qstar_path_join(graph->package_root ? graph->package_root : ".",
+		    workdir, cwd_joined, sizeof(cwd_joined)) < 0) {
+			free(argv);
+			qstar_string_list_free(&resolved);
+			return qstar_set_error(graph,
+			    "qstar: project command '%s' working_dir is too long",
+			    command->name);
+		}
+		snprintf(cwd, sizeof(cwd), "%s", cwd_joined);
+	} else {
+		snprintf(cwd, sizeof(cwd), "%s", graph->package_root ?
+		    graph->package_root : ".");
+	}
+	fprintf(out, "command_run cwd=%s argv=[", cwd);
+	for (i = 0; i < resolved.len; i++)
+		fprintf(out, "%s%s", i ? ", " : "", resolved.items[i]);
+	fputc(']', out);
+	fputc('\n', out);
+	rc = qstar_platform_process_start_inherit(graph, cwd, argv, &pid, &runner);
+	if (rc < 0) {
+		free(argv);
+		qstar_string_list_free(&resolved);
+		return -1;
+	}
+	(void)runner;
+	if (qstar_platform_process_wait_blocking(pid, &status) < 0) {
+		free(argv);
+		qstar_string_list_free(&resolved);
+		return qstar_set_error(graph,
+		    "qstar: project command '%s' run step wait failed",
+		    command->name);
+	}
+	free(argv);
+	qstar_string_list_free(&resolved);
+	if (!qstar_platform_process_exited_success(status))
+		return qstar_set_error(graph,
+		    "qstar: project command '%s' run step failed with exit code %d",
+		    command->name, qstar_platform_process_exit_code(status));
 	return 0;
 }
 
 static int
 run_project_command_internal(struct qstar_graph *graph,
     const struct qstar_project_command *command,
-    const struct qstar_build_options *options, FILE *out, int depth)
+    const struct qstar_build_options *options,
+    const struct qstar_command_runtime *runtime, FILE *out, int depth)
 {
 	struct qstar_stage_options stage_options;
 	const char *label;
 	size_t i;
-	int rc;
+	int rc, enabled;
 
 	if (depth > 32)
 		return qstar_set_error(graph, "qstar: project command call depth exceeded");
@@ -9402,7 +9720,17 @@ run_project_command_internal(struct qstar_graph *graph,
 			fprintf(out, " label=%s", label);
 		if (step->command && *step->command)
 			fprintf(out, " command=%s", step->command);
+		if (step->when && *step->when)
+			fprintf(out, " when=%s", step->when);
 		fputc('\n', out);
+		if (command_runtime_bool_enabled(graph, runtime, step->when,
+		    &enabled) < 0)
+			return -1;
+		if (!enabled) {
+			fprintf(out, "command_step_status %zu/%zu skip when=%s\n",
+			    i + 1, command->step_len, step->when);
+			continue;
+		}
 		if (strcmp(step->kind, "build") == 0) {
 			rc = strcmp(qstar_graph_generator(graph), "ninja") == 0 ?
 			    qstar_graph_build_ninja(graph, label, options, out) :
@@ -9426,13 +9754,25 @@ run_project_command_internal(struct qstar_graph *graph,
 			    "text", options ? options->color_mode : QSTAR_COLOR_AUTO, out);
 		} else if (strcmp(step->kind, "call") == 0) {
 			const struct qstar_project_command *called;
+			struct qstar_command_runtime called_runtime;
 			called = qstar_graph_find_project_command(graph, step->command);
 			if (!called)
 				return qstar_set_error(graph,
 				    "qstar: project command '%s' calls unknown command '%s'",
 				    command->name, step->command);
-			rc = run_project_command_internal(graph, called, options, out,
-			    depth + 1);
+			memset(&called_runtime, 0, sizeof(called_runtime));
+			rc = parse_project_command_args(graph, called, 0, NULL, out,
+			    &called_runtime);
+			if (rc < 0) {
+				command_runtime_free(&called_runtime);
+				return -1;
+			}
+			rc = run_project_command_internal(graph, called, options,
+			    &called_runtime, out, depth + 1);
+			command_runtime_free(&called_runtime);
+		} else if (strcmp(step->kind, "run") == 0) {
+			rc = run_project_command_process(graph, command, step, runtime,
+			    out);
 		} else {
 			rc = qstar_set_error(graph,
 			    "qstar: project command '%s' has unknown step kind '%s'",
@@ -9450,8 +9790,10 @@ qstar_graph_run_project_command(struct qstar_graph *graph, const char *name,
     int argc, char **argv, const struct qstar_build_options *options, FILE *out)
 {
 	const struct qstar_project_command *command;
+	struct qstar_command_runtime runtime;
 	int rc;
 
+	memset(&runtime, 0, sizeof(runtime));
 	command = name && *name ? qstar_graph_find_project_command(graph, name) :
 	    qstar_graph_default_project_command(graph);
 	if (!command)
@@ -9459,12 +9801,18 @@ qstar_graph_run_project_command(struct qstar_graph *graph, const char *name,
 		    "qstar: unknown command '%s'" :
 		    "qstar: no default project command declared",
 		    name && *name ? name : "");
-	rc = validate_project_command_args(graph, command, argc, argv, out);
-	if (rc > 0)
+	rc = parse_project_command_args(graph, command, argc, argv, out, &runtime);
+	if (rc > 0) {
+		command_runtime_free(&runtime);
 		return 0;
-	if (rc < 0)
+	}
+	if (rc < 0) {
+		command_runtime_free(&runtime);
 		return -1;
-	return run_project_command_internal(graph, command, options, out, 0);
+	}
+	rc = run_project_command_internal(graph, command, options, &runtime, out, 0);
+	command_runtime_free(&runtime);
+	return rc;
 }
 
 /** QStar action cache 기준으로 rebuild 이유를 설명한다. */

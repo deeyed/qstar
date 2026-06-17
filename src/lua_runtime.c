@@ -5832,28 +5832,153 @@ qstar_lua_stage_dir(lua_State *L)
 }
 
 static int
+valid_command_option_ref_name(const char *name)
+{
+	const unsigned char *p;
+
+	if (!name || !*name)
+		return 0;
+	if (!(isalpha((unsigned char)name[0]) || name[0] == '_'))
+		return 0;
+	for (p = (const unsigned char *)name + 1; *p; p++) {
+		if (!(isalnum(*p) || *p == '_' || *p == '-'))
+			return 0;
+	}
+	return 1;
+}
+
+static const char *
+command_param_table_name(lua_State *L, int idx)
+{
+	const char *kind, *name;
+
+	kind = qstar_table_kind(L, idx);
+	if (!kind || strcmp(kind, "command_param") != 0)
+		return NULL;
+	lua_getfield(L, idx, "name");
+	name = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+	lua_pop(L, 1);
+	return name;
+}
+
+static int
+format_command_param_token(lua_State *L, int idx, char *dst, size_t dstlen)
+{
+	const char *name;
+
+	name = command_param_table_name(L, idx);
+	if (!name)
+		return -1;
+	return snprintf(dst, dstlen, "<qstar-command-param:%s>", name) <
+	    (int)dstlen ? 0 : -1;
+}
+
+static int
+format_command_arg_if_token(const char *name, const char *arg, char *dst,
+    size_t dstlen)
+{
+	size_t arg_len;
+
+	arg_len = strlen(arg ? arg : "");
+	return snprintf(dst, dstlen, "<qstar-command-arg-if:%s:%zu:%s>", name,
+	    arg_len, arg ? arg : "") < (int)dstlen ? 0 : -1;
+}
+
+static int
+push_cli_item(lua_State *L, int out_idx, int item_idx)
+{
+	const char *kind, *name, *arg;
+	char token[QSTAR_PATH_MAX];
+	size_t dst, i, n;
+
+	if (item_idx < 0)
+		item_idx = lua_gettop(L) + item_idx + 1;
+	if (lua_isstring(L, item_idx)) {
+		dst = lua_rawlen(L, out_idx);
+		lua_pushvalue(L, item_idx);
+		lua_rawseti(L, out_idx, (lua_Integer)dst + 1);
+		return 0;
+	}
+	if (!lua_istable(L, item_idx))
+		return -1;
+	kind = qstar_table_kind(L, item_idx);
+	if (kind && strcmp(kind, "command_param") == 0) {
+		if (format_command_param_token(L, item_idx, token, sizeof(token)) < 0)
+			return -1;
+		dst = lua_rawlen(L, out_idx);
+		lua_pushstring(L, token);
+		lua_rawseti(L, out_idx, (lua_Integer)dst + 1);
+		return 0;
+	}
+	if (kind && strcmp(kind, "command_arg_if") == 0) {
+		lua_getfield(L, item_idx, "name");
+		name = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+		lua_getfield(L, item_idx, "arg");
+		arg = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+		if (!name || !arg ||
+		    format_command_arg_if_token(name, arg, token, sizeof(token)) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		dst = lua_rawlen(L, out_idx);
+		lua_pushstring(L, token);
+		lua_rawseti(L, out_idx, (lua_Integer)dst + 1);
+		lua_pop(L, 2);
+		return 0;
+	}
+	if (kind && strcmp(kind, "command_args_if") == 0) {
+		lua_getfield(L, item_idx, "name");
+		name = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+		lua_getfield(L, item_idx, "args");
+		if (!name || !lua_istable(L, -1)) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		n = lua_rawlen(L, -1);
+		for (i = 1; i <= n; i++) {
+			lua_rawgeti(L, -1, (lua_Integer)i);
+			arg = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+			if (!arg ||
+			    format_command_arg_if_token(name, arg, token,
+			    sizeof(token)) < 0) {
+				lua_pop(L, 3);
+				return -1;
+			}
+			dst = lua_rawlen(L, out_idx);
+			lua_pushstring(L, token);
+			lua_rawseti(L, out_idx, (lua_Integer)dst + 1);
+			lua_pop(L, 1);
+		}
+		lua_pop(L, 2);
+		return 0;
+	}
+	if (format_placeholder_token(L, item_idx, token, sizeof(token)) == 0) {
+		dst = lua_rawlen(L, out_idx);
+		lua_pushstring(L, token);
+		lua_rawseti(L, out_idx, (lua_Integer)dst + 1);
+		return 0;
+	}
+	return -1;
+}
+
+static int
 qstar_lua_cli(lua_State *L)
 {
 	size_t i, n;
-	char token[QSTAR_PATH_MAX];
+	int out_idx;
 
 	luaL_checktype(L, 1, LUA_TTABLE);
 	lua_newtable(L);
+	out_idx = lua_gettop(L);
 	lua_pushstring(L, "cli");
 	lua_setfield(L, -2, "__qstar_kind");
 	n = lua_rawlen(L, 1);
 	for (i = 1; i <= n; i++) {
 		lua_rawgeti(L, 1, (lua_Integer)i);
-		if (lua_isstring(L, -1)) {
-			lua_pushvalue(L, -1);
-		} else if (lua_istable(L, -1) &&
-		    format_placeholder_token(L, -1, token, sizeof(token)) == 0) {
-			lua_pushstring(L, token);
-		} else {
+		if (push_cli_item(L, out_idx, -1) < 0) {
 			lua_pop(L, 2);
 			return luaL_error(L, "qstar: qstar.cli contains unsupported argv item");
 		}
-		lua_rawseti(L, -3, (lua_Integer)i);
 		lua_pop(L, 1);
 	}
 	return 1;
@@ -6152,7 +6277,7 @@ read_command_steps_field(lua_State *L, int table,
     struct qstar_project_command *command, struct qstar_graph *graph)
 {
 	struct qstar_command_step *step;
-	const char *kind, *label, *called, *root;
+	const char *kind, *label, *called, *root, *when, *workdir;
 	size_t i, n;
 
 	lua_getfield(L, table, "steps");
@@ -6218,6 +6343,37 @@ read_command_steps_field(lua_State *L, int table,
 			step->stage_dry_run = lua_toboolean(L, -1) ? 1 : 0;
 		}
 		lua_pop(L, 1);
+		lua_getfield(L, -1, "when");
+		when = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+		if (when && replace_lua_string(&step->when, when, graph) < 0) {
+			lua_pop(L, 3);
+			return -1;
+		}
+		lua_pop(L, 1);
+		lua_getfield(L, -1, "working_dir");
+		workdir = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+		if (workdir && replace_lua_string(&step->working_dir, workdir,
+		    graph) < 0) {
+			lua_pop(L, 3);
+			return -1;
+		}
+		lua_pop(L, 1);
+		if (read_status_description_field(L, -1, graph,
+		    &step->description) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		if (read_list_field(L, -1, "env", &step->env, graph, 0,
+		    command->name) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		if (strcmp(kind, "run") == 0 &&
+		    read_command_field(L, -1, "command", &step->run_command,
+		    graph) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
 		lua_pop(L, 1);
 	}
 	lua_pop(L, 1);
@@ -6302,15 +6458,51 @@ push_command_step_table(lua_State *L, const char *kind)
 }
 
 static int
+set_command_step_when_from_table(lua_State *L, int step_idx, int opts_idx,
+    const char *api, int allow_stage_opts)
+{
+	const char *key, *name;
+
+	if (step_idx < 0)
+		step_idx = lua_gettop(L) + step_idx + 1;
+	if (opts_idx < 0)
+		opts_idx = lua_gettop(L) + opts_idx + 1;
+	lua_pushnil(L);
+	while (lua_next(L, opts_idx) != 0) {
+		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (!key || (strcmp(key, "when") != 0 &&
+		    (!allow_stage_opts || (strcmp(key, "root") != 0 &&
+		    strcmp(key, "dry_run") != 0))))
+			return luaL_error(L, "qstar: unknown %s option '%s'", api,
+			    key ? key : "<non-string>");
+		lua_pop(L, 1);
+	}
+	lua_getfield(L, opts_idx, "when");
+	if (!lua_isnil(L, -1)) {
+		if (!lua_istable(L, -1) ||
+		    !(name = command_param_table_name(L, -1)))
+			return luaL_error(L,
+			    "qstar: %s when must be qstar.param(\"name\")", api);
+		lua_pushstring(L, name);
+		lua_setfield(L, step_idx, "when");
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+static int
 qstar_lua_step_label(lua_State *L)
 {
 	struct qstar_lua_context *ctx;
 	const char *kind, *raw;
 	char label[QSTAR_PATH_MAX];
+	char api_name[64];
+	int out_idx, has_opts;
 
 	ctx = get_context(L);
 	kind = lua_tostring(L, lua_upvalueindex(1));
 	raw = luaL_checkstring(L, 1);
+	has_opts = !lua_isnoneornil(L, 2);
 	if (strcmp(raw, "//...") == 0) {
 		snprintf(label, sizeof(label), "%s", raw);
 	} else if (qstar_label_canonicalize(raw, ctx->current_dir, label,
@@ -6319,8 +6511,16 @@ qstar_lua_step_label(lua_State *L)
 		    kind, raw);
 	}
 	push_command_step_table(L, kind);
+	out_idx = lua_gettop(L);
 	lua_pushstring(L, label);
 	lua_setfield(L, -2, "label");
+	if (has_opts) {
+		luaL_checktype(L, 2, LUA_TTABLE);
+		snprintf(api_name, sizeof(api_name), "qstar.step.%s", kind);
+		if (set_command_step_when_from_table(L, out_idx, 2,
+		    api_name, 0) != 0)
+			return 1;
+	}
 	return 1;
 }
 
@@ -6330,10 +6530,11 @@ qstar_lua_step_stage(lua_State *L)
 	struct qstar_lua_context *ctx;
 	const char *raw, *root, *key;
 	char label[QSTAR_PATH_MAX];
-	int out_idx;
+	int out_idx, has_opts;
 
 	ctx = get_context(L);
 	raw = luaL_checkstring(L, 1);
+	has_opts = !lua_isnoneornil(L, 2);
 	if (qstar_label_canonicalize(raw, ctx->current_dir, label, sizeof(label)) < 0)
 		return luaL_error(L, "qstar: invalid qstar.step.stage label '%s'",
 		    raw);
@@ -6341,13 +6542,17 @@ qstar_lua_step_stage(lua_State *L)
 	out_idx = lua_gettop(L);
 	lua_pushstring(L, label);
 	lua_setfield(L, -2, "label");
-	if (!lua_isnoneornil(L, 2)) {
+	if (has_opts) {
 		luaL_checktype(L, 2, LUA_TTABLE);
+		if (set_command_step_when_from_table(L, out_idx, 2,
+		    "qstar.step.stage", 1) != 0)
+			return 1;
 		lua_pushnil(L);
 		while (lua_next(L, 2) != 0) {
 			key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
 			if (!key || (strcmp(key, "root") != 0 &&
-			    strcmp(key, "dry_run") != 0))
+			    strcmp(key, "dry_run") != 0 &&
+			    strcmp(key, "when") != 0))
 				return luaL_error(L,
 				    "qstar: unknown qstar.step.stage option '%s'",
 				    key ? key : "<non-string>");
@@ -6380,11 +6585,149 @@ static int
 qstar_lua_step_call(lua_State *L)
 {
 	const char *name;
+	int out_idx, has_opts;
 
 	name = luaL_checkstring(L, 1);
+	has_opts = !lua_isnoneornil(L, 2);
 	push_command_step_table(L, "call");
+	out_idx = lua_gettop(L);
 	lua_pushstring(L, name);
 	lua_setfield(L, -2, "command");
+	if (has_opts) {
+		luaL_checktype(L, 2, LUA_TTABLE);
+		if (set_command_step_when_from_table(L, out_idx, 2,
+		    "qstar.step.call", 0) != 0)
+			return 1;
+	}
+	return 1;
+}
+
+static int
+qstar_lua_step_run(lua_State *L)
+{
+	static const char *const allowed[] = {
+		"command", "env", "working_dir", "description", "when", NULL
+	};
+	struct qstar_lua_context *ctx;
+	struct qstar_graph *graph;
+	const char *name;
+	int out_idx;
+
+	ctx = get_context(L);
+	graph = ctx->graph;
+	luaL_checktype(L, 1, LUA_TTABLE);
+	if (qstar_lua_validate_table_fields(L, 1, graph, "qstar.step.run",
+	    allowed) < 0)
+		return luaL_error(L, "%s", graph->error);
+	push_command_step_table(L, "run");
+	out_idx = lua_gettop(L);
+	lua_getfield(L, 1, "command");
+	if (lua_isnil(L, -1))
+		return luaL_error(L, "qstar: qstar.step.run requires command");
+	if (!lua_istable(L, -1) || !qstar_table_kind(L, -1) ||
+	    strcmp(qstar_table_kind(L, -1), "cli") != 0)
+		return luaL_error(L,
+		    "qstar: qstar.step.run command must be qstar.cli { ... }");
+	lua_setfield(L, out_idx, "command");
+	lua_getfield(L, 1, "env");
+	if (!lua_isnil(L, -1))
+		lua_setfield(L, out_idx, "env");
+	else
+		lua_pop(L, 1);
+	lua_getfield(L, 1, "working_dir");
+	if (!lua_isnil(L, -1)) {
+		if (!lua_isstring(L, -1))
+			return luaL_error(L,
+			    "qstar: qstar.step.run working_dir must be a string");
+		lua_setfield(L, out_idx, "working_dir");
+	} else {
+		lua_pop(L, 1);
+	}
+	lua_getfield(L, 1, "description");
+	if (!lua_isnil(L, -1))
+		lua_setfield(L, out_idx, "description");
+	else
+		lua_pop(L, 1);
+	lua_getfield(L, 1, "when");
+	if (!lua_isnil(L, -1)) {
+		if (!lua_istable(L, -1) ||
+		    !(name = command_param_table_name(L, -1)))
+			return luaL_error(L,
+			    "qstar: qstar.step.run when must be qstar.param(\"name\")");
+		lua_pushstring(L, name);
+		lua_setfield(L, out_idx, "when");
+	}
+	lua_pop(L, 1);
+	return 1;
+}
+
+static int
+qstar_lua_param_ref(lua_State *L)
+{
+	const char *name;
+	int name_idx;
+
+	name_idx = lua_istable(L, 1) ? 2 : 1;
+	name = luaL_checkstring(L, name_idx);
+	if (!valid_command_option_ref_name(name))
+		return luaL_error(L, "qstar: invalid command option reference '%s'",
+		    name);
+	lua_newtable(L);
+	lua_pushstring(L, "command_param");
+	lua_setfield(L, -2, "__qstar_kind");
+	lua_pushstring(L, name);
+	lua_setfield(L, -2, "name");
+	return 1;
+}
+
+static int
+qstar_lua_arg_if(lua_State *L)
+{
+	const char *name, *arg;
+
+	luaL_checktype(L, 1, LUA_TTABLE);
+	name = command_param_table_name(L, 1);
+	if (!name)
+		return luaL_error(L,
+		    "qstar: qstar.arg_if condition must be qstar.param(\"name\")");
+	arg = luaL_checkstring(L, 2);
+	lua_newtable(L);
+	lua_pushstring(L, "command_arg_if");
+	lua_setfield(L, -2, "__qstar_kind");
+	lua_pushstring(L, name);
+	lua_setfield(L, -2, "name");
+	lua_pushstring(L, arg);
+	lua_setfield(L, -2, "arg");
+	return 1;
+}
+
+static int
+qstar_lua_args_if(lua_State *L)
+{
+	const char *name;
+	size_t i, n;
+
+	luaL_checktype(L, 1, LUA_TTABLE);
+	name = command_param_table_name(L, 1);
+	if (!name)
+		return luaL_error(L,
+		    "qstar: qstar.args_if condition must be qstar.param(\"name\")");
+	luaL_checktype(L, 2, LUA_TTABLE);
+	lua_newtable(L);
+	lua_pushstring(L, "command_args_if");
+	lua_setfield(L, -2, "__qstar_kind");
+	lua_pushstring(L, name);
+	lua_setfield(L, -2, "name");
+	lua_newtable(L);
+	n = lua_rawlen(L, 2);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, 2, (lua_Integer)i);
+		if (!lua_isstring(L, -1))
+			return luaL_error(L,
+			    "qstar: qstar.args_if args must be a list of strings");
+		lua_rawseti(L, -2, (lua_Integer)i);
+	}
+	lua_setfield(L, -2, "args");
 	return 1;
 }
 
@@ -7477,7 +7820,13 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "lint");
 	lua_pushcfunction(L, qstar_lua_step_call);
 	lua_setfield(L, -2, "call");
+	lua_pushcfunction(L, qstar_lua_step_run);
+	lua_setfield(L, -2, "run");
 	lua_setfield(L, -2, "step");
+	lua_pushcfunction(L, qstar_lua_arg_if);
+	lua_setfield(L, -2, "arg_if");
+	lua_pushcfunction(L, qstar_lua_args_if);
+	lua_setfield(L, -2, "args_if");
 	lua_newtable(L);
 	lua_pushstring(L, "string");
 	lua_pushcclosure(L, qstar_lua_param_type, 1);
@@ -7497,6 +7846,10 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_pushstring(L, "list");
 	lua_pushcclosure(L, qstar_lua_param_type, 1);
 	lua_setfield(L, -2, "list");
+	lua_newtable(L);
+	lua_pushcfunction(L, qstar_lua_param_ref);
+	lua_setfield(L, -2, "__call");
+	lua_setmetatable(L, -2);
 	lua_setfield(L, -2, "param");
 	lua_pushcfunction(L, qstar_lua_identity_table);
 	lua_setfield(L, -2, "modules");

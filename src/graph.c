@@ -336,6 +336,11 @@ free_command_step(struct qstar_command_step *step)
 	free(step->label);
 	free(step->command);
 	free(step->stage_root);
+	free(step->when);
+	free(step->working_dir);
+	free(step->description);
+	qstar_string_list_free(&step->run_command);
+	qstar_string_list_free(&step->env);
 }
 
 /** root project command가 소유한 문자열과 option/step list를 해제한다. */
@@ -2130,7 +2135,11 @@ qstar_project_command_add_step(struct qstar_graph *graph,
 	step->label = qstar_strdup("");
 	step->command = qstar_strdup("");
 	step->stage_root = qstar_strdup("");
-	if (!step->kind || !step->label || !step->command || !step->stage_root) {
+	step->when = qstar_strdup("");
+	step->working_dir = qstar_strdup("");
+	step->description = qstar_strdup("");
+	if (!step->kind || !step->label || !step->command || !step->stage_root ||
+	    !step->when || !step->working_dir || !step->description) {
 		qstar_set_error(graph, "qstar: out of memory");
 		return NULL;
 	}
@@ -2200,12 +2209,137 @@ command_string_list_contains(const struct qstar_string_list *list, const char *v
 	return 0;
 }
 
+static const struct qstar_command_option *
+project_command_find_option_decl(const struct qstar_project_command *command,
+    const char *name)
+{
+	size_t i;
+
+	if (!command || !name || !*name)
+		return NULL;
+	for (i = 0; i < command->option_len; i++) {
+		if (strcmp(command->options[i].name, name) == 0)
+			return &command->options[i];
+	}
+	return NULL;
+}
+
+static int
+command_param_token_name(const char *token, char *name, size_t namelen)
+{
+	const char *prefix = "<qstar-command-param:";
+	size_t prefix_len, len;
+
+	prefix_len = strlen(prefix);
+	len = strlen(token ? token : "");
+	if (len <= prefix_len + 1 || strncmp(token, prefix, prefix_len) != 0 ||
+	    token[len - 1] != '>')
+		return 0;
+	if (len - prefix_len - 1 >= namelen)
+		return -1;
+	memcpy(name, token + prefix_len, len - prefix_len - 1);
+	name[len - prefix_len - 1] = '\0';
+	return 1;
+}
+
+static int
+command_arg_if_token_parse(const char *token, char *name, size_t namelen)
+{
+	const char *prefix = "<qstar-command-arg-if:";
+	const char *p, *colon, *len_start, *arg_start, *end;
+	size_t prefix_len, name_len;
+	char *len_end;
+	long arg_len;
+
+	prefix_len = strlen(prefix);
+	if (!token || strncmp(token, prefix, prefix_len) != 0)
+		return 0;
+	p = token + prefix_len;
+	colon = strchr(p, ':');
+	if (!colon || colon == p)
+		return -1;
+	name_len = (size_t)(colon - p);
+	if (name_len >= namelen)
+		return -1;
+	memcpy(name, p, name_len);
+	name[name_len] = '\0';
+	len_start = colon + 1;
+	arg_len = strtol(len_start, &len_end, 10);
+	if (!len_end || *len_end != ':' || arg_len < 0)
+		return -1;
+	arg_start = len_end + 1;
+	end = arg_start + arg_len;
+	if (*end != '>' || end[1] != '\0')
+		return -1;
+	return 1;
+}
+
+static int
+validate_command_runtime_ref(struct qstar_graph *graph,
+    const struct qstar_project_command *command, const char *name,
+    const char *owner, int require_bool)
+{
+	const struct qstar_command_option *option;
+
+	option = project_command_find_option_decl(command, name);
+	if (!option)
+		return qstar_set_error_origin(graph, command->origin_file,
+		    command->origin_line, owner, command->name,
+		    "qstar: project command '%s' references unknown option '%s'",
+		    command->name, name ? name : "");
+	if (require_bool && strcmp(option->type, "bool") != 0)
+		return qstar_set_error_origin(graph, command->origin_file,
+		    command->origin_line, owner, command->name,
+		    "qstar: project command '%s' option '%s' must be bool for %s",
+		    command->name, name, owner);
+	return 0;
+}
+
+static int
+validate_command_runtime_argv(struct qstar_graph *graph,
+    const struct qstar_project_command *command,
+    const struct qstar_string_list *argv)
+{
+	char name[128];
+	size_t i;
+	int rc;
+
+	for (i = 0; i < argv->len; i++) {
+		rc = command_param_token_name(argv->items[i], name, sizeof(name));
+		if (rc < 0)
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "command", command->name,
+			    "qstar: malformed qstar.param token in project command '%s'",
+			    command->name);
+		if (rc > 0) {
+			if (validate_command_runtime_ref(graph, command, name,
+			    "command", 0) < 0)
+				return -1;
+			continue;
+		}
+		rc = command_arg_if_token_parse(argv->items[i], name, sizeof(name));
+		if (rc < 0)
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "command", command->name,
+			    "qstar: malformed qstar.arg_if token in project command '%s'",
+			    command->name);
+		if (rc > 0 &&
+		    validate_command_runtime_ref(graph, command, name, "command",
+		    1) < 0)
+			return -1;
+	}
+	return 0;
+}
+
 static int
 validate_project_command_step(struct qstar_graph *graph,
     const struct qstar_project_command *command, const struct qstar_command_step *step)
 {
 	const struct qstar_target *target;
 
+	if (step->when && *step->when &&
+	    validate_command_runtime_ref(graph, command, step->when, "when", 1) < 0)
+		return -1;
 	if (strcmp(step->kind, "build") == 0) {
 		if (!step->label || !*step->label ||
 		    !project_command_step_label_known(graph, step->label))
@@ -2266,6 +2400,23 @@ validate_project_command_step(struct qstar_graph *graph,
 			    command->origin_line, "steps", command->name,
 			    "qstar: project command '%s' call step references unknown command '%s'",
 			    command->name, step->command ? step->command : "");
+		return 0;
+	}
+	if (strcmp(step->kind, "run") == 0) {
+		if (step->run_command.len == 0)
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "steps", command->name,
+			    "qstar: project command '%s' run step requires command",
+			    command->name);
+		if (step->working_dir && *step->working_dir &&
+		    !qstar_path_is_package_relative(step->working_dir))
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "steps", command->name,
+			    "qstar: project command '%s' run step working_dir '%s' must be package-relative",
+			    command->name, step->working_dir);
+		if (validate_command_runtime_argv(graph, command,
+		    &step->run_command) < 0)
+			return -1;
 		return 0;
 	}
 	return qstar_set_error_origin(graph, command->origin_file, command->origin_line,
@@ -2758,10 +2909,18 @@ dump_project_command_step_text(FILE *out, const struct qstar_command_step *step)
 		fprintf(out, " label=%s", step->label);
 	if (step->command && *step->command)
 		fprintf(out, " command=%s", step->command);
+	if (step->when && *step->when)
+		fprintf(out, " when=%s", step->when);
 	if (step->stage_root && *step->stage_root)
 		fprintf(out, " root=%s", step->stage_root);
+	if (step->working_dir && *step->working_dir)
+		fprintf(out, " working_dir=%s", step->working_dir);
 	if (strcmp(step->kind, "stage") == 0)
 		fprintf(out, " dry_run=%s", step->stage_dry_run ? "true" : "false");
+	if (strcmp(step->kind, "run") == 0) {
+		fputs(" argv=", out);
+		dump_list(out, &step->run_command);
+	}
 	fputc('\n', out);
 }
 
@@ -2827,10 +2986,18 @@ dump_project_command_step_json(FILE *out, const struct qstar_command_step *step)
 	dump_json_string(out, step->label && *step->label ? step->label : "");
 	fputs(",\"command\":", out);
 	dump_json_string(out, step->command && *step->command ? step->command : "");
+	fputs(",\"when\":", out);
+	dump_json_string(out, step->when && *step->when ? step->when : "");
 	fputs(",\"stage_root\":", out);
 	dump_json_string(out, step->stage_root && *step->stage_root ?
 	    step->stage_root : "");
-	fprintf(out, ",\"stage_dry_run\":%s}", step->stage_dry_run ? "true" : "false");
+	fputs(",\"working_dir\":", out);
+	dump_json_string(out, step->working_dir && *step->working_dir ?
+	    step->working_dir : "");
+	fprintf(out, ",\"stage_dry_run\":%s,\"argv\":",
+	    step->stage_dry_run ? "true" : "false");
+	dump_json_list(out, &step->run_command);
+	fputc('}', out);
 }
 
 int
