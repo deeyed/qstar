@@ -94,7 +94,7 @@ if [ "$host_windows" -eq 1 ]; then
 	contains "$tmp/object-bridge-emit.out" "ninja_file build/qstar/ninja/build.ninja"
 	contains "$object_bridge/build/qstar/ninja/build.ninja" "qstar_action_id = //:objc_object:generate:0"
 	contains "$object_bridge/build/qstar/ninja/build.ninja" "description = Building Objective-C object AppDelegate.o"
-	contains "$object_bridge/build/qstar/ninja/build.ninja" "build/qstar/out/___app/app.exe: qstar_link build/qstar/out/___app/obj0.o build/qstar/generated/objc/AppDelegate.o"
+	contains "$object_bridge/build/qstar/ninja/build.ninja" "build/qstar/out/___app/app: qstar_link build/qstar/out/___app/obj0.o build/qstar/generated/objc/AppDelegate.o"
 	"$qstar" --file "$object_bridge/qstar.lua" emit-ninja //:objc_static \
 		> "$tmp/object-bridge-static-emit.out" 2> "$tmp/object-bridge-static-emit.err"
 	contains "$object_bridge/build/qstar/ninja/build.ninja" "build/qstar/out/___objc_static/libobjc_static.a: qstar_archive build/qstar/generated/objc/AppDelegate.o"
@@ -255,7 +255,7 @@ if command -v ninja >/dev/null 2>&1; then
 		"$qstar" --file "$object_bridge/qstar.lua" -G ninja build //:objc_static --progress off > "$tmp/object-bridge-static-build.out" 2> "$tmp/object-bridge-static-build.err"
 		contains "$tmp/object-bridge-static-build.out" "backend ninja"
 		contains "$tmp/object-bridge-static-build.out" "status ok"
-		test -f "$object_bridge/build/qstar/out/___app/app.exe" || fail "object bridge ninja executable missing"
+		test -f "$object_bridge/build/qstar/out/___app/app" || fail "object bridge ninja executable missing"
 	else
 		"$qstar" --file "$object_bridge/qstar.lua" -G ninja build //:all --progress off > "$tmp/object-bridge-build.out" 2> "$tmp/object-bridge-build.err"
 		contains "$tmp/object-bridge-build.out" "backend ninja"
