@@ -445,6 +445,64 @@ windows_open_inherited_output_file(const char *path)
 	return CreateFileA(path, GENERIC_WRITE, FILE_SHARE_READ, &sa, CREATE_ALWAYS,
 	    FILE_ATTRIBUTE_NORMAL, NULL);
 }
+
+static int
+windows_argv0_has_path(const char *arg0)
+{
+	return arg0 && (strchr(arg0, '/') || strchr(arg0, '\\') ||
+	    (arg0[0] && arg0[1] == ':'));
+}
+
+static int
+windows_argv0_is_absolute(const char *arg0)
+{
+	if (!arg0 || !arg0[0])
+		return 0;
+	if (arg0[0] && arg0[1] == ':')
+		return 1;
+	return arg0[0] == '/' || arg0[0] == '\\';
+}
+
+static int
+windows_application_name_from_argv(char *const argv[], const char *cwd, char *dst,
+    size_t dstlen)
+{
+	char **effective = NULL;
+	const char *arg0;
+	char combined[QSTAR_PATH_MAX];
+	size_t i;
+	DWORD n;
+
+	if (!dst || dstlen == 0)
+		return -1;
+	dst[0] = '\0';
+	if (!argv || !argv[0])
+		return -1;
+	effective = windows_effective_argv(argv, NULL);
+	if (windows_argv_needs_sh_adapter(argv) && !effective)
+		return -1;
+	arg0 = effective ? effective[0] : argv[0];
+	if (!windows_argv0_has_path(arg0)) {
+		free(effective);
+		return 0;
+	}
+	if (windows_argv0_is_absolute(arg0)) {
+		free(effective);
+		return windows_normalize_cwd(arg0, dst, dstlen);
+	}
+	if (snprintf(combined, sizeof(combined), "%s\\%s", cwd, arg0) >=
+	    (int)sizeof(combined)) {
+		free(effective);
+		return -1;
+	}
+	free(effective);
+	for (i = 0; combined[i]; i++) {
+		if (combined[i] == '/')
+			combined[i] = '\\';
+	}
+	n = GetFullPathNameA(combined, (DWORD)dstlen, dst, NULL);
+	return n > 0 && n < dstlen ? 0 : -1;
+}
 #endif
 
 static int
@@ -458,6 +516,7 @@ windows_start_process(struct qstar_graph *graph,
 	HANDLE stdout_handle = INVALID_HANDLE_VALUE;
 	HANDLE stderr_handle = INVALID_HANDLE_VALUE;
 	char command_line[32768];
+	char application_name[QSTAR_PATH_MAX];
 	char cwd[QSTAR_PATH_MAX];
 	char *env_block = NULL;
 	size_t env_bytes = 0;
@@ -475,6 +534,10 @@ windows_start_process(struct qstar_graph *graph,
 		    "qstar: Windows process command line is too long");
 	if (windows_normalize_cwd(req->cwd, cwd, sizeof(cwd)) < 0)
 		return qstar_set_error(graph, "qstar: Windows process cwd is too long");
+	if (windows_application_name_from_argv((char *const *)req->argv, cwd,
+	    application_name, sizeof(application_name)) < 0)
+		return qstar_set_error(graph,
+		    "qstar: Windows process application path is too long");
 	if (qstar_platform_windows_env_block_from_current(NULL, 0, &env_bytes) < 0)
 		return qstar_set_error(graph,
 		    "qstar: could not size Windows process environment block");
@@ -514,8 +577,8 @@ windows_start_process(struct qstar_graph *graph,
 	si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
 	si.hStdOutput = stdout_handle;
 	si.hStdError = stderr_handle;
-	if (!CreateProcessA(NULL, command_line, NULL, NULL, TRUE, 0, env_block, cwd,
-	    &si, &pi)) {
+	if (!CreateProcessA(application_name[0] ? application_name : NULL, command_line,
+	    NULL, NULL, TRUE, 0, env_block, cwd, &si, &pi)) {
 		DWORD err = GetLastError();
 		if (req->stdio_mode == QSTAR_PROCESS_STDIO_FILES) {
 			CloseHandle(stdout_handle);
