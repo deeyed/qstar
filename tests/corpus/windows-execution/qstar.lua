@@ -103,6 +103,19 @@ qstar.executable "hello" {
   artifact_name = "hello.exe",
 }
 
+qstar.run_target "hello_smoke" {
+  deps = {
+    "//:hello",
+  },
+  command = qstar.cli {
+    qstar.target_file("//:hello"),
+  },
+  timeout = 5,
+  expect = {
+    contains = "windows-execution hello",
+  },
+}
+
 qstar.staticlib "core" {
   configs = {
     "//:c_baseline",
@@ -168,6 +181,7 @@ qstar.executable "bridge_app" {
 qstar.group "all" {
   deps = {
     "//:hello",
+    "//:hello_smoke",
     "//:app",
     "//:response_probe",
     "//:bridge_app",

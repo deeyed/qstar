@@ -655,36 +655,29 @@ observed_stream_flush_line(struct qstar_build_ctx *ctx,
 static int
 observed_stream_drain(struct qstar_build_ctx *ctx, struct qstar_observed_stream *stream)
 {
-#if QSTAR_PLATFORM_WINDOWS
-	(void)ctx;
-	(void)stream;
-	return 0;
-#else
 	char buf[4096];
-	ssize_t n;
+	size_t n;
+	int eof;
 
 	if (stream->fd < 0)
 		return 0;
 	for (;;) {
-		n = read(stream->fd, buf, sizeof(buf));
+		if (qstar_platform_process_read_fd(stream->fd, buf, sizeof(buf), &n,
+		    &eof) < 0) {
+			qstar_platform_process_close_fd(&stream->fd);
+			return -1;
+		}
 		if (n > 0) {
-			observed_stream_consume(ctx, stream, buf, (size_t)n);
+			observed_stream_consume(ctx, stream, buf, n);
 			continue;
 		}
-		if (n == 0) {
-			close(stream->fd);
+		if (eof) {
+			qstar_platform_process_close_fd(&stream->fd);
 			stream->fd = -1;
 			return 0;
 		}
-		if (errno == EINTR)
-			continue;
-		if (errno == EAGAIN || errno == EWOULDBLOCK)
-			return 0;
-		close(stream->fd);
-		stream->fd = -1;
-		return -1;
+		return 0;
 	}
-#endif
 }
 
 /** child stdout/stderr capture용 pipe를 준비한다. 원문 log 파일은 출력이 생길 때 연다. */
@@ -1817,6 +1810,15 @@ write_action_log_stream(FILE *f, char *const argv[], const char *exit_text,
 		write_shell_arg(f, argv[i]);
 	}
 	fputc('\n', f);
+#if QSTAR_PLATFORM_WINDOWS
+	{
+		char command_line[32768];
+
+		if (qstar_platform_windows_command_line_from_argv(argv, command_line,
+		    sizeof(command_line)) == 0)
+			fprintf(f, "windows_command_line=%s\n", command_line);
+	}
+#endif
 }
 
 /** argv 배열을 action log 파일에 deterministic하게 기록한다. */
@@ -1959,6 +1961,15 @@ write_failure_replay_detail(const struct qstar_graph *graph, const char *id,
 	for (i = 0; argv[i]; i++)
 		hash_str(&digest, argv[i]);
 	fprintf(f, "argv_digest=%016llx\n", digest);
+#if QSTAR_PLATFORM_WINDOWS
+	{
+		char command_line[32768];
+
+		if (qstar_platform_windows_command_line_from_argv(argv, command_line,
+		    sizeof(command_line)) == 0)
+			fprintf(f, "windows_command_line=%s\n", command_line);
+	}
+#endif
 	if (toolchain && toolchain->response_files && argv_needs_response_file(argv)) {
 		char name[QSTAR_PATH_MAX], rel[QSTAR_PATH_MAX];
 		const char *style = toolchain->response_style[0] ?

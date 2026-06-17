@@ -82,17 +82,17 @@ Windows는 아직 official support가 아니다.
 | Baseline lane | MSYS2 UCRT64 gcc |
 | Public asset | none |
 | Native source build | alpha failure list 관리 중 |
-| Current known native blocker | hosted rerun needed after Q179 process boundary split; CreateProcess runner deferred |
+| Current known native blocker | hosted rerun needed after Q220 Stella CreateProcess runner |
 | Daemon transport | Windows named pipe deferred |
 | `.exe`/static `.lib` | contract and local fake-tool regression sealed |
-| Execution corpus | MSYS2 UCRT64 GCC build/run/install baseline added in Q178 |
+| Execution corpus | MSYS2 UCRT64 GCC build/run/install baseline added in Q178; Stella CreateProcess runner added in Q220 |
 | `.dll`/import `.lib` | implementation deferred |
 
 0.8의 첫 번째 목표는 Windows를 "manual alpha"에서 "validation-backed beta candidate"로
 올리는 것이다. 이 말은 곧바로 Windows asset을 공개한다는 뜻이 아니다. 먼저 다음이 필요하다.
 
-- Q179의 `_WIN32` process/event runner boundary split을 hosted Windows alpha에서 재검증
-- CreateProcess 기반 Stella/Ninja launcher를 구현해 native execution corpus를 실제 실행 단계까지 진행
+- Q220의 Stella CreateProcess runner를 hosted Windows alpha에서 재검증
+- Ninja launcher parity를 같은 platform process layer 위에서 검증
 - MSYS2 UCRT64 lane이 반복 green이거나, 실패하더라도 structured known issue만 남기는 상태
 - `.exe`, static archive, response-file, generated object bridge, install smoke를 real Windows
   host에서 통과
@@ -218,7 +218,7 @@ v1.0 blocker를 0.8 기준으로 다시 정렬한다.
 
 | Round band | Focus | Exit gate |
 | --- | --- | --- |
-| Q178-Q181 | Windows execution corpus and process/event portability | MSYS2 alpha reaches past executor `<poll.h>` boundary, then records the next CreateProcess/native execution blocker |
+| Q178-Q181 | Windows execution corpus and process/event portability | MSYS2 alpha reaches past executor `<poll.h>` and Stella CreateProcess execution, then records the next native Windows blocker |
 | Q182-Q185 | Windows `.dll`/import `.lib` implementation | Stella/Ninja sharedlib parity fixture green |
 | Q186-Q188 | Windows install/stage and native smoke | `.exe`, static `.lib`, runtime `.dll`, import `.lib` layout smoke green |
 | Q189-Q190 | Daemon default-prep hardening | daemon remains opt-in; security/lifecycle report refreshed |

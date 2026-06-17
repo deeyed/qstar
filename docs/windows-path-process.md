@@ -41,7 +41,13 @@ Stella actions, Stella/Ninja test artifact execution, and QStar's Ninja launcher
 now share the same platform process start, stdout/stderr pipe, wait, terminate,
 and status-normalization layer. The Windows side prepares argv-to-command-line
 quoting, environment block materialization, cwd, pipe setup, and timeout/kill
-semantics, while the actual `CreateProcess` launch remains deferred.
+semantics.
+Round Q220 implements the Stella CreateProcess runner on top of that layer:
+Windows Stella actions now launch with `CreateProcessA`, capture stdout/stderr,
+propagate exit codes, enforce timeouts with `TerminateProcess`, and record the
+effective Windows command line in action logs and replay detail. The execution
+corpus also exercises a `run_target` with `expect.contains`, so Windows alpha
+now checks captured program output instead of stopping at graph generation.
 
 ## Status
 
@@ -59,10 +65,11 @@ Linux has validation and release-candidate packaging dry-run coverage. Windows
 has a manual alpha lane, but remains unofficial until QStar has a green regular
 Windows CI lane, source build, install smoke, response-file execution with real
 Windows tools, and artifact packaging story. Q178 starts that execution path for
-MSYS2 UCRT64 GCC; Q179 moves the process-runner failure from POSIX headers to an
-explicit unsupported CreateProcess boundary and starts closing filesystem helper
-signature differences. Q219 narrows that boundary further to
-`src/platform_process.c`; MSVC/clang-cl execution is still deferred.
+MSYS2 UCRT64 GCC; Q179 moves the process-runner failure from POSIX headers into
+a platform boundary and starts closing filesystem helper signature differences.
+Q219 narrows that boundary further to `src/platform_process.c`; Q220 fills the
+Stella `CreateProcessA` launch path for compile/link/custom/run actions.
+MSVC/clang-cl execution is still deferred.
 
 ## Path Normalization Rule
 
@@ -128,14 +135,17 @@ qstar.custom_target "probe" {
 
 QStar must pass each list item as one argv element. It must not expand `$VAR`,
 split on spaces, interpret semicolons, or run commands through a shell. The
-Windows port should use the platform process API with the same argv-vector
-semantics, not a shell command string.
+Windows port uses the platform process API with the same argv-vector semantics.
+For MSYS2 alpha fixtures only, Q220 allows the platform layer to execute a
+package-local `.sh` program as the effective command line `sh <script>.sh ...`;
+QStar's logged argv, dependency key, and DSL contract remain the original argv
+vector.
 
-Until that runner lands, `_WIN32` Stella build/test execution and QStar's Ninja
-launcher fail with explicit diagnostics instead of accidentally depending on
-POSIX process APIs. This is intentional: `qstar check`, `qstar dry-run`, and
-`qstar emit-ninja` can continue validating graph contracts while real Windows
-execution remains a separate implementation step.
+`_WIN32` Stella build/test execution now uses the CreateProcess runner. The
+`qstar check`, `qstar dry-run`, and `qstar emit-ninja` commands continue
+validating graph contracts without launching tools. QStar's Ninja launcher
+shares the same platform process layer, but Windows Ninja parity is a follow-up
+alpha-hardening gate until the optional Windows workflow lane is green.
 
 Local non-Windows tests use `tests/corpus/response-files/tools/fake-clang-cl` to
 prove that QStar itself preserves argv structure and response-file escaping. That
@@ -277,6 +287,7 @@ alpha workflow.
 `workflow_dispatch`. It checks out submodules, uses an MSYS2 UCRT64 environment,
 runs `make all CC=gcc`, records `qstar --version`, runs
 `make qstar-windows-native-alpha-tests CC=gcc`, runs
+`make qstar-windows-execution-corpus-tests CC=gcc`, runs
 `make qstar-windows-prep-tests CC=gcc`, and performs an install docs/manpage
 smoke under `/tmp/qstar-windows-smoke`. When the `run_ninja_parity=true` input
 is enabled it also runs `make qstar-ninja-backend-parity-tests CC=gcc`.

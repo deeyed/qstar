@@ -179,17 +179,21 @@ QStar가 하지 않는 일:
   분리하고, `qstar_platform_mkdir`/`qstar_platform_lstat`로 Windows C library signature 차이를
   줄인다. Q179 hosted run `https://github.com/deeyed/qstar/actions/runs/27527243941`은
   `make all`, `qstar --version`, native alpha smoke를 통과했고 Windows execution corpus에서
-  멈췄다. 다음 Windows 작업은 execution corpus failure dump 개선과 CreateProcess 기반
-  Stella/Ninja launcher 구현이다. Q218부터 실패한 `windows-native-alpha`와
+  멈췄다. Q218부터 실패한 `windows-native-alpha`와
   `windows-execution` script는 `native-alpha-detail/` 또는 `windows-execution-detail/`
   아래에 inner temp `.out`/`.err`, corpus `build/qstar`, response files, generated files,
   replay/action-log, Ninja files를 복사한다. 다음 Windows 구현 라운드는 Actions console log보다
   이 detail bundle을 먼저 본다. Q219는 `src/platform_process.c`를 추가해 Stella action,
   Stella/Ninja test artifact runner, QStar Ninja launcher가 같은 process start/wait/kill/status
   contract를 사용하게 했다. Windows 쪽은 argv vector to command-line quoting, env block, cwd,
-  stdout/stderr pipe setup, timeout/terminate/status normalization을 이 layer 안에 모았고,
-  실제 `CreateProcess` launch만 deferred diagnostic으로 남긴다. 다음 Windows execution 라운드는
-  `executor.c`나 `ninja.c`에 별도 runner를 심지 말고 `src/platform_process.c`의 launch path를 채운다.
+  stdout/stderr pipe setup, timeout/terminate/status normalization을 이 layer 안에 모았다.
+  Q220은 Stella action runner의 Windows backend를 `CreateProcessA`로 채운다. Windows Stella는
+  compile/link/custom/run action을 실행하고, stdout/stderr capture, exit code propagation,
+  timeout kill, run_target `expect.contains`, action-log/replay의 `windows_command_line` 기록을
+  platform layer로 처리한다. QStar의 DSL-facing argv는 shell-free vector로 남고, MSYS2 alpha
+  fixture의 `.sh` command만 effective command line에서 `sh <script>.sh ...`로 감싼다. 다음
+  Windows 작업은 hosted alpha rerun 결과를 기준으로 Ninja parity, MSVC/clang-cl execution,
+  sharedlib/artifact packaging을 좁힌다.
   Q164부터 `src/daemon.c`는 Windows stub을 제공해 Unix socket include 실패를 피하고,
   Windows host에서 `qstar daemon`/`--use-daemon=always`는 named pipe 구현 전까지 deferred
   diagnostic으로 처리한다.

@@ -84,6 +84,58 @@ struct qstar_process_start_request {
 	const char *stderr_path;
 };
 
+static size_t
+argv_count(char *const *argv)
+{
+	size_t n = 0;
+
+	while (argv && argv[n])
+		n++;
+	return n;
+}
+
+static int
+windows_argv_needs_sh_adapter(char *const argv[])
+{
+#if QSTAR_PLATFORM_WINDOWS
+	size_t ns, n;
+
+	if (!argv || !argv[0])
+		return 0;
+	ns = strlen(argv[0]);
+	n = 3;
+	if (ns < n)
+		return 0;
+	return strcmp(argv[0] + ns - n, ".sh") == 0;
+#else
+	(void)argv;
+	return 0;
+#endif
+}
+
+static char **
+windows_effective_argv(char *const argv[], size_t *argc_out)
+{
+	size_t argc, i;
+	char **effective;
+
+	argc = argv_count(argv);
+	if (argc_out)
+		*argc_out = argc;
+	if (!windows_argv_needs_sh_adapter(argv))
+		return NULL;
+	effective = calloc(argc + 2, sizeof(effective[0]));
+	if (!effective)
+		return NULL;
+	effective[0] = (char *)"sh";
+	for (i = 0; i < argc; i++)
+		effective[i + 1] = argv[i];
+	effective[argc + 1] = NULL;
+	if (argc_out)
+		*argc_out = argc + 1;
+	return effective;
+}
+
 #if !QSTAR_PLATFORM_WINDOWS
 /** fd를 nonblocking mode로 전환한다. */
 static int
@@ -264,20 +316,30 @@ int
 qstar_platform_windows_command_line_from_argv(char *const argv[], char *dst, size_t dstlen)
 {
 	char *cursor;
+	char **effective = NULL;
+	char *const *items;
 	size_t remaining, i;
 
 	if (!argv || !argv[0] || !dst || dstlen == 0)
 		return -1;
+	effective = windows_effective_argv(argv, NULL);
+	if (windows_argv_needs_sh_adapter(argv) && !effective)
+		return -1;
+	items = effective ? (char *const *)effective : (char *const *)argv;
 	cursor = dst;
 	remaining = dstlen;
 	*cursor = '\0';
-	for (i = 0; argv[i]; i++) {
+	for (i = 0; items[i]; i++) {
 		if (i > 0 && append_char(&cursor, &remaining, ' ') < 0)
-			return -1;
-		if (append_windows_quoted_arg(&cursor, &remaining, argv[i]) < 0)
-			return -1;
+			goto fail;
+		if (append_windows_quoted_arg(&cursor, &remaining, items[i]) < 0)
+			goto fail;
 	}
+	free(effective);
 	return 0;
+fail:
+	free(effective);
+	return -1;
 }
 
 /** 현재 process environment를 Windows double-NUL env block으로 직렬화한다. */
@@ -331,24 +393,88 @@ qstar_platform_windows_env_block_from_current(char *dst, size_t dstlen, size_t *
 
 #if QSTAR_PLATFORM_WINDOWS
 static int
-windows_start_deferred(struct qstar_graph *graph,
+windows_normalize_cwd(const char *cwd, char *dst, size_t dstlen)
+{
+#if QSTAR_HAVE_WINDOWS_API
+	char adjusted[QSTAR_PATH_MAX];
+	DWORD n;
+	size_t i;
+
+	cwd = cwd && *cwd ? cwd : ".";
+	if (cwd[0] == '/' && cwd[1] && cwd[2] == '/') {
+		if (snprintf(adjusted, sizeof(adjusted), "%c:/%s", cwd[1], cwd + 3) >=
+		    (int)sizeof(adjusted))
+			return -1;
+	} else {
+		if (snprintf(adjusted, sizeof(adjusted), "%s", cwd) >=
+		    (int)sizeof(adjusted))
+			return -1;
+	}
+	for (i = 0; adjusted[i]; i++) {
+		if (adjusted[i] == '/')
+			adjusted[i] = '\\';
+	}
+	n = GetFullPathNameA(adjusted, (DWORD)dstlen, dst, NULL);
+	return n > 0 && n < dstlen ? 0 : -1;
+#else
+	cwd = cwd && *cwd ? cwd : ".";
+	return snprintf(dst, dstlen, "%s", cwd) < (int)dstlen ? 0 : -1;
+#endif
+}
+
+#if QSTAR_HAVE_WINDOWS_API
+static HANDLE
+windows_fd_handle(int fd)
+{
+	intptr_t raw;
+
+	if (fd < 0)
+		return INVALID_HANDLE_VALUE;
+	raw = _get_osfhandle(fd);
+	return raw == -1 ? INVALID_HANDLE_VALUE : (HANDLE)raw;
+}
+
+static HANDLE
+windows_open_inherited_output_file(const char *path)
+{
+	SECURITY_ATTRIBUTES sa;
+
+	memset(&sa, 0, sizeof(sa));
+	sa.nLength = sizeof(sa);
+	sa.bInheritHandle = TRUE;
+	return CreateFileA(path, GENERIC_WRITE, FILE_SHARE_READ, &sa, CREATE_ALWAYS,
+	    FILE_ATTRIBUTE_NORMAL, NULL);
+}
+#endif
+
+static int
+windows_start_process(struct qstar_graph *graph,
     const struct qstar_process_start_request *req, qstar_process_id *pid_out,
     const char **runner_out)
 {
+#if QSTAR_HAVE_WINDOWS_API
+	STARTUPINFOA si;
+	PROCESS_INFORMATION pi;
+	HANDLE stdout_handle = INVALID_HANDLE_VALUE;
+	HANDLE stderr_handle = INVALID_HANDLE_VALUE;
 	char command_line[32768];
+	char cwd[QSTAR_PATH_MAX];
 	char *env_block = NULL;
 	size_t env_bytes = 0;
 
 	if (pid_out)
 		*pid_out = 0;
-	if (runner_out)
-		*runner_out = "createprocess-prepared";
 	if (!req || !req->argv || !req->argv[0])
 		return qstar_set_error(graph, "qstar: process argv is empty");
+	if (runner_out)
+		*runner_out = windows_argv_needs_sh_adapter((char *const *)req->argv) ?
+		    "createprocess-sh" : "createprocess";
 	if (qstar_platform_windows_command_line_from_argv((char *const *)req->argv,
 	    command_line, sizeof(command_line)) < 0)
 		return qstar_set_error(graph,
 		    "qstar: Windows process command line is too long");
+	if (windows_normalize_cwd(req->cwd, cwd, sizeof(cwd)) < 0)
+		return qstar_set_error(graph, "qstar: Windows process cwd is too long");
 	if (qstar_platform_windows_env_block_from_current(NULL, 0, &env_bytes) < 0)
 		return qstar_set_error(graph,
 		    "qstar: could not size Windows process environment block");
@@ -360,19 +486,63 @@ windows_start_deferred(struct qstar_graph *graph,
 		return qstar_set_error(graph,
 		    "qstar: could not build Windows process environment block");
 	}
-	(void)command_line;
-	(void)env_block;
-	(void)req->cwd;
-	(void)req->stdio_mode;
-	(void)req->stdout_read_fd;
-	(void)req->stdout_write_fd;
-	(void)req->stderr_read_fd;
-	(void)req->stderr_write_fd;
-	(void)req->stdout_path;
-	(void)req->stderr_path;
+	memset(&si, 0, sizeof(si));
+	memset(&pi, 0, sizeof(pi));
+	si.cb = sizeof(si);
+	if (req->stdio_mode == QSTAR_PROCESS_STDIO_CAPTURE) {
+		stdout_handle = windows_fd_handle(req->stdout_write_fd);
+		stderr_handle = windows_fd_handle(req->stderr_write_fd);
+	} else if (req->stdio_mode == QSTAR_PROCESS_STDIO_FILES) {
+		stdout_handle = windows_open_inherited_output_file(req->stdout_path);
+		stderr_handle = windows_open_inherited_output_file(req->stderr_path);
+	} else {
+		stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+		stderr_handle = GetStdHandle(STD_ERROR_HANDLE);
+	}
+	if (stdout_handle == INVALID_HANDLE_VALUE || stderr_handle == INVALID_HANDLE_VALUE) {
+		if (req->stdio_mode == QSTAR_PROCESS_STDIO_FILES) {
+			if (stdout_handle != INVALID_HANDLE_VALUE)
+				CloseHandle(stdout_handle);
+			if (stderr_handle != INVALID_HANDLE_VALUE)
+				CloseHandle(stderr_handle);
+		}
+		free(env_block);
+		return qstar_set_error(graph,
+		    "qstar: could not prepare Windows process stdio handles");
+	}
+	si.dwFlags = STARTF_USESTDHANDLES;
+	si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+	si.hStdOutput = stdout_handle;
+	si.hStdError = stderr_handle;
+	if (!CreateProcessA(NULL, command_line, NULL, NULL, TRUE, 0, env_block, cwd,
+	    &si, &pi)) {
+		DWORD err = GetLastError();
+		if (req->stdio_mode == QSTAR_PROCESS_STDIO_FILES) {
+			CloseHandle(stdout_handle);
+			CloseHandle(stderr_handle);
+		}
+		free(env_block);
+		return qstar_set_error(graph,
+		    "qstar: CreateProcess failed for '%s' (winerr=%lu)",
+		    req->argv[0], (unsigned long)err);
+	}
+	if (req->stdio_mode == QSTAR_PROCESS_STDIO_FILES) {
+		CloseHandle(stdout_handle);
+		CloseHandle(stderr_handle);
+	}
+	CloseHandle(pi.hThread);
 	free(env_block);
+	*pid_out = (qstar_process_id)(intptr_t)pi.hProcess;
+	return 0;
+#else
+	(void)req;
+	if (pid_out)
+		*pid_out = 0;
+	if (runner_out)
+		*runner_out = "createprocess-unavailable";
 	return qstar_set_error(graph,
-	    "qstar: Windows CreateProcess platform layer is prepared but launch is not implemented yet; use qstar check, qstar dry-run, or qstar emit-ninja until the CreateProcess runner lands");
+	    "qstar: Windows CreateProcess API is unavailable in this build");
+#endif
 }
 #else
 #if QSTAR_HAVE_POSIX_SPAWN_RUNNER
@@ -508,7 +678,7 @@ start_process(struct qstar_graph *graph, const struct qstar_process_start_reques
     qstar_process_id *pid_out, const char **runner_out)
 {
 #if QSTAR_PLATFORM_WINDOWS
-	return windows_start_deferred(graph, req, pid_out, runner_out);
+	return windows_start_process(graph, req, pid_out, runner_out);
 #else
 	return posix_start_process(graph, req, pid_out, runner_out);
 #endif
@@ -569,12 +739,36 @@ int
 qstar_platform_process_wait_nohang(qstar_process_id pid, int *status, int *done)
 {
 #if QSTAR_PLATFORM_WINDOWS
+#if QSTAR_HAVE_WINDOWS_API
+	HANDLE process = (HANDLE)(intptr_t)pid;
+	DWORD wait_rc, code;
+
+	if (!process)
+		return -1;
+	wait_rc = WaitForSingleObject(process, 0);
+	if (wait_rc == WAIT_TIMEOUT) {
+		if (done)
+			*done = 0;
+		return 0;
+	}
+	if (wait_rc != WAIT_OBJECT_0)
+		return -1;
+	if (!GetExitCodeProcess(process, &code))
+		code = 127;
+	if (status)
+		*status = (int)code;
+	if (done)
+		*done = 1;
+	CloseHandle(process);
+	return 0;
+#else
 	(void)pid;
 	if (status)
 		*status = 127;
 	if (done)
 		*done = 1;
 	return -1;
+#endif
 #else
 	pid_t waited, posix_pid = (pid_t)pid;
 
@@ -600,10 +794,28 @@ int
 qstar_platform_process_wait_blocking(qstar_process_id pid, int *status)
 {
 #if QSTAR_PLATFORM_WINDOWS
+#if QSTAR_HAVE_WINDOWS_API
+	HANDLE process = (HANDLE)(intptr_t)pid;
+	DWORD code;
+
+	if (!process)
+		return -1;
+	if (WaitForSingleObject(process, INFINITE) != WAIT_OBJECT_0) {
+		CloseHandle(process);
+		return -1;
+	}
+	if (!GetExitCodeProcess(process, &code))
+		code = 127;
+	if (status)
+		*status = (int)code;
+	CloseHandle(process);
+	return 0;
+#else
 	(void)pid;
 	if (status)
 		*status = 127;
 	return -1;
+#endif
 #else
 	pid_t waited, posix_pid = (pid_t)pid;
 
@@ -623,9 +835,27 @@ void
 qstar_platform_process_terminate(qstar_process_id pid, int *status)
 {
 #if QSTAR_PLATFORM_WINDOWS
+#if QSTAR_HAVE_WINDOWS_API
+	HANDLE process = (HANDLE)(intptr_t)pid;
+	DWORD code;
+
+	if (!process) {
+		if (status)
+			*status = 124;
+		return;
+	}
+	TerminateProcess(process, 124);
+	WaitForSingleObject(process, INFINITE);
+	if (!GetExitCodeProcess(process, &code))
+		code = 124;
+	if (status)
+		*status = (int)code;
+	CloseHandle(process);
+#else
 	(void)pid;
 	if (status)
 		*status = 124;
+#endif
 #else
 	kill((pid_t)pid, SIGKILL);
 	(void)qstar_platform_process_wait_blocking(pid, status);
@@ -696,14 +926,13 @@ qstar_platform_process_poll(struct qstar_platform_pollfd *fds,
 {
 #if QSTAR_PLATFORM_WINDOWS
 	(void)fds;
-	(void)nfds;
 #if QSTAR_HAVE_WINDOWS_API
 	if (timeout_ms > 0)
 		Sleep((DWORD)timeout_ms);
 #else
 	(void)timeout_ms;
 #endif
-	return 0;
+	return nfds > 0 ? 1 : 0;
 #else
 	struct pollfd local[512];
 	nfds_t i;
@@ -734,6 +963,87 @@ qstar_platform_process_poll(struct qstar_platform_pollfd *fds,
 		}
 	}
 	return rc;
+#endif
+}
+
+/** process pipe fd에서 가능한 bytes를 non-blocking 방식으로 읽는다. */
+int
+qstar_platform_process_read_fd(int fd, char *buf, size_t buflen, size_t *nread,
+    int *eof)
+{
+#if QSTAR_PLATFORM_WINDOWS
+#if QSTAR_HAVE_WINDOWS_API
+	HANDLE handle;
+	DWORD available = 0;
+	int n;
+
+	if (nread)
+		*nread = 0;
+	if (eof)
+		*eof = 0;
+	if (fd < 0 || !buf || buflen == 0)
+		return -1;
+	handle = windows_fd_handle(fd);
+	if (handle == INVALID_HANDLE_VALUE)
+		return -1;
+	if (!PeekNamedPipe(handle, NULL, 0, NULL, &available, NULL)) {
+		DWORD err = GetLastError();
+		if (err == ERROR_BROKEN_PIPE) {
+			if (eof)
+				*eof = 1;
+			return 0;
+		}
+		return -1;
+	}
+	if (available == 0)
+		return 0;
+	if (available > buflen)
+		available = (DWORD)buflen;
+	n = _read(fd, buf, (unsigned int)available);
+	if (n < 0)
+		return -1;
+	if (nread)
+		*nread = (size_t)n;
+	if (n == 0 && eof)
+		*eof = 1;
+	return 0;
+#else
+	(void)fd;
+	(void)buf;
+	(void)buflen;
+	if (nread)
+		*nread = 0;
+	if (eof)
+		*eof = 1;
+	return -1;
+#endif
+#else
+	ssize_t n;
+
+	if (nread)
+		*nread = 0;
+	if (eof)
+		*eof = 0;
+	if (fd < 0 || !buf || buflen == 0)
+		return -1;
+	for (;;) {
+		n = read(fd, buf, buflen);
+		if (n > 0) {
+			if (nread)
+				*nread = (size_t)n;
+			return 0;
+		}
+		if (n == 0) {
+			if (eof)
+				*eof = 1;
+			return 0;
+		}
+		if (errno == EINTR)
+			continue;
+		if (errno == EAGAIN || errno == EWOULDBLOCK)
+			return 0;
+		return -1;
+	}
 #endif
 }
 

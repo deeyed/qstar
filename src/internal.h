@@ -217,6 +217,10 @@ int qstar_platform_process_signal_number(int status);
 int qstar_platform_process_poll(struct qstar_platform_pollfd *fds,
     qstar_platform_poll_count nfds, int timeout_ms);
 
+/** process pipe fd에서 가능한 bytes를 non-blocking 방식으로 읽는다. */
+int qstar_platform_process_read_fd(int fd, char *buf, size_t buflen, size_t *nread,
+    int *eof);
+
 /** process polling 사이의 짧은 sleep primitive다. */
 int qstar_platform_process_sleep_ms(int timeout_ms);
 

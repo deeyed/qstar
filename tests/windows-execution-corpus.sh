@@ -88,6 +88,12 @@ run_artifact "$corpus/$build_dir/out/___hello/hello.exe" "$tmp/hello-run.out"
 contains "$tmp/hello-run.out" "windows-execution hello"
 
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows --progress plain \
+	build //:hello_smoke > "$tmp/hello-smoke.out" 2> "$tmp/hello-smoke.err"
+contains "$tmp/hello-smoke.out" "run_target label=//:hello_smoke command=argv"
+contains "$tmp/hello-smoke.out" "run_expect label=//:hello_smoke status=matched contains=windows-execution hello"
+contains "$tmp/hello-smoke.out" "status ok"
+
+"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows --progress plain \
 	build //:app > "$tmp/app-build.out" 2> "$tmp/app-build.err"
 contains "$tmp/app-build.out" "status ok"
 test -f "$corpus/$build_dir/out/___core/libwinexec_core.a" ||

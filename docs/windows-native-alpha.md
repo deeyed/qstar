@@ -36,8 +36,7 @@ continue to cover `.lib`, response escaping, and deferred `.dll` policy.
 Round Q179 splits the POSIX Stella/Ninja process runner boundary. `src/executor.c`
 and `src/ninja.c` no longer expose `<poll.h>`, POSIX pipe/wait, or Unix process
 launch headers to `_WIN32` compilation. Windows builds can compile the runner
-boundary as a clear unsupported/fallback path, while actual process execution is
-still deferred until the CreateProcess runner lands. The same round also adds
+boundary as a clear unsupported/fallback path. The same round also adds
 small `qstar_platform_mkdir` and `qstar_platform_lstat` helpers so the Windows
 bootstrap does not stop at POSIX `mkdir(path, mode)` and `lstat` signatures.
 
@@ -58,10 +57,18 @@ contract instead of embedding their own POSIX `fork`/`exec`/`waitpid` logic.
 The Windows side of that layer prepares the CreateProcess boundary: argv vector
 to Windows command-line quoting, current environment block serialization,
 cwd-aware process start parameters, stdout/stderr pipe setup, and timeout/kill
-semantics are all represented behind the common contract. Actual
-`CreateProcess` launch is still deferred, so the Windows execution corpus is
-expected to stop at the platform layer with a focused diagnostic until the next
-implementation round fills in the launch call.
+semantics are all represented behind the common contract.
+
+Round Q220 fills the Stella side of that boundary with a real
+`CreateProcessA` runner. Windows Stella actions now start through the platform
+layer, propagate exit codes, capture stdout/stderr through the same observed
+stream path as POSIX, enforce QStar timeouts with `TerminateProcess`, and record
+the effective Windows command line in action logs and replay details. QStar's
+DSL-facing argv remains shell-free; the MSYS2 alpha lane adds only an
+argv-preserving `sh <script>.sh ...` adapter for package-local `.sh` fixtures so
+the existing execution corpus can exercise real compile, link, custom, and
+`run_target` actions under CreateProcess. This is still manual alpha validation,
+not official Windows host support.
 
 The first Q172 hosted run was
 `https://github.com/deeyed/qstar/actions/runs/27508325529`. It reached the
@@ -75,9 +82,9 @@ The Q179 hosted run was
 `https://github.com/deeyed/qstar/actions/runs/27527243941`. It passed the
 Makefile bootstrap, `qstar --version`, and `make qstar-windows-native-alpha-tests
 CC=gcc`. It then failed at `make qstar-windows-execution-corpus-tests CC=gcc`,
-which is the expected next alpha boundary until Stella and the Ninja launcher
-gain a real CreateProcess runner. Q218 addresses the artifact visibility gap for
-that failure class: a future execution-corpus failure should include
+which became the expected next alpha boundary before Q220. Q218 addresses the
+artifact visibility gap for that failure class: a future execution-corpus
+failure should include
 `windows-execution-detail/` with the inner temp outputs and the
 `tests/corpus/windows-execution/build/qstar` tree.
 
@@ -134,12 +141,10 @@ Known Issues section below.
 
 Round Q179 adds the same kind of boundary to process execution. `_WIN32` builds
 compile `src/executor.c` and `src/ninja.c` without POSIX `<poll.h>`, `fork`,
-`waitpid`, or Unix socket assumptions. Stella build/test execution and QStar's
-Ninja launcher return explicit deferred diagnostics on Windows until a
-CreateProcess-based runner is implemented. Q179 also moves directory creation
-and symlink-aware stat calls behind `qstar_platform_mkdir` and
-`qstar_platform_lstat` to keep the baseline Makefile bootstrap moving across
-the next Windows C library differences.
+`waitpid`, or Unix socket assumptions. Q179 also moves directory creation and
+symlink-aware stat calls behind `qstar_platform_mkdir` and
+`qstar_platform_lstat` to keep the baseline Makefile bootstrap moving across the
+next Windows C library differences.
 
 Round Q219 moves the process boundary itself into `src/platform_process.c`.
 `src/executor.c` and `src/ninja.c` still own QStar-specific scheduling, replay,
@@ -147,6 +152,12 @@ action-log, and test-result formatting, but platform process start, output
 pipe setup, wait, terminate, and exit-status normalization are no longer
 duplicated there. The local `_WIN32` compile smoke now compiles
 `src/platform_process.c` directly alongside `src/executor.c` and `src/ninja.c`.
+
+Round Q220 changes that platform layer from a compile-only Windows boundary into
+the Stella CreateProcess runner. The execution corpus now includes
+`//:hello_smoke`, a `run_target` with `expect.contains`, so the Windows lane
+checks not only compile/link actions but also captured program output and expect
+matching through the Stella runner.
 
 The optional `run_ninja_parity=true` input also runs:
 
@@ -275,7 +286,7 @@ windows-execution-detail/
     stage/
 ```
 
-The next CreateProcess runner round should start from this detail bundle rather
+If a later hosted Windows alpha run fails, start from this detail bundle rather
 than from the full Actions console log.
 
 The corpus deliberately uses `.exe` executable artifact names and a GCC-friendly
@@ -294,12 +305,13 @@ Current known gaps:
   Stella process/event runner included POSIX `<poll.h>`. Q179 splits that
   process runner boundary and the hosted Q179 run passed `make all`,
   `qstar --version`, and the native alpha smoke.
-- Stella and QStar's Ninja launcher on Windows are compile-time stubs only. They
-  now route through `src/platform_process.c`, which prepares quoting,
-  environment block, cwd, stdout/stderr pipe, wait, terminate, and status
-  contracts but still reports that the CreateProcess launch call has not landed
-  yet. The Q178 execution corpus is expected to remain blocked at execution
-  until that implementation round.
+- Q220 implements the Stella CreateProcess runner in `src/platform_process.c`.
+  The next hosted manual alpha run is expected to move past the old execution
+  stub boundary and either pass the Q178/Q220 execution corpus or leave a more
+  specific native Windows failure class in `windows-execution-detail/`.
+- QStar's Ninja launcher routes through the same platform process layer, but
+  Q220's validation focus is Stella execution. Treat Ninja parity on Windows as
+  follow-up hardening until the optional `run_ninja_parity=true` lane is green.
 - Windows filesystem helpers are now split enough for local `_WIN32` object
   compile checks and the Q179 hosted run reached past the previous
   `mkdir`/`lstat` compile failures.
@@ -311,9 +323,10 @@ Current known gaps:
 - Q172 has not promoted Windows to official support. It only makes
   `msys2-ucrt64-gcc` the baseline lane and ensures failed runs leave structured
   status and known-issue artifacts.
-- Q178 adds real build/run/install corpus coverage, but the lane is still
-  manual alpha validation. A green execution corpus does not by itself create a
-  Windows public release asset or official support claim.
+- Q178 adds real build/run/install corpus coverage, and Q220 adds Stella
+  CreateProcess execution for it, but the lane is still manual alpha validation.
+  A green execution corpus does not by itself create a Windows public release
+  asset or official support claim.
 - Stella daemon on Windows is disabled/deferred. The future supported transport
   is a named pipe with Windows ACL rules, not Unix sockets.
 - No Windows public release asset.
