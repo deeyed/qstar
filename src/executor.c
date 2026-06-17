@@ -185,6 +185,7 @@ struct qstar_prepared_action {
 	char *argv[QSTAR_EXEC_MAX_ARGV];
 	size_t argc;
 	int timeout_sec;
+	struct qstar_string_list env;
 	struct qstar_string_list outputs;
 	struct qstar_string_list inputs;
 	struct qstar_string_list depfile_inputs;
@@ -716,11 +717,12 @@ child_capture_parent_started(struct qstar_child_capture *capture)
 /** platform process layer로 action process를 시작한다. */
 static int
 spawn_action_process(struct qstar_graph *graph, struct qstar_child_capture *capture,
-    char *const argv[], qstar_process_id *pid_out, const char **runner_out)
+    char *const argv[], const struct qstar_string_list *env,
+    qstar_process_id *pid_out, const char **runner_out)
 {
 	return qstar_platform_process_start_captured(graph,
 	    graph->package_root ? graph->package_root : ".", argv, capture->out.fd,
-	    capture->out_write, capture->err.fd, capture->err_write, pid_out,
+	    capture->out_write, capture->err.fd, capture->err_write, env, pid_out,
 	    runner_out);
 }
 
@@ -1137,6 +1139,7 @@ prepared_action_free(struct qstar_prepared_action *action)
 
 	for (i = 0; i < action->argc; i++)
 		free(action->argv[i]);
+	qstar_string_list_free(&action->env);
 	qstar_string_list_free(&action->outputs);
 	qstar_string_list_free(&action->inputs);
 	qstar_string_list_free(&action->depfile_inputs);
@@ -1441,6 +1444,33 @@ compute_env_key(struct qstar_build_ctx *ctx, char *dst, size_t dstlen)
 	}
 }
 
+static void
+hash_action_env(unsigned long long *h, const struct qstar_string_list *env)
+{
+	size_t i;
+
+	if (!env)
+		return;
+	for (i = 0; i < env->len; i++)
+		hash_str(h, env->items[i]);
+}
+
+/** whitelisted process env와 action-local env overlay를 함께 digest로 만든다. */
+static void
+compute_action_env_key(struct qstar_build_ctx *ctx,
+    const struct qstar_string_list *action_env, char *dst, size_t dstlen)
+{
+	unsigned long long h = QSTAR_HASH_INIT;
+
+	if (!action_env || action_env->len == 0) {
+		compute_env_key(ctx, dst, dstlen);
+		return;
+	}
+	hash_env_whitelist(&h);
+	hash_action_env(&h, action_env);
+	format_key(h, dst, dstlen);
+}
+
 /** action key를 hex 문자열로 만든다. */
 static void
 format_key(unsigned long long h, char *dst, size_t dstlen)
@@ -1553,9 +1583,10 @@ compute_external_tool_key(struct qstar_graph *graph,
 static void
 compute_action_key(struct qstar_build_ctx *ctx, struct qstar_graph *graph,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
-    const char *id, const char *kind, char *const argv[], const struct qstar_string_list *inputs,
-	const struct qstar_string_list *depfile_inputs, const char *output, char *dst,
-	size_t dstlen, struct qstar_action_material *material)
+    const char *id, const char *kind, char *const argv[],
+    const struct qstar_string_list *action_env, const struct qstar_string_list *inputs,
+    const struct qstar_string_list *depfile_inputs, const char *output, char *dst,
+    size_t dstlen, struct qstar_action_material *material)
 {
 	unsigned long long h = QSTAR_HASH_INIT;
 	char env_key[32];
@@ -1563,7 +1594,8 @@ compute_action_key(struct qstar_build_ctx *ctx, struct qstar_graph *graph,
 
 	if (material) {
 		compute_argv_key(argv, material->argv_key, sizeof(material->argv_key));
-		compute_env_key(ctx, material->env_key, sizeof(material->env_key));
+		compute_action_env_key(ctx, action_env, material->env_key,
+		    sizeof(material->env_key));
 		compute_input_key(ctx, graph, inputs, material->input_key,
 		    sizeof(material->input_key));
 		compute_input_key(ctx, graph, depfile_inputs, material->depfile_key,
@@ -1626,7 +1658,7 @@ compute_action_key(struct qstar_build_ctx *ctx, struct qstar_graph *graph,
 		for (i = 0; i < inputs->len; i++)
 			hash_file(ctx, &h, graph, inputs->items[i]);
 	}
-	compute_env_key(ctx, env_key, sizeof(env_key));
+	compute_action_env_key(ctx, action_env, env_key, sizeof(env_key));
 	hash_str(&h, env_key);
 	format_key(h, dst, dstlen);
 }
@@ -1817,15 +1849,34 @@ write_action_outputs(FILE *f, const struct qstar_string_list *outputs)
 	}
 }
 
+static void
+write_env_redacted(FILE *f, const struct qstar_string_list *env)
+{
+	const char *item, *eq;
+	size_t i, n;
+
+	fprintf(f, "envc=%zu\n", env ? env->len : 0);
+	for (i = 0; env && i < env->len; i++) {
+		item = env->items[i] ? env->items[i] : "";
+		eq = strchr(item, '=');
+		n = eq ? (size_t)(eq - item) : strlen(item);
+		fprintf(f, "env[%zu]=", i);
+		fwrite(item, 1, n, f);
+		fputs("=<redacted>\n", f);
+	}
+}
+
 /** argv 배열을 action log stream에 deterministic하게 기록한다. */
 static void
 write_action_log_stream(FILE *f, char *const argv[], const char *exit_text,
-    const char *description, const struct qstar_string_list *outputs)
+    const char *description, const struct qstar_string_list *env,
+    const struct qstar_string_list *outputs)
 {
 	size_t i;
 
 	fprintf(f, "qstar-action-log v2\nexit=%s\n", exit_text);
 	write_log_description(f, description);
+	write_env_redacted(f, env);
 	write_action_outputs(f, outputs);
 	for (i = 0; argv[i]; i++)
 		;
@@ -1859,7 +1910,8 @@ write_action_log_stream(FILE *f, char *const argv[], const char *exit_text,
 /** argv 배열을 action log 파일에 deterministic하게 기록한다. */
 static void
 write_action_log_text(const char *path, char *const argv[], const char *exit_text,
-    const char *description, const struct qstar_string_list *outputs)
+    const char *description, const struct qstar_string_list *env,
+    const struct qstar_string_list *outputs)
 {
 	char buf[QSTAR_FILE_WRITE_BUFFER_SIZE];
 	FILE *f;
@@ -1868,7 +1920,7 @@ write_action_log_text(const char *path, char *const argv[], const char *exit_tex
 	if (!f)
 		return;
 	setvbuf(f, buf, _IOFBF, sizeof(buf));
-	write_action_log_stream(f, argv, exit_text, description, outputs);
+	write_action_log_stream(f, argv, exit_text, description, env, outputs);
 	fclose(f);
 }
 
@@ -1883,64 +1935,69 @@ action_log_is_lazy_success(const char *exit_text)
 /** 실패 action log는 즉시 기록하고 성공/skip action log는 lazy materialization에 맡긴다. */
 static void
 action_log_queue(struct qstar_build_ctx *ctx, const char *path, char *const argv[],
-    const char *exit_text, const char *description, const struct qstar_string_list *outputs)
+    const char *exit_text, const char *description, const struct qstar_string_list *env,
+    const struct qstar_string_list *outputs)
 {
 	if (!ctx || !path || !argv || !exit_text)
 		return;
 	if (action_log_is_lazy_success(exit_text))
 		return;
-	write_action_log_text(path, argv, exit_text, description, outputs);
+	write_action_log_text(path, argv, exit_text, description, env, outputs);
 }
 
 /** prepared action처럼 argv 수명이 짧은 경로에서도 실패 action만 즉시 기록한다. */
 static void
 action_log_queue_ref(struct qstar_build_ctx *ctx, const char *path, char *const argv[],
-    const char *exit_text, const char *description, const struct qstar_string_list *outputs)
+    const char *exit_text, const char *description, const struct qstar_string_list *env,
+    const struct qstar_string_list *outputs)
 {
 	if (!ctx || !path || !argv || !exit_text)
 		return;
 	if (action_log_is_lazy_success(exit_text))
 		return;
-	write_action_log_text(path, argv, exit_text, description, outputs);
+	write_action_log_text(path, argv, exit_text, description, env, outputs);
 }
 
 /** integer exit code action log를 batch flush 목록에 추가한다. */
 static void
 action_log_queue_exit(struct qstar_build_ctx *ctx, const char *path, char *const argv[],
-    int exit_code, const char *description, const struct qstar_string_list *outputs)
+    int exit_code, const char *description, const struct qstar_string_list *env,
+    const struct qstar_string_list *outputs)
 {
 	char exit_text[32];
 
 	snprintf(exit_text, sizeof(exit_text), "%d", exit_code);
-	action_log_queue(ctx, path, argv, exit_text, description, outputs);
+	action_log_queue(ctx, path, argv, exit_text, description, env, outputs);
 }
 
 /** skip action log를 batch flush 목록에 추가한다. */
 static void
 action_log_queue_skip(struct qstar_build_ctx *ctx, const char *path, char *const argv[],
-    const char *description, const struct qstar_string_list *outputs)
+    const char *description, const struct qstar_string_list *env,
+    const struct qstar_string_list *outputs)
 {
-	action_log_queue(ctx, path, argv, "skip", description, outputs);
+	action_log_queue(ctx, path, argv, "skip", description, env, outputs);
 }
 
 /** compile action처럼 argv 수명이 보장되는 action log를 복사 없이 추가한다. */
 static void
 action_log_queue_exit_ref(struct qstar_build_ctx *ctx, const char *path,
     char *const argv[], int exit_code, const char *description,
-    const struct qstar_string_list *outputs)
+    const struct qstar_string_list *env, const struct qstar_string_list *outputs)
 {
 	char exit_text[32];
 
 	snprintf(exit_text, sizeof(exit_text), "%d", exit_code);
-	action_log_queue_ref(ctx, path, argv, exit_text, description, outputs);
+	action_log_queue_ref(ctx, path, argv, exit_text, description, env, outputs);
 }
 
 /** compile cache-hit skip log를 복사 없이 batch flush 목록에 추가한다. */
 static void
 action_log_queue_skip_ref(struct qstar_build_ctx *ctx, const char *path,
-    char *const argv[], const char *description, const struct qstar_string_list *outputs)
+    char *const argv[], const char *description, const struct qstar_string_list *env,
+    const struct qstar_string_list *outputs)
 {
-	action_log_queue_ref(ctx, path, argv, "skip", description, outputs);
+	action_log_queue_ref(ctx, path, argv, "skip", description, env, outputs);
 }
 
 static void
@@ -1955,7 +2012,7 @@ action_log_flush(struct qstar_build_ctx *ctx)
 	for (i = 0; i < ctx->action_log_len; i++)
 		write_action_log_text(ctx->action_logs[i].path,
 		    ctx->action_logs[i].argv, ctx->action_logs[i].exit_text,
-		    ctx->action_logs[i].description, NULL);
+		    ctx->action_logs[i].description, NULL, NULL);
 	action_log_queue_free(ctx->action_logs, ctx->action_log_len);
 	ctx->action_logs = NULL;
 	ctx->action_log_len = 0;
@@ -1966,9 +2023,9 @@ action_log_flush(struct qstar_build_ctx *ctx)
 static void
 write_failure_replay_detail(const struct qstar_graph *graph, const char *id,
     const struct qstar_resolved_toolchain *toolchain, char *const argv[],
-    const char *description, const char *failure_kind, const char *label,
-    const char *stdout_rel, const char *stderr_rel, const char *expect_contains,
-    const char *expect_file_rel)
+    const char *description, const struct qstar_string_list *env,
+    const char *failure_kind, const char *label, const char *stdout_rel,
+    const char *stderr_rel, const char *expect_contains, const char *expect_file_rel)
 {
 	char path[QSTAR_PATH_MAX];
 	FILE *f;
@@ -1986,6 +2043,7 @@ write_failure_replay_detail(const struct qstar_graph *graph, const char *id,
 	fprintf(f, "failure_kind=%s\n", failure_kind && *failure_kind ? failure_kind :
 	    "action-failure");
 	write_log_description(f, description);
+	write_env_redacted(f, env);
 	fprintf(f, "label=%s\n", label && *label ? label : id);
 	fprintf(f, "stdout=%s\n", stdout_rel && *stdout_rel ? stdout_rel : "<none>");
 	fprintf(f, "stderr=%s\n", stderr_rel && *stderr_rel ? stderr_rel : "<none>");
@@ -2038,7 +2096,7 @@ write_failure_replay(const struct qstar_graph *graph, const char *id,
     const char *description)
 {
 	write_failure_replay_detail(graph, id, toolchain, argv, description,
-	    "action-failure", id, NULL, NULL, NULL, NULL);
+	    NULL, "action-failure", id, NULL, NULL, NULL, NULL);
 }
 
 /** stage/package failure를 last-failure replay 파일에 기록한다. */
@@ -2062,7 +2120,7 @@ write_stage_failure_replay(const struct qstar_graph *graph, const struct qstar_s
 	argv[argc++] = (char *)stage->label;
 	argv[argc] = NULL;
 	write_failure_replay_detail(graph, id, NULL, argv, description,
-	    "package-failure", stage->label, "<none>", "<none>", NULL, NULL);
+	    NULL, "package-failure", stage->label, "<none>", "<none>", NULL, NULL);
 }
 
 /** JSON string에 들어갈 최소 escape를 출력한다. */
@@ -3966,7 +4024,8 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			build_tracef(ctx,
 			    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
 			    id, child_stdout_path, child_stderr_path);
-			action_log_queue_skip(ctx, action_log, argv, description, outputs);
+			action_log_queue_skip(ctx, action_log, argv, description, NULL,
+			    outputs);
 		}
 		progress_skip_action(ctx);
 		ctx->skip_count++;
@@ -4007,7 +4066,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	if (child_capture_open(graph, &capture, stdout_path, stderr_path) < 0)
 		return -1;
-	if (spawn_action_process(graph, &capture, child_argv, &pid, &runner) < 0) {
+	if (spawn_action_process(graph, &capture, child_argv, NULL, &pid, &runner) < 0) {
 		child_capture_finish(ctx, &capture);
 		return -1;
 	}
@@ -4038,9 +4097,9 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 				qstar_platform_process_terminate(pid, &status);
 				child_capture_finish(ctx, &capture);
 				action_log_queue_exit(ctx, action_log, argv, 124,
-				    description, outputs);
+				    description, NULL, outputs);
 				write_failure_replay_detail(graph, id, toolchain, argv,
-				    description, failure_kind, diag_label,
+				    description, NULL, failure_kind, diag_label,
 				    child_stdout_path, child_stderr_path,
 				    target ? target->run_expect_contains : NULL,
 				    target ? target->run_expect_file : NULL);
@@ -4086,7 +4145,8 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	child_capture_finish(ctx, &capture);
 	exit_code = qstar_platform_process_exit_code(status);
-	action_log_queue_exit(ctx, action_log, argv, exit_code, description, outputs);
+	action_log_queue_exit(ctx, action_log, argv, exit_code, description, NULL,
+	    outputs);
 	if (exit_code != 0) {
 		char label_buf[QSTAR_PATH_MAX];
 		const char *diag_label;
@@ -4097,7 +4157,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		build_tracef(ctx, "build_action id=%s status=fail exit=%d\n", id,
 		    exit_code);
 		write_failure_replay_detail(graph, id, toolchain, argv,
-		    description, failure_kind, diag_label, child_stdout_path,
+		    description, NULL, failure_kind, diag_label, child_stdout_path,
 		    child_stderr_path, target ? target->run_expect_contains : NULL,
 		    target ? target->run_expect_file : NULL);
 		emit_action_diagnostic(ctx->out, id, kind, diag_label,
@@ -4423,7 +4483,8 @@ run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		build_tracef(ctx,
 		    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
 		    id, child_stdout_path, child_stderr_path);
-		action_log_queue_skip(ctx, action_log, argv, description, &genrule->outputs);
+		action_log_queue_skip(ctx, action_log, argv, description, NULL,
+		    &genrule->outputs);
 		progress_skip_action(ctx);
 		ctx->skip_count++;
 		return state_push(ctx, 1, id, key, genrule->outputs.items[0], "skip",
@@ -4447,7 +4508,8 @@ run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	write_empty_log_file(stdout_path);
 	write_empty_log_file(stderr_path);
-	action_log_queue_exit(ctx, action_log, argv, 0, description, &genrule->outputs);
+	action_log_queue_exit(ctx, action_log, argv, 0, description, NULL,
+	    &genrule->outputs);
 	ctx->run_count++;
 	return state_push(ctx, 1, id, key, genrule->outputs.items[0], "run",
 	    "generate", material) < 0 ?
@@ -4749,7 +4811,7 @@ prepare_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	snprintf(toolchain.target, sizeof(toolchain.target), "%s",
 	    graph->build_context.target ? graph->build_context.target : "host");
 	compute_action_key(ctx, graph, target, &toolchain, action->id, "generate",
-	    action->argv, &action->inputs, NULL, output_identity, action->key,
+	    action->argv, NULL, &action->inputs, NULL, output_identity, action->key,
 	    sizeof(action->key), &action->material);
 	build_tracef(ctx,
 	    "generated_sandbox id=%s inputs=package-root outputs=generated-only cwd=package-root network=disabled tool=%s tool_mode=%s resolved_tool=%s output_identity=%s\n",
@@ -4846,7 +4908,7 @@ run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	snprintf(toolchain.target, sizeof(toolchain.target), "%s",
 	    graph->build_context.target ? graph->build_context.target : "host");
 	compute_action_key(ctx, graph, target, &toolchain, id, "generate", argv,
-	    &inputs, NULL, output_identity, key, sizeof(key), &material);
+	    NULL, &inputs, NULL, output_identity, key, sizeof(key), &material);
 	qstar_string_list_free(&inputs);
 	build_tracef(ctx,
 	    "generated_sandbox id=%s inputs=package-root outputs=generated-only cwd=package-root network=disabled tool=%s tool_mode=%s resolved_tool=%s output_identity=%s\n",
@@ -5033,7 +5095,7 @@ prepare_run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	    sizeof(action->description)) < 0)
 		snprintf(action->description, sizeof(action->description), "<too-long>");
 	compute_action_key(ctx, graph, target, NULL, action->id, "run", action->argv,
-	    &inputs, NULL, stamp, action->key, sizeof(action->key),
+	    NULL, &inputs, NULL, stamp, action->key, sizeof(action->key),
 	    &action->material);
 	action->inputs = inputs;
 	action->outputs = outputs;
@@ -5069,11 +5131,11 @@ finish_run_target_success(struct qstar_graph *graph, struct qstar_build_ctx *ctx
 		    sizeof(stderr_rel)) < 0)
 			return qstar_set_error(graph, "qstar: action log path too long");
 		write_failure_replay_detail(graph, action->id, NULL, action->argv,
-		    action->description, "expect-missing", target->label,
+		    action->description, &action->env, "expect-missing", target->label,
 		    stdout_rel, stderr_rel, target->run_expect_contains, target->run_expect_file);
 		if (action_log && *action_log)
 			write_action_log_text(action_log, action->argv, "expect-missing",
-			    action->description, &action->outputs);
+			    action->description, &action->env, &action->outputs);
 		ctx->fail_count++;
 		ctx->cancelled = 1;
 		fprintf(ctx->out,
@@ -5448,8 +5510,9 @@ refresh_compile_state_after_depfile(struct qstar_graph *graph, struct qstar_buil
 		}
 	}
 	compute_action_key(ctx, graph, target, toolchain, action->id, "compile",
-	    action->argv, &inputs, &dep_inputs, action->outputs.items[0], action->key,
-	    sizeof(action->key), &action->material);
+	    action->argv, &action->env, &inputs, &dep_inputs,
+	    action->outputs.items[0], action->key, sizeof(action->key),
+	    &action->material);
 	qstar_string_list_free(&inputs);
 	qstar_string_list_free(&dep_inputs);
 	if (state_update_material(ctx, action->id, action->key, &action->material) < 0)
@@ -5634,6 +5697,7 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		memset(&dep_inputs, 0, sizeof(dep_inputs));
 		memset(&outputs, 0, sizeof(outputs));
 		if (copy_string_list(&inputs, &provider_unit->action.inputs) < 0 ||
+		    copy_string_list(&action->env, &provider_unit->action.env) < 0 ||
 		    copy_string_list(&outputs, &provider_unit->action.outputs) < 0)
 			goto oom_provider;
 		for (i = 0; i < outputs.len; i++) {
@@ -5668,8 +5732,9 @@ prepare_compile_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		}
 		if (!ctx->lowering_cache_prepare)
 			compute_action_key(ctx, graph, target, toolchain, action->id,
-			    "compile", action->argv, &inputs, &dep_inputs, object,
-			    action->key, sizeof(action->key), &action->material);
+			    "compile", action->argv, &action->env, &inputs,
+			    &dep_inputs, object, action->key, sizeof(action->key),
+			    &action->material);
 		action->inputs = inputs;
 		action->depfile_inputs = dep_inputs;
 		action->outputs = outputs;
@@ -5801,7 +5866,7 @@ oom_provider:
 	}
 	if (!ctx->lowering_cache_prepare)
 		compute_action_key(ctx, graph, target, toolchain, action->id, "compile",
-		    action->argv, &inputs, &dep_inputs, object, action->key,
+		    action->argv, NULL, &inputs, &dep_inputs, object, action->key,
 		    sizeof(action->key), &action->material);
 	action->inputs = inputs;
 	action->depfile_inputs = dep_inputs;
@@ -5893,7 +5958,7 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
 		    action->id, child_stdout_path, child_stderr_path);
 		action_log_queue_skip_ref(ctx, running->action_log, action->argv,
-		    action->description, &action->outputs);
+		    action->description, &action->env, &action->outputs);
 		progress_skip_action(ctx);
 		ctx->skip_count++;
 		build_tracef(ctx,
@@ -5924,7 +5989,8 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	if (child_capture_open(graph, &running->capture, stdout_path, stderr_path) < 0)
 		return -1;
-	if (spawn_action_process(graph, &running->capture, child_argv, &pid, &runner) < 0) {
+	if (spawn_action_process(graph, &running->capture, child_argv, &action->env,
+	    &pid, &runner) < 0) {
 		child_capture_finish(ctx, &running->capture);
 		return -1;
 	}
@@ -5956,7 +6022,7 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	child_capture_finish(ctx, &running->capture);
 	exit_code = qstar_platform_process_exit_code(status);
 	action_log_queue_exit_ref(ctx, running->action_log, action->argv, exit_code,
-	    action->description, &action->outputs);
+	    action->description, &action->env, &action->outputs);
 	owner_label = prepared_action_owner_label(action);
 	if (exit_code != 0) {
 		failure_kind = classify_failure_kind(action->kind, action->argv,
@@ -5976,7 +6042,7 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    "parallel_event target=%s event=fail id=%s slot=%zu exit=%d state=failed retry=next-build cancel=active\n",
 		    owner_label, action->id, running->slot, exit_code);
 		write_failure_replay_detail(graph, action->id, action->toolchain,
-		    action->argv, action->description, failure_kind, owner_label,
+		    action->argv, action->description, &action->env, failure_kind, owner_label,
 		    stdout_rel, stderr_rel,
 		    action->target ? action->target->run_expect_contains : NULL,
 		    action->target ? action->target->run_expect_file : NULL);
@@ -6145,6 +6211,7 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 					action_log_queue_exit_ref(ctx, running[i].action_log,
 					    running[i].action->argv, 124,
 					    running[i].action->description,
+					    &running[i].action->env,
 					    &running[i].action->outputs);
 					write_failure_replay(graph, running[i].action->id,
 					    running[i].action->toolchain,
@@ -6780,7 +6847,7 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	key[0] = '\0';
 	if (!ctx->lowering_cache_prepare)
 		compute_action_key(ctx, graph, target, toolchain, id, final_action, argv,
-		    &inputs, NULL, artifact, key, sizeof(key), &material);
+		    NULL, &inputs, NULL, artifact, key, sizeof(key), &material);
 	if (qstar_action_description_final(target, final_action, artifact,
 	    description, sizeof(description)) < 0) {
 		qstar_string_list_free(&inputs);
@@ -6911,6 +6978,7 @@ cache_prepared_action(struct qstar_graph *graph, const struct qstar_prepared_act
 	cached->wants_depfile = action->wants_depfile;
 	if (copy_string_list(&cached->argv, &(struct qstar_string_list){
 	    .items = (char **)action->argv, .len = action->argc, .cap = action->argc}) < 0 ||
+	    copy_string_list(&cached->env, &action->env) < 0 ||
 	    copy_string_list(&cached->outputs, &action->outputs) < 0 ||
 	    copy_static_inputs(&cached->inputs, &action->inputs,
 	    &action->depfile_inputs) < 0 ||
@@ -6951,7 +7019,8 @@ prepare_cached_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	    cached->source_path ? cached->source_path : "");
 	action->source_index = cached->source_index;
 	action->wants_depfile = cached->wants_depfile;
-	if (copy_string_list(&action->outputs, &cached->outputs) < 0 ||
+	if (copy_string_list(&action->env, &cached->env) < 0 ||
+	    copy_string_list(&action->outputs, &cached->outputs) < 0 ||
 	    copy_string_list(&action->inputs, &cached->inputs) < 0) {
 		prepared_action_free(action);
 		return qstar_set_error(graph, "qstar: out of memory");
@@ -6995,7 +7064,7 @@ prepare_cached_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	action->argv[action->argc] = NULL;
 	output = action->outputs.items[0];
 	compute_action_key(ctx, graph, target, toolchain, action->id, action->kind,
-	    action->argv, &action->inputs, &action->depfile_inputs, output,
+	    action->argv, &action->env, &action->inputs, &action->depfile_inputs, output,
 	    action->key, sizeof(action->key), &action->material);
 	if (strcmp(kind, "compile") == 0 &&
 	    strcmp(qstar_graph_compile_commands_policy(graph), "off") != 0 &&
@@ -7909,7 +7978,7 @@ skip_prepared_action_prequeue(struct qstar_graph *graph, struct qstar_build_ctx 
 		    "scheduler_event event=pre_skip id=%s target=%s state=cache-hit retry=no\n",
 		    action->id, prepared_action_owner_label(action));
 			action_log_queue_skip_ref(ctx, action_log, action->argv,
-			    action->description, &action->outputs);
+			    action->description, &action->env, &action->outputs);
 	}
 	progress_skip_action(ctx);
 	ctx->skip_count++;
@@ -8191,12 +8260,14 @@ scheduler_execute(struct qstar_scheduler *sched)
 					    running[i].action_log,
 					    running[i].action->argv, 124,
 					    running[i].action->description,
+					    &running[i].action->env,
 					    &running[i].action->outputs);
 					write_failure_replay_detail(sched->graph,
 					    running[i].action->id,
 					    running[i].action->toolchain,
 					    running[i].action->argv,
-					    running[i].action->description, failure_kind,
+					    running[i].action->description,
+					    &running[i].action->env, failure_kind,
 					    owner_label, stdout_rel, stderr_rel,
 					    running[i].action->target ?
 					    running[i].action->target->run_expect_contains : NULL,
@@ -9721,7 +9792,8 @@ prepare_lazy_action_from_state(struct qstar_graph *graph, const char *action_id,
 /** argv vector에서 replay command를 직접 출력한다. */
 static void
 write_replay_from_argv(struct qstar_graph *graph, const char *action_id, const char *rel,
-    char *const argv[], const char *description, FILE *out)
+    char *const argv[], const char *description, const struct qstar_string_list *env,
+    FILE *out)
 {
 	size_t i;
 
@@ -9734,6 +9806,7 @@ write_replay_from_argv(struct qstar_graph *graph, const char *action_id, const c
 		write_shell_arg(out, description);
 		fputc('\n', out);
 	}
+	write_env_redacted(out, env);
 	for (i = 0; argv[i]; i++) {
 		if (i)
 			fputc(' ', out);
@@ -9776,7 +9849,7 @@ qstar_graph_action_log(struct qstar_graph *graph, const char *action_id, FILE *o
 			    rel);
 		}
 		write_action_log_stream(out, action.argv, exit_text,
-		    action.description, &action.outputs);
+		    action.description, &action.env, &action.outputs);
 		prepared_action_free(&action);
 	}
 	fputs("status ok\n", out);
@@ -9789,6 +9862,7 @@ qstar_graph_replay_action(struct qstar_graph *graph, const char *action_id, FILE
 {
 	char rel[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX], line[8192], command[8192];
 	char description[8192], exit_text[64];
+	char env_text[8192];
 	struct qstar_prepared_action action;
 	FILE *f;
 	int rc;
@@ -9808,15 +9882,20 @@ qstar_graph_replay_action(struct qstar_graph *graph, const char *action_id, FILE
 			return qstar_set_error(graph, "qstar: action log '%s' does not exist",
 			    rel);
 		write_replay_from_argv(graph, action_id, rel, action.argv,
-		    action.description, out);
+		    action.description, &action.env, out);
 		prepared_action_free(&action);
 		return 0;
 	}
 	command[0] = '\0';
 	description[0] = '\0';
+	env_text[0] = '\0';
 	while (fgets(line, sizeof(line), f)) {
 		if (strncmp(line, "description=", 12) == 0) {
 			snprintf(description, sizeof(description), "%s", line + 12);
+		} else if (strncmp(line, "envc=", 5) == 0 ||
+		    strncmp(line, "env[", 4) == 0) {
+			if (strlen(env_text) + strlen(line) + 1 < sizeof(env_text))
+				strcat(env_text, line);
 		} else if (strncmp(line, "argv_shell=", 11) == 0) {
 			snprintf(command, sizeof(command), "%s", line + 11);
 			break;
@@ -9836,6 +9915,8 @@ qstar_graph_replay_action(struct qstar_graph *graph, const char *action_id, FILE
 		if (description[strlen(description) - 1] != '\n')
 			fputc('\n', out);
 	}
+	if (env_text[0])
+		fputs(env_text, out);
 	fputs(command, out);
 	if (command[strlen(command) - 1] != '\n')
 		fputc('\n', out);

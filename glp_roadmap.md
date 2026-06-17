@@ -454,8 +454,8 @@ Q200 hard cut 기준으로 direct compiler role은 제거됐다.
 | Option validation | type, default, enum, list validation | `edition`, `cfg`, `externs`, `target`, `optimize` |
 | Source token | `qstar.source(...)` token, path validation | `zig.object`, `rust.crate`, `cale.module` |
 | Artifact contract | `object`, generated file, linked artifact | 어떤 unit이 어떤 artifact를 emit하는지 |
-| Lowering context | `ctx.tool`, `ctx.input`, `ctx.output`, `ctx.option` | 실제 argv 구성 |
-| Backend contract | action inputs/outputs, depfile, action key, replay/log | provider별 depfile와 discovered input policy |
+| Lowering context | `ctx.tool`, `ctx.input`, `ctx.output`, `ctx.cache`, `ctx.option` | 실제 argv와 build-local cache env 구성 |
+| Backend contract | action env/inputs/outputs, depfile, action key, replay/log redaction | provider별 cache env, depfile, discovered input policy |
 | Diagnostics | missing provider, missing tool, unknown namespace, unknown option | provider-specific option message |
 | Distribution | standard provider lookup, project-local provider lookup | provider package content |
 

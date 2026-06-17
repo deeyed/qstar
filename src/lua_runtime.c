@@ -35,6 +35,7 @@ struct qstar_provider_lowering_ctx {
 	const char *source;
 	const char *object;
 	const char *depfile;
+	char cache_base[QSTAR_PATH_MAX];
 	int source_options_ref;
 };
 
@@ -572,6 +573,7 @@ push_provider_source_item(lua_State *L, int source_token, struct qstar_target *t
 	if (lower_provider_source_unit(L, source_token, target, graph, source_index, path,
 	    provider, unit_name, unit, &action) < 0) {
 		qstar_string_list_free(&action.argv);
+		qstar_string_list_free(&action.env);
 		qstar_string_list_free(&action.inputs);
 		qstar_string_list_free(&action.outputs);
 		free(action.depfile);
@@ -580,6 +582,7 @@ push_provider_source_item(lua_State *L, int source_token, struct qstar_target *t
 	rc = qstar_target_add_provider_source_unit(graph, target, source_index, path,
 	    provider, unit_name, unit->emits, unit->lower, &action);
 	qstar_string_list_free(&action.argv);
+	qstar_string_list_free(&action.env);
 	qstar_string_list_free(&action.inputs);
 	qstar_string_list_free(&action.outputs);
 	free(action.depfile);
@@ -2087,6 +2090,34 @@ provider_ctx_output(lua_State *L)
 }
 
 static int
+provider_cache_name_ok(const char *name)
+{
+	if (!name || !*name || !qstar_path_is_package_relative(name))
+		return 0;
+	if (name[0] == '.' || name[strlen(name) - 1] == '.')
+		return 0;
+	return 1;
+}
+
+static int
+provider_ctx_cache(lua_State *L)
+{
+	struct qstar_provider_lowering_ctx *ctx;
+	const char *name;
+	char path[QSTAR_PATH_MAX];
+
+	ctx = lua_touserdata(L, lua_upvalueindex(1));
+	name = luaL_checkstring(L, 1);
+	if (!provider_cache_name_ok(name))
+		return luaL_error(L,
+		    "qstar: provider cache name must be package-relative");
+	if (qstar_path_join(ctx->cache_base, name, path, sizeof(path)) < 0)
+		return luaL_error(L, "qstar: provider cache path is too long");
+	lua_pushstring(L, path);
+	return 1;
+}
+
+static int
 provider_ctx_option(lua_State *L)
 {
 	struct qstar_provider_lowering_ctx *ctx;
@@ -2135,6 +2166,9 @@ push_provider_lowering_context(lua_State *L, struct qstar_provider_lowering_ctx 
 	lua_pushlightuserdata(L, ctx);
 	lua_pushcclosure(L, provider_ctx_output, 1);
 	lua_setfield(L, -2, "output");
+	lua_pushlightuserdata(L, ctx);
+	lua_pushcclosure(L, provider_ctx_cache, 1);
+	lua_setfield(L, -2, "cache");
 	lua_pushlightuserdata(L, ctx);
 	lua_pushcclosure(L, provider_ctx_option, 1);
 	lua_setfield(L, -2, "option");
@@ -2209,6 +2243,42 @@ read_provider_command_result(lua_State *L, int table,
 }
 
 static int
+provider_env_assignment_ok(const char *item)
+{
+	const unsigned char *p;
+	const char *eq;
+
+	if (!item || !*item)
+		return 0;
+	eq = strchr(item, '=');
+	if (!eq || eq == item)
+		return 0;
+	p = (const unsigned char *)item;
+	if (!isalpha(*p) && *p != '_')
+		return 0;
+	for (; (const char *)p < eq; p++) {
+		if (!isalnum(*p) && *p != '_')
+			return 0;
+	}
+	return 1;
+}
+
+static int
+validate_provider_env_result(struct qstar_graph *graph,
+    const struct qstar_string_list *env)
+{
+	size_t i;
+
+	for (i = 0; env && i < env->len; i++) {
+		if (!provider_env_assignment_ok(env->items[i]))
+			return qstar_set_error(graph,
+			    "qstar: provider lowering env[%zu] must be NAME=value",
+			    i);
+	}
+	return 0;
+}
+
+static int
 provider_outputs_contain_object(const struct qstar_provider_action_template *action,
     const char *object)
 {
@@ -2234,10 +2304,14 @@ read_provider_lowering_result(lua_State *L, int result,
 		return qstar_set_error(graph,
 		    "qstar: provider lowering must return an action table");
 	if (read_provider_command_result(L, result, action, graph) < 0 ||
+	    read_provider_string_list_result(L, result, &action->env, graph,
+	    "env", NULL) < 0 ||
 	    read_provider_string_list_result(L, result, &action->inputs, graph,
 	    "inputs", source) < 0 ||
 	    read_provider_string_list_result(L, result, &action->outputs, graph,
 	    "outputs", object) < 0)
+		return -1;
+	if (validate_provider_env_result(graph, &action->env) < 0)
 		return -1;
 	if (!provider_outputs_contain_object(action, object))
 		return qstar_set_error(graph,
@@ -2268,7 +2342,7 @@ lower_provider_source_unit(lua_State *L, int source_token,
 {
 	struct qstar_provider_lowering_ctx lowering;
 	const struct qstar_language_provider *provider;
-	char object[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX];
+	char object[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], object_dir[QSTAR_PATH_MAX];
 	const char *message;
 	int rc;
 
@@ -2283,6 +2357,8 @@ lower_provider_source_unit(lua_State *L, int source_token,
 	    qstar_graph_depfile_output_path(graph, target, source_index, depfile,
 	    sizeof(depfile)) < 0)
 		return qstar_set_error(graph, "qstar: provider source output path too long");
+	if (qstar_dirname(object, object_dir, sizeof(object_dir)) < 0)
+		return qstar_set_error(graph, "qstar: provider cache path too long");
 	memset(&lowering, 0, sizeof(lowering));
 	lowering.graph = graph;
 	lowering.target = target;
@@ -2291,6 +2367,9 @@ lower_provider_source_unit(lua_State *L, int source_token,
 	lowering.source = path;
 	lowering.object = object;
 	lowering.depfile = depfile;
+	if (qstar_path_join(object_dir, "cache", lowering.cache_base,
+	    sizeof(lowering.cache_base)) < 0)
+		return qstar_set_error(graph, "qstar: provider cache path too long");
 	lowering.source_options_ref = LUA_NOREF;
 	if (source_token != 0) {
 		source_token = qstar_lua_abs_index(L, source_token);

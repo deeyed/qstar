@@ -472,6 +472,51 @@ shell_argv(FILE *f, const struct ninja_argv *argv)
 	}
 }
 
+static void
+shell_env_assignment(FILE *f, const char *item)
+{
+	const char *eq;
+
+	eq = item ? strchr(item, '=') : NULL;
+	if (!eq || eq == item) {
+		shell_arg(f, item ? item : "");
+		return;
+	}
+	fwrite(item, 1, (size_t)(eq - item) + 1, f);
+	shell_arg(f, eq + 1);
+}
+
+static void
+cmd_env_assignment(FILE *f, const char *item)
+{
+	const unsigned char *p;
+
+	fputs("set \"", f);
+	for (p = (const unsigned char *)(item ? item : ""); *p; p++) {
+		if (*p == '"')
+			fputs("\\\"", f);
+		else
+			fputc(*p, f);
+	}
+	fputs("\"", f);
+}
+
+static void
+shell_env_prefix(FILE *f, const struct qstar_string_list *env, int windows)
+{
+	size_t i;
+
+	for (i = 0; env && i < env->len; i++) {
+		if (windows) {
+			cmd_env_assignment(f, env->items[i]);
+			fputs(" && ", f);
+		} else {
+			shell_env_assignment(f, env->items[i]);
+			fputc(' ', f);
+		}
+	}
+}
+
 static int
 ninja_arg_is_sh_script(const char *s)
 {
@@ -634,11 +679,28 @@ write_ninja_action_outputs(FILE *f, const struct qstar_string_list *outputs)
 	}
 }
 
+static void
+write_ninja_env_redacted(FILE *f, const struct qstar_string_list *env)
+{
+	const char *item, *eq;
+	size_t i, n;
+
+	fprintf(f, "envc=%zu\n", env ? env->len : 0);
+	for (i = 0; env && i < env->len; i++) {
+		item = env->items[i] ? env->items[i] : "";
+		eq = strchr(item, '=');
+		n = eq ? (size_t)(eq - item) : strlen(item);
+		fprintf(f, "env[%zu]=", i);
+		fwrite(item, 1, n, f);
+		fputs("=<redacted>\n", f);
+	}
+}
+
 /** Ninja action도 qstar action-log/replay가 읽을 수 있는 v2 log를 남긴다. */
 static int
 write_ninja_action_log(struct qstar_graph *graph, const char *id,
     const struct ninja_argv *argv, const char *rsp_rel, const char *description,
-    const struct qstar_string_list *outputs)
+    const struct qstar_string_list *env, const struct qstar_string_list *outputs)
 {
 	char logdir[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], log_path[QSTAR_PATH_MAX];
 	FILE *f;
@@ -654,6 +716,7 @@ write_ninja_action_log(struct qstar_graph *graph, const char *id,
 		return qstar_set_error(graph, "qstar: could not write ninja action log");
 	fprintf(f, "qstar-action-log v2\nexit=ninja\nbackend=ninja\n");
 	write_log_description(f, description);
+	write_ninja_env_redacted(f, env);
 	write_ninja_action_outputs(f, outputs);
 	fprintf(f, "response_file=%s\n", rsp_rel && *rsp_rel ? rsp_rel : "<none>");
 	fprintf(f, "argc=%zu\n", argv->len);
@@ -676,7 +739,8 @@ write_ninja_action_log(struct qstar_graph *graph, const char *id,
 static int
 write_edge_command(struct qstar_graph *graph, struct ninja_ctx *ctx, const char *id,
     const struct qstar_resolved_toolchain *toolchain, const struct ninja_argv *argv,
-    const char *description, const struct qstar_string_list *outputs)
+    const char *description, const struct qstar_string_list *env,
+    const struct qstar_string_list *outputs)
 {
 	struct ninja_argv run;
 	char rsp_rel[QSTAR_PATH_MAX];
@@ -688,9 +752,11 @@ write_edge_command(struct qstar_graph *graph, struct ninja_ctx *ctx, const char 
 		return -1;
 	windows = qstar_platform_is_windows(qstar_graph_platform(graph)) ||
 	    (toolchain && qstar_platform_is_windows(toolchain->platform));
+	shell_env_prefix(ctx->ninja, env, windows);
 	shell_argv_ninja_command(ctx->ninja, &run, windows);
 	ninja_argv_free(&run);
-	return write_ninja_action_log(graph, id, argv, rsp_rel, description, outputs);
+	return write_ninja_action_log(graph, id, argv, rsp_rel, description, env,
+	    outputs);
 }
 
 /** shell command string을 JSON value로 출력한다. */
@@ -1437,7 +1503,7 @@ emit_genrule_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		}
 		fputs(" && ", ctx->ninja);
 	}
-	if (write_edge_command(graph, ctx, action_id, NULL, &argv, description,
+	if (write_edge_command(graph, ctx, action_id, NULL, &argv, description, NULL,
 	    &genrule->outputs) < 0)
 		goto fail;
 	fputs("\n  description = ", ctx->ninja);
@@ -1556,7 +1622,8 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		fputc('\n', ctx->ninja);
 		fputs("  command = ", ctx->ninja);
 		if (write_edge_command(graph, ctx, action_id, toolchain, &argv,
-		    description, &provider_unit->action.outputs) < 0)
+		    description, &provider_unit->action.env,
+		    &provider_unit->action.outputs) < 0)
 			goto fail;
 		fputc('\n', ctx->ninja);
 		if (wants_depfile) {
@@ -1656,7 +1723,7 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	fputc('\n', ctx->ninja);
 	fputs("  command = ", ctx->ninja);
 	if (write_edge_command(graph, ctx, action_id, toolchain, &argv, description,
-	    NULL) < 0)
+	    NULL, NULL) < 0)
 		goto fail;
 	fputc('\n', ctx->ninja);
 	if (wants_depfile) {
@@ -2203,7 +2270,7 @@ emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	fputc('\n', ctx->ninja);
 	fputs("  command = ", ctx->ninja);
 	if (write_edge_command(graph, ctx, action_id, toolchain, &argv, description,
-	    NULL) < 0)
+	    NULL, NULL) < 0)
 		goto fail;
 	fputc('\n', ctx->ninja);
 	fputs("  out_dir = ", ctx->ninja);
@@ -2345,7 +2412,7 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	fputc('\n', ctx->ninja);
 	fputs("  command = ", ctx->ninja);
 	if (write_edge_command(graph, ctx, action_id, toolchain, &argv, description,
-	    &outputs) < 0)
+	    NULL, &outputs) < 0)
 		goto fail;
 	fputc('\n', ctx->ninja);
 	fputs("  out_dir = ", ctx->ninja);
@@ -2576,7 +2643,7 @@ emit_run_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	ninja_var_text(ctx->ninja, description);
 	fputc('\n', ctx->ninja);
 	fprintf(ctx->ninja, "  qstar_action_id = %s\n\n", action_id);
-	if (write_ninja_action_log(graph, action_id, &argv, NULL, description,
+	if (write_ninja_action_log(graph, action_id, &argv, NULL, description, NULL,
 	    NULL) < 0)
 		goto fail;
 	fprintf(ctx->ninja, "# qstar-action-id: %s:alias\n", target->label);

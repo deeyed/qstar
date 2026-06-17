@@ -535,7 +535,7 @@ test -f "$tmp/build/qstar/stella/inputs.json" || fail "missing Stella plan cache
 test -f "$tmp/build/qstar/stella/graph.qsg" || fail "missing Stella graph cache"
 test -f "$tmp/build/qstar/stella/actions.qsa" || fail "missing Stella action plan cache"
 contains "$tmp/build/qstar/stella/manifest.json" "\"schema\":\"qstar-stella-plan-cache-v7\""
-contains "$tmp/build/qstar/stella/actions.qsa" "qstar-stella-actions-cache-v1"
+contains "$tmp/build/qstar/stella/actions.qsa" "qstar-stella-actions-cache-v2"
 test -f "$tmp/build/qstar/compile_commands.json" || fail "missing compile_commands.json"
 contains "$tmp/build/qstar/compile_commands.json" "src/main.c"
 test ! -f "$tmp/compile_commands.json" || fail "default compile_commands leaked to root"
@@ -2404,6 +2404,17 @@ cat > "$tmp/provider-source-unit/tools/zigcc" <<'EOF'
 #!/bin/sh
 out=
 depfile=
+if [ "${QSTAR_PROVIDER_SECRET:-}" != "super-secret" ]; then
+  echo "missing QSTAR_PROVIDER_SECRET" >&2
+  exit 3
+fi
+case "${QSTAR_PROVIDER_CACHE:-}" in
+  build/qstar/out/___core/cache/env-cache|build-ninja/out/___core/cache/env-cache) ;;
+  *)
+    echo "unexpected QSTAR_PROVIDER_CACHE=${QSTAR_PROVIDER_CACHE:-<unset>}" >&2
+    exit 4
+    ;;
+esac
 if [ "$#" -eq 1 ]; then
   case "$1" in
     @*)
@@ -2515,6 +2526,10 @@ function P.compile_object(ctx)
 
   return {
     command = argv,
+    env = {
+      "QSTAR_PROVIDER_SECRET=super-secret",
+      "QSTAR_PROVIDER_CACHE=" .. ctx.cache("env-cache"),
+    },
     inputs = {ctx.input("source")},
     outputs = {ctx.output("object")},
     depfile = ctx.output("depfile"),
@@ -2580,9 +2595,17 @@ contains "$tmp/provider-source-unit-build.out" "response_file id=//:core:compile
 "$qstar" --file "$tmp/provider-source-unit/qstar.lua" action-log //:core:compile:0 > "$tmp/provider-source-unit-action-log.out" 2> "$tmp/provider-source-unit-action-log.err"
 contains "$tmp/provider-source-unit-action-log.out" "tools/zigcc"
 contains "$tmp/provider-source-unit-action-log.out" "--optimize=ReleaseFast"
+contains "$tmp/provider-source-unit-action-log.out" "envc=2"
+contains "$tmp/provider-source-unit-action-log.out" "env[0]=QSTAR_PROVIDER_SECRET=<redacted>"
+contains "$tmp/provider-source-unit-action-log.out" "env[1]=QSTAR_PROVIDER_CACHE=<redacted>"
+not_contains "$tmp/provider-source-unit-action-log.out" "super-secret"
+not_contains "$tmp/provider-source-unit-action-log.out" "build/qstar/out/___core/cache/env-cache"
 "$qstar" --file "$tmp/provider-source-unit/qstar.lua" replay //:core:compile:0 > "$tmp/provider-source-unit-replay.out" 2> "$tmp/provider-source-unit-replay.err"
 contains "$tmp/provider-source-unit-replay.out" "tools/zigcc"
 contains "$tmp/provider-source-unit-replay.out" "--from-config"
+contains "$tmp/provider-source-unit-replay.out" "env[0]=QSTAR_PROVIDER_SECRET=<redacted>"
+contains "$tmp/provider-source-unit-replay.out" "env[1]=QSTAR_PROVIDER_CACHE=<redacted>"
+not_contains "$tmp/provider-source-unit-replay.out" "super-secret"
 "$qstar" --file "$tmp/provider-source-unit/qstar.lua" doctor > "$tmp/provider-source-unit-doctor.out" 2> "$tmp/provider-source-unit-doctor.err"
 contains "$tmp/provider-source-unit-doctor.out" "provider-tool role=zig.compiler required=true status=configured"
 "$qstar" --file "$tmp/provider-source-unit/qstar.lua" -B build-ninja -G ninja build //:core > "$tmp/provider-source-unit-ninja-build.out" 2> "$tmp/provider-source-unit-ninja-build.err"
@@ -2592,9 +2615,13 @@ fi
 "$qstar" --file "$tmp/provider-source-unit/qstar.lua" -B build-ninja -G ninja action-log //:core:compile:0 > "$tmp/provider-source-unit-ninja-action-log.out" 2> "$tmp/provider-source-unit-ninja-action-log.err"
 contains "$tmp/provider-source-unit-ninja-action-log.out" "backend=ninja"
 contains "$tmp/provider-source-unit-ninja-action-log.out" "tools/zigcc"
+contains "$tmp/provider-source-unit-ninja-action-log.out" "envc=2"
+contains "$tmp/provider-source-unit-ninja-action-log.out" "env[0]=QSTAR_PROVIDER_SECRET=<redacted>"
+not_contains "$tmp/provider-source-unit-ninja-action-log.out" "super-secret"
 "$qstar" --file "$tmp/provider-source-unit/qstar.lua" -B build-ninja -G ninja replay //:core:compile:0 > "$tmp/provider-source-unit-ninja-replay.out" 2> "$tmp/provider-source-unit-ninja-replay.err"
 contains "$tmp/provider-source-unit-ninja-replay.out" "tools/zigcc"
 contains "$tmp/provider-source-unit-ninja-replay.out" "--optimize=ReleaseFast"
+contains "$tmp/provider-source-unit-ninja-replay.out" "env[1]=QSTAR_PROVIDER_CACHE=<redacted>"
 cat > "$tmp/provider-source-unit/qstar.lua" <<'EOF'
 local zig = qstar.use_language("zig")
 

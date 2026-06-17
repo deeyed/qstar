@@ -15,8 +15,9 @@ Provider가 선언한 `units` schema는 source suffix를 graph-level registry에
 provider의 source는 `sources = {"src/main.zig"}` 같은 raw string으로도 built-in 언어와 같은
 경로를 탄다. Exported helper인 `zig.object("src/main.zig", {...})`는 source-local option이나
 suffix 충돌 해소가 필요할 때 쓰는 명시 경로다. Backend는 provider lowering function이 반환한
-`command`, `inputs`, `outputs`, `depfile` action template을 Stella와 Ninja에서 동일하게
-실행한다.
+`command`, `env`, `inputs`, `outputs`, `depfile` action template을 Stella와 Ninja에서
+동일하게 실행한다. Env 값은 process에는 실제로 전달되지만 action-log/replay에는
+`NAME=<redacted>`로만 남는다.
 `qstar.custom_target`과 `qstar.output(..., {format = "object"})` object artifact bridge도
 hand-written 외부 compiler flow를 위해 계속 지원한다. 자세한 문법은
 [Language Providers](reference/language-providers.md)에 둔다.

@@ -224,9 +224,12 @@ match되어도 같은 이유로 거절된다. 이 경우에는 diagnostic이 제
 
 Provider source unit lowering은 Stella와 Ninja가 같은 backend contract로 실행한다.
 Provider implementation은 `qstar.argv()`와 `ctx.tool`, `ctx.input`, `ctx.output`,
-`ctx.option`으로 action을 만든다. QStar는 그 결과의 `command`, `inputs`, `outputs`,
-`depfile`을 Graph IR에 저장하고 action-log/replay, response file, depfile-discovered input,
-Ninja emission에 같은 값을 사용한다.
+`ctx.cache`, `ctx.option`으로 action을 만든다. QStar는 그 결과의 `command`,
+`env`, `inputs`, `outputs`, `depfile`을 Graph IR에 저장하고 action-log/replay,
+response file, depfile-discovered input, Ninja emission에 같은 값을 사용한다.
+`env`는 `"NAME=value"` string list이며, 실행에는 실제 값을 넘기지만 action-log/replay에는
+`NAME=<redacted>`로만 기록한다. Provider가 build-local cache directory를 필요로 하면
+`ctx.cache("name")`으로 package-relative cache path를 받아 env에 넣는다.
 
 ```lua
 function P.compile_object(ctx)
@@ -245,6 +248,10 @@ function P.compile_object(ctx)
 
   return {
     command = argv,
+    env = {
+      "ZIG_GLOBAL_CACHE_DIR=" .. ctx.cache("zig-global"),
+      "ZIG_LOCAL_CACHE_DIR=" .. ctx.cache("zig-local"),
+    },
     inputs = {ctx.input("source")},
     outputs = {ctx.output("object")},
     depfile = ctx.output("depfile"),

@@ -123,6 +123,7 @@ free_target(struct qstar_target *target)
 		free(target->provider_sources[i].lower);
 		free(target->provider_sources[i].toolset_role);
 		qstar_string_list_free(&target->provider_sources[i].action.argv);
+		qstar_string_list_free(&target->provider_sources[i].action.env);
 		qstar_string_list_free(&target->provider_sources[i].action.inputs);
 		qstar_string_list_free(&target->provider_sources[i].action.outputs);
 		free(target->provider_sources[i].action.depfile);
@@ -331,6 +332,7 @@ free_cached_action(struct qstar_cached_action *action)
 	free(action->depfile);
 	free(action->source_path);
 	qstar_string_list_free(&action->argv);
+	qstar_string_list_free(&action->env);
 	qstar_string_list_free(&action->outputs);
 	qstar_string_list_free(&action->inputs);
 	qstar_string_list_free(&action->depfile_inputs);
@@ -1339,6 +1341,7 @@ qstar_target_add_provider_source_unit(struct qstar_graph *graph,
 	    !item->lower || !item->toolset_role || !item->action.depfile)
 		return qstar_set_error(graph, "qstar: out of memory");
 	if (action && (copy_string_list(&item->action.argv, &action->argv) < 0 ||
+	    copy_string_list(&item->action.env, &action->env) < 0 ||
 	    copy_string_list(&item->action.inputs, &action->inputs) < 0 ||
 	    copy_string_list(&item->action.outputs, &action->outputs) < 0))
 		return qstar_set_error(graph, "qstar: out of memory");

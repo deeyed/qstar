@@ -10,7 +10,7 @@
 
 #define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v7"
 #define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v1"
-#define QSTAR_STELLA_ACTION_MAGIC "qstar-stella-actions-cache-v1"
+#define QSTAR_STELLA_ACTION_MAGIC "qstar-stella-actions-cache-v2"
 #define QSTAR_STELLA_PLAN_ABI 9
 #define QSTAR_STELLA_HASH_INIT 1469598103934665603ULL
 #define QSTAR_STELLA_HASH_PRIME 1099511628211ULL
@@ -1214,6 +1214,7 @@ write_cached_action(FILE *f, const struct qstar_cached_action *action)
 	    write_u64(f, (unsigned long long)action->source_index) < 0 ||
 	    write_i32(f, action->wants_depfile) < 0 ||
 	    write_list(f, &action->argv) < 0 ||
+	    write_list(f, &action->env) < 0 ||
 	    write_list(f, &action->outputs) < 0 ||
 	    write_list(f, &action->inputs) < 0 ||
 	    write_list(f, &action->depfile_inputs) < 0 ? -1 : 0;
@@ -1234,6 +1235,7 @@ read_cached_action(FILE *f, struct qstar_cached_action *action)
 	    read_u64(f, &source_index) < 0 ||
 	    read_i32(f, &action->wants_depfile) < 0 ||
 	    read_list(f, &action->argv) < 0 ||
+	    read_list(f, &action->env) < 0 ||
 	    read_list(f, &action->outputs) < 0 ||
 	    read_list(f, &action->inputs) < 0 ||
 	    read_list(f, &action->depfile_inputs) < 0)

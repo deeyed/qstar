@@ -178,7 +178,8 @@ void qstar_platform_process_close_fd(int *fd);
 /** stdout/stderr capture pipe를 연결해 child process를 시작한다. */
 int qstar_platform_process_start_captured(struct qstar_graph *graph, const char *cwd,
     char *const argv[], int stdout_read_fd, int stdout_write_fd, int stderr_read_fd,
-    int stderr_write_fd, qstar_process_id *pid_out, const char **runner_out);
+    int stderr_write_fd, const struct qstar_string_list *env,
+    qstar_process_id *pid_out, const char **runner_out);
 
 /** parent stdout/stderr를 상속해 child process를 시작한다. */
 int qstar_platform_process_start_inherit(struct qstar_graph *graph, const char *cwd,

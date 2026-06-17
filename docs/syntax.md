@@ -172,7 +172,9 @@ unit, QStar asks the user to use an explicit provider helper.
 
 The GLP backend calls the unit `lower` function from `provider.lua` during graph
 evaluation and stores its action template in Graph IR. Stella and Ninja then
-consume the same `command`, `inputs`, `outputs`, and `depfile` contract.
+consume the same `command`, `env`, `inputs`, `outputs`, and `depfile` contract.
+Env entries use `NAME=value`; process runners receive the values, while
+action-log/replay show only `NAME=<redacted>`.
 
 Standard external providers follow the same shape:
 

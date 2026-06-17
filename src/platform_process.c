@@ -8,6 +8,7 @@
 #include "internal.h"
 
 #include <errno.h>
+#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -75,6 +76,7 @@ enum qstar_process_stdio_mode {
 struct qstar_process_start_request {
 	const char *cwd;
 	char *const *argv;
+	const struct qstar_string_list *env;
 	enum qstar_process_stdio_mode stdio_mode;
 	int stdout_read_fd;
 	int stdout_write_fd;
@@ -136,7 +138,76 @@ windows_effective_argv(char *const argv[], size_t *argc_out)
 	return effective;
 }
 
+static size_t
+env_assignment_name_len(const char *assignment)
+{
+	const char *eq;
+
+	if (!assignment)
+		return 0;
+	eq = strchr(assignment, '=');
+	return eq ? (size_t)(eq - assignment) : 0;
+}
+
+static int
+env_name_equal_n(const char *a, const char *b, size_t n)
+{
+	size_t i;
+
+	for (i = 0; i < n; i++) {
+#if QSTAR_PLATFORM_WINDOWS
+		if (tolower((unsigned char)a[i]) != tolower((unsigned char)b[i]))
+			return 0;
+#else
+		if (a[i] != b[i])
+			return 0;
+#endif
+	}
+	return 1;
+}
+
+static int
+env_entry_overridden(const char *entry, const struct qstar_string_list *env)
+{
+	size_t i, n;
+
+	if (!entry || !env)
+		return 0;
+	for (i = 0; i < env->len; i++) {
+		n = env_assignment_name_len(env->items[i]);
+		if (n > 0 && strlen(entry) > n && entry[n] == '=' &&
+		    env_name_equal_n(entry, env->items[i], n))
+			return 1;
+	}
+	return 0;
+}
+
 #if !QSTAR_PLATFORM_WINDOWS
+static char **
+posix_env_overlay(const struct qstar_string_list *env)
+{
+	char **envp, **items;
+	size_t count = 0, i, out = 0;
+
+	if (!env || env->len == 0)
+		return NULL;
+	for (envp = qstar_platform_environ; envp && *envp; envp++) {
+		if (!env_entry_overridden(*envp, env))
+			count++;
+	}
+	items = calloc(count + env->len + 1, sizeof(items[0]));
+	if (!items)
+		return NULL;
+	for (envp = qstar_platform_environ; envp && *envp; envp++) {
+		if (!env_entry_overridden(*envp, env))
+			items[out++] = *envp;
+	}
+	for (i = 0; i < env->len; i++)
+		items[out++] = env->items[i];
+	items[out] = NULL;
+	return items;
+}
+
 /** fd를 nonblocking mode로 전환한다. */
 static int
 set_nonblocking_fd(int fd)
@@ -393,6 +464,101 @@ qstar_platform_windows_env_block_from_current(char *dst, size_t dstlen, size_t *
 
 #if QSTAR_PLATFORM_WINDOWS
 static int
+windows_env_block_from_overlay(const struct qstar_string_list *env, char *dst,
+    size_t dstlen, size_t *needed_out)
+{
+#if QSTAR_PLATFORM_WINDOWS && QSTAR_HAVE_WINDOWS_API
+	LPCH block, p;
+	size_t needed = 1, i;
+	char *cursor;
+
+	if (!env || env->len == 0)
+		return qstar_platform_windows_env_block_from_current(dst, dstlen,
+		    needed_out);
+	block = GetEnvironmentStringsA();
+	if (!block)
+		return -1;
+	for (p = block; *p; p += strlen(p) + 1) {
+		if (!env_entry_overridden(p, env))
+			needed += strlen(p) + 1;
+	}
+	for (i = 0; i < env->len; i++)
+		needed += strlen(env->items[i]) + 1;
+	if (needed_out)
+		*needed_out = needed;
+	if (!dst) {
+		FreeEnvironmentStringsA(block);
+		return 0;
+	}
+	if (dstlen < needed) {
+		FreeEnvironmentStringsA(block);
+		return -1;
+	}
+	cursor = dst;
+	for (p = block; *p; p += strlen(p) + 1) {
+		size_t len;
+
+		if (env_entry_overridden(p, env))
+			continue;
+		len = strlen(p);
+		memcpy(cursor, p, len);
+		cursor += len;
+		*cursor++ = '\0';
+	}
+	for (i = 0; i < env->len; i++) {
+		size_t len = strlen(env->items[i]);
+
+		memcpy(cursor, env->items[i], len);
+		cursor += len;
+		*cursor++ = '\0';
+	}
+	*cursor = '\0';
+	FreeEnvironmentStringsA(block);
+	return 0;
+#else
+	char **envp;
+	size_t needed = 1, i;
+	char *cursor;
+
+	if (!env || env->len == 0)
+		return qstar_platform_windows_env_block_from_current(dst, dstlen,
+		    needed_out);
+	for (envp = qstar_platform_environ; envp && *envp; envp++) {
+		if (!env_entry_overridden(*envp, env))
+			needed += strlen(*envp) + 1;
+	}
+	for (i = 0; i < env->len; i++)
+		needed += strlen(env->items[i]) + 1;
+	if (needed_out)
+		*needed_out = needed;
+	if (!dst)
+		return 0;
+	if (dstlen < needed)
+		return -1;
+	cursor = dst;
+	for (envp = qstar_platform_environ; envp && *envp; envp++) {
+		size_t len;
+
+		if (env_entry_overridden(*envp, env))
+			continue;
+		len = strlen(*envp);
+		memcpy(cursor, *envp, len);
+		cursor += len;
+		*cursor++ = '\0';
+	}
+	for (i = 0; i < env->len; i++) {
+		size_t len = strlen(env->items[i]);
+
+		memcpy(cursor, env->items[i], len);
+		cursor += len;
+		*cursor++ = '\0';
+	}
+	*cursor = '\0';
+	return 0;
+#endif
+}
+
+static int
 windows_normalize_cwd(const char *cwd, char *dst, size_t dstlen)
 {
 #if QSTAR_HAVE_WINDOWS_API
@@ -538,13 +704,13 @@ windows_start_process(struct qstar_graph *graph,
 	    application_name, sizeof(application_name)) < 0)
 		return qstar_set_error(graph,
 		    "qstar: Windows process application path is too long");
-	if (qstar_platform_windows_env_block_from_current(NULL, 0, &env_bytes) < 0)
+	if (windows_env_block_from_overlay(req->env, NULL, 0, &env_bytes) < 0)
 		return qstar_set_error(graph,
 		    "qstar: could not size Windows process environment block");
 	env_block = malloc(env_bytes ? env_bytes : 1);
 	if (!env_block)
 		return qstar_set_error(graph, "qstar: out of memory");
-	if (qstar_platform_windows_env_block_from_current(env_block, env_bytes, NULL) < 0) {
+	if (windows_env_block_from_overlay(req->env, env_block, env_bytes, NULL) < 0) {
 		free(env_block);
 		return qstar_set_error(graph,
 		    "qstar: could not build Windows process environment block");
@@ -630,6 +796,7 @@ posix_spawn_process(const struct qstar_process_start_request *req,
     qstar_process_id *pid_out)
 {
 	posix_spawn_file_actions_t actions;
+	char **envp = NULL;
 	pid_t pid;
 	int rc;
 
@@ -657,14 +824,20 @@ posix_spawn_process(const struct qstar_process_start_request *req,
 		    req->stderr_path, O_WRONLY | O_CREAT | O_TRUNC, 0666) != 0)
 			goto fail;
 	}
-	rc = posix_spawnp(&pid, req->argv[0], &actions, NULL, req->argv, environ);
+	envp = posix_env_overlay(req->env);
+	if (req->env && req->env->len > 0 && !envp)
+		goto fail;
+	rc = posix_spawnp(&pid, req->argv[0], &actions, NULL, req->argv,
+	    envp ? envp : environ);
 	posix_spawn_file_actions_destroy(&actions);
+	free(envp);
 	if (rc != 0)
 		return -1;
 	*pid_out = (qstar_process_id)pid;
 	return 0;
 fail:
 	posix_spawn_file_actions_destroy(&actions);
+	free(envp);
 	return -1;
 }
 #endif
@@ -700,6 +873,7 @@ static int
 fork_process(const struct qstar_process_start_request *req, qstar_process_id *pid_out)
 {
 	pid_t pid;
+	size_t i;
 
 	pid = fork();
 	if (pid < 0)
@@ -708,6 +882,10 @@ fork_process(const struct qstar_process_start_request *req, qstar_process_id *pi
 		if (chdir(req->cwd ? req->cwd : ".") < 0)
 			_exit(127);
 		child_redirect_or_exit(req);
+		for (i = 0; req->env && i < req->env->len; i++) {
+			if (putenv(req->env->items[i]) != 0)
+				_exit(127);
+		}
 		execvp(req->argv[0], req->argv);
 		_exit(127);
 	}
@@ -751,13 +929,15 @@ start_process(struct qstar_graph *graph, const struct qstar_process_start_reques
 int
 qstar_platform_process_start_captured(struct qstar_graph *graph, const char *cwd,
     char *const argv[], int stdout_read_fd, int stdout_write_fd, int stderr_read_fd,
-    int stderr_write_fd, qstar_process_id *pid_out, const char **runner_out)
+    int stderr_write_fd, const struct qstar_string_list *env,
+    qstar_process_id *pid_out, const char **runner_out)
 {
 	struct qstar_process_start_request req;
 
 	memset(&req, 0, sizeof(req));
 	req.cwd = cwd;
 	req.argv = argv;
+	req.env = env;
 	req.stdio_mode = QSTAR_PROCESS_STDIO_CAPTURE;
 	req.stdout_read_fd = stdout_read_fd;
 	req.stdout_write_fd = stdout_write_fd;

@@ -35,6 +35,10 @@ function P.compile_object(ctx)
 
   return {
     command = argv,
+    env = {
+      "ZIG_GLOBAL_CACHE_DIR=" .. ctx.cache("zig-global"),
+      "ZIG_LOCAL_CACHE_DIR=" .. ctx.cache("zig-local"),
+    },
     inputs = {
       ctx.input("source"),
     },

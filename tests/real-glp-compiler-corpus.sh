@@ -30,6 +30,15 @@ contains() {
 	fi
 }
 
+not_contains() {
+	file=$1
+	pattern=$2
+	if grep -F -q -- "$pattern" "$file"; then
+		sed -n '1,160p' "$file" >&2 || true
+		fail "unexpected pattern '$pattern' in $file"
+	fi
+}
+
 cleanup() {
 	rm -rf "$tmp"
 }
@@ -37,13 +46,7 @@ cleanup() {
 run_qstar() {
 	project=$1
 	shift
-	if [ -n "${real_glp_zig_global_cache:-}" ]; then
-		ZIG_GLOBAL_CACHE_DIR=$real_glp_zig_global_cache \
-		ZIG_LOCAL_CACHE_DIR=$real_glp_zig_local_cache \
-		"$qstar" --file "$project/qstar.lua" "$@"
-	else
-		"$qstar" --file "$project/qstar.lua" "$@"
-	fi
+	"$qstar" --file "$project/qstar.lua" "$@"
 }
 
 copy_fixture() {
@@ -70,13 +73,6 @@ run_backend() {
 	exe_path=$9
 	project=$(copy_fixture "$language" "$backend")
 	out_prefix=$tmp/$language-$backend
-
-	real_glp_zig_global_cache=
-	real_glp_zig_local_cache=
-	if [ "$language" = zig ]; then
-		real_glp_zig_global_cache=$project/build/zig-global-cache
-		real_glp_zig_local_cache=$project/build/zig-local-cache
-	fi
 
 	run_qstar "$project" check //... > "$out_prefix-check.out" 2> "$out_prefix-check.err"
 	contains "$out_prefix-check.out" "status ok"
@@ -113,6 +109,22 @@ run_backend() {
 	contains "$out_prefix-action-log.out" "argv[0]=$compiler_argv"
 	contains "$out_prefix-action-log.out" "$extra_argv_pattern"
 	contains "$out_prefix-action-log.out" "status ok"
+	if [ "$language" = zig ]; then
+		contains "$out_prefix-action-log.out" "envc=2"
+		contains "$out_prefix-action-log.out" "env[0]=ZIG_GLOBAL_CACHE_DIR=<redacted>"
+		contains "$out_prefix-action-log.out" "env[1]=ZIG_LOCAL_CACHE_DIR=<redacted>"
+		not_contains "$out_prefix-action-log.out" "zig-global"
+		if [ "$backend" = ninja ]; then
+			test -d "$project/build/qstar/out/___zig_core/cache/zig-global" ||
+				test -d "$project/build-ninja/qstar/out/___zig_core/cache/zig-global" ||
+				fail "$language $backend provider cache dir missing"
+		else
+			test -d "$project/build/qstar/out/___zig_core/cache/zig-global" ||
+				fail "$language $backend provider cache dir missing"
+		fi
+	else
+		contains "$out_prefix-action-log.out" "envc=0"
+	fi
 
 	test -f "$project/$object_path" || fail "$language $backend object missing"
 	test -f "$project/$archive_path" || fail "$language $backend archive missing"

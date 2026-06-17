@@ -29,6 +29,7 @@ struct qstar_provider_option_value {
 
 struct qstar_provider_action_template {
 	struct qstar_string_list argv;
+	struct qstar_string_list env;
 	struct qstar_string_list inputs;
 	struct qstar_string_list outputs;
 	char *depfile;
@@ -260,6 +261,7 @@ struct qstar_cached_action {
 	size_t source_index;
 	int wants_depfile;
 	struct qstar_string_list argv;
+	struct qstar_string_list env;
 	struct qstar_string_list outputs;
 	struct qstar_string_list inputs;
 	struct qstar_string_list depfile_inputs;

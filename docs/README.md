@@ -39,8 +39,8 @@ registry, so activated providers can classify raw source strings such as
 `"src/main.zig"` into consuming-target-owned object artifacts. Explicit helpers
 such as `zig.object("src/main.zig", {...})` remain available for source-local
 options and suffix collision disambiguation. The lowered `command`, `inputs`,
-`outputs`, and `depfile` action template is shared by Stella and Ninja, including
-response-file handling and action-log/replay. The object artifact bridge remains
+`env`, `outputs`, and `depfile` action template is shared by Stella and Ninja,
+including response-file handling and action-log/replay redaction. The object artifact bridge remains
 available for hand-written foreign compiler flows.
 
 Important documents:
