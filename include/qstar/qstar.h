@@ -248,9 +248,14 @@ struct qstar_command_step {
 	char *when;
 	char *working_dir;
 	char *description;
+	char *run_expect_contains;
+	char *run_expect_file;
+	char *export_to;
 	struct qstar_string_list run_command;
+	struct qstar_string_list inputs;
 	struct qstar_string_list env;
 	int stage_dry_run;
+	int timeout_sec;
 };
 
 struct qstar_project_command {

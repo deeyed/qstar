@@ -9594,7 +9594,9 @@ resolve_command_runtime_argv(struct qstar_graph *graph,
 				return qstar_set_error(graph, "qstar: out of memory");
 			continue;
 		}
-		if (qstar_string_list_push(argv, input->items[i]) < 0)
+		if (resolve_command_token(graph, input->items[i], arg, sizeof(arg)) < 0)
+			return -1;
+		if (qstar_string_list_push(argv, arg) < 0)
 			return qstar_set_error(graph, "qstar: out of memory");
 	}
 	return 0;
@@ -9620,25 +9622,330 @@ command_runtime_bool_enabled(struct qstar_graph *graph,
 	return 0;
 }
 
+static int copy_file_to_path(const char *src, const char *dst);
+
+static size_t
+project_command_env_name_len(const char *entry)
+{
+	const char *eq;
+
+	eq = entry ? strchr(entry, '=') : NULL;
+	return eq && eq != entry ? (size_t)(eq - entry) : 0;
+}
+
+static int
+project_command_env_name_equal(const char *a, const char *b, size_t len)
+{
+	size_t i;
+
+	for (i = 0; i < len; i++) {
+#if QSTAR_PLATFORM_WINDOWS
+		if (tolower((unsigned char)a[i]) != tolower((unsigned char)b[i]))
+			return 0;
+#else
+		if (a[i] != b[i])
+			return 0;
+#endif
+	}
+	return 1;
+}
+
+static int
+project_command_env_overridden(const char *entry,
+    const struct qstar_string_list *overlay)
+{
+	size_t i, n;
+
+	n = project_command_env_name_len(entry);
+	if (n == 0)
+		return 0;
+	for (i = 0; overlay && i < overlay->len; i++) {
+		if (project_command_env_name_len(overlay->items[i]) == n &&
+		    project_command_env_name_equal(entry, overlay->items[i], n))
+			return 1;
+	}
+	return 0;
+}
+
+static int
+project_command_merge_env(struct qstar_graph *graph,
+    const struct qstar_project_command *command,
+    const struct qstar_command_step *step, struct qstar_string_list *env)
+{
+	size_t i;
+
+	for (i = 0; command && i < command->env.len; i++) {
+		if (project_command_env_overridden(command->env.items[i],
+		    &step->env))
+			continue;
+		if (qstar_string_list_push(env, command->env.items[i]) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+	}
+	for (i = 0; step && i < step->env.len; i++) {
+		if (qstar_string_list_push(env, step->env.items[i]) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+	}
+	return 0;
+}
+
+static int
+project_command_build_label(struct qstar_graph *graph, const char *label,
+    const struct qstar_build_options *options, FILE *out)
+{
+	struct qstar_build_options fallback;
+
+	if (!options) {
+		memset(&fallback, 0, sizeof(fallback));
+		options = &fallback;
+	}
+	return strcmp(qstar_graph_generator(graph), "ninja") == 0 ?
+	    qstar_graph_build_ninja(graph, label, options, out) :
+	    qstar_graph_build_with_options(graph, label, options, out);
+}
+
+static int
+project_command_materialize_input(struct qstar_graph *graph, const char *item,
+    const struct qstar_build_options *options, FILE *out)
+{
+	const struct qstar_genrule *owner;
+	struct qstar_stage_options stage_options;
+	char label[QSTAR_PATH_MAX];
+	int rc;
+
+	rc = qstar_stage_dir_token_label(item, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: malformed stage_dir placeholder");
+	if (rc == 1) {
+		memset(&stage_options, 0, sizeof(stage_options));
+		return qstar_graph_stage(graph, label, &stage_options, out);
+	}
+	rc = qstar_target_file_token_label(item, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: malformed target_file placeholder");
+	if (rc == 1)
+		return project_command_build_label(graph, label, options, out);
+	owner = qstar_graph_find_output_owner(graph, item);
+	if (owner)
+		return project_command_build_label(graph, owner->label, options, out);
+	return 0;
+}
+
+static int
+project_command_materialize_inputs(struct qstar_graph *graph,
+    const struct qstar_command_step *step,
+    const struct qstar_build_options *options, FILE *out)
+{
+	size_t i;
+
+	for (i = 0; i < step->inputs.len; i++) {
+		if (project_command_materialize_input(graph, step->inputs.items[i],
+		    options, out) < 0)
+			return -1;
+	}
+	for (i = 0; i < step->run_command.len; i++) {
+		if (project_command_materialize_input(graph, step->run_command.items[i],
+		    options, out) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+static int
+project_command_runtime_scalar(struct qstar_graph *graph,
+    const struct qstar_command_runtime *runtime, const char *value,
+    const char **resolved)
+{
+	const struct qstar_command_runtime_value *slot;
+	char name[128];
+	int rc;
+
+	rc = command_param_token_name_exec(value, name, sizeof(name));
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: malformed qstar.param token");
+	if (rc == 0) {
+		*resolved = value;
+		return 0;
+	}
+	slot = command_runtime_value_for_name(runtime, name);
+	if (!slot)
+		return qstar_set_error(graph, "qstar: unknown command option '%s'",
+		    name);
+	if (strcmp(slot->option->type, "list") == 0)
+		return qstar_set_error(graph,
+		    "qstar: command option '%s' cannot be used as a scalar path",
+		    name);
+	*resolved = slot->value ? slot->value : "";
+	return 0;
+}
+
+static int
+run_project_command_captured(struct qstar_graph *graph,
+    const struct qstar_project_command *command,
+    const struct qstar_command_step *step, size_t step_index,
+    char *const argv[], const struct qstar_string_list *env,
+    const char *cwd, FILE *out)
+{
+	struct qstar_build_ctx ctx;
+	struct qstar_child_capture capture;
+	char id[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], logdir[QSTAR_PATH_MAX];
+	char action_log[QSTAR_PATH_MAX], stdout_path[QSTAR_PATH_MAX];
+	char stderr_path[QSTAR_PATH_MAX], stdout_rel[QSTAR_PATH_MAX];
+	char stderr_rel[QSTAR_PATH_MAX], replay_rel[QSTAR_PATH_MAX];
+	char expect_source[32], expect_path[QSTAR_PATH_MAX];
+	char description[QSTAR_PATH_MAX];
+	struct qstar_string_list outputs;
+	const char *runner;
+	qstar_process_id pid;
+	time_t start;
+	int status, exit_code, timeout_sec, done;
+
+	memset(&ctx, 0, sizeof(ctx));
+	memset(&outputs, 0, sizeof(outputs));
+	ctx.out = out;
+	ctx.action_timeout_sec = step->timeout_sec > 0 ? step->timeout_sec :
+	    action_timeout_sec_from_env();
+	snprintf(id, sizeof(id), "qstar-command:%s:run:%zu", command->name,
+	    step_index);
+	action_log_name(id, name, sizeof(name));
+	if (ensure_action_log_dir(graph, &ctx, logdir, sizeof(logdir)) < 0)
+		return -1;
+	snprintf(action_log, sizeof(action_log), "%s/%s.log", logdir, name);
+	snprintf(stdout_path, sizeof(stdout_path), "%s/%s.stdout", logdir, name);
+	snprintf(stderr_path, sizeof(stderr_path), "%s/%s.stderr", logdir, name);
+	if (build_log_rel(graph, name, ".stdout", stdout_rel, sizeof(stdout_rel)) < 0 ||
+	    build_log_rel(graph, name, ".stderr", stderr_rel, sizeof(stderr_rel)) < 0 ||
+	    build_replay_rel(graph, replay_rel, sizeof(replay_rel)) < 0)
+		return qstar_set_error(graph, "qstar: action log path too long");
+	snprintf(description, sizeof(description), "%s",
+	    step->description && *step->description ? step->description :
+	    command->description && *command->description ? command->description :
+	    "Project command run step");
+	timeout_sec = ctx.action_timeout_sec;
+	fprintf(out,
+	    "command_action id=%s status=run timeout_sec=%d stdout=%s stderr=%s\n",
+	    id, timeout_sec, stdout_rel, stderr_rel);
+	if (child_capture_open(graph, &capture, stdout_path, stderr_path) < 0)
+		return -1;
+	if (qstar_platform_process_start_captured(graph, cwd, argv, capture.out.fd,
+	    capture.out_write, capture.err.fd, capture.err_write, env, &pid,
+	    &runner) < 0) {
+		child_capture_finish(&ctx, &capture);
+		return -1;
+	}
+	child_capture_parent_started(&capture);
+	fprintf(out, "command_action id=%s pid=%ld runner=%s state=started\n",
+	    id, (long)pid, runner ? runner : "<unknown>");
+	start = time(NULL);
+	for (;;) {
+		if (qstar_platform_process_wait_nohang(pid, &status, &done) < 0) {
+			child_capture_finish(&ctx, &capture);
+			return qstar_set_error(graph,
+			    "qstar: project command '%s' run step wait failed",
+			    command->name);
+		}
+		if (done)
+			break;
+		if (timeout_sec > 0 && time(NULL) - start >= timeout_sec) {
+			qstar_platform_process_terminate(pid, &status);
+			child_capture_finish(&ctx, &capture);
+			write_action_log_text(action_log, argv, "124", description,
+			    env, &outputs);
+			write_failure_replay_detail(graph, id, NULL, argv,
+			    description, env, "command-timeout", command->name,
+			    stdout_rel, stderr_rel, step->run_expect_contains,
+			    step->run_expect_file);
+			fprintf(out,
+			    "command_run_result command=%s status=timeout timeout_sec=%d replay=%s stdout=%s stderr=%s\n",
+			    command->name, timeout_sec, replay_rel, stdout_rel,
+			    stderr_rel);
+			build_ctx_free(&ctx);
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "timeout", command->name,
+			    "qstar: project command '%s' run step timed out after %d seconds; replay=%s",
+			    command->name, timeout_sec, replay_rel);
+		}
+		if (child_capture_wait_ready(&ctx, &capture,
+		    process_event_wait_timeout_ms(start, timeout_sec)) < 0) {
+			child_capture_finish(&ctx, &capture);
+			build_ctx_free(&ctx);
+			return qstar_set_error(graph,
+			    "qstar: could not wait for project command child output");
+		}
+	}
+	child_capture_finish(&ctx, &capture);
+	exit_code = qstar_platform_process_exit_code(status);
+	if (exit_code != 0) {
+		char exit_text[32];
+
+		snprintf(exit_text, sizeof(exit_text), "%d", exit_code);
+		write_action_log_text(action_log, argv, exit_text, description,
+		    env, &outputs);
+		write_failure_replay_detail(graph, id, NULL, argv, description,
+		    env, "command-failure", command->name, stdout_rel, stderr_rel,
+		    step->run_expect_contains, step->run_expect_file);
+		fprintf(out,
+		    "command_run_result command=%s status=exit-code exit=%d replay=%s stdout=%s stderr=%s\n",
+		    command->name, exit_code, replay_rel, stdout_rel, stderr_rel);
+		build_ctx_free(&ctx);
+		return qstar_set_error_origin(graph, command->origin_file,
+		    command->origin_line, "command-failure", command->name,
+		    "qstar: project command '%s' run step failed with exit code %d; replay=%s",
+		    command->name, exit_code, replay_rel);
+	}
+	if (step->run_expect_contains && *step->run_expect_contains &&
+	    !run_expect_contains_match(graph, id, step->run_expect_contains,
+	    step->run_expect_file, expect_source, sizeof(expect_source),
+	    expect_path, sizeof(expect_path))) {
+		write_action_log_text(action_log, argv, "expect-missing",
+		    description, env, &outputs);
+		write_failure_replay_detail(graph, id, NULL, argv, description,
+		    env, "expect-missing", command->name, stdout_rel, stderr_rel,
+		    step->run_expect_contains, step->run_expect_file);
+		fprintf(out,
+		    "command_run_result command=%s status=expect-missing expect_contains=%s stdout=%s stderr=%s expect_file=%s replay=%s\n",
+		    command->name, step->run_expect_contains, stdout_rel,
+		    stderr_rel, step->run_expect_file && *step->run_expect_file ?
+		    step->run_expect_file : "<none>", replay_rel);
+		build_ctx_free(&ctx);
+		return qstar_set_error_origin(graph, command->origin_file,
+		    command->origin_line, "expect.contains", command->name,
+		    "qstar: project command '%s' expected text '%s' was not found; replay=%s",
+		    command->name, step->run_expect_contains, replay_rel);
+	}
+	write_action_log_text(action_log, argv, "0", description, env, &outputs);
+	if (step->run_expect_contains && *step->run_expect_contains)
+		fprintf(out,
+		    "command_expect command=%s status=matched contains=%s source=%s path=%s\n",
+		    command->name, step->run_expect_contains, expect_source, expect_path);
+	fprintf(out, "command_run_result command=%s status=ok action=%s\n",
+	    command->name, id);
+	build_ctx_free(&ctx);
+	return 0;
+}
+
 static int
 run_project_command_process(struct qstar_graph *graph,
     const struct qstar_project_command *command,
     const struct qstar_command_step *step,
-    const struct qstar_command_runtime *runtime, FILE *out)
+    const struct qstar_command_runtime *runtime,
+    const struct qstar_build_options *options, size_t step_index, FILE *out)
 {
-	struct qstar_string_list resolved;
+	struct qstar_string_list resolved, env;
 	char cwd[QSTAR_PATH_MAX], cwd_joined[QSTAR_PATH_MAX];
 	char **argv;
-	qstar_process_id pid;
-	const char *runner;
 	const char *workdir;
-	int status, rc;
 	size_t i;
+	int rc;
 
 	memset(&resolved, 0, sizeof(resolved));
-	if (resolve_command_runtime_argv(graph, runtime, &step->run_command,
-	    &resolved) < 0)
+	memset(&env, 0, sizeof(env));
+	if (project_command_materialize_inputs(graph, step, options, out) < 0)
 		return -1;
+	if (resolve_command_runtime_argv(graph, runtime, &step->run_command,
+	    &resolved) < 0) {
+		qstar_string_list_free(&resolved);
+		return -1;
+	}
 	if (resolved.len == 0) {
 		qstar_string_list_free(&resolved);
 		return qstar_set_error(graph,
@@ -9652,6 +9959,11 @@ run_project_command_process(struct qstar_graph *graph,
 	}
 	for (i = 0; i < resolved.len; i++)
 		argv[i] = resolved.items[i];
+	if (project_command_merge_env(graph, command, step, &env) < 0) {
+		free(argv);
+		qstar_string_list_free(&resolved);
+		return -1;
+	}
 	workdir = step->working_dir && *step->working_dir ? step->working_dir :
 	    command->working_dir;
 	if (workdir && *workdir) {
@@ -9673,26 +9985,77 @@ run_project_command_process(struct qstar_graph *graph,
 		fprintf(out, "%s%s", i ? ", " : "", resolved.items[i]);
 	fputc(']', out);
 	fputc('\n', out);
-	rc = qstar_platform_process_start_inherit(graph, cwd, argv, &pid, &runner);
-	if (rc < 0) {
-		free(argv);
-		qstar_string_list_free(&resolved);
-		return -1;
-	}
-	(void)runner;
-	if (qstar_platform_process_wait_blocking(pid, &status) < 0) {
-		free(argv);
-		qstar_string_list_free(&resolved);
-		return qstar_set_error(graph,
-		    "qstar: project command '%s' run step wait failed",
-		    command->name);
-	}
+	rc = run_project_command_captured(graph, command, step, step_index, argv,
+	    &env, cwd, out);
+	qstar_string_list_free(&env);
 	free(argv);
 	qstar_string_list_free(&resolved);
-	if (!qstar_platform_process_exited_success(status))
+	return rc;
+}
+
+static int
+export_project_command_stage(struct qstar_graph *graph,
+    const struct qstar_project_command *command,
+    const struct qstar_command_step *step,
+    const struct qstar_command_runtime *runtime, FILE *out)
+{
+	const struct qstar_stage *stage;
+	struct qstar_stage_options stage_options;
+	const char *to;
+	char root_rel[QSTAR_PATH_MAX], src_rel[QSTAR_PATH_MAX], dst_rel[QSTAR_PATH_MAX];
+	char src_full[QSTAR_PATH_MAX], dst_full[QSTAR_PATH_MAX];
+	size_t i;
+
+	stage = qstar_graph_find_stage(graph, step->label);
+	if (!stage)
 		return qstar_set_error(graph,
-		    "qstar: project command '%s' run step failed with exit code %d",
-		    command->name, qstar_platform_process_exit_code(status));
+		    "qstar: project command '%s' export_stage references unknown stage '%s'",
+		    command->name, step->label ? step->label : "");
+	if (project_command_runtime_scalar(graph, runtime, step->export_to, &to) < 0)
+		return -1;
+	if (!to || !*to || !qstar_path_is_package_relative(to))
+		return qstar_set_error_origin(graph, command->origin_file,
+		    command->origin_line, "to", command->name,
+		    "qstar: project command '%s' export_stage destination '%s' must be package-relative",
+		    command->name, to ? to : "");
+	memset(&stage_options, 0, sizeof(stage_options));
+	stage_options.dry_run = step->stage_dry_run;
+	if (qstar_graph_stage(graph, stage->label, &stage_options, out) < 0)
+		return -1;
+	snprintf(root_rel, sizeof(root_rel), "%s",
+	    stage->root && *stage->root ? stage->root : ".");
+	fprintf(out, "command_export_stage label=%s to=%s mode=%s\n",
+	    stage->label, to, step->stage_dry_run ? "dry-run" : "copy");
+	for (i = 0; i < stage->dsts.len; i++) {
+		if (qstar_path_join(root_rel, stage->dsts.items[i], src_rel,
+		    sizeof(src_rel)) < 0 ||
+		    qstar_path_join(to, stage->dsts.items[i], dst_rel,
+		    sizeof(dst_rel)) < 0)
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "export_stage", command->name,
+			    "qstar: project command '%s' export_stage path is too long",
+			    command->name);
+		fprintf(out, "command_export_file src=%s dst=%s mode=%s\n",
+		    src_rel, dst_rel, step->stage_dry_run ? "dry-run" : "copy");
+		if (step->stage_dry_run)
+			continue;
+		if (full_path_under_root(graph, src_rel, src_full, sizeof(src_full)) < 0 ||
+		    full_path_under_root(graph, dst_rel, dst_full, sizeof(dst_full)) < 0)
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "export_stage", command->name,
+			    "qstar: project command '%s' export_stage path is too long",
+			    command->name);
+		if (!path_exists(src_full))
+			return qstar_set_error_origin(graph, stage->origin_file,
+			    stage->origin_line, "export_stage", stage->label,
+			    "qstar: export_stage source '%s' is missing", src_rel);
+		if (mkdir_parent_under_root(graph, dst_rel) < 0 ||
+		    copy_file_to_path(src_full, dst_full) < 0)
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "export_stage", command->name,
+			    "qstar: failed to export stage file '%s' to '%s'",
+			    src_rel, dst_rel);
+	}
 	return 0;
 }
 
@@ -9772,7 +10135,10 @@ run_project_command_internal(struct qstar_graph *graph,
 			command_runtime_free(&called_runtime);
 		} else if (strcmp(step->kind, "run") == 0) {
 			rc = run_project_command_process(graph, command, step, runtime,
-			    out);
+			    options, i, out);
+		} else if (strcmp(step->kind, "export_stage") == 0) {
+			rc = export_project_command_stage(graph, command, step,
+			    runtime, out);
 		} else {
 			rc = qstar_set_error(graph,
 			    "qstar: project command '%s' has unknown step kind '%s'",

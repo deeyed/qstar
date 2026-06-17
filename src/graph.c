@@ -339,7 +339,11 @@ free_command_step(struct qstar_command_step *step)
 	free(step->when);
 	free(step->working_dir);
 	free(step->description);
+	free(step->run_expect_contains);
+	free(step->run_expect_file);
+	free(step->export_to);
 	qstar_string_list_free(&step->run_command);
+	qstar_string_list_free(&step->inputs);
 	qstar_string_list_free(&step->env);
 }
 
@@ -2138,8 +2142,13 @@ qstar_project_command_add_step(struct qstar_graph *graph,
 	step->when = qstar_strdup("");
 	step->working_dir = qstar_strdup("");
 	step->description = qstar_strdup("");
+	step->run_expect_contains = qstar_strdup("");
+	step->run_expect_file = qstar_strdup("");
+	step->export_to = qstar_strdup("");
 	if (!step->kind || !step->label || !step->command || !step->stage_root ||
-	    !step->when || !step->working_dir || !step->description) {
+	    !step->when || !step->working_dir || !step->description ||
+	    !step->run_expect_contains || !step->run_expect_file ||
+	    !step->export_to) {
 		qstar_set_error(graph, "qstar: out of memory");
 		return NULL;
 	}
@@ -2296,6 +2305,65 @@ validate_command_runtime_ref(struct qstar_graph *graph,
 }
 
 static int
+validate_command_runtime_ref_type(struct qstar_graph *graph,
+    const struct qstar_project_command *command, const char *name,
+    const char *owner, const char *type)
+{
+	const struct qstar_command_option *option;
+
+	option = project_command_find_option_decl(command, name);
+	if (!option)
+		return qstar_set_error_origin(graph, command->origin_file,
+		    command->origin_line, owner, command->name,
+		    "qstar: project command '%s' references unknown option '%s'",
+		    command->name, name ? name : "");
+	if (type && *type && strcmp(option->type, type) != 0)
+		return qstar_set_error_origin(graph, command->origin_file,
+		    command->origin_line, owner, command->name,
+		    "qstar: project command '%s' option '%s' must be %s for %s",
+		    command->name, name, type, owner);
+	return 0;
+}
+
+static int
+command_env_assignment_ok(const char *item)
+{
+	const unsigned char *p;
+	const char *eq;
+
+	if (!item || !*item)
+		return 0;
+	eq = strchr(item, '=');
+	if (!eq || eq == item)
+		return 0;
+	p = (const unsigned char *)item;
+	if (!isalpha(*p) && *p != '_')
+		return 0;
+	for (; (const char *)p < eq; p++) {
+		if (!isalnum(*p) && *p != '_')
+			return 0;
+	}
+	return 1;
+}
+
+static int
+validate_command_env(struct qstar_graph *graph,
+    const struct qstar_project_command *command,
+    const struct qstar_string_list *env, const char *owner)
+{
+	size_t i;
+
+	for (i = 0; env && i < env->len; i++) {
+		if (!command_env_assignment_ok(env->items[i]))
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, owner, command->name,
+			    "qstar: project command '%s' env[%zu] must be NAME=value",
+			    command->name, i);
+	}
+	return 0;
+}
+
+static int
 validate_command_runtime_argv(struct qstar_graph *graph,
     const struct qstar_project_command *command,
     const struct qstar_string_list *argv)
@@ -2417,6 +2485,44 @@ validate_project_command_step(struct qstar_graph *graph,
 		if (validate_command_runtime_argv(graph, command,
 		    &step->run_command) < 0)
 			return -1;
+		if (validate_command_env(graph, command, &step->env, "env") < 0)
+			return -1;
+		if (step->run_expect_file && *step->run_expect_file &&
+		    !qstar_path_is_package_relative(step->run_expect_file))
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "expect.file", command->name,
+			    "qstar: project command '%s' run expect.file '%s' must be package-relative",
+			    command->name, step->run_expect_file);
+		return 0;
+	}
+	if (strcmp(step->kind, "export_stage") == 0) {
+		char name[128];
+		int rc;
+
+		if (!step->label || !*step->label || !has_stage(graph, step->label))
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "steps", command->name,
+			    "qstar: project command '%s' export_stage step references unknown stage '%s'",
+			    command->name, step->label ? step->label : "");
+		if (!step->export_to || !*step->export_to)
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "to", command->name,
+			    "qstar: project command '%s' export_stage step requires to",
+			    command->name);
+		rc = command_param_token_name(step->export_to, name, sizeof(name));
+		if (rc < 0)
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "to", command->name,
+			    "qstar: malformed qstar.param token in project command '%s'",
+			    command->name);
+		if (rc > 0)
+			return validate_command_runtime_ref_type(graph, command, name,
+			    "to", "path");
+		if (!qstar_path_is_package_relative(step->export_to))
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "to", command->name,
+			    "qstar: project command '%s' export_stage destination '%s' must be package-relative",
+			    command->name, step->export_to);
 		return 0;
 	}
 	return qstar_set_error_origin(graph, command->origin_file, command->origin_line,

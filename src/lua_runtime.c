@@ -870,6 +870,60 @@ read_run_inputs_field(lua_State *L, int table, struct qstar_target *target,
 	return 0;
 }
 
+/** qstar.step.run inputs field는 run_target.inputs와 같은 token set을 받는다. */
+static int
+read_command_step_inputs_field(lua_State *L, int table,
+    struct qstar_command_step *step, struct qstar_graph *graph)
+{
+	const char *kind, *s;
+	char token[QSTAR_PATH_MAX];
+	size_t i, n;
+
+	lua_getfield(L, table, "inputs");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: qstar.step.run inputs must be a list");
+	}
+	n = lua_rawlen(L, -1);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, -1, (lua_Integer)i);
+		if (lua_isstring(L, -1)) {
+			s = lua_tostring(L, -1);
+		} else if (lua_istable(L, -1)) {
+			kind = qstar_table_kind(L, -1);
+			if (!kind ||
+			    (strcmp(kind, "target_file") != 0 &&
+			    strcmp(kind, "stage_dir") != 0) ||
+			    format_placeholder_token(L, -1, token, sizeof(token)) < 0) {
+				lua_pop(L, 2);
+				return qstar_set_error(graph,
+				    "qstar: qstar.step.run inputs contains non-string, target_file, or stage_dir item");
+			}
+			s = token;
+		} else {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: qstar.step.run inputs contains non-string, target_file, or stage_dir item");
+		}
+		if (!s || !*s) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: qstar.step.run inputs contains empty path");
+		}
+		if (qstar_string_list_push(&step->inputs, s) < 0) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph, "qstar: out of memory");
+		}
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
 static int append_list(struct qstar_graph *graph, struct qstar_string_list *dst,
     const struct qstar_string_list *src);
 static int qstar_lua_array_table(lua_State *L, int idx);
@@ -6204,6 +6258,89 @@ read_command_option_default(lua_State *L, int table,
 	return 0;
 }
 
+/** qstar.step.run expect table은 run_target.expect와 같은 contains/file 계약을 쓴다. */
+static int
+read_command_step_expect_field(lua_State *L, int table,
+    struct qstar_command_step *step, struct qstar_graph *graph)
+{
+	static const char *const allowed[] = { "contains", "file", NULL };
+	const char *key, *contains, *file;
+	size_t len, i;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_getfield(L, table, "expect");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph,
+		    "qstar: qstar.step.run expect must be a table with contains and optional file");
+	}
+	lua_pushnil(L);
+	while (lua_next(L, -2) != 0) {
+		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (!key || !string_in_set(key, allowed)) {
+			lua_pop(L, 3);
+			return qstar_set_error(graph,
+			    "qstar: unknown qstar.step.run expect field '%s'",
+			    key ? key : "<non-string>");
+		}
+		lua_pop(L, 1);
+	}
+	lua_getfield(L, -1, "contains");
+	if (!lua_isstring(L, -1)) {
+		lua_pop(L, 2);
+		return qstar_set_error(graph,
+		    "qstar: qstar.step.run expect.contains must be a string");
+	}
+	contains = lua_tolstring(L, -1, &len);
+	if (!contains || len == 0) {
+		lua_pop(L, 2);
+		return qstar_set_error(graph,
+		    "qstar: qstar.step.run expect.contains must not be empty");
+	}
+	for (i = 0; i < len; i++) {
+		if (contains[i] == '\n' || contains[i] == '\r') {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: qstar.step.run expect.contains must be one line");
+		}
+	}
+	if (replace_lua_string(&step->run_expect_contains, contains, graph) < 0) {
+		lua_pop(L, 2);
+		return -1;
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, -1, "file");
+	if (!lua_isnil(L, -1)) {
+		if (!lua_isstring(L, -1)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: qstar.step.run expect.file must be a package-relative string");
+		}
+		file = lua_tostring(L, -1);
+		if (!file || !*file) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: qstar.step.run expect.file must not be empty");
+		}
+		if (!qstar_path_is_package_relative(file)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: qstar.step.run expect.file must be package-relative");
+		}
+		if (replace_lua_string(&step->run_expect_file, file, graph) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+	}
+	lua_pop(L, 2);
+	return 0;
+}
+
 static int
 read_command_options_field(lua_State *L, int table,
     struct qstar_project_command *command, struct qstar_graph *graph)
@@ -6277,9 +6414,11 @@ read_command_steps_field(lua_State *L, int table,
     struct qstar_project_command *command, struct qstar_graph *graph)
 {
 	struct qstar_command_step *step;
-	const char *kind, *label, *called, *root, *when, *workdir;
+	struct qstar_string_list empty;
+	const char *kind, *label, *called, *root, *when, *workdir, *export_to;
 	size_t i, n;
 
+	memset(&empty, 0, sizeof(empty));
 	lua_getfield(L, table, "steps");
 	if (lua_isnil(L, -1)) {
 		lua_pop(L, 1);
@@ -6338,9 +6477,24 @@ read_command_steps_field(lua_State *L, int table,
 			if (!lua_isboolean(L, -1)) {
 				lua_pop(L, 3);
 				return qstar_set_error(graph,
-				    "qstar: qstar.step.stage field 'dry_run' must be boolean");
+				    "qstar: command step field 'dry_run' must be boolean");
 			}
 			step->stage_dry_run = lua_toboolean(L, -1) ? 1 : 0;
+		}
+		lua_pop(L, 1);
+		lua_getfield(L, -1, "timeout");
+		if (!lua_isnil(L, -1)) {
+			if (!lua_isinteger(L, -1)) {
+				lua_pop(L, 3);
+				return qstar_set_error(graph,
+				    "qstar: qstar.step.run field 'timeout' must be integer");
+			}
+			step->timeout_sec = (int)lua_tointeger(L, -1);
+			if (step->timeout_sec < 0) {
+				lua_pop(L, 3);
+				return qstar_set_error(graph,
+				    "qstar: qstar.step.run timeout must be >= 0");
+			}
 		}
 		lua_pop(L, 1);
 		lua_getfield(L, -1, "when");
@@ -6368,11 +6522,28 @@ read_command_steps_field(lua_State *L, int table,
 			lua_pop(L, 2);
 			return -1;
 		}
-		if (strcmp(kind, "run") == 0 &&
-		    read_command_field(L, -1, "command", &step->run_command,
+		lua_getfield(L, -1, "to");
+		export_to = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+		if (export_to && replace_lua_string(&step->export_to, export_to,
 		    graph) < 0) {
+			lua_pop(L, 3);
+			return -1;
+		}
+		lua_pop(L, 1);
+		if (read_command_step_inputs_field(L, -1, step, graph) < 0) {
 			lua_pop(L, 2);
 			return -1;
+		}
+		if (strcmp(kind, "run") == 0) {
+			if (read_command_field(L, -1, "command", &step->run_command,
+			    graph) < 0 ||
+			    resolve_cli_placeholders(graph, &step->run_command,
+			    &step->inputs, &empty,
+			    "project command run step command") < 0 ||
+			    read_command_step_expect_field(L, -1, step, graph) < 0) {
+				lua_pop(L, 2);
+				return -1;
+			}
 		}
 		lua_pop(L, 1);
 	}
@@ -6582,6 +6753,68 @@ qstar_lua_step_stage(lua_State *L)
 }
 
 static int
+qstar_lua_step_export_stage(lua_State *L)
+{
+	static const char *const allowed[] = { "to", "dry_run", "when", NULL };
+	struct qstar_lua_context *ctx;
+	struct qstar_graph *graph;
+	const char *raw, *to, *name;
+	char label[QSTAR_PATH_MAX], token[QSTAR_PATH_MAX];
+	int out_idx;
+
+	ctx = get_context(L);
+	graph = ctx->graph;
+	raw = luaL_checkstring(L, 1);
+	luaL_checktype(L, 2, LUA_TTABLE);
+	if (qstar_label_canonicalize(raw, ctx->current_dir, label, sizeof(label)) < 0)
+		return luaL_error(L,
+		    "qstar: invalid qstar.step.export_stage label '%s'", raw);
+	if (qstar_lua_validate_table_fields(L, 2, graph, "qstar.step.export_stage",
+	    allowed) < 0)
+		return luaL_error(L, "%s", graph->error);
+	push_command_step_table(L, "export_stage");
+	out_idx = lua_gettop(L);
+	lua_pushstring(L, label);
+	lua_setfield(L, -2, "label");
+	lua_getfield(L, 2, "to");
+	if (lua_isnil(L, -1))
+		return luaL_error(L, "qstar: qstar.step.export_stage requires to");
+	if (lua_isstring(L, -1)) {
+		to = lua_tostring(L, -1);
+		lua_pushstring(L, to);
+		lua_setfield(L, out_idx, "to");
+	} else if (lua_istable(L, -1) && command_param_table_name(L, -1) &&
+	    format_command_param_token(L, -1, token, sizeof(token)) == 0) {
+		lua_pushstring(L, token);
+		lua_setfield(L, out_idx, "to");
+	} else {
+		return luaL_error(L,
+		    "qstar: qstar.step.export_stage to must be a string or qstar.param(\"name\")");
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, 2, "dry_run");
+	if (!lua_isnil(L, -1)) {
+		if (!lua_isboolean(L, -1))
+			return luaL_error(L,
+			    "qstar: qstar.step.export_stage dry_run must be boolean");
+		lua_pushboolean(L, lua_toboolean(L, -1));
+		lua_setfield(L, out_idx, "dry_run");
+	}
+	lua_pop(L, 1);
+	lua_getfield(L, 2, "when");
+	if (!lua_isnil(L, -1)) {
+		if (!lua_istable(L, -1) ||
+		    !(name = command_param_table_name(L, -1)))
+			return luaL_error(L,
+			    "qstar: qstar.step.export_stage when must be qstar.param(\"name\")");
+		lua_pushstring(L, name);
+		lua_setfield(L, out_idx, "when");
+	}
+	lua_pop(L, 1);
+	return 1;
+}
+
+static int
 qstar_lua_step_call(lua_State *L)
 {
 	const char *name;
@@ -6606,7 +6839,8 @@ static int
 qstar_lua_step_run(lua_State *L)
 {
 	static const char *const allowed[] = {
-		"command", "env", "working_dir", "description", "when", NULL
+		"command", "inputs", "env", "working_dir", "description",
+		"timeout", "expect", "when", NULL
 	};
 	struct qstar_lua_context *ctx;
 	struct qstar_graph *graph;
@@ -6634,6 +6868,15 @@ qstar_lua_step_run(lua_State *L)
 		lua_setfield(L, out_idx, "env");
 	else
 		lua_pop(L, 1);
+	lua_getfield(L, 1, "inputs");
+	if (!lua_isnil(L, -1)) {
+		if (!lua_istable(L, -1))
+			return luaL_error(L,
+			    "qstar: qstar.step.run inputs must be a list");
+		lua_setfield(L, out_idx, "inputs");
+	} else {
+		lua_pop(L, 1);
+	}
 	lua_getfield(L, 1, "working_dir");
 	if (!lua_isnil(L, -1)) {
 		if (!lua_isstring(L, -1))
@@ -6648,6 +6891,24 @@ qstar_lua_step_run(lua_State *L)
 		lua_setfield(L, out_idx, "description");
 	else
 		lua_pop(L, 1);
+	lua_getfield(L, 1, "timeout");
+	if (!lua_isnil(L, -1)) {
+		if (!lua_isinteger(L, -1) || lua_tointeger(L, -1) < 0)
+			return luaL_error(L,
+			    "qstar: qstar.step.run timeout must be >= 0");
+		lua_setfield(L, out_idx, "timeout");
+	} else {
+		lua_pop(L, 1);
+	}
+	lua_getfield(L, 1, "expect");
+	if (!lua_isnil(L, -1)) {
+		if (!lua_istable(L, -1))
+			return luaL_error(L,
+			    "qstar: qstar.step.run expect must be a table");
+		lua_setfield(L, out_idx, "expect");
+	} else {
+		lua_pop(L, 1);
+	}
 	lua_getfield(L, 1, "when");
 	if (!lua_isnil(L, -1)) {
 		if (!lua_istable(L, -1) ||
@@ -7812,6 +8073,8 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "test");
 	lua_pushcfunction(L, qstar_lua_step_stage);
 	lua_setfield(L, -2, "stage");
+	lua_pushcfunction(L, qstar_lua_step_export_stage);
+	lua_setfield(L, -2, "export_stage");
 	lua_pushstring(L, "check");
 	lua_pushcclosure(L, qstar_lua_step_label, 1);
 	lua_setfield(L, -2, "check");

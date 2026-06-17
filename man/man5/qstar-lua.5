@@ -206,14 +206,35 @@ Project command step that executes a command-local argv-vector action. The table
 requires
 .Ic command = qstar.cli { ... }
 and may include
+.Ic inputs ,
 .Ic working_dir ,
 .Ic description ,
 .Ic env ,
+.Ic timeout ,
+.Ic expect ,
 and
 .Ic when .
+Inputs accept package-relative files,
+.Ic qstar.target_file(...) ,
+and
+.Ic qstar.stage_dir(...) .
+.Ic qstar.input(N)
+inside the command resolves to the Nth input. Output is captured under
+.Pa build/qstar/logs ,
+timeouts and expect failures write replay metadata, and action logs are
+available as
+.Ic qstar-command:<name>:run:<index> .
 .It Ic qstar.step.call
 Project command step that calls another project command or alias. Cycles are
 errors.
+.It Ic qstar.step.export_stage
+Project command step that materializes a
+.Ic qstar.stage
+layout and copies it to
+.Ic to .
+The destination must be package-relative and may be a
+.Ic qstar.param("path_option")
+reference.
 .It Ic qstar.param.string Ns , Ic qstar.param.path Ns , Ic qstar.param.bool Ns , Ic qstar.param.int Ns , Ic qstar.param.enum Ns , Ic qstar.param.list
 Declare typed project command option schemas. Common fields are
 .Ic description ,

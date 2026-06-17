@@ -9360,13 +9360,17 @@ fi
 contains "$tmp/stage-bad-missing.err" "stage source target '//:missing' in '//:bad' is unknown"
 
 step "project commands"
-mkdir -p "$tmp/project-command/src" "$tmp/project-command/tools"
+mkdir -p "$tmp/project-command/src" "$tmp/project-command/tools" "$tmp/project-command/fixtures"
 cat > "$tmp/project-command/src/main.c" <<'EOF'
 int main(void) { return 0; }
+EOF
+cat > "$tmp/project-command/fixtures/input.txt" <<'EOF'
+fixture payload
 EOF
 cat > "$tmp/project-command/tools/write-args.sh" <<'EOF'
 #!/bin/sh
 set -eu
+printf 'QSTAR-COMMAND-OK env=%s\n' "${QSTAR_COMMAND_ENV:-missing}"
 out=$1
 shift
 mkdir -p "$(dirname "$out")"
@@ -9376,9 +9380,21 @@ for arg in "$@"; do
 done
 EOF
 chmod +x "$tmp/project-command/tools/write-args.sh"
+cat > "$tmp/project-command/tools/sleep.sh" <<'EOF'
+#!/bin/sh
+sleep 2
+EOF
+chmod +x "$tmp/project-command/tools/sleep.sh"
 cat > "$tmp/project-command/qstar.lua" <<'EOF'
 qstar.executable "app" {
   sources = {"src/main.c"},
+}
+
+qstar.stage "bundle" {
+  root = "build/qstar/stage/bundle",
+  files = {
+    qstar.stage_file("fixtures/input.txt", "data/input.txt"),
+  },
 }
 
 qstar.command "make-app" {
@@ -9426,6 +9442,9 @@ qstar.command "needs-mode" {
 }
 
 qstar.command "write-args" {
+  env = {
+    "QSTAR_COMMAND_ENV=command",
+  },
   options = {
     emit = qstar.param.bool {
       default = true,
@@ -9445,14 +9464,51 @@ qstar.command "write-args" {
   steps = {
     qstar.step.run {
       when = qstar.param("emit"),
+      inputs = {
+        "fixtures/input.txt",
+        qstar.stage_dir("//:bundle"),
+        qstar.target_file("//:app"),
+      },
+      env = {
+        "QSTAR_COMMAND_ENV=step",
+      },
+      timeout = 5,
+      expect = {
+        contains = "QSTAR-COMMAND-OK",
+      },
       command = qstar.cli {
         "tools/write-args.sh",
         "generated/args.txt",
+        qstar.input(0),
+        qstar.input(1),
+        qstar.input(2),
         qstar.param("mode"),
         qstar.arg_if(qstar.param("verbose"), "--verbose"),
         qstar.args_if(qstar.param("extra"), {"--extra", "yes"}),
         qstar.param("item"),
       },
+    },
+  },
+}
+
+qstar.command "export-bundle" {
+  options = {
+    out = qstar.param.path {
+      default = "exported/bundle",
+    },
+  },
+  steps = {
+    qstar.step.export_stage("//:bundle", {
+      to = qstar.param("out"),
+    }),
+  },
+}
+
+qstar.command "timeout-run" {
+  steps = {
+    qstar.step.run {
+      timeout = 1,
+      command = qstar.cli {"tools/sleep.sh"},
     },
   },
 }
@@ -9503,14 +9559,53 @@ if ! "$qstar" --file "$tmp/project-command/qstar.lua" --progress off write-args 
 	fail "project command run step failed"
 fi
 contains "$tmp/project-command-write.out" "command_step 1/1 kind=run when=emit"
-contains "$tmp/project-command-write.out" "command_run cwd=$tmp/project-command argv=[tools/write-args.sh, generated/args.txt, release, --verbose, --extra, yes, one, two]"
+contains "$tmp/project-command-write.out" "command_run cwd=$tmp/project-command argv=[tools/write-args.sh, generated/args.txt, fixtures/input.txt, build/qstar/stage/bundle, build/qstar/out/___app/app, release, --verbose, --extra, yes, one, two]"
+contains "$tmp/project-command-write.out" "command_action id=qstar-command:write-args:run:0 status=run"
+contains "$tmp/project-command-write.out" "command_expect command=write-args status=matched contains=QSTAR-COMMAND-OK"
 contains "$tmp/project-command-write.out" "command_status write-args ok"
+contains "$tmp/project-command/build/qstar/logs/qstar_command_write_args_run_0.stdout" "QSTAR-COMMAND-OK env=step"
+contains "$tmp/project-command/generated/args.txt" "fixtures/input.txt"
+contains "$tmp/project-command/generated/args.txt" "build/qstar/stage/bundle"
+contains "$tmp/project-command/generated/args.txt" "build/qstar/out/___app/app"
 contains "$tmp/project-command/generated/args.txt" "release"
 contains "$tmp/project-command/generated/args.txt" "--verbose"
 contains "$tmp/project-command/generated/args.txt" "--extra"
 contains "$tmp/project-command/generated/args.txt" "yes"
 contains "$tmp/project-command/generated/args.txt" "one"
 contains "$tmp/project-command/generated/args.txt" "two"
+if ! "$qstar" --file "$tmp/project-command/qstar.lua" action-log qstar-command:write-args:run:0 > "$tmp/project-command-action-log.out" 2> "$tmp/project-command-action-log.err"; then
+	cat "$tmp/project-command-action-log.out" >&2
+	cat "$tmp/project-command-action-log.err" >&2
+	fail "project command action-log failed"
+fi
+contains "$tmp/project-command-action-log.out" "qstar action-log v1"
+contains "$tmp/project-command-action-log.out" "exit=0"
+contains "$tmp/project-command-action-log.out" "env[0]=QSTAR_COMMAND_ENV=<redacted>"
+contains "$tmp/project-command-action-log.out" "argv[2]=fixtures/input.txt"
+contains "$tmp/project-command-action-log.out" "argv[3]=build/qstar/stage/bundle"
+contains "$tmp/project-command-action-log.out" "argv[4]=build/qstar/out/___app/app"
+if ! "$qstar" --file "$tmp/project-command/qstar.lua" replay qstar-command:write-args:run:0 > "$tmp/project-command-replay.out" 2> "$tmp/project-command-replay.err"; then
+	cat "$tmp/project-command-replay.out" >&2
+	cat "$tmp/project-command-replay.err" >&2
+	fail "project command replay failed"
+fi
+contains "$tmp/project-command-replay.out" "qstar replay v1"
+contains "$tmp/project-command-replay.out" "env[0]=QSTAR_COMMAND_ENV=<redacted>"
+contains "$tmp/project-command-replay.out" "tools/write-args.sh generated/args.txt fixtures/input.txt build/qstar/stage/bundle build/qstar/out/___app/app release"
+rm -rf "$tmp/project-command/exported"
+if ! "$qstar" --file "$tmp/project-command/qstar.lua" --progress off export-bundle --out exported/custom > "$tmp/project-command-export.out" 2> "$tmp/project-command-export.err"; then
+	cat "$tmp/project-command-export.out" >&2
+	cat "$tmp/project-command-export.err" >&2
+	fail "project command export_stage failed"
+fi
+contains "$tmp/project-command-export.out" "command_step 1/1 kind=export_stage label=//:bundle"
+contains "$tmp/project-command-export.out" "command_export_stage label=//:bundle to=exported/custom mode=copy"
+contains "$tmp/project-command/exported/custom/data/input.txt" "fixture payload"
+if "$qstar" --file "$tmp/project-command/qstar.lua" --progress off timeout-run > "$tmp/project-command-timeout.out" 2> "$tmp/project-command-timeout.err"; then
+	fail "project command timeout unexpectedly succeeded"
+fi
+contains "$tmp/project-command-timeout.out" "command_run_result command=timeout-run status=timeout timeout_sec=1"
+contains "$tmp/project-command-timeout.err" "project command 'timeout-run' run step timed out after 1 seconds"
 rm -f "$tmp/project-command/generated/args.txt"
 if ! "$qstar" --file "$tmp/project-command/qstar.lua" --progress off write-args --no-emit > "$tmp/project-command-skip.out" 2> "$tmp/project-command-skip.err"; then
 	cat "$tmp/project-command-skip.out" >&2
@@ -9605,6 +9700,23 @@ if "$qstar" --file "$tmp/project-command-bad-runtime/qstar.lua" commands > "$tmp
 	fail "non-bool project command when unexpectedly succeeded"
 fi
 contains "$tmp/project-command-bad-when.err" "option 'mode' must be bool for when"
+cat > "$tmp/project-command-bad-runtime/qstar.lua" <<'EOF'
+qstar.command "cycle-a" {
+  steps = {
+    qstar.step.call("cycle-b"),
+  },
+}
+
+qstar.command "cycle-b" {
+  steps = {
+    qstar.step.call("cycle-a"),
+  },
+}
+EOF
+if "$qstar" --file "$tmp/project-command-bad-runtime/qstar.lua" commands > "$tmp/project-command-cycle.out" 2> "$tmp/project-command-cycle.err"; then
+	fail "project command cycle unexpectedly succeeded"
+fi
+contains "$tmp/project-command-cycle.err" "project command call cycle includes"
 mkdir -p "$tmp/project-command-fragment/pkg"
 cat > "$tmp/project-command-fragment/qstar.lua" <<'EOF'
 qstar.subdir("pkg")

@@ -352,6 +352,7 @@ Command/path helper:
 - `qstar.step.lint`
 - `qstar.step.run`
 - `qstar.step.call`
+- `qstar.step.export_stage`
 - `qstar.param.string`
 - `qstar.param.path`
 - `qstar.param.bool`
@@ -510,11 +511,14 @@ qstar.stage "bundle" {
 
 Root-only project command는 `qstar.command`로 선언한다. 이 표면은 Makefile phony target
 같은 사용자 CLI를 제공하지만, shell script나 language/platform-specific builtin이 아니다.
-`steps`에는 `qstar.step.build/test/stage/check/lint/run/call`이 들어가며, `qstar commands`로
-목록을 확인한다. Command option은 `qstar.param.*`로 선언하고, runtime argv에서는
+`steps`에는 `qstar.step.build/test/stage/check/lint/run/call/export_stage`가 들어가며,
+`qstar commands`로 목록을 확인한다. Command option은 `qstar.param.*`로 선언하고, runtime argv에서는
 `qstar.param("name")`, `qstar.arg_if`, `qstar.args_if`를 쓴다. `when`과 conditional argv
-helper의 condition은 bool option만 참조할 수 있다. `.qst`, `.qsm`, provider 파일에서는
-`qstar.command`를 선언할 수 없다.
+helper의 condition은 bool option만 참조할 수 있다. `qstar.step.run`은 `inputs`,
+`timeout`, `expect`, `env`를 지원하고 stdout/stderr/action-log/replay를 `qstar.run_target`
+계약과 같은 방식으로 남긴다. `qstar.step.export_stage(label, {to = ...})`는 stage layout을
+package-relative destination으로 복사한다. `.qst`, `.qsm`, provider 파일에서는 `qstar.command`를
+선언할 수 없다.
 
 Deps-only aggregate는 `qstar.group`으로 표현한다. Group은 command, output, artifact,
 install 대상이 아니며 `qstar.target_file("//:group")`도 금지된다.

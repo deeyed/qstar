@@ -128,12 +128,21 @@ qstar.command "make-bundle" {
     qstar.step.stage("//:bundle", {root = "stage/bundle"}),
     qstar.step.run {
       when = qstar.param("verbose"),
+      inputs = {qstar.stage_dir("//:bundle")},
+      timeout = 30,
+      expect = {
+        contains = "bundle ok",
+      },
       command = qstar.cli {
         "tools/inspect-bundle",
+        qstar.input(0),
         qstar.param("mode"),
         qstar.arg_if(qstar.param("verbose"), "--verbose"),
       },
     },
+    qstar.step.export_stage("//:bundle", {
+      to = "exports/bundle",
+    }),
   },
 }
 ```
@@ -153,7 +162,7 @@ Field:
 | --- | --- | --- |
 | `description` | `qstar.status("...")` | command list/help에 표시되는 설명. |
 | `options` | table | typed command option schema. |
-| `env` | list string | command 환경 entry. 현재는 검증/list에 보존하고, 실제 process env overlay는 후속 executor contract로 남긴다. |
+| `env` | list string | `qstar.step.run`에 적용되는 기본 `NAME=value` environment overlay. action-log/replay에는 값이 redacted된다. |
 | `working_dir` | string | package-relative working directory. `qstar.step.run`이 step-local `working_dir`을 갖지 않으면 이 값을 쓴다. |
 | `steps` | list | ordered `qstar.step.*` list. |
 | `is_default` | bool | 기본 project command. 하나만 true일 수 있다. |
@@ -202,8 +211,21 @@ Step:
 | `qstar.step.stage(label, opts)` | `qstar.stage` layout을 materialize한다. `opts.root`, `opts.dry_run`을 지원한다. |
 | `qstar.step.check(label)` | graph/input validation을 실행한다. 전체 graph는 `"//..."`를 쓴다. |
 | `qstar.step.lint(label)` | authoring lint를 실행한다. 전체 graph는 `"//..."`를 쓴다. |
-| `qstar.step.run { command = qstar.cli { ... } }` | command-local argv-vector action을 실행한다. reusable 산출물이 필요한 작업은 `custom_target`/`run_target`이 우선이다. |
+| `qstar.step.run { command = qstar.cli { ... } }` | command-local argv-vector action을 실행한다. `inputs`, `env`, `working_dir`, `description`, `timeout`, `expect`, `when`을 지원한다. |
 | `qstar.step.call(name)` | 다른 project command 또는 alias를 호출한다. cycle은 error다. |
+| `qstar.step.export_stage(label, opts)` | `qstar.stage` layout을 materialize한 뒤 `opts.to`로 복사한다. `opts.to`는 package-relative string 또는 `qstar.param("path_option")`이다. |
+
+`qstar.step.run`은 Makefile phony target처럼 command 호출마다 실행된다. 다만 실행
+계약은 backend action과 같다. `inputs`와 command 안의 `qstar.target_file(...)`,
+`qstar.stage_dir(...)` producer를 먼저 만들고, stdout/stderr를 `build/qstar/logs`
+아래에 capture하며, timeout/expect 실패는 replay를 남긴다. 성공/실패 action-log는
+`qstar action-log qstar-command:<name>:run:<index>`로 확인할 수 있다.
+
+`qstar.step.run.inputs`는 `run_target.inputs`와 같은 item set을 쓴다. package-relative
+file, `qstar.target_file(...)`, `qstar.stage_dir(...)`를 받을 수 있고, command 안의
+`qstar.input(N)`은 N번째 input으로 바뀐다. Step-local `env`는 command-level `env`를
+같은 변수명 기준으로 덮어쓴다. `expect = { contains = "...", file = "..." }`는 captured
+stdout/stderr와 선택적 package-relative file에서 문자열을 찾는다.
 
 Command name과 alias는 `build`, `test`, `stage`, `commands`, `init`, `docs`, `daemon`,
 `check`, `lint`, `query`, `explain`, `action-log`, `replay` 같은 built-in CLI 이름과 충돌할

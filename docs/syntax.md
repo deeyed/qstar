@@ -381,12 +381,21 @@ qstar.command "make-bundle" {
     qstar.step.stage("//:bundle", {root = "stage/bundle"}),
     qstar.step.run {
       when = qstar.param("verbose"),
+      inputs = {qstar.stage_dir("//:bundle")},
+      timeout = 30,
+      expect = {
+        contains = "bundle ok",
+      },
       command = qstar.cli {
         "tools/inspect-bundle",
+        qstar.input(0),
         qstar.param("mode"),
         qstar.arg_if(qstar.param("verbose"), "--verbose"),
       },
     },
+    qstar.step.export_stage("//:bundle", {
+      to = "exports/bundle",
+    }),
   },
 }
 ```
@@ -406,7 +415,7 @@ Allowed `qstar.command` fields:
 | --- | --- | --- |
 | `description` | `qstar.status("...")` | Command list/help text. |
 | `options` | table | Typed CLI option schema. |
-| `env` | list string | Reserved command environment entries. The field is validated and listed; process env overlay is a later executor contract. |
+| `env` | list string | Default `NAME=value` environment overlay for `qstar.step.run`; action-log/replay redact values. |
 | `working_dir` | string | Package-relative working directory used by `qstar.step.run` unless the step overrides it. |
 | `steps` | list | Ordered `qstar.step.*` values. |
 | `is_default` | bool | Marks the default project command; only one may be default. |
@@ -448,8 +457,22 @@ Supported steps in the core surface are:
 | `qstar.step.stage(label, opts)` | Materialize a `qstar.stage`; `opts.root` and `opts.dry_run` mirror the stage CLI. |
 | `qstar.step.check(label)` | Run graph/input validation. Use `"//..."` for the whole graph. |
 | `qstar.step.lint(label)` | Run authoring lint. Use `"//..."` for the whole graph. |
-| `qstar.step.run { command = qstar.cli { ... } }` | Execute a command-local argv-vector action. Use `working_dir`, `description`, and `when` fields as needed. |
+| `qstar.step.run { command = qstar.cli { ... } }` | Execute a command-local argv-vector action. Supports `inputs`, `env`, `working_dir`, `description`, `timeout`, `expect`, and `when`. |
 | `qstar.step.call(name)` | Call another project command or alias; cycles are rejected. |
+| `qstar.step.export_stage(label, opts)` | Materialize a `qstar.stage` and copy its layout to `opts.to`; `opts.to` may be a literal package path or `qstar.param("path_option")`. |
+
+`qstar.step.run` is phony in the Makefile sense: it runs every command invocation.
+It still uses the backend execution contract, so Stella and Ninja producer edges
+are built first, stdout/stderr are captured under `build/qstar/logs`, timeouts and
+expect checks produce failure replay files, and `qstar action-log
+qstar-command:<name>:run:<index>` can inspect the resolved argv/env metadata.
+
+`qstar.step.run.inputs` accepts the same item kinds as `run_target.inputs`:
+package-relative files, `qstar.target_file(...)`, and `qstar.stage_dir(...)`.
+`qstar.input(N)` in the step command resolves to the Nth declared input. Step
+`env` entries override command-level env entries with the same variable name.
+`expect = { contains = "...", file = "..." }` matches captured stdout/stderr and
+the optional package-relative file.
 
 The command name and aliases cannot collide with built-in QStar CLI commands
 such as `build`, `test`, `stage`, `commands`, `init`, `docs`, `daemon`, or
