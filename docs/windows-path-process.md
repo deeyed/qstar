@@ -36,6 +36,12 @@ Round Q179 splits POSIX process execution from the Windows compile boundary:
 Ninja-backed execution still need a future CreateProcess runner. Q179 also
 introduces `qstar_platform_mkdir` and `qstar_platform_lstat` so the baseline
 Windows build does not depend on POSIX `mkdir(path, mode)` or `lstat`.
+Round Q219 moves the process runner contract into `src/platform_process.c`.
+Stella actions, Stella/Ninja test artifact execution, and QStar's Ninja launcher
+now share the same platform process start, stdout/stderr pipe, wait, terminate,
+and status-normalization layer. The Windows side prepares argv-to-command-line
+quoting, environment block materialization, cwd, pipe setup, and timeout/kill
+semantics, while the actual `CreateProcess` launch remains deferred.
 
 ## Status
 
@@ -55,7 +61,8 @@ Windows CI lane, source build, install smoke, response-file execution with real
 Windows tools, and artifact packaging story. Q178 starts that execution path for
 MSYS2 UCRT64 GCC; Q179 moves the process-runner failure from POSIX headers to an
 explicit unsupported CreateProcess boundary and starts closing filesystem helper
-signature differences; MSVC/clang-cl execution is still deferred.
+signature differences. Q219 narrows that boundary further to
+`src/platform_process.c`; MSVC/clang-cl execution is still deferred.
 
 ## Path Normalization Rule
 

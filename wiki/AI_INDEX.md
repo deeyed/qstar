@@ -184,7 +184,12 @@ QStar가 하지 않는 일:
   `windows-execution` script는 `native-alpha-detail/` 또는 `windows-execution-detail/`
   아래에 inner temp `.out`/`.err`, corpus `build/qstar`, response files, generated files,
   replay/action-log, Ninja files를 복사한다. 다음 Windows 구현 라운드는 Actions console log보다
-  이 detail bundle을 먼저 본다.
+  이 detail bundle을 먼저 본다. Q219는 `src/platform_process.c`를 추가해 Stella action,
+  Stella/Ninja test artifact runner, QStar Ninja launcher가 같은 process start/wait/kill/status
+  contract를 사용하게 했다. Windows 쪽은 argv vector to command-line quoting, env block, cwd,
+  stdout/stderr pipe setup, timeout/terminate/status normalization을 이 layer 안에 모았고,
+  실제 `CreateProcess` launch만 deferred diagnostic으로 남긴다. 다음 Windows execution 라운드는
+  `executor.c`나 `ninja.c`에 별도 runner를 심지 말고 `src/platform_process.c`의 launch path를 채운다.
   Q164부터 `src/daemon.c`는 Windows stub을 제공해 Unix socket include 실패를 피하고,
   Windows host에서 `qstar daemon`/`--use-daemon=always`는 named pipe 구현 전까지 deferred
   diagnostic으로 처리한다.

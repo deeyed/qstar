@@ -7,6 +7,7 @@
 
 #include "qstar/qstar.h"
 
+#include <stdint.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <sys/stat.h>
@@ -58,6 +59,20 @@ struct qstar_resolved_toolchain {
 	int response_files;
 	char response_style[32];
 };
+
+typedef intptr_t qstar_process_id;
+
+struct qstar_platform_pollfd {
+	int fd;
+	short events;
+	short revents;
+};
+
+typedef size_t qstar_platform_poll_count;
+
+#ifndef QSTAR_PLATFORM_POLLIN
+#define QSTAR_PLATFORM_POLLIN 1
+#endif
 
 /** 문자열을 QStar 소유 메모리로 복사한다. */
 char *qstar_strdup(const char *s);
@@ -153,6 +168,65 @@ int qstar_platform_is_linux(const char *platform);
 
 /** platform context가 이번 sharedlib 구현에서 지원되는지 확인한다. */
 int qstar_platform_supports_sharedlib(const char *platform);
+
+/** platform별 child stdout/stderr pipe 한 쌍을 준비한다. */
+int qstar_platform_pipe_open(int *read_fd, int *write_fd);
+
+/** platform fd close primitive다. */
+void qstar_platform_process_close_fd(int *fd);
+
+/** stdout/stderr capture pipe를 연결해 child process를 시작한다. */
+int qstar_platform_process_start_captured(struct qstar_graph *graph, const char *cwd,
+    char *const argv[], int stdout_read_fd, int stdout_write_fd, int stderr_read_fd,
+    int stderr_write_fd, qstar_process_id *pid_out, const char **runner_out);
+
+/** parent stdout/stderr를 상속해 child process를 시작한다. */
+int qstar_platform_process_start_inherit(struct qstar_graph *graph, const char *cwd,
+    char *const argv[], qstar_process_id *pid_out, const char **runner_out);
+
+/** stdout/stderr를 지정 파일로 redirect해 child process를 시작한다. */
+int qstar_platform_process_start_file_output(struct qstar_graph *graph, const char *cwd,
+    char *const argv[], const char *stdout_path, const char *stderr_path,
+    qstar_process_id *pid_out, const char **runner_out);
+
+/** child process가 끝났는지 non-blocking 방식으로 확인한다. */
+int qstar_platform_process_wait_nohang(qstar_process_id pid, int *status, int *done);
+
+/** child process 종료를 blocking으로 기다린다. */
+int qstar_platform_process_wait_blocking(qstar_process_id pid, int *status);
+
+/** timeout/cancel 시 child process를 종료한다. */
+void qstar_platform_process_terminate(qstar_process_id pid, int *status);
+
+/** platform별 process status를 QStar exit code로 정규화한다. */
+int qstar_platform_process_exit_code(int status);
+
+/** process status가 정상 종료 0인지 확인한다. */
+int qstar_platform_process_exited_success(int status);
+
+/** process status가 exit code를 포함하는지 확인한다. */
+int qstar_platform_process_has_exit_code(int status);
+
+/** process status의 exit code를 가져온다. */
+int qstar_platform_process_status_exit_code(int status);
+
+/** POSIX signal 종료 상태를 diagnostic용으로 반환한다. */
+int qstar_platform_process_signal_number(int status);
+
+/** process output/event wait primitive다. */
+int qstar_platform_process_poll(struct qstar_platform_pollfd *fds,
+    qstar_platform_poll_count nfds, int timeout_ms);
+
+/** process polling 사이의 짧은 sleep primitive다. */
+int qstar_platform_process_sleep_ms(int timeout_ms);
+
+/** Windows CreateProcess command line quoting을 argv vector에서 만든다. */
+int qstar_platform_windows_command_line_from_argv(char *const argv[], char *dst,
+    size_t dstlen);
+
+/** 현재 process environment를 Windows double-NUL env block으로 직렬화한다. */
+int qstar_platform_windows_env_block_from_current(char *dst, size_t dstlen,
+    size_t *needed_out);
 
 /** build context external tool policy로 custom_target 첫 argv를 실행 path로 해석한다. */
 int qstar_external_tool_resolve_command_tool(const struct qstar_graph *graph, const char *tool,

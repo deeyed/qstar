@@ -80,6 +80,11 @@ if command -v "$stub_cc" >/dev/null 2>&1; then
 		fail "Windows executor stub object was not created"
 	printf 'qstar-windows-native-alpha: executor_stub=compiled cc=%s\n' "$stub_cc"
 	"$stub_cc" $stub_cflags \
+		-Iinclude -Ivendor/lua -c src/platform_process.c -o "$tmp/platform-process-win-stub.o"
+	test -s "$tmp/platform-process-win-stub.o" ||
+		fail "Windows platform process stub object was not created"
+	printf 'qstar-windows-native-alpha: platform_process_stub=compiled cc=%s\n' "$stub_cc"
+	"$stub_cc" $stub_cflags \
 		-Iinclude -Ivendor/lua -c src/ninja.c -o "$tmp/ninja-win-stub.o"
 	test -s "$tmp/ninja-win-stub.o" ||
 		fail "Windows ninja stub object was not created"

@@ -15,12 +15,6 @@
 #include <errno.h>
 #include <dirent.h>
 #include <ctype.h>
-#if !QSTAR_PLATFORM_WINDOWS
-#include <fcntl.h>
-#include <poll.h>
-#include <spawn.h>
-#include <signal.h>
-#endif
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -33,7 +27,6 @@
 #include <sys/sysctl.h>
 #endif
 #if !QSTAR_PLATFORM_WINDOWS
-#include <sys/wait.h>
 #include <unistd.h>
 #endif
 
@@ -51,33 +44,6 @@
 #define QSTAR_STATE_DB_MAX_STRING (16ULL * 1024ULL * 1024ULL)
 #define QSTAR_FILE_WRITE_BUFFER_SIZE 65536
 #define QSTAR_PROCESS_EVENT_WAIT_MS 25
-
-#if !QSTAR_PLATFORM_WINDOWS && (defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__)))
-#define QSTAR_HAVE_POSIX_SPAWN_RUNNER 1
-#else
-#define QSTAR_HAVE_POSIX_SPAWN_RUNNER 0
-#endif
-
-#if QSTAR_HAVE_POSIX_SPAWN_RUNNER
-extern char **environ;
-#endif
-
-#if QSTAR_PLATFORM_WINDOWS
-typedef int qstar_process_id;
-struct qstar_pollfd {
-	int fd;
-	short events;
-	short revents;
-};
-typedef size_t qstar_poll_count;
-#ifndef POLLIN
-#define POLLIN 1
-#endif
-#else
-typedef pid_t qstar_process_id;
-#define qstar_pollfd pollfd
-typedef nfds_t qstar_poll_count;
-#endif
 
 struct qstar_observed_stream {
 	int fd;
@@ -597,20 +563,6 @@ child_capture_init(struct qstar_child_capture *capture)
 	capture->err_write = -1;
 }
 
-/** fd를 nonblocking mode로 전환한다. */
-#if !QSTAR_PLATFORM_WINDOWS
-static int
-set_nonblocking_fd(int fd)
-{
-	int flags;
-
-	flags = fcntl(fd, F_GETFL, 0);
-	if (flags < 0)
-		return -1;
-	return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-}
-#endif
-
 /** child 출력 line에서 warning/error token 위치와 color role을 찾는다. */
 static const char *
 diagnostic_token_in_line(const char *line, const char **role_out)
@@ -740,319 +692,43 @@ static int
 child_capture_open(struct qstar_graph *graph, struct qstar_child_capture *capture,
     const char *stdout_path, const char *stderr_path)
 {
-#if QSTAR_PLATFORM_WINDOWS
 	child_capture_init(capture);
 	snprintf(capture->out.log_path, sizeof(capture->out.log_path), "%s", stdout_path);
 	snprintf(capture->err.log_path, sizeof(capture->err.log_path), "%s", stderr_path);
-	return qstar_set_error(graph,
-	    "qstar: Windows process runner is not implemented yet; this build can check, lint, dry-run, and emit Ninja, but Stella cannot execute build actions on Windows");
-#else
-	int out_pipe[2] = { -1, -1 };
-	int err_pipe[2] = { -1, -1 };
-
-	child_capture_init(capture);
-	snprintf(capture->out.log_path, sizeof(capture->out.log_path), "%s", stdout_path);
-	snprintf(capture->err.log_path, sizeof(capture->err.log_path), "%s", stderr_path);
-	if (pipe(out_pipe) < 0 || pipe(err_pipe) < 0)
+	if (qstar_platform_pipe_open(&capture->out.fd, &capture->out_write) < 0 ||
+	    qstar_platform_pipe_open(&capture->err.fd, &capture->err_write) < 0)
 		goto fail;
-	if (set_nonblocking_fd(out_pipe[0]) < 0 || set_nonblocking_fd(err_pipe[0]) < 0)
-		goto fail;
-	capture->out.fd = out_pipe[0];
-	capture->out_write = out_pipe[1];
-	capture->err.fd = err_pipe[0];
-	capture->err_write = err_pipe[1];
 	return 0;
 fail:
-	if (out_pipe[0] >= 0)
-		close(out_pipe[0]);
-	if (out_pipe[1] >= 0)
-		close(out_pipe[1]);
-	if (err_pipe[0] >= 0)
-		close(err_pipe[0]);
-	if (err_pipe[1] >= 0)
-		close(err_pipe[1]);
+	qstar_platform_process_close_fd(&capture->out.fd);
+	qstar_platform_process_close_fd(&capture->out_write);
+	qstar_platform_process_close_fd(&capture->err.fd);
+	qstar_platform_process_close_fd(&capture->err_write);
 	if (capture->out.log)
 		fclose(capture->out.log);
 	if (capture->err.log)
 		fclose(capture->err.log);
 	child_capture_init(capture);
 	return qstar_set_error(graph, "qstar: could not capture child output");
-#endif
 }
-
-/** fork된 child에서 pipe write end를 stdout/stderr로 연결한다. */
-#if !QSTAR_PLATFORM_WINDOWS
-static void
-child_capture_redirect_or_exit(struct qstar_child_capture *capture)
-{
-	if (capture->out.fd >= 0)
-		close(capture->out.fd);
-	if (capture->err.fd >= 0)
-		close(capture->err.fd);
-	if (capture->out_write < 0 || capture->err_write < 0 ||
-	    dup2(capture->out_write, 1) < 0 ||
-	    dup2(capture->err_write, 2) < 0)
-		_exit(127);
-	close(capture->out_write);
-	close(capture->err_write);
-}
-#endif
 
 /** fork 후 parent에서 child 쪽 pipe write end를 닫는다. */
 static void
 child_capture_parent_started(struct qstar_child_capture *capture)
 {
-#if QSTAR_PLATFORM_WINDOWS
-	capture->out_write = -1;
-	capture->err_write = -1;
-#else
-	if (capture->out_write >= 0) {
-		close(capture->out_write);
-		capture->out_write = -1;
-	}
-	if (capture->err_write >= 0) {
-		close(capture->err_write);
-		capture->err_write = -1;
-	}
-#endif
+	qstar_platform_process_close_fd(&capture->out_write);
+	qstar_platform_process_close_fd(&capture->err_write);
 }
 
-/** fork/exec fallback으로 action process를 시작한다. */
-#if !QSTAR_PLATFORM_WINDOWS
-static int
-fork_action_process(struct qstar_graph *graph, struct qstar_child_capture *capture,
-    char *const argv[], qstar_process_id *pid_out)
-{
-	qstar_process_id pid;
-
-	pid = fork();
-	if (pid < 0)
-		return qstar_set_error(graph, "qstar: fork failed");
-	if (pid == 0) {
-		if (chdir(graph->package_root ? graph->package_root : ".") < 0)
-			_exit(127);
-		child_capture_redirect_or_exit(capture);
-		execvp(argv[0], argv);
-		_exit(127);
-	}
-	*pid_out = pid;
-	return 0;
-}
-#endif
-
-#if QSTAR_HAVE_POSIX_SPAWN_RUNNER
-/** 현재 platform의 posix_spawn cwd file action을 추가한다. */
-static int
-spawn_actions_addchdir(posix_spawn_file_actions_t *actions, const char *path)
-{
-#if defined(__APPLE__)
-	return posix_spawn_file_actions_addchdir(actions, path);
-#elif defined(__linux__) && defined(__GLIBC__)
-	return posix_spawn_file_actions_addchdir_np(actions, path);
-#else
-	(void)actions;
-	(void)path;
-	errno = ENOSYS;
-	return -1;
-#endif
-}
-
-/** posix_spawn으로 action process를 시작한다. 실패 시 caller가 fork fallback을 쓴다. */
-static int
-posix_spawn_action_process(struct qstar_graph *graph, struct qstar_child_capture *capture,
-    char *const argv[], qstar_process_id *pid_out)
-{
-	posix_spawn_file_actions_t actions;
-	const char *cwd;
-	int rc;
-
-	rc = posix_spawn_file_actions_init(&actions);
-	if (rc != 0)
-		return -1;
-	cwd = graph->package_root ? graph->package_root : ".";
-	if (spawn_actions_addchdir(&actions, cwd) != 0 ||
-	    (capture->out.fd >= 0 &&
-	    posix_spawn_file_actions_addclose(&actions, capture->out.fd) != 0) ||
-	    (capture->err.fd >= 0 &&
-	    posix_spawn_file_actions_addclose(&actions, capture->err.fd) != 0) ||
-	    posix_spawn_file_actions_adddup2(&actions, capture->out_write, 1) != 0 ||
-	    posix_spawn_file_actions_adddup2(&actions, capture->err_write, 2) != 0 ||
-	    posix_spawn_file_actions_addclose(&actions, capture->out_write) != 0 ||
-	    posix_spawn_file_actions_addclose(&actions, capture->err_write) != 0)
-		goto fail;
-	rc = posix_spawnp(pid_out, argv[0], &actions, NULL, argv, environ);
-	posix_spawn_file_actions_destroy(&actions);
-	return rc == 0 ? 0 : -1;
-fail:
-	posix_spawn_file_actions_destroy(&actions);
-	return -1;
-}
-#endif
-
-/** action process를 posix_spawn fast path 또는 fork fallback으로 시작한다. */
+/** platform process layer로 action process를 시작한다. */
 static int
 spawn_action_process(struct qstar_graph *graph, struct qstar_child_capture *capture,
     char *const argv[], qstar_process_id *pid_out, const char **runner_out)
 {
-#if QSTAR_PLATFORM_WINDOWS
-	(void)capture;
-	(void)argv;
-	(void)pid_out;
-	if (runner_out)
-		*runner_out = "windows-unimplemented";
-	return qstar_set_error(graph,
-	    "qstar: Windows process runner is not implemented yet; use qstar check, qstar dry-run, or qstar emit-ninja until the CreateProcess runner lands");
-#else
-#if QSTAR_HAVE_POSIX_SPAWN_RUNNER
-	if (posix_spawn_action_process(graph, capture, argv, pid_out) == 0) {
-		if (runner_out)
-			*runner_out = "posix_spawn";
-		return 0;
-	}
-#endif
-	if (fork_action_process(graph, capture, argv, pid_out) < 0)
-		return -1;
-	if (runner_out)
-		*runner_out = "fork";
-	return 0;
-#endif
-}
-
-/** platform fd close primitive다. Windows stub runner에서는 fd를 실제로 열지 않는다. */
-static void
-qstar_process_close_fd(int *fd)
-{
-	if (!fd || *fd < 0)
-		return;
-#if !QSTAR_PLATFORM_WINDOWS
-	close(*fd);
-#endif
-	*fd = -1;
-}
-
-/** child process가 끝났는지 non-blocking 방식으로 확인한다. */
-static int
-qstar_process_wait_nohang(qstar_process_id pid, int *status, int *done)
-{
-#if QSTAR_PLATFORM_WINDOWS
-	(void)pid;
-	if (status)
-		*status = 127;
-	if (done)
-		*done = 1;
-	return -1;
-#else
-	pid_t waited;
-
-	for (;;) {
-		waited = waitpid(pid, status, WNOHANG);
-		if (waited == pid) {
-			*done = 1;
-			return 0;
-		}
-		if (waited == 0) {
-			*done = 0;
-			return 0;
-		}
-		if (errno == EINTR)
-			continue;
-		return -1;
-	}
-#endif
-}
-
-/** child process 종료를 blocking으로 기다린다. */
-static int
-qstar_process_wait_blocking(qstar_process_id pid, int *status)
-{
-#if QSTAR_PLATFORM_WINDOWS
-	(void)pid;
-	if (status)
-		*status = 127;
-	return -1;
-#else
-	pid_t waited;
-
-	for (;;) {
-		waited = waitpid(pid, status, 0);
-		if (waited == pid)
-			return 0;
-		if (waited < 0 && errno == EINTR)
-			continue;
-		return -1;
-	}
-#endif
-}
-
-/** timeout/cancel 시 child process를 종료한다. */
-static void
-qstar_process_terminate(qstar_process_id pid, int *status)
-{
-#if QSTAR_PLATFORM_WINDOWS
-	(void)pid;
-	if (status)
-		*status = 124;
-#else
-	kill(pid, SIGKILL);
-	(void)qstar_process_wait_blocking(pid, status);
-#endif
-}
-
-/** platform별 process status를 QStar exit code로 정규화한다. */
-static int
-qstar_process_exit_code(int status)
-{
-#if QSTAR_PLATFORM_WINDOWS
-	return status;
-#else
-	return WIFEXITED(status) ? WEXITSTATUS(status) : 128;
-#endif
-}
-
-/** process status가 정상 종료 0인지 확인한다. */
-static int
-qstar_process_exited_success(int status)
-{
-#if QSTAR_PLATFORM_WINDOWS
-	return status == 0;
-#else
-	return WIFEXITED(status) && WEXITSTATUS(status) == 0;
-#endif
-}
-
-/** process status가 exit code를 포함하는지 확인한다. */
-static int
-qstar_process_has_exit_code(int status)
-{
-#if QSTAR_PLATFORM_WINDOWS
-	(void)status;
-	return 1;
-#else
-	return WIFEXITED(status);
-#endif
-}
-
-/** process status의 exit code를 가져온다. */
-static int
-qstar_process_status_exit_code(int status)
-{
-#if QSTAR_PLATFORM_WINDOWS
-	return status;
-#else
-	return WEXITSTATUS(status);
-#endif
-}
-
-/** POSIX signal 종료 상태를 diagnostic용으로 반환한다. */
-static int
-qstar_process_signal_number(int status)
-{
-#if QSTAR_PLATFORM_WINDOWS
-	(void)status;
-	return 0;
-#else
-	return WTERMSIG(status);
-#endif
+	return qstar_platform_process_start_captured(graph,
+	    graph->package_root ? graph->package_root : ".", argv, capture->out.fd,
+	    capture->out_write, capture->err.fd, capture->err_write, pid_out,
+	    runner_out);
 }
 
 /** child stdout/stderr pipe를 가능한 만큼 읽어 terminal과 log에 반영한다. */
@@ -1087,21 +763,21 @@ process_event_wait_timeout_ms(time_t start, int timeout_sec)
 }
 
 /** 하나의 child capture에서 poll 가능한 stdout/stderr fd를 수집한다. */
-static qstar_poll_count
-child_capture_pollfds(const struct qstar_child_capture *capture, struct qstar_pollfd *fds,
-    qstar_poll_count cap)
+static qstar_platform_poll_count
+child_capture_pollfds(const struct qstar_child_capture *capture, struct qstar_platform_pollfd *fds,
+    qstar_platform_poll_count cap)
 {
-	qstar_poll_count nfds = 0;
+	qstar_platform_poll_count nfds = 0;
 
 	if (capture->out.fd >= 0 && nfds < cap) {
 		fds[nfds].fd = capture->out.fd;
-		fds[nfds].events = POLLIN;
+		fds[nfds].events = QSTAR_PLATFORM_POLLIN;
 		fds[nfds].revents = 0;
 		nfds++;
 	}
 	if (capture->err.fd >= 0 && nfds < cap) {
 		fds[nfds].fd = capture->err.fd;
-		fds[nfds].events = POLLIN;
+		fds[nfds].events = QSTAR_PLATFORM_POLLIN;
 		fds[nfds].revents = 0;
 		nfds++;
 	}
@@ -1110,25 +786,10 @@ child_capture_pollfds(const struct qstar_child_capture *capture, struct qstar_po
 
 /** poll을 EINTR-safe하게 실행한다. */
 static int
-process_event_poll(struct qstar_pollfd *fds, qstar_poll_count nfds, int timeout_ms)
+process_event_poll(struct qstar_platform_pollfd *fds, qstar_platform_poll_count nfds,
+    int timeout_ms)
 {
-#if QSTAR_PLATFORM_WINDOWS
-	(void)fds;
-	(void)nfds;
-	(void)timeout_ms;
-	return 0;
-#else
-	int rc;
-
-	if (timeout_ms < 0)
-		timeout_ms = 0;
-	for (;;) {
-		rc = poll(fds, nfds, timeout_ms);
-		if (rc < 0 && errno == EINTR)
-			continue;
-		return rc;
-	}
-#endif
+	return qstar_platform_process_poll(fds, nfds, timeout_ms);
 }
 
 /** 단일 action의 stdout/stderr pipe readiness를 기다린 뒤 가능한 output을 drain한다. */
@@ -1136,8 +797,8 @@ static int
 child_capture_wait_ready(struct qstar_build_ctx *ctx,
     struct qstar_child_capture *capture, int timeout_ms)
 {
-	struct qstar_pollfd fds[2];
-	qstar_poll_count nfds;
+	struct qstar_platform_pollfd fds[2];
+	qstar_platform_poll_count nfds;
 	int rc;
 
 	nfds = child_capture_pollfds(capture, fds, 2);
@@ -1156,10 +817,10 @@ child_capture_finish(struct qstar_build_ctx *ctx, struct qstar_child_capture *ca
 	child_capture_drain(ctx, capture);
 	observed_stream_flush_line(ctx, &capture->out);
 	observed_stream_flush_line(ctx, &capture->err);
-	qstar_process_close_fd(&capture->out.fd);
-	qstar_process_close_fd(&capture->err.fd);
-	qstar_process_close_fd(&capture->out_write);
-	qstar_process_close_fd(&capture->err_write);
+	qstar_platform_process_close_fd(&capture->out.fd);
+	qstar_platform_process_close_fd(&capture->err.fd);
+	qstar_platform_process_close_fd(&capture->out_write);
+	qstar_platform_process_close_fd(&capture->err_write);
 	if (capture->out.log) {
 		fclose(capture->out.log);
 		capture->out.log = NULL;
@@ -1195,10 +856,11 @@ static int
 running_actions_wait_ready(struct qstar_build_ctx *ctx,
     struct qstar_running_action *running, size_t jobs, int timeout_ms)
 {
-	struct qstar_pollfd fds[QSTAR_EXEC_MAX_ARGV * 2];
+	struct qstar_platform_pollfd fds[QSTAR_EXEC_MAX_ARGV * 2];
 	size_t i;
-	qstar_poll_count nfds = 0;
-	qstar_poll_count cap = (qstar_poll_count)(sizeof(fds) / sizeof(fds[0]));
+	qstar_platform_poll_count nfds = 0;
+	qstar_platform_poll_count cap = (qstar_platform_poll_count)(sizeof(fds) /
+	    sizeof(fds[0]));
 	int rc;
 
 	for (i = 0; i < jobs; i++) {
@@ -4288,7 +3950,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 
 		start = time(NULL);
 		for (;;) {
-			if (qstar_process_wait_nohang(pid, &status, &done) < 0) {
+			if (qstar_platform_process_wait_nohang(pid, &status, &done) < 0) {
 				child_capture_finish(ctx, &capture);
 				return qstar_set_error(graph, "qstar: process wait failed");
 			}
@@ -4303,7 +3965,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 				    "timeout");
 				diag_label = action_owner_label(target, id, label_buf,
 				    sizeof(label_buf));
-				qstar_process_terminate(pid, &status);
+				qstar_platform_process_terminate(pid, &status);
 				child_capture_finish(ctx, &capture);
 				action_log_queue_exit(ctx, action_log, argv, 124,
 				    description);
@@ -4353,7 +4015,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		}
 	}
 	child_capture_finish(ctx, &capture);
-	exit_code = qstar_process_exit_code(status);
+	exit_code = qstar_platform_process_exit_code(status);
 	action_log_queue_exit(ctx, action_log, argv, exit_code, description);
 	if (exit_code != 0) {
 		char label_buf[QSTAR_PATH_MAX];
@@ -6219,7 +5881,7 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	int exit_code;
 
 	child_capture_finish(ctx, &running->capture);
-	exit_code = qstar_process_exit_code(status);
+	exit_code = qstar_platform_process_exit_code(status);
 	action_log_queue_exit_ref(ctx, running->action_log, action->argv, exit_code,
 	    action->description);
 	owner_label = prepared_action_owner_label(action);
@@ -6293,7 +5955,7 @@ cancel_running_actions(struct qstar_build_ctx *ctx, struct qstar_running_action 
 	for (i = 0; i < jobs; i++) {
 		if (running[i].pid <= 0)
 			continue;
-		qstar_process_terminate(running[i].pid, &status);
+		qstar_platform_process_terminate(running[i].pid, &status);
 		child_capture_finish(ctx, &running[i].capture);
 		build_tracef(ctx,
 		    "build_action id=%s status=cancelled reason=parallel-failure retry=next-build\n",
@@ -6398,13 +6060,13 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 				    "qstar: could not read child output");
 				goto fail;
 			}
-			if (qstar_process_wait_nohang(running[i].pid, &status, &done) < 0) {
+			if (qstar_platform_process_wait_nohang(running[i].pid, &status, &done) < 0) {
 				rc = qstar_set_error(graph, "qstar: process wait failed");
 				goto fail;
 			}
 			if (!done) {
 				if (time(NULL) - running[i].start >= ctx->action_timeout_sec) {
-					qstar_process_terminate(running[i].pid, &status);
+					qstar_platform_process_terminate(running[i].pid, &status);
 					running[i].pid = 0;
 					child_capture_finish(ctx, &running[i].capture);
 					action_log_queue_exit_ref(ctx, running[i].action_log,
@@ -8394,7 +8056,7 @@ scheduler_execute(struct qstar_scheduler *sched)
 				    "qstar: could not read child output");
 				goto fail;
 			}
-			if (qstar_process_wait_nohang(running[i].pid, &status, &done) < 0) {
+			if (qstar_platform_process_wait_nohang(running[i].pid, &status, &done) < 0) {
 				rc = qstar_set_error(sched->graph, "qstar: process wait failed");
 				goto fail;
 			}
@@ -8421,7 +8083,7 @@ scheduler_execute(struct qstar_scheduler *sched)
 					    sizeof(replay_rel)) < 0)
 						snprintf(replay_rel, sizeof(replay_rel),
 						    "build/qstar/logs/last-failure.replay");
-					qstar_process_terminate(running[i].pid, &status);
+					qstar_platform_process_terminate(running[i].pid, &status);
 					running[i].pid = 0;
 					child_capture_finish(sched->ctx,
 					    &running[i].capture);
@@ -8799,18 +8461,14 @@ qstar_graph_clean(struct qstar_graph *graph, const char *label, FILE *out)
 static int
 run_test_artifact(struct qstar_graph *graph, const struct qstar_target *target, FILE *out)
 {
-#if QSTAR_PLATFORM_WINDOWS
-	(void)out;
-	return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-	    "test", target->label,
-	    "qstar: Windows test runner is not implemented yet; build the test target and run the artifact outside QStar until the CreateProcess runner lands");
-#else
 	char artifact[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX], logdir[QSTAR_PATH_MAX];
 	char name[QSTAR_PATH_MAX], stdout_path[QSTAR_PATH_MAX], stderr_path[QSTAR_PATH_MAX];
 	char child_stdout_path[QSTAR_PATH_MAX], child_stderr_path[QSTAR_PATH_MAX];
+	char *argv[2];
+	const char *runner;
 	qstar_process_id pid;
 	time_t start;
-	int status, fdout, fderr, done;
+	int status, done;
 
 	if (qstar_graph_artifact_output_path(graph, target, artifact, sizeof(artifact)) < 0 ||
 	    full_path_under_root(graph, artifact, full, sizeof(full)) < 0)
@@ -8834,29 +8492,20 @@ run_test_artifact(struct qstar_graph *graph, const struct qstar_target *target, 
 	fprintf(out,
 	    "test_run label=%s artifact=%s stdout=%s stderr=%s\n",
 	    target->label, artifact, child_stdout_path, child_stderr_path);
-	pid = fork();
-	if (pid < 0)
-		return qstar_set_error(graph, "qstar: fork failed");
-	if (pid == 0) {
-		if (chdir(graph->package_root ? graph->package_root : ".") < 0)
-			_exit(127);
-		fdout = open(child_stdout_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-		fderr = open(child_stderr_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-		if (fdout < 0 || fderr < 0 || dup2(fdout, 1) < 0 || dup2(fderr, 2) < 0)
-			_exit(127);
-		close(fdout);
-		close(fderr);
-		execl(artifact, artifact, (char *)NULL);
-		_exit(127);
-	}
+	argv[0] = artifact;
+	argv[1] = NULL;
+	if (qstar_platform_process_start_file_output(graph,
+	    graph->package_root ? graph->package_root : ".", argv, child_stdout_path,
+	    child_stderr_path, &pid, &runner) < 0)
+		return -1;
 	start = time(NULL);
 	for (;;) {
-		if (qstar_process_wait_nohang(pid, &status, &done) < 0)
+		if (qstar_platform_process_wait_nohang(pid, &status, &done) < 0)
 			return qstar_set_error(graph, "qstar: process wait failed");
 		if (done)
 			break;
 		if (time(NULL) - start >= QSTAR_TEST_TIMEOUT_SEC) {
-			qstar_process_terminate(pid, &status);
+			qstar_platform_process_terminate(pid, &status);
 			fprintf(out, "test_result label=%s status=timeout timeout_sec=%d\n",
 			    target->label, QSTAR_TEST_TIMEOUT_SEC);
 			return qstar_set_error_origin(graph, target->origin_file,
@@ -8865,26 +8514,25 @@ run_test_artifact(struct qstar_graph *graph, const struct qstar_target *target, 
 		}
 		if (process_event_poll(NULL, 0,
 		    process_event_wait_timeout_ms(start, QSTAR_TEST_TIMEOUT_SEC)) < 0)
-			return qstar_set_error(graph, "qstar: waitpid failed");
+			return qstar_set_error(graph, "qstar: process wait failed");
 	}
-	if (qstar_process_exited_success(status)) {
+	if (qstar_platform_process_exited_success(status)) {
 		fprintf(out, "test_result label=%s status=pass exit=0\n", target->label);
 		return 0;
 	}
-	if (qstar_process_has_exit_code(status)) {
+	if (qstar_platform_process_has_exit_code(status)) {
 		fprintf(out, "test_result label=%s status=fail exit=%d\n",
-		    target->label, qstar_process_status_exit_code(status));
+		    target->label, qstar_platform_process_status_exit_code(status));
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "test", target->label,
 		    "qstar: test '%s' failed with status %d", target->label,
-		    qstar_process_status_exit_code(status));
+		    qstar_platform_process_status_exit_code(status));
 	}
 	fprintf(out, "test_result label=%s status=signal signal=%d\n",
-	    target->label, qstar_process_signal_number(status));
+	    target->label, qstar_platform_process_signal_number(status));
 	return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 	    "test", target->label, "qstar: test '%s' terminated by signal %d",
-	    target->label, qstar_process_signal_number(status));
-#endif
+	    target->label, qstar_platform_process_signal_number(status));
 }
 
 /** 단일 test target을 build 후 실행한다. */

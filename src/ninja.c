@@ -7,19 +7,11 @@
 #else
 #define QSTAR_PLATFORM_WINDOWS 0
 #endif
-#if !QSTAR_PLATFORM_WINDOWS
-#include <fcntl.h>
-#include <signal.h>
-#endif
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#if !QSTAR_PLATFORM_WINDOWS
-#include <sys/wait.h>
-#include <unistd.h>
-#endif
 #include <time.h>
 
 #define QSTAR_NINJA_MAX_ARGV 256
@@ -153,20 +145,6 @@ path_exists(const char *path)
 
 	return stat(path, &st) == 0;
 }
-
-/** child process polling 사이의 지연을 짧게 유지한다. */
-#if !QSTAR_PLATFORM_WINDOWS
-static void
-wait_poll_pause(void)
-{
-	struct timespec delay;
-
-	delay.tv_sec = 0;
-	delay.tv_nsec = 10000000L;
-	while (nanosleep(&delay, &delay) < 0 && errno == EINTR)
-		;
-}
-#endif
 
 /** package-relative file path의 parent directory를 만든다. */
 static int
@@ -2731,48 +2709,34 @@ static int
 run_ninja(struct qstar_graph *graph, const char *ninja_rel, const char *alias,
     const struct qstar_build_options *options)
 {
-#if QSTAR_PLATFORM_WINDOWS
-	(void)ninja_rel;
-	(void)alias;
-	(void)options;
-	clear_ninja_failure_replay(graph);
-	return qstar_set_error(graph,
-	    "qstar: Windows Ninja launcher is not implemented yet; use qstar emit-ninja and run ninja from the Windows shell until the CreateProcess runner lands");
-#else
-	pid_t pid;
+	qstar_process_id pid;
 	int status, exit_code;
 	char jobs_arg[32];
+	char *argv[10];
+	size_t argc;
+	const char *runner;
 
 	clear_ninja_failure_replay(graph);
-	pid = fork();
-	if (pid < 0)
-		return qstar_set_error(graph, "qstar: fork failed for ninja");
-	if (pid == 0) {
-		char *argv[10];
-		size_t argc;
-
-		if (chdir(graph->package_root ? graph->package_root : ".") < 0)
-			_exit(127);
-		argc = 0;
-		argv[argc++] = "ninja";
-		argv[argc++] = "-f";
-		argv[argc++] = (char *)ninja_rel;
-		if (options && options->jobs > 0) {
-			snprintf(jobs_arg, sizeof(jobs_arg), "%d", options->jobs);
-			argv[argc++] = "-j";
-			argv[argc++] = jobs_arg;
-		}
-		if (options && options->verbose)
-			argv[argc++] = "-v";
-		if (alias && *alias)
-			argv[argc++] = (char *)alias;
-		argv[argc] = NULL;
-		execvp("ninja", argv);
-		_exit(127);
+	argc = 0;
+	argv[argc++] = "ninja";
+	argv[argc++] = "-f";
+	argv[argc++] = (char *)ninja_rel;
+	if (options && options->jobs > 0) {
+		snprintf(jobs_arg, sizeof(jobs_arg), "%d", options->jobs);
+		argv[argc++] = "-j";
+		argv[argc++] = jobs_arg;
 	}
-	if (waitpid(pid, &status, 0) < 0)
-		return qstar_set_error(graph, "qstar: waitpid failed for ninja");
-	exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
+	if (options && options->verbose)
+		argv[argc++] = "-v";
+	if (alias && *alias)
+		argv[argc++] = (char *)alias;
+	argv[argc] = NULL;
+	if (qstar_platform_process_start_inherit(graph,
+	    graph->package_root ? graph->package_root : ".", argv, &pid, &runner) < 0)
+		return -1;
+	if (qstar_platform_process_wait_blocking(pid, &status) < 0)
+		return qstar_set_error(graph, "qstar: process wait failed for ninja");
+	exit_code = qstar_platform_process_exit_code(status);
 	if (exit_code == 127)
 		return qstar_set_error(graph,
 		    "qstar: ninja executable was not found or could not be started");
@@ -2782,7 +2746,6 @@ run_ninja(struct qstar_graph *graph, const char *ninja_rel, const char *alias,
 		    exit_code);
 	}
 	return 0;
-#endif
 }
 
 /** Ninja backend로 build.ninja를 emit한 뒤 requested target을 빌드한다. */
@@ -2816,18 +2779,14 @@ qstar_graph_build_ninja(struct qstar_graph *graph, const char *label,
 static int
 run_ninja_test_artifact(struct qstar_graph *graph, const struct qstar_target *target, FILE *out)
 {
-#if QSTAR_PLATFORM_WINDOWS
-	(void)out;
-	return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-	    "test", target->label,
-	    "qstar: Windows Ninja test runner is not implemented yet; run the emitted test artifact from the Windows shell until the CreateProcess runner lands");
-#else
 	char artifact[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX], logdir[QSTAR_PATH_MAX];
 	char name[QSTAR_PATH_MAX], stdout_path[QSTAR_PATH_MAX], stderr_path[QSTAR_PATH_MAX];
 	char child_stdout_path[QSTAR_PATH_MAX], child_stderr_path[QSTAR_PATH_MAX];
-	pid_t pid;
+	char *argv[2];
+	const char *runner;
+	qstar_process_id pid;
 	time_t start;
-	int status, fdout, fderr;
+	int status, done;
 
 	if (qstar_graph_artifact_output_path(graph, target, artifact, sizeof(artifact)) < 0 ||
 	    full_path_under_root(graph, artifact, full, sizeof(full)) < 0)
@@ -2849,60 +2808,47 @@ run_ninja_test_artifact(struct qstar_graph *graph, const struct qstar_target *ta
 		return qstar_set_error(graph, "qstar: test log path too long");
 	fprintf(out, "test_run label=%s artifact=%s stdout=%s stderr=%s backend=ninja\n",
 	    target->label, artifact, child_stdout_path, child_stderr_path);
-	pid = fork();
-	if (pid < 0)
-		return qstar_set_error(graph, "qstar: fork failed");
-	if (pid == 0) {
-		if (chdir(graph->package_root ? graph->package_root : ".") < 0)
-			_exit(127);
-		fdout = open(child_stdout_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-		fderr = open(child_stderr_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-		if (fdout < 0 || fderr < 0 || dup2(fdout, 1) < 0 || dup2(fderr, 2) < 0)
-			_exit(127);
-		close(fdout);
-		close(fderr);
-		execl(artifact, artifact, (char *)NULL);
-		_exit(127);
-	}
+	argv[0] = artifact;
+	argv[1] = NULL;
+	if (qstar_platform_process_start_file_output(graph,
+	    graph->package_root ? graph->package_root : ".", argv, child_stdout_path,
+	    child_stderr_path, &pid, &runner) < 0)
+		return -1;
 	start = time(NULL);
 	for (;;) {
-		pid_t waited;
-
-		waited = waitpid(pid, &status, WNOHANG);
-		if (waited == pid)
+		if (qstar_platform_process_wait_nohang(pid, &status, &done) < 0)
+			return qstar_set_error(graph, "qstar: process wait failed");
+		if (done)
 			break;
-		if (waited < 0)
-			return qstar_set_error(graph, "qstar: waitpid failed");
 		if (time(NULL) - start >= QSTAR_NINJA_TEST_TIMEOUT_SEC) {
-			kill(pid, SIGKILL);
-			waitpid(pid, &status, 0);
+			qstar_platform_process_terminate(pid, &status);
 			fprintf(out, "test_result label=%s status=timeout timeout_sec=%d\n",
 			    target->label, QSTAR_NINJA_TEST_TIMEOUT_SEC);
 			return qstar_set_error_origin(graph, target->origin_file,
 			    target->origin_line, "test", target->label,
 			    "qstar: test '%s' timed out", target->label);
 		}
-		wait_poll_pause();
+		if (qstar_platform_process_sleep_ms(10) < 0)
+			return qstar_set_error(graph, "qstar: process wait failed");
 	}
-	if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+	if (qstar_platform_process_exited_success(status)) {
 		fprintf(out, "test_result label=%s status=pass exit=0 backend=ninja\n",
 		    target->label);
 		return 0;
 	}
-	if (WIFEXITED(status)) {
+	if (qstar_platform_process_has_exit_code(status)) {
 		fprintf(out, "test_result label=%s status=fail exit=%d backend=ninja\n",
-		    target->label, WEXITSTATUS(status));
+		    target->label, qstar_platform_process_status_exit_code(status));
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "test", target->label,
 		    "qstar: test '%s' failed with status %d", target->label,
-		    WEXITSTATUS(status));
+		    qstar_platform_process_status_exit_code(status));
 	}
 	fprintf(out, "test_result label=%s status=signal signal=%d backend=ninja\n",
-	    target->label, WTERMSIG(status));
+	    target->label, qstar_platform_process_signal_number(status));
 	return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 	    "test", target->label, "qstar: test '%s' terminated by signal %d",
-	    target->label, WTERMSIG(status));
-#endif
+	    target->label, qstar_platform_process_signal_number(status));
 }
 
 /** 단일 test target을 Ninja backend로 build 후 실행한다. */
