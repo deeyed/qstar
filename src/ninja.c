@@ -664,13 +664,15 @@ write_edge_command(struct qstar_graph *graph, struct ninja_ctx *ctx, const char 
 {
 	struct ninja_argv run;
 	char rsp_rel[QSTAR_PATH_MAX];
+	int windows;
 
 	memset(&run, 0, sizeof(run));
 	if (prepare_ninja_response_file(graph, id, toolchain, argv, &run, rsp_rel,
 	    sizeof(rsp_rel)) < 0)
 		return -1;
-	shell_argv_ninja_command(ctx->ninja, &run,
-	    toolchain && qstar_platform_is_windows(toolchain->platform));
+	windows = qstar_platform_is_windows(qstar_graph_platform(graph)) ||
+	    (toolchain && qstar_platform_is_windows(toolchain->platform));
+	shell_argv_ninja_command(ctx->ninja, &run, windows);
 	ninja_argv_free(&run);
 	return write_ninja_action_log(graph, id, argv, rsp_rel, description);
 }
