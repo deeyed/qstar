@@ -156,7 +156,7 @@ if command -v ninja >/dev/null 2>&1; then
 	contains "$tmp/ninja-all.out" "run_target label=//:hello_smoke command=argv"
 	contains "$tmp/ninja-all.out" "run_expect label=//:hello_smoke status=matched contains=windows-execution hello"
 	contains "$tmp/ninja-all.out" "status ok"
-	contains "$corpus/$build_dir/ninja/build.ninja" "&& sh tools/build-object.sh"
+	contains "$corpus/$build_dir/ninja/build.ninja" "command = sh tools/build-object.sh"
 	run_artifact "$corpus/$build_dir/out/___hello/hello.exe" "$tmp/ninja-hello-run.out"
 	contains "$tmp/ninja-hello-run.out" "windows-execution hello"
 	test -f "$corpus/$build_dir/out/___core/libwinexec_core.a" ||

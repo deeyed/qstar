@@ -52,7 +52,10 @@ Round Q221 extends the same corpus to `-G ninja`: QStar launches Ninja through
 the platform process layer, emitted Windows Ninja commands adapt package-local
 `.sh` fixtures as `sh <script>.sh ...`, and the corpus verifies Ninja response
 files, generated object bridge actions, run-target expect output, install
-output, action-log/replay metadata, and root `.ninja_*` pollution guards.
+output, action-log/replay metadata, and root `.ninja_*` pollution guards. On
+Windows, emitted Ninja rules do not depend on shell `&&` for output directory
+creation; QStar materializes the needed output directories before launching
+Ninja.
 
 ## Status
 
