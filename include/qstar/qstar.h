@@ -98,6 +98,7 @@ struct qstar_target {
 	struct qstar_provider_option_value *provider_options;
 	size_t provider_option_len;
 	size_t provider_option_cap;
+	struct qstar_string_list run_inputs;
 	struct qstar_string_list run_command;
 	char *description;
 	char *artifact_name;
@@ -416,6 +417,7 @@ struct qstar_install_options {
 struct qstar_stage_options {
 	const char *root;
 	int dry_run;
+	int dependencies_ready;
 };
 
 /** QStar graph 저장소를 빈 상태로 초기화한다. */

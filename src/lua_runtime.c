@@ -519,6 +519,21 @@ format_placeholder_token(lua_State *L, int idx, char *dst, size_t dstlen)
 		lua_pop(L, 2);
 		return 0;
 	}
+	if (strcmp(kind, "stage_dir") == 0) {
+		lua_getfield(L, idx, "label");
+		label = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+		if (!label) {
+			lua_pop(L, 1);
+			return -1;
+		}
+		if (snprintf(dst, dstlen, "<qstar-stage-dir:%s>", label) >=
+		    (int)dstlen) {
+			lua_pop(L, 1);
+			return -1;
+		}
+		lua_pop(L, 1);
+		return 0;
+	}
 	return -1;
 }
 
@@ -792,6 +807,60 @@ read_target_file_list_field(lua_State *L, int table, const char *field,
 			    field);
 		}
 		if (qstar_string_list_push(list, s) < 0) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph, "qstar: out of memory");
+		}
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+/** run_target inputs field는 plain file, target artifact, stage layout token을 받는다. */
+static int
+read_run_inputs_field(lua_State *L, int table, struct qstar_target *target,
+    struct qstar_graph *graph)
+{
+	const char *kind, *s;
+	char token[QSTAR_PATH_MAX];
+	size_t i, n;
+
+	lua_getfield(L, table, "inputs");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: run_target inputs must be a list");
+	}
+	n = lua_rawlen(L, -1);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, -1, (lua_Integer)i);
+		if (lua_isstring(L, -1)) {
+			s = lua_tostring(L, -1);
+		} else if (lua_istable(L, -1)) {
+			kind = qstar_table_kind(L, -1);
+			if (!kind ||
+			    (strcmp(kind, "target_file") != 0 &&
+			    strcmp(kind, "stage_dir") != 0) ||
+			    format_placeholder_token(L, -1, token, sizeof(token)) < 0) {
+				lua_pop(L, 2);
+				return qstar_set_error(graph,
+				    "qstar: run_target inputs contains non-string, target_file, or stage_dir item");
+			}
+			s = token;
+		} else {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: run_target inputs contains non-string, target_file, or stage_dir item");
+		}
+		if (!s || !*s) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: run_target inputs contains empty path");
+		}
+		if (qstar_string_list_push(&target->run_inputs, s) < 0) {
 			lua_pop(L, 2);
 			return qstar_set_error(graph, "qstar: out of memory");
 		}
@@ -1247,6 +1316,7 @@ reject_group_action_fields(lua_State *L, int table, struct qstar_graph *graph,
 		"toolchain",
 		"stdlib",
 		"artifact_name",
+		"inputs",
 		"command",
 		"timeout",
 		"expect",
@@ -1266,6 +1336,21 @@ reject_group_action_fields(lua_State *L, int table, struct qstar_graph *graph,
 		lua_pop(L, 1);
 	}
 	return 0;
+}
+
+/** inputs field는 run_target 전용이다. */
+static int
+reject_non_run_inputs_field(lua_State *L, int table, struct qstar_graph *graph,
+    const struct qstar_target *target)
+{
+	if (strcmp(target->kind, "run_target") == 0 ||
+	    strcmp(target->kind, "group") == 0)
+		return 0;
+	if (!legacy_field_present(L, table, "inputs"))
+		return 0;
+	return qstar_set_error(graph,
+	    "qstar: target '%s' field 'inputs' is only valid on run_target; use sources, link_inputs, or deps for build artifacts",
+	    target->label);
 }
 
 static int
@@ -2993,7 +3078,7 @@ validate_target_fields(lua_State *L, int table, struct qstar_graph *graph)
 		"kind", "configs", "sources", "deps", "public_deps", "private_deps",
 		"visibility", "libs", "lib_dirs", "link", "link_options",
 		"link_inputs", "lang", "toolset",
-		"artifact_name", "command", "description", "timeout", "expect", NULL
+		"artifact_name", "inputs", "command", "description", "timeout", "expect", NULL
 	};
 	const char *key;
 
@@ -3164,6 +3249,8 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	if (strcmp(target->kind, "group") == 0 &&
 	    reject_group_action_fields(L, table_index, graph, target->label) < 0)
 		return luaL_error(L, "%s", graph->error);
+	if (reject_non_run_inputs_field(L, table_index, graph, target) < 0)
+		return luaL_error(L, "%s", graph->error);
 	if (read_list_field(L, table_index, "configs", &target->configs, graph, 1,
 	    target->fragment_dir) < 0 ||
 	    qstar_graph_apply_target_configs(graph, target) < 0 ||
@@ -3200,10 +3287,11 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 		memset(&empty, 0, sizeof(empty));
 		if (read_status_description_field(L, table_index, graph,
 		    &target->description) < 0 ||
+		    read_run_inputs_field(L, table_index, target, graph) < 0 ||
 		    read_command_field(L, table_index, "command", &target->run_command,
 		    graph) < 0 ||
-		    resolve_cli_placeholders(graph, &target->run_command, &empty, &empty,
-		    "run_target command") < 0)
+		    resolve_cli_placeholders(graph, &target->run_command,
+		    &target->run_inputs, &empty, "run_target command") < 0)
 			return luaL_error(L, "%s", graph->error);
 		if (target->run_command.len == 0)
 			return luaL_error(L,
@@ -5723,6 +5811,27 @@ qstar_lua_target_file(lua_State *L)
 }
 
 static int
+qstar_lua_stage_dir(lua_State *L)
+{
+	struct qstar_lua_context *ctx;
+	const char *raw;
+	char label[QSTAR_PATH_MAX];
+
+	ctx = get_context(L);
+	raw = luaL_checkstring(L, 1);
+	if (qstar_label_canonicalize(raw, ctx->current_dir, label, sizeof(label)) < 0)
+		return luaL_error(L, "qstar: invalid stage_dir label '%s'", raw);
+	if (!lua_isnoneornil(L, 2))
+		return luaL_error(L, "qstar: qstar.stage_dir takes exactly one label");
+	lua_newtable(L);
+	lua_pushstring(L, "stage_dir");
+	lua_setfield(L, -2, "__qstar_kind");
+	lua_pushstring(L, label);
+	lua_setfield(L, -2, "label");
+	return 1;
+}
+
+static int
 qstar_lua_cli(lua_State *L)
 {
 	size_t i, n;
@@ -6856,6 +6965,8 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "source");
 	lua_pushcfunction(L, qstar_lua_target_file);
 	lua_setfield(L, -2, "target_file");
+	lua_pushcfunction(L, qstar_lua_stage_dir);
+	lua_setfield(L, -2, "stage_dir");
 	lua_pushcfunction(L, qstar_lua_stage_file);
 	lua_setfield(L, -2, "stage_file");
 	lua_pushcfunction(L, qstar_lua_cli);

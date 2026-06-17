@@ -342,6 +342,7 @@ Command/path helper:
 - `qstar.input`
 - `qstar.output`
 - `qstar.target_file`
+- `qstar.stage_dir`
 - `qstar.stage_file`
 - `qstar.files`
 - `qstar.subdir`
@@ -472,6 +473,11 @@ qstar.executable "app" {
 
 이 pattern은 새 language provider가 아니라 artifact bridge다. External compiler는 package-local
 wrapper나 toolset `path_tools`로 명시적으로 허용한다.
+
+`qstar.run_target`은 `inputs` field로 command argv와 독립적인 first-class input을
+선언한다. `inputs`에는 package-relative file, `qstar.target_file(...)`,
+`qstar.stage_dir(...)`가 들어가며, `qstar.input(N)`은 run input의 N번째 항목으로
+resolve된다.
 
 Staging은 install과 다르다. release bundle, test fixture bundle, package tree 같은
 copy-only layout은 `qstar.stage`를 쓴다.

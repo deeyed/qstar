@@ -88,6 +88,18 @@ link argv에 그대로 추가되고, `link_inputs`는 package-relative file이�
 macOS framework link는 generic top-level field가 아니라 macOS branch 안의
 `link = { frameworks = {...} }`로만 작성한다.
 
+`qstar.run_target`은 command argv와 별개로 `inputs`를 선언할 수 있다. `inputs`에는
+package-relative file, `qstar.target_file(...)`, `qstar.stage_dir(...)`를 넣을 수 있고,
+`command = qstar.cli { ... }` 안의 `qstar.input(N)`은 run input의 N번째 항목으로
+resolve된다. 이 방식은 producer edge, rebuild input, argv path를 같은 선언에서 묶는다.
+
+```lua
+qstar.run_target "check" {
+  inputs = {qstar.target_file("//:artifact"), "fixtures/expected.txt"},
+  command = qstar.cli {"tools/check", qstar.input(0), qstar.input(1)},
+}
+```
+
 ## Builtin authoring helpers
 
 QStar는 Makefile식 `$VAR` 문자열 치환을 하지 않는다. 반복되는 path와 option은 Lua `local`
@@ -236,8 +248,8 @@ qstar.custom_target "version_header" {
 }
 
 qstar.run_target "smoke" {
-  deps = {"//:app"},
-  command = qstar.cli {qstar.target_file("//:app")},
+  inputs = {qstar.target_file("//:app")},
+  command = qstar.cli {"tools/check-artifact", qstar.input(0)},
   expect = {
     contains = "OK",
   },

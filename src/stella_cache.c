@@ -417,6 +417,7 @@ write_target(FILE *f, const struct qstar_target *t)
 	WLIST(cxxflags);
 	WLIST(asm_include_dirs);
 	WLIST(asm_compile_options);
+	WLIST(run_inputs);
 	WLIST(run_command);
 	WSTR(description);
 	WSTR(artifact_name);
@@ -474,6 +475,7 @@ read_target(FILE *f, struct qstar_target *t)
 	RLIST(cxxflags);
 	RLIST(asm_include_dirs);
 	RLIST(asm_compile_options);
+	RLIST(run_inputs);
 	RLIST(run_command);
 	RSTR(description);
 	RSTR(artifact_name);

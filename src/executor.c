@@ -4566,6 +4566,60 @@ resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
 	return qstar_graph_target_artifact_path(graph, target, artifact, dst, dstlen);
 }
 
+/** stage label의 manifest path를 package-relative build path로 만든다. */
+static int
+stage_manifest_rel_for_label(struct qstar_graph *graph, const char *label, char *dst,
+    size_t dstlen)
+{
+	char owner[QSTAR_PATH_MAX], sub[QSTAR_PATH_MAX];
+
+	qstar_mangle_label(label, owner, sizeof(owner));
+	if (snprintf(sub, sizeof(sub), "stage/%s/manifest.json", owner) >=
+	    (int)sizeof(sub) ||
+	    qstar_graph_build_path(graph, sub, dst, dstlen) < 0)
+		return qstar_set_error(graph, "qstar: stage manifest path too long");
+	return 0;
+}
+
+/** qstar.stage_dir placeholder를 run argv용 package-relative root path로 해석한다. */
+static int
+resolve_stage_dir_token(struct qstar_graph *graph, const char *arg, char *dst,
+    size_t dstlen)
+{
+	const struct qstar_stage *stage;
+	char label[QSTAR_PATH_MAX];
+	int rc;
+
+	rc = qstar_stage_dir_token_label(arg, label, sizeof(label));
+	if (rc == 0)
+		return 0;
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: malformed stage_dir placeholder");
+	stage = qstar_graph_find_stage(graph, label);
+	if (!stage)
+		return qstar_set_error(graph, "qstar: stage_dir references unknown stage '%s'",
+		    label);
+	if (snprintf(dst, dstlen, "%s", stage->root && *stage->root ? stage->root : ".") >=
+	    (int)dstlen)
+		return qstar_set_error(graph, "qstar: stage_dir root path is too long");
+	return 1;
+}
+
+/** command token을 실제 argv path로 해석한다. */
+static int
+resolve_command_token(struct qstar_graph *graph, const char *arg, char *dst,
+    size_t dstlen)
+{
+	int rc;
+
+	rc = resolve_stage_dir_token(graph, arg, dst, dstlen);
+	if (rc < 0)
+		return -1;
+	if (rc == 1)
+		return 0;
+	return resolve_target_file_token(graph, arg, dst, dstlen);
+}
+
 /** generated action input token을 실제 package-relative cache input으로 추가한다. */
 static int
 push_generated_action_input(struct qstar_graph *graph, struct qstar_string_list *inputs,
@@ -4610,6 +4664,64 @@ push_target_file_argv_inputs(struct qstar_graph *graph, const struct qstar_genru
 			return -1;
 		if (qstar_string_list_push(inputs, resolved) < 0)
 			return qstar_set_error(graph, "qstar: out of memory");
+	}
+	return 0;
+}
+
+/** run_target inputs item을 cache input path로 추가한다. */
+static int
+push_run_declared_input(struct qstar_graph *graph, struct qstar_string_list *inputs,
+    const char *item)
+{
+	char label[QSTAR_PATH_MAX], resolved[QSTAR_PATH_MAX];
+	int rc;
+
+	rc = qstar_stage_dir_token_label(item, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: malformed stage_dir placeholder");
+	if (rc == 1) {
+		if (stage_manifest_rel_for_label(graph, label, resolved,
+		    sizeof(resolved)) < 0)
+			return -1;
+		return push_unique_tmp(inputs, resolved) < 0 ?
+		    qstar_set_error(graph, "qstar: out of memory") : 0;
+	}
+	rc = qstar_target_file_token_label(item, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: malformed target_file placeholder");
+	if (rc == 1) {
+		if (resolve_target_file_token(graph, item, resolved, sizeof(resolved)) < 0)
+			return -1;
+		return push_unique_tmp(inputs, resolved) < 0 ?
+		    qstar_set_error(graph, "qstar: out of memory") : 0;
+	}
+	return push_unique_tmp(inputs, item) < 0 ?
+	    qstar_set_error(graph, "qstar: out of memory") : 0;
+}
+
+/** run_target stage_dir inputs를 run 전에 materialize한다. */
+static int
+materialize_run_stage_inputs(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const struct qstar_target *target)
+{
+	struct qstar_stage_options options;
+	char label[QSTAR_PATH_MAX];
+	size_t i;
+	int rc;
+
+	for (i = 0; i < target->run_inputs.len; i++) {
+		rc = qstar_stage_dir_token_label(target->run_inputs.items[i], label,
+		    sizeof(label));
+		if (rc < 0)
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, "inputs", target->label,
+			    "qstar: malformed stage_dir placeholder");
+		if (rc == 0)
+			continue;
+		memset(&options, 0, sizeof(options));
+		options.dependencies_ready = ctx->action_scheduler;
+		if (qstar_graph_stage(graph, label, &options, ctx->out) < 0)
+			return -1;
 	}
 	return 0;
 }
@@ -4700,7 +4812,7 @@ push_resolved_command_argv(struct qstar_graph *graph, char **argv, size_t *argc,
 
 	if (*argc + 1 >= QSTAR_EXEC_MAX_ARGV)
 		return qstar_set_error(graph, "qstar: command argv too long");
-	if (resolve_target_file_token(graph, arg, resolved, sizeof(resolved)) < 0)
+	if (resolve_command_token(graph, arg, resolved, sizeof(resolved)) < 0)
 		return -1;
 	argv[*argc] = qstar_strdup(resolved);
 	if (!argv[*argc])
@@ -5039,6 +5151,8 @@ prepare_run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    target->origin_line, "command", target->label,
 		    "qstar: run_target '%s' requires command = qstar.cli { ... }",
 		    target->label);
+	if (materialize_run_stage_inputs(graph, ctx, target) < 0)
+		return -1;
 	for (i = 0; i < target->run_command.len; i++) {
 		if (push_resolved_command_argv(graph, action->argv, &action->argc,
 		    target->run_command.items[i]) < 0) {
@@ -5132,6 +5246,14 @@ prepare_run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 				prepared_action_free(action);
 				return qstar_set_error(graph, "qstar: out of memory");
 			}
+		}
+	}
+	for (i = 0; i < target->run_inputs.len; i++) {
+		if (push_run_declared_input(graph, &inputs,
+		    target->run_inputs.items[i]) < 0) {
+			qstar_string_list_free(&inputs);
+			prepared_action_free(action);
+			return -1;
 		}
 	}
 	qstar_mangle_label(target->label, owner, sizeof(owner));
@@ -7650,6 +7772,96 @@ scheduler_discover_target_link_inputs(struct qstar_scheduler *sched,
 	return 0;
 }
 
+/** target_file/plain generated item의 producer를 scheduler discovery set에 반영한다. */
+static int
+scheduler_discover_target_file_item(struct qstar_scheduler *sched,
+    const struct qstar_target *target, const char *field, const char *item,
+    int *changed)
+{
+	const struct qstar_genrule *owner;
+	char label[QSTAR_PATH_MAX];
+	int rc, target_index, gen_index, before_targets;
+
+	rc = qstar_target_file_token_label(item, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error_origin(sched->graph, target->origin_file,
+		    target->origin_line, field, target->label,
+		    "qstar: malformed target_file placeholder");
+	if (rc == 1) {
+		target_index = sched_target_index_label(sched->graph, label);
+		if (target_index >= 0) {
+			before_targets = (int)sched->target_len;
+			if (scheduler_add_target_closure(sched, label) < 0)
+				return -1;
+			if ((size_t)before_targets != sched->target_len)
+				*changed = 1;
+			return 0;
+		}
+		owner = qstar_graph_find_genrule(sched->graph, label);
+		if (owner) {
+			gen_index = sched_genrule_index(sched->graph, owner);
+			if (gen_index >= 0 && !sched->genrule_needed[gen_index]) {
+				if (scheduler_mark_genrule(sched, owner) < 0)
+					return -1;
+				*changed = 1;
+			}
+		}
+		return 0;
+	}
+	owner = qstar_graph_find_output_owner(sched->graph, item);
+	if (owner) {
+		gen_index = sched_genrule_index(sched->graph, owner);
+		if (gen_index >= 0 && !sched->genrule_needed[gen_index]) {
+			if (scheduler_mark_genrule(sched, owner) < 0)
+				return -1;
+			*changed = 1;
+		}
+	}
+	return 0;
+}
+
+/** run_target inputs의 producer를 discovery set에 반영한다. */
+static int
+scheduler_discover_run_inputs(struct qstar_scheduler *sched,
+    const struct qstar_target *target, int *changed)
+{
+	const struct qstar_stage *stage;
+	char label[QSTAR_PATH_MAX];
+	size_t i, j;
+	int rc;
+
+	if (strcmp(target->kind, "run_target") != 0)
+		return 0;
+	for (i = 0; i < target->run_inputs.len; i++) {
+		rc = qstar_stage_dir_token_label(target->run_inputs.items[i], label,
+		    sizeof(label));
+		if (rc < 0)
+			return qstar_set_error_origin(sched->graph, target->origin_file,
+			    target->origin_line, "inputs", target->label,
+			    "qstar: malformed stage_dir placeholder");
+		if (rc == 1) {
+			stage = qstar_graph_find_stage(sched->graph, label);
+			if (!stage)
+				return qstar_set_error_origin(sched->graph,
+				    target->origin_file, target->origin_line,
+				    "inputs", target->label,
+				    "qstar: stage_dir references unknown stage '%s'",
+				    label);
+			for (j = 0; j < stage->srcs.len; j++) {
+				if (scheduler_discover_target_file_item(sched,
+				    target, "inputs", stage->srcs.items[j],
+				    changed) < 0)
+					return -1;
+			}
+			continue;
+		}
+		if (scheduler_discover_target_file_item(sched, target, "inputs",
+		    target->run_inputs.items[i], changed) < 0)
+			return -1;
+	}
+	return 0;
+}
+
 /** run_target command argv 안의 target_file producer를 discovery set에 반영한다. */
 static int
 scheduler_discover_run_command_inputs(struct qstar_scheduler *sched,
@@ -7717,6 +7929,8 @@ scheduler_discover(struct qstar_scheduler *sched, const char *label)
 			    scheduler_discover_target_dep_genrules(sched,
 			    sched->targets[i], &changed) < 0 ||
 			    scheduler_discover_target_link_inputs(sched, sched->targets[i],
+			    &changed) < 0 ||
+			    scheduler_discover_run_inputs(sched, sched->targets[i],
 			    &changed) < 0 ||
 			    scheduler_discover_run_command_inputs(sched, sched->targets[i],
 			    &changed) < 0)
@@ -8139,6 +8353,48 @@ scheduler_connect_run_command_edges(struct qstar_scheduler *sched,
 	return 0;
 }
 
+/** run_target inputs producer edge를 연결한다. */
+static int
+scheduler_connect_run_input_edges(struct qstar_scheduler *sched,
+    const struct qstar_target *target, size_t user_node)
+{
+	const struct qstar_stage *stage;
+	char label[QSTAR_PATH_MAX];
+	size_t i, j;
+	int rc;
+
+	if (strcmp(target->kind, "run_target") != 0)
+		return 0;
+	for (i = 0; i < target->run_inputs.len; i++) {
+		rc = qstar_stage_dir_token_label(target->run_inputs.items[i], label,
+		    sizeof(label));
+		if (rc < 0)
+			return qstar_set_error_origin(sched->graph, target->origin_file,
+			    target->origin_line, "inputs", target->label,
+			    "qstar: malformed stage_dir placeholder");
+		if (rc == 1) {
+			stage = qstar_graph_find_stage(sched->graph, label);
+			if (!stage)
+				return qstar_set_error_origin(sched->graph,
+				    target->origin_file, target->origin_line,
+				    "inputs", target->label,
+				    "qstar: stage_dir references unknown stage '%s'",
+				    label);
+			for (j = 0; j < stage->srcs.len; j++) {
+				if (scheduler_add_target_file_item_edge(sched,
+				    target, "inputs", stage->srcs.items[j],
+				    user_node) < 0)
+					return -1;
+			}
+			continue;
+		}
+		if (scheduler_add_target_file_item_edge(sched, target, "inputs",
+		    target->run_inputs.items[i], user_node) < 0)
+			return -1;
+	}
+	return 0;
+}
+
 /** target 내부 compile/final/run/group edge를 scheduler graph에 연결한다. */
 static int
 scheduler_connect_target_edges(struct qstar_scheduler *sched)
@@ -8159,6 +8415,8 @@ scheduler_connect_target_edges(struct qstar_scheduler *sched)
 		    final_node) < 0)
 			return -1;
 		if (scheduler_connect_run_command_edges(sched, target, final_node) < 0)
+			return -1;
+		if (scheduler_connect_run_input_edges(sched, target, final_node) < 0)
 			return -1;
 		if (strcmp(target->kind, "group") == 0 ||
 		    strcmp(target->kind, "run_target") == 0)
@@ -9530,7 +9788,8 @@ stage_file(struct qstar_graph *graph, struct qstar_stage_ctx *ctx, const char *s
 	const char *action, *kind, *producer, *artifact;
 	int exists;
 
-	if (stage_build_source_dependency(graph, src_token,
+	if (!(ctx->options && ctx->options->dependencies_ready) &&
+	    stage_build_source_dependency(graph, src_token,
 	    ctx->options && ctx->options->dry_run, ctx->out) < 0)
 		return -1;
 	if (stage_resolve_src(graph, src_token, src_rel, sizeof(src_rel)) < 0)
@@ -9907,7 +10166,7 @@ prepared_action_push_resolved_command_argv(struct qstar_graph *graph,
 {
 	char resolved[QSTAR_PATH_MAX];
 
-	if (resolve_target_file_token(graph, arg, resolved, sizeof(resolved)) < 0)
+	if (resolve_command_token(graph, arg, resolved, sizeof(resolved)) < 0)
 		return -1;
 	return prepared_action_push_argv(graph, action, resolved);
 }

@@ -1263,6 +1263,45 @@ resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
 	    label);
 }
 
+/** qstar.stage_dir placeholder를 Ninja run argv용 path로 해석한다. */
+static int
+resolve_stage_dir_token(struct qstar_graph *graph, const char *arg, char *dst,
+    size_t dstlen)
+{
+	const struct qstar_stage *stage;
+	char label[QSTAR_PATH_MAX];
+	int rc;
+
+	rc = qstar_stage_dir_token_label(arg, label, sizeof(label));
+	if (rc == 0)
+		return 0;
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: malformed stage_dir placeholder");
+	stage = qstar_graph_find_stage(graph, label);
+	if (!stage)
+		return qstar_set_error(graph, "qstar: stage_dir references unknown stage '%s'",
+		    label);
+	if (snprintf(dst, dstlen, "%s", stage->root && *stage->root ? stage->root : ".") >=
+	    (int)dstlen)
+		return qstar_set_error(graph, "qstar: stage_dir root path is too long");
+	return 1;
+}
+
+/** run_target command token을 Ninja argv path로 해석한다. */
+static int
+resolve_run_command_token(struct qstar_graph *graph, const char *arg, char *dst,
+    size_t dstlen)
+{
+	int rc;
+
+	rc = resolve_stage_dir_token(graph, arg, dst, dstlen);
+	if (rc < 0)
+		return -1;
+	if (rc == 1)
+		return 0;
+	return resolve_target_file_token(graph, arg, dst, dstlen);
+}
+
 /** target closure를 Ninja graph에 중복 없이 emit한다. */
 static int
 emit_target_closure(struct qstar_graph *graph, struct ninja_ctx *ctx, const char *label)
@@ -2613,6 +2652,39 @@ emit_run_item_producer(struct qstar_graph *graph, struct ninja_ctx *ctx, const c
 	    label);
 }
 
+/** run_target inputs item이 가리키는 producer edge를 먼저 emit한다. */
+static int
+emit_run_input_producer(struct qstar_graph *graph, struct ninja_ctx *ctx,
+    const char *item)
+{
+	const struct qstar_genrule *genrule;
+	char label[QSTAR_PATH_MAX];
+	int rc;
+
+	rc = qstar_stage_dir_token_label(item, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: malformed stage_dir placeholder");
+	if (rc == 1)
+		return qstar_set_error(graph,
+		    "qstar: ninja backend does not support qstar.stage_dir run_target inputs yet; use -G stella");
+	rc = qstar_target_file_token_label(item, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: malformed target_file placeholder");
+	if (rc == 1) {
+		if (find_target(graph, label))
+			return emit_target_closure(graph, ctx, label);
+		genrule = qstar_graph_find_genrule(graph, label);
+		if (genrule)
+			return emit_genrule_edge(graph, ctx, NULL, genrule);
+		return qstar_set_error(graph,
+		    "qstar: target_file references unknown target '%s'", label);
+	}
+	genrule = qstar_graph_find_output_owner(graph, item);
+	if (genrule)
+		return emit_genrule_edge(graph, ctx, NULL, genrule);
+	return 0;
+}
+
 /** run_target command item이 가리키는 Ninja dependency를 출력한다. */
 static int
 write_run_item_dep(struct qstar_graph *graph, FILE *f, const char *item)
@@ -2643,6 +2715,48 @@ write_run_item_dep(struct qstar_graph *graph, FILE *f, const char *item)
 	    label);
 }
 
+/** run_target inputs item을 Ninja dependency로 출력한다. */
+static int
+write_run_input_dep(struct qstar_graph *graph, FILE *f, const char *item)
+{
+	const struct qstar_genrule *genrule;
+	char label[QSTAR_PATH_MAX], alias[QSTAR_PATH_MAX], resolved[QSTAR_PATH_MAX];
+	int rc;
+
+	rc = qstar_stage_dir_token_label(item, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: malformed stage_dir placeholder");
+	if (rc == 1)
+		return qstar_set_error(graph,
+		    "qstar: ninja backend does not support qstar.stage_dir run_target inputs yet; use -G stella");
+	rc = qstar_target_file_token_label(item, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: malformed target_file placeholder");
+	if (rc == 1) {
+		if (find_target(graph, label)) {
+			if (ninja_alias_path(graph, label, alias, sizeof(alias)) < 0)
+				return qstar_set_error(graph,
+				    "qstar: ninja alias path too long");
+			fputc(' ', f);
+			ninja_path(f, alias);
+			return 0;
+		}
+		genrule = qstar_graph_find_genrule(graph, label);
+		if (genrule && genrule->outputs.len > 0) {
+			fputc(' ', f);
+			ninja_path(f, genrule->outputs.items[0]);
+			return 0;
+		}
+		return qstar_set_error(graph,
+		    "qstar: target_file references unknown target '%s'", label);
+	}
+	if (resolve_target_file_token(graph, item, resolved, sizeof(resolved)) < 0)
+		return -1;
+	fputc(' ', f);
+	ninja_path(f, resolved);
+	return 0;
+}
+
 /** run_target command argv에 포함된 target_file dependency를 출력한다. */
 static int
 write_run_command_deps(struct qstar_graph *graph, FILE *f,
@@ -2669,6 +2783,14 @@ write_run_command_deps(struct qstar_graph *graph, FILE *f,
 		if (write_run_item_dep(graph, f, target->run_command.items[i]) < 0)
 			return -1;
 	}
+	for (i = 0; i < target->run_inputs.len; i++) {
+		if (!wrote) {
+			fputs(" |", f);
+			wrote = 1;
+		}
+		if (write_run_input_dep(graph, f, target->run_inputs.items[i]) < 0)
+			return -1;
+	}
 	return 0;
 }
 
@@ -2690,12 +2812,16 @@ emit_run_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		    target->origin_line, "command", target->label,
 		    "qstar: run_target '%s' requires command = qstar.cli { ... }",
 		    target->label);
+	for (i = 0; i < target->run_inputs.len; i++) {
+		if (emit_run_input_producer(graph, ctx, target->run_inputs.items[i]) < 0)
+			goto fail;
+	}
 	for (i = 0; i < target->run_command.len; i++) {
 		char resolved[QSTAR_PATH_MAX];
 
 		if (emit_run_item_producer(graph, ctx, target->run_command.items[i]) < 0)
 			goto fail;
-		if (resolve_target_file_token(graph, target->run_command.items[i],
+		if (resolve_run_command_token(graph, target->run_command.items[i],
 		    resolved, sizeof(resolved)) < 0)
 			goto fail;
 		if (ninja_argv_push(graph, &argv, resolved) < 0)

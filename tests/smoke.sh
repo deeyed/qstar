@@ -8525,7 +8525,27 @@ test -f "$1"
 mkdir -p "$(dirname "$2")"
 cp "$1" "$2"
 EOF
-chmod +x "$tmp/artifact-dep/tools/fake-objcopy.sh" "$tmp/artifact-dep/tools/copy.sh"
+cat > "$tmp/artifact-dep/tools/check-copy.sh" <<'EOF'
+#!/bin/sh
+set -eu
+test -f "$1"
+test -f "$2"
+cmp "$1" "$2" >/dev/null
+mkdir -p "$(dirname "$3")"
+cp "$1" "$3"
+EOF
+cat > "$tmp/artifact-dep/tools/check-stage.sh" <<'EOF'
+#!/bin/sh
+set -eu
+root=$1
+name=$2
+expected=$3
+out=$4
+cmp "$root/$name" "$expected" >/dev/null
+mkdir -p "$(dirname "$out")"
+printf 'stage-ok\n' > "$out"
+EOF
+chmod +x "$tmp/artifact-dep/tools/fake-objcopy.sh" "$tmp/artifact-dep/tools/copy.sh" "$tmp/artifact-dep/tools/check-copy.sh" "$tmp/artifact-dep/tools/check-stage.sh"
 cat > "$tmp/artifact-dep/src/producer.c" <<'EOF'
 int main(void) { return 0; }
 EOF
@@ -8564,8 +8584,26 @@ qstar.custom_target "blob_image" {
 }
 
 qstar.run_target "blob_smoke" {
-  deps = {"//:blob_image"},
-  command = qstar.cli {"tools/copy.sh", qstar.target_file("//:blob_image"), "generated/blob.smoke"},
+  inputs = {
+    qstar.target_file("//:blob_image"),
+    "fixtures/blob.bin",
+  },
+  command = qstar.cli {"tools/check-copy.sh", qstar.input(0), qstar.input(1), "generated/blob.smoke"},
+}
+
+qstar.stage "blob_stage" {
+  root = "generated/stage-layout",
+  files = {
+    qstar.stage_file(qstar.target_file("//:blob_image"), "blob.img"),
+  },
+}
+
+qstar.run_target "stage_smoke" {
+  inputs = {
+    qstar.stage_dir("//:blob_stage"),
+    "fixtures/blob.bin",
+  },
+  command = qstar.cli {"tools/check-stage.sh", qstar.input(0), "blob.img", qstar.input(1), "generated/stage.smoke"},
 }
 
 qstar.group "image_group" {
@@ -8575,7 +8613,8 @@ EOF
 "$qstar" --file "$tmp/artifact-dep/qstar.lua" explain //:payload_image > "$tmp/artifact-dep-explain.out" 2> "$tmp/artifact-dep-explain.err"
 contains "$tmp/artifact-dep-explain.out" "artifact_input_edge input=<qstar-target-file://:producer> producer=//:producer path="
 "$qstar" --file "$tmp/artifact-dep/qstar.lua" explain //:blob_smoke > "$tmp/artifact-dep-smoke-explain.out" 2> "$tmp/artifact-dep-smoke-explain.err"
-contains "$tmp/artifact-dep-smoke-explain.out" "generated_dep_edge field=deps dependent=//:blob_smoke producer=//:blob_image output=generated/blob.img"
+contains "$tmp/artifact-dep-smoke-explain.out" "run.inputs [<qstar-target-file://:blob_image>, fixtures/blob.bin]"
+contains "$tmp/artifact-dep-smoke-explain.out" "generated_dep_edge field=inputs dependent=//:blob_smoke producer=//:blob_image output=generated/blob.img"
 "$qstar" --file "$tmp/artifact-dep/qstar.lua" dry-run //:payload_image > "$tmp/artifact-dep-dry.out" 2> "$tmp/artifact-dep-dry.err"
 contains "$tmp/artifact-dep-dry.out" "artifact_input_edge input=<qstar-target-file://:producer> producer=//:producer path="
 contains "$tmp/artifact-dep-dry.out" "argv=[tools/fake-objcopy.sh, -O, binary, build/qstar/out/"
@@ -8594,6 +8633,12 @@ cmp "$tmp/artifact-dep/fixtures/blob.bin" "$tmp/artifact-dep/generated/blob.img"
 contains "$tmp/artifact-dep-smoke.out" "run_target label=//:blob_smoke"
 test -f "$tmp/artifact-dep/generated/blob.smoke" || fail "run_target deps generated artifact was not materialized"
 cmp "$tmp/artifact-dep/fixtures/blob.bin" "$tmp/artifact-dep/generated/blob.smoke" >/dev/null || fail "run_target generated dependency content drifted"
+"$qstar" --file "$tmp/artifact-dep/qstar.lua" build //:stage_smoke --progress off > "$tmp/artifact-dep-stage-smoke.out" 2> "$tmp/artifact-dep-stage-smoke.err"
+contains "$tmp/artifact-dep-stage-smoke.out" "stage_layout label=//:blob_stage root=generated/stage-layout"
+contains "$tmp/artifact-dep-stage-smoke.out" "run_target label=//:stage_smoke"
+contains "$tmp/artifact-dep-stage-smoke.out" "status ok"
+test -f "$tmp/artifact-dep/generated/stage.smoke" || fail "run_target stage_dir input was not consumed"
+contains "$tmp/artifact-dep/generated/stage.smoke" "stage-ok"
 "$qstar" --file "$tmp/artifact-dep/qstar.lua" build //:image_group --progress off > "$tmp/artifact-dep-group.out" 2> "$tmp/artifact-dep-group.err"
 contains "$tmp/artifact-dep-group.out" "group_target label=//:image_group"
 contains "$tmp/artifact-dep-group.out" "status ok"
@@ -8604,6 +8649,10 @@ if command -v ninja >/dev/null 2>&1; then
 	contains "$tmp/artifact-dep-smoke-ninja.out" "status ok"
 	test -f "$tmp/artifact-dep/generated/blob.smoke" || fail "ninja run_target deps generated artifact was not materialized"
 	cmp "$tmp/artifact-dep/fixtures/blob.bin" "$tmp/artifact-dep/generated/blob.smoke" >/dev/null || fail "ninja run_target generated dependency content drifted"
+	if "$qstar" --file "$tmp/artifact-dep/qstar.lua" -G ninja build //:stage_smoke --progress off > "$tmp/artifact-dep-stage-ninja.out" 2> "$tmp/artifact-dep-stage-ninja.err"; then
+		fail "ninja stage_dir run input unexpectedly succeeded"
+	fi
+	contains "$tmp/artifact-dep-stage-ninja.err" "ninja backend does not support qstar.stage_dir run_target inputs yet"
 fi
 
 mkdir -p "$tmp/artifact-unknown"
@@ -8620,6 +8669,44 @@ if "$qstar" --file "$tmp/artifact-unknown/qstar.lua" check > "$tmp/artifact-unkn
 	fail "unknown target_file input unexpectedly succeeded"
 fi
 contains "$tmp/artifact-unknown.err" "generated input target '//:missing' in '//:bad' is unknown"
+
+mkdir -p "$tmp/run-input-diagnostics"
+cat > "$tmp/run-input-diagnostics/qstar.lua" <<'EOF'
+qstar.run_target "bad" {
+  inputs = {"qstar.lua"},
+  command = qstar.cli {"tools/check", qstar.input(1)},
+}
+EOF
+if "$qstar" --file "$tmp/run-input-diagnostics/qstar.lua" check > "$tmp/run-input-missing.out" 2> "$tmp/run-input-missing.err"; then
+	fail "missing run_target input placeholder unexpectedly succeeded"
+fi
+contains "$tmp/run-input-missing.err" "run_target command references missing qstar.input(1)"
+cat > "$tmp/run-input-diagnostics/qstar.lua" <<'EOF'
+qstar.executable "bad" {
+  inputs = {"qstar.lua"},
+  sources = {"qstar.lua"},
+}
+EOF
+if "$qstar" --file "$tmp/run-input-diagnostics/qstar.lua" check > "$tmp/non-run-input.out" 2> "$tmp/non-run-input.err"; then
+	fail "non-run target inputs unexpectedly succeeded"
+fi
+contains "$tmp/non-run-input.err" "field 'inputs' is only valid on run_target"
+cat > "$tmp/run-input-diagnostics/qstar.lua" <<'EOF'
+qstar.stage "layout" {
+  files = {
+    qstar.stage_file("qstar.lua", "qstar.lua"),
+  },
+}
+
+qstar.custom_target "bad" {
+  outputs = {qstar.output("generated/bad.txt")},
+  command = qstar.cli {"tools/write", qstar.stage_dir("//:layout"), qstar.output(0)},
+}
+EOF
+if "$qstar" --file "$tmp/run-input-diagnostics/qstar.lua" check > "$tmp/custom-stage-dir.out" 2> "$tmp/custom-stage-dir.err"; then
+	fail "custom_target stage_dir command unexpectedly succeeded"
+fi
+contains "$tmp/custom-stage-dir.err" "qstar.stage_dir is only valid in run_target inputs"
 
 mkdir -p "$tmp/artifact-badmeta"
 cat > "$tmp/artifact-badmeta/qstar.lua" <<'EOF'

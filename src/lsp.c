@@ -51,7 +51,7 @@ static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 	{ "qstar.target_family", "Group related target variants for lint policy such as shared source suppression." },
 	{ "qstar.cli", "Build an argv-vector command for custom_target or run_target." },
 	{ "qstar.status", "Build a validated one-line status description for custom actions." },
-	{ "qstar.input", "Reference a custom_target input by index inside qstar.cli." },
+	{ "qstar.input", "Reference a custom_target or run_target input by index inside qstar.cli." },
 	{ "qstar.subdir", "Load a canonical subdir fragment named <folder>.qst." },
 	{ "qstar.import_file", "Load a package-relative .qst graph fragment exactly once." },
 	{ "qstar.import_module", "Load a package-relative module folder only, resolve <folder>/<name>.qsm, and return its table." },
@@ -63,6 +63,7 @@ static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 	{ "qstar.extend", "Deep-merge overlays into a base plain table and return it." },
 	{ "qstar.output", "Declare a generated output path, or reference an output by index inside qstar.cli." },
 	{ "qstar.target_file", "Reference another target artifact path inside qstar.cli." },
+	{ "qstar.stage_dir", "Reference a qstar.stage layout root as a run_target input token." },
 	{ "qstar.version", "QStar authoring/runtime version string." },
 	{ "qstar.host.os", "Host operating system identifier used by the QStar evaluator." },
 	{ "qstar.host.arch", "Host architecture identifier used by the QStar evaluator." },
@@ -79,6 +80,7 @@ static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 
 static const struct qstar_lsp_hover_entry qstar_lsp_fields[] = {
 	{ "sources", "Compile or generated source inputs for this target." },
+	{ "inputs", "run_target first-class input list; accepts package files, qstar.target_file, or qstar.stage_dir." },
 	{ "configs", "Reusable qstar.config labels merged before target-local fields." },
 	{ "toolset", "Canonical qstar.toolset label selected by a target or config." },
 	{ "tools", "Tool role map inside qstar.toolset; archive/link are core roles and compiler tools live under provider namespaces." },

@@ -979,6 +979,29 @@ plan_resolve_target_file_arg(const struct qstar_graph *graph, const char *arg,
 	return arg;
 }
 
+/** run_target argv/input token을 display용 path로 해석한다. */
+static const char *
+plan_resolve_run_arg(const struct qstar_graph *graph, const char *arg,
+    char *buf, size_t buflen)
+{
+	const struct qstar_stage *stage;
+	char label[QSTAR_PATH_MAX];
+	int rc;
+
+	rc = qstar_stage_dir_token_label(arg, label, sizeof(label));
+	if (rc == 1) {
+		stage = qstar_graph_find_stage(graph, label);
+		snprintf(buf, buflen, "%s", stage && stage->root && *stage->root ?
+		    stage->root : ".");
+		return buf;
+	}
+	if (rc < 0) {
+		snprintf(buf, buflen, "<malformed-stage-dir>");
+		return buf;
+	}
+	return plan_resolve_target_file_arg(graph, arg, buf, buflen);
+}
+
 /** generated action의 실제 argv plan을 출력한다. */
 static void
 dump_genrule_argv(FILE *out, const struct qstar_graph *graph,
@@ -1012,16 +1035,18 @@ dump_genrule_argv(FILE *out, const struct qstar_graph *graph,
 
 /** run_target command argv plan을 출력한다. */
 static void
-dump_run_argv(FILE *out, const struct qstar_target *target)
+dump_run_argv(FILE *out, const struct qstar_graph *graph,
+    const struct qstar_target *target)
 {
 	struct qstar_argv_dump dump;
-	char id[QSTAR_PATH_MAX];
+	char id[QSTAR_PATH_MAX], resolved[QSTAR_PATH_MAX];
 	size_t i;
 
 	snprintf(id, sizeof(id), "%s:run:0", target->label);
 	begin_argv(out, &dump, id, target->run_command.len, NULL);
 	for (i = 0; i < target->run_command.len; i++)
-		argv_item(out, &dump, target->run_command.items[i]);
+		argv_item(out, &dump, plan_resolve_run_arg(graph,
+		    target->run_command.items[i], resolved, sizeof(resolved)));
 	end_argv(out, &dump);
 }
 
@@ -1237,6 +1262,7 @@ genrule_referenced_by_target(const struct qstar_genrule *genrule,
 	return genrule_consumed_by_target(genrule, target) ||
 	    genrule_output_in_list(genrule, &target->link_inputs) ||
 	    genrule_referenced_in_list(genrule, &target->link_inputs) ||
+	    genrule_referenced_in_list(genrule, &target->run_inputs) ||
 	    genrule_referenced_in_list(genrule, &target->run_command) ||
 	    genrule_referenced_in_list(genrule, &target->deps) ||
 	    genrule_referenced_in_list(genrule, &target->private_deps);
@@ -1328,6 +1354,23 @@ dump_generated_edges(FILE *out, const struct qstar_plan *plan,
 		if (owner && owner->outputs.len > 0)
 			dump_generated_dep_edge(out, "command", target, owner,
 			    owner->outputs.items[0]);
+	}
+	for (i = 0; i < target->run_inputs.len; i++) {
+		char label[QSTAR_PATH_MAX];
+
+		owner = qstar_graph_find_output_owner(plan->graph, target->run_inputs.items[i]);
+		if (owner) {
+			dump_generated_dep_edge(out, "inputs", target, owner,
+			    target->run_inputs.items[i]);
+			continue;
+		}
+		if (qstar_target_file_token_label(target->run_inputs.items[i], label,
+		    sizeof(label)) == 1) {
+			owner = qstar_graph_find_genrule(plan->graph, label);
+			if (owner && owner->outputs.len > 0)
+				dump_generated_dep_edge(out, "inputs", target,
+				    owner, owner->outputs.items[0]);
+		}
 	}
 	for (i = 0; i < target->deps.len; i++) {
 		owner = qstar_graph_find_genrule(plan->graph, target->deps.items[i]);
@@ -1929,6 +1972,9 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 		return 0;
 	}
 	if (strcmp(target->kind, "run_target") == 0) {
+		fputs("  run.inputs ", out);
+		dump_list(out, &target->run_inputs);
+		fputc('\n', out);
 		fputs("  run.command ", out);
 		dump_list(out, &target->run_command);
 		fputc('\n', out);
@@ -1948,7 +1994,7 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 		    "build/qstar/out/<run-stamp>", "generic", 0);
 		dump_command_skeleton(out, plan->graph, target, "run", "<run-command>",
 		    "build/qstar/out/<run-stamp>", "generic", "cli", 0);
-		dump_run_argv(out, target);
+		dump_run_argv(out, plan->graph, target);
 		return 0;
 	}
 	if (dump_resolved_toolchain(out, plan, target, &toolchain) < 0)
@@ -2231,9 +2277,9 @@ qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out)
 			dump_action_description(out, "  ", id, description);
 			fprintf(out,
 			    "  dry_run_step id=%s:run:0 owner=%s kind=run tool=cli "
-			    "input=<deps> output=build/qstar/out/<run-stamp> execute=no\n",
+			    "input=<deps,run.inputs> output=build/qstar/out/<run-stamp> execute=no\n",
 			    plan.order[i]->label, plan.order[i]->label);
-			dump_run_argv(out, plan.order[i]);
+			dump_run_argv(out, plan.graph, plan.order[i]);
 			dump_dry_run_genrules(out, &plan, plan.order[i]);
 			continue;
 		}

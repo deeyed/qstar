@@ -194,6 +194,7 @@ free_target(struct qstar_target *target)
 		qstar_string_list_free(&target->provider_options[i].list);
 	}
 	free(target->provider_options);
+	qstar_string_list_free(&target->run_inputs);
 	qstar_string_list_free(&target->run_command);
 	free(target->description);
 	free(target->artifact_name);
@@ -1950,6 +1951,28 @@ qstar_target_file_token_label(const char *arg, char *label, size_t labellen)
 	return qstar_target_file_token_parse(arg, label, labellen, NULL, 0);
 }
 
+/** qstar.stage_dir placeholder token에서 canonical stage label을 추출한다. */
+int
+qstar_stage_dir_token_label(const char *arg, char *label, size_t labellen)
+{
+	const char *prefix = "<qstar-stage-dir:";
+	const char *payload_start;
+	size_t n, payload;
+
+	if (!arg || strncmp(arg, prefix, strlen(prefix)) != 0)
+		return 0;
+	n = strlen(arg);
+	if (n <= strlen(prefix) + 1 || arg[n - 1] != '>')
+		return -1;
+	payload = n - strlen(prefix) - 1;
+	payload_start = arg + strlen(prefix);
+	if (payload == 0 || payload + 1 > labellen)
+		return -1;
+	memcpy(label, payload_start, payload);
+	label[payload] = '\0';
+	return 1;
+}
+
 int
 qstar_provider_tool_token_role(const char *arg, char *role, size_t rolelen)
 {
@@ -2289,6 +2312,9 @@ dump_target(const struct qstar_graph *graph, const struct qstar_target *target, 
 	fprintf(out, "  lang.asm.preprocess %s\n", target->asm_preprocess ? "true" : "false");
 	fprintf(out, "  lang.cxx.modules enabled=%s\n",
 	    target->cxx_modules_enabled ? "true" : "false");
+	fputs("  run.inputs ", out);
+	dump_list(out, &target->run_inputs);
+	fputc('\n', out);
 	fputs("  run.command ", out);
 	dump_list(out, &target->run_command);
 	fputc('\n', out);
@@ -2896,6 +2922,8 @@ dump_target_json(FILE *out, const struct qstar_graph *graph,
 	    target->description : "");
 	fputs(",\"run_command\":", out);
 	dump_json_list(out, &target->run_command);
+	fputs(",\"run_inputs\":", out);
+	dump_json_list(out, &target->run_inputs);
 	fprintf(out, ",\"run_timeout_sec\":%d", target->run_timeout_sec);
 	fputs(",\"run_expect_contains\":", out);
 	dump_json_string(out, target->run_expect_contains ? target->run_expect_contains : "");
@@ -3366,6 +3394,9 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	fprintf(out, "  lang.asm.preprocess %s\n", target->asm_preprocess ? "true" : "false");
 	fprintf(out, "  lang.cxx.modules enabled=%s\n",
 	    target->cxx_modules_enabled ? "true" : "false");
+	fputs("  run.inputs ", out);
+	dump_list(out, &target->run_inputs);
+	fputc('\n', out);
 	fputs("  run.command ", out);
 	dump_list(out, &target->run_command);
 	fputc('\n', out);

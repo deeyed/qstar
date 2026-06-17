@@ -135,7 +135,17 @@ argv vector.
 Deterministic configured file or config header generator using
 .Ic qstar.output .
 .It Ic qstar.run_target
-External smoke command with timeout and optional expect checks.
+External command with first-class inputs, timeout, and optional expect checks.
+The
+.Ic inputs
+field accepts package-relative files,
+.Ic qstar.target_file(...)
+artifacts, and
+.Ic qstar.stage_dir(...)
+layout-root tokens. Inside
+.Ic command = qstar.cli { ... } ,
+.Ic qstar.input(N)
+resolves to the Nth run input.
 .It Ic qstar.group
 Deps-only aggregate target with no command, artifact, install output, or
 .Ic qstar.target_file
@@ -159,7 +169,7 @@ Declare an argv-vector command. Shell strings are not accepted.
 Declare a validated one-line CMake-style build status description for
 user-defined actions.
 .It Ic qstar.input
-Reference a custom target input by index inside a
+Reference a custom target or run target input by index inside a
 .Ic qstar.cli
 argv vector.
 .It Ic qstar.output
@@ -191,6 +201,14 @@ library import
 .Pa .lib
 artifact while the default form still resolves to the primary runtime
 .Pa .dll .
+.It Ic qstar.stage_dir
+Reference the layout root produced by a
+.Ic qstar.stage
+rule. Use it in
+.Ic run_target.inputs
+and pass it to argv with
+.Ic qstar.input(N)
+so the stage root is tracked as an action input.
 .It Ic qstar.stage_file
 Map a source artifact or source file into a
 .Ic qstar.stage

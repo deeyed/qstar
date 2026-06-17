@@ -16,12 +16,14 @@ qstar.run_target "smoke" {
 
 ```lua
 qstar.run_target "smoke_app" {
-  deps = {
-    "//:package_blob",
+  inputs = {
+    qstar.target_file("//:package_blob"),
+    "fixtures/expected.txt",
   },
   command = qstar.cli {
     "tools/smoke.sh",
-    qstar.target_file("//:package_blob"),
+    qstar.input(0),
+    qstar.input(1),
     "smoke.log",
   },
   timeout = 3,
@@ -33,13 +35,20 @@ qstar.run_target "smoke_app" {
 }
 ```
 
-QStar는 smoke wrapper 내부 도구를 special target으로 알지 않는다. Run target은 command,
-timeout, expect check, log/replay를 제공하는 generic surface다.
+`inputs`는 command argv와 독립적인 first-class input list다. Package-relative file,
+`qstar.target_file(...)`, `qstar.stage_dir(...)`를 받을 수 있고, `command` 안의
+`qstar.input(N)`은 N번째 run input으로 resolve된다. 이 선언은 producer edge,
+action rebuild input, argv path를 같이 고정한다.
+
+QStar는 smoke wrapper 내부 도구를 special target으로 알지 않는다. Run target은 inputs,
+command, timeout, expect check, log/replay를 제공하는 generic surface다.
 `description = qstar.status("...")`를 지정하면 build progress line에서 run target label 대신
 사용자가 정한 status message가 표시된다. 실패하면 `qstar last-failure`와 `qstar replay`에도
 같은 `description=` metadata가 포함된다.
-`-G ninja`에서도 wrapper action으로 lowering되며, expect/timeout/exit-code replay
-계약은 `stella` backend와 같은 failure kind를 사용한다.
+`-G ninja`에서도 wrapper action으로 lowering되며, package file과 target/generated artifact
+`inputs`는 `stella` backend와 같은 producer dependency를 사용한다. `qstar.stage_dir(...)`
+run input은 현재 Stella backend에서 materialize되며, Ninja backend에서는 명확한 diagnostic으로
+거절된다.
 
 ## 실패 예제
 

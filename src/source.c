@@ -136,6 +136,46 @@ validate_link_input_item(struct qstar_graph *graph, const struct qstar_target *o
 	return 0;
 }
 
+static int validate_target_file_artifact_ref(struct qstar_graph *graph,
+    const char *token, const char *origin_file, int origin_line, const char *field,
+    const char *owner);
+
+/** run_target inputs 항목 하나가 package file이나 typed artifact/stage token인지 검증한다. */
+static int
+validate_run_input_item(struct qstar_graph *graph, const struct qstar_target *owner,
+    const char *path)
+{
+	char label[QSTAR_PATH_MAX];
+	int rc;
+
+	rc = qstar_target_file_token_label(path, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error_origin(graph, owner->origin_file,
+		    owner->origin_line, "inputs", owner->label,
+		    "qstar: malformed run input target_file '%s'", path);
+	if (rc == 1)
+		return validate_target_file_artifact_ref(graph, path, owner->origin_file,
+		    owner->origin_line, "inputs", owner->label);
+	rc = qstar_stage_dir_token_label(path, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error_origin(graph, owner->origin_file,
+		    owner->origin_line, "inputs", owner->label,
+		    "qstar: malformed run input stage_dir '%s'", path);
+	if (rc == 1) {
+		if (!qstar_graph_find_stage(graph, label))
+			return qstar_set_error_origin(graph, owner->origin_file,
+			    owner->origin_line, "inputs", owner->label,
+			    "qstar: stage_dir references unknown stage '%s'", label);
+		return 0;
+	}
+	if (!qstar_path_is_package_relative(path))
+		return qstar_set_error_origin(graph, owner->origin_file,
+		    owner->origin_line, "inputs", owner->label,
+		    "qstar: run input '%s' in '%s' must be package-relative (%s)",
+		    path, owner->label, qstar_path_package_relative_reason(path));
+	return 0;
+}
+
 /** qstar.target_file이 실제 파일 artifact를 가진 target/action만 가리키는지 검사한다. */
 static int
 validate_target_file_artifact_ref(struct qstar_graph *graph, const char *token,
@@ -459,6 +499,10 @@ validate_link_lists(struct qstar_graph *graph, const struct qstar_target *target
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "link_inputs", target->label,
 		    "qstar: duplicate link input '%s' in '%s'", dup, target->label);
+	if (list_has_duplicate(&target->run_inputs, &dup))
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "inputs", target->label,
+		    "qstar: duplicate run input '%s' in '%s'", dup, target->label);
 	if (target->run_expect_file && *target->run_expect_file &&
 	    !qstar_path_is_package_relative(target->run_expect_file))
 		return qstar_set_error_origin(graph, target->origin_file,
@@ -468,6 +512,9 @@ validate_link_lists(struct qstar_graph *graph, const struct qstar_target *target
 		    qstar_path_package_relative_reason(target->run_expect_file));
 	for (i = 0; i < target->link_inputs.len; i++)
 		if (validate_link_input_item(graph, target, target->link_inputs.items[i]) < 0)
+			return -1;
+	for (i = 0; i < target->run_inputs.len; i++)
+		if (validate_run_input_item(graph, target, target->run_inputs.items[i]) < 0)
 			return -1;
 	if (validate_include_dir_list(graph, target, &target->include_dirs,
 	    "include_dirs") < 0 ||
@@ -698,11 +745,28 @@ qstar_graph_validate_generated_outputs(struct qstar_graph *graph)
 		size_t j;
 
 		for (j = 0; j < graph->genrules[i].args.len; j++) {
+			char label[QSTAR_PATH_MAX];
+			int rc;
+
 			if (validate_target_file_artifact_ref(graph,
 			    graph->genrules[i].args.items[j], graph->genrules[i].origin_file,
 			    graph->genrules[i].origin_line, "command",
 			    graph->genrules[i].label) < 0)
 				return -1;
+			rc = qstar_stage_dir_token_label(graph->genrules[i].args.items[j],
+			    label, sizeof(label));
+			if (rc < 0)
+				return qstar_set_error_origin(graph,
+				    graph->genrules[i].origin_file,
+				    graph->genrules[i].origin_line, "command",
+				    graph->genrules[i].label,
+				    "qstar: malformed stage_dir placeholder");
+			if (rc == 1)
+				return qstar_set_error_origin(graph,
+				    graph->genrules[i].origin_file,
+				    graph->genrules[i].origin_line, "command",
+				    graph->genrules[i].label,
+				    "qstar: qstar.stage_dir is only valid in run_target inputs; pass it to command with qstar.input(N)");
 		}
 	}
 	for (i = 0; i < graph->stage_len; i++) {
@@ -713,11 +777,55 @@ qstar_graph_validate_generated_outputs(struct qstar_graph *graph)
 		size_t j;
 
 		for (j = 0; j < graph->targets[i].run_command.len; j++) {
+			char label[QSTAR_PATH_MAX];
+			int rc;
+
 			if (validate_target_file_artifact_ref(graph,
 			    graph->targets[i].run_command.items[j],
 			    graph->targets[i].origin_file, graph->targets[i].origin_line,
 			    "command", graph->targets[i].label) < 0)
 				return -1;
+			rc = qstar_stage_dir_token_label(graph->targets[i].run_command.items[j],
+			    label, sizeof(label));
+			if (rc < 0)
+				return qstar_set_error_origin(graph,
+				    graph->targets[i].origin_file,
+				    graph->targets[i].origin_line, "command",
+				    graph->targets[i].label,
+				    "qstar: malformed stage_dir placeholder");
+			if (rc == 1 &&
+			    !list_contains(&graph->targets[i].run_inputs,
+			    graph->targets[i].run_command.items[j]))
+				return qstar_set_error_origin(graph,
+				    graph->targets[i].origin_file,
+				    graph->targets[i].origin_line, "command",
+				    graph->targets[i].label,
+				    "qstar: qstar.stage_dir in run_target command must also be declared in inputs; prefer qstar.input(N)");
+		}
+		for (j = 0; j < graph->targets[i].run_inputs.len; j++) {
+			char label[QSTAR_PATH_MAX];
+			int rc;
+
+			if (validate_target_file_artifact_ref(graph,
+			    graph->targets[i].run_inputs.items[j],
+			    graph->targets[i].origin_file, graph->targets[i].origin_line,
+			    "inputs", graph->targets[i].label) < 0)
+				return -1;
+			rc = qstar_stage_dir_token_label(graph->targets[i].run_inputs.items[j],
+			    label, sizeof(label));
+			if (rc < 0)
+				return qstar_set_error_origin(graph,
+				    graph->targets[i].origin_file,
+				    graph->targets[i].origin_line, "inputs",
+				    graph->targets[i].label,
+				    "qstar: malformed stage_dir placeholder");
+			if (rc == 1 && !qstar_graph_find_stage(graph, label))
+				return qstar_set_error_origin(graph,
+				    graph->targets[i].origin_file,
+				    graph->targets[i].origin_line, "inputs",
+				    graph->targets[i].label,
+				    "qstar: stage_dir references unknown stage '%s'",
+				    label);
 		}
 	}
 	for (i = 0; i < graph->family_len; i++) {
@@ -836,6 +944,22 @@ validate_target_file_inputs(struct qstar_graph *graph, const struct qstar_target
 			return qstar_set_error_origin(graph, target->origin_file,
 			    target->origin_line, "link_inputs", target->label,
 			    "qstar: link input file '%s' in '%s' does not exist under package root",
+			    path, target->label);
+	}
+	for (i = 0; i < target->run_inputs.len; i++) {
+		path = target->run_inputs.items[i];
+		if (qstar_target_file_token_label(path, (char[QSTAR_PATH_MAX]){0},
+		    QSTAR_PATH_MAX) != 0 ||
+		    qstar_stage_dir_token_label(path, (char[QSTAR_PATH_MAX]){0},
+		    QSTAR_PATH_MAX) != 0)
+			continue;
+		if (qstar_graph_path_is_generated(graph, path) &&
+		    qstar_graph_find_output_owner(graph, path))
+			continue;
+		if (!file_exists_under_root(graph, path))
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, "inputs", target->label,
+			    "qstar: run input file '%s' in '%s' does not exist under package root",
 			    path, target->label);
 	}
 	return 0;

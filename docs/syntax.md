@@ -320,8 +320,8 @@ qstar.custom_target "foreign_object" {
 
 ```lua
 qstar.run_target "smoke" {
-  deps = {"//:app"},
-  command = qstar.cli {qstar.target_file("//:app")},
+  inputs = {qstar.target_file("//:app")},
+  command = qstar.cli {"tools/check-artifact.sh", qstar.input(0)},
   expect = {contains = "OK"},
   description = qstar.status("Running smoke test"),
 }
@@ -331,6 +331,25 @@ qstar.stage "bundle" {
   files = {
     qstar.stage_file(qstar.target_file("//:app"), "bin/app"),
   },
+}
+```
+
+`run_target.inputs` declares first-class inputs independently from the command
+argv. Items may be package-relative files, `qstar.target_file(...)` artifacts, or
+`qstar.stage_dir(...)` layout roots. `qstar.input(N)` inside the command resolves
+to the Nth run input, so the producer edge, input tracking, and argv path stay in
+sync:
+
+```lua
+qstar.custom_target "image" {
+  inputs = {qstar.target_file("//:app")},
+  outputs = {qstar.output("build/qstar/generated/app.img")},
+  command = qstar.cli {"tools/transform", qstar.input(0), qstar.output(0)},
+}
+
+qstar.run_target "check_image" {
+  inputs = {qstar.target_file("//:image"), "fixtures/expected.txt"},
+  command = qstar.cli {"tools/check-image", qstar.input(0), qstar.input(1)},
 }
 ```
 
