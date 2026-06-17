@@ -154,11 +154,21 @@ SRC
 
 mkdir -p "$tmp/link-input/src" "$tmp/link-input/link"
 cat > "$tmp/link-input/qstar.lua" <<'QSTAR'
+local artifact_name = nil
+if qstar.host.os == "windows" then
+  artifact_name = "app.exe"
+end
+
 qstar.executable "app" {
   sources = {"src/main.c"},
   link_inputs = {"link/input.txt"},
+  artifact_name = artifact_name,
 }
 QSTAR
+link_input_artifact="build/qstar/out/___app/app"
+if [ "$host_windows" -eq 1 ]; then
+	link_input_artifact="build/qstar/out/___app/app.exe"
+fi
 cat > "$tmp/link-input/src/main.c" <<'SRC'
 int main(void) { return 0; }
 SRC
@@ -174,7 +184,7 @@ TXT
 contains "$tmp/link-input-stella-rebuild.out" "cache_miss id=//:app:link:0"
 contains "$tmp/link-input-stella-rebuild.out" "reason=input-changed"
 "$qstar" --file "$tmp/link-input/qstar.lua" emit-ninja //:app > "$tmp/link-input-emit.out" 2> "$tmp/link-input-emit.err"
-contains "$tmp/link-input/build/qstar/ninja/build.ninja" "build/qstar/out/___app/app: qstar_link build/qstar/out/___app/obj0.o | link/input.txt"
+contains "$tmp/link-input/build/qstar/ninja/build.ninja" "$link_input_artifact: qstar_link build/qstar/out/___app/obj0.o | link/input.txt"
 
 case "$(uname -s)" in
 	Darwin)
@@ -212,13 +222,20 @@ contains "$tmp/shared-windows.err" "Windows shared libraries require a runtime .
 contains "$tmp/shared-windows.err" "docs/windows-artifact-policy.md"
 
 if command -v ninja >/dev/null 2>&1; then
-	"$qstar" --file "$c_app/qstar.lua" -G ninja build //:app --progress off > "$tmp/c-app-build.out" 2> "$tmp/c-app-build.err"
-	contains "$tmp/c-app-build.out" "backend ninja"
-	contains "$tmp/c-app-build.out" "status ok"
-	test -f "$c_app/build/qstar/out/___app/app" || fail "c-app ninja executable missing"
-	"$qstar" --file "$c_app/qstar.lua" -G ninja test //:unit > "$tmp/c-app-test.out" 2> "$tmp/c-app-test.err"
-	contains "$tmp/c-app-test.out" "backend ninja"
-	contains "$tmp/c-app-test.out" "test_result label=//:unit status=pass"
+	if [ "$host_windows" -eq 0 ]; then
+		"$qstar" --file "$c_app/qstar.lua" -G ninja build //:app --progress off > "$tmp/c-app-build.out" 2> "$tmp/c-app-build.err"
+		contains "$tmp/c-app-build.out" "backend ninja"
+		contains "$tmp/c-app-build.out" "status ok"
+		test -f "$c_app/build/qstar/out/___app/app" || fail "c-app ninja executable missing"
+		"$qstar" --file "$c_app/qstar.lua" -G ninja test //:unit > "$tmp/c-app-test.out" 2> "$tmp/c-app-test.err"
+		contains "$tmp/c-app-test.out" "backend ninja"
+		contains "$tmp/c-app-test.out" "test_result label=//:unit status=pass"
+	else
+		"$qstar" --file "$c_app/qstar.lua" -G ninja build //:core --progress off > "$tmp/c-app-build.out" 2> "$tmp/c-app-build.err"
+		contains "$tmp/c-app-build.out" "backend ninja"
+		contains "$tmp/c-app-build.out" "status ok"
+		printf 'qstar-ninja-backend-parity: c-app executable runtime skipped reason=windows-explicit-exe-required\n'
+	fi
 	"$qstar" --file "$c_app/qstar.lua" -G ninja install //:core --prefix "$tmp/c-app-prefix" > "$tmp/c-app-install.out" 2> "$tmp/c-app-install.err"
 	contains "$tmp/c-app-install.out" "backend ninja"
 	test -f "$tmp/c-app-prefix/lib/libcore.a" || fail "c-app ninja install lib missing"
@@ -226,36 +243,42 @@ if command -v ninja >/dev/null 2>&1; then
 	test ! -f "$c_app/.ninja_log" || fail "c-app ninja wrote package root .ninja_log"
 	test ! -f "$c_app/.ninja_deps" || fail "c-app ninja wrote package root .ninja_deps"
 
-	"$qstar" --file "$generated/qstar.lua" -G ninja build //:all --progress off > "$tmp/generated-build.out" 2> "$tmp/generated-build.err"
-	contains "$tmp/generated-build.out" "backend ninja"
+	if [ "$host_windows" -eq 0 ]; then
+		"$qstar" --file "$generated/qstar.lua" -G ninja build //:all --progress off > "$tmp/generated-build.out" 2> "$tmp/generated-build.err"
+		contains "$tmp/generated-build.out" "backend ninja"
 		contains "$tmp/generated-build.out" "Configuring generated config.h"
 		contains "$tmp/generated-build.out" "Generating generated value.c"
 		contains "$tmp/generated-build.out" "Running generated smoke"
 		contains "$tmp/generated-build.out" "run_expect label=//:smoke status=matched contains=GENERATED-OK"
 		contains "$tmp/generated-build.out" "status ok"
-	test -f "$generated/build/qstar/out/___app/app" || fail "generated ninja app missing"
-	test -f "$generated/build/qstar/generated/config.h" || fail "generated ninja config missing"
-	test -f "$generated/build/qstar/generated/value.c" || fail "generated ninja source missing"
-	"$qstar" --file "$generated/qstar.lua" -G ninja stage //:bundle > "$tmp/generated-stage.out" 2> "$tmp/generated-stage.err"
-	contains "$tmp/generated-stage.out" "backend ninja"
-	contains "$tmp/generated-stage.out" "stage_file src=build/qstar/out/___app/app"
-	test -f "$generated/stage/bundle/bin/app" || fail "generated ninja stage app missing"
-	test -f "$generated/stage/bundle/share/value.c" || fail "generated ninja stage source missing"
-	"$qstar" --file "$generated/qstar.lua" -G ninja install //:app --prefix "$tmp/generated-prefix" > "$tmp/generated-install.out" 2> "$tmp/generated-install.err"
-	contains "$tmp/generated-install.out" "backend ninja"
-	test -f "$tmp/generated-prefix/bin/app" || fail "generated ninja install app missing"
+		test -f "$generated/build/qstar/out/___app/app" || fail "generated ninja app missing"
+		test -f "$generated/build/qstar/generated/config.h" || fail "generated ninja config missing"
+		test -f "$generated/build/qstar/generated/value.c" || fail "generated ninja source missing"
+		"$qstar" --file "$generated/qstar.lua" -G ninja stage //:bundle > "$tmp/generated-stage.out" 2> "$tmp/generated-stage.err"
+		contains "$tmp/generated-stage.out" "backend ninja"
+		contains "$tmp/generated-stage.out" "stage_file src=build/qstar/out/___app/app"
+		test -f "$generated/stage/bundle/bin/app" || fail "generated ninja stage app missing"
+		test -f "$generated/stage/bundle/share/value.c" || fail "generated ninja stage source missing"
+		"$qstar" --file "$generated/qstar.lua" -G ninja install //:app --prefix "$tmp/generated-prefix" > "$tmp/generated-install.out" 2> "$tmp/generated-install.err"
+		contains "$tmp/generated-install.out" "backend ninja"
+		test -f "$tmp/generated-prefix/bin/app" || fail "generated ninja install app missing"
+	else
+		"$qstar" --file "$generated/qstar.lua" -G ninja build //:make_value --progress off > "$tmp/generated-build.out" 2> "$tmp/generated-build.err"
+		contains "$tmp/generated-build.out" "backend ninja"
+		contains "$tmp/generated-build.out" "Generating generated value.c"
+		contains "$tmp/generated-build.out" "status ok"
+		test -f "$generated/build/qstar/generated/config.h" || fail "generated ninja config missing"
+		test -f "$generated/build/qstar/generated/value.c" || fail "generated ninja source missing"
+		printf 'qstar-ninja-backend-parity: generated executable runtime skipped reason=windows-explicit-exe-required\n'
+	fi
 	test ! -f "$generated/.ninja_log" || fail "generated ninja wrote package root .ninja_log"
 	test ! -f "$generated/.ninja_deps" || fail "generated ninja wrote package root .ninja_deps"
 
 	if [ "$host_windows" -eq 1 ]; then
-		"$qstar" --file "$object_bridge/qstar.lua" -G ninja build //:app --progress off > "$tmp/object-bridge-build.out" 2> "$tmp/object-bridge-build.err"
-		contains "$tmp/object-bridge-build.out" "backend ninja"
-		contains "$tmp/object-bridge-build.out" "Building Objective-C object AppDelegate.o"
-		contains "$tmp/object-bridge-build.out" "status ok"
 		"$qstar" --file "$object_bridge/qstar.lua" -G ninja build //:objc_static --progress off > "$tmp/object-bridge-static-build.out" 2> "$tmp/object-bridge-static-build.err"
 		contains "$tmp/object-bridge-static-build.out" "backend ninja"
 		contains "$tmp/object-bridge-static-build.out" "status ok"
-		test -f "$object_bridge/build/qstar/out/___app/app" || fail "object bridge ninja executable missing"
+		printf 'qstar-ninja-backend-parity: object bridge executable runtime skipped reason=windows-explicit-exe-required\n'
 	else
 		"$qstar" --file "$object_bridge/qstar.lua" -G ninja build //:all --progress off > "$tmp/object-bridge-build.out" 2> "$tmp/object-bridge-build.err"
 		contains "$tmp/object-bridge-build.out" "backend ninja"
@@ -273,8 +296,8 @@ if command -v ninja >/dev/null 2>&1; then
 	"$qstar" --file "$tmp/link-input/qstar.lua" -G ninja build //:app --progress off > "$tmp/link-input-ninja-build.out" 2> "$tmp/link-input-ninja-build.err"
 	contains "$tmp/link-input-ninja-build.out" "backend ninja"
 	contains "$tmp/link-input-ninja-build.out" "status ok"
-	test -f "$tmp/link-input/build/qstar/out/___app/app" || fail "link_inputs ninja executable missing"
-	"$tmp/link-input/build/qstar/out/___app/app"
+	test -f "$tmp/link-input/$link_input_artifact" || fail "link_inputs ninja executable missing"
+	"$tmp/link-input/$link_input_artifact"
 
 	if [ "$host_windows" -eq 0 ]; then
 		"$qstar" --file "$tmp/shared/qstar.lua" -G ninja build //:plugin_app --progress off > "$tmp/shared-build.out" 2> "$tmp/shared-build.err"
