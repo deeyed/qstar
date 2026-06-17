@@ -18,6 +18,7 @@ done
 
 out=
 dep=
+implib=
 expect=
 while IFS= read -r line; do
 	case "$line" in
@@ -49,6 +50,12 @@ while IFS= read -r line; do
 	/out:*)
 		out=${clean#/out:}
 		;;
+	/IMPLIB:*)
+		implib=${clean#/IMPLIB:}
+		;;
+	-Wl,--out-implib,*)
+		implib=${clean#-Wl,--out-implib,}
+		;;
 	esac
 done < "$tmp"
 
@@ -71,3 +78,11 @@ case "$out" in
 	chmod +x "$out"
 	;;
 esac
+
+if test -n "$implib"; then
+	mkdir -p "$(dirname "$implib")"
+	{
+		printf 'fake import library\n'
+		printf 'runtime=%s\n' "$out"
+	} > "$implib"
+fi

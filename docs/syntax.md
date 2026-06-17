@@ -253,10 +253,9 @@ secondary artifact can be selected when the target exposes one:
 qstar.target_file("//:plugin", { artifact = "import_lib" })
 ```
 
-Today this is used by the Windows sharedlib Graph IR contract: the primary
+Today this is used by the Windows sharedlib artifact contract: the primary
 artifact is the runtime `.dll`, while `artifact = "import_lib"` selects the
-planned import `.lib`. Stella/Ninja lowering for Windows sharedlib remains
-deferred.
+import `.lib` that dependent targets link against on Windows.
 
 ## Generated Artifacts
 

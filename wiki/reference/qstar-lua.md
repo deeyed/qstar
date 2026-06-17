@@ -72,8 +72,9 @@ macOS `@loader_path`, Linux `$ORIGIN` 기반 rpath를 자동으로 받는다. Wi
 runtime `.dll`과 import `.lib`는 Q223부터 Graph IR artifact map으로 표현된다. 기본
 `qstar.target_file("//:plugin")`은 primary runtime artifact를 가리키고,
 `qstar.target_file("//:plugin", { artifact = "import_lib" })`은 Windows sharedlib의
-import library를 가리킨다. Windows sharedlib backend lowering과 PDB/debug ownership은
-아직 deferred diagnostic이다.
+import library를 가리킨다. Q224부터 Windows sharedlib backend lowering은 Stella/Ninja
+양쪽에서 runtime `.dll`과 import `.lib`를 multi-output으로 만들고, consumer는 import
+`.lib`를 link한다. PDB/debug ownership은 아직 deferred다.
 
 `qstar.target_file("//:group")`은 error다. Group은 dependency closure를 묶는 label일 뿐
 artifact-producing target이 아니다.

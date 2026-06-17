@@ -144,6 +144,33 @@ run_artifact "$corpus/$build_dir/out/___bridge_app/bridge_app.exe" \
 	"$tmp/bridge-run.out"
 contains "$tmp/bridge-run.out" "windows-execution bridge=77"
 
+case "$mode" in
+native-windows-execution)
+	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows --progress plain \
+		build //:plugin_app > "$tmp/plugin-app-build.out" \
+		2> "$tmp/plugin-app-build.err"
+	contains "$tmp/plugin-app-build.out" "status ok"
+	test -f "$corpus/$build_dir/out/___plugin/plugin.dll" ||
+		fail "sharedlib runtime plugin.dll missing"
+	test -f "$corpus/$build_dir/out/___plugin/plugin.lib" ||
+		fail "sharedlib import plugin.lib missing"
+	test -f "$corpus/$build_dir/out/___plugin_app/plugin_app.exe" ||
+		fail "sharedlib consumer plugin_app.exe missing"
+	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
+		action-log //:plugin:link-shared:0 > "$tmp/plugin-log.out" \
+		2> "$tmp/plugin-log.err"
+	contains "$tmp/plugin-log.out" "output_count=2"
+	contains "$tmp/plugin-log.out" "output[0]=build/qstar/out/___plugin/plugin.dll"
+	contains "$tmp/plugin-log.out" "output[1]=build/qstar/out/___plugin/plugin.lib"
+	contains "$tmp/plugin-log.out" "plugin.lib"
+	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
+		action-log //:plugin_app:link:0 > "$tmp/plugin-app-log.out" \
+		2> "$tmp/plugin-app-log.err"
+	contains "$tmp/plugin-app-log.out" "build/qstar/out/___plugin/plugin.lib"
+	not_contains "$tmp/plugin-app-log.out" "build/qstar/out/___plugin/plugin.dll"
+	;;
+esac
+
 prefix="$tmp/prefix"
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows install //:app \
 	--prefix "$prefix" > "$tmp/install-app.out" 2> "$tmp/install-app.err"
@@ -180,6 +207,24 @@ contains "$install_manifest" "\"src\":\"build/qstar/out/___bridge_app/bridge_app
 contains "$install_manifest" "/prefix/bin/bridge_app.exe\""
 not_contains "$install_manifest" "\\"
 
+case "$mode" in
+native-windows-execution)
+	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows install //:plugin \
+		--prefix "$prefix" > "$tmp/install-plugin.out" \
+		2> "$tmp/install-plugin.err"
+	contains "$tmp/install-plugin.out" "install_file src=build/qstar/out/___plugin/plugin.dll"
+	contains "$tmp/install-plugin.out" "role=sharedlib artifact=runtime"
+	contains "$tmp/install-plugin.out" "install_file src=build/qstar/out/___plugin/plugin.lib"
+	contains "$tmp/install-plugin.out" "role=import_lib artifact=import_lib"
+	test -f "$prefix/bin/plugin.dll" || fail "installed plugin.dll missing"
+	test -f "$prefix/lib/plugin.lib" || fail "installed plugin.lib missing"
+	install_manifest="$corpus/$build_dir/install/manifest.json"
+	contains "$install_manifest" "\"role\":\"sharedlib\",\"artifact\":\"runtime\""
+	contains "$install_manifest" "\"role\":\"import_lib\",\"artifact\":\"import_lib\""
+	not_contains "$install_manifest" "\\"
+	;;
+esac
+
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows stage //:layout \
 	> "$tmp/stage-layout.out" 2> "$tmp/stage-layout.err"
 contains "$tmp/stage-layout.out" "stage_file src=build/qstar/out/___app/app.exe"
@@ -204,6 +249,26 @@ contains "$stage_manifest" "\"dst\":\"stage/windows-execution/objects/bridge_pay
 contains "$stage_manifest" "\"kind\":\"custom_output\""
 contains "$stage_manifest" "\"producer\":\"//:bridge_object\""
 not_contains "$stage_manifest" "\\"
+
+case "$mode" in
+native-windows-execution)
+	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows stage //:shared_layout \
+		> "$tmp/stage-shared.out" 2> "$tmp/stage-shared.err"
+	contains "$tmp/stage-shared.out" "stage_file src=build/qstar/out/___plugin/plugin.dll"
+	contains "$tmp/stage-shared.out" "stage_file src=build/qstar/out/___plugin/plugin.lib"
+	contains "$tmp/stage-shared.out" "stage_file src=build/qstar/out/___plugin_app/plugin_app.exe"
+	test -f "$corpus/stage/windows-shared/bin/plugin.dll" ||
+		fail "staged sharedlib runtime missing"
+	test -f "$corpus/stage/windows-shared/lib/plugin.lib" ||
+		fail "staged sharedlib import lib missing"
+	test -f "$corpus/stage/windows-shared/bin/plugin_app.exe" ||
+		fail "staged sharedlib consumer missing"
+	stage_manifest="$corpus/$build_dir/stage/___shared_layout/manifest.json"
+	contains "$stage_manifest" "\"artifact\":\"runtime\""
+	contains "$stage_manifest" "\"artifact\":\"import_lib\""
+	not_contains "$stage_manifest" "\\"
+	;;
+esac
 
 if command -v ninja >/dev/null 2>&1; then
 	rm -rf "$corpus/$build_dir" "$corpus/stage"
@@ -230,6 +295,33 @@ if command -v ninja >/dev/null 2>&1; then
 	run_artifact "$corpus/$build_dir/out/___bridge_app/bridge_app.exe" \
 		"$tmp/ninja-bridge-run.out"
 	contains "$tmp/ninja-bridge-run.out" "windows-execution bridge=77"
+	case "$mode" in
+	native-windows-execution)
+		test -f "$corpus/$build_dir/out/___plugin/plugin.dll" ||
+			fail "ninja sharedlib runtime plugin.dll missing"
+		test -f "$corpus/$build_dir/out/___plugin/plugin.lib" ||
+			fail "ninja sharedlib import plugin.lib missing"
+		test -f "$corpus/$build_dir/out/___plugin_app/plugin_app.exe" ||
+			fail "ninja sharedlib consumer plugin_app.exe missing"
+		contains "$corpus/$build_dir/ninja/build.ninja" \
+			"build/qstar/out/___plugin/plugin.dll build/qstar/out/___plugin/plugin.lib: qstar_link"
+		contains "$corpus/$build_dir/ninja/build.ninja" \
+			"build/qstar/out/___plugin_app/plugin_app.exe: qstar_link build/qstar/out/___plugin_app/obj0.o build/qstar/out/___plugin/plugin.lib"
+		"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
+			-G ninja action-log //:plugin:link-shared:0 \
+			> "$tmp/ninja-plugin-log.out" 2> "$tmp/ninja-plugin-log.err"
+		contains "$tmp/ninja-plugin-log.out" "backend=ninja"
+		contains "$tmp/ninja-plugin-log.out" "output_count=2"
+		contains "$tmp/ninja-plugin-log.out" "plugin.lib"
+		"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
+			-G ninja action-log //:plugin_app:link:0 \
+			> "$tmp/ninja-plugin-app-log.out" \
+			2> "$tmp/ninja-plugin-app-log.err"
+		contains "$tmp/ninja-plugin-app-log.out" "backend=ninja"
+		contains "$tmp/ninja-plugin-app-log.out" "build/qstar/out/___plugin/plugin.lib"
+		not_contains "$tmp/ninja-plugin-app-log.out" "build/qstar/out/___plugin/plugin.dll"
+		;;
+	esac
 	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
 		-G ninja action-log //:bridge_object:generate:0 \
 		> "$tmp/ninja-bridge-log.out" 2> "$tmp/ninja-bridge-log.err"
@@ -269,6 +361,23 @@ if command -v ninja >/dev/null 2>&1; then
 	contains "$install_manifest" "\"role\":\"exe\""
 	contains "$install_manifest" "/ninja-prefix/bin/bridge_app.exe\""
 	not_contains "$install_manifest" "\\"
+	case "$mode" in
+	native-windows-execution)
+		"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
+			-G ninja install //:plugin --prefix "$ninja_prefix" \
+			> "$tmp/ninja-install-plugin.out" \
+			2> "$tmp/ninja-install-plugin.err"
+		contains "$tmp/ninja-install-plugin.out" "backend ninja"
+		test -f "$ninja_prefix/bin/plugin.dll" ||
+			fail "ninja installed plugin.dll missing"
+		test -f "$ninja_prefix/lib/plugin.lib" ||
+			fail "ninja installed plugin.lib missing"
+		install_manifest="$corpus/$build_dir/install/manifest.json"
+		contains "$install_manifest" "\"role\":\"sharedlib\",\"artifact\":\"runtime\""
+		contains "$install_manifest" "\"role\":\"import_lib\",\"artifact\":\"import_lib\""
+		not_contains "$install_manifest" "\\"
+		;;
+	esac
 	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
 		-G ninja stage //:layout > "$tmp/ninja-stage-layout.out" \
 		2> "$tmp/ninja-stage-layout.err"
@@ -290,6 +399,24 @@ if command -v ninja >/dev/null 2>&1; then
 	contains "$stage_manifest" "\"kind\":\"custom_output\""
 	contains "$stage_manifest" "\"producer\":\"//:bridge_object\""
 	not_contains "$stage_manifest" "\\"
+	case "$mode" in
+	native-windows-execution)
+		"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
+			-G ninja stage //:shared_layout > "$tmp/ninja-stage-shared.out" \
+			2> "$tmp/ninja-stage-shared.err"
+		contains "$tmp/ninja-stage-shared.out" "backend ninja"
+		test -f "$corpus/stage/windows-shared/bin/plugin.dll" ||
+			fail "ninja staged sharedlib runtime missing"
+		test -f "$corpus/stage/windows-shared/lib/plugin.lib" ||
+			fail "ninja staged sharedlib import lib missing"
+		test -f "$corpus/stage/windows-shared/bin/plugin_app.exe" ||
+			fail "ninja staged sharedlib consumer missing"
+		stage_manifest="$corpus/$build_dir/stage/___shared_layout/manifest.json"
+		contains "$stage_manifest" "\"artifact\":\"runtime\""
+		contains "$stage_manifest" "\"artifact\":\"import_lib\""
+		not_contains "$stage_manifest" "\\"
+		;;
+	esac
 	test ! -f "$corpus/.ninja_log" || fail "ninja wrote root .ninja_log"
 	test ! -f "$corpus/.ninja_deps" || fail "ninja wrote root .ninja_deps"
 	printf 'qstar-windows-execution: ninja=passed\n'

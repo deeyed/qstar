@@ -82,7 +82,8 @@ qstar_platform_is_linux(const char *platform)
 int
 qstar_platform_supports_sharedlib(const char *platform)
 {
-	return qstar_platform_is_darwin(platform) || qstar_platform_is_linux(platform);
+	return qstar_platform_is_darwin(platform) || qstar_platform_is_linux(platform) ||
+	    qstar_platform_is_windows(platform);
 }
 
 static int

@@ -25,19 +25,19 @@ builds, and Windows sharedlib diagnostic parity. The daemon remains disabled on
 Windows until a named-pipe transport and ACL policy are implemented. Round Q174
 adds a dedicated Windows artifact corpus that builds target-local and
 explicit `.exe`/static `.lib` artifacts through Stella and Ninja, then
-checks stage/install layout while keeping Windows sharedlib deferred.
+checks stage/install layout.
 Round Q223 adds the first Windows sharedlib Graph IR contract: QStar models
 runtime `.dll` plus import `.lib`, resolves the
-`qstar.target_file(..., { artifact = "import_lib" })` selector, and keeps
-Stella/Ninja lowering explicitly deferred.
+`qstar.target_file(..., { artifact = "import_lib" })` selector. Round Q224
+then lowers that contract through Stella and Ninja.
 Round Q178 adds `tests/corpus/windows-execution` and the
 `qstar-windows-execution-corpus-tests` target. This is the first Windows alpha
 gate that builds and runs real executables in the MSYS2 UCRT64 GCC lane instead
 of only proving Windows-like graph contracts.
 Round Q179 splits POSIX process execution from the Windows compile boundary:
 `src/executor.c` and `src/ninja.c` now compile as `_WIN32` stubs without POSIX
-`<poll.h>`, `fork`, `waitpid`, pipe, or Unix launcher headers. Native Stella and
-Ninja-backed execution still need a future CreateProcess runner. Q179 also
+`<poll.h>`, `fork`, `waitpid`, pipe, or Unix launcher headers. Q219-Q221 later
+fill the shared platform process runner for Stella and Ninja. Q179 also
 introduces `qstar_platform_mkdir` and `qstar_platform_lstat` so the baseline
 Windows build does not depend on POSIX `mkdir(path, mode)` or `lstat`.
 Round Q219 moves the process runner contract into `src/platform_process.c`.
@@ -65,6 +65,10 @@ that execution lane: explicit `.exe` artifacts install to `bin/`, static
 archives install to `lib/`, generated object bridge outputs can be staged as
 ordinary package artifacts, and install/stage manifests keep slash-normalized
 paths even when a Windows-like prefix spelling reaches the manifest layer.
+Round Q224 lowers Windows shared libraries across Stella and Ninja: the
+`link-shared` action produces both runtime `.dll` and import `.lib`, dependent
+executables link against the import `.lib`, and stage/install place runtime
+artifacts under `bin/` and import libraries under `lib/`.
 
 ## Status
 
@@ -88,6 +92,8 @@ Q219 narrows that boundary further to `src/platform_process.c`; Q220 fills the
 Stella `CreateProcessA` launch path for compile/link/custom/run actions.
 Q221 and Q222 extend that evidence through Ninja execution plus install/stage
 layout checks for `.exe`, static archive, and generated object bridge outputs.
+Q224 adds shared-library runtime/import artifacts and consumer import-library
+linkage to that same evidence path.
 MSVC/clang-cl execution is still deferred.
 
 ## Path Normalization Rule
@@ -231,12 +237,12 @@ The detailed artifact contract is `docs/windows-artifact-policy.md`. Summary:
   `lib<name>.a`. If a Windows archive name is required before native archive
   support lands, use `artifact_name = "name.lib"` explicitly. Automatic `.lib` output is
   deferred until native `lib.exe`/`llvm-lib` validation.
-- `qstar.sharedlib` is supported for macOS `.dylib` and Linux `.so`
-  platform contexts. On Windows, Q223 models runtime `.dll` and import `.lib`
-  in Graph IR and exposes the import library through
-  `qstar.target_file("//:plugin", { artifact = "import_lib" })`, but backend
-  lowering, dependent import-library linking, runtime search path, and PDB/debug
-  ownership remain deferred.
+- `qstar.sharedlib` is supported for macOS `.dylib`, Linux `.so`, and Windows
+  runtime `.dll` plus import `.lib` platform contexts. On Windows,
+  `qstar.target_file("//:plugin")` selects the runtime `.dll`, and
+  `qstar.target_file("//:plugin", { artifact = "import_lib" })` selects the
+  import library. Dependent targets link against the import `.lib`.
+  PDB/debug ownership and general runtime search path policy remain deferred.
 - Q222 validates the current alpha install/stage subset on Windows hosts:
   executable `.exe` files land under `bin/`, static archive artifacts land under
   `lib/`, generated object bridge outputs can be staged, and
@@ -292,8 +298,9 @@ The gate checks:
 - `qstar.target_file("//:plugin", { artifact = "import_lib" })` resolves to
   the planned import `.lib`; unknown artifact selectors are rejected with a
   known-artifact diagnostic
-- Windows-like `qstar.sharedlib` build lowering fails with the same deferred
-  Graph IR diagnostic for Stella and Ninja
+- Windows-like `qstar.sharedlib` builds produce runtime `.dll` and import
+  `.lib` artifacts through Stella and Ninja, and consumers link against the
+  import `.lib`
 - drive-letter and backslash package paths are rejected with specific reason text
 
 The execution corpus checks:
@@ -303,7 +310,10 @@ The execution corpus checks:
 - static archive plus executable link and run through Stella and Ninja
 - forced response-file compile/link and executable run through Stella and Ninja
 - generated object artifact bridge dry-run, build, run, action-log, and replay
-- install prefix smoke for executable and static archive artifacts
+- install prefix smoke for executable, static archive, and shared-library
+  runtime/import artifacts
+- Windows shared-library multi-output build, consumer import-library link,
+  stage, and install smoke on native Windows hosts
 - root `.ninja_log` and `.ninja_deps` pollution guard for the Ninja path
 
 Manual corpus commands:

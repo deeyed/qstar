@@ -486,6 +486,38 @@ qstar_graph_target_artifact_path(struct qstar_graph *graph,
 	return 0;
 }
 
+/** target final action이 생산하는 모든 artifact path를 반환한다. */
+int
+qstar_graph_target_artifact_outputs(struct qstar_graph *graph,
+    const struct qstar_target *target, struct qstar_string_list *outputs)
+{
+	struct qstar_target_artifact_map map;
+	size_t i;
+
+	memset(outputs, 0, sizeof(*outputs));
+	if (qstar_graph_target_artifact_map(graph, target, &map) < 0)
+		return qstar_set_error(graph, "qstar: target artifact path too long");
+	for (i = 0; i < map.len; i++) {
+		if (qstar_string_list_push(outputs, map.items[i].path) < 0) {
+			qstar_string_list_free(outputs);
+			return qstar_set_error(graph, "qstar: out of memory");
+		}
+	}
+	return 0;
+}
+
+/** dependency를 link할 때 사용할 artifact path를 platform policy 기준으로 반환한다. */
+int
+qstar_graph_target_link_artifact_path(struct qstar_graph *graph,
+    const struct qstar_target *target, const char *platform, char *dst, size_t dstlen)
+{
+	const char *selector;
+
+	selector = strcmp(target->kind, "sharedlib") == 0 &&
+	    qstar_platform_is_windows(platform) ? "import_lib" : NULL;
+	return qstar_graph_target_artifact_path(graph, target, selector, dst, dstlen);
+}
+
 /** build context/target artifact_name policy를 적용한 primary artifact output path를 만든다. */
 int
 qstar_graph_artifact_output_path(const struct qstar_graph *graph,

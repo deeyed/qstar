@@ -178,6 +178,41 @@ qstar.executable "bridge_app" {
   artifact_name = "bridge_app.exe",
 }
 
+local all_deps = {
+  "//:hello",
+  "//:hello_smoke",
+  "//:app",
+  "//:response_probe",
+  "//:bridge_app",
+}
+
+if qstar.host.os == "windows" then
+  qstar.sharedlib "plugin" {
+    configs = {
+      "//:c_baseline",
+    },
+    sources = {
+      "src/plugin.c",
+    },
+    artifact_name = "plugin.dll",
+  }
+
+  qstar.executable "plugin_app" {
+    configs = {
+      "//:c_baseline",
+    },
+    sources = {
+      "src/plugin_app.c",
+    },
+    deps = {
+      "//:plugin",
+    },
+    artifact_name = "plugin_app.exe",
+  }
+
+  table.insert(all_deps, "//:plugin_app")
+end
+
 qstar.stage "layout" {
   root = "stage/windows-execution",
   files = {
@@ -188,12 +223,17 @@ qstar.stage "layout" {
   },
 }
 
+if qstar.host.os == "windows" then
+  qstar.stage "shared_layout" {
+    root = "stage/windows-shared",
+    files = {
+      qstar.stage_file(qstar.target_file("//:plugin"), "bin/plugin.dll"),
+      qstar.stage_file(qstar.target_file("//:plugin", { artifact = "import_lib" }), "lib/plugin.lib"),
+      qstar.stage_file(qstar.target_file("//:plugin_app"), "bin/plugin_app.exe"),
+    },
+  }
+end
+
 qstar.group "all" {
-  deps = {
-    "//:hello",
-    "//:hello_smoke",
-    "//:app",
-    "//:response_probe",
-    "//:bridge_app",
-  },
+  deps = all_deps,
 }

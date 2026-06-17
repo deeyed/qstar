@@ -620,10 +620,25 @@ prepare_ninja_response_file(struct qstar_graph *graph, const char *id,
 	return 0;
 }
 
+/** Ninja action log stream에 output list를 deterministic하게 기록한다. */
+static void
+write_ninja_action_outputs(FILE *f, const struct qstar_string_list *outputs)
+{
+	size_t i;
+
+	fprintf(f, "output_count=%zu\n", outputs ? outputs->len : 0);
+	for (i = 0; outputs && i < outputs->len; i++) {
+		fprintf(f, "output[%zu]=", i);
+		shell_arg(f, outputs->items[i]);
+		fputc('\n', f);
+	}
+}
+
 /** Ninja action도 qstar action-log/replay가 읽을 수 있는 v2 log를 남긴다. */
 static int
 write_ninja_action_log(struct qstar_graph *graph, const char *id,
-    const struct ninja_argv *argv, const char *rsp_rel, const char *description)
+    const struct ninja_argv *argv, const char *rsp_rel, const char *description,
+    const struct qstar_string_list *outputs)
 {
 	char logdir[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], log_path[QSTAR_PATH_MAX];
 	FILE *f;
@@ -639,6 +654,7 @@ write_ninja_action_log(struct qstar_graph *graph, const char *id,
 		return qstar_set_error(graph, "qstar: could not write ninja action log");
 	fprintf(f, "qstar-action-log v2\nexit=ninja\nbackend=ninja\n");
 	write_log_description(f, description);
+	write_ninja_action_outputs(f, outputs);
 	fprintf(f, "response_file=%s\n", rsp_rel && *rsp_rel ? rsp_rel : "<none>");
 	fprintf(f, "argc=%zu\n", argv->len);
 	for (i = 0; i < argv->len; i++) {
@@ -660,7 +676,7 @@ write_ninja_action_log(struct qstar_graph *graph, const char *id,
 static int
 write_edge_command(struct qstar_graph *graph, struct ninja_ctx *ctx, const char *id,
     const struct qstar_resolved_toolchain *toolchain, const struct ninja_argv *argv,
-    const char *description)
+    const char *description, const struct qstar_string_list *outputs)
 {
 	struct ninja_argv run;
 	char rsp_rel[QSTAR_PATH_MAX];
@@ -674,7 +690,7 @@ write_edge_command(struct qstar_graph *graph, struct ninja_ctx *ctx, const char 
 	    (toolchain && qstar_platform_is_windows(toolchain->platform));
 	shell_argv_ninja_command(ctx->ninja, &run, windows);
 	ninja_argv_free(&run);
-	return write_ninja_action_log(graph, id, argv, rsp_rel, description);
+	return write_ninja_action_log(graph, id, argv, rsp_rel, description, outputs);
 }
 
 /** shell command string을 JSON value로 출력한다. */
@@ -1421,7 +1437,8 @@ emit_genrule_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		}
 		fputs(" && ", ctx->ninja);
 	}
-	if (write_edge_command(graph, ctx, action_id, NULL, &argv, description) < 0)
+	if (write_edge_command(graph, ctx, action_id, NULL, &argv, description,
+	    &genrule->outputs) < 0)
 		goto fail;
 	fputs("\n  description = ", ctx->ninja);
 	ninja_var_text(ctx->ninja, description);
@@ -1539,7 +1556,7 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		fputc('\n', ctx->ninja);
 		fputs("  command = ", ctx->ninja);
 		if (write_edge_command(graph, ctx, action_id, toolchain, &argv,
-		    description) < 0)
+		    description, &provider_unit->action.outputs) < 0)
 			goto fail;
 		fputc('\n', ctx->ninja);
 		if (wants_depfile) {
@@ -1638,7 +1655,8 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	write_header_inputs(ctx->ninja, target);
 	fputc('\n', ctx->ninja);
 	fputs("  command = ", ctx->ninja);
-	if (write_edge_command(graph, ctx, action_id, toolchain, &argv, description) < 0)
+	if (write_edge_command(graph, ctx, action_id, toolchain, &argv, description,
+	    NULL) < 0)
 		goto fail;
 	fputc('\n', ctx->ninja);
 	if (wants_depfile) {
@@ -1761,7 +1779,7 @@ validate_sharedlib_platform(struct qstar_graph *graph, const struct qstar_target
 		return 0;
 	return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 	    "kind", target->label,
-	    "qstar: sharedlib target '%s' has Graph IR artifacts for runtime .dll and import .lib, but Ninja lowering for platform '%s' is deferred; use dry-run, explain, or list-targets --format json to inspect the artifact map, or see docs/windows-artifact-graph-ir.md",
+	    "qstar: sharedlib target '%s' is not supported for platform '%s'",
 	    target->label, toolchain->platform);
 }
 
@@ -1771,7 +1789,8 @@ append_sharedlib_link_flags(struct qstar_graph *graph, const struct qstar_target
     const struct qstar_resolved_toolchain *toolchain, const char *artifact,
     struct ninja_argv *argv)
 {
-	char install_name[QSTAR_PATH_MAX], soname[QSTAR_PATH_MAX];
+	char import_lib[QSTAR_PATH_MAX], install_name[QSTAR_PATH_MAX];
+	char soname[QSTAR_PATH_MAX], flag[QSTAR_PATH_MAX];
 
 	if (strcmp(target->kind, "sharedlib") != 0)
 		return 0;
@@ -1781,8 +1800,27 @@ append_sharedlib_link_flags(struct qstar_graph *graph, const struct qstar_target
 		snprintf(install_name, sizeof(install_name), "@rpath/%s",
 		    artifact_basename(artifact));
 		return ninja_argv_push(graph, argv, "-dynamiclib") < 0 ||
-		    ninja_argv_push(graph, argv, "-install_name") < 0 ||
-		    ninja_argv_push(graph, argv, install_name) < 0 ? -1 : 0;
+			    ninja_argv_push(graph, argv, "-install_name") < 0 ||
+			    ninja_argv_push(graph, argv, install_name) < 0 ? -1 : 0;
+	}
+	if (qstar_platform_is_windows(toolchain->platform)) {
+		if (qstar_graph_target_artifact_path(graph, target, "import_lib",
+		    import_lib, sizeof(import_lib)) < 0)
+			return -1;
+		if (strcmp(toolchain->link_style, "msvc") == 0) {
+			if (snprintf(flag, sizeof(flag), "/IMPLIB:%s", import_lib) >=
+			    (int)sizeof(flag))
+				return qstar_set_error(graph,
+				    "qstar: import library path is too long");
+			return ninja_argv_push(graph, argv, "/DLL") < 0 ||
+			    ninja_argv_push(graph, argv, flag) < 0 ? -1 : 0;
+		}
+		if (snprintf(flag, sizeof(flag), "-Wl,--out-implib,%s", import_lib) >=
+		    (int)sizeof(flag))
+			return qstar_set_error(graph,
+			    "qstar: import library path is too long");
+		return ninja_argv_push(graph, argv, "-shared") < 0 ||
+		    ninja_argv_push(graph, argv, flag) < 0 ? -1 : 0;
 	}
 	snprintf(soname, sizeof(soname), "-Wl,-soname,%s", artifact_basename(artifact));
 	return ninja_argv_push(graph, argv, "-shared") < 0 ||
@@ -1907,7 +1945,8 @@ seen_label(const struct qstar_string_list *seen, const char *label)
 /** dependency artifact를 dependent-before-dependency order로 재귀 추가한다. */
 static int
 collect_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *dep,
-    struct qstar_string_list *out, struct qstar_string_list *seen)
+    const struct qstar_resolved_toolchain *toolchain, struct qstar_string_list *out,
+    struct qstar_string_list *seen)
 {
 	const struct qstar_target *next;
 	char artifact[QSTAR_PATH_MAX];
@@ -1919,7 +1958,8 @@ collect_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *d
 		return qstar_set_error(graph, "qstar: out of memory");
 	if (strcmp(dep->kind, "group") == 0)
 		return 0;
-	if (qstar_graph_artifact_output_path(graph, dep, artifact, sizeof(artifact)) < 0)
+	if (qstar_graph_target_link_artifact_path(graph, dep, toolchain->platform, artifact,
+	    sizeof(artifact)) < 0)
 		return qstar_set_error(graph, "qstar: dependency artifact path too long");
 	if (qstar_string_list_push(out, artifact) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
@@ -1927,14 +1967,16 @@ collect_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *d
 		if (dep->deps.items[i][0] == '@')
 			continue;
 		next = find_target(graph, dep->deps.items[i]);
-		if (next && collect_dep_artifact_rec(graph, next, out, seen) < 0)
+		if (next && collect_dep_artifact_rec(graph, next, toolchain, out,
+		    seen) < 0)
 			return -1;
 	}
 	for (i = 0; i < dep->private_deps.len; i++) {
 		if (dep->private_deps.items[i][0] == '@')
 			continue;
 		next = find_target(graph, dep->private_deps.items[i]);
-		if (next && collect_dep_artifact_rec(graph, next, out, seen) < 0)
+		if (next && collect_dep_artifact_rec(graph, next, toolchain, out,
+		    seen) < 0)
 			return -1;
 	}
 	return 0;
@@ -1943,7 +1985,7 @@ collect_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *d
 /** target의 transitive dependency artifact list를 수집한다. */
 static int
 collect_dep_artifacts(struct qstar_graph *graph, const struct qstar_target *target,
-    struct qstar_string_list *out)
+    const struct qstar_resolved_toolchain *toolchain, struct qstar_string_list *out)
 {
 	const struct qstar_target *dep;
 	struct qstar_string_list seen;
@@ -1958,7 +2000,7 @@ collect_dep_artifacts(struct qstar_graph *graph, const struct qstar_target *targ
 		dep = find_target(graph, target->deps.items[i]);
 		if (!dep)
 			continue;
-		rc = collect_dep_artifact_rec(graph, dep, out, &seen);
+		rc = collect_dep_artifact_rec(graph, dep, toolchain, out, &seen);
 		if (rc < 0) {
 			qstar_string_list_free(out);
 			qstar_string_list_free(&seen);
@@ -1971,7 +2013,7 @@ collect_dep_artifacts(struct qstar_graph *graph, const struct qstar_target *targ
 		dep = find_target(graph, target->private_deps.items[i]);
 		if (!dep)
 			continue;
-		rc = collect_dep_artifact_rec(graph, dep, out, &seen);
+		rc = collect_dep_artifact_rec(graph, dep, toolchain, out, &seen);
 		if (rc < 0) {
 			qstar_string_list_free(out);
 			qstar_string_list_free(&seen);
@@ -2051,7 +2093,8 @@ append_sharedlib_runtime_rpaths(struct qstar_graph *graph,
 	int rc;
 
 	if (strcmp(target->kind, "staticlib") == 0 ||
-	    !qstar_platform_supports_sharedlib(toolchain->platform))
+	    !qstar_platform_supports_sharedlib(toolchain->platform) ||
+	    qstar_platform_is_windows(toolchain->platform))
 		return 0;
 	if (path_dirname(artifact, consumer_dir, sizeof(consumer_dir)) < 0)
 		return qstar_set_error(graph, "qstar: artifact directory path too long");
@@ -2159,7 +2202,8 @@ emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	}
 	fputc('\n', ctx->ninja);
 	fputs("  command = ", ctx->ninja);
-	if (write_edge_command(graph, ctx, action_id, toolchain, &argv, description) < 0)
+	if (write_edge_command(graph, ctx, action_id, toolchain, &argv, description,
+	    NULL) < 0)
 		goto fail;
 	fputc('\n', ctx->ninja);
 	fputs("  out_dir = ", ctx->ninja);
@@ -2188,7 +2232,7 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain)
 {
 	struct ninja_argv argv;
-	struct qstar_string_list dep_artifacts;
+	struct qstar_string_list dep_artifacts, outputs;
 	char artifact[QSTAR_PATH_MAX], alias[QSTAR_PATH_MAX], object[QSTAR_PATH_MAX];
 	char out_dir[QSTAR_PATH_MAX], action_id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	const char *final_action;
@@ -2196,14 +2240,23 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 
 	memset(&argv, 0, sizeof(argv));
 	memset(&dep_artifacts, 0, sizeof(dep_artifacts));
+	memset(&outputs, 0, sizeof(outputs));
 	if (qstar_graph_artifact_output_path(graph, target, artifact, sizeof(artifact)) < 0 ||
 	    ninja_alias_path(graph, target->label, alias, sizeof(alias)) < 0 ||
 	    path_dirname(artifact, out_dir, sizeof(out_dir)) < 0)
 		return qstar_set_error(graph, "qstar: ninja artifact path too long");
-	if (mkdir_parent_under_root(graph, artifact) < 0)
-		return qstar_set_error(graph, "qstar: could not create ninja artifact dir");
-	if (validate_sharedlib_platform(graph, target, toolchain) < 0)
+	if (qstar_graph_target_artifact_outputs(graph, target, &outputs) < 0)
 		return -1;
+	for (i = 0; i < outputs.len; i++) {
+		if (mkdir_parent_under_root(graph, outputs.items[i]) < 0)
+			goto fail;
+	}
+	if (outputs.len == 0) {
+		qstar_set_error(graph, "qstar: ninja target has no artifact outputs");
+		goto fail;
+	}
+	if (validate_sharedlib_platform(graph, target, toolchain) < 0)
+		goto fail;
 	final_action = qstar_target_final_action(target);
 	snprintf(action_id, sizeof(action_id), "%s:%s:0", target->label, final_action);
 	if (ninja_argv_push_tool_role(graph, &argv, target, toolchain, "link",
@@ -2234,7 +2287,7 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		if (ninja_argv_push(graph, &argv, object) < 0)
 			goto fail;
 	}
-	if (collect_dep_artifacts(graph, target, &dep_artifacts) < 0)
+	if (collect_dep_artifacts(graph, target, toolchain, &dep_artifacts) < 0)
 		goto fail;
 	for (i = 0; i < dep_artifacts.len; i++) {
 		if (ninja_argv_push(graph, &argv, dep_artifacts.items[i]) < 0)
@@ -2252,8 +2305,11 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	    sizeof(description)) < 0)
 		goto fail;
 	fprintf(ctx->ninja, "# qstar-action-id: %s\n", action_id);
-	fputs("build ", ctx->ninja);
-	ninja_path(ctx->ninja, artifact);
+	fputs("build", ctx->ninja);
+	for (i = 0; i < outputs.len; i++) {
+		fputc(' ', ctx->ninja);
+		ninja_path(ctx->ninja, outputs.items[i]);
+	}
 	fputs(": qstar_link", ctx->ninja);
 	for (i = 0; i < target->sources.len; i++) {
 		struct qstar_source_info source;
@@ -2288,7 +2344,8 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	}
 	fputc('\n', ctx->ninja);
 	fputs("  command = ", ctx->ninja);
-	if (write_edge_command(graph, ctx, action_id, toolchain, &argv, description) < 0)
+	if (write_edge_command(graph, ctx, action_id, toolchain, &argv, description,
+	    &outputs) < 0)
 		goto fail;
 	fputc('\n', ctx->ninja);
 	fputs("  out_dir = ", ctx->ninja);
@@ -2300,14 +2357,19 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	fprintf(ctx->ninja, "# qstar-action-id: %s:alias\n", target->label);
 	fputs("build ", ctx->ninja);
 	ninja_path(ctx->ninja, alias);
-	fputs(": phony ", ctx->ninja);
-	ninja_path(ctx->ninja, artifact);
+	fputs(": phony", ctx->ninja);
+	for (i = 0; i < outputs.len; i++) {
+		fputc(' ', ctx->ninja);
+		ninja_path(ctx->ninja, outputs.items[i]);
+	}
 	fprintf(ctx->ninja, "\n  qstar_action_id = %s:alias\n\n", target->label);
 	ctx->edge_count += 2;
+	qstar_string_list_free(&outputs);
 	qstar_string_list_free(&dep_artifacts);
 	ninja_argv_free(&argv);
 	return 0;
 fail:
+	qstar_string_list_free(&outputs);
 	qstar_string_list_free(&dep_artifacts);
 	ninja_argv_free(&argv);
 	return -1;
@@ -2514,7 +2576,8 @@ emit_run_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	ninja_var_text(ctx->ninja, description);
 	fputc('\n', ctx->ninja);
 	fprintf(ctx->ninja, "  qstar_action_id = %s\n\n", action_id);
-	if (write_ninja_action_log(graph, action_id, &argv, NULL, description) < 0)
+	if (write_ninja_action_log(graph, action_id, &argv, NULL, description,
+	    NULL) < 0)
 		goto fail;
 	fprintf(ctx->ninja, "# qstar-action-id: %s:alias\n", target->label);
 	fputs("build ", ctx->ninja);

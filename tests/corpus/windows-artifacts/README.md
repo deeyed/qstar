@@ -2,9 +2,9 @@
 
 This corpus records the Q173 Windows artifact implementation contract, the Q174
 executable/static-library regression gate, and the Q223 Windows shared-library
-Graph IR gate before Windows shared-library backend lowering is implemented.
+Graph IR gate. Q224 adds Windows shared-library backend lowering evidence.
 In short, it keeps the Q174 executable/static-library regression gate and adds
-the Q223 sharedlib artifact-map gate.
+the Q223/Q224 sharedlib artifact-map, lowering, and install/stage gates.
 
 It is intentionally separate from `tests/corpus/response-files`:
 
@@ -35,28 +35,25 @@ Current expected behavior:
   runtime `plugin.dll` plus secondary import `plugin.lib`.
 - `//:layout` stages the currently supported executable and static library
   primary artifacts under `bin/` and `lib/`.
-- `//:plugin_layout` dry-runs stage layout for
+- `//:plugin_user` depends on `//:plugin` and proves consumers link against the
+  import `plugin.lib`, not the runtime `plugin.dll`.
+- `//:plugin_layout` stages runtime/import layout for
   `qstar.target_file("//:plugin")` and
   `qstar.target_file("//:plugin", { artifact = "import_lib" })`.
 
-Current Q223 selector behavior:
+Current sharedlib selector/lowering behavior:
 
 - `qstar.target_file("//:plugin")` resolves to `plugin.dll`.
 - `qstar.target_file("//:plugin", { artifact = "import_lib" })` resolves to
   `plugin.lib`.
-- Stage dry-run can place `plugin.dll` under `bin/` and `plugin.lib` under
-  `lib/`.
-- Install dry-run reports `role=sharedlib artifact=runtime` for the `.dll` and
+- Stella and Ninja produce both `plugin.dll` and `plugin.lib` from one
+  `link-shared` action.
+- Stage can place `plugin.dll` under `bin/` and `plugin.lib` under `lib/`.
+- Install reports `role=sharedlib artifact=runtime` for the `.dll` and
   `role=import_lib artifact=import_lib` for the import library.
 - Unknown selector names fail with a diagnostic that lists known artifacts.
 
-Future expected behavior after Windows sharedlib lowering:
-
-- Link consumers use `plugin.lib` automatically.
-- Stella and Ninja produce both `plugin.dll` and `plugin.lib` from one
-  `link-shared` action.
-- Non-dry-run stage/install can copy the produced files.
-- PDB/debug artifacts stay opt-in and are not staged or installed implicitly.
+PDB/debug artifacts stay opt-in and are not staged or installed implicitly.
 
 This corpus does not claim official Windows support and must not be used as a
 substitute for the hosted Windows native alpha workflow.

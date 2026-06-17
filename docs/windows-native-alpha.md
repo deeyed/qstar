@@ -31,7 +31,8 @@ Round Q178 adds a native execution corpus to that same alpha lane. The new
 `tests/corpus/windows-execution` project is intentionally separate from the
 Windows artifact contract corpus: it uses the MSYS2 UCRT64 GCC lane to build and
 run real executable artifacts, while the existing fake MSVC/clang-cl fixtures
-continue to cover `.lib`, response escaping, and deferred `.dll` policy.
+continue to cover `.lib`, response escaping, and fake-tool `.dll`/import `.lib`
+policy.
 
 Round Q179 splits the POSIX Stella/Ninja process runner boundary. `src/executor.c`
 and `src/ninja.c` no longer expose `<poll.h>`, POSIX pipe/wait, or Unix process
@@ -331,11 +332,12 @@ Current known gaps:
   install/stage layout evidence. The corpus now checks `.exe` installation under
   `bin/`, static archive installation under `lib/`, generated object bridge
   staging, and slash-normalized install/stage manifests.
-- Q223 adds Windows sharedlib Graph IR evidence without claiming backend
-  lowering: the artifact corpus now checks runtime `.dll` plus import `.lib`
-  artifact maps, `qstar.target_file(..., { artifact = "import_lib" })`
-  selector resolution, dry-run install/stage layout, and deferred Stella/Ninja
-  lowering diagnostics.
+- Q223 adds Windows sharedlib Graph IR evidence: the artifact corpus checks
+  runtime `.dll` plus import `.lib` artifact maps,
+  `qstar.target_file(..., { artifact = "import_lib" })` selector resolution,
+  and dry-run install/stage layout. Q224 adds Stella/Ninja backend lowering,
+  multi-output action logs, dependent import-library links, and real
+  stage/install layout checks for those artifacts.
 - Windows filesystem helpers are now split enough for local `_WIN32` object
   compile checks and the Q179 hosted run reached past the previous
   `mkdir`/`lstat` compile failures.
@@ -355,9 +357,9 @@ Current known gaps:
 - Stella daemon on Windows is disabled/deferred. The future supported transport
   is a named pipe with Windows ACL rules, not Unix sockets.
 - No Windows public release asset.
-- The `.exe`/static archive/object bridge install-stage subset is alpha
-  validated. Runtime `.dll`, import `.lib`, PDB/debug, and full Windows
-  packaging layout are still deferred.
+- The `.exe`/static archive/object bridge/sharedlib runtime-import install-stage
+  subset is alpha validated. PDB/debug and full Windows packaging layout are
+  still deferred.
 - Windows artifact policy is currently a pre-support contract in
   `docs/windows-artifact-policy.md`; native validation still has to prove real
   `.exe`, explicit static `.lib`, runtime `.dll`, import `.lib`, and PDB/debug
@@ -366,8 +368,8 @@ Current known gaps:
 - The MSYS2 alpha lane pins `CC=gcc`; the hosted runner may provide a `CC=c99`
   environment value that is not an executable tool.
 - Real MSVC/clang-cl compiler execution is not yet a release gate.
-- Windows `.dll`, import `.lib`, PDB/debug, and shared library install policy
-  are deferred.
+- Windows `.dll`/import `.lib` shared-library lowering is in the alpha lane.
+  PDB/debug and release packaging remain deferred.
 - Persistent Stella daemon uses Unix socket paths today; Windows named pipe
   support is deferred.
 - QStar DSL package paths still intentionally reject drive letters and
@@ -382,9 +384,8 @@ Use the generated artifact in this order:
 1. Read `windows-alpha-status.txt` for the first `status=fail` line.
 2. Open the corresponding `*.log` file named in that status line.
 3. Copy the failure class, not the entire raw log, into this Known Issues list.
-4. Keep daemon named pipe, MSVC bootstrap, public Windows asset, `.dll`/import
-   `.lib`, and PDB/debug policy deferred unless a later round explicitly takes
-   ownership of them.
+4. Keep daemon named pipe, MSVC bootstrap, public Windows asset, and PDB/debug
+   policy deferred unless a later round explicitly takes ownership of them.
 
 ## Promotion Criteria
 

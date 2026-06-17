@@ -138,14 +138,23 @@ contains "$tmp/windows-static-log.out" "argv[0]=tools/fake-lib.sh"
 contains "$tmp/windows-static-log.out" "windows_static.lib"
 contains "$tmp/windows-static-log.out" "description='Linking C static library build/qstar/out/___windows_static/windows_static.lib'"
 
-if "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
-	build //:windows_plugin > "$tmp/windows-shared.out" \
-	2> "$tmp/windows-shared.err"; then
-	fail "Windows sharedlib unexpectedly succeeded"
-fi
-contains "$tmp/windows-shared.err" "has Graph IR artifacts for runtime .dll and import .lib"
-contains "$tmp/windows-shared.err" "Stella lowering for platform 'windows' is deferred"
-contains "$tmp/windows-shared.err" "docs/windows-artifact-graph-ir.md"
+"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+	--progress off build //:windows_plugin > "$tmp/windows-shared.out" \
+	2> "$tmp/windows-shared.err"
+contains "$tmp/windows-shared.out" "status ok"
+test -x "$corpus/$build_dir/out/___windows_plugin/windows_plugin.dll" ||
+	fail "fake Windows sharedlib runtime .dll missing"
+test -f "$corpus/$build_dir/out/___windows_plugin/windows_plugin.lib" ||
+	fail "fake Windows sharedlib import .lib missing"
+contains "$corpus/$build_dir/out/___windows_plugin/windows_plugin.lib" \
+	"fake import library"
+"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+	action-log //:windows_plugin:link-shared:0 \
+	> "$tmp/windows-shared-log.out" 2> "$tmp/windows-shared-log.err"
+contains "$tmp/windows-shared-log.out" "output_count=2"
+contains "$tmp/windows-shared-log.out" "output[0]=build/qstar/out/___windows_plugin/windows_plugin.dll"
+contains "$tmp/windows-shared-log.out" "output[1]=build/qstar/out/___windows_plugin/windows_plugin.lib"
+contains "$tmp/windows-shared-log.out" "/IMPLIB:build/qstar/out/___windows_plugin/windows_plugin.lib"
 
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
 	--progress off build //:windows_rsp > "$tmp/windows-rsp.out" \
@@ -208,14 +217,25 @@ if command -v ninja >/dev/null 2>&1; then
 	test ! -f "$corpus/.ninja_log" || fail "ninja static .lib root .ninja_log pollution"
 	test ! -f "$corpus/.ninja_deps" || fail "ninja static .lib root .ninja_deps pollution"
 
-	if "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang -G ninja \
-		build //:windows_plugin > "$tmp/windows-shared-ninja.out" \
-		2> "$tmp/windows-shared-ninja.err"; then
-		fail "Windows sharedlib Ninja unexpectedly succeeded"
-	fi
-	contains "$tmp/windows-shared-ninja.err" "has Graph IR artifacts for runtime .dll and import .lib"
-	contains "$tmp/windows-shared-ninja.err" "Ninja lowering for platform 'windows' is deferred"
-	contains "$tmp/windows-shared-ninja.err" "docs/windows-artifact-graph-ir.md"
+	rm -rf "$corpus/$build_dir" "$corpus/.ninja_log" "$corpus/.ninja_deps"
+	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang -G ninja \
+		--progress off build //:windows_plugin > "$tmp/windows-shared-ninja.out" \
+		2> "$tmp/windows-shared-ninja.err"
+	contains "$tmp/windows-shared-ninja.out" "backend ninja"
+	contains "$tmp/windows-shared-ninja.out" "status ok"
+	test -x "$corpus/$build_dir/out/___windows_plugin/windows_plugin.dll" ||
+		fail "ninja fake Windows sharedlib runtime .dll missing"
+	test -f "$corpus/$build_dir/out/___windows_plugin/windows_plugin.lib" ||
+		fail "ninja fake Windows sharedlib import .lib missing"
+	contains "$corpus/$build_dir/ninja/build.ninja" \
+		"build/qstar/out/___windows_plugin/windows_plugin.dll build/qstar/out/___windows_plugin/windows_plugin.lib: qstar_link"
+	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang -G ninja \
+		action-log //:windows_plugin:link-shared:0 \
+		> "$tmp/windows-shared-ninja-log.out" \
+		2> "$tmp/windows-shared-ninja-log.err"
+	contains "$tmp/windows-shared-ninja-log.out" "backend=ninja"
+	contains "$tmp/windows-shared-ninja-log.out" "output_count=2"
+	contains "$tmp/windows-shared-ninja-log.out" "/IMPLIB:build/qstar/out/___windows_plugin/windows_plugin.lib"
 fi
 
 "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang check \
@@ -226,13 +246,15 @@ contains "$tmp/windows-artifacts-check.out" "status ok"
 	2> "$tmp/windows-artifacts-plugin-explain.err"
 contains "$tmp/windows-artifacts-plugin-explain.out" "artifact id=runtime role=sharedlib path=build/qstar/out/___plugin/plugin.dll install_dir=bin primary=true installable=true"
 contains "$tmp/windows-artifacts-plugin-explain.out" "artifact id=import_lib role=import_lib path=build/qstar/out/___plugin/plugin.lib install_dir=lib primary=false installable=true"
-contains "$tmp/windows-artifacts-plugin-explain.out" "plan_diagnostic kind=windows-sharedlib-lowering status=deferred artifacts=modeled"
+contains "$tmp/windows-artifacts-plugin-explain.out" "/IMPLIB:build/qstar/out/___plugin/plugin.lib"
+not_contains "$tmp/windows-artifacts-plugin-explain.out" "plan_diagnostic kind=windows-sharedlib-lowering"
 "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
 	dry-run //:plugin > "$tmp/windows-artifacts-plugin-dry.out" \
 	2> "$tmp/windows-artifacts-plugin-dry.err"
 contains "$tmp/windows-artifacts-plugin-dry.out" "artifact id=runtime role=sharedlib path=build/qstar/out/___plugin/plugin.dll install_dir=bin primary=true installable=true"
 contains "$tmp/windows-artifacts-plugin-dry.out" "artifact id=import_lib role=import_lib path=build/qstar/out/___plugin/plugin.lib install_dir=lib primary=false installable=true"
-contains "$tmp/windows-artifacts-plugin-dry.out" "plan_diagnostic kind=windows-sharedlib-lowering status=deferred artifacts=modeled"
+contains "$tmp/windows-artifacts-plugin-dry.out" "/IMPLIB:build/qstar/out/___plugin/plugin.lib"
+not_contains "$tmp/windows-artifacts-plugin-dry.out" "plan_diagnostic kind=windows-sharedlib-lowering"
 not_contains "$tmp/windows-artifacts-plugin-dry.out" "-Wl,-soname"
 "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
 	list-targets --format json > "$tmp/windows-artifacts-list.json" \
@@ -293,9 +315,31 @@ test -f "$artifact_corpus/$build_dir/out/___core/core.lib" ||
 	fail "Windows artifact corpus core.lib missing"
 test -f "$artifact_corpus/$build_dir/out/___named_core/named_core.lib" ||
 	fail "Windows artifact corpus named_core.lib missing"
+test -x "$artifact_corpus/$build_dir/out/___plugin/plugin.dll" ||
+	fail "Windows artifact corpus plugin.dll missing"
+test -f "$artifact_corpus/$build_dir/out/___plugin/plugin.lib" ||
+	fail "Windows artifact corpus plugin.lib missing"
+test -x "$artifact_corpus/$build_dir/out/___plugin_user/plugin_user.exe" ||
+	fail "Windows artifact corpus plugin_user.exe missing"
 contains "$artifact_corpus/$build_dir/out/___core/core.lib" "fake static library"
 contains "$artifact_corpus/$build_dir/out/___named_core/named_core.lib" \
 	"fake static library"
+contains "$artifact_corpus/$build_dir/out/___plugin/plugin.lib" \
+	"fake import library"
+contains "$artifact_corpus/$build_dir/out/___plugin/plugin.lib" \
+	"runtime=build/qstar/out/___plugin/plugin.dll"
+"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+	action-log //:plugin:link-shared:0 > "$tmp/windows-artifacts-plugin-log.out" \
+	2> "$tmp/windows-artifacts-plugin-log.err"
+contains "$tmp/windows-artifacts-plugin-log.out" "output_count=2"
+contains "$tmp/windows-artifacts-plugin-log.out" "output[0]=build/qstar/out/___plugin/plugin.dll"
+contains "$tmp/windows-artifacts-plugin-log.out" "output[1]=build/qstar/out/___plugin/plugin.lib"
+contains "$tmp/windows-artifacts-plugin-log.out" "/IMPLIB:build/qstar/out/___plugin/plugin.lib"
+"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+	action-log //:plugin_user:link:0 > "$tmp/windows-artifacts-plugin-user-log.out" \
+	2> "$tmp/windows-artifacts-plugin-user-log.err"
+contains "$tmp/windows-artifacts-plugin-user-log.out" "build/qstar/out/___plugin/plugin.lib"
+not_contains "$tmp/windows-artifacts-plugin-user-log.out" "build/qstar/out/___plugin/plugin.dll"
 
 "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
 	stage //:layout > "$tmp/windows-artifacts-stage.out" \
@@ -370,14 +414,30 @@ contains "$install_manifest" "/windows/artifacts/dry-prefix\""
 contains "$install_manifest" "/windows/artifacts/dry-prefix/bin/tool.exe\""
 not_contains "$install_manifest" "\\"
 
-if "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
-	build //:plugin > "$tmp/windows-artifacts-shared.out" \
-	2> "$tmp/windows-artifacts-shared.err"; then
-	fail "Windows artifact corpus sharedlib unexpectedly succeeded"
-fi
-contains "$tmp/windows-artifacts-shared.err" "has Graph IR artifacts for runtime .dll and import .lib"
-contains "$tmp/windows-artifacts-shared.err" "Stella lowering for platform 'windows' is deferred"
-contains "$tmp/windows-artifacts-shared.err" "docs/windows-artifact-graph-ir.md"
+"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+	stage //:plugin_layout > "$tmp/windows-artifacts-plugin-stage-real.out" \
+	2> "$tmp/windows-artifacts-plugin-stage-real.err"
+contains "$tmp/windows-artifacts-plugin-stage-real.out" "status ok"
+test -f "$artifact_corpus/$build_dir/stage/windows-plugin/bin/plugin.dll" ||
+	fail "Windows artifact corpus staged plugin.dll missing"
+test -f "$artifact_corpus/$build_dir/stage/windows-plugin/lib/plugin.lib" ||
+	fail "Windows artifact corpus staged plugin.lib missing"
+"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+	install //:plugin --prefix "$tmp/windows-artifacts-prefix" \
+	> "$tmp/windows-artifacts-install-plugin.out" \
+	2> "$tmp/windows-artifacts-install-plugin.err"
+contains "$tmp/windows-artifacts-install-plugin.out" "install_file src=build/qstar/out/___plugin/plugin.dll"
+contains "$tmp/windows-artifacts-install-plugin.out" "role=sharedlib artifact=runtime"
+contains "$tmp/windows-artifacts-install-plugin.out" "install_file src=build/qstar/out/___plugin/plugin.lib"
+contains "$tmp/windows-artifacts-install-plugin.out" "role=import_lib artifact=import_lib"
+test -f "$tmp/windows-artifacts-prefix/bin/plugin.dll" ||
+	fail "Windows artifact corpus installed plugin.dll missing"
+test -f "$tmp/windows-artifacts-prefix/lib/plugin.lib" ||
+	fail "Windows artifact corpus installed plugin.lib missing"
+install_manifest="$artifact_corpus/$build_dir/install/manifest.json"
+contains "$install_manifest" "\"role\":\"sharedlib\",\"artifact\":\"runtime\""
+contains "$install_manifest" "\"role\":\"import_lib\",\"artifact\":\"import_lib\""
+not_contains "$install_manifest" "\\"
 
 if command -v ninja >/dev/null 2>&1; then
 	rm -rf "$artifact_corpus/$build_dir" "$artifact_corpus/.ninja_log" \
@@ -388,22 +448,46 @@ if command -v ninja >/dev/null 2>&1; then
 		2> "$tmp/windows-artifacts-ninja-build.err"
 	contains "$tmp/windows-artifacts-ninja-build.out" "backend ninja"
 	contains "$tmp/windows-artifacts-ninja-build.out" "status ok"
-	test -x "$artifact_corpus/$build_dir/out/___tool/tool.exe" ||
-		fail "Ninja Windows artifact corpus tool.exe missing"
-	test -x "$artifact_corpus/$build_dir/out/___named_tool/named_tool.exe" ||
-		fail "Ninja Windows artifact corpus named_tool.exe missing"
-	test -f "$artifact_corpus/$build_dir/out/___core/core.lib" ||
-		fail "Ninja Windows artifact corpus core.lib missing"
-	test -f "$artifact_corpus/$build_dir/out/___named_core/named_core.lib" ||
-		fail "Ninja Windows artifact corpus named_core.lib missing"
-	contains "$artifact_corpus/$build_dir/ninja/build.ninja" \
-		"build/qstar/out/___tool/tool.exe"
-	contains "$artifact_corpus/$build_dir/ninja/build.ninja" \
-		"build/qstar/out/___core/core.lib"
-	test ! -f "$artifact_corpus/.ninja_log" ||
-		fail "Windows artifact corpus root .ninja_log pollution"
-	test ! -f "$artifact_corpus/.ninja_deps" ||
-		fail "Windows artifact corpus root .ninja_deps pollution"
+		test -x "$artifact_corpus/$build_dir/out/___tool/tool.exe" ||
+			fail "Ninja Windows artifact corpus tool.exe missing"
+		test -x "$artifact_corpus/$build_dir/out/___named_tool/named_tool.exe" ||
+			fail "Ninja Windows artifact corpus named_tool.exe missing"
+		test -f "$artifact_corpus/$build_dir/out/___core/core.lib" ||
+			fail "Ninja Windows artifact corpus core.lib missing"
+		test -f "$artifact_corpus/$build_dir/out/___named_core/named_core.lib" ||
+			fail "Ninja Windows artifact corpus named_core.lib missing"
+		test -x "$artifact_corpus/$build_dir/out/___plugin/plugin.dll" ||
+			fail "Ninja Windows artifact corpus plugin.dll missing"
+		test -f "$artifact_corpus/$build_dir/out/___plugin/plugin.lib" ||
+			fail "Ninja Windows artifact corpus plugin.lib missing"
+		test -x "$artifact_corpus/$build_dir/out/___plugin_user/plugin_user.exe" ||
+			fail "Ninja Windows artifact corpus plugin_user.exe missing"
+		contains "$artifact_corpus/$build_dir/ninja/build.ninja" \
+			"build/qstar/out/___tool/tool.exe"
+		contains "$artifact_corpus/$build_dir/ninja/build.ninja" \
+			"build/qstar/out/___core/core.lib"
+		contains "$artifact_corpus/$build_dir/ninja/build.ninja" \
+			"build/qstar/out/___plugin/plugin.dll build/qstar/out/___plugin/plugin.lib: qstar_link"
+		contains "$artifact_corpus/$build_dir/ninja/build.ninja" \
+			"build/qstar/out/___plugin_user/plugin_user.exe: qstar_link build/qstar/out/___plugin_user/obj0.o build/qstar/out/___plugin/plugin.lib"
+		"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+			-G ninja action-log //:plugin:link-shared:0 \
+			> "$tmp/windows-artifacts-ninja-plugin-log.out" \
+			2> "$tmp/windows-artifacts-ninja-plugin-log.err"
+		contains "$tmp/windows-artifacts-ninja-plugin-log.out" "backend=ninja"
+		contains "$tmp/windows-artifacts-ninja-plugin-log.out" "output_count=2"
+		contains "$tmp/windows-artifacts-ninja-plugin-log.out" "/IMPLIB:build/qstar/out/___plugin/plugin.lib"
+		"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+			-G ninja action-log //:plugin_user:link:0 \
+			> "$tmp/windows-artifacts-ninja-plugin-user-log.out" \
+			2> "$tmp/windows-artifacts-ninja-plugin-user-log.err"
+		contains "$tmp/windows-artifacts-ninja-plugin-user-log.out" "backend=ninja"
+		contains "$tmp/windows-artifacts-ninja-plugin-user-log.out" "build/qstar/out/___plugin/plugin.lib"
+		not_contains "$tmp/windows-artifacts-ninja-plugin-user-log.out" "build/qstar/out/___plugin/plugin.dll"
+		test ! -f "$artifact_corpus/.ninja_log" ||
+			fail "Windows artifact corpus root .ninja_log pollution"
+		test ! -f "$artifact_corpus/.ninja_deps" ||
+			fail "Windows artifact corpus root .ninja_deps pollution"
 
 	"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
 		-G ninja stage //:layout > "$tmp/windows-artifacts-ninja-stage.out" \
@@ -428,28 +512,38 @@ if command -v ninja >/dev/null 2>&1; then
 	contains "$install_manifest" "\"role\":\"exe\""
 	contains "$install_manifest" "/windows-artifacts-ninja-prefix/bin/tool.exe\""
 	not_contains "$install_manifest" "\\"
-	"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
-		-G ninja install //:core --prefix "$tmp/windows-artifacts-ninja-prefix" \
-		> "$tmp/windows-artifacts-ninja-install-core.out" \
-		2> "$tmp/windows-artifacts-ninja-install-core.err"
-	test -f "$tmp/windows-artifacts-ninja-prefix/lib/core.lib" ||
-		fail "Ninja Windows artifact corpus installed core.lib missing"
-	contains "$install_manifest" "\"role\":\"staticlib\""
-	contains "$install_manifest" "/windows-artifacts-ninja-prefix/lib/core.lib\""
-	not_contains "$install_manifest" "\\"
+		"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+			-G ninja install //:core --prefix "$tmp/windows-artifacts-ninja-prefix" \
+			> "$tmp/windows-artifacts-ninja-install-core.out" \
+			2> "$tmp/windows-artifacts-ninja-install-core.err"
+		test -f "$tmp/windows-artifacts-ninja-prefix/lib/core.lib" ||
+			fail "Ninja Windows artifact corpus installed core.lib missing"
+		contains "$install_manifest" "\"role\":\"staticlib\""
+		contains "$install_manifest" "/windows-artifacts-ninja-prefix/lib/core.lib\""
+		not_contains "$install_manifest" "\\"
 
-	if "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
-		-G ninja build //:plugin > "$tmp/windows-artifacts-shared-ninja.out" \
-		2> "$tmp/windows-artifacts-shared-ninja.err"; then
-		fail "Windows artifact corpus Ninja sharedlib unexpectedly succeeded"
+		"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+			-G ninja stage //:plugin_layout > "$tmp/windows-artifacts-ninja-plugin-stage.out" \
+			2> "$tmp/windows-artifacts-ninja-plugin-stage.err"
+		contains "$tmp/windows-artifacts-ninja-plugin-stage.out" "backend ninja"
+		test -f "$artifact_corpus/$build_dir/stage/windows-plugin/bin/plugin.dll" ||
+			fail "Ninja Windows artifact corpus staged plugin.dll missing"
+		test -f "$artifact_corpus/$build_dir/stage/windows-plugin/lib/plugin.lib" ||
+			fail "Ninja Windows artifact corpus staged plugin.lib missing"
+		"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+			-G ninja install //:plugin --prefix "$tmp/windows-artifacts-ninja-prefix" \
+			> "$tmp/windows-artifacts-ninja-install-plugin.out" \
+			2> "$tmp/windows-artifacts-ninja-install-plugin.err"
+		contains "$tmp/windows-artifacts-ninja-install-plugin.out" "backend ninja"
+		test -f "$tmp/windows-artifacts-ninja-prefix/bin/plugin.dll" ||
+			fail "Ninja Windows artifact corpus installed plugin.dll missing"
+		test -f "$tmp/windows-artifacts-ninja-prefix/lib/plugin.lib" ||
+			fail "Ninja Windows artifact corpus installed plugin.lib missing"
+		install_manifest="$artifact_corpus/$build_dir/install/manifest.json"
+		contains "$install_manifest" "\"role\":\"sharedlib\",\"artifact\":\"runtime\""
+		contains "$install_manifest" "\"role\":\"import_lib\",\"artifact\":\"import_lib\""
+		not_contains "$install_manifest" "\\"
 	fi
-	contains "$tmp/windows-artifacts-shared-ninja.err" \
-		"has Graph IR artifacts for runtime .dll and import .lib"
-	contains "$tmp/windows-artifacts-shared-ninja.err" \
-		"Ninja lowering for platform 'windows' is deferred"
-	contains "$tmp/windows-artifacts-shared-ninja.err" \
-		"docs/windows-artifact-graph-ir.md"
-fi
 
 mkdir -p "$tmp/bad-artifact-selector/src"
 cat > "$tmp/bad-artifact-selector/src/plugin.c" <<'EOF'

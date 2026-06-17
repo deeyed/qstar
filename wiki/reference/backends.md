@@ -56,10 +56,10 @@ qstar --file qstar.lua replay //:app:link:0
 edge에는 build-tree 실행용 rpath가 자동으로 추가된다. Stella는 실제 argv에
 `$ORIGIN`/`@loader_path` rpath를 넣고, Ninja lowering도 같은 의미의 `description`/command
 edge를 생성한다. Q168 regression gate는 sharedlib-linked executable/test 실행,
-sharedlib stage/install artifact 처리, Windows deferred diagnostic을 함께 확인한다.
-Windows runtime `.dll`, import `.lib`, PDB/debug/install layout은 아직
-deferred이며 Stella/Ninja 모두 `docs/windows-artifact-policy.md`를 가리키는 같은
-diagnostic으로 거부한다.
+sharedlib stage/install artifact 처리를 함께 확인한다. Windows platform context에서는
+runtime `.dll`과 import `.lib`가 같은 `link-shared` action의 outputs로 생성되고,
+dependent executable/test/sharedlib edge는 import `.lib`를 link input으로 사용한다.
+PDB/debug ownership과 일반 Windows runtime search path 정책은 아직 deferred다.
 
 ## 최소 예제
 
@@ -90,20 +90,35 @@ qstar.group "all" {
 }
 ```
 
-## 실패 예제
+## Windows Sharedlib 예제
 
 ```lua
 qstar.sharedlib "plugin" {
   sources = {"src/plugin.c"},
 }
+
+qstar.executable "plugin_app" {
+  sources = {"src/main.c"},
+  deps = {"//:plugin"},
+}
+
+qstar.stage "layout" {
+  root = "stage/plugin",
+  files = {
+    qstar.stage_file(qstar.target_file("//:plugin"), "bin/plugin.dll"),
+    qstar.stage_file(qstar.target_file("//:plugin", { artifact = "import_lib" }),
+      "lib/plugin.lib"),
+  },
+}
 ```
 
 ```sh
-qstar --file qstar.lua -G ninja build //:plugin
+qstar --file qstar.lua --qstar-internal-platform windows -G ninja emit-ninja //:plugin_app
 ```
 
-Windows shared library artifact map은 Graph IR에 존재하지만 backend lowering은 아직
-deferred이므로 stable diagnostic을 낸다.
+Windows shared library artifact map은 runtime `.dll`을 primary artifact로 두고,
+`artifact = "import_lib"` selector로 import `.lib`를 노출한다. Ninja와 Stella는 consumer
+link edge에서 runtime `.dll`이 아니라 import `.lib`를 사용한다.
 
 ## 관련 CLI
 
@@ -117,4 +132,4 @@ qstar --file qstar.lua -G ninja install //:app --prefix /tmp/qstar-install
 
 ## 관련 diagnostic
 
-- `qstar: sharedlib target '//:plugin' has Graph IR artifacts for runtime .dll and import .lib, but Ninja lowering for platform 'windows' is deferred; use dry-run, explain, or list-targets --format json to inspect the artifact map, or see docs/windows-artifact-graph-ir.md`
+- `target_file artifact selector 'pdb' is unknown for target '//:plugin'`

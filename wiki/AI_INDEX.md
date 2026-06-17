@@ -82,12 +82,12 @@ QStar가 하지 않는 일:
   sharedlib dependency를 link하는 executable/test/sharedlib에는 build-tree 실행용
   `@loader_path`/`$ORIGIN` rpath를 자동 추가한다. Windows sharedlib는 Q223부터 Graph IR에서
   runtime `.dll`과 import `.lib` artifact map을 모델링하고
-  `qstar.target_file("//:plugin", { artifact = "import_lib" })` selector를 해석하지만,
-  Stella/Ninja backend lowering과 dependent import-library link는 아직 deferred diagnostic으로
-  거부한다.
+  `qstar.target_file("//:plugin", { artifact = "import_lib" })` selector를 해석한다.
+  Q224부터 Stella/Ninja는 Windows `link-shared`를 multi-output action으로 낮추고,
+  dependent executable/test/sharedlib는 import `.lib`를 link input으로 사용한다.
 - `make qstar-ninja-backend-parity-tests`는 staticlib, sharedlib, sharedlib-linked
   executable/test, generated, configure_file, run_target, sharedlib stage/install producer integration,
-  action-log/replay, Windows sharedlib diagnostic, `.ninja_log`/`.ninja_deps` root
+  action-log/replay, Windows sharedlib multi-output lowering, `.ninja_log`/`.ninja_deps` root
   pollution 방지를 확인한다.
 - `qstar emit-ninja [label]`은 `build/qstar/ninja/build.ninja`와 policy-controlled
   `compile_commands.json`을 생성한다.
@@ -229,9 +229,11 @@ QStar가 하지 않는 일:
   install/stage layout까지 더한다. Q222부터 Windows execution corpus도 real MSYS2 GCC
   executable/static archive/object bridge layout과 manifest normalization을 Stella/Ninja 양쪽에서
   확인한다. Q223은 `tests/corpus/windows-artifacts`에 sharedlib artifact map, selector,
-  dry-run stage/install layout, unknown selector diagnostic을 추가한다. Automatic `.lib`,
-  real `.dll`/import `.lib` backend production, PDB/debug은 native Windows 검증 전까지
-  official contract가 아니다. 상세 정책은 `docs/windows-artifact-policy.md`에 둔다.
+  dry-run stage/install layout, unknown selector diagnostic을 추가한다. Q224는 Stella/Ninja
+  backend에서 runtime `.dll`과 import `.lib`를 실제 outputs로 만들고, consumer가 import
+  `.lib`를 link하도록 닫는다. Automatic static `.lib`, MSVC `link.exe`/`lib.exe`,
+  PDB/debug, Windows release packaging은 아직 official contract가 아니다. 상세 정책은
+  `docs/windows-artifact-policy.md`에 둔다.
 - `make qstar-medium-project-readiness-tests`는 Stella executor와 Ninja backend의 clean,
   no-op, incremental build 시간을 `medium_project_gate ...` line protocol로 기록한다.
   Round Q92 기준 timing threshold는 report-only가 기본이며,

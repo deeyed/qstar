@@ -35,8 +35,9 @@ build-tree 실행을 위해 macOS에서는 `@loader_path`, Linux에서는 `$ORIG
 import `.lib` artifact map을 모델링한다. `qstar.target_file("//:plugin")`은 primary
 runtime `.dll`을 가리키고,
 `qstar.target_file("//:plugin", { artifact = "import_lib" })`은 import `.lib`를
-가리킨다. 다만 Stella/Ninja Windows sharedlib lowering과 dependent import-library link는
-아직 deferred이며 `docs/windows-artifact-graph-ir.md`를 가리키는 명확한 diagnostic을 낸다.
+가리킨다. Q224부터 Stella/Ninja는 Windows `link-shared` action에서 runtime `.dll`과
+import `.lib`를 함께 만들고, dependent artifact target은 import `.lib`를 link input으로
+사용한다. PDB/debug ownership과 일반 Windows runtime search path 정책은 아직 deferred다.
 
 Artifact target은 `configs = {"//:common_c"}`로 reusable option bundle을 참조할 수
 있다. Config merge 규칙은 [Reusable Configs](configs.md)에 둔다.

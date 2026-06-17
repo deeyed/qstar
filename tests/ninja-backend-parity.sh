@@ -215,12 +215,13 @@ if [ "$host_windows" -eq 0 ]; then
 	contains "$tmp/shared/build/qstar/ninja/build.ninja" "$shared_name_flag"
 	contains "$tmp/shared/build/qstar/ninja/build.ninja" "$shared_ninja_rpath_flag"
 fi
-if "$qstar" --file "$tmp/shared/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang emit-ninja //:plugin > "$tmp/shared-windows.out" 2> "$tmp/shared-windows.err"; then
-	fail "windows sharedlib Ninja lowering unexpectedly succeeded"
-fi
-contains "$tmp/shared-windows.err" "has Graph IR artifacts for runtime .dll and import .lib"
-contains "$tmp/shared-windows.err" "Ninja lowering for platform 'windows' is deferred"
-contains "$tmp/shared-windows.err" "docs/windows-artifact-graph-ir.md"
+"$qstar" --file "$tmp/shared/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+	emit-ninja //:plugin_app > "$tmp/shared-windows.out" 2> "$tmp/shared-windows.err"
+contains "$tmp/shared/build/qstar/ninja/build.ninja" \
+	"build/qstar/out/___plugin/plugin.dll build/qstar/out/___plugin/plugin.lib: qstar_link"
+contains "$tmp/shared/build/qstar/ninja/build.ninja" \
+	"build/qstar/out/___plugin_app/plugin_app: qstar_link build/qstar/out/___plugin_app/obj0.o build/qstar/out/___plugin/plugin.lib"
+contains "$tmp/shared/build/qstar/ninja/build.ninja" "-Wl,--out-implib,build/qstar/out/___plugin/plugin.lib"
 
 if command -v ninja >/dev/null 2>&1; then
 	if [ "$host_windows" -eq 0 ]; then
@@ -320,9 +321,17 @@ if command -v ninja >/dev/null 2>&1; then
 		contains "$tmp/shared/build/qstar/install/manifest.json" "\"role\":\"sharedlib\""
 		test ! -f "$tmp/shared/.ninja_log" || fail "sharedlib ninja wrote package root .ninja_log"
 		test ! -f "$tmp/shared/.ninja_deps" || fail "sharedlib ninja wrote package root .ninja_deps"
-	else
-		printf 'qstar-ninja-backend-parity: sharedlib runtime skipped reason=windows-sharedlib-deferred\n'
-	fi
+		else
+			"$qstar" --file "$tmp/shared/qstar.lua" -G ninja build //:plugin_app --progress off > "$tmp/shared-build.out" 2> "$tmp/shared-build.err"
+			contains "$tmp/shared-build.out" "backend ninja"
+			contains "$tmp/shared-build.out" "status ok"
+			test -f "$tmp/shared/build/qstar/out/___plugin/plugin.dll" || fail "windows sharedlib ninja runtime missing"
+			test -f "$tmp/shared/build/qstar/out/___plugin/plugin.lib" || fail "windows sharedlib ninja import lib missing"
+			test -f "$tmp/shared/build/qstar/out/___plugin_app/plugin_app.exe" || fail "windows sharedlib ninja app missing"
+			"$qstar" --file "$tmp/shared/qstar.lua" -G ninja action-log //:plugin_app:link:0 > "$tmp/shared-app-log.out" 2> "$tmp/shared-app-log.err"
+			contains "$tmp/shared-app-log.out" "build/qstar/out/___plugin/plugin.lib"
+			printf 'qstar-ninja-backend-parity: sharedlib runtime skipped reason=windows-dll-search-path\n'
+		fi
 else
 	printf 'qstar-ninja-backend-parity: ninja runtime checks skipped reason=ninja-not-found\n'
 fi

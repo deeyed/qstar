@@ -1803,15 +1803,30 @@ prepare_response_file(struct qstar_graph *graph, const char *id,
 	return 1;
 }
 
+/** action log stream에 output list를 deterministic하게 기록한다. */
+static void
+write_action_outputs(FILE *f, const struct qstar_string_list *outputs)
+{
+	size_t i;
+
+	fprintf(f, "output_count=%zu\n", outputs ? outputs->len : 0);
+	for (i = 0; outputs && i < outputs->len; i++) {
+		fprintf(f, "output[%zu]=", i);
+		write_shell_arg(f, outputs->items[i]);
+		fputc('\n', f);
+	}
+}
+
 /** argv 배열을 action log stream에 deterministic하게 기록한다. */
 static void
 write_action_log_stream(FILE *f, char *const argv[], const char *exit_text,
-    const char *description)
+    const char *description, const struct qstar_string_list *outputs)
 {
 	size_t i;
 
 	fprintf(f, "qstar-action-log v2\nexit=%s\n", exit_text);
 	write_log_description(f, description);
+	write_action_outputs(f, outputs);
 	for (i = 0; argv[i]; i++)
 		;
 	fprintf(f, "argc=%zu\n", i);
@@ -1844,7 +1859,7 @@ write_action_log_stream(FILE *f, char *const argv[], const char *exit_text,
 /** argv 배열을 action log 파일에 deterministic하게 기록한다. */
 static void
 write_action_log_text(const char *path, char *const argv[], const char *exit_text,
-    const char *description)
+    const char *description, const struct qstar_string_list *outputs)
 {
 	char buf[QSTAR_FILE_WRITE_BUFFER_SIZE];
 	FILE *f;
@@ -1853,7 +1868,7 @@ write_action_log_text(const char *path, char *const argv[], const char *exit_tex
 	if (!f)
 		return;
 	setvbuf(f, buf, _IOFBF, sizeof(buf));
-	write_action_log_stream(f, argv, exit_text, description);
+	write_action_log_stream(f, argv, exit_text, description, outputs);
 	fclose(f);
 }
 
@@ -1868,63 +1883,64 @@ action_log_is_lazy_success(const char *exit_text)
 /** 실패 action log는 즉시 기록하고 성공/skip action log는 lazy materialization에 맡긴다. */
 static void
 action_log_queue(struct qstar_build_ctx *ctx, const char *path, char *const argv[],
-    const char *exit_text, const char *description)
+    const char *exit_text, const char *description, const struct qstar_string_list *outputs)
 {
 	if (!ctx || !path || !argv || !exit_text)
 		return;
 	if (action_log_is_lazy_success(exit_text))
 		return;
-	write_action_log_text(path, argv, exit_text, description);
+	write_action_log_text(path, argv, exit_text, description, outputs);
 }
 
 /** prepared action처럼 argv 수명이 짧은 경로에서도 실패 action만 즉시 기록한다. */
 static void
 action_log_queue_ref(struct qstar_build_ctx *ctx, const char *path, char *const argv[],
-    const char *exit_text, const char *description)
+    const char *exit_text, const char *description, const struct qstar_string_list *outputs)
 {
 	if (!ctx || !path || !argv || !exit_text)
 		return;
 	if (action_log_is_lazy_success(exit_text))
 		return;
-	write_action_log_text(path, argv, exit_text, description);
+	write_action_log_text(path, argv, exit_text, description, outputs);
 }
 
 /** integer exit code action log를 batch flush 목록에 추가한다. */
 static void
 action_log_queue_exit(struct qstar_build_ctx *ctx, const char *path, char *const argv[],
-    int exit_code, const char *description)
+    int exit_code, const char *description, const struct qstar_string_list *outputs)
 {
 	char exit_text[32];
 
 	snprintf(exit_text, sizeof(exit_text), "%d", exit_code);
-	action_log_queue(ctx, path, argv, exit_text, description);
+	action_log_queue(ctx, path, argv, exit_text, description, outputs);
 }
 
 /** skip action log를 batch flush 목록에 추가한다. */
 static void
 action_log_queue_skip(struct qstar_build_ctx *ctx, const char *path, char *const argv[],
-    const char *description)
+    const char *description, const struct qstar_string_list *outputs)
 {
-	action_log_queue(ctx, path, argv, "skip", description);
+	action_log_queue(ctx, path, argv, "skip", description, outputs);
 }
 
 /** compile action처럼 argv 수명이 보장되는 action log를 복사 없이 추가한다. */
 static void
 action_log_queue_exit_ref(struct qstar_build_ctx *ctx, const char *path,
-    char *const argv[], int exit_code, const char *description)
+    char *const argv[], int exit_code, const char *description,
+    const struct qstar_string_list *outputs)
 {
 	char exit_text[32];
 
 	snprintf(exit_text, sizeof(exit_text), "%d", exit_code);
-	action_log_queue_ref(ctx, path, argv, exit_text, description);
+	action_log_queue_ref(ctx, path, argv, exit_text, description, outputs);
 }
 
 /** compile cache-hit skip log를 복사 없이 batch flush 목록에 추가한다. */
 static void
 action_log_queue_skip_ref(struct qstar_build_ctx *ctx, const char *path,
-    char *const argv[], const char *description)
+    char *const argv[], const char *description, const struct qstar_string_list *outputs)
 {
-	action_log_queue_ref(ctx, path, argv, "skip", description);
+	action_log_queue_ref(ctx, path, argv, "skip", description, outputs);
 }
 
 static void
@@ -1939,7 +1955,7 @@ action_log_flush(struct qstar_build_ctx *ctx)
 	for (i = 0; i < ctx->action_log_len; i++)
 		write_action_log_text(ctx->action_logs[i].path,
 		    ctx->action_logs[i].argv, ctx->action_logs[i].exit_text,
-		    ctx->action_logs[i].description);
+		    ctx->action_logs[i].description, NULL);
 	action_log_queue_free(ctx->action_logs, ctx->action_log_len);
 	ctx->action_logs = NULL;
 	ctx->action_log_len = 0;
@@ -3950,7 +3966,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			build_tracef(ctx,
 			    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
 			    id, child_stdout_path, child_stderr_path);
-			action_log_queue_skip(ctx, action_log, argv, description);
+			action_log_queue_skip(ctx, action_log, argv, description, outputs);
 		}
 		progress_skip_action(ctx);
 		ctx->skip_count++;
@@ -4022,7 +4038,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 				qstar_platform_process_terminate(pid, &status);
 				child_capture_finish(ctx, &capture);
 				action_log_queue_exit(ctx, action_log, argv, 124,
-				    description);
+				    description, outputs);
 				write_failure_replay_detail(graph, id, toolchain, argv,
 				    description, failure_kind, diag_label,
 				    child_stdout_path, child_stderr_path,
@@ -4070,7 +4086,7 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	child_capture_finish(ctx, &capture);
 	exit_code = qstar_platform_process_exit_code(status);
-	action_log_queue_exit(ctx, action_log, argv, exit_code, description);
+	action_log_queue_exit(ctx, action_log, argv, exit_code, description, outputs);
 	if (exit_code != 0) {
 		char label_buf[QSTAR_PATH_MAX];
 		const char *diag_label;
@@ -4407,7 +4423,7 @@ run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		build_tracef(ctx,
 		    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
 		    id, child_stdout_path, child_stderr_path);
-		action_log_queue_skip(ctx, action_log, argv, description);
+		action_log_queue_skip(ctx, action_log, argv, description, &genrule->outputs);
 		progress_skip_action(ctx);
 		ctx->skip_count++;
 		return state_push(ctx, 1, id, key, genrule->outputs.items[0], "skip",
@@ -4431,7 +4447,7 @@ run_config_header_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	write_empty_log_file(stdout_path);
 	write_empty_log_file(stderr_path);
-	action_log_queue_exit(ctx, action_log, argv, 0, description);
+	action_log_queue_exit(ctx, action_log, argv, 0, description, &genrule->outputs);
 	ctx->run_count++;
 	return state_push(ctx, 1, id, key, genrule->outputs.items[0], "run",
 	    "generate", material) < 0 ?
@@ -5057,7 +5073,7 @@ finish_run_target_success(struct qstar_graph *graph, struct qstar_build_ctx *ctx
 		    stdout_rel, stderr_rel, target->run_expect_contains, target->run_expect_file);
 		if (action_log && *action_log)
 			write_action_log_text(action_log, action->argv, "expect-missing",
-			    action->description);
+			    action->description, &action->outputs);
 		ctx->fail_count++;
 		ctx->cancelled = 1;
 		fprintf(ctx->out,
@@ -5877,7 +5893,7 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
 		    action->id, child_stdout_path, child_stderr_path);
 		action_log_queue_skip_ref(ctx, running->action_log, action->argv,
-		    action->description);
+		    action->description, &action->outputs);
 		progress_skip_action(ctx);
 		ctx->skip_count++;
 		build_tracef(ctx,
@@ -5940,11 +5956,11 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	child_capture_finish(ctx, &running->capture);
 	exit_code = qstar_platform_process_exit_code(status);
 	action_log_queue_exit_ref(ctx, running->action_log, action->argv, exit_code,
-	    action->description);
+	    action->description, &action->outputs);
 	owner_label = prepared_action_owner_label(action);
 	if (exit_code != 0) {
-			failure_kind = classify_failure_kind(action->kind, action->argv,
-			    "exit-code");
+		failure_kind = classify_failure_kind(action->kind, action->argv,
+		    "exit-code");
 		if (build_log_rel(graph, running->name, ".stdout", stdout_rel,
 		    sizeof(stdout_rel)) < 0)
 			snprintf(stdout_rel, sizeof(stdout_rel), "<none>");
@@ -6128,7 +6144,8 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 					child_capture_finish(ctx, &running[i].capture);
 					action_log_queue_exit_ref(ctx, running[i].action_log,
 					    running[i].action->argv, 124,
-					    running[i].action->description);
+					    running[i].action->description,
+					    &running[i].action->outputs);
 					write_failure_replay(graph, running[i].action->id,
 					    running[i].action->toolchain,
 					    running[i].action->argv,
@@ -6220,7 +6237,8 @@ seen_label(const struct qstar_string_list *seen, const char *label)
 /** dependency artifact를 dependent-before-dependency order로 재귀 추가한다. */
 static int
 append_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *dep,
-    char **argv, size_t *argc, struct qstar_string_list *seen)
+    const struct qstar_resolved_toolchain *toolchain, char **argv, size_t *argc,
+    struct qstar_string_list *seen)
 {
 	const struct qstar_target *next;
 	char artifact[QSTAR_PATH_MAX];
@@ -6232,7 +6250,8 @@ append_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *de
 		return qstar_set_error(graph, "qstar: out of memory");
 	if (strcmp(dep->kind, "group") == 0)
 		return 0;
-	if (qstar_graph_artifact_output_path(graph, dep, artifact, sizeof(artifact)) < 0)
+	if (qstar_graph_target_link_artifact_path(graph, dep, toolchain->platform, artifact,
+	    sizeof(artifact)) < 0)
 		return qstar_set_error(graph, "qstar: dependency artifact path too long");
 	if (append_owned_argv(graph, argv, argc, artifact) < 0)
 		return -1;
@@ -6240,14 +6259,16 @@ append_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *de
 		if (dep->deps.items[i][0] == '@')
 			continue;
 		next = find_target(graph, dep->deps.items[i]);
-		if (next && append_dep_artifact_rec(graph, next, argv, argc, seen) < 0)
+		if (next && append_dep_artifact_rec(graph, next, toolchain, argv, argc,
+		    seen) < 0)
 			return -1;
 	}
 	for (i = 0; i < dep->private_deps.len; i++) {
 		if (dep->private_deps.items[i][0] == '@')
 			continue;
 		next = find_target(graph, dep->private_deps.items[i]);
-		if (next && append_dep_artifact_rec(graph, next, argv, argc, seen) < 0)
+		if (next && append_dep_artifact_rec(graph, next, toolchain, argv, argc,
+		    seen) < 0)
 			return -1;
 	}
 	return 0;
@@ -6256,7 +6277,7 @@ append_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *de
 /** target의 transitive dependency artifact를 final argv 뒤에 붙인다. */
 static int
 append_dep_artifacts(struct qstar_graph *graph, const struct qstar_target *target,
-    char **argv, size_t *argc)
+    const struct qstar_resolved_toolchain *toolchain, char **argv, size_t *argc)
 {
 	const struct qstar_target *dep;
 	struct qstar_string_list seen;
@@ -6270,7 +6291,7 @@ append_dep_artifacts(struct qstar_graph *graph, const struct qstar_target *targe
 		dep = find_target(graph, target->deps.items[i]);
 		if (!dep)
 			continue;
-		rc = append_dep_artifact_rec(graph, dep, argv, argc, &seen);
+		rc = append_dep_artifact_rec(graph, dep, toolchain, argv, argc, &seen);
 		if (rc < 0) {
 			qstar_string_list_free(&seen);
 			return rc;
@@ -6282,7 +6303,7 @@ append_dep_artifacts(struct qstar_graph *graph, const struct qstar_target *targe
 		dep = find_target(graph, target->private_deps.items[i]);
 		if (!dep)
 			continue;
-		rc = append_dep_artifact_rec(graph, dep, argv, argc, &seen);
+		rc = append_dep_artifact_rec(graph, dep, toolchain, argv, argc, &seen);
 		if (rc < 0) {
 			qstar_string_list_free(&seen);
 			return rc;
@@ -6369,7 +6390,8 @@ append_sharedlib_runtime_rpaths(struct qstar_graph *graph,
 	int rc;
 
 	if (strcmp(target->kind, "staticlib") == 0 ||
-	    !qstar_platform_supports_sharedlib(toolchain->platform))
+	    !qstar_platform_supports_sharedlib(toolchain->platform) ||
+	    qstar_platform_is_windows(toolchain->platform))
 		return 0;
 	if (qstar_dirname(artifact, consumer_dir, sizeof(consumer_dir)) < 0)
 		return qstar_set_error(graph, "qstar: artifact directory path too long");
@@ -6426,7 +6448,7 @@ validate_sharedlib_platform(struct qstar_graph *graph, const struct qstar_target
 		return 0;
 	return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 	    "kind", target->label,
-	    "qstar: sharedlib target '%s' has Graph IR artifacts for runtime .dll and import .lib, but Stella lowering for platform '%s' is deferred; use dry-run, explain, or list-targets --format json to inspect the artifact map, or see docs/windows-artifact-graph-ir.md",
+	    "qstar: sharedlib target '%s' is not supported for platform '%s'",
 	    target->label, toolchain->platform);
 }
 
@@ -6436,7 +6458,8 @@ append_sharedlib_link_flags(struct qstar_graph *graph, const struct qstar_target
     const struct qstar_resolved_toolchain *toolchain, const char *artifact, char **argv,
     size_t *argc)
 {
-	char install_name[QSTAR_PATH_MAX], soname[QSTAR_PATH_MAX];
+	char import_lib[QSTAR_PATH_MAX], install_name[QSTAR_PATH_MAX];
+	char soname[QSTAR_PATH_MAX], flag[QSTAR_PATH_MAX];
 
 	if (strcmp(target->kind, "sharedlib") != 0)
 		return 0;
@@ -6446,8 +6469,27 @@ append_sharedlib_link_flags(struct qstar_graph *graph, const struct qstar_target
 		snprintf(install_name, sizeof(install_name), "@rpath/%s",
 		    artifact_basename(artifact));
 		return append_owned_argv(graph, argv, argc, "-dynamiclib") < 0 ||
-		    append_owned_argv(graph, argv, argc, "-install_name") < 0 ||
-		    append_owned_argv(graph, argv, argc, install_name) < 0 ? -1 : 0;
+			    append_owned_argv(graph, argv, argc, "-install_name") < 0 ||
+			    append_owned_argv(graph, argv, argc, install_name) < 0 ? -1 : 0;
+	}
+	if (qstar_platform_is_windows(toolchain->platform)) {
+		if (qstar_graph_target_artifact_path(graph, target, "import_lib",
+		    import_lib, sizeof(import_lib)) < 0)
+			return -1;
+		if (strcmp(toolchain->link_style, "msvc") == 0) {
+			if (snprintf(flag, sizeof(flag), "/IMPLIB:%s", import_lib) >=
+			    (int)sizeof(flag))
+				return qstar_set_error(graph,
+				    "qstar: import library path is too long");
+			return append_owned_argv(graph, argv, argc, "/DLL") < 0 ||
+			    append_owned_argv(graph, argv, argc, flag) < 0 ? -1 : 0;
+		}
+		if (snprintf(flag, sizeof(flag), "-Wl,--out-implib,%s", import_lib) >=
+		    (int)sizeof(flag))
+			return qstar_set_error(graph,
+			    "qstar: import library path is too long");
+		return append_owned_argv(graph, argv, argc, "-shared") < 0 ||
+		    append_owned_argv(graph, argv, argc, flag) < 0 ? -1 : 0;
 	}
 	snprintf(soname, sizeof(soname), "-Wl,-soname,%s", artifact_basename(artifact));
 	return append_owned_argv(graph, argv, argc, "-shared") < 0 ||
@@ -6688,7 +6730,7 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	dep_first = argc;
 	if (strcmp(target->kind, "staticlib") != 0 &&
-	    append_dep_artifacts(graph, target, argv, &argc) < 0) {
+	    append_dep_artifacts(graph, target, toolchain, argv, &argc) < 0) {
 		free_dep_artifacts(argv, owned_first, dep_first);
 		return -1;
 	}
@@ -6729,9 +6771,10 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		qstar_string_list_free(&inputs);
 		return -1;
 	}
-	if (qstar_string_list_push(&outputs, artifact) < 0) {
+	if (qstar_graph_target_artifact_outputs(graph, target, &outputs) < 0) {
 		qstar_string_list_free(&inputs);
-		return qstar_set_error(graph, "qstar: out of memory");
+		free_dep_artifacts(argv, owned_first, argc);
+		return -1;
 	}
 	memset(&material, 0, sizeof(material));
 	key[0] = '\0';
@@ -7865,8 +7908,8 @@ skip_prepared_action_prequeue(struct qstar_graph *graph, struct qstar_build_ctx 
 		build_tracef(ctx,
 		    "scheduler_event event=pre_skip id=%s target=%s state=cache-hit retry=no\n",
 		    action->id, prepared_action_owner_label(action));
-		action_log_queue_skip_ref(ctx, action_log, action->argv,
-		    action->description);
+			action_log_queue_skip_ref(ctx, action_log, action->argv,
+			    action->description, &action->outputs);
 	}
 	progress_skip_action(ctx);
 	ctx->skip_count++;
@@ -8147,7 +8190,8 @@ scheduler_execute(struct qstar_scheduler *sched)
 					action_log_queue_exit_ref(sched->ctx,
 					    running[i].action_log,
 					    running[i].action->argv, 124,
-					    running[i].action->description);
+					    running[i].action->description,
+					    &running[i].action->outputs);
 					write_failure_replay_detail(sched->graph,
 					    running[i].action->id,
 					    running[i].action->toolchain,
@@ -8830,12 +8874,6 @@ install_one_target(struct qstar_graph *graph, const struct qstar_target *target,
 		    ctx->out) < 0)
 			return -1;
 	}
-	if (!ctx->options->dry_run && strcmp(target->kind, "sharedlib") == 0 &&
-	    qstar_platform_is_windows(qstar_graph_platform(graph)))
-		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-		    "kind", target->label,
-		    "qstar: Windows sharedlib install for '%s' is deferred until Stella/Ninja lowering produces both runtime .dll and import .lib; use --dry-run to inspect the planned layout or see docs/windows-artifact-graph-ir.md",
-		    target->label);
 	if (qstar_graph_target_artifact_map(graph, target, &artifacts) < 0)
 		return qstar_set_error(graph, "qstar: install artifact path too long");
 	for (i = 0; i < artifacts.len; i++) {
@@ -9732,10 +9770,13 @@ qstar_graph_action_log(struct qstar_graph *graph, const char *action_id, FILE *o
 		    sizeof(exit_text));
 		if (rc < 0)
 			return -1;
-		if (rc == 0)
+		if (rc == 0) {
+			prepared_action_free(&action);
 			return qstar_set_error(graph, "qstar: action log '%s' does not exist",
 			    rel);
-		write_action_log_stream(out, action.argv, exit_text, action.description);
+		}
+		write_action_log_stream(out, action.argv, exit_text,
+		    action.description, &action.outputs);
 		prepared_action_free(&action);
 	}
 	fputs("status ok\n", out);

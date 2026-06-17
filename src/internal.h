@@ -274,6 +274,14 @@ int qstar_graph_target_artifact_map(const struct qstar_graph *graph,
 int qstar_graph_target_artifact_path(struct qstar_graph *graph,
     const struct qstar_target *target, const char *artifact, char *dst, size_t dstlen);
 
+/** target final action이 생산하는 모든 artifact path를 반환한다. */
+int qstar_graph_target_artifact_outputs(struct qstar_graph *graph,
+    const struct qstar_target *target, struct qstar_string_list *outputs);
+
+/** dependency를 link할 때 사용할 artifact path를 platform policy 기준으로 반환한다. */
+int qstar_graph_target_link_artifact_path(struct qstar_graph *graph,
+    const struct qstar_target *target, const char *platform, char *dst, size_t dstlen);
+
 /** build context/target artifact_name policy를 적용한 artifact output path를 만든다. */
 int qstar_graph_artifact_output_path(const struct qstar_graph *graph,
     const struct qstar_target *target, char *dst, size_t dstlen);

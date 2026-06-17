@@ -89,6 +89,19 @@ qstar.sharedlib "plugin" {
   artifact_name = "plugin.dll",
 }
 
+qstar.executable "plugin_user" {
+  configs = {
+    "//:windows_c",
+  },
+  sources = {
+    "src/plugin_user.c",
+  },
+  deps = {
+    "//:plugin",
+  },
+  artifact_name = "plugin_user.exe",
+}
+
 qstar.stage "layout" {
   root = "build/qstar/stage/windows-layout",
   files = {
@@ -113,5 +126,7 @@ qstar.group "all" {
     "//:core",
     "//:named_tool",
     "//:named_core",
+    "//:plugin",
+    "//:plugin_user",
   },
 }

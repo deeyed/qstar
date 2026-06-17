@@ -23,6 +23,7 @@ can build a real `windows_static.lib` fixture on non-Windows hosts. This proves
 QStar artifact naming, archive action construction, action logs, and Ninja
 lowering without claiming native `lib.exe` or `llvm-lib` compatibility.
 
-`windows_plugin` is intentionally unsupported for Windows platform contexts. Stella
-and Ninja must reject it with the same diagnostic that names the deferred
-runtime `.dll`, import `.lib`, and PDB/debug artifact policy.
+`windows_plugin` uses the same fake `clang-cl` fixture to prove Windows
+shared-library lowering shape on non-Windows hosts: Stella and Ninja both record
+runtime `.dll` plus import `.lib` outputs for one `link-shared` action. This
+does not claim direct MSVC/clang-cl shared-library validation.

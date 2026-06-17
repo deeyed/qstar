@@ -5574,21 +5574,23 @@ if command -v ninja >/dev/null 2>&1; then
 	test ! -f "$tmp/.ninja_deps" || fail "sharedlib ninja wrote package root .ninja_deps"
 fi
 
-step "windows sharedlib stella diagnostic" "shared-windows"
-if "$qstar" --file "$tmp/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang build //:plugin > "$tmp/shared-windows.out" 2> "$tmp/shared-windows.err"; then
-	fail "windows sharedlib unexpectedly succeeded"
-fi
-contains "$tmp/shared-windows.err" "has Graph IR artifacts for runtime .dll and import .lib"
-contains "$tmp/shared-windows.err" "Stella lowering for platform 'windows' is deferred"
-contains "$tmp/shared-windows.err" "docs/windows-artifact-graph-ir.md"
+step "windows sharedlib stella lowering plan" "shared-windows"
+"$qstar" --file "$tmp/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+	dry-run //:plugin > "$tmp/shared-windows.out" 2> "$tmp/shared-windows.err"
+contains "$tmp/shared-windows.out" "artifact id=runtime role=sharedlib path=build/qstar/out/___plugin/plugin.dll"
+contains "$tmp/shared-windows.out" "artifact id=import_lib role=import_lib path=build/qstar/out/___plugin/plugin.lib"
+contains "$tmp/shared-windows.out" "-Wl,--out-implib,build/qstar/out/___plugin/plugin.lib"
+not_contains "$tmp/shared-windows.out" "plan_diagnostic kind=windows-sharedlib-lowering"
 
-step "windows sharedlib ninja diagnostic" "shared-windows-ninja"
-if "$qstar" --file "$tmp/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang -G ninja build //:plugin > "$tmp/shared-windows-ninja.out" 2> "$tmp/shared-windows-ninja.err"; then
-	fail "windows sharedlib ninja unexpectedly succeeded"
-fi
-contains "$tmp/shared-windows-ninja.err" "has Graph IR artifacts for runtime .dll and import .lib"
-contains "$tmp/shared-windows-ninja.err" "Ninja lowering for platform 'windows' is deferred"
-contains "$tmp/shared-windows-ninja.err" "docs/windows-artifact-graph-ir.md"
+step "windows sharedlib ninja lowering plan" "shared-windows-ninja"
+"$qstar" --file "$tmp/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+	-G ninja emit-ninja //:plugin_app > "$tmp/shared-windows-ninja.out" \
+	2> "$tmp/shared-windows-ninja.err"
+contains "$tmp/build/qstar/ninja/build.ninja" \
+	"build/qstar/out/___plugin/plugin.dll build/qstar/out/___plugin/plugin.lib: qstar_link"
+contains "$tmp/build/qstar/ninja/build.ninja" \
+	"build/qstar/out/___plugin_app/plugin_app: qstar_link build/qstar/out/___plugin_app/obj0.o build/qstar/out/___plugin/plugin.lib"
+contains "$tmp/build/qstar/ninja/build.ninja" "-Wl,--out-implib,build/qstar/out/___plugin/plugin.lib"
 
 step "test and install corpus setup" "test-install-setup"
 cat > "$tmp/src/test_pass.c" <<'EOF'
@@ -6452,10 +6454,12 @@ contains "docs/windows-path-process.md" ".github/workflows/windows-validation.ym
 contains "docs/windows-path-process.md" "Round Q174"
 contains "docs/windows-path-process.md" "stage/install layout"
 contains "docs/windows-path-process.md" "Round Q222 validates"
+contains "docs/windows-path-process.md" "Round Q224 lowers Windows shared libraries"
 contains "docs/windows-artifact-policy.md" "Windows Artifact Policy"
 contains "docs/windows-artifact-policy.md" "Round Q173 seals the implementation plan"
 contains "docs/windows-artifact-policy.md" "Round Q174 promotes executable and static-library artifacts"
 contains "docs/windows-artifact-policy.md" "exe/static artifact gate: sealed for Q174"
+contains "docs/windows-artifact-policy.md" "sharedlib lowering gate: sealed for Q224"
 contains "docs/windows-artifact-policy.md" "bin/<artifact-basename>"
 contains "docs/windows-artifact-policy.md" "lib/<artifact-basename>"
 contains "docs/windows-artifact-policy.md" 'static archive `.lib`'
@@ -6467,16 +6471,16 @@ contains "docs/windows-artifact-policy.md" "import .lib"
 contains "docs/windows-artifact-policy.md" "PDB/debug"
 contains "docs/windows-artifact-policy.md" "windows_static.lib"
 contains "docs/windows-artifact-policy.md" 'fake static `.lib`'
-contains "docs/windows-artifact-policy.md" "Windows sharedlib diagnostic parity"
+contains "docs/windows-artifact-policy.md" 'dependent executable linkage through the import `.lib`'
 contains "docs/windows-artifact-graph-ir.md" "Windows Artifact Graph IR Contract"
-contains "docs/windows-artifact-graph-ir.md" "Round Q223 promotes"
+contains "docs/windows-artifact-graph-ir.md" "Round Q224 lowers"
 contains "docs/windows-artifact-graph-ir.md" "artifact id=import_lib"
 contains "docs/windows-artifact-graph-ir.md" "target_file(\"//:plugin\", { artifact = \"import_lib\" })"
 contains "docs/windows-artifact-graph-ir.md" "Stella And Ninja Parity"
-contains "docs/windows-artifact-graph-ir.md" "plan_diagnostic kind=windows-sharedlib-lowering"
+contains "docs/windows-artifact-graph-ir.md" "output_count=2"
 contains "tests/corpus/windows-artifacts/README.md" "Windows Artifacts Corpus"
 contains "tests/corpus/windows-artifacts/README.md" "Q174 executable/static-library regression gate"
-contains "tests/corpus/windows-artifacts/README.md" "Q223 Windows shared-library"
+contains "tests/corpus/windows-artifacts/README.md" "Q224 adds Windows shared-library backend lowering"
 contains "tests/corpus/windows-artifacts/README.md" "windows_fake"
 contains "tests/corpus/windows-artifacts/README.md" 'runtime `.dll`, import `.lib`'
 contains "tests/corpus/windows-artifacts/qstar.lua" "qstar.toolset \"windows_fake\""
@@ -6484,6 +6488,7 @@ contains "tests/corpus/windows-artifacts/qstar.lua" "artifact_name = \"named_too
 contains "tests/corpus/windows-artifacts/qstar.lua" "artifact_name = \"tool.exe\""
 contains "tests/corpus/windows-artifacts/qstar.lua" "artifact_name = \"core.lib\""
 contains "tests/corpus/windows-artifacts/qstar.lua" "artifact_name = \"plugin.dll\""
+contains "tests/corpus/windows-artifacts/qstar.lua" "qstar.executable \"plugin_user\""
 contains "tests/corpus/windows-artifacts/qstar.lua" "qstar.stage \"plugin_layout\""
 contains "tests/corpus/windows-artifacts/qstar.lua" "artifact = \"import_lib\""
 contains "tests/corpus/windows-artifacts/tools/fake-clang-cl.sh" "fake-clang-cl: output path not found"
@@ -6522,11 +6527,12 @@ contains "tests/windows-prep.sh" "windows-artifacts-plugin-prefix/bin/plugin.dll
 contains "tests/windows-prep.sh" "windows-artifacts-plugin-prefix/lib/plugin.lib"
 contains "tests/windows-prep.sh" "known artifacts: runtime, import_lib"
 contains "tests/windows-prep.sh" "windows-artifacts-ninja-prefix/lib/core.lib"
-contains "tests/windows-prep.sh" "Windows sharedlib Ninja unexpectedly succeeded"
-contains "tests/windows-prep.sh" "Windows artifact corpus Ninja sharedlib unexpectedly succeeded"
+contains "tests/windows-prep.sh" "output_count=2"
+contains "tests/windows-prep.sh" "windows-artifacts-ninja-prefix/bin/plugin.dll"
 contains "tests/windows-prep.sh" "backslash stage destination unexpectedly succeeded"
 contains "tests/windows-execution-corpus.sh" "staged generated object bridge output missing"
 contains "tests/windows-execution-corpus.sh" "ninja staged generated object bridge output missing"
+contains "tests/windows-execution-corpus.sh" "sharedlib import plugin.lib missing"
 contains "tests/corpus/response-files/qstar.lua" "msvc_response_escape_args"
 contains "tests/corpus/response-files/qstar.lua" "qstar.toolset \"windows_fake\""
 contains "tests/corpus/response-files/qstar.lua" "mapped_named.exe"

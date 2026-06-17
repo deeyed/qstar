@@ -1029,16 +1029,19 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 {
 	char id[QSTAR_PATH_MAX];
 	char buf[QSTAR_PATH_MAX];
-	char install_name[QSTAR_PATH_MAX], soname[QSTAR_PATH_MAX];
+	char import_lib[QSTAR_PATH_MAX], install_name[QSTAR_PATH_MAX];
+	char soname[QSTAR_PATH_MAX];
 	size_t argc, i;
 	struct qstar_argv_dump dump;
 	int darwin;
 	int msvc;
 	int msvc_out;
+	int windows;
 
 	snprintf(id, sizeof(id), "%s:%s:0", target->label, action);
 	msvc = strcmp(toolchain->link_style, "msvc") == 0;
 	darwin = qstar_platform_is_darwin(toolchain->platform);
+	windows = qstar_platform_is_windows(toolchain->platform);
 	msvc_out = strcmp(action, "archive") != 0 &&
 	    toolchain_uses_msvc_out_arg(toolchain, target);
 	argc = strcmp(action, "archive") == 0 ?
@@ -1074,7 +1077,23 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 			argv_item(out, &dump, output);
 		}
 		if (strcmp(action, "link-shared") == 0) {
-			if (qstar_platform_is_darwin(toolchain->platform)) {
+			if (windows) {
+				if (qstar_graph_target_artifact_path(
+				    (struct qstar_graph *)graph, target,
+				    "import_lib", import_lib, sizeof(import_lib)) == 0) {
+					if (msvc) {
+						argv_item(out, &dump, "/DLL");
+						snprintf(buf, sizeof(buf), "/IMPLIB:%s",
+						    import_lib);
+						argv_item(out, &dump, buf);
+					} else {
+						argv_item(out, &dump, "-shared");
+						snprintf(buf, sizeof(buf),
+						    "-Wl,--out-implib,%s", import_lib);
+						argv_item(out, &dump, buf);
+					}
+				}
+			} else if (darwin) {
 				snprintf(install_name, sizeof(install_name), "@rpath/%s",
 				    artifact_basename(output));
 				argv_item(out, &dump, "-dynamiclib");
@@ -1128,22 +1147,6 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 		}
 	}
 	end_argv(out, &dump);
-}
-
-static int
-target_windows_sharedlib_deferred(const struct qstar_target *target,
-    const struct qstar_resolved_toolchain *toolchain)
-{
-	return target && toolchain && strcmp(target->kind, "sharedlib") == 0 &&
-	    qstar_platform_is_windows(toolchain->platform);
-}
-
-static void
-dump_windows_sharedlib_plan_diagnostic(FILE *out, const char *indent)
-{
-	fprintf(out,
-	    "%splan_diagnostic kind=windows-sharedlib-lowering status=deferred artifacts=modeled doc=docs/windows-artifact-graph-ir.md\n",
-	    indent ? indent : "");
 }
 
 /** generated output list가 target의 파일 입력 list에 소비되는지 확인한다. */
@@ -1880,10 +1883,6 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	    "artifact", 0);
 	dump_command_skeleton(out, plan->graph, target, action, "<target-objects>",
 	    output, "artifact", final_tool, 0);
-	if (target_windows_sharedlib_deferred(target, &toolchain)) {
-		dump_windows_sharedlib_plan_diagnostic(out, "  ");
-		return 0;
-	}
 	dump_final_argv(out, target, plan->graph, &toolchain, action, output);
 	return 0;
 }
@@ -2040,10 +2039,6 @@ dump_dry_run_final(FILE *out, const struct qstar_plan *plan, const struct qstar_
 	    "dry_run_step id=%s:%s:0 owner=%s kind=%s tool=%s toolchain=%s "
 	    "input=<target-objects> output=%s execute=no\n",
 	    target->label, action, target->label, action, tool, toolchain.name, output);
-	if (target_windows_sharedlib_deferred(target, &toolchain)) {
-		dump_windows_sharedlib_plan_diagnostic(out, "");
-		return 0;
-	}
 	dump_final_argv(out, target, plan->graph, &toolchain, action, output);
 	return 0;
 }
