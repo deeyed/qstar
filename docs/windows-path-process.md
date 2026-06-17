@@ -147,7 +147,7 @@ validating graph contracts without launching tools. QStar's Ninja launcher
 shares the same platform process layer, but Windows Ninja parity is a follow-up
 alpha-hardening gate until the optional Windows workflow lane is green.
 
-Local non-Windows tests use `tests/corpus/response-files/tools/fake-clang-cl` to
+Local non-Windows tests use `tests/corpus/response-files/tools/fake-clang-cl.sh` to
 prove that QStar itself preserves argv structure and response-file escaping. That
 fixture is not a compiler and must not be used as evidence of native Windows
 toolchain support.

@@ -134,7 +134,7 @@ contains "$corpus/$build_dir/out/___windows_static/windows_static.lib" "fake sta
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
 	action-log //:windows_static:archive:0 > "$tmp/windows-static-log.out" \
 	2> "$tmp/windows-static-log.err"
-contains "$tmp/windows-static-log.out" "argv[0]=tools/fake-lib"
+contains "$tmp/windows-static-log.out" "argv[0]=tools/fake-lib.sh"
 contains "$tmp/windows-static-log.out" "windows_static.lib"
 contains "$tmp/windows-static-log.out" "description='Linking C static library build/qstar/out/___windows_static/windows_static.lib'"
 

@@ -22,11 +22,11 @@ qstar.toolset "host_rsp" {
 
 qstar.toolset "windows_fake" {
   tools = {
-    c = { compiler = qstar.cli {"tools/fake-clang-cl"} },
-    cxx = { compiler = qstar.cli {"tools/fake-clang-cl"} },
-    asm = { compiler = qstar.cli {"tools/fake-clang-cl"} },
-    archive = qstar.cli {"tools/fake-lib"},
-    link = qstar.cli {"tools/fake-clang-cl"},
+    c = { compiler = qstar.cli {"tools/fake-clang-cl.sh"} },
+    cxx = { compiler = qstar.cli {"tools/fake-clang-cl.sh"} },
+    asm = { compiler = qstar.cli {"tools/fake-clang-cl.sh"} },
+    archive = qstar.cli {"tools/fake-lib.sh"},
+    link = qstar.cli {"tools/fake-clang-cl.sh"},
   },
   response_files = "on",
   response_style = "msvc",
