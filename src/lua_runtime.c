@@ -52,6 +52,7 @@ static int lower_provider_source_unit(lua_State *L, int source_token,
 static int lower_provider_final_action(lua_State *L, struct qstar_target *target,
     struct qstar_graph *graph);
 static int qstar_lua_abs_index(lua_State *L, int idx);
+static int readonly_table_assignment_forbidden(lua_State *L);
 static int valid_tool_role_name(const char *s);
 
 static int
@@ -1334,21 +1335,6 @@ resolve_cli_placeholders(struct qstar_graph *graph, struct qstar_string_list *co
 	}
 	qstar_string_list_free(command);
 	*command = resolved;
-	return 0;
-}
-
-static int
-reject_top_level_field(lua_State *L, int table, struct qstar_graph *graph,
-    const char *field, const char *message)
-{
-	if (table < 0)
-		table = lua_gettop(L) + table + 1;
-	lua_getfield(L, table, field);
-	if (!lua_isnil(L, -1)) {
-		lua_pop(L, 1);
-		return qstar_set_error(graph, "%s", message);
-	}
-	lua_pop(L, 1);
 	return 0;
 }
 
@@ -3033,29 +3019,6 @@ add_config(lua_State *L, const char *name, int table_index, const char *fragment
 	    origin_line);
 	if (!config)
 		return luaL_error(L, "%s", graph->error);
-	if (reject_top_level_field(L, table_index, graph, "include_dirs",
-	    "top-level include_dirs is not allowed; move it under lang.c.include_dirs, lang.cxx.include_dirs, or lang.asm.include_dirs") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "public_include_dirs",
-	    "top-level public_include_dirs is not allowed; move it under lang.c.public_include_dirs or lang.cxx.public_include_dirs") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "private_include_dirs",
-	    "top-level private_include_dirs is not allowed; move it under lang.c.private_include_dirs or lang.cxx.private_include_dirs") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "system_include_dirs",
-	    "top-level system_include_dirs is not allowed; move it under lang.c.system_include_dirs or lang.cxx.system_include_dirs") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "interface_include_dirs",
-	    "top-level interface_include_dirs is not allowed; move it under lang.c.public_include_dirs or lang.cxx.public_include_dirs") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "cflags",
-	    "top-level cflags is not allowed; move it under lang.c.compile_options") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "cxxflags",
-	    "top-level cxxflags is not allowed; move it under lang.cxx.compile_options") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "cxx_standard",
-	    "top-level cxx_standard is not allowed; move it to lang.cxx.standard") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "public_headers",
-	    "top-level public_headers is not allowed; move it under lang.c.public_headers or lang.cxx.public_headers") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "private_headers",
-	    "top-level private_headers is not allowed; move it under lang.c.private_headers or lang.cxx.private_headers") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "modules",
-	    "top-level modules is not allowed; move it under lang.cxx.modules") < 0)
-		return luaL_error(L, "%s", graph->error);
 	if (validate_config_fields(L, table_index, graph) < 0)
 		return luaL_error(L, "%s", graph->error);
 	if (read_list_field(L, table_index, "libs", &config->options.libs, graph, 0,
@@ -3274,29 +3237,6 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	target = qstar_graph_add_target(graph, label, name, kind, fragment_dir, origin_file,
 	    origin_line);
 	if (!target)
-		return luaL_error(L, "%s", graph->error);
-	if (reject_top_level_field(L, table_index, graph, "include_dirs",
-	    "top-level include_dirs is not allowed; move it under lang.c.include_dirs, lang.cxx.include_dirs, or lang.asm.include_dirs") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "public_include_dirs",
-	    "top-level public_include_dirs is not allowed; move it under lang.c.public_include_dirs or lang.cxx.public_include_dirs") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "private_include_dirs",
-	    "top-level private_include_dirs is not allowed; move it under lang.c.private_include_dirs or lang.cxx.private_include_dirs") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "system_include_dirs",
-	    "top-level system_include_dirs is not allowed; move it under lang.c.system_include_dirs or lang.cxx.system_include_dirs") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "interface_include_dirs",
-	    "top-level interface_include_dirs is not allowed; move it under lang.c.public_include_dirs or lang.cxx.public_include_dirs") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "cflags",
-	    "top-level cflags is not allowed; move it under lang.c.compile_options") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "cxxflags",
-	    "top-level cxxflags is not allowed; move it under lang.cxx.compile_options") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "cxx_standard",
-	    "top-level cxx_standard is not allowed; move it to lang.cxx.standard") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "public_headers",
-	    "top-level public_headers is not allowed; move it under lang.c.public_headers or lang.cxx.public_headers") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "private_headers",
-	    "top-level private_headers is not allowed; move it under lang.c.private_headers or lang.cxx.private_headers") < 0 ||
-	    reject_top_level_field(L, table_index, graph, "modules",
-	    "top-level modules is not allowed; move it under lang.cxx.modules") < 0)
 		return luaL_error(L, "%s", graph->error);
 	if (validate_target_fields(L, table_index, graph) < 0)
 		return luaL_error(L, "%s", graph->error);
@@ -3815,14 +3755,6 @@ qstar_lua_target_family(lua_State *L)
 		return 1;
 	}
 	return add_target_family(L, name, 2, ctx->current_dir);
-}
-
-static int
-qstar_lua_identity_table(lua_State *L)
-{
-	luaL_checktype(L, 1, LUA_TTABLE);
-	lua_pushvalue(L, 1);
-	return 1;
 }
 
 /** Lua stack index를 push/pop에 흔들리지 않는 absolute index로 바꾼다. */
@@ -7100,6 +7032,79 @@ resolve_import_path(struct qstar_lua_context *ctx, const char *raw, char *rel,
 	return qstar_path_join(ctx->root_dir, rel, full, fulllen);
 }
 
+static void
+push_module_export_cache(lua_State *L)
+{
+	lua_getfield(L, LUA_REGISTRYINDEX, "qstar.module.exports");
+	if (lua_istable(L, -1))
+		return;
+	lua_pop(L, 1);
+	lua_newtable(L);
+	lua_pushvalue(L, -1);
+	lua_setfield(L, LUA_REGISTRYINDEX, "qstar.module.exports");
+}
+
+static int
+push_cached_module_export(lua_State *L, const char *rel)
+{
+	push_module_export_cache(L);
+	lua_getfield(L, -1, rel);
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 2);
+		return 0;
+	}
+	lua_remove(L, -2);
+	return 1;
+}
+
+static void
+cache_module_export(lua_State *L, const char *rel, int value)
+{
+	value = qstar_lua_abs_index(L, value);
+	push_module_export_cache(L);
+	lua_pushvalue(L, value);
+	lua_setfield(L, -2, rel);
+	lua_pop(L, 1);
+}
+
+static int
+readonly_module_pairs(lua_State *L)
+{
+	lua_getglobal(L, "next");
+	lua_pushvalue(L, lua_upvalueindex(1));
+	lua_pushnil(L);
+	return 3;
+}
+
+static int
+readonly_module_len(lua_State *L)
+{
+	lua_pushinteger(L, (lua_Integer)lua_rawlen(L, lua_upvalueindex(1)));
+	return 1;
+}
+
+static void
+push_readonly_module_export(lua_State *L, int table)
+{
+	table = qstar_lua_abs_index(L, table);
+	lua_newtable(L);
+	lua_newtable(L);
+	lua_pushvalue(L, table);
+	lua_setfield(L, -2, "__index");
+	lua_pushstring(L, "module exports");
+	lua_pushcclosure(L, readonly_table_assignment_forbidden, 1);
+	lua_setfield(L, -2, "__newindex");
+	lua_pushvalue(L, table);
+	lua_pushcclosure(L, readonly_module_pairs, 1);
+	lua_setfield(L, -2, "__pairs");
+	lua_pushvalue(L, table);
+	lua_pushcclosure(L, readonly_module_len, 1);
+	lua_setfield(L, -2, "__len");
+	lua_pushboolean(L, 0);
+	lua_setfield(L, -2, "__metatable");
+	lua_setmetatable(L, -2);
+}
+
 /** folder path의 basename component를 반환한다. */
 static const char *
 path_basename_component(const char *path)
@@ -7309,8 +7314,12 @@ qstar_lua_import_module(lua_State *L)
 		format_import_chain(ctx, rel, chain, sizeof(chain));
 		return luaL_error(L, "qstar: circular import chain: %s", chain);
 	}
+	if (push_cached_module_export(L, rel))
+		return 1;
 	if (string_list_contains(&ctx->graph->evaluated_fragments, rel))
-		return luaL_error(L, "qstar: duplicate import '%s'", rel);
+		return luaL_error(L,
+		    "qstar: import_module '%s' was already evaluated as a graph input",
+		    rel);
 	f = fopen(full, "r");
 	if (!f)
 		return luaL_error(L,
@@ -7319,6 +7328,9 @@ qstar_lua_import_module(lua_State *L)
 	fclose(f);
 	if (eval_module(L, ctx, full, rel_dir, rel) < 0)
 		return lua_error(L);
+	push_readonly_module_export(L, -1);
+	cache_module_export(L, rel, -1);
+	lua_remove(L, -2);
 	return 1;
 }
 
@@ -8114,8 +8126,6 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "__call");
 	lua_setmetatable(L, -2);
 	lua_setfield(L, -2, "param");
-	lua_pushcfunction(L, qstar_lua_identity_table);
-	lua_setfield(L, -2, "modules");
 	lua_pushcfunction(L, qstar_lua_files);
 	lua_setfield(L, -2, "files");
 	lua_pushcfunction(L, qstar_lua_join);

@@ -28,7 +28,7 @@ usage(FILE *out)
 	fputs("       qstar [options] install [label] --prefix path [--dry-run]\n", out);
 	fputs("       qstar [options] stage <label> [--root path] [--dry-run]\n", out);
 	fputs("       qstar [options] why-rebuild [label]\n", out);
-	fputs("       qstar [options] clean [--target label]\n", out);
+	fputs("       qstar [options] clean [label]\n", out);
 	fputs("       qstar [options] log [label]\n", out);
 	fputs("       qstar [options] last-failure\n", out);
 	fputs("       qstar [options] action-log <action-id>\n", out);
@@ -915,14 +915,18 @@ main(int argc, char **argv)
 			}
 		}
 	} else if (strcmp(cmd, "clean") == 0) {
-		if (arg < argc && strcmp(argv[arg], "--target") == 0) {
-			if (arg + 1 >= argc) {
+		while (arg < argc) {
+			if (strcmp(argv[arg], "--target") == 0) {
+				usage(stderr);
+				qstar_graph_free(&graph);
+				return 2;
+			} else if (!label) {
+				label = argv[arg++];
+			} else {
 				usage(stderr);
 				qstar_graph_free(&graph);
 				return 2;
 			}
-			label = argv[arg + 1];
-			arg += 2;
 		}
 	} else if (strcmp(cmd, "install") == 0) {
 		while (arg < argc) {

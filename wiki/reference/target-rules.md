@@ -88,4 +88,4 @@ qstar --file qstar.lua explain //:app
 
 ## 관련 diagnostic
 
-- `top-level include_dirs is not allowed`
+- `unknown target field 'include_dirs'`

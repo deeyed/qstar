@@ -653,7 +653,7 @@ make qstar-windows-prep-tests
 make qstar-windows-native-alpha-tests
 make qstar-windows-sharedlib-artifact-parity-tests
 qstar --file qstar.lua why-rebuild //:target
-qstar --file qstar.lua clean --target //:target
+qstar --file qstar.lua clean //:target
 qstar --file qstar.lua log //:target
 qstar --file qstar.lua last-failure
 qstar --file qstar.lua action-log //:target:compile:0

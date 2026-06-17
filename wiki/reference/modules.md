@@ -31,6 +31,10 @@ qstar/modules/paths/paths.qsm
 ```
 
 `.qsm` file은 반드시 table을 반환한다.
+같은 module을 여러 번 import하면 첫 평가의 export table을 cache해서 재사용한다. 반환 table은
+read-only라서 caller가 module namespace를 덮어쓸 수 없다. Module top-level은 namespace로
+사용하고, target/config에 넘길 option table은 helper 함수가 새 table을 만들어 반환하는 형태를
+권장한다.
 
 ```lua
 local M = {}
@@ -138,6 +142,7 @@ qstar.staticlib "platform" {
 ```txt
 qstar: import_module expects a folder path, not file 'qstar/modules/paths/paths.qsm'; use qstar.import_module("qstar/modules/paths")
 qstar: import_module 'qstar/modules/missing' not found; expected module entry 'qstar/modules/missing/missing.qsm'
+qstar: module exports is read-only: common_c
 qstar: qstar.config is forbidden inside .qsm module; modules must return a helper table
 qstar: circular import chain: qstar.lua -> qstar/modules/a/a.qsm -> qstar/modules/b/b.qsm -> qstar/modules/a/a.qsm
 qstar: duplicate language provider namespace lang.zig

@@ -59,6 +59,6 @@ qstar --file qstar.lua install //:core --prefix /tmp/qstar-prefix
 
 ## 관련 diagnostic
 
-- `top-level public_headers is not allowed; use lang.c.public_headers`
+- `unknown target field 'public_headers'`
 - `public header must be under include/`
 - `private include leaked across target boundary`

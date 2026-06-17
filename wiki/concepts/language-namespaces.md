@@ -85,8 +85,8 @@ qstar --file qstar.lua dry-run //:tool
 
 ## 관련 diagnostic
 
-- `top-level include_dirs is not allowed; use lang.c.include_dirs or lang.cxx.include_dirs`
-- `top-level cflags is not allowed; use lang.c.compile_options`
+- `unknown target field 'include_dirs'`
+- `unknown target field 'cflags'`
 - `unknown language namespace`
 - `unknown field lang.<namespace>.<option>`
 - `duplicate language provider`

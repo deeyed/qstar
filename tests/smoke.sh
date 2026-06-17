@@ -1242,10 +1242,15 @@ step "build-context-era CLI hard cut" "cli-hard-cut"
 not_contains "$tmp/cli-hard-cut-help.out" "--target triple"
 not_contains "$tmp/cli-hard-cut-help.out" "--toolchain"
 not_contains "$tmp/cli-hard-cut-help.out" "--stdlib"
+not_contains "$tmp/cli-hard-cut-help.out" "clean [--target label]"
 if "$qstar" --file "$tmp/cli-overrides/qstar.lua" --target x86_64-pc-windows-msvc check > "$tmp/cli-target.out" 2> "$tmp/cli-target.err"; then
 	fail "public --target unexpectedly succeeded"
 fi
 contains "$tmp/cli-target.err" "usage: qstar"
+if "$qstar" --file "$tmp/cli-overrides/qstar.lua" clean --target //:app > "$tmp/cli-clean-target.out" 2> "$tmp/cli-clean-target.err"; then
+	fail "clean --target unexpectedly succeeded"
+fi
+contains "$tmp/cli-clean-target.err" "usage: qstar"
 if "$qstar" --file "$tmp/cli-overrides/qstar.lua" --toolchain clang check > "$tmp/cli-toolchain.out" 2> "$tmp/cli-toolchain.err"; then
 	fail "public --toolchain unexpectedly succeeded"
 fi
@@ -1799,20 +1804,34 @@ if "$qstar" --file "$tmp/import-duplicate-file/qstar.lua" check > "$tmp/import-d
 fi
 contains "$tmp/import-duplicate-file.err" "duplicate import 'p/common.qst'"
 
-step "import duplicate module diagnostic" "import-duplicate-module"
+step "import_module cache reuse and frozen exports" "import-module-cache"
 mkdir -p "$tmp/import-duplicate-module/mods/a"
 cat > "$tmp/import-duplicate-module/qstar.lua" <<'EOF'
 qstar.project { name = "dup-module", root = "." }
 local a = qstar.import_module("mods/a")
 local b = qstar.import_module("mods/a")
+if a ~= b then
+  error("module cache returned a different export table")
+end
+if a.answer ~= 42 then
+  error("module cache lost export value")
+end
 EOF
 cat > "$tmp/import-duplicate-module/mods/a/a.qsm" <<'EOF'
-return {}
+return { answer = 42 }
 EOF
-if "$qstar" --file "$tmp/import-duplicate-module/qstar.lua" check > "$tmp/import-duplicate-module.out" 2> "$tmp/import-duplicate-module.err"; then
-	fail "duplicate import_module unexpectedly succeeded"
+if ! "$qstar" --file "$tmp/import-duplicate-module/qstar.lua" check > "$tmp/import-duplicate-module.out" 2> "$tmp/import-duplicate-module.err"; then
+	fail "cached import_module unexpectedly failed"
 fi
-contains "$tmp/import-duplicate-module.err" "duplicate import 'mods/a/a.qsm'"
+contains "$tmp/import-duplicate-module.out" "status ok"
+cat > "$tmp/import-duplicate-module/qstar.lua" <<'EOF'
+local a = qstar.import_module("mods/a")
+a.answer = 7
+EOF
+if "$qstar" --file "$tmp/import-duplicate-module/qstar.lua" check > "$tmp/import-module-frozen.out" 2> "$tmp/import-module-frozen.err"; then
+	fail "module export mutation unexpectedly succeeded"
+fi
+contains "$tmp/import-module-frozen.err" "module exports is read-only: answer"
 
 step "import missing module diagnostic" "import-missing-module"
 mkdir -p "$tmp/import-missing-module"
@@ -4426,7 +4445,7 @@ contains "$tmp/replay.out" "qstar last-failure v1"
 contains "$tmp/replay.out" "cc -c src/main.c"
 
 step "initial build smoke: target clean" "clean-target"
-"$qstar" --file "$tmp/qstar.lua" clean --target //:app > "$tmp/clean-target.out" 2> "$tmp/clean-target.err"
+"$qstar" --file "$tmp/qstar.lua" clean //:app > "$tmp/clean-target.out" 2> "$tmp/clean-target.err"
 contains "$tmp/clean-target.out" "qstar clean v1"
 test ! -d "$tmp/build/qstar/out/___app" || fail "target clean left target output"
 
@@ -4592,7 +4611,7 @@ EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-include.out" 2> "$tmp/old-include.err"; then
 	fail "top-level include_dirs unexpectedly succeeded"
 fi
-contains "$tmp/old-include.err" "top-level include_dirs is not allowed; move it under lang.c.include_dirs"
+contains "$tmp/old-include.err" "unknown target field 'include_dirs'"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.executable "app" {
   cxx_standard = "c++20",
@@ -4601,7 +4620,7 @@ EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-cxx-standard.out" 2> "$tmp/old-cxx-standard.err"; then
 	fail "top-level cxx_standard unexpectedly succeeded"
 fi
-contains "$tmp/old-cxx-standard.err" "top-level cxx_standard is not allowed; move it to lang.cxx.standard"
+contains "$tmp/old-cxx-standard.err" "unknown target field 'cxx_standard'"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.staticlib "core" {
   public_headers = {"include/core.h"},
@@ -4610,7 +4629,7 @@ EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-public-headers.out" 2> "$tmp/old-public-headers.err"; then
 	fail "top-level public_headers unexpectedly succeeded"
 fi
-contains "$tmp/old-public-headers.err" "top-level public_headers is not allowed; move it under lang.c.public_headers"
+contains "$tmp/old-public-headers.err" "unknown target field 'public_headers'"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.staticlib "core" {
   private_headers = {"src/core_private.h"},
@@ -4619,16 +4638,23 @@ EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-private-headers.out" 2> "$tmp/old-private-headers.err"; then
 	fail "top-level private_headers unexpectedly succeeded"
 fi
-contains "$tmp/old-private-headers.err" "top-level private_headers is not allowed; move it under lang.c.private_headers"
+contains "$tmp/old-private-headers.err" "unknown target field 'private_headers'"
+cat > "$tmp/old-api/qstar.lua" <<'EOF'
+qstar.modules { root = "src" }
+EOF
+if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-modules-helper.out" 2> "$tmp/old-modules-helper.err"; then
+	fail "absent qstar.modules unexpectedly succeeded"
+fi
+contains "$tmp/old-modules-helper.err" "field 'modules'"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.staticlib "core" {
-  modules = qstar.modules { root = "src" },
+  modules = { root = "src" },
 }
 EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-modules.out" 2> "$tmp/old-modules.err"; then
 	fail "top-level modules unexpectedly succeeded"
 fi
-contains "$tmp/old-modules.err" "top-level modules is not allowed; move it under lang.cxx.modules"
+contains "$tmp/old-modules.err" "unknown target field 'modules'"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.executable "app" {
   frameworks = {"Foundation"},

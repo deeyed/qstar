@@ -71,10 +71,11 @@ QStar authoring 오류는 가능한 한 “무엇이 잘못됐는지”와 “�
 qstar: import_module expects a folder path, not file 'modules/common/common.qsm'; use qstar.import_module("modules/common")
 qstar: import_module 'modules/missing' not found; expected module entry 'modules/missing/missing.qsm'
 qstar: circular import chain: qstar.lua -> modules/a/a.qsm -> modules/b/b.qsm -> modules/a/a.qsm
+qstar: module exports is read-only: common_c
 qstar: qstar.config is forbidden inside .qsm module; modules must return a helper table
 qstar: qstar.target_file cannot reference group target '//:aggregate' because group targets have no artifact
 qstar: generated output 'generated/file.c' in '//:gen' must be under generated_dir 'build/qstar/generated'
-qstar: top-level include_dirs is not allowed; move it under lang.c.include_dirs
+qstar: unknown target field 'include_dirs'
 qstar: unsupported source extension 'src/AppDelegate.m' in '//:app'; Objective-C provider is not available; build this source with qstar.custom_target, declare qstar.output(..., {format = "object"}), and list the generated .o/.obj in sources
 qstar: source 'src/main.zig' matches multiple provider source units (zig.object and alt.object); use an explicit provider helper such as alt.object("src/main.zig")
 qstar: source 'src/main.c' matches both a built-in source suffix and provider source unit cdup.object; use an explicit provider helper such as cdup.object("src/main.c")

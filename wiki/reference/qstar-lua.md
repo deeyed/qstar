@@ -274,6 +274,7 @@ declaration을 포함할 수 있고 once-only로 평가된다.
 
 `qstar.import_module`은 folder path만 받는다. `qstar.import_module("qstar/modules/paths")`는
 `qstar/modules/paths/paths.qsm`을 읽고, module은 반드시 table을 반환해야 한다.
+같은 module을 다시 import하면 새로 평가하지 않고 cached read-only export table을 반환한다.
 `.qsm` 안에서는 target/toolset/project/subdir/import_file 같은 graph declaration이 금지된다.
 
 `qstar.use_language("zig")`는 먼저 project-local `qstar/languages/zig/zig.qsm` provider
@@ -419,6 +420,7 @@ qstar --file qstar.lua --dump-graph
 - `qstar: global assignment is not allowed`
 - `qstar: forbidden Lua API 'io.open'`
 - `qstar: forbidden Lua API 'require'`
-- `qstar: duplicate import`
+- `qstar: duplicate import` (`qstar.import_file`/`qstar.subdir` graph input only)
+- `qstar: module exports is read-only`
 - `qstar: circular import includes`
 - `qstar: module '...' must return a table`

@@ -62,4 +62,4 @@ qstar --file qstar.lua build //:tool
 
 - `C++ modules are not supported`
 - `QSTAR044 C++ source has no cxx_standard`
-- `top-level cxx_standard is not allowed; use lang.cxx.standard`
+- `unknown target field 'cxx_standard'`

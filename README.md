@@ -237,7 +237,7 @@ qstar test //...
 qstar install //:app --prefix /tmp/qstar-install
 qstar stage //:image --dry-run
 qstar why-rebuild //:app
-qstar clean --target //:app
+qstar clean //:app
 qstar log //:app
 qstar last-failure
 qstar action-log <action-id>

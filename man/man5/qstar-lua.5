@@ -157,7 +157,7 @@ graph fragment exactly once.
 .It Ic qstar.import_module
 Evaluate a package-relative module folder as
 .Pa <name>/<name>.qsm
-and return its table.
+and return its cached read-only export table.
 .It Ic qstar.subdir
 Evaluate the canonical subdirectory fragment
 .Pa <dir>/<basename>.qst .
@@ -365,6 +365,10 @@ helpers instead.
 .Pa .qsm
 modules must return a table and cannot declare graph nodes such as targets,
 configs, toolsets, project metadata, stages, or subdirs.
+Repeated
+.Ic qstar.import_module
+calls for the same canonical module entry reuse the cached exports instead of
+re-evaluating the file.
 They may return values built with
 .Ic qstar.status
 for use in description fields.
