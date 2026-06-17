@@ -1788,12 +1788,14 @@ qstar_graph_find_genrule(const struct qstar_graph *graph, const char *label)
 	return NULL;
 }
 
-/** qstar.target_file placeholder token에서 canonical label을 추출한다. */
+/** qstar.target_file placeholder token에서 label과 artifact selector를 추출한다. */
 int
-qstar_target_file_token_label(const char *arg, char *label, size_t labellen)
+qstar_target_file_token_parse(const char *arg, char *label, size_t labellen,
+    char *artifact, size_t artifactlen)
 {
 	const char *prefix = "<qstar-target-file:";
-	size_t n, payload;
+	const char *payload_start, *selector;
+	size_t n, payload, label_len, artifact_len;
 
 	if (!arg || strncmp(arg, prefix, strlen(prefix)) != 0)
 		return 0;
@@ -1801,11 +1803,32 @@ qstar_target_file_token_label(const char *arg, char *label, size_t labellen)
 	if (n <= strlen(prefix) + 1 || arg[n - 1] != '>')
 		return -1;
 	payload = n - strlen(prefix) - 1;
-	if (payload + 1 > labellen)
+	payload_start = arg + strlen(prefix);
+	selector = memchr(payload_start, '#', payload);
+	label_len = selector ? (size_t)(selector - payload_start) : payload;
+	artifact_len = selector ? payload - label_len - 1 : 0;
+	if (label_len == 0 || label_len + 1 > labellen ||
+	    (selector && artifact_len == 0) ||
+	    (artifact && artifact_len + 1 > artifactlen))
 		return -1;
-	memcpy(label, arg + strlen(prefix), payload);
-	label[payload] = '\0';
+	memcpy(label, payload_start, label_len);
+	label[label_len] = '\0';
+	if (artifact && artifactlen) {
+		if (selector) {
+			memcpy(artifact, selector + 1, artifact_len);
+			artifact[artifact_len] = '\0';
+		} else {
+			artifact[0] = '\0';
+		}
+	}
 	return 1;
+}
+
+/** qstar.target_file placeholder token에서 canonical label을 추출한다. */
+int
+qstar_target_file_token_label(const char *arg, char *label, size_t labellen)
+{
+	return qstar_target_file_token_parse(arg, label, labellen, NULL, 0);
 }
 
 int
@@ -1986,6 +2009,54 @@ dump_json_list(FILE *out, const struct qstar_string_list *list)
 	fputc(']', out);
 }
 
+void
+qstar_dump_target_artifact_map_text(FILE *out, const struct qstar_graph *graph,
+    const struct qstar_target *target, const char *indent)
+{
+	struct qstar_target_artifact_map map;
+	size_t i;
+
+	if (qstar_graph_target_artifact_map(graph, target, &map) < 0)
+		return;
+	for (i = 0; i < map.len; i++) {
+		fprintf(out,
+		    "%sartifact id=%s role=%s path=%s install_dir=%s primary=%s installable=%s\n",
+		    indent ? indent : "", map.items[i].id, map.items[i].role,
+		    map.items[i].path,
+		    map.items[i].install_dir[0] ? map.items[i].install_dir : "<none>",
+		    map.items[i].primary ? "true" : "false",
+		    map.items[i].installable ? "true" : "false");
+	}
+}
+
+static void
+dump_target_artifact_map_json(FILE *out, const struct qstar_graph *graph,
+    const struct qstar_target *target)
+{
+	struct qstar_target_artifact_map map;
+	size_t i;
+
+	fputc('[', out);
+	if (qstar_graph_target_artifact_map(graph, target, &map) == 0) {
+		for (i = 0; i < map.len; i++) {
+			if (i)
+				fputc(',', out);
+			fputs("{\"id\":", out);
+			dump_json_string(out, map.items[i].id);
+			fputs(",\"role\":", out);
+			dump_json_string(out, map.items[i].role);
+			fputs(",\"path\":", out);
+			dump_json_string(out, map.items[i].path);
+			fputs(",\"install_dir\":", out);
+			dump_json_string(out, map.items[i].install_dir);
+			fprintf(out, ",\"primary\":%s,\"installable\":%s}",
+			    map.items[i].primary ? "true" : "false",
+			    map.items[i].installable ? "true" : "false");
+		}
+	}
+	fputc(']', out);
+}
+
 static void
 dump_package_aliases(FILE *out, const struct qstar_graph *graph)
 {
@@ -2001,7 +2072,7 @@ dump_package_aliases(FILE *out, const struct qstar_graph *graph)
 }
 
 static void
-dump_target(const struct qstar_target *target, FILE *out)
+dump_target(const struct qstar_graph *graph, const struct qstar_target *target, FILE *out)
 {
 	char package[QSTAR_PATH_MAX];
 
@@ -2105,6 +2176,7 @@ dump_target(const struct qstar_target *target, FILE *out)
 	fprintf(out, "  artifact_name %s\n",
 	    target->artifact_name && *target->artifact_name ? target->artifact_name :
 	    "<default>");
+	qstar_dump_target_artifact_map_text(out, graph, target, "  ");
 	fprintf(out, "  toolset %s\n",
 	    target->toolset && *target->toolset ? target->toolset : "<default>");
 	fprintf(out, "  toolchain %s\n", target->toolchain);
@@ -2405,7 +2477,7 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 		if (label && *label && strcmp(copy[i].label, label) != 0)
 			continue;
 		found = 1;
-		dump_target(&copy[i], out);
+		dump_target(graph, &copy[i], out);
 	}
 	free(copy);
 	return found ? 0 : -1;
@@ -2599,12 +2671,14 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 	sort_family_ptrs(families, graph->family_len);
 	fputs("qstar targets v1\n", out);
 	fprintf(out, "target-count %zu\n", graph->len);
-	for (i = 0; i < graph->len; i++)
+	for (i = 0; i < graph->len; i++) {
 		fprintf(out, "target %s kind=%s origin=%s:%d\n", targets[i]->label,
 		    targets[i]->kind,
 		    targets[i]->origin_file && *targets[i]->origin_file ?
 		    targets[i]->origin_file : "<unknown>",
 		    targets[i]->origin_line);
+		qstar_dump_target_artifact_map_text(out, graph, targets[i], "  ");
+	}
 	fprintf(out, "config-count %zu\n", graph->config_len);
 	for (i = 0; i < graph->config_len; i++)
 		fprintf(out, "config %s origin=%s:%d\n", configs[i]->label,
@@ -2647,7 +2721,8 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 
 /** target 하나를 machine-readable JSON record로 출력한다. */
 static void
-dump_target_json(FILE *out, const struct qstar_target *target)
+dump_target_json(FILE *out, const struct qstar_graph *graph,
+    const struct qstar_target *target)
 {
 	fputs("{\"label\":", out);
 	dump_json_string(out, target->label);
@@ -2678,6 +2753,8 @@ dump_target_json(FILE *out, const struct qstar_target *target)
 	fputs(",\"artifact_name\":", out);
 	dump_json_string(out, target->artifact_name && *target->artifact_name ?
 	    target->artifact_name : "");
+	fputs(",\"artifacts\":", out);
+	dump_target_artifact_map_json(out, graph, target);
 	fputs(",\"cxx_standard\":", out);
 	dump_json_string(out, target->cxx_standard);
 	fputs(",\"lang_cxx_standard\":", out);
@@ -3035,7 +3112,7 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	for (i = 0; i < graph->len; i++) {
 		if (i)
 			fputc(',', out);
-		dump_target_json(out, targets[i]);
+		dump_target_json(out, graph, targets[i]);
 	}
 	fputs("],\"configs\":[", out);
 	for (i = 0; i < graph->config_len; i++) {
@@ -3160,6 +3237,10 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	    target->run_expect_contains ? target->run_expect_contains : "");
 	fprintf(out, "  run.expect.file %s\n",
 	    target->run_expect_file && *target->run_expect_file ? target->run_expect_file : "");
+	fprintf(out, "  artifact_name %s\n",
+	    target->artifact_name && *target->artifact_name ? target->artifact_name :
+	    "<default>");
+	qstar_dump_target_artifact_map_text(out, graph, target, "  ");
 	fprintf(out, "  toolchain %s\n", target->toolchain);
 	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
 	return 0;

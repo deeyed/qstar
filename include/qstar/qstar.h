@@ -265,6 +265,20 @@ struct qstar_cached_action {
 	struct qstar_string_list depfile_inputs;
 };
 
+struct qstar_target_artifact {
+	char id[64];
+	char role[64];
+	char path[QSTAR_PATH_MAX];
+	char install_dir[32];
+	int primary;
+	int installable;
+};
+
+struct qstar_target_artifact_map {
+	struct qstar_target_artifact items[4];
+	size_t len;
+};
+
 struct qstar_lint_diagnostic {
 	char *code;
 	char *severity;

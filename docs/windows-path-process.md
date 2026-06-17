@@ -26,6 +26,10 @@ Windows until a named-pipe transport and ACL policy are implemented. Round Q174
 adds a dedicated Windows artifact corpus that builds target-local and
 explicit `.exe`/static `.lib` artifacts through Stella and Ninja, then
 checks stage/install layout while keeping Windows sharedlib deferred.
+Round Q223 adds the first Windows sharedlib Graph IR contract: QStar models
+runtime `.dll` plus import `.lib`, resolves the
+`qstar.target_file(..., { artifact = "import_lib" })` selector, and keeps
+Stella/Ninja lowering explicitly deferred.
 Round Q178 adds `tests/corpus/windows-execution` and the
 `qstar-windows-execution-corpus-tests` target. This is the first Windows alpha
 gate that builds and runs real executables in the MSYS2 UCRT64 GCC lane instead
@@ -228,8 +232,11 @@ The detailed artifact contract is `docs/windows-artifact-policy.md`. Summary:
   support lands, use `artifact_name = "name.lib"` explicitly. Automatic `.lib` output is
   deferred until native `lib.exe`/`llvm-lib` validation.
 - `qstar.sharedlib` is supported for macOS `.dylib` and Linux `.so`
-  platform contexts, but Windows runtime `.dll`, import `.lib`, PDB/debug artifact,
-  runtime search path, and install layout are deferred.
+  platform contexts. On Windows, Q223 models runtime `.dll` and import `.lib`
+  in Graph IR and exposes the import library through
+  `qstar.target_file("//:plugin", { artifact = "import_lib" })`, but backend
+  lowering, dependent import-library linking, runtime search path, and PDB/debug
+  ownership remain deferred.
 - Q222 validates the current alpha install/stage subset on Windows hosts:
   executable `.exe` files land under `bin/`, static archive artifacts land under
   `lib/`, generated object bridge outputs can be staged, and
@@ -280,8 +287,13 @@ The gate checks:
   hosts without claiming native `lib.exe`/`llvm-lib` support
 - the Windows artifact corpus stages and installs explicit `.exe` files under
   `bin/` and explicit static `.lib` files under `lib/`
-- Windows-like `qstar.sharedlib` targets fail with the same deferred
-  runtime `.dll`, import `.lib`, and PDB/debug diagnostic for Stella and Ninja
+- Windows-like `qstar.sharedlib` targets expose runtime `.dll` plus import
+  `.lib` artifact maps in explain, dry-run, query, and list-targets JSON
+- `qstar.target_file("//:plugin", { artifact = "import_lib" })` resolves to
+  the planned import `.lib`; unknown artifact selectors are rejected with a
+  known-artifact diagnostic
+- Windows-like `qstar.sharedlib` build lowering fails with the same deferred
+  Graph IR diagnostic for Stella and Ninja
 - drive-letter and backslash package paths are rejected with specific reason text
 
 The execution corpus checks:

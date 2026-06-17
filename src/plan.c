@@ -952,10 +952,11 @@ plan_resolve_target_file_arg(const struct qstar_graph *graph, const char *arg,
 {
 	const struct qstar_genrule *genrule;
 	const struct qstar_target *target;
-	char label[QSTAR_PATH_MAX];
+	char label[QSTAR_PATH_MAX], artifact[64];
 	int rc;
 
-	rc = qstar_target_file_token_label(arg, label, sizeof(label));
+	rc = qstar_target_file_token_parse(arg, label, sizeof(label), artifact,
+	    sizeof(artifact));
 	if (rc <= 0)
 		return arg;
 	target = plan_find_target(graph, label);
@@ -963,10 +964,11 @@ plan_resolve_target_file_arg(const struct qstar_graph *graph, const char *arg,
 		snprintf(buf, buflen, "<group-has-no-artifact>");
 		return buf;
 	}
-	if (target && qstar_graph_artifact_output_path(graph, target, buf, buflen) == 0)
+	if (target && qstar_graph_target_artifact_path((struct qstar_graph *)graph,
+	    target, artifact, buf, buflen) == 0)
 		return buf;
 	genrule = qstar_graph_find_genrule(graph, label);
-	if (genrule && genrule->outputs.len > 0) {
+	if (genrule && genrule->outputs.len > 0 && !artifact[0]) {
 		snprintf(buf, buflen, "%s", genrule->outputs.items[0]);
 		return buf;
 	}
@@ -1126,6 +1128,22 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 		}
 	}
 	end_argv(out, &dump);
+}
+
+static int
+target_windows_sharedlib_deferred(const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain)
+{
+	return target && toolchain && strcmp(target->kind, "sharedlib") == 0 &&
+	    qstar_platform_is_windows(toolchain->platform);
+}
+
+static void
+dump_windows_sharedlib_plan_diagnostic(FILE *out, const char *indent)
+{
+	fprintf(out,
+	    "%splan_diagnostic kind=windows-sharedlib-lowering status=deferred artifacts=modeled doc=docs/windows-artifact-graph-ir.md\n",
+	    indent ? indent : "");
 }
 
 /** generated output list가 target의 파일 입력 list에 소비되는지 확인한다. */
@@ -1851,6 +1869,7 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	    strcmp(action, "compile-objects") == 0 ? "object-collector" : "linker";
 	if (qstar_graph_artifact_output_path(plan->graph, target, output, sizeof(output)) < 0)
 		return qstar_set_error(plan->graph, "qstar: artifact output path too long");
+	qstar_dump_target_artifact_map_text(out, plan->graph, target, "  ");
 	snprintf(id, sizeof(id), "%s:%s:0", target->label, action);
 	if (qstar_action_description_final(target, action, output, description,
 	    sizeof(description)) < 0)
@@ -1861,6 +1880,10 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	    "artifact", 0);
 	dump_command_skeleton(out, plan->graph, target, action, "<target-objects>",
 	    output, "artifact", final_tool, 0);
+	if (target_windows_sharedlib_deferred(target, &toolchain)) {
+		dump_windows_sharedlib_plan_diagnostic(out, "  ");
+		return 0;
+	}
 	dump_final_argv(out, target, plan->graph, &toolchain, action, output);
 	return 0;
 }
@@ -2007,6 +2030,7 @@ dump_dry_run_final(FILE *out, const struct qstar_plan *plan, const struct qstar_
 	    strcmp(action, "compile-objects") == 0 ? "object-collector" : "linker";
 	if (qstar_graph_artifact_output_path(plan->graph, target, output, sizeof(output)) < 0)
 		return qstar_set_error(plan->graph, "qstar: artifact output path too long");
+	qstar_dump_target_artifact_map_text(out, plan->graph, target, "");
 	snprintf(id, sizeof(id), "%s:%s:0", target->label, action);
 	if (qstar_action_description_final(target, action, output, description,
 	    sizeof(description)) < 0)
@@ -2016,6 +2040,10 @@ dump_dry_run_final(FILE *out, const struct qstar_plan *plan, const struct qstar_
 	    "dry_run_step id=%s:%s:0 owner=%s kind=%s tool=%s toolchain=%s "
 	    "input=<target-objects> output=%s execute=no\n",
 	    target->label, action, target->label, action, tool, toolchain.name, output);
+	if (target_windows_sharedlib_deferred(target, &toolchain)) {
+		dump_windows_sharedlib_plan_diagnostic(out, "");
+		return 0;
+	}
 	dump_final_argv(out, target, plan->graph, &toolchain, action, output);
 	return 0;
 }

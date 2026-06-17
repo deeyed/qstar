@@ -246,6 +246,17 @@ qstar.group "all" {
 ```
 
 `qstar.group` has no artifact and cannot be used with `qstar.target_file`.
+`qstar.target_file("//:label")` resolves to the target's primary artifact. A
+secondary artifact can be selected when the target exposes one:
+
+```lua
+qstar.target_file("//:plugin", { artifact = "import_lib" })
+```
+
+Today this is used by the Windows sharedlib Graph IR contract: the primary
+artifact is the runtime `.dll`, while `artifact = "import_lib"` selects the
+planned import `.lib`. Stella/Ninja lowering for Windows sharedlib remains
+deferred.
 
 ## Generated Artifacts
 

@@ -102,7 +102,8 @@ qstar.sharedlib "plugin" {
 qstar --file qstar.lua -G ninja build //:plugin
 ```
 
-Windows shared library policy는 아직 deferred이므로 stable diagnostic을 낸다.
+Windows shared library artifact map은 Graph IR에 존재하지만 backend lowering은 아직
+deferred이므로 stable diagnostic을 낸다.
 
 ## 관련 CLI
 
@@ -116,4 +117,4 @@ qstar --file qstar.lua -G ninja install //:app --prefix /tmp/qstar-install
 
 ## 관련 diagnostic
 
-- `qstar: sharedlib target '//:plugin' is not supported for Windows-like platform contexts yet; Windows shared libraries require a runtime .dll, import .lib, and optional PDB/debug artifact policy. Use custom_target/object bridge for now or see docs/windows-artifact-policy.md`
+- `qstar: sharedlib target '//:plugin' has Graph IR artifacts for runtime .dll and import .lib, but Ninja lowering for platform 'windows' is deferred; use dry-run, explain, or list-targets --format json to inspect the artifact map, or see docs/windows-artifact-graph-ir.md`

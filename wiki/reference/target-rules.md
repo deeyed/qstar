@@ -31,9 +31,12 @@ qstar.target_family "module_variants" { variants = {"fast", "portable"} }
 `lib<name>.so`를 생성한다. Stella와 Ninja backend 모두 C/C++/ASM source를 compile하고
 `link-shared` final action을 실행한다. sharedlib에 의존하는 executable/test/sharedlib는
 build-tree 실행을 위해 macOS에서는 `@loader_path`, Linux에서는 `$ORIGIN` 기반 rpath를
-자동으로 받는다. Windows runtime `.dll`, import `.lib`, PDB/debug artifact 정책은 아직
-deferred이며 Windows platform context에서는 `docs/windows-artifact-policy.md`를 가리키는
-명확한 diagnostic을 낸다.
+자동으로 받는다. Windows platform context에서는 Q223부터 Graph IR가 runtime `.dll`과
+import `.lib` artifact map을 모델링한다. `qstar.target_file("//:plugin")`은 primary
+runtime `.dll`을 가리키고,
+`qstar.target_file("//:plugin", { artifact = "import_lib" })`은 import `.lib`를
+가리킨다. 다만 Stella/Ninja Windows sharedlib lowering과 dependent import-library link는
+아직 deferred이며 `docs/windows-artifact-graph-ir.md`를 가리키는 명확한 diagnostic을 낸다.
 
 Artifact target은 `configs = {"//:common_c"}`로 reusable option bundle을 참조할 수
 있다. Config merge 규칙은 [Reusable Configs](configs.md)에 둔다.

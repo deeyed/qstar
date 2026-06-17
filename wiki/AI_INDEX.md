@@ -80,8 +80,11 @@ QStar가 하지 않는 일:
   QStar가 처리하지만, 참조 target artifact는 effective generator로 먼저 build한다.
   `sharedlib`는 macOS platform context에서 `.dylib`, Linux platform context에서 `.so`를 만들며,
   sharedlib dependency를 link하는 executable/test/sharedlib에는 build-tree 실행용
-  `@loader_path`/`$ORIGIN` rpath를 자동 추가한다. Windows sharedlib는 runtime `.dll`,
-  import `.lib`, PDB/debug artifact 정책이 아직 없으므로 deferred diagnostic으로 거부한다.
+  `@loader_path`/`$ORIGIN` rpath를 자동 추가한다. Windows sharedlib는 Q223부터 Graph IR에서
+  runtime `.dll`과 import `.lib` artifact map을 모델링하고
+  `qstar.target_file("//:plugin", { artifact = "import_lib" })` selector를 해석하지만,
+  Stella/Ninja backend lowering과 dependent import-library link는 아직 deferred diagnostic으로
+  거부한다.
 - `make qstar-ninja-backend-parity-tests`는 staticlib, sharedlib, sharedlib-linked
   executable/test, generated, configure_file, run_target, sharedlib stage/install producer integration,
   action-log/replay, Windows sharedlib diagnostic, `.ninja_log`/`.ninja_deps` root
@@ -205,9 +208,9 @@ QStar가 하지 않는 일:
   diagnostic으로 처리한다.
   Q173은 Windows artifact implementation plan을 `docs/windows-artifact-policy.md`와
   `docs/windows-artifact-graph-ir.md`에 봉인한다. `.exe`는 explicit primary artifact,
-  static `.lib`는 Unix `.a`와 분리된 explicit static archive, Windows sharedlib는 primary
-  runtime `.dll` plus secondary import `.lib` multi-output target으로 설계한다.
-  `qstar.target_file("//:plugin")`은 runtime `.dll`, future selector
+  static `.lib`는 Unix `.a`와 분리된 explicit static archive다. Q223부터 Windows sharedlib는
+  Graph IR에서 primary runtime `.dll` plus secondary import `.lib` artifact map으로 모델링된다.
+  `qstar.target_file("//:plugin")`은 runtime `.dll`,
   `qstar.target_file("//:plugin", { artifact = "import_lib" })`은 import `.lib`를 뜻한다.
   PDB/debug artifact는 opt-in/deferred이며 implicit install/stage 대상이 아니다.
   Q174부터 `tests/corpus/windows-artifacts`는 forward-looking 문서 fixture가 아니라
@@ -225,9 +228,10 @@ QStar가 하지 않는 일:
   build, Windows sharedlib diagnostic parity를 같이 확인했고, Q174는 `.exe`/static `.lib`
   install/stage layout까지 더한다. Q222부터 Windows execution corpus도 real MSYS2 GCC
   executable/static archive/object bridge layout과 manifest normalization을 Stella/Ninja 양쪽에서
-  확인한다. Automatic `.lib`, `.dll`, import `.lib`, PDB/debug은
-  native Windows 검증 전까지 official contract가 아니다. 상세 정책은
-  `docs/windows-artifact-policy.md`에 둔다.
+  확인한다. Q223은 `tests/corpus/windows-artifacts`에 sharedlib artifact map, selector,
+  dry-run stage/install layout, unknown selector diagnostic을 추가한다. Automatic `.lib`,
+  real `.dll`/import `.lib` backend production, PDB/debug은 native Windows 검증 전까지
+  official contract가 아니다. 상세 정책은 `docs/windows-artifact-policy.md`에 둔다.
 - `make qstar-medium-project-readiness-tests`는 Stella executor와 Ninja backend의 clean,
   no-op, incremental build 시간을 `medium_project_gate ...` line protocol로 기록한다.
   Round Q92 기준 timing threshold는 report-only가 기본이며,

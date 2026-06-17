@@ -82,11 +82,11 @@ Windows는 아직 official support가 아니다.
 | Baseline lane | MSYS2 UCRT64 gcc |
 | Public asset | none |
 | Native source build | alpha failure list 관리 중 |
-| Current known native blocker | repeat hosted Windows alpha after Q222 install/stage layout expansion |
+| Current known native blocker | repeat hosted Windows alpha after Q223 sharedlib Graph IR expansion |
 | Daemon transport | Windows named pipe deferred |
 | `.exe`/static `.lib` | contract and local fake-tool regression sealed |
 | Execution corpus | MSYS2 UCRT64 GCC build/run/install baseline added in Q178; Stella CreateProcess runner added in Q220; Ninja execution path added in Q221; install/stage layout evidence added in Q222 |
-| `.dll`/import `.lib` | implementation deferred |
+| `.dll`/import `.lib` | Graph IR artifact map and selector sealed in Q223; backend lowering deferred |
 
 0.8의 첫 번째 목표는 Windows를 "manual alpha"에서 "validation-backed beta candidate"로
 올리는 것이다. 이 말은 곧바로 Windows asset을 공개한다는 뜻이 아니다. 먼저 다음이 필요하다.
@@ -95,11 +95,13 @@ Windows는 아직 official support가 아니다.
 - Q221의 Ninja launcher parity를 같은 platform process layer 위에서 검증
 - Q222의 `.exe`/static archive/generated object bridge install-stage layout을 hosted
   Windows alpha에서 재검증
+- Q223의 runtime `.dll`/import `.lib` Graph IR, selector, dry-run layout을 hosted
+  Windows alpha에서 재검증
 - MSYS2 UCRT64 lane이 반복 green이거나, 실패하더라도 structured known issue만 남기는 상태
 - `.exe`, static archive, response-file, generated object bridge, install smoke를 real Windows
   host에서 통과
 - install/stage layout이 Windows host에서 실제로 동작
-- Windows sharedlib diagnostic에서 실제 `.dll`/import `.lib` implementation으로 이동
+- Windows sharedlib Graph IR diagnostic에서 실제 `.dll`/import `.lib` backend lowering으로 이동
 
 ## Daemon Beta Status
 
@@ -142,8 +144,10 @@ v1.0 blocker를 0.8 기준으로 다시 정렬한다.
 - static `.lib` real archive tool validation
 - shared runtime `.dll` primary artifact
 - import `.lib` link/interface artifact
-- `qstar.target_file(label, { artifact = "import_lib" })` 또는 동등한 selector 구현
-- stage/install layout: `.exe`/runtime `.dll` in `bin`, static/import `.lib` in `lib`
+- `qstar.target_file(label, { artifact = "import_lib" })` selector 구현
+- stage/install dry-run layout: `.exe`/runtime `.dll` in `bin`, static/import `.lib` in `lib`
+- Windows sharedlib backend lowering: Stella/Ninja가 runtime `.dll`과 import `.lib`를 같은
+  final action output set으로 생산
 - PDB/debug artifact는 stable opt-in 전까지 implicit install 금지
 
 ### P1: Backend Parity And Performance

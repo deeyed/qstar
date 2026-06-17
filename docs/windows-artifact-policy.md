@@ -11,6 +11,7 @@ release asset: none
 policy status: pre-support artifact contract
 implementation plan: sealed for Q173
 exe/static artifact gate: sealed for Q174
+sharedlib Graph IR gate: sealed for Q223
 local gate: make qstar-windows-prep-tests
 native alpha gate: make qstar-windows-native-alpha-tests
 ```
@@ -57,7 +58,8 @@ Install and stage policy:
 
 ## Shared Library Artifacts
 
-Windows shared libraries remain deferred. The planned artifact classes are:
+Windows shared-library backend lowering remains deferred, but the Graph IR now
+models the artifact classes:
 
 - runtime .dll: primary artifact
 - import .lib: secondary link/interface artifact
@@ -67,7 +69,7 @@ The primary artifact rule is:
 
 - `qstar.target_file("//:plugin")` points to the runtime .dll
 - dependent targets link against the import .lib when Windows sharedlib support lands
-- the import `.lib` is addressable through a future selector:
+- the import `.lib` is addressable through the selector:
   `qstar.target_file("//:plugin", { artifact = "import_lib" })`
 - PDB/debug output is opt-in/deferred and never silently installed
 
@@ -81,7 +83,8 @@ Final install/stage direction:
 
 ## Stella and Ninja parity
 
-When Windows sharedlib support is implemented, Stella and Ninja parity means:
+Q223 seals the Graph IR and selector side. When Windows sharedlib lowering is
+implemented, Stella and Ninja parity also means:
 
 - both backends compute the same artifact map
 - both emit the same primary runtime .dll path
@@ -93,14 +96,14 @@ When Windows sharedlib support is implemented, Stella and Ninja parity means:
 
 ## Diagnostics
 
-Windows sharedlib diagnostic parity stays part of the gate while runtime .dll
-plus import .lib implementation is deferred:
+Windows sharedlib diagnostic parity stays part of the gate while backend
+lowering is deferred:
 
 ```txt
-qstar: sharedlib target '//:plugin' is not supported for Windows-like platform
-contexts yet; Windows shared libraries require a runtime .dll, import .lib, and optional
-PDB/debug artifact policy. Use custom_target/object bridge for now or see
-docs/windows-artifact-policy.md
+qstar: sharedlib target '//:plugin' has Graph IR artifacts for runtime .dll and
+import .lib, but Stella lowering for platform 'windows' is deferred; use
+dry-run, explain, or list-targets --format json to inspect the artifact map, or
+see docs/windows-artifact-graph-ir.md
 ```
 
 ## Regression Gate
@@ -115,8 +118,9 @@ The gate verifies explicit `.exe` naming, external `.lib` spelling, `/LIBPATH`,
 MSVC response-file escaping, slash-normalized package paths, explicit static
 `.lib` artifact planning, fake static `.lib` build output through Stella and
 Ninja, `.exe` and static `.lib` install/stage layout through the Windows
-artifacts corpus, slash-normalized install/stage manifests, and Windows
-sharedlib diagnostic parity. The Windows execution corpus adds real MSYS2 GCC
-coverage for `.exe -> bin`, static archive -> `lib`, and generated object bridge
-staging through both Stella and Ninja. It does not claim official Windows
-support.
+artifacts corpus, slash-normalized install/stage manifests, Windows sharedlib
+runtime/import-lib Graph IR, selector resolution, dry-run install/stage layout,
+unknown selector diagnostics, and Windows sharedlib deferred-lowering diagnostic
+parity. The Windows execution corpus adds real MSYS2 GCC coverage for
+`.exe -> bin`, static archive -> `lib`, and generated object bridge staging
+through both Stella and Ninja. It does not claim official Windows support.

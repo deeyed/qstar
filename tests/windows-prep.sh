@@ -143,9 +143,9 @@ if "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows --qstar
 	2> "$tmp/windows-shared.err"; then
 	fail "Windows sharedlib unexpectedly succeeded"
 fi
-contains "$tmp/windows-shared.err" "Windows shared libraries require a runtime .dll"
-contains "$tmp/windows-shared.err" "import .lib"
-contains "$tmp/windows-shared.err" "docs/windows-artifact-policy.md"
+contains "$tmp/windows-shared.err" "has Graph IR artifacts for runtime .dll and import .lib"
+contains "$tmp/windows-shared.err" "Stella lowering for platform 'windows' is deferred"
+contains "$tmp/windows-shared.err" "docs/windows-artifact-graph-ir.md"
 
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
 	--progress off build //:windows_rsp > "$tmp/windows-rsp.out" \
@@ -213,14 +213,61 @@ if command -v ninja >/dev/null 2>&1; then
 		2> "$tmp/windows-shared-ninja.err"; then
 		fail "Windows sharedlib Ninja unexpectedly succeeded"
 	fi
-	contains "$tmp/windows-shared-ninja.err" "Windows shared libraries require a runtime .dll"
-	contains "$tmp/windows-shared-ninja.err" "import .lib"
-	contains "$tmp/windows-shared-ninja.err" "docs/windows-artifact-policy.md"
+	contains "$tmp/windows-shared-ninja.err" "has Graph IR artifacts for runtime .dll and import .lib"
+	contains "$tmp/windows-shared-ninja.err" "Ninja lowering for platform 'windows' is deferred"
+	contains "$tmp/windows-shared-ninja.err" "docs/windows-artifact-graph-ir.md"
 fi
 
-"$qstar" --file "$artifact_corpus/qstar.lua" check \
+"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang check \
 	> "$tmp/windows-artifacts-check.out" 2> "$tmp/windows-artifacts-check.err"
 contains "$tmp/windows-artifacts-check.out" "status ok"
+"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+	explain //:plugin > "$tmp/windows-artifacts-plugin-explain.out" \
+	2> "$tmp/windows-artifacts-plugin-explain.err"
+contains "$tmp/windows-artifacts-plugin-explain.out" "artifact id=runtime role=sharedlib path=build/qstar/out/___plugin/plugin.dll install_dir=bin primary=true installable=true"
+contains "$tmp/windows-artifacts-plugin-explain.out" "artifact id=import_lib role=import_lib path=build/qstar/out/___plugin/plugin.lib install_dir=lib primary=false installable=true"
+contains "$tmp/windows-artifacts-plugin-explain.out" "plan_diagnostic kind=windows-sharedlib-lowering status=deferred artifacts=modeled"
+"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+	dry-run //:plugin > "$tmp/windows-artifacts-plugin-dry.out" \
+	2> "$tmp/windows-artifacts-plugin-dry.err"
+contains "$tmp/windows-artifacts-plugin-dry.out" "artifact id=runtime role=sharedlib path=build/qstar/out/___plugin/plugin.dll install_dir=bin primary=true installable=true"
+contains "$tmp/windows-artifacts-plugin-dry.out" "artifact id=import_lib role=import_lib path=build/qstar/out/___plugin/plugin.lib install_dir=lib primary=false installable=true"
+contains "$tmp/windows-artifacts-plugin-dry.out" "plan_diagnostic kind=windows-sharedlib-lowering status=deferred artifacts=modeled"
+not_contains "$tmp/windows-artifacts-plugin-dry.out" "-Wl,-soname"
+"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+	list-targets --format json > "$tmp/windows-artifacts-list.json" \
+	2> "$tmp/windows-artifacts-list.err"
+contains "$tmp/windows-artifacts-list.json" "\"id\":\"runtime\",\"role\":\"sharedlib\",\"path\":\"build/qstar/out/___plugin/plugin.dll\",\"install_dir\":\"bin\",\"primary\":true,\"installable\":true"
+contains "$tmp/windows-artifacts-list.json" "\"id\":\"import_lib\",\"role\":\"import_lib\",\"path\":\"build/qstar/out/___plugin/plugin.lib\",\"install_dir\":\"lib\",\"primary\":false,\"installable\":true"
+"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+	stage //:plugin_layout --dry-run > "$tmp/windows-artifacts-plugin-stage.out" \
+	2> "$tmp/windows-artifacts-plugin-stage.err"
+contains "$tmp/windows-artifacts-plugin-stage.out" "stage_file src=build/qstar/out/___plugin/plugin.dll"
+contains "$tmp/windows-artifacts-plugin-stage.out" "artifact=runtime"
+contains "$tmp/windows-artifacts-plugin-stage.out" "stage_file src=build/qstar/out/___plugin/plugin.lib"
+contains "$tmp/windows-artifacts-plugin-stage.out" "artifact=import_lib"
+stage_manifest="$artifact_corpus/$build_dir/stage/___plugin_layout/manifest.json"
+contains "$stage_manifest" "\"src\":\"build/qstar/out/___plugin/plugin.dll\""
+contains "$stage_manifest" "\"artifact\":\"runtime\""
+contains "$stage_manifest" "\"src\":\"build/qstar/out/___plugin/plugin.lib\""
+contains "$stage_manifest" "\"artifact\":\"import_lib\""
+not_contains "$stage_manifest" "\\"
+"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+	install //:plugin --prefix "$tmp/windows-artifacts-plugin-prefix" --dry-run \
+	> "$tmp/windows-artifacts-plugin-install.out" \
+	2> "$tmp/windows-artifacts-plugin-install.err"
+install_manifest="$artifact_corpus/$build_dir/install/manifest.json"
+contains "$tmp/windows-artifacts-plugin-install.out" "install_file src=build/qstar/out/___plugin/plugin.dll"
+contains "$tmp/windows-artifacts-plugin-install.out" "role=sharedlib artifact=runtime"
+contains "$tmp/windows-artifacts-plugin-install.out" "/windows-artifacts-plugin-prefix/bin/plugin.dll"
+contains "$tmp/windows-artifacts-plugin-install.out" "install_file src=build/qstar/out/___plugin/plugin.lib"
+contains "$tmp/windows-artifacts-plugin-install.out" "role=import_lib artifact=import_lib"
+contains "$tmp/windows-artifacts-plugin-install.out" "/windows-artifacts-plugin-prefix/lib/plugin.lib"
+contains "$install_manifest" "\"role\":\"sharedlib\",\"artifact\":\"runtime\""
+contains "$install_manifest" "\"role\":\"import_lib\",\"artifact\":\"import_lib\""
+contains "$install_manifest" "/windows-artifacts-plugin-prefix/bin/plugin.dll\""
+contains "$install_manifest" "/windows-artifacts-plugin-prefix/lib/plugin.lib\""
+not_contains "$install_manifest" "\\"
 "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
 	dry-run //:all > "$tmp/windows-artifacts-dry.out" \
 	2> "$tmp/windows-artifacts-dry.err"
@@ -328,9 +375,9 @@ if "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform window
 	2> "$tmp/windows-artifacts-shared.err"; then
 	fail "Windows artifact corpus sharedlib unexpectedly succeeded"
 fi
-contains "$tmp/windows-artifacts-shared.err" "Windows shared libraries require a runtime .dll"
-contains "$tmp/windows-artifacts-shared.err" "import .lib"
-contains "$tmp/windows-artifacts-shared.err" "docs/windows-artifact-policy.md"
+contains "$tmp/windows-artifacts-shared.err" "has Graph IR artifacts for runtime .dll and import .lib"
+contains "$tmp/windows-artifacts-shared.err" "Stella lowering for platform 'windows' is deferred"
+contains "$tmp/windows-artifacts-shared.err" "docs/windows-artifact-graph-ir.md"
 
 if command -v ninja >/dev/null 2>&1; then
 	rm -rf "$artifact_corpus/$build_dir" "$artifact_corpus/.ninja_log" \
@@ -397,11 +444,36 @@ if command -v ninja >/dev/null 2>&1; then
 		fail "Windows artifact corpus Ninja sharedlib unexpectedly succeeded"
 	fi
 	contains "$tmp/windows-artifacts-shared-ninja.err" \
-		"Windows shared libraries require a runtime .dll"
-	contains "$tmp/windows-artifacts-shared-ninja.err" "import .lib"
+		"has Graph IR artifacts for runtime .dll and import .lib"
 	contains "$tmp/windows-artifacts-shared-ninja.err" \
-		"docs/windows-artifact-policy.md"
+		"Ninja lowering for platform 'windows' is deferred"
+	contains "$tmp/windows-artifacts-shared-ninja.err" \
+		"docs/windows-artifact-graph-ir.md"
 fi
+
+mkdir -p "$tmp/bad-artifact-selector/src"
+cat > "$tmp/bad-artifact-selector/src/plugin.c" <<'EOF'
+int plugin(void) { return 0; }
+EOF
+cat > "$tmp/bad-artifact-selector/qstar.lua" <<'EOF'
+qstar.sharedlib "plugin" {
+  sources = {"src/plugin.c"},
+}
+
+qstar.stage "bad" {
+  root = "stage/bad",
+  files = {
+    qstar.stage_file(qstar.target_file("//:plugin", { artifact = "pdb" }), "lib/plugin.pdb"),
+  },
+}
+EOF
+if "$qstar" --file "$tmp/bad-artifact-selector/qstar.lua" --qstar-internal-platform windows \
+	check //:bad > "$tmp/bad-artifact-selector.out" \
+	2> "$tmp/bad-artifact-selector.err"; then
+	fail "unknown target_file artifact selector unexpectedly succeeded"
+fi
+contains "$tmp/bad-artifact-selector.err" "target_file artifact selector 'pdb' is unknown for target '//:plugin'"
+contains "$tmp/bad-artifact-selector.err" "known artifacts: runtime, import_lib"
 
 mkdir -p "$tmp/bad-drive" "$tmp/bad-drive-slash" "$tmp/bad-backslash/src"
 cat > "$tmp/bad-drive/qstar.lua" <<'EOF'

@@ -65,7 +65,7 @@ Important documents:
 - `windows-path-process.md`: Windows path/process preparation.
 - `windows-native-alpha.md`: manual native CI alpha workflow.
 - `windows-artifact-policy.md`: Windows artifact policy.
-- `windows-artifact-graph-ir.md`: Windows multi-artifact Graph IR design note.
+- `windows-artifact-graph-ir.md`: Windows multi-artifact Graph IR contract.
 - `linux-validation.md`: Linux host validation and release asset criteria.
 - `public-beta-release.md`: release packaging and wiki sync checklist.
 - `qstar-submodule-extraction-prep.md`: submodule extraction notes.

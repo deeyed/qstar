@@ -331,6 +331,11 @@ Current known gaps:
   install/stage layout evidence. The corpus now checks `.exe` installation under
   `bin/`, static archive installation under `lib/`, generated object bridge
   staging, and slash-normalized install/stage manifests.
+- Q223 adds Windows sharedlib Graph IR evidence without claiming backend
+  lowering: the artifact corpus now checks runtime `.dll` plus import `.lib`
+  artifact maps, `qstar.target_file(..., { artifact = "import_lib" })`
+  selector resolution, dry-run install/stage layout, and deferred Stella/Ninja
+  lowering diagnostics.
 - Windows filesystem helpers are now split enough for local `_WIN32` object
   compile checks and the Q179 hosted run reached past the previous
   `mkdir`/`lstat` compile failures.

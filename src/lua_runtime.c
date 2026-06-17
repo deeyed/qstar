@@ -494,18 +494,23 @@ format_placeholder_token(lua_State *L, int idx, char *dst, size_t dstlen)
 		    (long long)index) < (int)dstlen ? 0 : -1;
 	}
 	if (strcmp(kind, "target_file") == 0) {
+		const char *artifact;
+
 		lua_getfield(L, idx, "label");
 		label = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
 		if (!label) {
 			lua_pop(L, 1);
 			return -1;
 		}
-		if (snprintf(dst, dstlen, "<qstar-target-file:%s>", label) >=
-		    (int)dstlen) {
-			lua_pop(L, 1);
+		lua_getfield(L, idx, "artifact");
+		artifact = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+		if (snprintf(dst, dstlen, artifact && *artifact ?
+		    "<qstar-target-file:%s#%s>" : "<qstar-target-file:%s>",
+		    label, artifact && *artifact ? artifact : "") >= (int)dstlen) {
+			lua_pop(L, 2);
 			return -1;
 		}
-		lua_pop(L, 1);
+		lua_pop(L, 2);
 		return 0;
 	}
 	return -1;
@@ -5343,6 +5348,20 @@ qstar_lua_output(lua_State *L)
 }
 
 static int
+valid_artifact_selector(const char *value)
+{
+	const unsigned char *p;
+
+	if (!value || !*value)
+		return 0;
+	for (p = (const unsigned char *)value; *p; p++) {
+		if (!(isalnum(*p) || *p == '_' || *p == '-'))
+			return 0;
+	}
+	return 1;
+}
+
+static int
 qstar_lua_input(lua_State *L)
 {
 	lua_Integer index;
@@ -5362,18 +5381,45 @@ static int
 qstar_lua_target_file(lua_State *L)
 {
 	struct qstar_lua_context *ctx;
-	const char *raw;
+	const char *raw, *artifact;
 	char label[QSTAR_PATH_MAX];
 
 	ctx = get_context(L);
 	raw = luaL_checkstring(L, 1);
 	if (qstar_label_canonicalize(raw, ctx->current_dir, label, sizeof(label)) < 0)
 		return luaL_error(L, "qstar: invalid target_file label '%s'", raw);
+	artifact = NULL;
+	if (!lua_isnoneornil(L, 2)) {
+		luaL_checktype(L, 2, LUA_TTABLE);
+		lua_getfield(L, 2, "artifact");
+		if (!lua_isstring(L, -1))
+			return luaL_error(L,
+			    "qstar: qstar.target_file selector field 'artifact' must be a string");
+		artifact = lua_tostring(L, -1);
+		if (!valid_artifact_selector(artifact))
+			return luaL_error(L,
+			    "qstar: qstar.target_file selector artifact '%s' is invalid",
+			    artifact);
+		lua_pop(L, 1);
+		lua_pushnil(L);
+		while (lua_next(L, 2) != 0) {
+			const char *key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+			if (!key || strcmp(key, "artifact") != 0)
+				return luaL_error(L,
+				    "qstar: unknown qstar.target_file selector field '%s'",
+				    key ? key : "<non-string>");
+			lua_pop(L, 1);
+		}
+	}
 	lua_newtable(L);
 	lua_pushstring(L, "target_file");
 	lua_setfield(L, -2, "__qstar_kind");
 	lua_pushstring(L, label);
 	lua_setfield(L, -2, "label");
+	if (artifact && *artifact) {
+		lua_pushstring(L, artifact);
+		lua_setfield(L, -2, "artifact");
+	}
 	return 1;
 }
 

@@ -4454,10 +4454,11 @@ resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
 {
 	const struct qstar_target *target;
 	const struct qstar_genrule *genrule;
-	char label[QSTAR_PATH_MAX];
+	char label[QSTAR_PATH_MAX], artifact[64];
 	int rc;
 
-	rc = qstar_target_file_token_label(arg, label, sizeof(label));
+	rc = qstar_target_file_token_parse(arg, label, sizeof(label), artifact,
+	    sizeof(artifact));
 	if (rc == 0) {
 		if (snprintf(dst, dstlen, "%s", arg) >= (int)dstlen)
 			return qstar_set_error(graph, "qstar: command argv item is too long");
@@ -4469,6 +4470,10 @@ resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
 	if (!target) {
 		genrule = qstar_graph_find_genrule(graph, label);
 		if (genrule && genrule->outputs.len > 0) {
+			if (artifact[0])
+				return qstar_set_error(graph,
+				    "qstar: target_file artifact selector '%s' cannot be used with generated action '%s'",
+				    artifact, label);
 			if (snprintf(dst, dstlen, "%s", genrule->outputs.items[0]) >=
 			    (int)dstlen)
 				return qstar_set_error(graph,
@@ -4483,9 +4488,7 @@ resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
 		    target->origin_line, "target_file", target->label,
 		    "qstar: qstar.target_file cannot reference group target '%s' because group targets have no artifact; depend on the group directly or reference one of its artifact-producing deps",
 		    label);
-	if (qstar_graph_artifact_output_path(graph, target, dst, dstlen) < 0)
-		return qstar_set_error(graph, "qstar: target_file artifact path is too long");
-	return 0;
+	return qstar_graph_target_artifact_path(graph, target, artifact, dst, dstlen);
 }
 
 /** generated action input token을 실제 package-relative cache input으로 추가한다. */
@@ -6423,8 +6426,8 @@ validate_sharedlib_platform(struct qstar_graph *graph, const struct qstar_target
 		return 0;
 	return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 	    "kind", target->label,
-	    "qstar: sharedlib target '%s' is not supported for Windows-like platform contexts yet; Windows shared libraries require a runtime .dll, import .lib, and optional PDB/debug artifact policy. Use custom_target/object bridge for now or see docs/windows-artifact-policy.md",
-	    target->label);
+	    "qstar: sharedlib target '%s' has Graph IR artifacts for runtime .dll and import .lib, but Stella lowering for platform '%s' is deferred; use dry-run, explain, or list-targets --format json to inspect the artifact map, or see docs/windows-artifact-graph-ir.md",
+	    target->label, toolchain->platform);
 }
 
 /** sharedlib link action에 platform별 dynamic-library flag를 추가한다. */
@@ -8718,7 +8721,7 @@ install_manifest_begin(struct qstar_graph *graph, struct qstar_install_ctx *ctx,
 /** install manifest에 artifact/header record 하나를 추가한다. */
 static void
 install_manifest_record(struct qstar_install_ctx *ctx, const char *target_label,
-    const char *role, const char *src_rel, const char *dst)
+    const char *role, const char *artifact, const char *src_rel, const char *dst)
 {
 	if (!ctx->manifest)
 		return;
@@ -8728,6 +8731,8 @@ install_manifest_record(struct qstar_install_ctx *ctx, const char *target_label,
 	json_string(ctx->manifest, target_label);
 	fputs(",\"role\":", ctx->manifest);
 	json_string(ctx->manifest, role);
+	fputs(",\"artifact\":", ctx->manifest);
+	json_string(ctx->manifest, artifact && *artifact ? artifact : role);
 	fputs(",\"src\":", ctx->manifest);
 	json_path_string(ctx->manifest, src_rel);
 	fputs(",\"dst\":", ctx->manifest);
@@ -8779,7 +8784,8 @@ install_header_dst(const struct qstar_target *target, const char *prefix, const 
 /** single file install 또는 dry-run line을 수행한다. */
 static int
 install_file(struct qstar_graph *graph, struct qstar_install_ctx *ctx,
-    const struct qstar_target *target, const char *src_rel, const char *dst, const char *role)
+    const struct qstar_target *target, const char *src_rel, const char *dst,
+    const char *role, const char *artifact)
 {
 	char src[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	const char *diff_action;
@@ -8788,10 +8794,12 @@ install_file(struct qstar_graph *graph, struct qstar_install_ctx *ctx,
 	    "would-create") : "copy";
 	if (qstar_action_description_install(src_rel, description, sizeof(description)) < 0)
 		snprintf(description, sizeof(description), "<too-long>");
-	fprintf(ctx->out, "install_file src=%s dst=%s mode=%s role=%s description=\"%s\"\n",
-	    src_rel, dst, ctx->options->dry_run ? "dry-run" : "copy", role, description);
+	fprintf(ctx->out,
+	    "install_file src=%s dst=%s mode=%s role=%s artifact=%s description=\"%s\"\n",
+	    src_rel, dst, ctx->options->dry_run ? "dry-run" : "copy", role,
+	    artifact && *artifact ? artifact : role, description);
 	fprintf(ctx->out, "install_diff dst=%s action=%s\n", dst, diff_action);
-	install_manifest_record(ctx, target->label, role, src_rel, dst);
+	install_manifest_record(ctx, target->label, role, artifact, src_rel, dst);
 	if (ctx->options->dry_run)
 		return 0;
 	if (full_path_under_root(graph, src_rel, src, sizeof(src)) < 0 || !path_exists(src))
@@ -8808,8 +8816,8 @@ install_one_target(struct qstar_graph *graph, const struct qstar_target *target,
     struct qstar_install_ctx *ctx)
 {
 	struct qstar_build_options build_options;
-	char artifact[QSTAR_PATH_MAX], dst[QSTAR_PATH_MAX];
-	const char *role;
+	struct qstar_target_artifact_map artifacts;
+	char dst[QSTAR_PATH_MAX];
 	size_t i;
 
 	if (!qstar_target_is_installable(target))
@@ -8822,29 +8830,31 @@ install_one_target(struct qstar_graph *graph, const struct qstar_target *target,
 		    ctx->out) < 0)
 			return -1;
 	}
-	if (qstar_graph_artifact_output_path(graph, target, artifact, sizeof(artifact)) < 0)
+	if (!ctx->options->dry_run && strcmp(target->kind, "sharedlib") == 0 &&
+	    qstar_platform_is_windows(qstar_graph_platform(graph)))
+		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+		    "kind", target->label,
+		    "qstar: Windows sharedlib install for '%s' is deferred until Stella/Ninja lowering produces both runtime .dll and import .lib; use --dry-run to inspect the planned layout or see docs/windows-artifact-graph-ir.md",
+		    target->label);
+	if (qstar_graph_target_artifact_map(graph, target, &artifacts) < 0)
 		return qstar_set_error(graph, "qstar: install artifact path too long");
-	if (strcmp(target->kind, "exe") == 0) {
-		role = "exe";
-		snprintf(dst, sizeof(dst), "%s/bin/%s", ctx->options->prefix,
-		    artifact_basename(artifact));
-	} else if (strcmp(target->kind, "sharedlib") == 0) {
-		role = "sharedlib";
-		snprintf(dst, sizeof(dst), "%s/lib/%s", ctx->options->prefix,
-		    artifact_basename(artifact));
-	} else {
-		role = "staticlib";
-		snprintf(dst, sizeof(dst), "%s/lib/%s", ctx->options->prefix,
-		    artifact_basename(artifact));
+	for (i = 0; i < artifacts.len; i++) {
+		if (!artifacts.items[i].installable)
+			continue;
+		if (snprintf(dst, sizeof(dst), "%s/%s/%s", ctx->options->prefix,
+		    artifacts.items[i].install_dir[0] ? artifacts.items[i].install_dir : "lib",
+		    artifact_basename(artifacts.items[i].path)) >= (int)sizeof(dst))
+			return qstar_set_error(graph, "qstar: install destination path too long");
+		if (install_file(graph, ctx, target, artifacts.items[i].path, dst,
+		    artifacts.items[i].role, artifacts.items[i].id) < 0)
+			return -1;
 	}
-	if (install_file(graph, ctx, target, artifact, dst, role) < 0)
-		return -1;
 	for (i = 0; i < target->public_headers.len; i++) {
 		if (install_header_dst(target, ctx->options->prefix,
 		    target->public_headers.items[i], dst, sizeof(dst)) < 0)
 			return qstar_set_error(graph, "qstar: install header path too long");
 		if (install_file(graph, ctx, target, target->public_headers.items[i], dst,
-		    "header") < 0)
+		    "header", "header") < 0)
 			return -1;
 	}
 	return 0;
@@ -8991,7 +9001,8 @@ stage_manifest_begin(struct qstar_graph *graph, struct qstar_stage_ctx *ctx,
 /** stage manifest에 copy/diff record 하나를 추가한다. */
 static void
 stage_manifest_record(struct qstar_stage_ctx *ctx, const char *src_rel,
-    const char *dst_rel, const char *action, const char *kind, const char *producer)
+    const char *dst_rel, const char *action, const char *kind, const char *producer,
+    const char *artifact)
 {
 	if (!ctx->manifest)
 		return;
@@ -9007,6 +9018,8 @@ stage_manifest_record(struct qstar_stage_ctx *ctx, const char *src_rel,
 	json_string(ctx->manifest, kind);
 	fputs(",\"producer\":", ctx->manifest);
 	json_string(ctx->manifest, producer);
+	fputs(",\"artifact\":", ctx->manifest);
+	json_string(ctx->manifest, artifact && *artifact ? artifact : "");
 	fputs("}", ctx->manifest);
 	ctx->manifest_len++;
 }
@@ -9077,26 +9090,50 @@ stage_resolve_src(struct qstar_graph *graph, const char *src, char *dst, size_t 
 static void
 stage_source_kind(struct qstar_graph *graph, const char *src_token,
     const char *src_rel, const char **kind, const char **producer,
-    char *producer_buf, size_t producer_buf_len)
+    const char **artifact, char *producer_buf, size_t producer_buf_len,
+    char *artifact_buf, size_t artifact_buf_len)
 {
 	const struct qstar_genrule *owner;
-	char label[QSTAR_PATH_MAX];
+	const struct qstar_target *target;
+	struct qstar_target_artifact_map map;
+	char label[QSTAR_PATH_MAX], selector[64];
 	int rc;
 
 	*kind = "file";
 	*producer = "<none>";
-	rc = qstar_target_file_token_label(src_token, label, sizeof(label));
+	*artifact = "";
+	if (artifact_buf_len)
+		artifact_buf[0] = '\0';
+	rc = qstar_target_file_token_parse(src_token, label, sizeof(label), selector,
+	    sizeof(selector));
 	if (rc == 1) {
-		if (find_target(graph, label)) {
+		target = find_target(graph, label);
+		if (target) {
 			*kind = "target";
 			snprintf(producer_buf, producer_buf_len, "%s", label);
 			*producer = producer_buf;
+			if (selector[0]) {
+				snprintf(artifact_buf, artifact_buf_len, "%s", selector);
+			} else if (qstar_graph_target_artifact_map(graph, target, &map) == 0) {
+				size_t i;
+
+				artifact_buf[0] = '\0';
+				for (i = 0; i < map.len; i++) {
+					if (map.items[i].primary) {
+						snprintf(artifact_buf, artifact_buf_len, "%s",
+						    map.items[i].id);
+						break;
+					}
+				}
+			}
+			*artifact = artifact_buf;
 			return;
 		}
 		if (qstar_graph_find_genrule(graph, label)) {
 			*kind = "custom_target";
 			snprintf(producer_buf, producer_buf_len, "%s", label);
 			*producer = producer_buf;
+			*artifact = "primary";
 			return;
 		}
 	}
@@ -9105,6 +9142,7 @@ stage_source_kind(struct qstar_graph *graph, const char *src_token,
 		*kind = "custom_output";
 		snprintf(producer_buf, producer_buf_len, "%s", owner->label);
 		*producer = producer_buf;
+		*artifact = "output";
 	}
 }
 
@@ -9114,9 +9152,9 @@ stage_file(struct qstar_graph *graph, struct qstar_stage_ctx *ctx, const char *s
     const char *dst_rel)
 {
 	char src_rel[QSTAR_PATH_MAX], src_full[QSTAR_PATH_MAX], dst_stage_rel[QSTAR_PATH_MAX];
-	char dst_full[QSTAR_PATH_MAX], producer_buf[QSTAR_PATH_MAX];
+	char dst_full[QSTAR_PATH_MAX], producer_buf[QSTAR_PATH_MAX], artifact_buf[64];
 	char description[QSTAR_PATH_MAX];
-	const char *action, *kind, *producer;
+	const char *action, *kind, *producer, *artifact;
 	int exists;
 
 	if (stage_build_source_dependency(graph, src_token,
@@ -9141,19 +9179,20 @@ stage_file(struct qstar_graph *graph, struct qstar_stage_ctx *ctx, const char *s
 		action = "would-update";
 	else
 		action = "would-create";
-	stage_source_kind(graph, src_token, src_rel, &kind, &producer, producer_buf,
-	    sizeof(producer_buf));
+	stage_source_kind(graph, src_token, src_rel, &kind, &producer, &artifact,
+	    producer_buf, sizeof(producer_buf), artifact_buf, sizeof(artifact_buf));
 	if (qstar_action_description_stage(ctx->stage, description,
 	    sizeof(description)) < 0)
 		snprintf(description, sizeof(description), "<too-long>");
 	fprintf(ctx->out,
-	    "stage_file src=%s dst=%s mode=%s kind=%s producer=%s description=\"%s\"\n",
+	    "stage_file src=%s dst=%s mode=%s kind=%s producer=%s artifact=%s description=\"%s\"\n",
 	    src_rel, dst_stage_rel,
 	    ctx->options && ctx->options->dry_run ? "dry-run" : "copy",
-	    kind, producer, description);
+	    kind, producer, artifact && *artifact ? artifact : "<none>", description);
 	fprintf(ctx->out, "stage_diff dst=%s action=%s exists=%s\n", dst_stage_rel,
 	    action, exists ? "yes" : "no");
-	stage_manifest_record(ctx, src_rel, dst_stage_rel, action, kind, producer);
+	stage_manifest_record(ctx, src_rel, dst_stage_rel, action, kind, producer,
+	    artifact);
 	if (ctx->options && ctx->options->dry_run)
 		return 0;
 	if (!path_exists(src_full))

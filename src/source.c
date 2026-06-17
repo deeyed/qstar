@@ -142,10 +142,11 @@ validate_target_file_artifact_ref(struct qstar_graph *graph, const char *token,
     const char *origin_file, int origin_line, const char *field, const char *owner)
 {
 	const struct qstar_target *target;
-	char label[QSTAR_PATH_MAX];
+	char label[QSTAR_PATH_MAX], artifact[64], resolved[QSTAR_PATH_MAX];
 	int rc;
 
-	rc = qstar_target_file_token_label(token, label, sizeof(label));
+	rc = qstar_target_file_token_parse(token, label, sizeof(label), artifact,
+	    sizeof(artifact));
 	if (rc == 0)
 		return 0;
 	if (rc < 0)
@@ -158,10 +159,20 @@ validate_target_file_artifact_ref(struct qstar_graph *graph, const char *token,
 			    field, owner,
 			    "qstar: qstar.target_file cannot reference group target '%s' because group targets have no artifact; depend on the group directly or reference one of its artifact-producing deps",
 			    label);
+		if (artifact[0] &&
+		    qstar_graph_target_artifact_path(graph, target, artifact, resolved,
+		    sizeof(resolved)) < 0)
+			return -1;
 		return 0;
 	}
-	if (qstar_graph_find_genrule(graph, label))
+	if (qstar_graph_find_genrule(graph, label)) {
+		if (artifact[0])
+			return qstar_set_error_origin(graph, origin_file, origin_line,
+			    field, owner,
+			    "qstar: target_file artifact selector '%s' cannot be used with generated action '%s'",
+			    artifact, label);
 		return 0;
+	}
 	return qstar_set_error_origin(graph, origin_file, origin_line, field, owner,
 	    "qstar: target_file target '%s' in '%s' is unknown", label, owner);
 }
@@ -495,9 +506,10 @@ validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 	for (i = 0; i < genrule->inputs.len; i++) {
 		path = genrule->inputs.items[i];
 		int rc;
-		char label[QSTAR_PATH_MAX];
+		char label[QSTAR_PATH_MAX], artifact[64], resolved[QSTAR_PATH_MAX];
 
-		rc = qstar_target_file_token_label(path, label, sizeof(label));
+		rc = qstar_target_file_token_parse(path, label, sizeof(label), artifact,
+		    sizeof(artifact));
 		if (rc < 0)
 			return qstar_set_error_origin(graph, genrule->origin_file,
 			    genrule->origin_line, "inputs", genrule->label,
@@ -519,6 +531,16 @@ validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 				    "inputs", genrule->label,
 				    "qstar: qstar.target_file cannot reference group target '%s' because group targets have no artifact; depend on the group directly or reference one of its artifact-producing deps",
 				    label);
+			if (target && artifact[0] &&
+			    qstar_graph_target_artifact_path(graph, target, artifact,
+			    resolved, sizeof(resolved)) < 0)
+				return -1;
+			if (!target && artifact[0] && qstar_graph_find_genrule(graph, label))
+				return qstar_set_error_origin(graph,
+				    genrule->origin_file, genrule->origin_line,
+				    "inputs", genrule->label,
+				    "qstar: target_file artifact selector '%s' cannot be used with generated action '%s'",
+				    artifact, label);
 			if (!target && !qstar_graph_find_genrule(graph, label))
 				return qstar_set_error_origin(graph,
 				    genrule->origin_file, genrule->origin_line,

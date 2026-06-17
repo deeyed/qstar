@@ -69,7 +69,11 @@ Provider-only author APIs:
 `qstar.sharedlib`는 macOS platform context에서는 `.dylib`, Linux platform context에서는 `.so`를
 생성한다. sharedlib dependency를 link하는 artifact target은 build-tree 실행을 위해
 macOS `@loader_path`, Linux `$ORIGIN` 기반 rpath를 자동으로 받는다. Windows
-runtime `.dll`, import `.lib`, PDB/debug artifact 정책은 deferred diagnostic이다.
+runtime `.dll`과 import `.lib`는 Q223부터 Graph IR artifact map으로 표현된다. 기본
+`qstar.target_file("//:plugin")`은 primary runtime artifact를 가리키고,
+`qstar.target_file("//:plugin", { artifact = "import_lib" })`은 Windows sharedlib의
+import library를 가리킨다. Windows sharedlib backend lowering과 PDB/debug ownership은
+아직 deferred diagnostic이다.
 
 `qstar.target_file("//:group")`은 error다. Group은 dependency closure를 묶는 label일 뿐
 artifact-producing target이 아니다.
@@ -77,6 +81,9 @@ artifact-producing target이 아니다.
 Artifact target과 config는 `link_options`와 `link_inputs`를 분리한다. `link_options`는
 link argv에 그대로 추가되고, `link_inputs`는 package-relative file이나
 `qstar.target_file(...)` artifact를 link action rebuild input으로만 추적한다.
+`qstar.target_file(label, { artifact = "..." })`의 selector는 filename이 아니라 target이
+노출한 artifact id이며, 알 수 없는 selector는 known artifact 목록을 포함한 diagnostic으로
+거부된다.
 macOS framework link는 generic top-level field가 아니라 macOS branch 안의
 `link = { frameworks = {...} }`로만 작성한다.
 

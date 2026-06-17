@@ -99,6 +99,14 @@ qstar.stage "layout" {
   },
 }
 
+qstar.stage "plugin_layout" {
+  root = "build/qstar/stage/windows-plugin",
+  files = {
+    qstar.stage_file(qstar.target_file("//:plugin"), "bin/plugin.dll"),
+    qstar.stage_file(qstar.target_file("//:plugin", { artifact = "import_lib" }), "lib/plugin.lib"),
+  },
+}
+
 qstar.group "all" {
   deps = {
     "//:tool",

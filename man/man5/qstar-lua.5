@@ -175,7 +175,15 @@ object file; QStar does not parse or own those language semantics.
 Reference the artifact produced by a target or generated action. It cannot
 reference a
 .Ic qstar.group
-because group targets have no artifact.
+because group targets have no artifact. The optional selector form
+.Bd -literal -offset indent
+qstar.target_file("//:plugin", { artifact = "import_lib" })
+.Ed
+addresses a named secondary artifact. Q223 uses this for the Windows shared
+library import
+.Pa .lib
+artifact while the default form still resolves to the primary runtime
+.Pa .dll .
 .It Ic qstar.stage_file
 Map a source artifact or source file into a
 .Ic qstar.stage

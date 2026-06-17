@@ -266,6 +266,14 @@ int qstar_graph_depfile_output_path(const struct qstar_graph *graph,
 /** target artifact output path를 deterministic package-relative path로 만든다. */
 int qstar_artifact_output_path(const struct qstar_target *target, char *dst, size_t dstlen);
 
+/** target이 생산하는 artifact map을 platform context 기준으로 계산한다. */
+int qstar_graph_target_artifact_map(const struct qstar_graph *graph,
+    const struct qstar_target *target, struct qstar_target_artifact_map *map);
+
+/** target artifact selector를 deterministic package-relative path로 해석한다. */
+int qstar_graph_target_artifact_path(struct qstar_graph *graph,
+    const struct qstar_target *target, const char *artifact, char *dst, size_t dstlen);
+
 /** build context/target artifact_name policy를 적용한 artifact output path를 만든다. */
 int qstar_graph_artifact_output_path(const struct qstar_graph *graph,
     const struct qstar_target *target, char *dst, size_t dstlen);
@@ -274,8 +282,16 @@ int qstar_graph_artifact_output_path(const struct qstar_graph *graph,
 const struct qstar_genrule *qstar_graph_find_genrule(const struct qstar_graph *graph,
     const char *label);
 
+/** target artifact map을 deterministic explain/list text로 출력한다. */
+void qstar_dump_target_artifact_map_text(FILE *out, const struct qstar_graph *graph,
+    const struct qstar_target *target, const char *indent);
+
 /** qstar.target_file placeholder token에서 canonical label을 추출한다. */
 int qstar_target_file_token_label(const char *arg, char *label, size_t labellen);
+
+/** qstar.target_file placeholder token에서 label과 artifact selector를 추출한다. */
+int qstar_target_file_token_parse(const char *arg, char *label, size_t labellen,
+    char *artifact, size_t artifactlen);
 
 /** provider lowering의 tool placeholder token에서 tool role 이름을 추출한다. */
 int qstar_provider_tool_token_role(const char *arg, char *role, size_t rolelen);

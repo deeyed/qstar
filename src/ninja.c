@@ -1144,10 +1144,11 @@ resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
 {
 	const struct qstar_target *target;
 	const struct qstar_genrule *genrule;
-	char label[QSTAR_PATH_MAX];
+	char label[QSTAR_PATH_MAX], artifact[64];
 	int rc;
 
-	rc = qstar_target_file_token_label(arg, label, sizeof(label));
+	rc = qstar_target_file_token_parse(arg, label, sizeof(label), artifact,
+	    sizeof(artifact));
 	if (rc == 0) {
 		if (snprintf(dst, dstlen, "%s", arg) >= (int)dstlen)
 			return qstar_set_error(graph, "qstar: command argv item is too long");
@@ -1162,10 +1163,14 @@ resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
 			    target->origin_line, "target_file", target->label,
 			    "qstar: qstar.target_file cannot reference group target '%s' because it has no artifact",
 			    label);
-		return qstar_graph_artifact_output_path(graph, target, dst, dstlen);
+		return qstar_graph_target_artifact_path(graph, target, artifact, dst, dstlen);
 	}
 	genrule = qstar_graph_find_genrule(graph, label);
 	if (genrule && genrule->outputs.len > 0) {
+		if (artifact[0])
+			return qstar_set_error(graph,
+			    "qstar: target_file artifact selector '%s' cannot be used with generated action '%s'",
+			    artifact, label);
 		if (snprintf(dst, dstlen, "%s", genrule->outputs.items[0]) >=
 		    (int)dstlen)
 			return qstar_set_error(graph,
@@ -1756,8 +1761,8 @@ validate_sharedlib_platform(struct qstar_graph *graph, const struct qstar_target
 		return 0;
 	return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 	    "kind", target->label,
-	    "qstar: sharedlib target '%s' is not supported for Windows-like platform contexts yet; Windows shared libraries require a runtime .dll, import .lib, and optional PDB/debug artifact policy. Use custom_target/object bridge for now or see docs/windows-artifact-policy.md",
-	    target->label);
+	    "qstar: sharedlib target '%s' has Graph IR artifacts for runtime .dll and import .lib, but Ninja lowering for platform '%s' is deferred; use dry-run, explain, or list-targets --format json to inspect the artifact map, or see docs/windows-artifact-graph-ir.md",
+	    target->label, toolchain->platform);
 }
 
 /** sharedlib link action에 platform별 dynamic-library flag를 추가한다. */
