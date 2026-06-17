@@ -11,6 +11,9 @@ Covered flows:
 - response-file driven compile and link
 - generated object artifact bridge
 - install prefix smoke for executable and static library artifacts
+- stage layout smoke for executable, static library, and generated object bridge
+  outputs
+- slash-normalized install and stage manifest records
 
 MSVC, clang-cl, `.lib`, `.dll`, import library, and PDB policy are covered by
 separate Windows artifact contract tests until those paths become native release

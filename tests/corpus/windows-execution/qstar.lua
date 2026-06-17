@@ -178,6 +178,16 @@ qstar.executable "bridge_app" {
   artifact_name = "bridge_app.exe",
 }
 
+qstar.stage "layout" {
+  root = "stage/windows-execution",
+  files = {
+    qstar.stage_file(qstar.target_file("//:app"), "bin/app.exe"),
+    qstar.stage_file(qstar.target_file("//:core"), "lib/libwinexec_core.a"),
+    qstar.stage_file(qstar.target_file("//:bridge_app"), "bin/bridge_app.exe"),
+    qstar.stage_file("build/qstar/generated/bridge/bridge_payload.o", "objects/bridge_payload.o"),
+  },
+}
+
 qstar.group "all" {
   deps = {
     "//:hello",

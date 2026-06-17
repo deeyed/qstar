@@ -263,6 +263,14 @@ test -f "$artifact_corpus/$build_dir/stage/windows-layout/lib/core.lib" ||
 	fail "Windows artifact corpus staged core.lib missing"
 test -f "$artifact_corpus/$build_dir/stage/windows-layout/lib/named_core.lib" ||
 	fail "Windows artifact corpus staged named_core.lib missing"
+stage_manifest="$artifact_corpus/$build_dir/stage/___layout/manifest.json"
+contains "$stage_manifest" "\"schema\":\"qstar-stage-manifest-v2\""
+contains "$stage_manifest" "\"root\":\"build/qstar/stage/windows-layout\""
+contains "$stage_manifest" "\"dst\":\"build/qstar/stage/windows-layout/bin/tool.exe\""
+contains "$stage_manifest" "\"dst\":\"build/qstar/stage/windows-layout/lib/core.lib\""
+contains "$stage_manifest" "\"kind\":\"target\""
+contains "$stage_manifest" "\"producer\":\"//:tool\""
+not_contains "$stage_manifest" "\\"
 
 "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
 	install //:tool --prefix "$tmp/windows-artifacts-prefix" \
@@ -270,24 +278,50 @@ test -f "$artifact_corpus/$build_dir/stage/windows-layout/lib/named_core.lib" ||
 	2> "$tmp/windows-artifacts-install-tool.err"
 test -f "$tmp/windows-artifacts-prefix/bin/tool.exe" ||
 	fail "Windows artifact corpus installed tool.exe missing"
+install_manifest="$artifact_corpus/$build_dir/install/manifest.json"
+contains "$install_manifest" "\"schema\":\"qstar-install-manifest-v2\""
+contains "$install_manifest" "\"role\":\"exe\""
+contains "$install_manifest" "\"src\":\"build/qstar/out/___tool/tool.exe\""
+contains "$install_manifest" "\"dst\":\"$tmp/windows-artifacts-prefix/bin/tool.exe\""
+not_contains "$install_manifest" "\\"
 "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
 	install //:core --prefix "$tmp/windows-artifacts-prefix" \
 	> "$tmp/windows-artifacts-install-core.out" \
 	2> "$tmp/windows-artifacts-install-core.err"
 test -f "$tmp/windows-artifacts-prefix/lib/core.lib" ||
 	fail "Windows artifact corpus installed core.lib missing"
+contains "$install_manifest" "\"role\":\"staticlib\""
+contains "$install_manifest" "\"src\":\"build/qstar/out/___core/core.lib\""
+contains "$install_manifest" "\"dst\":\"$tmp/windows-artifacts-prefix/lib/core.lib\""
+not_contains "$install_manifest" "\\"
 "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
 	install //:named_tool --prefix "$tmp/windows-artifacts-prefix" \
 	> "$tmp/windows-artifacts-install-named-tool.out" \
 	2> "$tmp/windows-artifacts-install-named-tool.err"
 test -f "$tmp/windows-artifacts-prefix/bin/named_tool.exe" ||
 	fail "Windows artifact corpus installed named_tool.exe missing"
+contains "$install_manifest" "\"role\":\"exe\""
+contains "$install_manifest" "\"dst\":\"$tmp/windows-artifacts-prefix/bin/named_tool.exe\""
+not_contains "$install_manifest" "\\"
 "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
 	install //:named_core --prefix "$tmp/windows-artifacts-prefix" \
 	> "$tmp/windows-artifacts-install-named-core.out" \
 	2> "$tmp/windows-artifacts-install-named-core.err"
 test -f "$tmp/windows-artifacts-prefix/lib/named_core.lib" ||
 	fail "Windows artifact corpus installed named_core.lib missing"
+contains "$install_manifest" "\"role\":\"staticlib\""
+contains "$install_manifest" "\"dst\":\"$tmp/windows-artifacts-prefix/lib/named_core.lib\""
+not_contains "$install_manifest" "\\"
+
+backslash_prefix="$tmp/windows\\artifacts\\dry-prefix"
+normalized_backslash_prefix=$(printf '%s' "$backslash_prefix" | sed 's#\\#/#g')
+"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+	install //:tool --prefix "$backslash_prefix" --dry-run \
+	> "$tmp/windows-artifacts-install-backslash-prefix.out" \
+	2> "$tmp/windows-artifacts-install-backslash-prefix.err"
+contains "$install_manifest" "\"prefix\":\"$normalized_backslash_prefix\""
+contains "$install_manifest" "\"dst\":\"$normalized_backslash_prefix/bin/tool.exe\""
+not_contains "$install_manifest" "\\"
 
 if "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
 	build //:plugin > "$tmp/windows-artifacts-shared.out" \
@@ -332,6 +366,10 @@ if command -v ninja >/dev/null 2>&1; then
 		fail "Ninja Windows artifact corpus staged tool.exe missing"
 	test -f "$artifact_corpus/$build_dir/stage/windows-layout/lib/core.lib" ||
 		fail "Ninja Windows artifact corpus staged core.lib missing"
+	stage_manifest="$artifact_corpus/$build_dir/stage/___layout/manifest.json"
+	contains "$stage_manifest" "\"dst\":\"build/qstar/stage/windows-layout/bin/tool.exe\""
+	contains "$stage_manifest" "\"dst\":\"build/qstar/stage/windows-layout/lib/core.lib\""
+	not_contains "$stage_manifest" "\\"
 
 	"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
 		-G ninja install //:tool --prefix "$tmp/windows-artifacts-ninja-prefix" \
@@ -339,12 +377,19 @@ if command -v ninja >/dev/null 2>&1; then
 		2> "$tmp/windows-artifacts-ninja-install-tool.err"
 	test -f "$tmp/windows-artifacts-ninja-prefix/bin/tool.exe" ||
 		fail "Ninja Windows artifact corpus installed tool.exe missing"
+	install_manifest="$artifact_corpus/$build_dir/install/manifest.json"
+	contains "$install_manifest" "\"role\":\"exe\""
+	contains "$install_manifest" "\"dst\":\"$tmp/windows-artifacts-ninja-prefix/bin/tool.exe\""
+	not_contains "$install_manifest" "\\"
 	"$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
 		-G ninja install //:core --prefix "$tmp/windows-artifacts-ninja-prefix" \
 		> "$tmp/windows-artifacts-ninja-install-core.out" \
 		2> "$tmp/windows-artifacts-ninja-install-core.err"
 	test -f "$tmp/windows-artifacts-ninja-prefix/lib/core.lib" ||
 		fail "Ninja Windows artifact corpus installed core.lib missing"
+	contains "$install_manifest" "\"role\":\"staticlib\""
+	contains "$install_manifest" "\"dst\":\"$tmp/windows-artifacts-ninja-prefix/lib/core.lib\""
+	not_contains "$install_manifest" "\\"
 
 	if "$qstar" --file "$artifact_corpus/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
 		-G ninja build //:plugin > "$tmp/windows-artifacts-shared-ninja.out" \
@@ -405,5 +450,44 @@ fi
 contains "$tmp/bad-backslash.err" "must be package-relative"
 contains "$tmp/bad-backslash.err" "backslash paths are not normalized"
 contains "$tmp/bad-backslash.err" "use '/' separators"
+
+mkdir -p "$tmp/bad-stage-root/src" "$tmp/bad-stage-dst/src"
+cat > "$tmp/bad-stage-root/src/payload.txt" <<'EOF'
+payload
+EOF
+cat > "$tmp/bad-stage-root/qstar.lua" <<'EOF'
+qstar.stage "bad" {
+  root = "stage\\bad",
+  files = {
+    qstar.stage_file("src/payload.txt", "share/payload.txt"),
+  },
+}
+EOF
+if "$qstar" --file "$tmp/bad-stage-root/qstar.lua" check //:bad \
+	> "$tmp/bad-stage-root.out" 2> "$tmp/bad-stage-root.err"; then
+	fail "backslash stage root unexpectedly succeeded"
+fi
+contains "$tmp/bad-stage-root.err" "stage root"
+contains "$tmp/bad-stage-root.err" "backslash paths are not normalized"
+contains "$tmp/bad-stage-root.err" "use '/' separators"
+
+cat > "$tmp/bad-stage-dst/src/payload.txt" <<'EOF'
+payload
+EOF
+cat > "$tmp/bad-stage-dst/qstar.lua" <<'EOF'
+qstar.stage "bad" {
+  root = "stage/bad",
+  files = {
+    qstar.stage_file("src/payload.txt", "share\\payload.txt"),
+  },
+}
+EOF
+if "$qstar" --file "$tmp/bad-stage-dst/qstar.lua" check //:bad \
+	> "$tmp/bad-stage-dst.out" 2> "$tmp/bad-stage-dst.err"; then
+	fail "backslash stage destination unexpectedly succeeded"
+fi
+contains "$tmp/bad-stage-dst.err" "stage destination"
+contains "$tmp/bad-stage-dst.err" "backslash paths are not normalized"
+contains "$tmp/bad-stage-dst.err" "use '/' separators"
 
 printf 'qstar-windows-prep: passed\n'

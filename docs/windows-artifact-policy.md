@@ -115,5 +115,8 @@ The gate verifies explicit `.exe` naming, external `.lib` spelling, `/LIBPATH`,
 MSVC response-file escaping, slash-normalized package paths, explicit static
 `.lib` artifact planning, fake static `.lib` build output through Stella and
 Ninja, `.exe` and static `.lib` install/stage layout through the Windows
-artifacts corpus, and Windows sharedlib diagnostic parity. It does not claim
-official Windows support.
+artifacts corpus, slash-normalized install/stage manifests, and Windows
+sharedlib diagnostic parity. The Windows execution corpus adds real MSYS2 GCC
+coverage for `.exe -> bin`, static archive -> `lib`, and generated object bridge
+staging through both Stella and Ninja. It does not claim official Windows
+support.

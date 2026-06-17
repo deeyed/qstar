@@ -327,6 +327,10 @@ Current known gaps:
   Ninja builds now share the same native Windows alpha evidence as Stella. The
   optional `run_ninja_parity=true` lane remains the broader cross-corpus Ninja
   backend gate.
+- Q222 strengthens the same execution lane from build/run evidence to
+  install/stage layout evidence. The corpus now checks `.exe` installation under
+  `bin/`, static archive installation under `lib/`, generated object bridge
+  staging, and slash-normalized install/stage manifests.
 - Windows filesystem helpers are now split enough for local `_WIN32` object
   compile checks and the Q179 hosted run reached past the previous
   `mkdir`/`lstat` compile failures.
@@ -339,14 +343,16 @@ Current known gaps:
   `msys2-ucrt64-gcc` the baseline lane and ensures failed runs leave structured
   status and known-issue artifacts.
 - Q178 adds real build/run/install corpus coverage, Q220 adds Stella
-  CreateProcess execution for it, and Q221 adds Ninja execution coverage for
-  the same corpus. The lane is still manual alpha validation: a green execution
-  corpus does not by itself create a Windows public release asset or official
-  support claim.
+  CreateProcess execution for it, Q221 adds Ninja execution coverage, and Q222
+  adds install/stage layout validation for the same corpus. The lane is still
+  manual alpha validation: a green execution corpus does not by itself create a
+  Windows public release asset or official support claim.
 - Stella daemon on Windows is disabled/deferred. The future supported transport
   is a named pipe with Windows ACL rules, not Unix sockets.
 - No Windows public release asset.
-- No stable Windows install layout contract.
+- The `.exe`/static archive/object bridge install-stage subset is alpha
+  validated. Runtime `.dll`, import `.lib`, PDB/debug, and full Windows
+  packaging layout are still deferred.
 - Windows artifact policy is currently a pre-support contract in
   `docs/windows-artifact-policy.md`; native validation still has to prove real
   `.exe`, explicit static `.lib`, runtime `.dll`, import `.lib`, and PDB/debug

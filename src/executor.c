@@ -2072,6 +2072,31 @@ json_string(FILE *f, const char *s)
 	fputc('"', f);
 }
 
+/** Manifest path field는 Windows에서도 slash-normalized form으로 기록한다. */
+static void
+json_path_string(FILE *f, const char *s)
+{
+	const unsigned char *p = (const unsigned char *)(s ? s : "");
+	unsigned char c;
+
+	fputc('"', f);
+	while (*p) {
+		c = *p == '\\' ? '/' : *p;
+		if (c == '"' || c == '\\')
+			fprintf(f, "\\%c", c);
+		else if (c == '\n')
+			fputs("\\n", f);
+		else if (c == '\r')
+			fputs("\\r", f);
+		else if (c == '\t')
+			fputs("\\t", f);
+		else
+			fputc(c, f);
+		p++;
+	}
+	fputc('"', f);
+}
+
 /** action state entry 동적 배열에 record를 추가한다. */
 static int
 state_push(struct qstar_build_ctx *ctx, int next, const char *id, const char *key,
@@ -8681,7 +8706,7 @@ install_manifest_begin(struct qstar_graph *graph, struct qstar_install_ctx *ctx,
 	if (!ctx->manifest)
 		return qstar_set_error(graph, "qstar: could not write install manifest");
 	fputs("{\n  \"schema\":\"qstar-install-manifest-v2\",\n  \"prefix\":", ctx->manifest);
-	json_string(ctx->manifest, options->prefix);
+	json_path_string(ctx->manifest, options->prefix);
 	fputs(",\n  \"mode\":", ctx->manifest);
 	json_string(ctx->manifest, options->dry_run ? "dry-run" : "copy");
 	fputs(",\n  \"entries\":[\n", ctx->manifest);
@@ -8704,9 +8729,9 @@ install_manifest_record(struct qstar_install_ctx *ctx, const char *target_label,
 	fputs(",\"role\":", ctx->manifest);
 	json_string(ctx->manifest, role);
 	fputs(",\"src\":", ctx->manifest);
-	json_string(ctx->manifest, src_rel);
+	json_path_string(ctx->manifest, src_rel);
 	fputs(",\"dst\":", ctx->manifest);
-	json_string(ctx->manifest, dst);
+	json_path_string(ctx->manifest, dst);
 	fputs(",\"mode\":", ctx->manifest);
 	json_string(ctx->manifest, ctx->options->dry_run ? "dry-run" : "copy");
 	fputs("}", ctx->manifest);
@@ -8949,7 +8974,7 @@ stage_manifest_begin(struct qstar_graph *graph, struct qstar_stage_ctx *ctx,
 	fputs("{\n  \"schema\":\"qstar-stage-manifest-v2\",\n  \"label\":", ctx->manifest);
 	json_string(ctx->manifest, stage->label);
 	fputs(",\n  \"root\":", ctx->manifest);
-	json_string(ctx->manifest, ctx->root_rel);
+	json_path_string(ctx->manifest, ctx->root_rel);
 	fputs(",\n  \"mode\":", ctx->manifest);
 	json_string(ctx->manifest, options && options->dry_run ? "dry-run" : "copy");
 	fprintf(ctx->manifest,
@@ -8973,9 +8998,9 @@ stage_manifest_record(struct qstar_stage_ctx *ctx, const char *src_rel,
 	if (ctx->manifest_len)
 		fputs(",\n", ctx->manifest);
 	fputs("    {\"src\":", ctx->manifest);
-	json_string(ctx->manifest, src_rel);
+	json_path_string(ctx->manifest, src_rel);
 	fputs(",\"dst\":", ctx->manifest);
-	json_string(ctx->manifest, dst_rel);
+	json_path_string(ctx->manifest, dst_rel);
 	fputs(",\"action\":", ctx->manifest);
 	json_string(ctx->manifest, action);
 	fputs(",\"kind\":", ctx->manifest);

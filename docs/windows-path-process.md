@@ -56,6 +56,11 @@ output, action-log/replay metadata, and root `.ninja_*` pollution guards. On
 Windows, emitted Ninja rules do not depend on shell `&&` for output directory
 creation; QStar materializes the needed output directories before launching
 Ninja.
+Round Q222 validates the first Windows install/stage layout contract on top of
+that execution lane: explicit `.exe` artifacts install to `bin/`, static
+archives install to `lib/`, generated object bridge outputs can be staged as
+ordinary package artifacts, and install/stage manifests keep slash-normalized
+paths even when a Windows-like prefix spelling reaches the manifest layer.
 
 ## Status
 
@@ -77,6 +82,8 @@ MSYS2 UCRT64 GCC; Q179 moves the process-runner failure from POSIX headers into
 a platform boundary and starts closing filesystem helper signature differences.
 Q219 narrows that boundary further to `src/platform_process.c`; Q220 fills the
 Stella `CreateProcessA` launch path for compile/link/custom/run actions.
+Q221 and Q222 extend that evidence through Ninja execution plus install/stage
+layout checks for `.exe`, static archive, and generated object bridge outputs.
 MSVC/clang-cl execution is still deferred.
 
 ## Path Normalization Rule
@@ -223,6 +230,11 @@ The detailed artifact contract is `docs/windows-artifact-policy.md`. Summary:
 - `qstar.sharedlib` is supported for macOS `.dylib` and Linux `.so`
   platform contexts, but Windows runtime `.dll`, import `.lib`, PDB/debug artifact,
   runtime search path, and install layout are deferred.
+- Q222 validates the current alpha install/stage subset on Windows hosts:
+  executable `.exe` files land under `bin/`, static archive artifacts land under
+  `lib/`, generated object bridge outputs can be staged, and
+  `qstar-install-manifest-v2` / `qstar-stage-manifest-v2` record slash-normalized
+  path fields.
 
 Do not claim Windows packaging support until `.exe`, static `.lib`, runtime
 `.dll`, import `.lib`, debug artifact, and install layout behavior are

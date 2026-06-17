@@ -20,6 +20,14 @@ contains() {
 		fail "missing pattern '$pattern' in $file"
 }
 
+not_contains() {
+	file=$1
+	pattern=$2
+	if grep -F -q -- "$pattern" "$file"; then
+		fail "unexpected pattern '$pattern' in $file"
+	fi
+}
+
 run_artifact() {
 	artifact=$1
 	out=$2
@@ -139,12 +147,62 @@ contains "$tmp/bridge-run.out" "windows-execution bridge=77"
 prefix="$tmp/prefix"
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows install //:app \
 	--prefix "$prefix" > "$tmp/install-app.out" 2> "$tmp/install-app.err"
+contains "$tmp/install-app.out" "install_file src=build/qstar/out/___app/app.exe"
+contains "$tmp/install-app.out" "role=exe"
 test -f "$prefix/bin/app.exe" || fail "installed app.exe missing"
+install_manifest="$corpus/$build_dir/install/manifest.json"
+contains "$install_manifest" "\"schema\":\"qstar-install-manifest-v2\""
+contains "$install_manifest" "\"prefix\":\"$prefix\""
+contains "$install_manifest" "\"role\":\"exe\""
+contains "$install_manifest" "\"src\":\"build/qstar/out/___app/app.exe\""
+contains "$install_manifest" "\"dst\":\"$prefix/bin/app.exe\""
+not_contains "$install_manifest" "\\"
 
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows install //:core \
 	--prefix "$prefix" > "$tmp/install-core.out" 2> "$tmp/install-core.err"
+contains "$tmp/install-core.out" "install_file src=build/qstar/out/___core/libwinexec_core.a"
+contains "$tmp/install-core.out" "role=staticlib"
 test -f "$prefix/lib/libwinexec_core.a" ||
 	fail "installed static library missing"
+contains "$install_manifest" "\"role\":\"staticlib\""
+contains "$install_manifest" "\"src\":\"build/qstar/out/___core/libwinexec_core.a\""
+contains "$install_manifest" "\"dst\":\"$prefix/lib/libwinexec_core.a\""
+not_contains "$install_manifest" "\\"
+
+"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows install //:bridge_app \
+	--prefix "$prefix" > "$tmp/install-bridge-app.out" 2> "$tmp/install-bridge-app.err"
+contains "$tmp/install-bridge-app.out" "install_file src=build/qstar/out/___bridge_app/bridge_app.exe"
+contains "$tmp/install-bridge-app.out" "role=exe"
+test -f "$prefix/bin/bridge_app.exe" || fail "installed bridge_app.exe missing"
+contains "$install_manifest" "\"role\":\"exe\""
+contains "$install_manifest" "\"src\":\"build/qstar/out/___bridge_app/bridge_app.exe\""
+contains "$install_manifest" "\"dst\":\"$prefix/bin/bridge_app.exe\""
+not_contains "$install_manifest" "\\"
+
+"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows stage //:layout \
+	> "$tmp/stage-layout.out" 2> "$tmp/stage-layout.err"
+contains "$tmp/stage-layout.out" "stage_file src=build/qstar/out/___app/app.exe"
+contains "$tmp/stage-layout.out" "stage_file src=build/qstar/out/___core/libwinexec_core.a"
+contains "$tmp/stage-layout.out" "stage_file src=build/qstar/out/___bridge_app/bridge_app.exe"
+contains "$tmp/stage-layout.out" "stage_file src=build/qstar/generated/bridge/bridge_payload.o"
+contains "$tmp/stage-layout.out" "kind=custom_output producer=//:bridge_object"
+contains "$tmp/stage-layout.out" "status ok"
+test -f "$corpus/stage/windows-execution/bin/app.exe" ||
+	fail "staged app.exe missing"
+test -f "$corpus/stage/windows-execution/lib/libwinexec_core.a" ||
+	fail "staged static library missing"
+test -f "$corpus/stage/windows-execution/bin/bridge_app.exe" ||
+	fail "staged bridge_app.exe missing"
+test -f "$corpus/stage/windows-execution/objects/bridge_payload.o" ||
+	fail "staged generated object bridge output missing"
+stage_manifest="$corpus/$build_dir/stage/___layout/manifest.json"
+contains "$stage_manifest" "\"schema\":\"qstar-stage-manifest-v2\""
+contains "$stage_manifest" "\"root\":\"stage/windows-execution\""
+contains "$stage_manifest" "\"src\":\"build/qstar/generated/bridge/bridge_payload.o\""
+contains "$stage_manifest" "\"dst\":\"stage/windows-execution/objects/bridge_payload.o\""
+contains "$stage_manifest" "\"kind\":\"custom_output\""
+contains "$stage_manifest" "\"producer\":\"//:bridge_object\""
+not_contains "$stage_manifest" "\\"
 
 if command -v ninja >/dev/null 2>&1; then
 	rm -rf "$corpus/$build_dir" "$corpus/stage"
@@ -188,12 +246,49 @@ if command -v ninja >/dev/null 2>&1; then
 		> "$tmp/ninja-install-app.out" 2> "$tmp/ninja-install-app.err"
 	contains "$tmp/ninja-install-app.out" "backend ninja"
 	test -f "$ninja_prefix/bin/app.exe" || fail "ninja installed app.exe missing"
+	install_manifest="$corpus/$build_dir/install/manifest.json"
+	contains "$install_manifest" "\"role\":\"exe\""
+	contains "$install_manifest" "\"dst\":\"$ninja_prefix/bin/app.exe\""
+	not_contains "$install_manifest" "\\"
 	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
 		-G ninja install //:core --prefix "$ninja_prefix" \
 		> "$tmp/ninja-install-core.out" 2> "$tmp/ninja-install-core.err"
 	contains "$tmp/ninja-install-core.out" "backend ninja"
 	test -f "$ninja_prefix/lib/libwinexec_core.a" ||
 		fail "ninja installed static library missing"
+	contains "$install_manifest" "\"role\":\"staticlib\""
+	contains "$install_manifest" "\"dst\":\"$ninja_prefix/lib/libwinexec_core.a\""
+	not_contains "$install_manifest" "\\"
+	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
+		-G ninja install //:bridge_app --prefix "$ninja_prefix" \
+		> "$tmp/ninja-install-bridge-app.out" 2> "$tmp/ninja-install-bridge-app.err"
+	contains "$tmp/ninja-install-bridge-app.out" "backend ninja"
+	test -f "$ninja_prefix/bin/bridge_app.exe" ||
+		fail "ninja installed bridge_app.exe missing"
+	contains "$install_manifest" "\"role\":\"exe\""
+	contains "$install_manifest" "\"dst\":\"$ninja_prefix/bin/bridge_app.exe\""
+	not_contains "$install_manifest" "\\"
+	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
+		-G ninja stage //:layout > "$tmp/ninja-stage-layout.out" \
+		2> "$tmp/ninja-stage-layout.err"
+	contains "$tmp/ninja-stage-layout.out" "backend ninja"
+	contains "$tmp/ninja-stage-layout.out" "stage_file src=build/qstar/generated/bridge/bridge_payload.o"
+	contains "$tmp/ninja-stage-layout.out" "kind=custom_output producer=//:bridge_object"
+	contains "$tmp/ninja-stage-layout.out" "status ok"
+	test -f "$corpus/stage/windows-execution/bin/app.exe" ||
+		fail "ninja staged app.exe missing"
+	test -f "$corpus/stage/windows-execution/lib/libwinexec_core.a" ||
+		fail "ninja staged static library missing"
+	test -f "$corpus/stage/windows-execution/bin/bridge_app.exe" ||
+		fail "ninja staged bridge_app.exe missing"
+	test -f "$corpus/stage/windows-execution/objects/bridge_payload.o" ||
+		fail "ninja staged generated object bridge output missing"
+	stage_manifest="$corpus/$build_dir/stage/___layout/manifest.json"
+	contains "$stage_manifest" "\"src\":\"build/qstar/generated/bridge/bridge_payload.o\""
+	contains "$stage_manifest" "\"dst\":\"stage/windows-execution/objects/bridge_payload.o\""
+	contains "$stage_manifest" "\"kind\":\"custom_output\""
+	contains "$stage_manifest" "\"producer\":\"//:bridge_object\""
+	not_contains "$stage_manifest" "\\"
 	test ! -f "$corpus/.ninja_log" || fail "ninja wrote root .ninja_log"
 	test ! -f "$corpus/.ninja_deps" || fail "ninja wrote root .ninja_deps"
 	printf 'qstar-windows-execution: ninja=passed\n'

@@ -190,7 +190,10 @@ QStar가 하지 않는 일:
   Q220은 Stella action runner의 Windows backend를 `CreateProcessA`로 채웠고, Q221은 같은
   `tests/corpus/windows-execution` graph를 `-G ninja`로도 실행하게 해 QStar-launched Ninja가
   response files, generated object bridge, run_target expect, install, action-log/replay, root
-  `.ninja_*` pollution guard를 Windows alpha에서 같이 검증하게 했다. Windows Stella는
+  `.ninja_*` pollution guard를 Windows alpha에서 같이 검증하게 했다. Q222는 이 lane에
+  `.exe -> bin`, static archive -> `lib`, generated object bridge stage layout,
+  `qstar-install-manifest-v2`/`qstar-stage-manifest-v2` slash-normalized path 검증을 더했다.
+  Windows Stella는
   compile/link/custom/run action을 실행하고, stdout/stderr capture, exit code propagation,
   timeout kill, run_target `expect.contains`, action-log/replay의 `windows_command_line` 기록을
   platform layer로 처리한다. QStar의 DSL-facing argv는 shell-free vector로 남고, MSYS2 alpha
@@ -220,7 +223,9 @@ QStar가 하지 않는 일:
   explicit static `.lib`는 target-local `artifact_name`으로
   planning할 수 있다. Q165 prep gate는 `.exe` metadata, fake static `.lib` Stella/Ninja
   build, Windows sharedlib diagnostic parity를 같이 확인했고, Q174는 `.exe`/static `.lib`
-  install/stage layout까지 더한다. Automatic `.lib`, `.dll`, import `.lib`, PDB/debug은
+  install/stage layout까지 더한다. Q222부터 Windows execution corpus도 real MSYS2 GCC
+  executable/static archive/object bridge layout과 manifest normalization을 Stella/Ninja 양쪽에서
+  확인한다. Automatic `.lib`, `.dll`, import `.lib`, PDB/debug은
   native Windows 검증 전까지 official contract가 아니다. 상세 정책은
   `docs/windows-artifact-policy.md`에 둔다.
 - `make qstar-medium-project-readiness-tests`는 Stella executor와 Ninja backend의 clean,

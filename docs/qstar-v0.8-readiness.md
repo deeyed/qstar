@@ -82,10 +82,10 @@ Windows는 아직 official support가 아니다.
 | Baseline lane | MSYS2 UCRT64 gcc |
 | Public asset | none |
 | Native source build | alpha failure list 관리 중 |
-| Current known native blocker | repeat hosted Windows alpha after Q221 Ninja parity expansion |
+| Current known native blocker | repeat hosted Windows alpha after Q222 install/stage layout expansion |
 | Daemon transport | Windows named pipe deferred |
 | `.exe`/static `.lib` | contract and local fake-tool regression sealed |
-| Execution corpus | MSYS2 UCRT64 GCC build/run/install baseline added in Q178; Stella CreateProcess runner added in Q220; Ninja execution path added in Q221 |
+| Execution corpus | MSYS2 UCRT64 GCC build/run/install baseline added in Q178; Stella CreateProcess runner added in Q220; Ninja execution path added in Q221; install/stage layout evidence added in Q222 |
 | `.dll`/import `.lib` | implementation deferred |
 
 0.8의 첫 번째 목표는 Windows를 "manual alpha"에서 "validation-backed beta candidate"로
@@ -93,6 +93,8 @@ Windows는 아직 official support가 아니다.
 
 - Q220의 Stella CreateProcess runner를 hosted Windows alpha에서 재검증
 - Q221의 Ninja launcher parity를 같은 platform process layer 위에서 검증
+- Q222의 `.exe`/static archive/generated object bridge install-stage layout을 hosted
+  Windows alpha에서 재검증
 - MSYS2 UCRT64 lane이 반복 green이거나, 실패하더라도 structured known issue만 남기는 상태
 - `.exe`, static archive, response-file, generated object bridge, install smoke를 real Windows
   host에서 통과
@@ -178,7 +180,7 @@ v1.0 blocker를 0.8 기준으로 다시 정렬한다.
 - Windows `.exe`/static `.lib` real-host validation
 - Windows sharedlib `.dll` + import `.lib` Graph IR/action model
 - Stella/Ninja Windows sharedlib parity tests
-- Windows install/stage layout smoke
+- Windows install/stage layout smoke for `.exe`, static archive, and generated object bridge
 - daemon lifecycle/security regression 강화
 - Linux/macOS release-backed artifact freshness checks
 - QStar docs/wiki/manpage/AI_INDEX platform status refresh
