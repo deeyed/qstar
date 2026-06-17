@@ -64,7 +64,7 @@ LUA_SRCS = \
 
 QSTAR_OBJS = $(QSTAR_SRCS:%.c=$(QSTAR_BUILD)/%.o)
 LUA_OBJS = $(LUA_SRCS:%.c=$(QSTAR_BUILD)/%.o)
-.PHONY: all check qstar-tests qstar-fmt-tests qstar-lint-tests qstar-lsp-tests qstar-lsp-navigation-tests qstar-editor-query-tests qstar-ninja-backend-parity-tests qstar-generic-dsl-backend-parity-tests qstar-medium-project-readiness-tests qstar-large-project-performance-tests qstar-perf-summary-tests qstar-performance-release-gate qstar-self-host-tests qstar-linux-validation-tests qstar-linux-daemon-validation-tests qstar-windows-prep-tests qstar-windows-native-alpha-tests qstar-windows-execution-corpus-tests qstar-windows-sharedlib-artifact-parity-tests qstar-public-beta-package qstar-public-beta-linux-package qstar-public-beta-github-upload qstar-public-beta-release-tests qstar-public-beta-download-smoke vscode-extension-tests qstar-v0-release-tests qstar-v0.1-release-tests qstar-v0.1-hardening-tests qstar-v0.2-authoring-tests qstar-v0.2-rc-tests qstar-v0.3-rc-tests qstar-v0.4-pilot-tests qstar-v0.5-readiness-tests qstar-pilot-readiness-tests qstar-wiki-cli-sync-tests qstar-release-candidate-tests qstar-full-regression-tests qstar-systems-corpus-tests qstar-project-corpus-tests qstar-standalone-integration-tests qstar-executor-v2-tests install clean
+.PHONY: all check qstar-tests qstar-fmt-tests qstar-lint-tests qstar-lsp-tests qstar-lsp-navigation-tests qstar-editor-query-tests qstar-ninja-backend-parity-tests qstar-generic-dsl-backend-parity-tests qstar-real-glp-compiler-corpus-tests qstar-medium-project-readiness-tests qstar-large-project-performance-tests qstar-perf-summary-tests qstar-performance-release-gate qstar-self-host-tests qstar-linux-validation-tests qstar-linux-daemon-validation-tests qstar-windows-prep-tests qstar-windows-native-alpha-tests qstar-windows-execution-corpus-tests qstar-windows-sharedlib-artifact-parity-tests qstar-public-beta-package qstar-public-beta-linux-package qstar-public-beta-github-upload qstar-public-beta-release-tests qstar-public-beta-download-smoke vscode-extension-tests qstar-v0-release-tests qstar-v0.1-release-tests qstar-v0.1-hardening-tests qstar-v0.2-authoring-tests qstar-v0.2-rc-tests qstar-v0.3-rc-tests qstar-v0.4-pilot-tests qstar-v0.5-readiness-tests qstar-pilot-readiness-tests qstar-wiki-cli-sync-tests qstar-release-candidate-tests qstar-full-regression-tests qstar-systems-corpus-tests qstar-project-corpus-tests qstar-standalone-integration-tests qstar-executor-v2-tests install clean
 
 all: $(BIN_DIR)/qstar
 
@@ -113,6 +113,11 @@ qstar-generic-dsl-backend-parity-tests: all
 	bin="$(BIN_DIR)/qstar"; \
 	case "$$bin" in /*) ;; *) bin="$(CURDIR)/$$bin";; esac; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/generic-dsl-backend-seal.sh
+
+qstar-real-glp-compiler-corpus-tests: all
+	bin="$(BIN_DIR)/qstar"; \
+	case "$$bin" in /*) ;; *) bin="$(CURDIR)/$$bin";; esac; \
+	QSTAR_TEST_QSTAR="$$bin" sh tests/real-glp-compiler-corpus.sh
 
 qstar-medium-project-readiness-tests: all
 	bin="$(BIN_DIR)/qstar"; \

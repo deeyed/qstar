@@ -54,6 +54,8 @@ Important documents:
 - `language-provider-backend-contract.md`: external object artifact bridge boundary.
 - `init-glp-scaffold.md`: Korean reference for the generic `qstar init` shape
   model, provider vendoring, and provider-defined scaffold metadata.
+- `../tests/corpus/real-glp/README.md`: optional real Rust/Zig compiler corpus
+  for GLP provider validation beyond fake compiler shims.
 - `performance-gates.md`: Stella/Ninja performance gate contract.
 - `qstar-generic-dsl-backend-seal.md`: Q193 backend/performance seal after the
   generic DSL hard cut.

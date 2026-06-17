@@ -89,6 +89,10 @@ QStar가 하지 않는 일:
   executable/test, generated, configure_file, run_target, sharedlib stage/install producer integration,
   action-log/replay, Windows sharedlib multi-output lowering, `.ninja_log`/`.ninja_deps` root
   pollution 방지를 확인한다.
+- `make qstar-real-glp-compiler-corpus-tests`는 optional gate다. 실제 `rustc`와 `zig`가
+  PATH에 있으면 Rust/Zig GLP provider가 real source를 object로 컴파일하고, QStar가 static
+  archive와 C consumer executable까지 Stella/Ninja 양쪽에서 빌드/실행하는지 확인한다.
+  compiler가 없으면 해당 language는 실패가 아니라 명시적 skip으로 기록된다.
 - `qstar emit-ninja [label]`은 `build/qstar/ninja/build.ninja`와 policy-controlled
   `compile_commands.json`을 생성한다.
 - compile database 기본 위치는 `build/qstar/compile_commands.json`이다.
