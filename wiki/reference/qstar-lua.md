@@ -99,10 +99,9 @@ local vendor_include = qstar.join(vendor, "include")
 local strict = qstar.append({"-Wall"}, "-Wextra", "-Werror")
 ```
 
-- `qstar.join("a", "b", "c")`는 slash로 연결한 path string을 반환한다.
-- `qstar.join {list_a, list_b, item}`은 기존 authoring 호환을 위해 list를 한 단계 flatten한다.
+- `qstar.join("a", "b", "c")`는 slash로 연결한 package-relative path string을 반환한다.
 - `qstar.copy(table)`은 nested table을 deep copy한다.
-- `qstar.append(list, ...)`는 원본 list를 바꾸지 않고 뒤에 값이나 list를 붙인 새 list를 반환한다.
+- `qstar.append(list, ...)`는 원본 list를 바꾸지 않고 뒤에 값이나 list를 붙인 새 list를 반환한다. List 조합에는 `qstar.join`이 아니라 이 helper를 쓴다.
 - `qstar.merge(...)`는 plain table을 새 table로 deep merge한다. 같은 list field는 append된다.
 - `qstar.extend(base, ...)`는 `base` table을 deep merge로 갱신하고 다시 반환한다.
 - `qstar.status("...")`는 사용자 정의 build step description을 나타내는 validated helper를 반환한다.

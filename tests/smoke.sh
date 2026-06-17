@@ -1056,11 +1056,11 @@ contains "$tmp/group-build.out" "status ok"
 contains "$tmp/group-targets-json.out" "\"kind\":\"group\""
 contains "$tmp/group-targets-json.out" "\"installable\":false"
 
-step "noop run target optimization" "noop-run-build"
+step "run target true command executes normally" "run-true-build"
 mkdir -p "$group_tmp/noop-run/src"
 cat > "$group_tmp/noop-run/qstar.lua" <<'EOF'
 qstar.project {
-  name = "noop-run-corpus",
+  name = "run-true-corpus",
   version = "0.1.0",
   root = ".",
 }
@@ -1079,14 +1079,15 @@ int core(void) { return 4; }
 EOF
 "$qstar" --file "$group_tmp/noop-run/qstar.lua" build //:all --progress off > "$tmp/noop-run-build.out" 2> "$tmp/noop-run-build.err"
 contains "$tmp/noop-run-build.out" "status ok"
-not_contains "$tmp/noop-run-build.out" "run_target label=//:all command=argv"
-test ! -f "$group_tmp/noop-run/build/qstar/out/___all/run.stamp" || fail "noop run_target wrote stamp"
+contains "$tmp/noop-run-build.out" "run_target label=//:all command=argv"
+test -f "$group_tmp/noop-run/build/qstar/out/___all/run.stamp" || fail "run_target true command did not write stamp"
 if command -v ninja >/dev/null 2>&1; then
+	rm -rf "$group_tmp/noop-run/build/qstar"
 	"$qstar" --file "$group_tmp/noop-run/qstar.lua" -G ninja build //:all --progress off > "$tmp/noop-run-ninja.out" 2> "$tmp/noop-run-ninja.err"
 	contains "$tmp/noop-run-ninja.out" "backend ninja"
 	contains "$tmp/noop-run-ninja.out" "status ok"
 	contains "$group_tmp/noop-run/build/qstar/ninja/build.ninja" "qstar_action_id = //:all:run:0"
-	test ! -f "$group_tmp/noop-run/build/qstar/out/___all/run.stamp" || fail "ninja noop run_target wrote stamp"
+	test -f "$group_tmp/noop-run/build/qstar/out/___all/run.stamp" || fail "ninja run_target true command did not write stamp"
 	test ! -f "$group_tmp/noop-run/.ninja_log" || fail "ninja wrote root .ninja_log"
 	test ! -f "$group_tmp/noop-run/.ninja_deps" || fail "ninja wrote root .ninja_deps"
 fi
@@ -1700,9 +1701,7 @@ qstar.import_file("qstar/policies/common.qst")
 local common = qstar.import_module("qstar/modules/common")
 
 qstar.staticlib "app" {
-  sources = qstar.join {
-    {qstar.join("src", "app.c")},
-  },
+  sources = {qstar.join("src", "app.c")},
   deps = {"//qstar/policies:policy_core"},
   lang = {
     c = common.common_c(),
@@ -1753,6 +1752,19 @@ not_contains "$tmp/imports-graph.out" "ORIGINAL_ONLY"
 contains "$tmp/imports-lint.out" "status ok"
 "$qstar" fmt --check "$tmp/imports/qstar/modules/common/common.qsm" > "$tmp/imports-qsm-fmt.out" 2> "$tmp/imports-qsm-fmt.err"
 contains "$tmp/imports-qsm-fmt.out" "status ok"
+
+mkdir -p "$tmp/join-table-removed"
+cat > "$tmp/join-table-removed/qstar.lua" <<'EOF'
+qstar.executable "bad" {
+  sources = qstar.join {
+    {"src/main.c"},
+  },
+}
+EOF
+if "$qstar" --file "$tmp/join-table-removed/qstar.lua" check > "$tmp/join-table-removed.out" 2> "$tmp/join-table-removed.err"; then
+	fail "qstar.join table form unexpectedly succeeded"
+fi
+contains "$tmp/join-table-removed.err" "qstar.join table form was removed"
 
 step "import duplicate file diagnostic" "import-duplicate-file"
 mkdir -p "$tmp/import-duplicate-file/p"
@@ -6135,6 +6147,10 @@ contains "$tmp/project-package-module-compile0-log.out" "startup/start.S"
 contains "$tmp/project-package-module-compile1-log.out" "src/module.c"
 contains "$tmp/project-package-module-link-log.out" "-T linker/package.ld"
 contains "$tmp/project-package-module-link-log.out" "--defsym=__module_base=0x1000"
+"$qstar" --file "$tmp/project-package/qstar.lua" build //:package_smoke > "$tmp/project-package-smoke.out" 2> "$tmp/project-package-smoke.err"
+contains "$tmp/project-package-smoke.out" "run_target label=//:package_smoke"
+contains "$tmp/project-package-smoke.out" "run_expect label=//:package_smoke status=matched contains=QSTAR-SMOKE-DONE source=file path=smoke.log"
+contains "$tmp/project-package/smoke.log" "QSTAR-SMOKE-DONE"
 "$qstar" --file "$tmp/project-package/qstar.lua" build //:package_blob --explain-cache --verbose > "$tmp/project-package-blob-build.out" 2> "$tmp/project-package-blob-build.err"
 contains "$tmp/project-package-blob-build.out" "build_generated_action //:package_blob"
 contains "$tmp/project-package-blob-build.out" "output_identity=[generated/package.bin|group=packages|format=file]"
@@ -6158,10 +6174,6 @@ test -f "$tmp/project-package/stage/bundle/config.txt" || fail "package flow sta
 test -f "$tmp/project-package/stage/bundle/module.out" || fail "package flow staged module missing"
 test -f "$tmp/project-package/stage/bundle/package.bin" || fail "package flow staged package missing"
 contains "$tmp/project-package/build/qstar/stage/___bundle/manifest.json" "\"dst\":\"stage/bundle/package.bin\""
-"$qstar" --file "$tmp/project-package/qstar.lua" build //:package_smoke > "$tmp/project-package-smoke.out" 2> "$tmp/project-package-smoke.err"
-contains "$tmp/project-package-smoke.out" "run_target label=//:package_smoke"
-contains "$tmp/project-package-smoke.out" "run_expect label=//:package_smoke status=matched contains=QSTAR-SMOKE-DONE source=file path=smoke.log"
-contains "$tmp/project-package/smoke.log" "QSTAR-SMOKE-DONE"
 "$qstar" --file "$tmp/project-package/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang dry-run //:msvc_payload > "$tmp/project-package-msvc-dry.out" 2> "$tmp/project-package-msvc-dry.err"
 contains "$tmp/project-package-msvc-dry.out" "response_style=msvc"
 contains "$tmp/project-package-msvc-dry.out" "/out:build/qstar/out/___msvc_payload/payload-x64.pe"
@@ -8550,12 +8562,25 @@ qstar.custom_target "blob_image" {
   outputs = {qstar.output("generated/blob.img", {group = "images"})},
   command = qstar.cli {"tools/copy.sh", qstar.input(0), qstar.output(0)},
 }
+
+qstar.run_target "blob_smoke" {
+  deps = {"//:blob_image"},
+  command = qstar.cli {"tools/copy.sh", qstar.target_file("//:blob_image"), "generated/blob.smoke"},
+}
+
+qstar.group "image_group" {
+  deps = {"//:blob_image"},
+}
 EOF
 "$qstar" --file "$tmp/artifact-dep/qstar.lua" explain //:payload_image > "$tmp/artifact-dep-explain.out" 2> "$tmp/artifact-dep-explain.err"
 contains "$tmp/artifact-dep-explain.out" "artifact_input_edge input=<qstar-target-file://:producer> producer=//:producer path="
+"$qstar" --file "$tmp/artifact-dep/qstar.lua" explain //:blob_smoke > "$tmp/artifact-dep-smoke-explain.out" 2> "$tmp/artifact-dep-smoke-explain.err"
+contains "$tmp/artifact-dep-smoke-explain.out" "generated_dep_edge field=deps dependent=//:blob_smoke producer=//:blob_image output=generated/blob.img"
 "$qstar" --file "$tmp/artifact-dep/qstar.lua" dry-run //:payload_image > "$tmp/artifact-dep-dry.out" 2> "$tmp/artifact-dep-dry.err"
 contains "$tmp/artifact-dep-dry.out" "artifact_input_edge input=<qstar-target-file://:producer> producer=//:producer path="
 contains "$tmp/artifact-dep-dry.out" "argv=[tools/fake-objcopy.sh, -O, binary, build/qstar/out/"
+"$qstar" --file "$tmp/artifact-dep/qstar.lua" dry-run //:image_group > "$tmp/artifact-dep-group-dry.out" 2> "$tmp/artifact-dep-group-dry.err"
+contains "$tmp/artifact-dep-group-dry.out" "dry_run_step id=//:blob_image:generate:0 owner=//:blob_image consumer=//:image_group kind=generate"
 "$qstar" --file "$tmp/artifact-dep/qstar.lua" build //:payload_image --schedule-trace > "$tmp/artifact-dep-build.out" 2> "$tmp/artifact-dep-build.err"
 contains "$tmp/artifact-dep-build.out" "build_target //:producer"
 contains "$tmp/artifact-dep-build.out" "build_generated_action //:payload_image"
@@ -8565,6 +8590,21 @@ test -s "$tmp/artifact-dep/generated/app.img" || fail "target_file compile artif
 contains "$tmp/artifact-dep-blob.out" "generated_sandbox id=//:raw_blob"
 contains "$tmp/artifact-dep-blob.out" "build_generated_action //:blob_image"
 cmp "$tmp/artifact-dep/fixtures/blob.bin" "$tmp/artifact-dep/generated/blob.img" >/dev/null || fail "target_file generated artifact input content drifted"
+"$qstar" --file "$tmp/artifact-dep/qstar.lua" build //:blob_smoke --progress off > "$tmp/artifact-dep-smoke.out" 2> "$tmp/artifact-dep-smoke.err"
+contains "$tmp/artifact-dep-smoke.out" "run_target label=//:blob_smoke"
+test -f "$tmp/artifact-dep/generated/blob.smoke" || fail "run_target deps generated artifact was not materialized"
+cmp "$tmp/artifact-dep/fixtures/blob.bin" "$tmp/artifact-dep/generated/blob.smoke" >/dev/null || fail "run_target generated dependency content drifted"
+"$qstar" --file "$tmp/artifact-dep/qstar.lua" build //:image_group --progress off > "$tmp/artifact-dep-group.out" 2> "$tmp/artifact-dep-group.err"
+contains "$tmp/artifact-dep-group.out" "group_target label=//:image_group"
+contains "$tmp/artifact-dep-group.out" "status ok"
+if command -v ninja >/dev/null 2>&1; then
+	rm -rf "$tmp/artifact-dep/build/qstar" "$tmp/artifact-dep/generated"
+	"$qstar" --file "$tmp/artifact-dep/qstar.lua" -G ninja build //:blob_smoke --progress off > "$tmp/artifact-dep-smoke-ninja.out" 2> "$tmp/artifact-dep-smoke-ninja.err"
+	contains "$tmp/artifact-dep-smoke-ninja.out" "backend ninja"
+	contains "$tmp/artifact-dep-smoke-ninja.out" "status ok"
+	test -f "$tmp/artifact-dep/generated/blob.smoke" || fail "ninja run_target deps generated artifact was not materialized"
+	cmp "$tmp/artifact-dep/fixtures/blob.bin" "$tmp/artifact-dep/generated/blob.smoke" >/dev/null || fail "ninja run_target generated dependency content drifted"
+fi
 
 mkdir -p "$tmp/artifact-unknown"
 cat > "$tmp/artifact-unknown/qstar.lua" <<'EOF'

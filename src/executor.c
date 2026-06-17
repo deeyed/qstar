@@ -417,12 +417,6 @@ progress_node_counts(const struct qstar_sched_node *node)
 		return 0;
 	if (node->kind == QSTAR_SCHED_GROUP)
 		return 0;
-	if (node->kind == QSTAR_SCHED_RUN && node->target &&
-	    node->target->run_command.len == 1 &&
-	    strcmp(node->target->run_command.items[0], "true") == 0 &&
-	    (!node->target->run_expect_contains || !*node->target->run_expect_contains) &&
-	    (!node->target->run_expect_file || !*node->target->run_expect_file))
-		return 0;
 	return 1;
 }
 
@@ -5023,37 +5017,23 @@ write_run_stamp(struct qstar_graph *graph, const char *stamp)
 	return 0;
 }
 
-/** expect가 없는 `true` run_target은 과거 aggregate 우회로로 보고 no-op 처리한다. */
-static int
-run_target_is_noop_true(const struct qstar_target *target)
-{
-	return target && target->run_command.len == 1 &&
-	    strcmp(target->run_command.items[0], "true") == 0 &&
-	    (!target->run_expect_contains || !*target->run_expect_contains) &&
-	    (!target->run_expect_file || !*target->run_expect_file);
-}
-
 /** qstar.run_target command를 prepared process action으로 만든다. */
 static int
 prepare_run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
     const struct qstar_target *target, struct qstar_prepared_action *action)
 {
 	const struct qstar_target *dep;
+	const struct qstar_genrule *genrule;
 	struct qstar_string_list inputs, outputs;
 	char artifact[QSTAR_PATH_MAX], owner[QSTAR_PATH_MAX];
 	char stamp_sub[QSTAR_PATH_MAX], stamp[QSTAR_PATH_MAX];
-	size_t i;
+	size_t i, j;
 
 	memset(action, 0, sizeof(*action));
 	action->target = target;
 	snprintf(action->kind, sizeof(action->kind), "run");
 	snprintf(action->id, sizeof(action->id), "%s:run:0", target->label);
 	action->timeout_sec = target->run_timeout_sec > 0 ? target->run_timeout_sec : 0;
-	if (run_target_is_noop_true(target))
-		return qstar_set_error_origin(graph, target->origin_file,
-		    target->origin_line, "action", target->label,
-		    "qstar: run_target '%s' is a no-op aggregate and has no process action",
-		    target->label);
 	if (target->run_command.len == 0)
 		return qstar_set_error_origin(graph, target->origin_file,
 		    target->origin_line, "command", target->label,
@@ -5079,6 +5059,79 @@ prepare_run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			qstar_string_list_free(&inputs);
 			prepared_action_free(action);
 			return qstar_set_error(graph, "qstar: out of memory");
+		}
+	}
+	for (i = 0; i < target->private_deps.len; i++) {
+		dep = find_target(graph, target->private_deps.items[i]);
+		if (dep && strcmp(dep->kind, "group") == 0)
+			continue;
+		if (dep && qstar_graph_artifact_output_path(graph, dep, artifact,
+		    sizeof(artifact)) == 0) {
+			if (qstar_string_list_push(&inputs, artifact) < 0) {
+				qstar_string_list_free(&inputs);
+				prepared_action_free(action);
+				return qstar_set_error(graph, "qstar: out of memory");
+			}
+			continue;
+		}
+		genrule = qstar_graph_find_genrule(graph, target->private_deps.items[i]);
+		if (!genrule)
+			continue;
+		for (j = 0; j < genrule->outputs.len; j++) {
+			if (qstar_string_list_push(&inputs, genrule->outputs.items[j]) < 0) {
+				qstar_string_list_free(&inputs);
+				prepared_action_free(action);
+				return qstar_set_error(graph, "qstar: out of memory");
+			}
+		}
+	}
+	for (i = 0; i < target->deps.len; i++) {
+		genrule = qstar_graph_find_genrule(graph, target->deps.items[i]);
+		if (!genrule)
+			continue;
+		for (j = 0; j < genrule->outputs.len; j++) {
+			if (qstar_string_list_push(&inputs, genrule->outputs.items[j]) < 0) {
+				qstar_string_list_free(&inputs);
+				prepared_action_free(action);
+				return qstar_set_error(graph, "qstar: out of memory");
+			}
+		}
+	}
+	for (i = 0; i < target->run_command.len; i++) {
+		char label[QSTAR_PATH_MAX];
+		int rc;
+
+		rc = qstar_target_file_token_label(target->run_command.items[i], label,
+		    sizeof(label));
+		if (rc < 0) {
+			qstar_string_list_free(&inputs);
+			prepared_action_free(action);
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, "command", target->label,
+			    "qstar: malformed target_file placeholder");
+		}
+		if (rc != 1)
+			continue;
+		dep = find_target(graph, label);
+		if (dep && strcmp(dep->kind, "group") != 0 &&
+		    qstar_graph_artifact_output_path(graph, dep, artifact,
+		    sizeof(artifact)) == 0) {
+			if (qstar_string_list_push(&inputs, artifact) < 0) {
+				qstar_string_list_free(&inputs);
+				prepared_action_free(action);
+				return qstar_set_error(graph, "qstar: out of memory");
+			}
+			continue;
+		}
+		genrule = qstar_graph_find_genrule(graph, label);
+		if (!genrule)
+			continue;
+		for (j = 0; j < genrule->outputs.len; j++) {
+			if (qstar_string_list_push(&inputs, genrule->outputs.items[j]) < 0) {
+				qstar_string_list_free(&inputs);
+				prepared_action_free(action);
+				return qstar_set_error(graph, "qstar: out of memory");
+			}
 		}
 	}
 	qstar_mangle_label(target->label, owner, sizeof(owner));
@@ -5170,12 +5223,6 @@ run_target_command(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	char action_log[QSTAR_PATH_MAX];
 	int old_timeout, rc;
 
-	if (run_target_is_noop_true(target)) {
-		build_tracef(ctx,
-		    "run_target label=%s command=noop reason=true-aggregate action=none artifact=<none>\n",
-		    target->label);
-		return 0;
-	}
 	if (prepare_run_action(graph, ctx, target, &action) < 0)
 		return -1;
 	old_timeout = ctx->action_timeout_sec;
@@ -7531,6 +7578,37 @@ scheduler_discover_target_genrules(struct qstar_scheduler *sched,
 	return 0;
 }
 
+/** target deps/private_deps에 직접 적힌 generated action label을 discovery set에 반영한다. */
+static int
+scheduler_discover_target_dep_genrules(struct qstar_scheduler *sched,
+    const struct qstar_target *target, int *changed)
+{
+	const struct qstar_genrule *genrule;
+	const struct qstar_string_list *lists[2];
+	size_t li, i;
+	int gen_index;
+
+	lists[0] = &target->deps;
+	lists[1] = &target->private_deps;
+	for (li = 0; li < 2; li++) {
+		for (i = 0; i < lists[li]->len; i++) {
+			if (lists[li]->items[i][0] == '@')
+				continue;
+			genrule = qstar_graph_find_genrule(sched->graph,
+			    lists[li]->items[i]);
+			if (!genrule)
+				continue;
+			gen_index = sched_genrule_index(sched->graph, genrule);
+			if (gen_index >= 0 && !sched->genrule_needed[gen_index]) {
+				if (scheduler_mark_genrule(sched, genrule) < 0)
+					return -1;
+				*changed = 1;
+			}
+		}
+	}
+	return 0;
+}
+
 /** target link_inputs의 target_file producer를 discovery set에 반영한다. */
 static int
 scheduler_discover_target_link_inputs(struct qstar_scheduler *sched,
@@ -7547,6 +7625,49 @@ scheduler_discover_target_link_inputs(struct qstar_scheduler *sched,
 		if (rc < 0)
 			return qstar_set_error_origin(sched->graph, target->origin_file,
 			    target->origin_line, "link_inputs", target->label,
+			    "qstar: malformed target_file placeholder");
+		if (rc != 1)
+			continue;
+		target_index = sched_target_index_label(sched->graph, label);
+		if (target_index >= 0) {
+			before_targets = (int)sched->target_len;
+			if (scheduler_add_target_closure(sched, label) < 0)
+				return -1;
+			if ((size_t)before_targets != sched->target_len)
+				*changed = 1;
+			continue;
+		}
+		owner = qstar_graph_find_genrule(sched->graph, label);
+		if (owner) {
+			gen_index = sched_genrule_index(sched->graph, owner);
+			if (gen_index >= 0 && !sched->genrule_needed[gen_index]) {
+				if (scheduler_mark_genrule(sched, owner) < 0)
+					return -1;
+				*changed = 1;
+			}
+		}
+	}
+	return 0;
+}
+
+/** run_target command argv 안의 target_file producer를 discovery set에 반영한다. */
+static int
+scheduler_discover_run_command_inputs(struct qstar_scheduler *sched,
+    const struct qstar_target *target, int *changed)
+{
+	const struct qstar_genrule *owner;
+	char label[QSTAR_PATH_MAX];
+	size_t i;
+	int rc, target_index, gen_index, before_targets;
+
+	if (strcmp(target->kind, "run_target") != 0)
+		return 0;
+	for (i = 0; i < target->run_command.len; i++) {
+		rc = qstar_target_file_token_label(target->run_command.items[i], label,
+		    sizeof(label));
+		if (rc < 0)
+			return qstar_set_error_origin(sched->graph, target->origin_file,
+			    target->origin_line, "command", target->label,
 			    "qstar: malformed target_file placeholder");
 		if (rc != 1)
 			continue;
@@ -7593,7 +7714,11 @@ scheduler_discover(struct qstar_scheduler *sched, const char *label)
 		for (i = 0; i < sched->target_len; i++) {
 			if (scheduler_discover_target_genrules(sched, sched->targets[i],
 			    &changed) < 0 ||
+			    scheduler_discover_target_dep_genrules(sched,
+			    sched->targets[i], &changed) < 0 ||
 			    scheduler_discover_target_link_inputs(sched, sched->targets[i],
+			    &changed) < 0 ||
+			    scheduler_discover_run_command_inputs(sched, sched->targets[i],
 			    &changed) < 0)
 				return -1;
 		}
@@ -7854,10 +7979,11 @@ scheduler_add_genrule_item_edge(struct qstar_scheduler *sched,
 	return 0;
 }
 
-/** target link_inputs의 producer를 final action edge로 연결한다. */
+/** target_file item의 producer를 user node edge로 연결한다. */
 static int
-scheduler_add_target_link_input_edge(struct qstar_scheduler *sched,
-    const struct qstar_target *target, const char *item, size_t user_node)
+scheduler_add_target_file_item_edge(struct qstar_scheduler *sched,
+    const struct qstar_target *target, const char *field, const char *item,
+    size_t user_node)
 {
 	const struct qstar_genrule *owner;
 	char label[QSTAR_PATH_MAX];
@@ -7866,7 +7992,7 @@ scheduler_add_target_link_input_edge(struct qstar_scheduler *sched,
 	rc = qstar_target_file_token_label(item, label, sizeof(label));
 	if (rc < 0)
 		return qstar_set_error_origin(sched->graph, target->origin_file,
-		    target->origin_line, "link_inputs", target->label,
+		    target->origin_line, field, target->label,
 		    "qstar: malformed target_file placeholder");
 	if (rc == 1) {
 		target_index = sched_target_index_label(sched->graph, label);
@@ -7890,6 +8016,15 @@ scheduler_add_target_link_input_edge(struct qstar_scheduler *sched,
 			    (size_t)sched->genrule_node[gen_index], user_node);
 	}
 	return 0;
+}
+
+/** target link_inputs의 producer를 final action edge로 연결한다. */
+static int
+scheduler_add_target_link_input_edge(struct qstar_scheduler *sched,
+    const struct qstar_target *target, const char *item, size_t user_node)
+{
+	return scheduler_add_target_file_item_edge(sched, target, "link_inputs",
+	    item, user_node);
 }
 
 /** genrule dependency edge를 scheduler graph에 연결한다. */
@@ -7923,7 +8058,9 @@ static int
 scheduler_connect_target_dep_list(struct qstar_scheduler *sched,
     const struct qstar_string_list *deps, size_t user_node)
 {
+	const struct qstar_genrule *genrule;
 	int dep_index;
+	int gen_index;
 	size_t i;
 
 	for (i = 0; i < deps->len; i++) {
@@ -7933,6 +8070,16 @@ scheduler_connect_target_dep_list(struct qstar_scheduler *sched,
 		if (dep_index >= 0 && sched->target_final_node[dep_index] >= 0) {
 			if (scheduler_add_edge(sched,
 			    (size_t)sched->target_final_node[dep_index], user_node) < 0)
+				return -1;
+			continue;
+		}
+		genrule = qstar_graph_find_genrule(sched->graph, deps->items[i]);
+		if (!genrule)
+			continue;
+		gen_index = sched_genrule_index(sched->graph, genrule);
+		if (gen_index >= 0 && sched->genrule_node[gen_index] >= 0) {
+			if (scheduler_add_edge(sched, (size_t)sched->genrule_node[gen_index],
+			    user_node) < 0)
 				return -1;
 		}
 	}
@@ -7975,6 +8122,23 @@ scheduler_connect_compile_genrules(struct qstar_scheduler *sched,
 	return 0;
 }
 
+/** run_target command argv에 포함된 target_file producer edge를 연결한다. */
+static int
+scheduler_connect_run_command_edges(struct qstar_scheduler *sched,
+    const struct qstar_target *target, size_t user_node)
+{
+	size_t i;
+
+	if (strcmp(target->kind, "run_target") != 0)
+		return 0;
+	for (i = 0; i < target->run_command.len; i++) {
+		if (scheduler_add_target_file_item_edge(sched, target, "command",
+		    target->run_command.items[i], user_node) < 0)
+			return -1;
+	}
+	return 0;
+}
+
 /** target 내부 compile/final/run/group edge를 scheduler graph에 연결한다. */
 static int
 scheduler_connect_target_edges(struct qstar_scheduler *sched)
@@ -7993,6 +8157,8 @@ scheduler_connect_target_edges(struct qstar_scheduler *sched)
 		if (scheduler_connect_target_dep_list(sched, &target->deps, final_node) < 0 ||
 		    scheduler_connect_target_dep_list(sched, &target->private_deps,
 		    final_node) < 0)
+			return -1;
+		if (scheduler_connect_run_command_edges(sched, target, final_node) < 0)
 			return -1;
 		if (strcmp(target->kind, "group") == 0 ||
 		    strcmp(target->kind, "run_target") == 0)
@@ -8179,7 +8345,7 @@ scheduler_node_is_process_action(const struct qstar_sched_node *node)
 	if (node->kind == QSTAR_SCHED_GENERATE)
 		return node->genrule && !node->genrule->config_header;
 	if (node->kind == QSTAR_SCHED_RUN)
-		return !run_target_is_noop_true(node->target);
+		return 1;
 	return 0;
 }
 
@@ -9604,7 +9770,7 @@ push_target_lazy_logs(struct qstar_graph *graph, const struct qstar_build_ctx *c
 		if (push_state_log_if_present(graph, ctx, names, len, cap, id) < 0)
 			return -1;
 	}
-	if (strcmp(target->kind, "run_target") == 0 && !run_target_is_noop_true(target)) {
+	if (strcmp(target->kind, "run_target") == 0) {
 		snprintf(id, sizeof(id), "%s:run:0", target->label);
 		if (push_state_log_if_present(graph, ctx, names, len, cap, id) < 0)
 			return -1;
@@ -9787,11 +9953,6 @@ prepare_lazy_run_action(struct qstar_graph *graph, const struct qstar_target *ta
 {
 	size_t i;
 
-	if (run_target_is_noop_true(target))
-		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-		    "action", target->label,
-		    "qstar: run_target '%s' is a no-op aggregate and has no action log",
-		    target->label);
 	memset(action, 0, sizeof(*action));
 	snprintf(action->id, sizeof(action->id), "%s:run:0", target->label);
 	snprintf(action->kind, sizeof(action->kind), "run");

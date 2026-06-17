@@ -56,7 +56,7 @@ static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 	{ "qstar.import_file", "Load a package-relative .qst graph fragment exactly once." },
 	{ "qstar.import_module", "Load a package-relative module folder only, resolve <folder>/<name>.qsm, and return its table." },
 	{ "qstar.files", "Return an explicit file list for target fields." },
-	{ "qstar.join", "Join path segments, or flatten one list level in legacy table form." },
+	{ "qstar.join", "Join path segments into a slash-separated package-relative path string." },
 	{ "qstar.copy", "Deep-copy a Lua authoring table." },
 	{ "qstar.append", "Return a new list with values or list items appended." },
 	{ "qstar.merge", "Return a deep-merged plain table with list fields appended." },

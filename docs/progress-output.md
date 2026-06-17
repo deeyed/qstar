@@ -73,7 +73,10 @@ action_description id=//:app:compile:0 text="Building C object build/qstar/out/_
 action_description id=//:app:link:0 text="Linking C executable build/qstar/out/___app/app"
 ```
 
-`qstar.group`과 `true` aggregate 같은 no-op run target은 progress action으로 세지 않는다.
+`qstar.group`은 progress action으로 세지 않는다. `qstar.run_target`은 command가
+`qstar.cli {"true"}`처럼 즉시 성공하는 argv라도 일반 run action으로 실행하고 progress,
+stamp, action-log 대상에 포함한다. Dependency-only aggregate가 필요하면 `qstar.group`을
+사용한다.
 Dry-run/explain은 group exclusion을 다음처럼 표시한다.
 
 ```txt

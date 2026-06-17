@@ -198,8 +198,9 @@ tree.
 .It Ic qstar.files
 Declare a literal file list.
 .It Ic qstar.join
-Join path segments as a slash-separated string. The legacy table form flattens
-one list level.
+Join path segments as a slash-separated package-relative string. Use
+.Ic qstar.append
+for list composition.
 .It Ic qstar.copy
 Deep-copy an authoring table.
 .It Ic qstar.append

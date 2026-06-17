@@ -192,6 +192,8 @@ visit_target(struct qstar_graph *graph, struct qstar_plan *plan, size_t index)
 				    "qstar: unresolved package dependency '%s' referenced by '%s'",
 				    dep, target->label);
 			}
+			if (qstar_graph_find_genrule(graph, dep))
+				continue;
 			return qstar_set_error_origin(graph, target->origin_file,
 			    target->origin_line, "deps", target->label,
 			    "qstar: unknown dependency label '%s' referenced by '%s'",
@@ -212,6 +214,8 @@ visit_target(struct qstar_graph *graph, struct qstar_plan *plan, size_t index)
 				    "qstar: unresolved package dependency '%s' referenced by '%s'",
 				    dep, target->label);
 			}
+			if (qstar_graph_find_genrule(graph, dep))
+				continue;
 			return qstar_set_error_origin(graph, target->origin_file,
 			    target->origin_line, "private_deps", target->label,
 			    "qstar: unknown dependency label '%s' referenced by '%s'",
@@ -1206,6 +1210,49 @@ genrule_consumed_by_target(const struct qstar_genrule *genrule,
 	    genrule_output_in_list(genrule, &target->private_headers);
 }
 
+/** list가 generated action label이나 target_file token으로 genrule을 참조하는지 확인한다. */
+static int
+genrule_referenced_in_list(const struct qstar_genrule *genrule,
+    const struct qstar_string_list *list)
+{
+	char label[QSTAR_PATH_MAX];
+	size_t i;
+
+	for (i = 0; i < list->len; i++) {
+		if (strcmp(list->items[i], genrule->label) == 0)
+			return 1;
+		if (qstar_target_file_token_label(list->items[i], label,
+		    sizeof(label)) == 1 &&
+		    strcmp(label, genrule->label) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+/** target이 source/header/link/deps 경로 어디에서든 genrule을 참조하는지 확인한다. */
+static int
+genrule_referenced_by_target(const struct qstar_genrule *genrule,
+    const struct qstar_target *target)
+{
+	return genrule_consumed_by_target(genrule, target) ||
+	    genrule_output_in_list(genrule, &target->link_inputs) ||
+	    genrule_referenced_in_list(genrule, &target->link_inputs) ||
+	    genrule_referenced_in_list(genrule, &target->run_command) ||
+	    genrule_referenced_in_list(genrule, &target->deps) ||
+	    genrule_referenced_in_list(genrule, &target->private_deps);
+}
+
+/** generated dependency edge 한 줄을 출력한다. */
+static void
+dump_generated_dep_edge(FILE *out, const char *field,
+    const struct qstar_target *target, const struct qstar_genrule *genrule,
+    const char *output)
+{
+	fprintf(out,
+	    "  generated_dep_edge field=%s dependent=%s producer=%s output=%s\n",
+	    field, target->label, genrule->label, output && *output ? output : "<none>");
+}
+
 /** target이 소비하는 generated output edge를 deterministic하게 출력한다. */
 static void
 dump_generated_edges(FILE *out, const struct qstar_plan *plan,
@@ -1254,6 +1301,47 @@ dump_generated_edges(FILE *out, const struct qstar_plan *plan,
 			    target->private_headers.items[i], identity);
 		}
 	}
+	for (i = 0; i < target->link_inputs.len; i++) {
+		char label[QSTAR_PATH_MAX];
+
+		owner = qstar_graph_find_output_owner(plan->graph, target->link_inputs.items[i]);
+		if (owner) {
+			dump_generated_dep_edge(out, "link_inputs", target, owner,
+			    target->link_inputs.items[i]);
+			continue;
+		}
+		if (qstar_target_file_token_label(target->link_inputs.items[i], label,
+		    sizeof(label)) == 1) {
+			owner = qstar_graph_find_genrule(plan->graph, label);
+			if (owner && owner->outputs.len > 0)
+				dump_generated_dep_edge(out, "link_inputs", target,
+				    owner, owner->outputs.items[0]);
+		}
+	}
+	for (i = 0; i < target->run_command.len; i++) {
+		char label[QSTAR_PATH_MAX];
+
+		if (qstar_target_file_token_label(target->run_command.items[i], label,
+		    sizeof(label)) != 1)
+			continue;
+		owner = qstar_graph_find_genrule(plan->graph, label);
+		if (owner && owner->outputs.len > 0)
+			dump_generated_dep_edge(out, "command", target, owner,
+			    owner->outputs.items[0]);
+	}
+	for (i = 0; i < target->deps.len; i++) {
+		owner = qstar_graph_find_genrule(plan->graph, target->deps.items[i]);
+		if (owner && owner->outputs.len > 0)
+			dump_generated_dep_edge(out, "deps", target, owner,
+			    owner->outputs.items[0]);
+	}
+	for (i = 0; i < target->private_deps.len; i++) {
+		owner = qstar_graph_find_genrule(plan->graph,
+		    target->private_deps.items[i]);
+		if (owner && owner->outputs.len > 0)
+			dump_generated_dep_edge(out, "private_deps", target, owner,
+			    owner->outputs.items[0]);
+	}
 }
 
 /** target plan 안에서 소비되는 generated action skeleton을 출력한다. */
@@ -1269,7 +1357,7 @@ dump_consumed_genrules(FILE *out, const struct qstar_plan *plan,
 
 	for (i = 0; i < plan->graph->genrule_len; i++) {
 		genrule = &plan->graph->genrules[i];
-		if (!genrule_consumed_by_target(genrule, target))
+		if (!genrule_referenced_by_target(genrule, target))
 			continue;
 		format_list_field(inputs, sizeof(inputs), &genrule->inputs);
 		format_list_field(outputs, sizeof(outputs), &genrule->outputs);
@@ -1979,7 +2067,7 @@ dump_dry_run_genrules(FILE *out, const struct qstar_plan *plan,
 
 	for (i = 0; i < plan->graph->genrule_len; i++) {
 		genrule = &plan->graph->genrules[i];
-		if (!genrule_consumed_by_target(genrule, target))
+		if (!genrule_referenced_by_target(genrule, target))
 			continue;
 		format_list_field(inputs, sizeof(inputs), &genrule->inputs);
 		format_list_field(outputs, sizeof(outputs), &genrule->outputs);
@@ -2146,6 +2234,7 @@ qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out)
 			    "input=<deps> output=build/qstar/out/<run-stamp> execute=no\n",
 			    plan.order[i]->label, plan.order[i]->label);
 			dump_run_argv(out, plan.order[i]);
+			dump_dry_run_genrules(out, &plan, plan.order[i]);
 			continue;
 		}
 		if (strcmp(plan.order[i]->kind, "group") == 0) {
@@ -2154,6 +2243,7 @@ qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out)
 			fprintf(out,
 			    "  dry_run_step id=%s:group:0 owner=%s kind=group tool=none input=<deps> output=<none> execute=no\n",
 			    plan.order[i]->label, plan.order[i]->label);
+			dump_dry_run_genrules(out, &plan, plan.order[i]);
 			continue;
 		}
 		if (dump_resolved_toolchain(out, &plan, plan.order[i], &toolchain) < 0) {

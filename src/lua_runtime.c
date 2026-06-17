@@ -5338,27 +5338,6 @@ qstar_lua_language_options(lua_State *L)
 	return 1;
 }
 
-/** qstar.join { ... }의 legacy list flatten 형태를 유지한다. */
-static int
-qstar_lua_join_list(lua_State *L)
-{
-	size_t n, i, m;
-
-	luaL_checktype(L, 1, LUA_TTABLE);
-	lua_newtable(L);
-	n = lua_rawlen(L, 1);
-	m = 1;
-	for (i = 1; i <= n; i++) {
-		lua_rawgeti(L, 1, (lua_Integer)i);
-		if (qstar_lua_array_table(L, -1))
-			qstar_lua_append_list_copy(L, -2, -1, &m, 0);
-		else
-			qstar_lua_append_value_copy(L, -2, -1, &m, 0);
-		lua_pop(L, 1);
-	}
-	return 1;
-}
-
 /** qstar.join("a", "b") 형태의 package path string을 만든다. */
 static int
 qstar_lua_join_path(lua_State *L)
@@ -5398,7 +5377,8 @@ static int
 qstar_lua_join(lua_State *L)
 {
 	if (lua_gettop(L) == 1 && lua_istable(L, 1))
-		return qstar_lua_join_list(L);
+		return luaL_error(L,
+		    "qstar: qstar.join table form was removed; use qstar.append for lists or qstar.join(\"a\", \"b\") for paths");
 	return qstar_lua_join_path(L);
 }
 

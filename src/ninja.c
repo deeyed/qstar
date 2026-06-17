@@ -1341,6 +1341,29 @@ emit_target_link_input_producers(struct qstar_graph *graph, struct ninja_ctx *ct
 	return 0;
 }
 
+/** target deps/private_deps에 직접 적힌 generated action producer를 먼저 emit한다. */
+static int
+emit_target_dep_genrule_producers(struct qstar_graph *graph, struct ninja_ctx *ctx,
+    const struct qstar_target *target)
+{
+	const struct qstar_genrule *genrule;
+	const struct qstar_string_list *lists[2];
+	size_t li, i;
+
+	lists[0] = &target->deps;
+	lists[1] = &target->private_deps;
+	for (li = 0; li < 2; li++) {
+		for (i = 0; i < lists[li]->len; i++) {
+			if (lists[li]->items[i][0] == '@')
+				continue;
+			genrule = qstar_graph_find_genrule(graph, lists[li]->items[i]);
+			if (genrule && emit_genrule_edge(graph, ctx, NULL, genrule) < 0)
+				return -1;
+		}
+	}
+	return 0;
+}
+
 /** genrule dependency item을 Ninja edge input으로 출력한다. */
 static int
 write_genrule_dep_item(struct qstar_graph *graph, FILE *f, const char *item)
@@ -1754,16 +1777,27 @@ static int
 write_dep_aliases(struct qstar_graph *graph, FILE *f, const struct qstar_target *target,
     const struct qstar_string_list *deps)
 {
+	const struct qstar_genrule *genrule;
 	char alias[QSTAR_PATH_MAX];
-	size_t i;
+	size_t i, j;
 
 	for (i = 0; i < deps->len; i++) {
-		if (!find_target(graph, deps->items[i]))
+		if (find_target(graph, deps->items[i])) {
+			if (ninja_alias_path(graph, deps->items[i], alias,
+			    sizeof(alias)) < 0)
+				return qstar_set_error(graph,
+				    "qstar: ninja alias path too long");
+			fputc(' ', f);
+			ninja_path(f, alias);
 			continue;
-		if (ninja_alias_path(graph, deps->items[i], alias, sizeof(alias)) < 0)
-			return qstar_set_error(graph, "qstar: ninja alias path too long");
-		fputc(' ', f);
-		ninja_path(f, alias);
+		}
+		genrule = qstar_graph_find_genrule(graph, deps->items[i]);
+		if (!genrule)
+			continue;
+		for (j = 0; j < genrule->outputs.len; j++) {
+			fputc(' ', f);
+			ninja_path(f, genrule->outputs.items[j]);
+		}
 	}
 	(void)target;
 	return 0;
@@ -2557,38 +2591,6 @@ emit_group_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	return 0;
 }
 
-/** expect가 없는 `true` run_target은 Ninja에서도 phony aggregate로 lower한다. */
-static int
-ninja_run_target_is_noop_true(const struct qstar_target *target)
-{
-	return target && target->run_command.len == 1 &&
-	    strcmp(target->run_command.items[0], "true") == 0 &&
-	    (!target->run_expect_contains || !*target->run_expect_contains) &&
-	    (!target->run_expect_file || !*target->run_expect_file);
-}
-
-/** no-op run_target을 wrapper 없이 dependency-only phony edge로 lower한다. */
-static int
-emit_noop_run_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
-    const struct qstar_target *target)
-{
-	char alias[QSTAR_PATH_MAX], action_id[QSTAR_PATH_MAX];
-
-	if (ninja_alias_path(graph, target->label, alias, sizeof(alias)) < 0)
-		return qstar_set_error(graph, "qstar: ninja alias path too long");
-	snprintf(action_id, sizeof(action_id), "%s:run:0", target->label);
-	fprintf(ctx->ninja, "# qstar-action-id: %s\n", action_id);
-	fputs("build ", ctx->ninja);
-	ninja_path(ctx->ninja, alias);
-	fputs(": phony", ctx->ninja);
-	if (write_dep_aliases(graph, ctx->ninja, target, &target->deps) < 0 ||
-	    write_dep_aliases(graph, ctx->ninja, target, &target->private_deps) < 0)
-		return -1;
-	fprintf(ctx->ninja, "\n  qstar_action_id = %s\n\n", action_id);
-	ctx->edge_count++;
-	return 0;
-}
-
 /** run_target command item이 가리키는 producer edge를 먼저 emit한다. */
 static int
 emit_run_item_producer(struct qstar_graph *graph, struct ninja_ctx *ctx, const char *item)
@@ -2683,8 +2685,6 @@ emit_run_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 
 	memset(&argv, 0, sizeof(argv));
 	memset(&script_argv, 0, sizeof(script_argv));
-	if (ninja_run_target_is_noop_true(target))
-		return emit_noop_run_edge(graph, ctx, target);
 	if (target->run_command.len == 0)
 		return qstar_set_error_origin(graph, target->origin_file,
 		    target->origin_line, "command", target->label,
@@ -2774,6 +2774,8 @@ emit_target(struct qstar_graph *graph, const struct qstar_target *target, size_t
 		return 0;
 	if (index >= 0)
 		ctx->target_emitted[index] = 1;
+	if (emit_target_dep_genrule_producers(graph, ctx, target) < 0)
+		return -1;
 	if (strcmp(target->kind, "group") == 0)
 		return emit_group_edge(graph, ctx, target);
 	if (strcmp(target->kind, "run_target") == 0)
