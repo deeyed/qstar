@@ -85,6 +85,18 @@ List graph targets. Use
 .Fl -format Ar json
 for the stable machine-readable target listing, including effective generator,
 build_dir, generated_dir, compile_commands policy, configs, and installability.
+.It Ic commands
+List root
+.Ic qstar.command
+project commands. Use
+.Fl -format Ar json
+for the stable machine-readable command listing.
+.It Ar project-command
+Run a root project command declared by
+.Ic qstar.command .
+Project commands are made of generic QStar steps such as build, test, stage,
+check, lint, or command call steps. Global QStar options still appear before
+the project command name; command-specific options appear after it.
 .It Ic query
 Print one target, generated action, stage, or config by label.
 .It Ic doctor

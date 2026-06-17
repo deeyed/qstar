@@ -55,6 +55,7 @@ qstar.staticlib "core" {
 - `qstar.group`: deps-only aggregate with no command, output, install surface, or artifact.
 - `qstar.stage`: copy-only package/stage tree.
 - `qstar.target_family`: shared-source lint grouping.
+- `qstar.command`: root `qstar.lua` 전용 project command.
 - `qstar.subdir`, `qstar.import_file`, `qstar.import_module`: explicit graph/module loading.
 - `qstar.use_language`: activate a bundled or project-local language provider and return its helper table.
 
@@ -99,6 +100,85 @@ qstar.run_target "check" {
   command = qstar.cli {"tools/check", qstar.input(0), qstar.input(1)},
 }
 ```
+
+## Project commands
+
+`qstar.command`는 root `qstar.lua`에서만 선언할 수 있는 사용자-facing command다.
+Makefile의 phony target처럼 `qstar bundle`, `qstar smoke` 같은 짧은 명령을 만들지만,
+shell string이나 특정 언어/플랫폼 의미론을 넣지 않는다. Command body는 QStar가 이미
+아는 generic operation step으로만 구성된다. `.qst` fragment, `.qsm` helper module,
+language provider manifest/implementation 안에서는 사용할 수 없다.
+
+```lua
+qstar.command "make-bundle" {
+  description = qstar.status("Build the local bundle"),
+  aliases = {"bundle"},
+  is_default = true,
+  options = {
+    mode = qstar.param.enum {
+      choices = {"debug", "release"},
+      default = "debug",
+    },
+  },
+  steps = {
+    qstar.step.build("//:artifact"),
+    qstar.step.stage("//:bundle", {root = "stage/bundle"}),
+  },
+}
+```
+
+CLI:
+
+```sh
+qstar commands
+qstar commands --format json
+qstar bundle --mode release
+qstar        # is_default command가 하나 있을 때 실행
+```
+
+Field:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `description` | `qstar.status("...")` | command list/help에 표시되는 설명. |
+| `options` | table | typed command option schema. |
+| `env` | list string | run-step 계열 확장을 위한 command 환경 entry. 현재 core step에는 적용하지 않고 IR에 보존한다. |
+| `working_dir` | string | run-step 계열 확장을 위한 package-relative working directory. |
+| `steps` | list | ordered `qstar.step.*` list. |
+| `is_default` | bool | 기본 project command. 하나만 true일 수 있다. |
+| `hidden` | bool | `qstar commands` 목록에서는 숨기지만 직접 호출은 허용한다. |
+| `aliases` | list string | command alias. built-in CLI 이름이나 다른 command/alias와 충돌할 수 없다. |
+
+Option schema:
+
+| API | Meaning |
+| --- | --- |
+| `qstar.param.string { ... }` | string option. |
+| `qstar.param.path { ... }` | package-relative path option. |
+| `qstar.param.bool { ... }` | bool flag. `--name`, `--name=true`, `--no-name` 형태를 받는다. |
+| `qstar.param.int { ... }` | integer option. |
+| `qstar.param.enum { choices = {...}, ... }` | choices 안의 값만 받는 string option. |
+| `qstar.param.list { ... }` | repeated string option. |
+
+공통 option field는 `description`, `required`, `default`, `choices`다. `required = true`와
+`default`는 같이 쓸 수 없고, bool option은 required로 만들 수 없다. 이번 core surface는
+option schema와 CLI validation을 제공한다. option 값을 argv 안에 치환하거나 조건부 step을
+만드는 helper는 command workflow 확장 지점으로 남겨 둔다.
+
+Step:
+
+| Step | Meaning |
+| --- | --- |
+| `qstar.step.build(label)` | target/generated action/stage/run target/group label을 build한다. |
+| `qstar.step.test(label)` | `qstar.test` target selection을 실행한다. |
+| `qstar.step.stage(label, opts)` | `qstar.stage` layout을 materialize한다. `opts.root`, `opts.dry_run`을 지원한다. |
+| `qstar.step.check(label)` | graph/input validation을 실행한다. 전체 graph는 `"//..."`를 쓴다. |
+| `qstar.step.lint(label)` | authoring lint를 실행한다. 전체 graph는 `"//..."`를 쓴다. |
+| `qstar.step.call(name)` | 다른 project command 또는 alias를 호출한다. cycle은 error다. |
+
+Command name과 alias는 `build`, `test`, `stage`, `commands`, `init`, `docs`, `daemon`,
+`check`, `lint`, `query`, `explain`, `action-log`, `replay` 같은 built-in CLI 이름과 충돌할
+수 없다.
 
 ## Builtin authoring helpers
 

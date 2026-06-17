@@ -9,6 +9,8 @@ static void
 usage(FILE *out)
 {
 	fputs("usage: qstar [options] list-targets\n", out);
+	fputs("       qstar [options] commands [--format text|json]\n", out);
+	fputs("       qstar [options] <project-command> [command-options]\n", out);
 	fputs("       qstar --version\n", out);
 	fputs("       qstar version\n", out);
 	fputs("       qstar docs [--path|--ai-index|--show path]\n", out);
@@ -59,6 +61,28 @@ static int
 is_help_arg(const char *arg)
 {
 	return arg && (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0);
+}
+
+/** graph 평가 없이 정적 help를 출력할 수 있는 built-in command인지 확인한다. */
+static int
+command_has_static_help(const char *cmd)
+{
+	static const char *const commands[] = {
+		"build", "daemon", "docs", "init", "test", "stage", "dry-run",
+		"emit-ninja", "lint", "fmt", "list-targets", "commands",
+		"check", "install", "last-failure", "replay", "clean",
+		"query", "doctor", "explain", "why-rebuild", "log",
+		"action-log", NULL
+	};
+	size_t i;
+
+	if (!cmd || !*cmd)
+		return 0;
+	for (i = 0; commands[i]; i++) {
+		if (strcmp(cmd, commands[i]) == 0)
+			return 1;
+	}
+	return 0;
 }
 
 /** subcommand별 help를 graph 평가 없이 출력한다. */
@@ -146,6 +170,11 @@ command_help(FILE *out, const char *cmd)
 	if (strcmp(cmd, "list-targets") == 0) {
 		fputs("usage: qstar [options] list-targets [--format text|json]\n", out);
 		fputs("List targets, generated actions, stages, and target families.\n", out);
+		return;
+	}
+	if (strcmp(cmd, "commands") == 0) {
+		fputs("usage: qstar [options] commands [--format text|json]\n", out);
+		fputs("List root qstar.command project commands.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "check") == 0) {
@@ -471,6 +500,8 @@ main(int argc, char **argv)
 	char init_error[512];
 	char plan_cache_reason[128], plan_cache_store_reason[128];
 	int arg, rc, cli_overrides_applied, plan_cache_loaded, plan_cache_checked;
+	int project_command_requested, project_command_argc;
+	char **project_command_argv;
 	int daemon_mode, daemon_status;
 
 	qstar_graph_init(&graph);
@@ -492,6 +523,9 @@ main(int argc, char **argv)
 	cli_build_dir = NULL;
 	daemon_socket = NULL;
 	daemon_mode = QSTAR_DAEMON_NEVER;
+	project_command_requested = 0;
+	project_command_argc = 0;
+	project_command_argv = NULL;
 	if (argc == 2 && strcmp(argv[1], "--version") == 0) {
 		print_version(stdout);
 		qstar_graph_free(&graph);
@@ -610,11 +644,18 @@ main(int argc, char **argv)
 		}
 	}
 	if (arg >= argc) {
-		usage(stderr);
-		qstar_graph_free(&graph);
-		return 2;
+		if (!readable_file(file)) {
+			usage(stderr);
+			qstar_graph_free(&graph);
+			return 2;
+		}
+		cmd = "";
+		project_command_requested = 1;
+		project_command_argc = 0;
+		project_command_argv = argv + argc;
+	} else {
+		cmd = argv[arg++];
 	}
-	cmd = argv[arg++];
 	if (strcmp(cmd, "help") == 0) {
 		if (arg < argc)
 			command_help(stdout, argv[arg++]);
@@ -628,7 +669,7 @@ main(int argc, char **argv)
 		qstar_graph_free(&graph);
 		return 0;
 	}
-	if (arg < argc && is_help_arg(argv[arg])) {
+	if (arg < argc && is_help_arg(argv[arg]) && command_has_static_help(cmd)) {
 		command_help(stdout, cmd);
 		qstar_graph_free(&graph);
 		return arg + 1 == argc ? 0 : 2;
@@ -943,12 +984,31 @@ main(int argc, char **argv)
 				return 2;
 			}
 		}
+	} else if (strcmp(cmd, "commands") == 0) {
+		while (arg < argc) {
+			if (strcmp(argv[arg], "--format") == 0) {
+				if (arg + 1 >= argc ||
+				    (strcmp(argv[arg + 1], "text") != 0 &&
+				    strcmp(argv[arg + 1], "json") != 0)) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				list_format = argv[arg + 1];
+				arg += 2;
+			} else {
+				usage(stderr);
+				qstar_graph_free(&graph);
+				return 2;
+			}
+		}
 	} else if (strcmp(cmd, "--dump-graph") != 0 &&
 	    strcmp(cmd, "doctor") != 0 && strcmp(cmd, "last-failure") != 0 &&
 	    strcmp(cmd, "build") != 0) {
-		usage(stderr);
-		qstar_graph_free(&graph);
-		return 2;
+		project_command_requested = 1;
+		project_command_argc = argc - arg;
+		project_command_argv = argv + arg;
+		arg = argc;
 	}
 	if (strcmp(cmd, "build") == 0) {
 		while (arg < argc) {
@@ -1053,7 +1113,7 @@ main(int argc, char **argv)
 	rc = qstar_graph_set_build_context_input(&graph, cli_build_context, NULL, NULL, NULL);
 	if (rc == 0)
 		rc = qstar_graph_set_platform_context(&graph, cli_platform);
-	if (rc == 0 && strcmp(cmd, "build") == 0) {
+	if (rc == 0 && (strcmp(cmd, "build") == 0 || project_command_requested)) {
 		rc = qstar_graph_set_cli_overrides(&graph, cli_generator, cli_build_dir);
 		cli_overrides_applied = rc == 0;
 	}
@@ -1114,13 +1174,15 @@ main(int argc, char **argv)
 		rc = qstar_graph_validate_sources(&graph);
 	if (rc == 0 && !plan_cache_loaded)
 		rc = qstar_graph_validate_headers(&graph);
+	if (rc == 0 && !plan_cache_loaded)
+		rc = qstar_graph_validate_project_commands(&graph);
 	if (rc == 0 && !plan_cache_loaded &&
 	    (strcmp(cmd, "check") == 0 || strcmp(cmd, "doctor") == 0 ||
 	    strcmp(cmd, "build") == 0 || strcmp(cmd, "test") == 0 ||
 	    strcmp(cmd, "emit-ninja") == 0 ||
 	    strcmp(cmd, "install") == 0 || strcmp(cmd, "stage") == 0 ||
 	    strcmp(cmd, "why-rebuild") == 0 ||
-	    strcmp(cmd, "lint") == 0))
+	    strcmp(cmd, "lint") == 0 || project_command_requested))
 		rc = qstar_graph_validate_file_inputs(&graph);
 	if (rc == 0 && strcmp(cmd, "build") == 0 &&
 	    strcmp(qstar_graph_generator(&graph), "stella") == 0 &&
@@ -1191,8 +1253,16 @@ main(int argc, char **argv)
 			rc = strcmp(list_format, "json") == 0 ?
 			    qstar_graph_list_targets_json(&graph, stdout) :
 			    qstar_graph_list_targets(&graph, stdout);
+		else if (strcmp(cmd, "commands") == 0)
+			rc = strcmp(list_format, "json") == 0 ?
+			    qstar_graph_list_project_commands_json(&graph, stdout) :
+			    qstar_graph_list_project_commands(&graph, stdout);
 		else if (strcmp(cmd, "query") == 0)
 			rc = qstar_graph_query(&graph, label, stdout);
+		else if (project_command_requested)
+			rc = qstar_graph_run_project_command(&graph, cmd,
+			    project_command_argc, project_command_argv,
+			    &build_options, stdout);
 		else
 			rc = qstar_graph_dump(&graph, label, stdout);
 	}

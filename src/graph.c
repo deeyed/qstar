@@ -317,6 +317,47 @@ free_target_family(struct qstar_target_family *family)
 	qstar_string_list_free(&family->targets);
 }
 
+/** root project command option schema가 소유한 문자열을 해제한다. */
+static void
+free_command_option(struct qstar_command_option *option)
+{
+	free(option->name);
+	free(option->type);
+	free(option->description);
+	free(option->default_value);
+	qstar_string_list_free(&option->choices);
+}
+
+/** root project command step이 소유한 문자열을 해제한다. */
+static void
+free_command_step(struct qstar_command_step *step)
+{
+	free(step->kind);
+	free(step->label);
+	free(step->command);
+	free(step->stage_root);
+}
+
+/** root project command가 소유한 문자열과 option/step list를 해제한다. */
+static void
+free_project_command(struct qstar_project_command *command)
+{
+	size_t i;
+
+	free(command->name);
+	free(command->origin_file);
+	free(command->description);
+	free(command->working_dir);
+	qstar_string_list_free(&command->env);
+	qstar_string_list_free(&command->aliases);
+	for (i = 0; i < command->option_len; i++)
+		free_command_option(&command->options[i]);
+	free(command->options);
+	for (i = 0; i < command->step_len; i++)
+		free_command_step(&command->steps[i]);
+	free(command->steps);
+}
+
 /** qstar.project metadata가 소유한 문자열을 해제한다. */
 static void
 free_project(struct qstar_project *project)
@@ -415,6 +456,8 @@ qstar_graph_free(struct qstar_graph *graph)
 		free_stage(&graph->stages[i]);
 	for (i = 0; i < graph->family_len; i++)
 		free_target_family(&graph->families[i]);
+	for (i = 0; i < graph->command_len; i++)
+		free_project_command(&graph->commands[i]);
 	for (i = 0; i < graph->lint_len; i++)
 		free_lint_diagnostic(&graph->lint_diagnostics[i]);
 	for (i = 0; i < graph->package_len; i++)
@@ -434,6 +477,7 @@ qstar_graph_free(struct qstar_graph *graph)
 	free(graph->genrules);
 	free(graph->stages);
 	free(graph->families);
+	free(graph->commands);
 	free(graph->lint_diagnostics);
 	free(graph->cached_actions);
 	qstar_string_list_free(&graph->evaluated_fragments);
@@ -1895,6 +1939,551 @@ qstar_graph_add_target_family(struct qstar_graph *graph, const char *name,
 	return family;
 }
 
+static int
+command_token_valid(const char *name)
+{
+	const unsigned char *p;
+
+	if (!name || !*name)
+		return 0;
+	if (name[0] == '-' || name[0] == ':' || name[0] == '/' || name[0] == '@')
+		return 0;
+	for (p = (const unsigned char *)name; *p; p++) {
+		if (*p <= ' ' || *p == '/' || *p == '\\')
+			return 0;
+	}
+	return 1;
+}
+
+static int
+command_option_name_valid(const char *name)
+{
+	const unsigned char *p;
+
+	if (!name || !*name)
+		return 0;
+	if (!(isalpha((unsigned char)name[0]) || name[0] == '_'))
+		return 0;
+	for (p = (const unsigned char *)name + 1; *p; p++) {
+		if (!(isalnum(*p) || *p == '_' || *p == '-'))
+			return 0;
+	}
+	return 1;
+}
+
+static int
+project_command_name_reserved(const char *name)
+{
+	static const char *const reserved[] = {
+		"help", "version", "docs", "init", "lsp", "fmt", "daemon",
+		"commands", "command", "list-targets", "query", "doctor",
+		"check", "lint", "explain", "dry-run", "emit-ninja", "build",
+		"test", "install", "stage", "why-rebuild", "clean", "log",
+		"last-failure", "action-log", "replay", NULL
+	};
+	size_t i;
+
+	for (i = 0; reserved[i]; i++) {
+		if (strcmp(name, reserved[i]) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+static int
+has_project_command_name(const struct qstar_graph *graph, const char *name)
+{
+	size_t i, j;
+
+	for (i = 0; i < graph->command_len; i++) {
+		if (graph->commands[i].name && strcmp(graph->commands[i].name, name) == 0)
+			return 1;
+		for (j = 0; j < graph->commands[i].aliases.len; j++) {
+			if (strcmp(graph->commands[i].aliases.items[j], name) == 0)
+				return 1;
+		}
+	}
+	return 0;
+}
+
+struct qstar_project_command *
+qstar_graph_add_project_command(struct qstar_graph *graph, const char *name,
+    const char *origin_file, int origin_line)
+{
+	struct qstar_project_command *commands, *command;
+	size_t cap;
+
+	if (!command_token_valid(name)) {
+		qstar_set_error(graph, "qstar: invalid project command name '%s'",
+		    name ? name : "");
+		return NULL;
+	}
+	if (project_command_name_reserved(name)) {
+		qstar_set_error(graph,
+		    "qstar: project command name '%s' is reserved by the qstar CLI",
+		    name);
+		return NULL;
+	}
+	if (has_project_command_name(graph, name)) {
+		qstar_set_error(graph, "qstar: duplicate project command '%s'", name);
+		return NULL;
+	}
+	if (graph->command_len == graph->command_cap) {
+		cap = graph->command_cap ? graph->command_cap * 2 : 4;
+		commands = realloc(graph->commands, cap * sizeof(graph->commands[0]));
+		if (!commands) {
+			qstar_set_error(graph, "qstar: out of memory");
+			return NULL;
+		}
+		graph->commands = commands;
+		graph->command_cap = cap;
+	}
+	command = &graph->commands[graph->command_len++];
+	memset(command, 0, sizeof(*command));
+	command->name = qstar_strdup(name);
+	command->origin_file = qstar_strdup(origin_file ? origin_file : "");
+	command->origin_line = origin_line;
+	command->description = qstar_strdup("");
+	command->working_dir = qstar_strdup("");
+	if (!command->name || !command->origin_file || !command->description ||
+	    !command->working_dir) {
+		qstar_set_error(graph, "qstar: out of memory");
+		return NULL;
+	}
+	return command;
+}
+
+struct qstar_command_option *
+qstar_project_command_add_option(struct qstar_graph *graph,
+    struct qstar_project_command *command, const char *name, const char *type)
+{
+	struct qstar_command_option *options, *option;
+	size_t cap, i;
+
+	if (!command_option_name_valid(name)) {
+		qstar_set_error_origin(graph, command ? command->origin_file : NULL,
+		    command ? command->origin_line : 0, "options",
+		    command ? command->name : NULL,
+		    "qstar: invalid option name '%s'", name ? name : "");
+		return NULL;
+	}
+	for (i = 0; i < command->option_len; i++) {
+		if (strcmp(command->options[i].name, name) == 0) {
+			qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "options", command->name,
+			    "qstar: duplicate option '%s' in project command '%s'",
+			    name, command->name);
+			return NULL;
+		}
+	}
+	if (command->option_len == command->option_cap) {
+		cap = command->option_cap ? command->option_cap * 2 : 4;
+		options = realloc(command->options, cap * sizeof(command->options[0]));
+		if (!options) {
+			qstar_set_error(graph, "qstar: out of memory");
+			return NULL;
+		}
+		command->options = options;
+		command->option_cap = cap;
+	}
+	option = &command->options[command->option_len++];
+	memset(option, 0, sizeof(*option));
+	option->name = qstar_strdup(name);
+	option->type = qstar_strdup(type ? type : "");
+	option->description = qstar_strdup("");
+	option->default_value = qstar_strdup("");
+	if (!option->name || !option->type || !option->description ||
+	    !option->default_value) {
+		qstar_set_error(graph, "qstar: out of memory");
+		return NULL;
+	}
+	return option;
+}
+
+struct qstar_command_step *
+qstar_project_command_add_step(struct qstar_graph *graph,
+    struct qstar_project_command *command, const char *kind)
+{
+	struct qstar_command_step *steps, *step;
+	size_t cap;
+
+	if (!kind || !*kind) {
+		qstar_set_error_origin(graph, command ? command->origin_file : NULL,
+		    command ? command->origin_line : 0, "steps",
+		    command ? command->name : NULL,
+		    "qstar: project command step kind must not be empty");
+		return NULL;
+	}
+	if (command->step_len == command->step_cap) {
+		cap = command->step_cap ? command->step_cap * 2 : 4;
+		steps = realloc(command->steps, cap * sizeof(command->steps[0]));
+		if (!steps) {
+			qstar_set_error(graph, "qstar: out of memory");
+			return NULL;
+		}
+		command->steps = steps;
+		command->step_cap = cap;
+	}
+	step = &command->steps[command->step_len++];
+	memset(step, 0, sizeof(*step));
+	step->kind = qstar_strdup(kind);
+	step->label = qstar_strdup("");
+	step->command = qstar_strdup("");
+	step->stage_root = qstar_strdup("");
+	if (!step->kind || !step->label || !step->command || !step->stage_root) {
+		qstar_set_error(graph, "qstar: out of memory");
+		return NULL;
+	}
+	return step;
+}
+
+const struct qstar_project_command *
+qstar_graph_find_project_command(const struct qstar_graph *graph, const char *name)
+{
+	size_t i, j;
+
+	if (!graph || !name || !*name)
+		return NULL;
+	for (i = 0; i < graph->command_len; i++) {
+		if (graph->commands[i].name && strcmp(graph->commands[i].name, name) == 0)
+			return &graph->commands[i];
+		for (j = 0; j < graph->commands[i].aliases.len; j++) {
+			if (strcmp(graph->commands[i].aliases.items[j], name) == 0)
+				return &graph->commands[i];
+		}
+	}
+	return NULL;
+}
+
+const struct qstar_project_command *
+qstar_graph_default_project_command(const struct qstar_graph *graph)
+{
+	size_t i;
+
+	if (!graph)
+		return NULL;
+	for (i = 0; i < graph->command_len; i++) {
+		if (graph->commands[i].is_default)
+			return &graph->commands[i];
+	}
+	return NULL;
+}
+
+static const struct qstar_target *
+find_target_const(const struct qstar_graph *graph, const char *label)
+{
+	size_t i;
+
+	for (i = 0; i < graph->len; i++) {
+		if (strcmp(graph->targets[i].label, label) == 0)
+			return &graph->targets[i];
+	}
+	return NULL;
+}
+
+static int
+project_command_step_label_known(const struct qstar_graph *graph, const char *label)
+{
+	return has_target(graph, label) || has_genrule(graph, label) ||
+	    has_stage(graph, label);
+}
+
+static int
+command_string_list_contains(const struct qstar_string_list *list, const char *value)
+{
+	size_t i;
+
+	for (i = 0; list && i < list->len; i++) {
+		if (strcmp(list->items[i], value) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+static int
+validate_project_command_step(struct qstar_graph *graph,
+    const struct qstar_project_command *command, const struct qstar_command_step *step)
+{
+	const struct qstar_target *target;
+
+	if (strcmp(step->kind, "build") == 0) {
+		if (!step->label || !*step->label ||
+		    !project_command_step_label_known(graph, step->label))
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "steps", command->name,
+			    "qstar: project command '%s' build step references unknown label '%s'",
+			    command->name, step->label ? step->label : "");
+		return 0;
+	}
+	if (strcmp(step->kind, "test") == 0) {
+		if (!step->label || !*step->label)
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "steps", command->name,
+			    "qstar: project command '%s' test step requires a label",
+			    command->name);
+		if (strcmp(step->label, "//...") != 0) {
+			target = find_target_const(graph, step->label);
+			if (!target)
+				return qstar_set_error_origin(graph, command->origin_file,
+				    command->origin_line, "steps", command->name,
+				    "qstar: project command '%s' test step references unknown target '%s'",
+				    command->name, step->label);
+			if (strcmp(target->kind, "test") != 0)
+				return qstar_set_error_origin(graph, command->origin_file,
+				    command->origin_line, "steps", command->name,
+				    "qstar: project command '%s' test step target '%s' is not a test target",
+				    command->name, step->label);
+		}
+		return 0;
+	}
+	if (strcmp(step->kind, "stage") == 0) {
+		if (!step->label || !*step->label || !has_stage(graph, step->label))
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "steps", command->name,
+			    "qstar: project command '%s' stage step references unknown stage '%s'",
+			    command->name, step->label ? step->label : "");
+		if (step->stage_root && *step->stage_root &&
+		    !qstar_path_is_package_relative(step->stage_root))
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "steps", command->name,
+			    "qstar: project command '%s' stage root '%s' must be package-relative",
+			    command->name, step->stage_root);
+		return 0;
+	}
+	if (strcmp(step->kind, "check") == 0 || strcmp(step->kind, "lint") == 0) {
+		if (step->label && *step->label && strcmp(step->label, "//...") != 0 &&
+		    !project_command_step_label_known(graph, step->label))
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "steps", command->name,
+			    "qstar: project command '%s' %s step references unknown label '%s'",
+			    command->name, step->kind, step->label);
+		return 0;
+	}
+	if (strcmp(step->kind, "call") == 0) {
+		if (!step->command || !*step->command ||
+		    !qstar_graph_find_project_command(graph, step->command))
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "steps", command->name,
+			    "qstar: project command '%s' call step references unknown command '%s'",
+			    command->name, step->command ? step->command : "");
+		return 0;
+	}
+	return qstar_set_error_origin(graph, command->origin_file, command->origin_line,
+	    "steps", command->name, "qstar: unknown project command step kind '%s'",
+	    step->kind ? step->kind : "");
+}
+
+static int
+project_command_index(const struct qstar_graph *graph,
+    const struct qstar_project_command *command)
+{
+	size_t i;
+
+	for (i = 0; i < graph->command_len; i++) {
+		if (&graph->commands[i] == command)
+			return (int)i;
+	}
+	return -1;
+}
+
+static int
+project_command_dfs_validate(struct qstar_graph *graph, size_t index, unsigned char *state)
+{
+	const struct qstar_project_command *command, *next;
+	int next_index;
+	size_t i;
+
+	if (state[index] == 1)
+		return qstar_set_error_origin(graph, graph->commands[index].origin_file,
+		    graph->commands[index].origin_line, "steps", graph->commands[index].name,
+		    "qstar: project command call cycle includes '%s'",
+		    graph->commands[index].name);
+	if (state[index] == 2)
+		return 0;
+	state[index] = 1;
+	command = &graph->commands[index];
+	for (i = 0; i < command->step_len; i++) {
+		if (strcmp(command->steps[i].kind, "call") != 0)
+			continue;
+		next = qstar_graph_find_project_command(graph, command->steps[i].command);
+		next_index = project_command_index(graph, next);
+		if (next_index < 0)
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "steps", command->name,
+			    "qstar: project command '%s' call step references unknown command '%s'",
+			    command->name, command->steps[i].command);
+		if (project_command_dfs_validate(graph, (size_t)next_index, state) < 0)
+			return -1;
+	}
+	state[index] = 2;
+	return 0;
+}
+
+static int
+validate_project_command_option(struct qstar_graph *graph,
+    const struct qstar_project_command *command,
+    const struct qstar_command_option *option)
+{
+	if (strcmp(option->type, "string") != 0 && strcmp(option->type, "path") != 0 &&
+	    strcmp(option->type, "bool") != 0 && strcmp(option->type, "int") != 0 &&
+	    strcmp(option->type, "enum") != 0 && strcmp(option->type, "list") != 0)
+		return qstar_set_error_origin(graph, command->origin_file,
+		    command->origin_line, "options", command->name,
+		    "qstar: project command '%s' option '%s' has unknown type '%s'",
+		    command->name, option->name, option->type);
+	if (option->required && option->has_default)
+		return qstar_set_error_origin(graph, command->origin_file,
+		    command->origin_line, "options", command->name,
+		    "qstar: project command '%s' option '%s' cannot be both required and defaulted",
+		    command->name, option->name);
+	if (option->required && strcmp(option->type, "bool") == 0)
+		return qstar_set_error_origin(graph, command->origin_file,
+		    command->origin_line, "options", command->name,
+		    "qstar: project command '%s' bool option '%s' cannot be required",
+		    command->name, option->name);
+	if (strcmp(option->type, "enum") == 0 && option->choices.len == 0)
+		return qstar_set_error_origin(graph, command->origin_file,
+		    command->origin_line, "options", command->name,
+		    "qstar: project command '%s' enum option '%s' requires choices",
+		    command->name, option->name);
+	if (option->has_default && strcmp(option->type, "enum") == 0 &&
+	    !command_string_list_contains(&option->choices, option->default_value))
+		return qstar_set_error_origin(graph, command->origin_file,
+		    command->origin_line, "options", command->name,
+		    "qstar: project command '%s' enum option '%s' default '%s' is not in choices",
+		    command->name, option->name, option->default_value);
+	if (option->has_default && strcmp(option->type, "path") == 0 &&
+	    !qstar_path_is_package_relative(option->default_value))
+		return qstar_set_error_origin(graph, command->origin_file,
+		    command->origin_line, "options", command->name,
+		    "qstar: project command '%s' path option '%s' default '%s' must be package-relative",
+		    command->name, option->name, option->default_value);
+	return 0;
+}
+
+int
+qstar_graph_validate_project_commands(struct qstar_graph *graph)
+{
+	unsigned char *state;
+	size_t i, j, k, default_count;
+
+	default_count = 0;
+	for (i = 0; i < graph->command_len; i++) {
+		const struct qstar_project_command *command = &graph->commands[i];
+		if (!command_token_valid(command->name))
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "name", command->name,
+			    "qstar: invalid project command name '%s'",
+			    command->name ? command->name : "");
+		if (project_command_name_reserved(command->name))
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "name", command->name,
+			    "qstar: project command name '%s' is reserved by the qstar CLI",
+			    command->name);
+		if (command->working_dir && *command->working_dir &&
+		    !qstar_path_is_package_relative(command->working_dir))
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "working_dir", command->name,
+			    "qstar: project command '%s' working_dir '%s' must be package-relative",
+			    command->name, command->working_dir);
+		default_count += command->is_default ? 1 : 0;
+		if (command->step_len == 0)
+			return qstar_set_error_origin(graph, command->origin_file,
+			    command->origin_line, "steps", command->name,
+			    "qstar: project command '%s' requires at least one step",
+			    command->name);
+		for (j = 0; j < command->aliases.len; j++) {
+			if (!command_token_valid(command->aliases.items[j]))
+				return qstar_set_error_origin(graph, command->origin_file,
+				    command->origin_line, "aliases", command->name,
+				    "qstar: invalid alias '%s' in project command '%s'",
+				    command->aliases.items[j], command->name);
+			if (project_command_name_reserved(command->aliases.items[j]))
+				return qstar_set_error_origin(graph, command->origin_file,
+				    command->origin_line, "aliases", command->name,
+				    "qstar: project command alias '%s' is reserved by the qstar CLI",
+				    command->aliases.items[j]);
+		}
+		for (j = 0; j < command->option_len; j++) {
+			if (validate_project_command_option(graph, command,
+			    &command->options[j]) < 0)
+				return -1;
+		}
+		for (j = 0; j < command->step_len; j++) {
+			if (validate_project_command_step(graph, command,
+			    &command->steps[j]) < 0)
+				return -1;
+		}
+		for (j = i + 1; j < graph->command_len; j++) {
+			if (strcmp(command->name, graph->commands[j].name) == 0)
+				return qstar_set_error_origin(graph, command->origin_file,
+				    command->origin_line, "name", command->name,
+				    "qstar: duplicate project command '%s'",
+				    command->name);
+			for (k = 0; k < graph->commands[j].aliases.len; k++) {
+				if (strcmp(command->name,
+				    graph->commands[j].aliases.items[k]) == 0)
+					return qstar_set_error_origin(graph,
+					    graph->commands[j].origin_file,
+					    graph->commands[j].origin_line, "aliases",
+					    graph->commands[j].name,
+					    "qstar: project command alias '%s' conflicts with command '%s'",
+					    graph->commands[j].aliases.items[k],
+					    command->name);
+			}
+		}
+		for (j = 0; j < command->aliases.len; j++) {
+			for (k = j + 1; k < command->aliases.len; k++) {
+				if (strcmp(command->aliases.items[j],
+				    command->aliases.items[k]) == 0)
+					return qstar_set_error_origin(graph,
+					    command->origin_file, command->origin_line,
+					    "aliases", command->name,
+					    "qstar: duplicate alias '%s' in project command '%s'",
+					    command->aliases.items[j], command->name);
+			}
+			for (k = 0; k < graph->command_len; k++) {
+				size_t m;
+				if (k != i &&
+				    strcmp(command->aliases.items[j],
+				    graph->commands[k].name) == 0)
+					return qstar_set_error_origin(graph,
+					    command->origin_file, command->origin_line,
+					    "aliases", command->name,
+					    "qstar: project command alias '%s' conflicts with command '%s'",
+					    command->aliases.items[j],
+					    graph->commands[k].name);
+				if (k == i)
+					continue;
+				for (m = 0; m < graph->commands[k].aliases.len; m++) {
+					if (strcmp(command->aliases.items[j],
+					    graph->commands[k].aliases.items[m]) == 0)
+						return qstar_set_error_origin(graph,
+						    command->origin_file,
+						    command->origin_line, "aliases",
+						    command->name,
+						    "qstar: duplicate project command alias '%s'",
+						    command->aliases.items[j]);
+				}
+			}
+		}
+	}
+	if (default_count > 1)
+		return qstar_set_error(graph,
+		    "qstar: only one project command may set is_default = true");
+	state = calloc(graph->command_len ? graph->command_len : 1, sizeof(state[0]));
+	if (!state)
+		return qstar_set_error(graph, "qstar: out of memory");
+	for (i = 0; i < graph->command_len; i++) {
+		if (project_command_dfs_validate(graph, i, state) < 0) {
+			free(state);
+			return -1;
+		}
+	}
+	free(state);
+	return 0;
+}
+
 /** generated action label로 action을 찾는다. */
 const struct qstar_genrule *
 qstar_graph_find_genrule(const struct qstar_graph *graph, const char *label)
@@ -2149,6 +2738,151 @@ dump_json_list(FILE *out, const struct qstar_string_list *list)
 		dump_json_string(out, list->items[i]);
 	}
 	fputc(']', out);
+}
+
+static void
+dump_project_command_option_text(FILE *out, const struct qstar_command_option *option)
+{
+	fprintf(out, "  option %s type=%s required=%s default=%s choices=",
+	    option->name, option->type, option->required ? "true" : "false",
+	    option->has_default ? option->default_value : "<none>");
+	dump_list(out, &option->choices);
+	fputc('\n', out);
+}
+
+static void
+dump_project_command_step_text(FILE *out, const struct qstar_command_step *step)
+{
+	fprintf(out, "  step %s", step->kind);
+	if (step->label && *step->label)
+		fprintf(out, " label=%s", step->label);
+	if (step->command && *step->command)
+		fprintf(out, " command=%s", step->command);
+	if (step->stage_root && *step->stage_root)
+		fprintf(out, " root=%s", step->stage_root);
+	if (strcmp(step->kind, "stage") == 0)
+		fprintf(out, " dry_run=%s", step->stage_dry_run ? "true" : "false");
+	fputc('\n', out);
+}
+
+int
+qstar_graph_list_project_commands(const struct qstar_graph *graph, FILE *out)
+{
+	size_t i, j;
+
+	fputs("qstar commands v1\n", out);
+	for (i = 0; i < graph->command_len; i++) {
+		const struct qstar_project_command *command = &graph->commands[i];
+		if (command->hidden)
+			continue;
+		fprintf(out,
+		    "command %s default=%s aliases=",
+		    command->name, command->is_default ? "true" : "false");
+		dump_list(out, &command->aliases);
+		fprintf(out, " options=%zu steps=%zu description=%s\n",
+		    command->option_len, command->step_len,
+		    command->description && *command->description ?
+		    command->description : "<none>");
+		if (command->working_dir && *command->working_dir)
+			fprintf(out, "  working_dir %s\n", command->working_dir);
+		if (command->env.len) {
+			fputs("  env ", out);
+			dump_list(out, &command->env);
+			fputc('\n', out);
+		}
+		for (j = 0; j < command->option_len; j++)
+			dump_project_command_option_text(out, &command->options[j]);
+		for (j = 0; j < command->step_len; j++)
+			dump_project_command_step_text(out, &command->steps[j]);
+	}
+	return 0;
+}
+
+static void
+dump_project_command_option_json(FILE *out, const struct qstar_command_option *option)
+{
+	fputs("{\"name\":", out);
+	dump_json_string(out, option->name);
+	fputs(",\"type\":", out);
+	dump_json_string(out, option->type);
+	fprintf(out, ",\"required\":%s,\"has_default\":%s",
+	    option->required ? "true" : "false",
+	    option->has_default ? "true" : "false");
+	fputs(",\"default\":", out);
+	dump_json_string(out, option->has_default ? option->default_value : "");
+	fputs(",\"description\":", out);
+	dump_json_string(out, option->description && *option->description ?
+	    option->description : "");
+	fputs(",\"choices\":", out);
+	dump_json_list(out, &option->choices);
+	fputc('}', out);
+}
+
+static void
+dump_project_command_step_json(FILE *out, const struct qstar_command_step *step)
+{
+	fputs("{\"kind\":", out);
+	dump_json_string(out, step->kind);
+	fputs(",\"label\":", out);
+	dump_json_string(out, step->label && *step->label ? step->label : "");
+	fputs(",\"command\":", out);
+	dump_json_string(out, step->command && *step->command ? step->command : "");
+	fputs(",\"stage_root\":", out);
+	dump_json_string(out, step->stage_root && *step->stage_root ?
+	    step->stage_root : "");
+	fprintf(out, ",\"stage_dry_run\":%s}", step->stage_dry_run ? "true" : "false");
+}
+
+int
+qstar_graph_list_project_commands_json(const struct qstar_graph *graph, FILE *out)
+{
+	size_t i, j, visible;
+
+	visible = 0;
+	for (i = 0; i < graph->command_len; i++) {
+		if (!graph->commands[i].hidden)
+			visible++;
+	}
+	fputs("{\"schema\":\"qstar-commands-v1\",\"command_count\":", out);
+	fprintf(out, "%zu,\"commands\":[", visible);
+	visible = 0;
+	for (i = 0; i < graph->command_len; i++) {
+		const struct qstar_project_command *command = &graph->commands[i];
+		if (command->hidden)
+			continue;
+		if (visible++)
+			fputc(',', out);
+		fputs("{\"name\":", out);
+		dump_json_string(out, command->name);
+		fprintf(out, ",\"is_default\":%s,\"hidden\":%s",
+		    command->is_default ? "true" : "false",
+		    command->hidden ? "true" : "false");
+		fputs(",\"description\":", out);
+		dump_json_string(out, command->description && *command->description ?
+		    command->description : "");
+		fputs(",\"working_dir\":", out);
+		dump_json_string(out, command->working_dir && *command->working_dir ?
+		    command->working_dir : "");
+		fputs(",\"aliases\":", out);
+		dump_json_list(out, &command->aliases);
+		fputs(",\"env\":", out);
+		dump_json_list(out, &command->env);
+		fputs(",\"options\":[", out);
+		for (j = 0; j < command->option_len; j++) {
+			if (j)
+				fputc(',', out);
+			dump_project_command_option_json(out, &command->options[j]);
+		}
+		fputs("],\"steps\":[", out);
+		for (j = 0; j < command->step_len; j++) {
+			if (j)
+				fputc(',', out);
+			dump_project_command_step_json(out, &command->steps[j]);
+		}
+		fputs("]}", out);
+	}
+	fputs("]}\n", out);
+	return 0;
 }
 
 void
@@ -2628,6 +3362,21 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 		dump_stage(&graph->stages[i], out);
 	for (i = 0; i < graph->family_len; i++)
 		dump_target_family(&graph->families[i], out);
+	for (i = 0; i < graph->command_len; i++) {
+		fprintf(out, "command %s\n", graph->commands[i].name);
+		fprintf(out, "  origin file=%s line=%d\n",
+		    graph->commands[i].origin_file && *graph->commands[i].origin_file ?
+		    graph->commands[i].origin_file : "<unknown>",
+		    graph->commands[i].origin_line);
+		fprintf(out, "  description %s\n",
+		    graph->commands[i].description && *graph->commands[i].description ?
+		    graph->commands[i].description : "<none>");
+		fprintf(out, "  default %s hidden %s aliases=",
+		    graph->commands[i].is_default ? "true" : "false",
+		    graph->commands[i].hidden ? "true" : "false");
+		dump_list(out, &graph->commands[i].aliases);
+		fputc('\n', out);
+	}
 	found = label == NULL || *label == '\0';
 	for (i = 0; i < n; i++) {
 		if (label && *label && strcmp(copy[i].label, label) != 0)

@@ -9359,4 +9359,140 @@ if "$qstar" --file "$tmp/stage-bad/qstar.lua" check > "$tmp/stage-bad-missing.ou
 fi
 contains "$tmp/stage-bad-missing.err" "stage source target '//:missing' in '//:bad' is unknown"
 
+step "project commands"
+mkdir -p "$tmp/project-command/src"
+cat > "$tmp/project-command/src/main.c" <<'EOF'
+int main(void) { return 0; }
+EOF
+cat > "$tmp/project-command/qstar.lua" <<'EOF'
+qstar.executable "app" {
+  sources = {"src/main.c"},
+}
+
+qstar.command "make-app" {
+  description = qstar.status("Build app through project command"),
+  aliases = {"go"},
+  is_default = true,
+  options = {
+    mode = qstar.param.enum {
+      choices = {"debug", "release"},
+      default = "debug",
+      description = "Build mode marker",
+    },
+    verbose_flag = qstar.param.bool {
+      default = false,
+    },
+  },
+  steps = {
+    qstar.step.build("//:app"),
+  },
+}
+
+qstar.command "combo" {
+  steps = {
+    qstar.step.call("go"),
+  },
+}
+
+qstar.command "secret" {
+  hidden = true,
+  steps = {
+    qstar.step.build("//:app"),
+  },
+}
+
+qstar.command "needs-mode" {
+  options = {
+    mode = qstar.param.enum {
+      choices = {"debug", "release"},
+      required = true,
+    },
+  },
+  steps = {
+    qstar.step.build("//:app"),
+  },
+}
+EOF
+if ! "$qstar" --file "$tmp/project-command/qstar.lua" commands > "$tmp/project-command-list.out" 2> "$tmp/project-command-list.err"; then
+	cat "$tmp/project-command-list.out" >&2
+	cat "$tmp/project-command-list.err" >&2
+	fail "project command list failed"
+fi
+contains "$tmp/project-command-list.out" "qstar commands v1"
+contains "$tmp/project-command-list.out" "command make-app default=true aliases=[go] options=2 steps=1"
+contains "$tmp/project-command-list.out" "command combo default=false aliases=[] options=0 steps=1"
+not_contains "$tmp/project-command-list.out" "secret"
+if ! "$qstar" --file "$tmp/project-command/qstar.lua" commands --format json > "$tmp/project-command-list-json.out" 2> "$tmp/project-command-list-json.err"; then
+	cat "$tmp/project-command-list-json.out" >&2
+	cat "$tmp/project-command-list-json.err" >&2
+	fail "project command json list failed"
+fi
+contains "$tmp/project-command-list-json.out" "\"schema\":\"qstar-commands-v1\""
+contains "$tmp/project-command-list-json.out" "\"name\":\"make-app\""
+not_contains "$tmp/project-command-list-json.out" "\"name\":\"secret\""
+if ! "$qstar" --file "$tmp/project-command/qstar.lua" --progress off go --mode release --verbose_flag > "$tmp/project-command-run.out" 2> "$tmp/project-command-run.err"; then
+	cat "$tmp/project-command-run.out" >&2
+	cat "$tmp/project-command-run.err" >&2
+	fail "project command alias run failed"
+fi
+contains "$tmp/project-command-run.out" "qstar command v1"
+contains "$tmp/project-command-run.out" "command make-app"
+contains "$tmp/project-command-run.out" "command_step 1/1 kind=build label=//:app"
+contains "$tmp/project-command-run.out" "command_status make-app ok"
+if ! "$qstar" --file "$tmp/project-command/qstar.lua" --progress off > "$tmp/project-command-default.out" 2> "$tmp/project-command-default.err"; then
+	cat "$tmp/project-command-default.out" >&2
+	cat "$tmp/project-command-default.err" >&2
+	fail "project default command failed"
+fi
+contains "$tmp/project-command-default.out" "command make-app"
+if ! "$qstar" --file "$tmp/project-command/qstar.lua" --progress off combo > "$tmp/project-command-call.out" 2> "$tmp/project-command-call.err"; then
+	cat "$tmp/project-command-call.out" >&2
+	cat "$tmp/project-command-call.err" >&2
+	fail "project command call failed"
+fi
+contains "$tmp/project-command-call.out" "command combo"
+contains "$tmp/project-command-call.out" "command make-app"
+if "$qstar" --file "$tmp/project-command/qstar.lua" needs-mode > "$tmp/project-command-required.out" 2> "$tmp/project-command-required.err"; then
+	fail "project command missing required option unexpectedly succeeded"
+fi
+contains "$tmp/project-command-required.err" "missing required option '--mode'"
+if "$qstar" --file "$tmp/project-command/qstar.lua" needs-mode --mode fast > "$tmp/project-command-enum.out" 2> "$tmp/project-command-enum.err"; then
+	fail "project command invalid enum unexpectedly succeeded"
+fi
+contains "$tmp/project-command-enum.err" "value 'fast' is not in choices"
+if ! "$qstar" --file "$tmp/project-command/qstar.lua" secret > "$tmp/project-command-hidden.out" 2> "$tmp/project-command-hidden.err"; then
+	cat "$tmp/project-command-hidden.out" >&2
+	cat "$tmp/project-command-hidden.err" >&2
+	fail "hidden project command should remain callable"
+fi
+contains "$tmp/project-command-hidden.out" "command secret"
+
+mkdir -p "$tmp/project-command-bad"
+cat > "$tmp/project-command-bad/qstar.lua" <<'EOF'
+qstar.command "build" {
+  steps = {
+    qstar.step.check("//..."),
+  },
+}
+EOF
+if "$qstar" --file "$tmp/project-command-bad/qstar.lua" commands > "$tmp/project-command-reserved.out" 2> "$tmp/project-command-reserved.err"; then
+	fail "reserved project command unexpectedly succeeded"
+fi
+contains "$tmp/project-command-reserved.err" "project command name 'build' is reserved"
+mkdir -p "$tmp/project-command-fragment/pkg"
+cat > "$tmp/project-command-fragment/qstar.lua" <<'EOF'
+qstar.subdir("pkg")
+EOF
+cat > "$tmp/project-command-fragment/pkg/pkg.qst" <<'EOF'
+qstar.command "leaf" {
+  steps = {
+    qstar.step.check("//..."),
+  },
+}
+EOF
+if "$qstar" --file "$tmp/project-command-fragment/qstar.lua" commands > "$tmp/project-command-root.out" 2> "$tmp/project-command-root.err"; then
+	fail "fragment project command unexpectedly succeeded"
+fi
+contains "$tmp/project-command-root.err" "qstar.command is only allowed in root qstar.lua"
+
 echo "qstar-smoke: passed"

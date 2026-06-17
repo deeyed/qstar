@@ -334,6 +334,7 @@ Target/rule:
 - `qstar.configure_file`
 - `qstar.stage`
 - `qstar.target_family`
+- `qstar.command`
 
 Command/path helper:
 
@@ -344,6 +345,18 @@ Command/path helper:
 - `qstar.target_file`
 - `qstar.stage_dir`
 - `qstar.stage_file`
+- `qstar.step.build`
+- `qstar.step.test`
+- `qstar.step.stage`
+- `qstar.step.check`
+- `qstar.step.lint`
+- `qstar.step.call`
+- `qstar.param.string`
+- `qstar.param.path`
+- `qstar.param.bool`
+- `qstar.param.int`
+- `qstar.param.enum`
+- `qstar.param.list`
 - `qstar.files`
 - `qstar.subdir`
 - `qstar.import_file`
@@ -491,6 +504,11 @@ qstar.stage "bundle" {
   },
 }
 ```
+
+Root-only project command는 `qstar.command`로 선언한다. 이 표면은 Makefile phony target
+같은 사용자 CLI를 제공하지만, shell script나 language/platform-specific builtin이 아니다.
+`steps`에는 `qstar.step.build/test/stage/check/lint/call`만 들어가며, `qstar commands`로
+목록을 확인한다. `.qst`, `.qsm`, provider 파일에서는 `qstar.command`를 선언할 수 없다.
 
 Deps-only aggregate는 `qstar.group`으로 표현한다. Group은 command, output, artifact,
 install 대상이 아니며 `qstar.target_file("//:group")`도 금지된다.

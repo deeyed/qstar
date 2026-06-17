@@ -5931,6 +5931,491 @@ qstar_lua_status(lua_State *L)
 	return 1;
 }
 
+static int
+reject_project_command_location(lua_State *L)
+{
+	struct qstar_lua_context *ctx;
+
+	ctx = get_context(L);
+	if (ctx && ctx->module_depth > 0)
+		return luaL_error(L,
+		    "qstar: qstar.command is forbidden inside .qsm module; project commands must be declared only in root qstar.lua");
+	if (ctx && ctx->current_dir[0] != '\0')
+		return luaL_error(L,
+		    "qstar: qstar.command is only allowed in root qstar.lua");
+	return 0;
+}
+
+static int
+read_optional_string_field(lua_State *L, int table, const char *field,
+    char **slot, struct qstar_graph *graph)
+{
+	const char *value;
+
+	lua_getfield(L, table, field);
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_isstring(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: field '%s' must be a string",
+		    field);
+	}
+	value = lua_tostring(L, -1);
+	lua_pop(L, 1);
+	return replace_lua_string(slot, value, graph);
+}
+
+static int
+read_command_option_description(lua_State *L, int table,
+    struct qstar_command_option *option, struct qstar_graph *graph)
+{
+	const char *kind, *text;
+	char *copy;
+
+	lua_getfield(L, table, "description");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (lua_isstring(L, -1)) {
+		text = lua_tostring(L, -1);
+		copy = qstar_strdup(text);
+		if (!copy) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph, "qstar: out of memory");
+		}
+		free(option->description);
+		option->description = copy;
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (lua_istable(L, -1)) {
+		kind = qstar_table_kind(L, -1);
+		if (kind && strcmp(kind, "status") == 0) {
+			lua_getfield(L, -1, "text");
+			text = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+			copy = qstar_strdup(text ? text : "");
+			if (!copy) {
+				lua_pop(L, 2);
+				return qstar_set_error(graph, "qstar: out of memory");
+			}
+			free(option->description);
+			option->description = copy;
+			lua_pop(L, 2);
+			return 0;
+		}
+	}
+	lua_pop(L, 1);
+	return qstar_set_error(graph,
+	    "qstar: command option description must be a string or qstar.status(\"...\")");
+}
+
+static int
+read_command_option_bool_field(lua_State *L, int table, const char *field,
+    int *slot, struct qstar_graph *graph)
+{
+	lua_getfield(L, table, field);
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_isboolean(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: command option field '%s' must be boolean",
+		    field);
+	}
+	*slot = lua_toboolean(L, -1) ? 1 : 0;
+	lua_pop(L, 1);
+	return 0;
+}
+
+static int
+read_command_option_default(lua_State *L, int table,
+    struct qstar_command_option *option, struct qstar_graph *graph)
+{
+	const char *value;
+	char buf[64];
+
+	lua_getfield(L, table, "default");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (strcmp(option->type, "bool") == 0) {
+		if (!lua_isboolean(L, -1)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph,
+			    "qstar: bool command option default must be boolean");
+		}
+		value = lua_toboolean(L, -1) ? "true" : "false";
+	} else if (strcmp(option->type, "int") == 0) {
+		if (!lua_isinteger(L, -1)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph,
+			    "qstar: int command option default must be integer");
+		}
+		snprintf(buf, sizeof(buf), "%lld", (long long)lua_tointeger(L, -1));
+		value = buf;
+	} else if (strcmp(option->type, "list") == 0) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph,
+		    "qstar: list command option default is not supported");
+	} else {
+		if (!lua_isstring(L, -1)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph,
+			    "qstar: command option default must be a string");
+		}
+		value = lua_tostring(L, -1);
+	}
+	if (replace_lua_string(&option->default_value, value, graph) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	option->has_default = 1;
+	lua_pop(L, 1);
+	return 0;
+}
+
+static int
+read_command_options_field(lua_State *L, int table,
+    struct qstar_project_command *command, struct qstar_graph *graph)
+{
+	static const char *const allowed[] = {
+		"__qstar_kind", "type", "description", "required", "default",
+		"choices", NULL
+	};
+	struct qstar_command_option *option;
+	const char *name, *kind, *type;
+
+	lua_getfield(L, table, "options");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: field 'options' must be a table");
+	}
+	lua_pushnil(L);
+	while (lua_next(L, -2) != 0) {
+		name = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (!name || !lua_istable(L, -1)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: command options must map option names to qstar.param.* schemas");
+		}
+		kind = qstar_table_kind(L, -1);
+		if (!kind || strcmp(kind, "command_option") != 0) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: command option '%s' must be qstar.param.* { ... }",
+			    name);
+		}
+		if (qstar_lua_validate_table_fields(L, -1, graph,
+		    "command option", allowed) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		lua_getfield(L, -1, "type");
+		type = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+		if (!type) {
+			lua_pop(L, 3);
+			return qstar_set_error(graph,
+			    "qstar: command option '%s' is missing type", name);
+		}
+		option = qstar_project_command_add_option(graph, command, name, type);
+		lua_pop(L, 1);
+		if (!option) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		if (read_command_option_description(L, -1, option, graph) < 0 ||
+		    read_command_option_bool_field(L, -1, "required",
+		    &option->required, graph) < 0 ||
+		    read_command_option_default(L, -1, option, graph) < 0 ||
+		    read_list_field(L, -1, "choices", &option->choices, graph, 0,
+		    command->name) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+static int
+read_command_steps_field(lua_State *L, int table,
+    struct qstar_project_command *command, struct qstar_graph *graph)
+{
+	struct qstar_command_step *step;
+	const char *kind, *label, *called, *root;
+	size_t i, n;
+
+	lua_getfield(L, table, "steps");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: field 'steps' must be a list");
+	}
+	n = lua_rawlen(L, -1);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, -1, (lua_Integer)i);
+		if (!lua_istable(L, -1) ||
+		    !(kind = qstar_table_kind(L, -1)) ||
+		    strcmp(kind, "command_step") != 0) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: command steps must contain qstar.step.* values");
+		}
+		lua_getfield(L, -1, "kind");
+		kind = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+		if (!kind) {
+			lua_pop(L, 3);
+			return qstar_set_error(graph,
+			    "qstar: command step is missing kind");
+		}
+		step = qstar_project_command_add_step(graph, command, kind);
+		lua_pop(L, 1);
+		if (!step) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		lua_getfield(L, -1, "label");
+		label = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+		if (label && replace_lua_string(&step->label, label, graph) < 0) {
+			lua_pop(L, 3);
+			return -1;
+		}
+		lua_pop(L, 1);
+		lua_getfield(L, -1, "command");
+		called = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+		if (called && replace_lua_string(&step->command, called, graph) < 0) {
+			lua_pop(L, 3);
+			return -1;
+		}
+		lua_pop(L, 1);
+		lua_getfield(L, -1, "root");
+		root = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+		if (root && replace_lua_string(&step->stage_root, root, graph) < 0) {
+			lua_pop(L, 3);
+			return -1;
+		}
+		lua_pop(L, 1);
+		lua_getfield(L, -1, "dry_run");
+		if (!lua_isnil(L, -1)) {
+			if (!lua_isboolean(L, -1)) {
+				lua_pop(L, 3);
+				return qstar_set_error(graph,
+				    "qstar: qstar.step.stage field 'dry_run' must be boolean");
+			}
+			step->stage_dry_run = lua_toboolean(L, -1) ? 1 : 0;
+		}
+		lua_pop(L, 1);
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+static int
+add_project_command(lua_State *L, const char *name, int table_index)
+{
+	static const char *const allowed[] = {
+		"description", "options", "env", "working_dir", "steps",
+		"is_default", "hidden", "aliases", NULL
+	};
+	struct qstar_lua_context *ctx;
+	struct qstar_graph *graph;
+	struct qstar_project_command *command;
+	char origin_file[QSTAR_PATH_MAX];
+	int origin_line;
+
+	if (table_index < 0)
+		table_index = lua_gettop(L) + table_index + 1;
+	ctx = get_context(L);
+	graph = ctx->graph;
+	if (reject_project_command_location(L) != 0)
+		return 1;
+	luaL_checktype(L, table_index, LUA_TTABLE);
+	current_origin(L, origin_file, sizeof(origin_file), &origin_line);
+	command = qstar_graph_add_project_command(graph, name, origin_file, origin_line);
+	if (!command)
+		return luaL_error(L, "%s", graph->error);
+	if (qstar_lua_validate_table_fields(L, table_index, graph, "qstar.command",
+	    allowed) < 0 ||
+	    read_status_description_field(L, table_index, graph,
+	    &command->description) < 0 ||
+	    read_list_field(L, table_index, "env", &command->env, graph, 0,
+	    "") < 0 ||
+	    read_list_field(L, table_index, "aliases", &command->aliases, graph, 0,
+	    "") < 0 ||
+	    read_optional_string_field(L, table_index, "working_dir",
+	    &command->working_dir, graph) < 0 ||
+	    read_command_options_field(L, table_index, command, graph) < 0 ||
+	    read_command_steps_field(L, table_index, command, graph) < 0)
+		return luaL_error(L, "%s", graph->error);
+	command->is_default = check_bool_field(L, table_index, "is_default", 0);
+	command->hidden = check_bool_field(L, table_index, "hidden", 0);
+	return 0;
+}
+
+static int
+qstar_lua_command_finish(lua_State *L)
+{
+	const char *name;
+
+	name = lua_tostring(L, lua_upvalueindex(1));
+	return add_project_command(L, name, 1);
+}
+
+static int
+qstar_lua_command(lua_State *L)
+{
+	const char *name;
+
+	if (reject_project_command_location(L) != 0)
+		return 1;
+	name = luaL_checkstring(L, 1);
+	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
+		lua_pushstring(L, name);
+		lua_pushcclosure(L, qstar_lua_command_finish, 1);
+		return 1;
+	}
+	return add_project_command(L, name, 2);
+}
+
+static void
+push_command_step_table(lua_State *L, const char *kind)
+{
+	lua_newtable(L);
+	lua_pushstring(L, "command_step");
+	lua_setfield(L, -2, "__qstar_kind");
+	lua_pushstring(L, kind);
+	lua_setfield(L, -2, "kind");
+}
+
+static int
+qstar_lua_step_label(lua_State *L)
+{
+	struct qstar_lua_context *ctx;
+	const char *kind, *raw;
+	char label[QSTAR_PATH_MAX];
+
+	ctx = get_context(L);
+	kind = lua_tostring(L, lua_upvalueindex(1));
+	raw = luaL_checkstring(L, 1);
+	if (strcmp(raw, "//...") == 0) {
+		snprintf(label, sizeof(label), "%s", raw);
+	} else if (qstar_label_canonicalize(raw, ctx->current_dir, label,
+	    sizeof(label)) < 0) {
+		return luaL_error(L, "qstar: invalid qstar.step.%s label '%s'",
+		    kind, raw);
+	}
+	push_command_step_table(L, kind);
+	lua_pushstring(L, label);
+	lua_setfield(L, -2, "label");
+	return 1;
+}
+
+static int
+qstar_lua_step_stage(lua_State *L)
+{
+	struct qstar_lua_context *ctx;
+	const char *raw, *root, *key;
+	char label[QSTAR_PATH_MAX];
+	int out_idx;
+
+	ctx = get_context(L);
+	raw = luaL_checkstring(L, 1);
+	if (qstar_label_canonicalize(raw, ctx->current_dir, label, sizeof(label)) < 0)
+		return luaL_error(L, "qstar: invalid qstar.step.stage label '%s'",
+		    raw);
+	push_command_step_table(L, "stage");
+	out_idx = lua_gettop(L);
+	lua_pushstring(L, label);
+	lua_setfield(L, -2, "label");
+	if (!lua_isnoneornil(L, 2)) {
+		luaL_checktype(L, 2, LUA_TTABLE);
+		lua_pushnil(L);
+		while (lua_next(L, 2) != 0) {
+			key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+			if (!key || (strcmp(key, "root") != 0 &&
+			    strcmp(key, "dry_run") != 0))
+				return luaL_error(L,
+				    "qstar: unknown qstar.step.stage option '%s'",
+				    key ? key : "<non-string>");
+			lua_pop(L, 1);
+		}
+		lua_getfield(L, 2, "root");
+		if (!lua_isnil(L, -1)) {
+			if (!lua_isstring(L, -1))
+				return luaL_error(L,
+				    "qstar: qstar.step.stage root must be a string");
+			root = lua_tostring(L, -1);
+			lua_pushstring(L, root);
+			lua_setfield(L, out_idx, "root");
+		}
+		lua_pop(L, 1);
+		lua_getfield(L, 2, "dry_run");
+		if (!lua_isnil(L, -1)) {
+			if (!lua_isboolean(L, -1))
+				return luaL_error(L,
+				    "qstar: qstar.step.stage dry_run must be boolean");
+			lua_pushboolean(L, lua_toboolean(L, -1));
+			lua_setfield(L, out_idx, "dry_run");
+		}
+		lua_pop(L, 1);
+	}
+	return 1;
+}
+
+static int
+qstar_lua_step_call(lua_State *L)
+{
+	const char *name;
+
+	name = luaL_checkstring(L, 1);
+	push_command_step_table(L, "call");
+	lua_pushstring(L, name);
+	lua_setfield(L, -2, "command");
+	return 1;
+}
+
+static int
+qstar_lua_param_type(lua_State *L)
+{
+	const char *type;
+	int src, dst;
+
+	type = lua_tostring(L, lua_upvalueindex(1));
+	if (!lua_isnoneornil(L, 1))
+		luaL_checktype(L, 1, LUA_TTABLE);
+	src = lua_isnoneornil(L, 1) ? 0 : 1;
+	lua_newtable(L);
+	dst = lua_gettop(L);
+	if (src) {
+		lua_pushnil(L);
+		while (lua_next(L, src) != 0) {
+			lua_pushvalue(L, -2);
+			lua_pushvalue(L, -2);
+			lua_settable(L, dst);
+			lua_pop(L, 1);
+		}
+	}
+	lua_pushstring(L, "command_option");
+	lua_setfield(L, dst, "__qstar_kind");
+	lua_pushstring(L, type);
+	lua_setfield(L, dst, "type");
+	return 1;
+}
+
 /** qstar.project metadata를 graph에 등록하고 v1 root contract를 검증한다. */
 static int
 qstar_lua_project(lua_State *L)
@@ -6973,6 +7458,46 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "cli");
 	lua_pushcfunction(L, qstar_lua_status);
 	lua_setfield(L, -2, "status");
+	lua_pushcfunction(L, qstar_lua_command);
+	lua_setfield(L, -2, "command");
+	lua_newtable(L);
+	lua_pushstring(L, "build");
+	lua_pushcclosure(L, qstar_lua_step_label, 1);
+	lua_setfield(L, -2, "build");
+	lua_pushstring(L, "test");
+	lua_pushcclosure(L, qstar_lua_step_label, 1);
+	lua_setfield(L, -2, "test");
+	lua_pushcfunction(L, qstar_lua_step_stage);
+	lua_setfield(L, -2, "stage");
+	lua_pushstring(L, "check");
+	lua_pushcclosure(L, qstar_lua_step_label, 1);
+	lua_setfield(L, -2, "check");
+	lua_pushstring(L, "lint");
+	lua_pushcclosure(L, qstar_lua_step_label, 1);
+	lua_setfield(L, -2, "lint");
+	lua_pushcfunction(L, qstar_lua_step_call);
+	lua_setfield(L, -2, "call");
+	lua_setfield(L, -2, "step");
+	lua_newtable(L);
+	lua_pushstring(L, "string");
+	lua_pushcclosure(L, qstar_lua_param_type, 1);
+	lua_setfield(L, -2, "string");
+	lua_pushstring(L, "path");
+	lua_pushcclosure(L, qstar_lua_param_type, 1);
+	lua_setfield(L, -2, "path");
+	lua_pushstring(L, "bool");
+	lua_pushcclosure(L, qstar_lua_param_type, 1);
+	lua_setfield(L, -2, "bool");
+	lua_pushstring(L, "int");
+	lua_pushcclosure(L, qstar_lua_param_type, 1);
+	lua_setfield(L, -2, "int");
+	lua_pushstring(L, "enum");
+	lua_pushcclosure(L, qstar_lua_param_type, 1);
+	lua_setfield(L, -2, "enum");
+	lua_pushstring(L, "list");
+	lua_pushcclosure(L, qstar_lua_param_type, 1);
+	lua_setfield(L, -2, "list");
+	lua_setfield(L, -2, "param");
 	lua_pushcfunction(L, qstar_lua_identity_table);
 	lua_setfield(L, -2, "modules");
 	lua_pushcfunction(L, qstar_lua_files);

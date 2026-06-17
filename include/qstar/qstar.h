@@ -230,6 +230,42 @@ struct qstar_target_family {
 	struct qstar_string_list targets;
 };
 
+struct qstar_command_option {
+	char *name;
+	char *type;
+	char *description;
+	char *default_value;
+	int required;
+	int has_default;
+	struct qstar_string_list choices;
+};
+
+struct qstar_command_step {
+	char *kind;
+	char *label;
+	char *command;
+	char *stage_root;
+	int stage_dry_run;
+};
+
+struct qstar_project_command {
+	char *name;
+	char *origin_file;
+	int origin_line;
+	char *description;
+	char *working_dir;
+	struct qstar_string_list env;
+	struct qstar_string_list aliases;
+	struct qstar_command_option *options;
+	size_t option_len;
+	size_t option_cap;
+	struct qstar_command_step *steps;
+	size_t step_len;
+	size_t step_cap;
+	int is_default;
+	int hidden;
+};
+
 struct qstar_project {
 	int present;
 	char *name;
@@ -366,6 +402,9 @@ struct qstar_graph {
 	struct qstar_target_family *families;
 	size_t family_len;
 	size_t family_cap;
+	struct qstar_project_command *commands;
+	size_t command_len;
+	size_t command_cap;
 	struct qstar_lint_diagnostic *lint_diagnostics;
 	size_t lint_len;
 	size_t lint_cap;
@@ -523,6 +562,18 @@ struct qstar_stage *qstar_graph_add_stage(struct qstar_graph *graph, const char 
 struct qstar_target_family *qstar_graph_add_target_family(struct qstar_graph *graph,
     const char *name, const char *fragment_dir, const char *origin_file, int origin_line);
 
+/** Root project command primitive를 추가한다. */
+struct qstar_project_command *qstar_graph_add_project_command(struct qstar_graph *graph,
+    const char *name, const char *origin_file, int origin_line);
+
+/** Project command에 typed option schema를 추가한다. */
+struct qstar_command_option *qstar_project_command_add_option(struct qstar_graph *graph,
+    struct qstar_project_command *command, const char *name, const char *type);
+
+/** Project command에 ordered step을 추가한다. */
+struct qstar_command_step *qstar_project_command_add_step(struct qstar_graph *graph,
+    struct qstar_project_command *command, const char *kind);
+
 /** QStar package alias를 추가하고 중복 alias를 stable error로 막는다. */
 int qstar_graph_add_package_alias(struct qstar_graph *graph, const char *alias, const char *root);
 
@@ -653,6 +704,23 @@ int qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out);
 /** QStar target/generated action 목록을 machine-readable JSON으로 출력한다. */
 int qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out);
 
+/** QStar root project command 목록을 deterministic text로 출력한다. */
+int qstar_graph_list_project_commands(const struct qstar_graph *graph, FILE *out);
+
+/** QStar root project command 목록을 machine-readable JSON으로 출력한다. */
+int qstar_graph_list_project_commands_json(const struct qstar_graph *graph, FILE *out);
+
+/** QStar root project command declarations를 검증한다. */
+int qstar_graph_validate_project_commands(struct qstar_graph *graph);
+
+/** QStar project command name 또는 alias를 찾는다. */
+const struct qstar_project_command *qstar_graph_find_project_command(
+    const struct qstar_graph *graph, const char *name);
+
+/** is_default command를 찾는다. */
+const struct qstar_project_command *qstar_graph_default_project_command(
+    const struct qstar_graph *graph);
+
 /** QStar target 하나를 authoring query text로 출력한다. */
 int qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out);
 
@@ -717,6 +785,10 @@ int qstar_graph_lint(struct qstar_graph *graph, const char *label, const char *f
 /** QStar lint diagnostic을 color 정책과 함께 출력한다. */
 int qstar_graph_lint_with_color(struct qstar_graph *graph, const char *label,
     const char *format, int color_mode, FILE *out);
+
+/** Root project command를 실행한다. */
+int qstar_graph_run_project_command(struct qstar_graph *graph, const char *name,
+    int argc, char **argv, const struct qstar_build_options *options, FILE *out);
 
 /** QStar 전체 package doctor 결과를 deterministic text로 출력한다. */
 int qstar_graph_doctor(struct qstar_graph *graph, FILE *out);

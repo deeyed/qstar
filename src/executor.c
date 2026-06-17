@@ -9175,6 +9175,298 @@ qstar_graph_build(struct qstar_graph *graph, const char *label, FILE *out)
 	return qstar_graph_build_with_options(graph, label, &options, out);
 }
 
+static const struct qstar_command_option *
+project_command_option(const struct qstar_project_command *command, const char *name)
+{
+	size_t i;
+
+	for (i = 0; i < command->option_len; i++) {
+		if (strcmp(command->options[i].name, name) == 0)
+			return &command->options[i];
+	}
+	return NULL;
+}
+
+static int
+parse_command_bool_value(const char *value, int *out)
+{
+	if (strcmp(value, "true") == 0 || strcmp(value, "1") == 0 ||
+	    strcmp(value, "on") == 0 || strcmp(value, "yes") == 0) {
+		*out = 1;
+		return 0;
+	}
+	if (strcmp(value, "false") == 0 || strcmp(value, "0") == 0 ||
+	    strcmp(value, "off") == 0 || strcmp(value, "no") == 0) {
+		*out = 0;
+		return 0;
+	}
+	return -1;
+}
+
+static int
+validate_command_option_value(struct qstar_graph *graph,
+    const struct qstar_project_command *command,
+    const struct qstar_command_option *option, const char *value)
+{
+	char *end;
+	long parsed;
+
+	if (strcmp(option->type, "int") == 0) {
+		if (!value || !*value)
+			return qstar_set_error(graph,
+			    "qstar: command '%s' option '--%s' requires an integer",
+			    command->name, option->name);
+		parsed = strtol(value, &end, 10);
+		(void)parsed;
+		if (!end || *end != '\0')
+			return qstar_set_error(graph,
+			    "qstar: command '%s' option '--%s' requires an integer",
+			    command->name, option->name);
+	}
+	if (strcmp(option->type, "enum") == 0 &&
+	    !string_list_has(&option->choices, value))
+		return qstar_set_error(graph,
+		    "qstar: command '%s' option '--%s' value '%s' is not in choices",
+		    command->name, option->name, value ? value : "");
+	if (strcmp(option->type, "path") == 0 &&
+	    (!value || !qstar_path_is_package_relative(value)))
+		return qstar_set_error(graph,
+		    "qstar: command '%s' option '--%s' value '%s' must be package-relative",
+		    command->name, option->name, value ? value : "");
+	return 0;
+}
+
+static void
+project_command_help(const struct qstar_project_command *command, FILE *out)
+{
+	size_t i;
+
+	fprintf(out, "usage: qstar %s", command->name);
+	for (i = 0; i < command->option_len; i++) {
+		const struct qstar_command_option *option = &command->options[i];
+		if (strcmp(option->type, "bool") == 0)
+			fprintf(out, " [--%s|--no-%s]", option->name, option->name);
+		else if (strcmp(option->type, "list") == 0)
+			fprintf(out, " [--%s value]...", option->name);
+		else
+			fprintf(out, " [--%s value]", option->name);
+	}
+	fputc('\n', out);
+	if (command->description && *command->description)
+		fprintf(out, "%s\n", command->description);
+	for (i = 0; i < command->option_len; i++) {
+		const struct qstar_command_option *option = &command->options[i];
+		fprintf(out, "  --%s <%s>", option->name, option->type);
+		if (option->required)
+			fputs(" required", out);
+		if (option->has_default)
+			fprintf(out, " default=%s", option->default_value);
+		if (option->description && *option->description)
+			fprintf(out, "  %s", option->description);
+		fputc('\n', out);
+	}
+}
+
+static int
+validate_project_command_args(struct qstar_graph *graph,
+    const struct qstar_project_command *command, int argc, char **argv, FILE *out)
+{
+	unsigned char *seen;
+	const char *arg, *name, *value, *eq;
+	const struct qstar_command_option *option;
+	char optname[128];
+	size_t i, name_len;
+	int bool_value, rc;
+
+	seen = calloc(command->option_len ? command->option_len : 1, sizeof(seen[0]));
+	if (!seen)
+		return qstar_set_error(graph, "qstar: out of memory");
+	for (int ai = 0; ai < argc; ai++) {
+		arg = argv[ai];
+		if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0) {
+			project_command_help(command, out);
+			free(seen);
+			return 1;
+		}
+		if (strncmp(arg, "--", 2) != 0 || strcmp(arg, "--") == 0) {
+			free(seen);
+			return qstar_set_error(graph,
+			    "qstar: command '%s' does not accept positional argument '%s'",
+			    command->name, arg);
+		}
+		name = arg + 2;
+		value = NULL;
+		if (strncmp(name, "no-", 3) == 0) {
+			option = project_command_option(command, name + 3);
+			if (!option || strcmp(option->type, "bool") != 0) {
+				free(seen);
+				return qstar_set_error(graph,
+				    "qstar: unknown bool option '%s' for command '%s'",
+				    arg, command->name);
+			}
+			bool_value = 0;
+		} else {
+			eq = strchr(name, '=');
+			if (eq) {
+				name_len = (size_t)(eq - name);
+				if (name_len == 0 || name_len >= sizeof(optname)) {
+					free(seen);
+					return qstar_set_error(graph,
+					    "qstar: invalid command option '%s'", arg);
+				}
+				memcpy(optname, name, name_len);
+				optname[name_len] = '\0';
+				name = optname;
+				value = eq + 1;
+			}
+			option = project_command_option(command, name);
+			if (!option) {
+				free(seen);
+				return qstar_set_error(graph,
+				    "qstar: unknown option '--%s' for command '%s'",
+				    name, command->name);
+			}
+			if (strcmp(option->type, "bool") == 0) {
+				if (!value) {
+					bool_value = 1;
+				} else if (parse_command_bool_value(value, &bool_value) < 0) {
+					free(seen);
+					return qstar_set_error(graph,
+					    "qstar: bool option '--%s' for command '%s' must be true or false",
+					    option->name, command->name);
+				}
+			} else {
+				if (!value) {
+					if (ai + 1 >= argc || strncmp(argv[ai + 1], "--", 2) == 0) {
+						free(seen);
+						return qstar_set_error(graph,
+						    "qstar: option '--%s' for command '%s' requires a value",
+						    option->name, command->name);
+					}
+					value = argv[++ai];
+				}
+				rc = validate_command_option_value(graph, command, option, value);
+				if (rc < 0) {
+					free(seen);
+					return rc;
+				}
+			}
+		}
+		(void)bool_value;
+		for (i = 0; i < command->option_len; i++) {
+			if (&command->options[i] == option) {
+				seen[i] = 1;
+				break;
+			}
+		}
+	}
+	for (i = 0; i < command->option_len; i++) {
+		if (command->options[i].required && !seen[i]) {
+			free(seen);
+			return qstar_set_error(graph,
+			    "qstar: command '%s' missing required option '--%s'",
+			    command->name, command->options[i].name);
+		}
+		if (command->options[i].has_default &&
+		    strcmp(command->options[i].type, "path") == 0 &&
+		    validate_command_option_value(graph, command, &command->options[i],
+		    command->options[i].default_value) < 0) {
+			free(seen);
+			return -1;
+		}
+	}
+	free(seen);
+	return 0;
+}
+
+static int
+run_project_command_internal(struct qstar_graph *graph,
+    const struct qstar_project_command *command,
+    const struct qstar_build_options *options, FILE *out, int depth)
+{
+	struct qstar_stage_options stage_options;
+	const char *label;
+	size_t i;
+	int rc;
+
+	if (depth > 32)
+		return qstar_set_error(graph, "qstar: project command call depth exceeded");
+	fprintf(out, "qstar command v1\n");
+	fprintf(out, "command %s\n", command->name);
+	for (i = 0; i < command->step_len; i++) {
+		const struct qstar_command_step *step = &command->steps[i];
+		label = step->label && *step->label ? step->label : NULL;
+		fprintf(out, "command_step %zu/%zu kind=%s", i + 1,
+		    command->step_len, step->kind);
+		if (label)
+			fprintf(out, " label=%s", label);
+		if (step->command && *step->command)
+			fprintf(out, " command=%s", step->command);
+		fputc('\n', out);
+		if (strcmp(step->kind, "build") == 0) {
+			rc = strcmp(qstar_graph_generator(graph), "ninja") == 0 ?
+			    qstar_graph_build_ninja(graph, label, options, out) :
+			    qstar_graph_build_with_options(graph, label, options, out);
+		} else if (strcmp(step->kind, "test") == 0) {
+			rc = strcmp(qstar_graph_generator(graph), "ninja") == 0 ?
+			    qstar_graph_test_ninja(graph, label, out) :
+			    qstar_graph_test(graph, label, out);
+		} else if (strcmp(step->kind, "stage") == 0) {
+			memset(&stage_options, 0, sizeof(stage_options));
+			stage_options.root = step->stage_root && *step->stage_root ?
+			    step->stage_root : NULL;
+			stage_options.dry_run = step->stage_dry_run;
+			rc = qstar_graph_stage(graph, label, &stage_options, out);
+		} else if (strcmp(step->kind, "check") == 0) {
+			rc = qstar_graph_check(graph,
+			    label && strcmp(label, "//...") == 0 ? NULL : label, out);
+		} else if (strcmp(step->kind, "lint") == 0) {
+			rc = qstar_graph_lint_with_color(graph,
+			    label && strcmp(label, "//...") == 0 ? NULL : label,
+			    "text", options ? options->color_mode : QSTAR_COLOR_AUTO, out);
+		} else if (strcmp(step->kind, "call") == 0) {
+			const struct qstar_project_command *called;
+			called = qstar_graph_find_project_command(graph, step->command);
+			if (!called)
+				return qstar_set_error(graph,
+				    "qstar: project command '%s' calls unknown command '%s'",
+				    command->name, step->command);
+			rc = run_project_command_internal(graph, called, options, out,
+			    depth + 1);
+		} else {
+			rc = qstar_set_error(graph,
+			    "qstar: project command '%s' has unknown step kind '%s'",
+			    command->name, step->kind);
+		}
+		if (rc < 0)
+			return -1;
+	}
+	fprintf(out, "command_status %s ok\n", command->name);
+	return 0;
+}
+
+int
+qstar_graph_run_project_command(struct qstar_graph *graph, const char *name,
+    int argc, char **argv, const struct qstar_build_options *options, FILE *out)
+{
+	const struct qstar_project_command *command;
+	int rc;
+
+	command = name && *name ? qstar_graph_find_project_command(graph, name) :
+	    qstar_graph_default_project_command(graph);
+	if (!command)
+		return qstar_set_error(graph, name && *name ?
+		    "qstar: unknown command '%s'" :
+		    "qstar: no default project command declared",
+		    name && *name ? name : "");
+	rc = validate_project_command_args(graph, command, argc, argv, out);
+	if (rc > 0)
+		return 0;
+	if (rc < 0)
+		return -1;
+	return run_project_command_internal(graph, command, options, out, 0);
+}
+
 /** QStar action cache 기준으로 rebuild 이유를 설명한다. */
 int
 qstar_graph_why_rebuild(struct qstar_graph *graph, const char *label, FILE *out)

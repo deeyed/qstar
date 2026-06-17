@@ -163,6 +163,56 @@ Evaluate the canonical subdirectory fragment
 .Pa <dir>/<basename>.qst .
 .It Ic qstar.target_family
 Declare a lint grouping primitive for shared-source variants.
+.It Ic qstar.command
+Declare a root
+.Pa qstar.lua
+project command. Project commands are forbidden in
+.Pa .qst
+fragments,
+.Pa .qsm
+modules, and provider files. Supported fields are
+.Ic description ,
+.Ic options ,
+.Ic env ,
+.Ic working_dir ,
+.Ic steps ,
+.Ic is_default ,
+.Ic hidden ,
+and
+.Ic aliases .
+Command names and aliases cannot collide with built-in
+.Nm
+CLI commands.
+.It Ic qstar.step.build
+Project command step that builds a target, generated action, stage, run target,
+or group label.
+.It Ic qstar.step.test
+Project command step that runs a
+.Ic qstar.test
+target selection.
+.It Ic qstar.step.stage
+Project command step that materializes a
+.Ic qstar.stage
+layout. The optional table supports
+.Ic root
+and
+.Ic dry_run .
+.It Ic qstar.step.check
+Project command step that validates the graph or the selected label.
+.It Ic qstar.step.lint
+Project command step that runs authoring lint.
+.It Ic qstar.step.call
+Project command step that calls another project command or alias. Cycles are
+errors.
+.It Ic qstar.param.string Ns , Ic qstar.param.path Ns , Ic qstar.param.bool Ns , Ic qstar.param.int Ns , Ic qstar.param.enum Ns , Ic qstar.param.list
+Declare typed project command option schemas. Common fields are
+.Ic description ,
+.Ic required ,
+.Ic default ,
+and enum
+.Ic choices .
+The core command surface validates command-line option values; argv
+interpolation helpers are separate workflow extensions.
 .It Ic qstar.cli
 Declare an argv-vector command. Shell strings are not accepted.
 .It Ic qstar.status

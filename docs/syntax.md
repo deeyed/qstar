@@ -355,6 +355,75 @@ qstar.run_target "check_image" {
 }
 ```
 
+## Project Commands
+
+Root `qstar.lua` may expose user-facing project commands. A project command is a
+Makefile-phony-style CLI surface made of generic QStar steps, not a shell
+script. It is root-only: `.qst` fragments, `.qsm` modules, and provider files
+cannot declare project commands.
+
+```lua
+qstar.command "make-bundle" {
+  description = qstar.status("Build the local bundle"),
+  aliases = {"bundle"},
+  is_default = true,
+  options = {
+    mode = qstar.param.enum {
+      choices = {"debug", "release"},
+      default = "debug",
+    },
+  },
+  steps = {
+    qstar.step.build("//:image"),
+    qstar.step.stage("//:bundle", {root = "stage/bundle"}),
+  },
+}
+```
+
+Invocation:
+
+```sh
+qstar commands
+qstar commands --format json
+qstar bundle --mode release
+qstar        # runs the single is_default command, when declared
+```
+
+Allowed `qstar.command` fields:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `description` | `qstar.status("...")` | Command list/help text. |
+| `options` | table | Typed CLI option schema. |
+| `env` | list string | Reserved command environment entries for run-step style extensions. |
+| `working_dir` | string | Package-relative working directory reserved for run-step style extensions. |
+| `steps` | list | Ordered `qstar.step.*` values. |
+| `is_default` | bool | Marks the default project command; only one may be default. |
+| `hidden` | bool | Hides from `qstar commands` while staying callable. |
+| `aliases` | list string | Alternative CLI names. |
+
+Supported option schemas are `qstar.param.string`, `qstar.param.path`,
+`qstar.param.bool`, `qstar.param.int`, `qstar.param.enum`, and
+`qstar.param.list`. Common option fields are `description`, `required`,
+`default`, and `choices` for enum. Command options are validated at CLI
+dispatch. Option value interpolation into argv is intentionally separate from
+this core surface.
+
+Supported steps in the core surface are:
+
+| Step | Meaning |
+| --- | --- |
+| `qstar.step.build(label)` | Build a target, generated action, stage, run target, or group label. |
+| `qstar.step.test(label)` | Run a `qstar.test` target selection. |
+| `qstar.step.stage(label, opts)` | Materialize a `qstar.stage`; `opts.root` and `opts.dry_run` mirror the stage CLI. |
+| `qstar.step.check(label)` | Run graph/input validation. Use `"//..."` for the whole graph. |
+| `qstar.step.lint(label)` | Run authoring lint. Use `"//..."` for the whole graph. |
+| `qstar.step.call(name)` | Call another project command or alias; cycles are rejected. |
+
+The command name and aliases cannot collide with built-in QStar CLI commands
+such as `build`, `test`, `stage`, `commands`, `init`, `docs`, `daemon`, or
+diagnostic commands.
+
 ## Host Constants
 
 Allowed constants:
