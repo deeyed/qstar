@@ -780,7 +780,16 @@ static int
 spawn_actions_addchdir(posix_spawn_file_actions_t *actions, const char *path)
 {
 #if defined(__APPLE__)
-	return posix_spawn_file_actions_addchdir(actions, path);
+	int rc;
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#endif
+	rc = posix_spawn_file_actions_addchdir_np(actions, path);
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
+	return rc;
 #elif defined(__linux__) && defined(__GLIBC__)
 	return posix_spawn_file_actions_addchdir_np(actions, path);
 #else
