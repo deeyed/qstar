@@ -119,7 +119,7 @@ without running Ninja.
 The Ninja backend lowers C/C++/ASM compile actions,
 .Ic qstar.configure_file ,
 .Ic qstar.custom_target ,
-static libraries, shared libraries on macOS and Linux platform contexts,
+static libraries, shared libraries on macOS, Linux, and Windows platform contexts,
 executable/test links, and
 .Ic qstar.run_target
 wrappers, plus
@@ -131,7 +131,8 @@ Shared library consumers receive build-tree
 or
 .Ar $ORIGIN
 rpath flags on macOS and Linux.
-Windows DLL/import-library/PDB shared library policy is deferred.
+Windows shared libraries produce a primary runtime DLL and an import library;
+PDB/debug artifact ownership remains deferred.
 .It Ic build
 Build using the effective generator.
 The

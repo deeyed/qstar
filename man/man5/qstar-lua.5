@@ -102,8 +102,15 @@ runtime search path based on
 .Ar @loader_path
 on macOS or
 .Ar $ORIGIN
-on Linux. Windows DLL/import-library/PDB policy is deferred and produces a
-diagnostic.
+on Linux. Windows platform context produces a primary runtime
+.Pa .dll
+artifact and a secondary import
+.Pa .lib
+artifact. Dependents link against the import library, while
+.Ic qstar.target_file(label)
+selects the runtime DLL by default and
+.Ic qstar.target_file(label, { artifact = "import_lib" })
+selects the import library. PDB/debug artifact ownership remains deferred.
 .It Ic qstar.test
 Test executable target.
 .Pp

@@ -4,19 +4,22 @@ Round Q173 seals the implementation plan for Windows `.exe`, static `.lib`,
 runtime `.dll`, import `.lib`, and PDB/debug artifacts before full Windows
 support. Round Q174 promotes executable and static-library artifacts from
 contract-only planning to a local regression gate. Round Q223 sealed the
-Windows shared-library artifact map, and Round Q224 lowers that map through
-Stella and Ninja.
+Windows shared-library artifact map, Round Q224 lowers that map through
+Stella and Ninja, and Round Q225 promotes the shared-library checks into a
+named beta-candidate release gate.
 
 ```txt
-host support: manual native CI alpha
+host support: validation-backed beta candidate
 release asset: none
-policy status: pre-support artifact contract
+policy status: beta-candidate artifact contract
 implementation plan: sealed for Q173
 exe/static artifact gate: sealed for Q174
 sharedlib Graph IR gate: sealed for Q223
 sharedlib lowering gate: sealed for Q224
-local gate: make qstar-windows-prep-tests
-native alpha gate: make qstar-windows-native-alpha-tests
+sharedlib parity gate: sealed for Q225
+local prep gate: make qstar-windows-prep-tests
+native smoke gate: make qstar-windows-native-alpha-tests
+named sharedlib gate: make qstar-windows-sharedlib-artifact-parity-tests
 ```
 
 ## Executable Artifacts
@@ -110,17 +113,27 @@ Run:
 
 ```sh
 make qstar-windows-prep-tests
+make qstar-windows-sharedlib-artifact-parity-tests
 ```
 
-The gate verifies explicit `.exe` naming, external `.lib` spelling, `/LIBPATH`,
-MSVC response-file escaping, slash-normalized package paths, explicit static
-`.lib` artifact planning, fake static `.lib` build output through Stella and
-Ninja, `.exe` and static `.lib` install/stage layout through the Windows
-artifacts corpus, slash-normalized install/stage manifests, Windows sharedlib
-runtime/import-lib Graph IR, selector resolution, Stella/Ninja multi-output
-lowering, dependent executable linkage through the import `.lib`, install/stage
-layout for runtime/import artifacts, and unknown selector diagnostics. The
-Windows execution corpus adds real MSYS2 GCC coverage for `.exe -> bin`, static
-archive -> `lib`, generated object bridge staging, and Windows sharedlib
-runtime/import-lib build artifacts through both Stella and Ninja. It does not
-claim official Windows support.
+`qstar-windows-prep-tests` verifies explicit `.exe` naming, external `.lib`
+spelling, `/LIBPATH`, MSVC response-file escaping, slash-normalized package
+paths, explicit static `.lib` artifact planning, fake static `.lib` build
+output through Stella and Ninja, `.exe` and static `.lib` install/stage layout
+through the Windows artifacts corpus, slash-normalized install/stage manifests,
+Windows sharedlib runtime/import-lib Graph IR, selector resolution,
+Stella/Ninja multi-output lowering, dependent executable linkage through the import `.lib`,
+install/stage layout for runtime/import artifacts, and unknown selector
+diagnostics.
+
+`qstar-windows-sharedlib-artifact-parity-tests` is the named Q225 release gate
+for the shared-library subset. It focuses on runtime `.dll` plus import `.lib`
+artifact maps, Stella/Ninja multi-output lowering, action-log output counts,
+consumer import-library links, stage/install layout, manifest normalization,
+and root `.ninja_*` pollution guards.
+
+The Windows execution corpus adds real MSYS2 GCC coverage for `.exe -> bin`,
+static archive -> `lib`, generated object bridge staging, and Windows sharedlib
+runtime/import-lib build artifacts through both Stella and Ninja. These gates
+make Windows a validation-backed beta candidate; they still do not claim
+official Windows support or publish a Windows release asset.

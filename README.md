@@ -235,12 +235,15 @@ qstar replay <action-id>
 | --- | --- |
 | macOS arm64 | 0.7 beta release-prep artifact |
 | Linux x86_64 | 0.7 beta release-prep artifact from Ubuntu release workflow or clean Linux host |
-| Windows | Manual native CI alpha through MSYS2 UCRT64; no public asset yet |
+| Windows | Validation-backed beta candidate through MSYS2 UCRT64; no public asset yet |
 
 QStar can model custom toolchains and cross-compilation targets through explicit
 toolsets, configs, argv-vector commands, language provider source units, and
 object artifact bridges. Official
-host support is intentionally conservative. The 1.0 milestone requires
+host support is intentionally conservative: the Windows beta candidate lane
+validates source build, execution corpus, install/stage layout, and sharedlib
+runtime/import artifacts, but it does not publish a Windows release asset yet.
+The 1.0 milestone requires
 validated release artifacts and CI coverage for macOS, Linux, and Windows.
 
 ## Documentation

@@ -69,21 +69,26 @@ Round Q224 lowers Windows shared libraries across Stella and Ninja: the
 `link-shared` action produces both runtime `.dll` and import `.lib`, dependent
 executables link against the import `.lib`, and stage/install place runtime
 artifacts under `bin/` and import libraries under `lib/`.
+Round Q225 seals the resulting lane as a validation-backed beta candidate:
+the manual workflow uploads `qstar-windows-beta-candidate`, records
+`windows-beta-candidate-status.txt`, and runs the named
+`qstar-windows-sharedlib-artifact-parity-tests` gate.
 
 ## Status
 
 ```txt
-host support: manual native CI alpha
+host support: validation-backed beta candidate
 official release artifact: none
-purpose of this document: pre-port contract
+purpose of this document: beta-candidate path/process/artifact contract
 gate: make -C qstar qstar-windows-prep-tests
 alpha smoke: make -C qstar qstar-windows-native-alpha-tests
 execution corpus: make -C qstar qstar-windows-execution-corpus-tests
-alpha workflow: .github/workflows/windows-validation.yml
+sharedlib parity: make -C qstar qstar-windows-sharedlib-artifact-parity-tests
+beta workflow: .github/workflows/windows-validation.yml
 ```
 
 Linux has validation and release-candidate packaging dry-run coverage. Windows
-has a manual alpha lane, but remains unofficial until QStar has a green regular
+has a validation-backed beta candidate lane, but remains unofficial until QStar has a green regular
 Windows CI lane, source build, install smoke, response-file execution with real
 Windows tools, and artifact packaging story. Q178 starts that execution path for
 MSYS2 UCRT64 GCC; Q179 moves the process-runner failure from POSIX headers into
@@ -321,25 +326,29 @@ Manual corpus commands:
 ```sh
 ./build/bin/qstar --file tests/corpus/response-files/qstar.lua build //:all
 make qstar-windows-prep-tests
+make qstar-windows-sharedlib-artifact-parity-tests
 ```
 
 These commands prepare the port; they do not replace the manual native Windows
 alpha workflow.
 
-## Windows GitHub Actions Alpha
+## Windows GitHub Actions Beta Candidate
 
 `.github/workflows/windows-validation.yml` is intentionally manual-only through
 `workflow_dispatch`. It checks out submodules, uses an MSYS2 UCRT64 environment,
 runs `make all CC=gcc`, records `qstar --version`, runs
 `make qstar-windows-native-alpha-tests CC=gcc`, runs
 `make qstar-windows-execution-corpus-tests CC=gcc`, runs
-`make qstar-windows-prep-tests CC=gcc`, and performs an install docs/manpage
-smoke under `/tmp/qstar-windows-smoke`. When the `run_ninja_parity=true` input
-is enabled it also runs `make qstar-ninja-backend-parity-tests CC=gcc`.
+`make qstar-windows-prep-tests CC=gcc`, runs
+`make qstar-windows-sharedlib-artifact-parity-tests CC=gcc`, and performs an
+install docs/manpage smoke under `/tmp/qstar-windows-smoke`. When the
+`run_ninja_parity=true` input is enabled it also runs
+`make qstar-ninja-backend-parity-tests CC=gcc`.
 
-The workflow uploads a `qstar-windows-native-alpha` artifact with environment,
-build, smoke, and install logs. This workflow is an alpha porting lane, not a
-release gate. It must become repeatedly green and be promoted to regular CI
-before README or release notes can claim Windows host support.
+The workflow uploads a `qstar-windows-beta-candidate` artifact with environment,
+build, smoke, sharedlib parity, install logs, `KNOWN_ISSUES.md`, and structured
+failure detail directories. This workflow is a beta candidate validation lane,
+not official support. It must become repeatedly green and be promoted to regular
+CI before README or release notes can claim Windows host support.
 
 The native alpha tracking document is `docs/windows-native-alpha.md`.

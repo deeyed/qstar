@@ -63,7 +63,7 @@ Important documents:
 - `daemon-beta-readiness.md`: daemon beta readiness and opt-in decision.
 - `contracts/daemon-read-api.md`: daemon read-only API contract.
 - `windows-path-process.md`: Windows path/process preparation.
-- `windows-native-alpha.md`: manual native CI alpha workflow.
+- `windows-native-alpha.md`: Windows beta candidate validation workflow.
 - `windows-artifact-policy.md`: Windows artifact policy.
 - `windows-artifact-graph-ir.md`: Windows multi-artifact Graph IR contract.
 - `linux-validation.md`: Linux host validation and release asset criteria.

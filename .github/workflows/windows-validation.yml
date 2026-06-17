@@ -1,10 +1,10 @@
-name: Windows Native CI Alpha
+name: Windows Beta Candidate Validation
 
 on:
   workflow_dispatch:
     inputs:
       run_ninja_parity:
-        description: "Run the broader Ninja backend parity gate after alpha smoke"
+        description: "Run the broader Ninja backend parity gate after beta candidate smoke"
         required: false
         default: false
         type: boolean
@@ -14,15 +14,19 @@ permissions:
 
 jobs:
   windows-msys2-ucrt64:
-    name: windows alpha / msys2-ucrt64-gcc baseline
+    name: windows beta candidate / msys2-ucrt64-gcc baseline
     runs-on: windows-latest
     timeout-minutes: 45
     env:
-      QSTAR_WINDOWS_ALPHA_DIR: dist/windows-alpha
-      QSTAR_WINDOWS_ALPHA_STATUS_DIR: dist/windows-alpha/status
-      QSTAR_WINDOWS_NATIVE_ALPHA_ARTIFACT_DIR: dist/windows-alpha/native-alpha-detail
-      QSTAR_WINDOWS_EXECUTION_ARTIFACT_DIR: dist/windows-alpha/windows-execution-detail
-      QSTAR_WINDOWS_PREP_ARTIFACT_DIR: dist/windows-alpha/windows-prep-detail
+      QSTAR_WINDOWS_BETA_DIR: dist/windows-beta-candidate
+      QSTAR_WINDOWS_BETA_STATUS_DIR: dist/windows-beta-candidate/status
+      QSTAR_WINDOWS_ALPHA_DIR: dist/windows-beta-candidate
+      QSTAR_WINDOWS_ALPHA_STATUS_DIR: dist/windows-beta-candidate/status
+      QSTAR_WINDOWS_NATIVE_ALPHA_ARTIFACT_DIR: dist/windows-beta-candidate/native-alpha-detail
+      QSTAR_WINDOWS_EXECUTION_ARTIFACT_DIR: dist/windows-beta-candidate/windows-execution-detail
+      QSTAR_WINDOWS_PREP_ARTIFACT_DIR: dist/windows-beta-candidate/windows-prep-detail
+      QSTAR_WINDOWS_SHARED_ARTIFACT_DIR: dist/windows-beta-candidate/windows-sharedlib-detail
+      QSTAR_WINDOWS_BETA_BASELINE: msys2-ucrt64-gcc
       QSTAR_WINDOWS_ALPHA_BASELINE: msys2-ucrt64-gcc
     steps:
       - name: Checkout
@@ -41,41 +45,41 @@ jobs:
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-ninja
 
-      - name: Record Windows alpha environment
+      - name: Record Windows beta candidate environment
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          mkdir -p "$QSTAR_WINDOWS_ALPHA_DIR" "$QSTAR_WINDOWS_ALPHA_STATUS_DIR"
+          mkdir -p "$QSTAR_WINDOWS_BETA_DIR" "$QSTAR_WINDOWS_BETA_STATUS_DIR"
           {
-            printf 'qstar-windows-alpha: baseline=%s\n' "$QSTAR_WINDOWS_ALPHA_BASELINE"
-            printf 'qstar-windows-alpha: uname='
+            printf 'qstar-windows-beta: baseline=%s\n' "$QSTAR_WINDOWS_BETA_BASELINE"
+            printf 'qstar-windows-beta: uname='
             uname -a
-            printf 'qstar-windows-alpha: pwd=%s\n' "$PWD"
-            printf 'qstar-windows-alpha: msystem=%s\n' "${MSYSTEM:-unknown}"
-            printf 'qstar-windows-alpha: shell=%s\n' "${SHELL:-unknown}"
-            printf 'qstar-windows-alpha: make='
+            printf 'qstar-windows-beta: pwd=%s\n' "$PWD"
+            printf 'qstar-windows-beta: msystem=%s\n' "${MSYSTEM:-unknown}"
+            printf 'qstar-windows-beta: shell=%s\n' "${SHELL:-unknown}"
+            printf 'qstar-windows-beta: make='
             make --version | head -n 1
-            printf 'qstar-windows-alpha: gcc='
+            printf 'qstar-windows-beta: gcc='
             gcc --version | head -n 1
-            printf 'qstar-windows-alpha: ninja='
+            printf 'qstar-windows-beta: ninja='
             ninja --version
-          } | tee "$QSTAR_WINDOWS_ALPHA_DIR/environment.txt"
+          } | tee "$QSTAR_WINDOWS_BETA_DIR/environment.txt"
           printf 'status=ok step=environment baseline=%s\n' \
-            "$QSTAR_WINDOWS_ALPHA_BASELINE" > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/environment.status"
+            "$QSTAR_WINDOWS_BETA_BASELINE" > "$QSTAR_WINDOWS_BETA_STATUS_DIR/environment.status"
 
       - name: Build QStar with Makefile bootstrap
         shell: msys2 {0}
         run: |
           set -euo pipefail
           set +e
-          make all CC=gcc 2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/make-all.log"
+          make all CC=gcc 2>&1 | tee "$QSTAR_WINDOWS_BETA_DIR/make-all.log"
           rc=$?
           set -e
           if test "$rc" -eq 0; then
-            printf 'status=ok step=make-all cc=gcc\n' > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/make-all.status"
+            printf 'status=ok step=make-all cc=gcc\n' > "$QSTAR_WINDOWS_BETA_STATUS_DIR/make-all.status"
           else
             printf 'status=fail step=make-all cc=gcc rc=%s log=make-all.log\n' "$rc" \
-              > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/make-all.status"
+              > "$QSTAR_WINDOWS_BETA_STATUS_DIR/make-all.status"
           fi
           exit "$rc"
 
@@ -88,31 +92,31 @@ jobs:
             qstar_bin="$PWD/build/bin/qstar.exe"
           fi
           set +e
-          "$qstar_bin" --version 2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/version.log"
+          "$qstar_bin" --version 2>&1 | tee "$QSTAR_WINDOWS_BETA_DIR/version.log"
           rc=$?
           set -e
           if test "$rc" -eq 0; then
-            printf 'status=ok step=version bin=%s\n' "$qstar_bin" > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/version.status"
+            printf 'status=ok step=version bin=%s\n' "$qstar_bin" > "$QSTAR_WINDOWS_BETA_STATUS_DIR/version.status"
           else
             printf 'status=fail step=version rc=%s log=version.log\n' "$rc" \
-              > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/version.status"
+              > "$QSTAR_WINDOWS_BETA_STATUS_DIR/version.status"
           fi
           exit "$rc"
 
-      - name: Run Windows native alpha smoke subset
+      - name: Run Windows native smoke subset
         shell: msys2 {0}
         run: |
           set -euo pipefail
           set +e
           make qstar-windows-native-alpha-tests CC=gcc \
-            2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/native-alpha.log"
+            2>&1 | tee "$QSTAR_WINDOWS_BETA_DIR/native-alpha.log"
           rc=$?
           set -e
           if test "$rc" -eq 0; then
-            printf 'status=ok step=native-alpha cc=gcc\n' > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/native-alpha.status"
+            printf 'status=ok step=native-alpha cc=gcc\n' > "$QSTAR_WINDOWS_BETA_STATUS_DIR/native-alpha.status"
           else
             printf 'status=fail step=native-alpha cc=gcc rc=%s log=native-alpha.log detail=native-alpha-detail\n' "$rc" \
-              > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/native-alpha.status"
+              > "$QSTAR_WINDOWS_BETA_STATUS_DIR/native-alpha.status"
           fi
           exit "$rc"
 
@@ -122,15 +126,15 @@ jobs:
           set -euo pipefail
           set +e
           make qstar-windows-execution-corpus-tests CC=gcc \
-            2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/windows-execution.log"
+            2>&1 | tee "$QSTAR_WINDOWS_BETA_DIR/windows-execution.log"
           rc=$?
           set -e
           if test "$rc" -eq 0; then
             printf 'status=ok step=windows-execution cc=gcc corpus=windows-execution\n' \
-              > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/windows-execution.status"
+              > "$QSTAR_WINDOWS_BETA_STATUS_DIR/windows-execution.status"
           else
             printf 'status=fail step=windows-execution cc=gcc rc=%s log=windows-execution.log detail=windows-execution-detail\n' "$rc" \
-              > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/windows-execution.status"
+              > "$QSTAR_WINDOWS_BETA_STATUS_DIR/windows-execution.status"
           fi
           exit "$rc"
 
@@ -140,14 +144,31 @@ jobs:
           set -euo pipefail
           set +e
           make qstar-windows-prep-tests CC=gcc \
-            2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/windows-prep.log"
+            2>&1 | tee "$QSTAR_WINDOWS_BETA_DIR/windows-prep.log"
           rc=$?
           set -e
           if test "$rc" -eq 0; then
-            printf 'status=ok step=windows-prep cc=gcc\n' > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/windows-prep.status"
+            printf 'status=ok step=windows-prep cc=gcc\n' > "$QSTAR_WINDOWS_BETA_STATUS_DIR/windows-prep.status"
           else
             printf 'status=fail step=windows-prep cc=gcc rc=%s log=windows-prep.log detail=windows-prep-detail\n' "$rc" \
-              > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/windows-prep.status"
+              > "$QSTAR_WINDOWS_BETA_STATUS_DIR/windows-prep.status"
+          fi
+          exit "$rc"
+
+      - name: Run Windows sharedlib artifact parity gate
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          set +e
+          make qstar-windows-sharedlib-artifact-parity-tests CC=gcc \
+            2>&1 | tee "$QSTAR_WINDOWS_BETA_DIR/windows-sharedlib.log"
+          rc=$?
+          set -e
+          if test "$rc" -eq 0; then
+            printf 'status=ok step=windows-sharedlib cc=gcc\n' > "$QSTAR_WINDOWS_BETA_STATUS_DIR/windows-sharedlib.status"
+          else
+            printf 'status=fail step=windows-sharedlib cc=gcc rc=%s log=windows-sharedlib.log detail=windows-sharedlib-detail\n' "$rc" \
+              > "$QSTAR_WINDOWS_BETA_STATUS_DIR/windows-sharedlib.status"
           fi
           exit "$rc"
 
@@ -158,15 +179,15 @@ jobs:
           set -euo pipefail
           set +e
           make qstar-ninja-backend-parity-tests CC=gcc \
-            2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/ninja-backend-parity.log"
+            2>&1 | tee "$QSTAR_WINDOWS_BETA_DIR/ninja-backend-parity.log"
           rc=$?
           set -e
           if test "$rc" -eq 0; then
             printf 'status=ok step=ninja-backend-parity cc=gcc\n' \
-              > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/ninja-backend-parity.status"
+              > "$QSTAR_WINDOWS_BETA_STATUS_DIR/ninja-backend-parity.status"
           else
             printf 'status=fail step=ninja-backend-parity cc=gcc rc=%s log=ninja-backend-parity.log\n' "$rc" \
-              > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/ninja-backend-parity.status"
+              > "$QSTAR_WINDOWS_BETA_STATUS_DIR/ninja-backend-parity.status"
           fi
           exit "$rc"
 
@@ -185,29 +206,30 @@ jobs:
             test -f "$prefix/share/doc/qstar/wiki/AI_INDEX.md"
             test -f "$prefix/share/man/man1/qstar.1"
             test -f "$prefix/share/man/man5/qstar-lua.5"
-          ) 2>&1 | tee "$QSTAR_WINDOWS_ALPHA_DIR/install.log"
+          ) 2>&1 | tee "$QSTAR_WINDOWS_BETA_DIR/install.log"
           rc=$?
           set -e
           if test "$rc" -eq 0; then
-            printf 'status=ok step=install prefix=%s\n' "$prefix" > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/install.status"
+            printf 'status=ok step=install prefix=%s\n' "$prefix" > "$QSTAR_WINDOWS_BETA_STATUS_DIR/install.status"
           else
             printf 'status=fail step=install rc=%s log=install.log\n' "$rc" \
-              > "$QSTAR_WINDOWS_ALPHA_STATUS_DIR/install.status"
+              > "$QSTAR_WINDOWS_BETA_STATUS_DIR/install.status"
           fi
           exit "$rc"
 
-      - name: Write alpha summary
+      - name: Write beta candidate summary
         if: always()
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          mkdir -p "$QSTAR_WINDOWS_ALPHA_DIR"
-          status_line="$QSTAR_WINDOWS_ALPHA_DIR/windows-alpha-status.txt"
-          known="$QSTAR_WINDOWS_ALPHA_DIR/KNOWN_ISSUES.md"
+          mkdir -p "$QSTAR_WINDOWS_BETA_DIR"
+          status_line="$QSTAR_WINDOWS_BETA_DIR/windows-beta-candidate-status.txt"
+          legacy_status_line="$QSTAR_WINDOWS_BETA_DIR/windows-alpha-status.txt"
+          known="$QSTAR_WINDOWS_BETA_DIR/KNOWN_ISSUES.md"
           {
-            printf 'baseline=%s\n' "$QSTAR_WINDOWS_ALPHA_BASELINE"
-            for step in environment make-all version native-alpha windows-execution windows-prep ninja-backend-parity install; do
-              file="$QSTAR_WINDOWS_ALPHA_STATUS_DIR/$step.status"
+            printf 'baseline=%s\n' "$QSTAR_WINDOWS_BETA_BASELINE"
+            for step in environment make-all version native-alpha windows-execution windows-prep windows-sharedlib ninja-backend-parity install; do
+              file="$QSTAR_WINDOWS_BETA_STATUS_DIR/$step.status"
               if test -f "$file"; then
                 cat "$file"
               else
@@ -215,13 +237,16 @@ jobs:
               fi
             done
           } > "$status_line"
+          cp "$status_line" "$legacy_status_line"
           {
-            printf '# Windows Alpha Known Issues From This Run\n\n'
-            printf '%s\n' "- baseline: \`$QSTAR_WINDOWS_ALPHA_BASELINE\`"
+            printf '# Windows Beta Candidate Known Issues From This Run\n\n'
+            printf '%s\n' "- baseline: \`$QSTAR_WINDOWS_BETA_BASELINE\`"
             printf '%s\n' "- run: \`$GITHUB_RUN_ID\`"
             printf '%s\n' "- daemon named pipe: deferred"
             printf '%s\n' "- native alpha detail dir: \`native-alpha-detail/\` when that script fails"
             printf '%s\n' "- windows execution detail dir: \`windows-execution-detail/\` when that script fails"
+            printf '%s\n' "- windows prep detail dir: \`windows-prep-detail/\` when that script fails"
+            printf '%s\n' "- windows sharedlib detail dir: \`windows-sharedlib-detail/\` when that script fails"
             if grep -q 'status=fail' "$status_line"; then
               printf '\n## Observed Failures\n\n'
               grep 'status=fail' "$status_line" | while IFS= read -r line; do
@@ -235,26 +260,26 @@ jobs:
             printf '%s\n' "- daemon named pipe transport"
             printf '%s\n' "- Visual Studio, nmake, and direct MSVC bootstrap"
             printf '%s\n' "- Windows public release asset"
-            printf '%s\n' "- runtime .dll, import .lib, and PDB/debug artifact policy"
+            printf '%s\n' "- PDB/debug artifact ownership"
             printf '%s\n' "- MSVC/clang-cl execution corpus"
           } > "$known"
           {
-            printf '# Windows Native CI Alpha\n\n'
+            printf '# Windows Beta Candidate Validation\n\n'
             printf '%s\n' "- workflow: \`$GITHUB_WORKFLOW\`"
-            printf '%s\n' '- job: `windows alpha / msys2-ucrt64-gcc baseline`'
+            printf '%s\n' '- job: `windows beta candidate / msys2-ucrt64-gcc baseline`'
             printf '%s\n' "- run: \`$GITHUB_RUN_ID\`"
-            printf '%s\n' "- baseline: \`$QSTAR_WINDOWS_ALPHA_BASELINE\`"
+            printf '%s\n' "- baseline: \`$QSTAR_WINDOWS_BETA_BASELINE\`"
             printf '%s\n' '- status: see step result and logs in this artifact'
-            printf '%s\n' '- status file: `windows-alpha-status.txt`'
+            printf '%s\n' '- status file: `windows-beta-candidate-status.txt`'
             printf '%s\n' '- known issues file: `KNOWN_ISSUES.md`'
-            printf '%s\n' '- failure detail dirs: `native-alpha-detail/`, `windows-execution-detail/` when present'
-            printf '%s\n' '- support level: manual alpha validation, not official Windows support'
-          } > "$QSTAR_WINDOWS_ALPHA_DIR/SUMMARY.md"
+            printf '%s\n' '- failure detail dirs: `native-alpha-detail/`, `windows-execution-detail/`, `windows-prep-detail/`, `windows-sharedlib-detail/` when present'
+            printf '%s\n' '- support level: validation-backed beta candidate, not official Windows support'
+          } > "$QSTAR_WINDOWS_BETA_DIR/SUMMARY.md"
 
-      - name: Upload Windows alpha logs
+      - name: Upload Windows beta candidate logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qstar-windows-native-alpha
-          path: dist/windows-alpha
+          name: qstar-windows-beta-candidate
+          path: dist/windows-beta-candidate
           if-no-files-found: warn

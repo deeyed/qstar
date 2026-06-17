@@ -1,24 +1,26 @@
-# Windows Native CI Alpha
+# Windows Beta Candidate Validation
 
-Round Q159 moves Windows from a documentation-only preparation path to a manual
-native CI alpha. This is still not official Windows host support and does not
-produce a public Windows release asset.
+Round Q159 moved Windows from a documentation-only preparation path to a manual
+native CI alpha. Q225 keeps the historical file name but upgrades the current
+lane to a validation-backed beta candidate. This is still not official Windows
+host support and does not produce a public Windows release asset.
 
 ## Support Level
 
 ```txt
-status: manual native CI alpha
+status: validation-backed beta candidate
 workflow: .github/workflows/windows-validation.yml
 trigger: workflow_dispatch
 host: windows-latest
 bootstrap shell: MSYS2 UCRT64
 baseline lane: msys2-ucrt64-gcc
 primary compiler: mingw-w64-ucrt-x86_64-gcc
+status artifact: qstar-windows-beta-candidate
 release asset: none
 official support: no
 ```
 
-The lane exists to turn Windows portability work into a real failure list. If it
+The lane exists to keep Windows portability work backed by real artifacts. If it
 fails, the failure class should be copied into this document's Known Issues
 section before the next Windows round.
 
@@ -26,6 +28,12 @@ Round Q172 fixes the alpha lane identity as `msys2-ucrt64-gcc`. The workflow
 now writes step status files and a generated `KNOWN_ISSUES.md` into the
 `qstar-windows-native-alpha` artifact so a failed run leaves a structured
 failure list instead of only a long console log.
+
+Round Q225 renames the uploaded workflow artifact to
+`qstar-windows-beta-candidate` and adds `windows-beta-candidate-status.txt`
+beside the legacy `windows-alpha-status.txt` compatibility file. The artifact
+also includes `windows-sharedlib-detail/` when the named shared-library artifact
+parity gate fails.
 
 Round Q178 adds a native execution corpus to that same alpha lane. The new
 `tests/corpus/windows-execution` project is intentionally separate from the
@@ -68,8 +76,8 @@ the effective Windows command line in action logs and replay details. QStar's
 DSL-facing argv remains shell-free; the MSYS2 alpha lane adds only an
 argv-preserving `sh <script>.sh ...` adapter for package-local `.sh` fixtures so
 the existing execution corpus can exercise real compile, link, custom, and
-`run_target` actions under CreateProcess. This is still manual alpha validation,
-not official Windows host support.
+`run_target` actions under CreateProcess. At Q220 this remained manual alpha
+validation, not official Windows host support.
 
 Round Q221 extends that execution corpus through the Ninja backend. QStar's
 Ninja launcher already uses the shared platform process layer; Q221 makes the
@@ -79,6 +87,12 @@ root, and verifies Ninja action-log/replay metadata for generated object bridge
 actions. Package-local `.sh` fixture commands are adapted in emitted Ninja
 commands as `sh <script>.sh ...` on Windows while preserving the original
 logged argv vector.
+
+Round Q225 promotes the combined lane from alpha tracking to beta candidate
+validation. The job still runs only through `workflow_dispatch`, but the default
+lane includes `make qstar-windows-sharedlib-artifact-parity-tests CC=gcc` and
+uploads a `qstar-windows-beta-candidate` artifact with status files, known
+issues, and failure detail directories.
 
 The first Q172 hosted run was
 `https://github.com/deeyed/qstar/actions/runs/27508325529`. It reached the
@@ -100,9 +114,9 @@ failure should include
 
 ## Toolchain Choice
 
-The alpha lane uses MSYS2 UCRT64 first because QStar's current bootstrap build is
-a POSIX Makefile over C99 sources plus vendored Lua. MSYS2 gives the smallest
-first native Windows surface:
+The baseline lane uses MSYS2 UCRT64 first because QStar's current bootstrap
+build is a POSIX Makefile over C99 sources plus vendored Lua. MSYS2 gives the
+smallest first native Windows surface:
 
 - `make all`
 - `build/bin/qstar --version`
@@ -127,10 +141,10 @@ workflow_dispatch
   inputs:
     run_ninja_parity: false by default
   job:
-    windows alpha / msys2-ucrt64-gcc baseline
+    windows beta candidate / msys2-ucrt64-gcc baseline
 ```
 
-The default alpha job runs:
+The default beta candidate job runs:
 
 ```sh
 make all CC=gcc
@@ -138,6 +152,7 @@ build/bin/qstar --version
 make qstar-windows-native-alpha-tests CC=gcc
 make qstar-windows-execution-corpus-tests CC=gcc
 make qstar-windows-prep-tests CC=gcc
+make qstar-windows-sharedlib-artifact-parity-tests CC=gcc
 make install CC=gcc PREFIX=/tmp/qstar-windows-smoke
 ```
 
@@ -182,9 +197,9 @@ Ninja backend parity gate:
 make qstar-ninja-backend-parity-tests
 ```
 
-All alpha logs are uploaded as the `qstar-windows-native-alpha` artifact. This
-is required because early native Windows failures are expected to be
-environment-sensitive.
+All beta candidate logs are uploaded as the `qstar-windows-beta-candidate`
+artifact. This is required because native Windows failures can still be
+environment-sensitive even after the candidate contract is sealed.
 
 Round Q172 makes the artifact layout explicit:
 
@@ -194,6 +209,7 @@ make-all.log
 version.log
 native-alpha.log
 windows-prep.log
+windows-sharedlib.log
 install.log
 native-alpha-detail/failure.status
 native-alpha-detail/tmp/*.out
@@ -204,8 +220,18 @@ windows-execution-detail/tmp/*.out
 windows-execution-detail/tmp/*.err
 windows-execution-detail/corpus/build/qstar/...
 windows-execution-detail/corpus/stage/...
+windows-prep-detail/failure.status
+windows-prep-detail/tmp/*.out
+windows-prep-detail/tmp/*.err
+windows-prep-detail/response-files/build-qstar/...
+windows-prep-detail/windows-artifacts/build-qstar/...
+windows-sharedlib-detail/failure.status
+windows-sharedlib-detail/tmp/*.out
+windows-sharedlib-detail/tmp/*.err
+windows-sharedlib-detail/windows-artifacts/build-qstar/...
 SUMMARY.md
 KNOWN_ISSUES.md
+windows-beta-candidate-status.txt
 windows-alpha-status.txt
 status/environment.status
 status/make-all.status
@@ -213,6 +239,7 @@ status/version.status
 status/native-alpha.status
 status/windows-execution.status
 status/windows-prep.status
+status/windows-sharedlib.status
 status/ninja-backend-parity.status
 status/install.status
 ```
@@ -221,13 +248,13 @@ If a step fails, its status file is written before the step exits non-zero. The
 final `SUMMARY.md` and `KNOWN_ISSUES.md` steps run with `if: always()` so the
 artifact should still contain a machine-readable failure class. Missing status
 files mean the corresponding step was not reached, usually because an earlier
-baseline step failed. The `native-alpha-detail/` and
-`windows-execution-detail/` directories are created only when the corresponding
-script fails. The `tmp/` subdirectory preserves the script's captured
-`.out`/`.err` files. The `corpus/` subdirectory preserves generated build
-artifacts such as response files, `compile_commands.json`, `ninja/build.ninja`,
-`logs/last-failure.replay`, action logs, generated object bridge outputs, and
-any stage tree that existed before the failure.
+baseline step failed. The `native-alpha-detail/`, `windows-execution-detail/`,
+`windows-prep-detail/`, and `windows-sharedlib-detail/` directories are created
+only when the corresponding script fails. The `tmp/` subdirectory preserves the
+script's captured `.out`/`.err` files. The corpus subdirectories preserve
+generated build artifacts such as response files, `compile_commands.json`,
+`ninja/build.ninja`, `logs/last-failure.replay`, action logs, generated object
+bridge outputs, and any stage tree that existed before the failure.
 
 ## Local Contract Smoke
 
@@ -236,6 +263,7 @@ Non-Windows hosts can run the contract-only subset:
 ```sh
 make qstar-windows-native-alpha-tests
 make qstar-windows-prep-tests
+make qstar-windows-sharedlib-artifact-parity-tests
 ```
 
 On non-Windows hosts, `tests/windows-native-alpha.sh` reports
@@ -250,8 +278,8 @@ qstar-windows-native-alpha: daemon_named_pipe=deferred
 ```
 
 That output is intentional. Windows native validation is currently anchored to
-the MSYS2 UCRT64 gcc lane, and daemon named pipe work is not part of this alpha
-round.
+the MSYS2 UCRT64 gcc lane, and daemon named pipe work is not part of this beta
+candidate lane.
 
 ## Native Execution Corpus
 
@@ -303,21 +331,21 @@ windows-execution-detail/
     stage/
 ```
 
-If a later hosted Windows alpha run fails, start from this detail bundle rather
+If a later hosted Windows beta candidate run fails, start from this detail bundle rather
 than from the full Actions console log.
 
 The corpus deliberately uses `.exe` executable artifact names and a GCC-friendly
-static archive name, `libwinexec_core.a`. Windows `.lib`, runtime `.dll`, import
-library, and PDB/debug behavior remain in the artifact policy track until the
-Windows shared-library rounds take ownership of them.
+static archive name, `libwinexec_core.a`. Windows runtime `.dll` plus import
+`.lib` behavior is now owned by the artifact policy and sharedlib parity gates.
+PDB/debug behavior remains opt-in/deferred.
 
 ## Known Issues
 
 Current known gaps:
 
 - Q159's first observed `src/daemon.c` `<sys/socket.h>` failure is addressed by
-  Q164's Windows daemon stub. The manual alpha lane still needs to be rerun to
-  discover the next real native failure class.
+  Q164's Windows daemon stub. Later Windows runs have moved past this source
+  boundary; a recurrence would be a regression.
 - Q172's hosted `msys2-ucrt64-gcc` run failed at `src/executor.c` because the
   Stella process/event runner included POSIX `<poll.h>`. Q179 splits that
   process runner boundary and the hosted Q179 run passed `make all`,
@@ -342,33 +370,35 @@ Current known gaps:
   compile checks and the Q179 hosted run reached past the previous
   `mkdir`/`lstat` compile failures.
 - Q218 adds failure-only detail directories for `tests/windows-native-alpha.sh`
-  and `tests/windows-execution-corpus.sh`. If a future Windows alpha failure does
-  not include `native-alpha-detail/` or `windows-execution-detail/` for the
-  failing script, treat that as an artifact-contract regression before deeper
-  Windows execution work.
+  and `tests/windows-execution-corpus.sh`; Q225 adds `windows-prep-detail/` and
+  `windows-sharedlib-detail/`. If a future Windows beta candidate failure does
+  not include the matching detail directory for the failing script, treat that
+  as an artifact-contract regression before deeper Windows execution work.
 - Q172 has not promoted Windows to official support. It only makes
   `msys2-ucrt64-gcc` the baseline lane and ensures failed runs leave structured
   status and known-issue artifacts.
 - Q178 adds real build/run/install corpus coverage, Q220 adds Stella
   CreateProcess execution for it, Q221 adds Ninja execution coverage, and Q222
-  adds install/stage layout validation for the same corpus. The lane is still
-  manual alpha validation: a green execution corpus does not by itself create a
-  Windows public release asset or official support claim.
+  adds install/stage layout validation for the same corpus. Q225 treats the lane
+  as validation-backed beta candidate evidence: a green execution corpus and
+  sharedlib parity gate still do not by themselves create a Windows public
+  release asset or official support claim.
 - Stella daemon on Windows is disabled/deferred. The future supported transport
   is a named pipe with Windows ACL rules, not Unix sockets.
 - No Windows public release asset.
 - The `.exe`/static archive/object bridge/sharedlib runtime-import install-stage
-  subset is alpha validated. PDB/debug and full Windows packaging layout are
+  subset is beta-candidate validated. PDB/debug and full Windows packaging layout are
   still deferred.
-- Windows artifact policy is currently a pre-support contract in
+- Windows artifact policy is currently a beta-candidate contract in
   `docs/windows-artifact-policy.md`; native validation still has to prove real
   `.exe`, explicit static `.lib`, runtime `.dll`, import `.lib`, and PDB/debug
   behavior.
 - No Visual Studio, `nmake`, or direct MSVC bootstrap lane.
-- The MSYS2 alpha lane pins `CC=gcc`; the hosted runner may provide a `CC=c99`
+- The MSYS2 baseline lane pins `CC=gcc`; the hosted runner may provide a `CC=c99`
   environment value that is not an executable tool.
 - Real MSVC/clang-cl compiler execution is not yet a release gate.
-- Windows `.dll`/import `.lib` shared-library lowering is in the alpha lane.
+- Windows `.dll`/import `.lib` shared-library lowering is in the beta candidate
+  lane and has a named `qstar-windows-sharedlib-artifact-parity-tests` gate.
   PDB/debug and release packaging remain deferred.
 - Persistent Stella daemon uses Unix socket paths today; Windows named pipe
   support is deferred.
@@ -381,7 +411,7 @@ loosening the path/process contract silently.
 
 Use the generated artifact in this order:
 
-1. Read `windows-alpha-status.txt` for the first `status=fail` line.
+1. Read `windows-beta-candidate-status.txt` for the first `status=fail` line.
 2. Open the corresponding `*.log` file named in that status line.
 3. Copy the failure class, not the entire raw log, into this Known Issues list.
 4. Keep daemon named pipe, MSVC bootstrap, public Windows asset, and PDB/debug
@@ -389,13 +419,16 @@ Use the generated artifact in this order:
 
 ## Promotion Criteria
 
-Windows can move from alpha to validation-backed beta only after:
+Windows can move from validation-backed beta candidate to official support only
+after:
 
-- the manual alpha workflow is repeatedly green;
+- the manual beta candidate workflow is repeatedly green and its failure
+  artifact contract stays intact;
 - a regular Windows CI lane is enabled for push/PR or scheduled validation;
 - native Windows source build and install smoke pass without MSYS2-only
   assumptions leaking into QStar authoring;
-- process spawn, response files, path normalization, and install layout are
-  tested on Windows with real tools;
+- process spawn, response files, path normalization, sharedlib runtime/import
+  artifacts, and install layout are tested on Windows with real tools;
 - release packaging rules for `.exe`, `.lib`, `.dll`, import library, PDB, docs,
-  and manpage-equivalent artifacts are decided.
+  and manpage-equivalent artifacts are decided;
+- a public Windows release asset is built and download-smoked.

@@ -119,8 +119,9 @@ QStar가 하지 않는 일:
   다음 feature line은 `0.7.0-beta`가 맞고, `0.6.x-beta`는 release/package/doc
   hotfix용 patch line으로 남긴다. 0.7의 핵심은 Windows alpha/platform policy, daemon
   readiness, Linux/macOS asset gate hardening, Stella/Ninja/Linux timing refresh다.
-- 0.8 feature line 판단은 `docs/qstar-v0.8-readiness.md`에 둔다. Q177 기준 다음 방향은
-  Windows beta path와 Windows `qstar.sharedlib` `.dll`/import `.lib` implementation이다.
+- 0.8 feature line 판단은 `docs/qstar-v0.8-readiness.md`에 둔다. Q225 기준 다음 방향은
+  Windows를 official support라고 부르기 전 validation-backed beta candidate로 봉인하고,
+  Windows `qstar.sharedlib` `.dll`/import `.lib` implementation을 named gate로 유지하는 것이다.
   `0.7.x-beta`는 release/package/docs/perf-gate hotfix line으로 남기고, `0.8.0-beta`는
   Windows process/event portability, real-host `.exe`/static `.lib`, Windows sharedlib
   artifact parity, daemon default-prep hardening을 맡는다. Daemon은 계속 opt-in이고,
@@ -166,43 +167,36 @@ QStar가 하지 않는 일:
   `qstar-v0.7.0-beta-linux-x86_64.tar.gz`는 release-backed beta asset이다.
   Linux daemon socket smoke도 기본 push/PR lane이 아니라 `workflow_dispatch`의
   `daemon_socket_smoke=true` opt-in job에서 검증한다.
-- Windows host 지원은 아직 official support가 아니다. Round Q114/Q158/Q159 기준
-  `make qstar-windows-prep-tests`가 path/process/MSVC response-file 준비 규칙을 묶고,
-  `make qstar-windows-native-alpha-tests`가 제한 smoke를 제공한다.
-  `.github/workflows/windows-validation.yml`은 `workflow_dispatch` 전용 manual native CI
-  alpha다. Q172 기준 baseline lane은 `msys2-ucrt64-gcc`이며, job 이름은
-  `windows alpha / msys2-ucrt64-gcc baseline`이다. MSYS2 UCRT64에서 `make all CC=gcc`,
-  `qstar --version`, native alpha smoke,
-  Windows prep, install docs/man smoke를 실행하고 `qstar-windows-native-alpha` artifact로 로그를 남긴다.
-  이 artifact는 `windows-alpha-status.txt`, `KNOWN_ISSUES.md`, `status/*.status`를 포함해
-  실패 class를 raw log만으로 추적하지 않게 한다.
+- Windows host 지원은 아직 official support가 아니다. Q225 기준 Windows는
+  validation-backed beta candidate다. `make qstar-windows-prep-tests`가
+  path/process/MSVC response-file 준비 규칙을 묶고,
+  `make qstar-windows-native-alpha-tests`가 제한 native smoke를 제공하며,
+  `make qstar-windows-execution-corpus-tests`가 MSYS2 UCRT64 GCC real build/run/install을
+  Stella/Ninja 양쪽에서 검증한다. Q225는 runtime `.dll` plus import `.lib` subset을
+  `make qstar-windows-sharedlib-artifact-parity-tests`라는 named gate로 뽑았다.
+  `.github/workflows/windows-validation.yml`은 `workflow_dispatch` 전용 beta candidate
+  workflow다. Baseline lane은 `msys2-ucrt64-gcc`이며, job 이름은
+  `windows beta candidate / msys2-ucrt64-gcc baseline`이다. MSYS2 UCRT64에서
+  `make all CC=gcc`, `qstar --version`, native smoke, execution corpus, Windows prep,
+  sharedlib parity, install docs/man smoke를 실행하고 `qstar-windows-beta-candidate`
+  artifact로 로그를 남긴다. 이 artifact는 `windows-beta-candidate-status.txt`,
+  legacy `windows-alpha-status.txt`, `KNOWN_ISSUES.md`, `status/*.status`,
+  `native-alpha-detail/`, `windows-execution-detail/`, `windows-prep-detail/`,
+  `windows-sharedlib-detail/`을 포함해 실패 class를 raw log만으로 추적하지 않게 한다.
   Q172 hosted run `https://github.com/deeyed/qstar/actions/runs/27508325529`은
   `src/executor.c`의 POSIX `<poll.h>` include에서 `make all CC=gcc`가 실패했다. Q179는
   `src/executor.c`와 `src/ninja.c`의 POSIX process runner boundary를 `_WIN32` compile stub으로
   분리하고, `qstar_platform_mkdir`/`qstar_platform_lstat`로 Windows C library signature 차이를
-  줄인다. Q179 hosted run `https://github.com/deeyed/qstar/actions/runs/27527243941`은
-  `make all`, `qstar --version`, native alpha smoke를 통과했고 Windows execution corpus에서
-  멈췄다. Q218부터 실패한 `windows-native-alpha`와
-  `windows-execution` script는 `native-alpha-detail/` 또는 `windows-execution-detail/`
-  아래에 inner temp `.out`/`.err`, corpus `build/qstar`, response files, generated files,
-  replay/action-log, Ninja files를 복사한다. 다음 Windows 구현 라운드는 Actions console log보다
-  이 detail bundle을 먼저 본다. Q219는 `src/platform_process.c`를 추가해 Stella action,
-  Stella/Ninja test artifact runner, QStar Ninja launcher가 같은 process start/wait/kill/status
-  contract를 사용하게 했다. Windows 쪽은 argv vector to command-line quoting, env block, cwd,
-  stdout/stderr pipe setup, timeout/terminate/status normalization을 이 layer 안에 모았다.
+  줄였다. Q179 hosted run `https://github.com/deeyed/qstar/actions/runs/27527243941`은
+  `make all`, `qstar --version`, native smoke를 통과했고 Windows execution corpus에서
+  멈췄다. Q219는 `src/platform_process.c`를 추가해 Stella action, Stella/Ninja test artifact
+  runner, QStar Ninja launcher가 같은 process start/wait/kill/status contract를 사용하게 했다.
   Q220은 Stella action runner의 Windows backend를 `CreateProcessA`로 채웠고, Q221은 같은
   `tests/corpus/windows-execution` graph를 `-G ninja`로도 실행하게 해 QStar-launched Ninja가
-  response files, generated object bridge, run_target expect, install, action-log/replay, root
-  `.ninja_*` pollution guard를 Windows alpha에서 같이 검증하게 했다. Q222는 이 lane에
+  response files, generated object bridge, run_target expect, install, action-log/replay,
+  root `.ninja_*` pollution guard를 Windows lane에서 같이 검증하게 했다. Q222는 이 lane에
   `.exe -> bin`, static archive -> `lib`, generated object bridge stage layout,
   `qstar-install-manifest-v2`/`qstar-stage-manifest-v2` slash-normalized path 검증을 더했다.
-  Windows Stella는
-  compile/link/custom/run action을 실행하고, stdout/stderr capture, exit code propagation,
-  timeout kill, run_target `expect.contains`, action-log/replay의 `windows_command_line` 기록을
-  platform layer로 처리한다. QStar의 DSL-facing argv는 shell-free vector로 남고, MSYS2 alpha
-  fixture의 `.sh` command만 effective command line에서 `sh <script>.sh ...`로 감싼다. 다음
-  Windows 작업은 hosted alpha rerun 결과를 기준으로 optional broader Ninja parity,
-  MSVC/clang-cl execution, sharedlib/artifact packaging을 좁힌다.
   Q164부터 `src/daemon.c`는 Windows stub을 제공해 Unix socket include 실패를 피하고,
   Windows host에서 `qstar daemon`/`--use-daemon=always`는 named pipe 구현 전까지 deferred
   diagnostic으로 처리한다.
@@ -212,28 +206,16 @@ QStar가 하지 않는 일:
   Graph IR에서 primary runtime `.dll` plus secondary import `.lib` artifact map으로 모델링된다.
   `qstar.target_file("//:plugin")`은 runtime `.dll`,
   `qstar.target_file("//:plugin", { artifact = "import_lib" })`은 import `.lib`를 뜻한다.
-  PDB/debug artifact는 opt-in/deferred이며 implicit install/stage 대상이 아니다.
-  Q174부터 `tests/corpus/windows-artifacts`는 forward-looking 문서 fixture가 아니라
-  executable/staticlib regression gate도 맡는다. `windows_fake` toolset은
-  package-local fake `clang-cl`/`lib` 도구로 target-local `.exe`/static `.lib`와
-  explicit `artifact_name` `.exe`/static `.lib`를 Stella와 Ninja 양쪽에서 build하고,
-  stage/install layout은 `.exe`를 `bin/`, static `.lib`를 `lib/` 아래로 확인한다.
-  QStar DSL path는 Windows에서도 `/`로 정규화된 package-relative path이며,
-  backslash path와 drive-letter package path는 금지된다. Windows-like path 문자열이
-  실제 compiler/linker option이면 `compile_options`/`link_options` argv item으로 두고
-  `response_style = "msvc"`로 escape한다. `.exe`는 target-local `artifact_name`으로
-  명시할 수 있고, 외부 system library는 MSVC-like target에서 `.lib`로 렌더링한다.
-  explicit static `.lib`는 target-local `artifact_name`으로
-  planning할 수 있다. Q165 prep gate는 `.exe` metadata, fake static `.lib` Stella/Ninja
-  build, Windows sharedlib diagnostic parity를 같이 확인했고, Q174는 `.exe`/static `.lib`
-  install/stage layout까지 더한다. Q222부터 Windows execution corpus도 real MSYS2 GCC
-  executable/static archive/object bridge layout과 manifest normalization을 Stella/Ninja 양쪽에서
-  확인한다. Q223은 `tests/corpus/windows-artifacts`에 sharedlib artifact map, selector,
-  dry-run stage/install layout, unknown selector diagnostic을 추가한다. Q224는 Stella/Ninja
-  backend에서 runtime `.dll`과 import `.lib`를 실제 outputs로 만들고, consumer가 import
-  `.lib`를 link하도록 닫는다. Automatic static `.lib`, MSVC `link.exe`/`lib.exe`,
+  Q224는 Stella/Ninja backend에서 runtime `.dll`과 import `.lib`를 실제 outputs로 만들고,
+  consumer가 import `.lib`를 link하도록 닫았다. Q225는 이 subset을 Actions status artifact와
+  named release gate로 승격했다. PDB/debug artifact는 opt-in/deferred이며 implicit
+  install/stage 대상이 아니다. Automatic static `.lib`, MSVC `link.exe`/`lib.exe`,
   PDB/debug, Windows release packaging은 아직 official contract가 아니다. 상세 정책은
   `docs/windows-artifact-policy.md`에 둔다.
+  Q174부터 `tests/corpus/windows-artifacts`는 `windows_fake` toolset으로
+  `.exe`/explicit static `.lib` regression을 맡고, Q222부터 real Windows execution corpus도
+  stage/install layout과 manifest normalization을 검증한다. Windows sharedlib selector
+  예제는 `artifact = "import_lib"`이며, 이 selector는 import `.lib` artifact를 가리킨다.
 - `make qstar-medium-project-readiness-tests`는 Stella executor와 Ninja backend의 clean,
   no-op, incremental build 시간을 `medium_project_gate ...` line protocol로 기록한다.
   Round Q92 기준 timing threshold는 report-only가 기본이며,
@@ -607,6 +589,7 @@ qstar --file qstar.lua install //:target --prefix /tmp/qstar-install --dry-run
 make qstar-linux-validation-tests
 make qstar-windows-prep-tests
 make qstar-windows-native-alpha-tests
+make qstar-windows-sharedlib-artifact-parity-tests
 qstar --file qstar.lua why-rebuild //:target
 qstar --file qstar.lua clean --target //:target
 qstar --file qstar.lua log //:target

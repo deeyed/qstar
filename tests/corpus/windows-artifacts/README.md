@@ -19,6 +19,7 @@ Useful current commands:
 ```sh
 qstar --file tests/corpus/windows-artifacts/qstar.lua --qstar-internal-platform windows check
 make qstar-windows-prep-tests
+make qstar-windows-sharedlib-artifact-parity-tests
 ```
 
 Current expected behavior:
@@ -56,4 +57,4 @@ Current sharedlib selector/lowering behavior:
 PDB/debug artifacts stay opt-in and are not staged or installed implicitly.
 
 This corpus does not claim official Windows support and must not be used as a
-substitute for the hosted Windows native alpha workflow.
+substitute for the hosted Windows beta candidate workflow.
