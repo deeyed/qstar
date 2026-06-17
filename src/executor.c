@@ -1091,6 +1091,26 @@ qstar_remove_file(const char *path)
 #endif
 }
 
+/** tmp 파일을 destination으로 commit한다. Windows에서는 기존 파일을 먼저 제거한다. */
+static int
+qstar_replace_file(const char *tmp, const char *dst)
+{
+	if (rename(tmp, dst) == 0)
+		return 0;
+#if QSTAR_PLATFORM_WINDOWS
+	if (errno == EACCES || errno == EEXIST) {
+		if (qstar_remove_file(dst) < 0 && errno != ENOENT) {
+			qstar_remove_file(tmp);
+			return -1;
+		}
+		if (rename(tmp, dst) == 0)
+			return 0;
+	}
+#endif
+	qstar_remove_file(tmp);
+	return -1;
+}
+
 /** 빈 directory 삭제 primitive다. */
 static int
 qstar_remove_dir(const char *path)
@@ -2668,8 +2688,7 @@ state_db_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 		qstar_remove_file(tmp);
 		return qstar_set_error(graph, "qstar: could not write compact action state");
 	}
-	if (rename(tmp, path) < 0) {
-		qstar_remove_file(tmp);
+	if (qstar_replace_file(tmp, path) < 0) {
 		return qstar_set_error(graph, "qstar: could not commit compact action state");
 	}
 	return 0;
@@ -3129,8 +3148,7 @@ deps_db_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 		qstar_remove_file(tmp);
 		return qstar_set_error(graph, "qstar: could not write dependency state");
 	}
-	if (rename(tmp, path) < 0) {
-		qstar_remove_file(tmp);
+	if (qstar_replace_file(tmp, path) < 0) {
 		return qstar_set_error(graph, "qstar: could not commit dependency state");
 	}
 	return 0;
@@ -3304,7 +3322,7 @@ state_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 	}
 	fputs("]\n", f);
 	fclose(f);
-	if (rename(tmp, path) < 0)
+	if (qstar_replace_file(tmp, path) < 0)
 		return qstar_set_error(graph, "qstar: could not commit action state");
 	return 0;
 }
@@ -3448,7 +3466,7 @@ graph_snapshot_write(struct qstar_graph *graph, const struct qstar_build_ctx *ct
 	}
 	fputs("\n]}\n", f);
 	fclose(f);
-	if (rename(tmp, path) < 0)
+	if (qstar_replace_file(tmp, path) < 0)
 		return qstar_set_error(graph, "qstar: could not commit graph snapshot");
 	return 0;
 }
@@ -3488,7 +3506,7 @@ build_summary_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx
 	    ctx->run_count, ctx->skip_count, ctx->fail_count, ctx->scheduled_count,
 	    ctx->jobs, ctx->cancelled ? "true" : "false");
 	fclose(f);
-	if (rename(tmp, path) < 0)
+	if (qstar_replace_file(tmp, path) < 0)
 		return qstar_set_error(graph, "qstar: could not commit build summary");
 	return 0;
 }
@@ -3639,7 +3657,7 @@ compile_db_write(struct qstar_graph *graph, const struct qstar_build_ctx *ctx)
 	}
 	fputs("]\n", f);
 	fclose(f);
-	if (rename(tmp, path) < 0)
+	if (qstar_replace_file(tmp, path) < 0)
 		return qstar_set_error(graph, "qstar: could not commit compile_commands.json");
 	return 0;
 }
@@ -8710,7 +8728,7 @@ install_manifest_end(struct qstar_graph *graph, struct qstar_install_ctx *ctx, i
 		return qstar_set_error(graph, "qstar: could not close install manifest");
 	}
 	ctx->manifest = NULL;
-	if (rename(ctx->manifest_tmp, ctx->manifest_path) < 0)
+	if (qstar_replace_file(ctx->manifest_tmp, ctx->manifest_path) < 0)
 		return qstar_set_error(graph, "qstar: could not commit install manifest");
 	return 0;
 }
@@ -8982,7 +9000,7 @@ stage_manifest_end(struct qstar_graph *graph, struct qstar_stage_ctx *ctx, int o
 		return qstar_set_error(graph, "qstar: could not close stage manifest");
 	}
 	ctx->manifest = NULL;
-	if (rename(ctx->manifest_tmp, ctx->manifest_path) < 0)
+	if (qstar_replace_file(ctx->manifest_tmp, ctx->manifest_path) < 0)
 		return qstar_set_error(graph, "qstar: could not commit stage manifest");
 	return 0;
 }
