@@ -1,0 +1,225 @@
+name: Real GLP Compiler Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      zig_version:
+        description: Zig version used by the hosted real GLP compiler corpus
+        required: false
+        default: 0.16.0
+        type: string
+      require_compilers:
+        description: Fail if rustc or zig cannot be installed or found
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  real-glp:
+    name: ${{ matrix.host }} / real GLP compilers
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - host: linux-x86_64
+            os: ubuntu-latest
+            cc: gcc
+            cxx: g++
+          - host: macos
+            os: macos-latest
+            cc: cc
+            cxx: c++
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+      QSTAR_REAL_GLP_REPORT_DIR: dist/real-glp/${{ matrix.host }}
+      QSTAR_REQUIRE_REAL_COMPILERS: ${{ inputs.require_compilers }}
+      ZIG_VERSION: ${{ inputs.zig_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux build tools
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc g++ ninja-build file curl xz-utils
+          ninja --version
+          "$CC" --version
+
+      - name: Install macOS build tools
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          if ! command -v ninja >/dev/null 2>&1; then
+            brew update
+            brew install ninja
+          fi
+          ninja --version
+          "$CC" --version
+
+      - name: Cache Rust toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ~/.rustup/settings.toml
+            ~/.rustup/toolchains
+            ~/.rustup/update-hashes
+          key: qstar-real-glp-rust-${{ runner.os }}-${{ runner.arch }}-stable-v1
+
+      - name: Install Rust
+        run: |
+          set -euo pipefail
+          mkdir -p "$QSTAR_REAL_GLP_REPORT_DIR"
+          status="$QSTAR_REAL_GLP_REPORT_DIR/rust-install.status"
+          require=0
+          case "$QSTAR_REQUIRE_REAL_COMPILERS" in
+            true|1) require=1 ;;
+          esac
+          if command -v rustup >/dev/null 2>&1; then
+            rustup toolchain install stable --profile minimal
+            rustup default stable
+          elif command -v rustc >/dev/null 2>&1; then
+            :
+          else
+            printf 'status=skipped tool=rustc reason=rustup-and-rustc-not-found\n' | tee "$status"
+            if [ "$require" -eq 1 ]; then
+              exit 1
+            fi
+            exit 0
+          fi
+          rustc --version | tee "$QSTAR_REAL_GLP_REPORT_DIR/rustc-version.txt"
+          printf 'status=ok tool=rustc version=%s\n' "$(rustc --version)" > "$status"
+
+      - name: Cache Zig toolchain
+        uses: actions/cache@v4
+        with:
+          path: .cache/zig/${{ runner.os }}-${{ runner.arch }}-${{ inputs.zig_version }}
+          key: qstar-real-glp-zig-${{ runner.os }}-${{ runner.arch }}-${{ inputs.zig_version }}-v1
+
+      - name: Install Zig
+        run: |
+          set -euo pipefail
+          mkdir -p "$QSTAR_REAL_GLP_REPORT_DIR"
+          status="$QSTAR_REAL_GLP_REPORT_DIR/zig-install.status"
+          require=0
+          case "$QSTAR_REQUIRE_REAL_COMPILERS" in
+            true|1) require=1 ;;
+          esac
+          case "${{ runner.os }}-${{ runner.arch }}" in
+            Linux-X64) zig_target=x86_64-linux ;;
+            Linux-ARM64) zig_target=aarch64-linux ;;
+            macOS-X64) zig_target=x86_64-macos ;;
+            macOS-ARM64) zig_target=aarch64-macos ;;
+            *)
+              printf 'status=skipped tool=zig reason=unsupported-runner os=%s arch=%s\n' \
+                "${{ runner.os }}" "${{ runner.arch }}" | tee "$status"
+              if [ "$require" -eq 1 ]; then
+                exit 1
+              fi
+              exit 0
+              ;;
+          esac
+          install_dir="$PWD/.cache/zig/${{ runner.os }}-${{ runner.arch }}-$ZIG_VERSION"
+          archive="zig-$zig_target-$ZIG_VERSION.tar.xz"
+          url="https://ziglang.org/download/$ZIG_VERSION/$archive"
+          if [ ! -x "$install_dir/zig" ]; then
+            rm -rf "$install_dir"
+            tmp_archive="$RUNNER_TEMP/$archive"
+            if ! curl -fsSL "$url" -o "$tmp_archive"; then
+              printf 'status=skipped tool=zig reason=download-failed url=%s\n' "$url" | tee "$status"
+              if [ "$require" -eq 1 ]; then
+                exit 1
+              fi
+              exit 0
+            fi
+            tar -xf "$tmp_archive" -C "$RUNNER_TEMP"
+            mv "$RUNNER_TEMP/zig-$zig_target-$ZIG_VERSION" "$install_dir"
+          fi
+          echo "$install_dir" >> "$GITHUB_PATH"
+          "$install_dir/zig" version | tee "$QSTAR_REAL_GLP_REPORT_DIR/zig-version.txt"
+          printf 'status=ok tool=zig version=%s target=%s\n' "$("$install_dir/zig" version)" "$zig_target" > "$status"
+
+      - name: Build QStar
+        run: |
+          set -euo pipefail
+          mkdir -p "$QSTAR_REAL_GLP_REPORT_DIR"
+          make all 2>&1 | tee "$QSTAR_REAL_GLP_REPORT_DIR/make-all.log"
+
+      - name: Record hosted compiler environment
+        run: |
+          set -euo pipefail
+          mkdir -p "$QSTAR_REAL_GLP_REPORT_DIR"
+          {
+            printf 'host=%s\n' "${{ matrix.host }}"
+            printf 'runner_os=%s\n' "${{ runner.os }}"
+            printf 'runner_arch=%s\n' "${{ runner.arch }}"
+            printf 'require_compilers=%s\n' "$QSTAR_REQUIRE_REAL_COMPILERS"
+            printf 'zig_version_input=%s\n' "$ZIG_VERSION"
+            printf 'uname='
+            uname -a
+            printf 'cc='
+            "$CC" --version | head -n 1
+            printf 'ninja='
+            ninja --version
+            printf 'rustc='
+            rustc --version || true
+            printf 'zig='
+            zig version || true
+          } | tee "$QSTAR_REAL_GLP_REPORT_DIR/environment.txt"
+
+      - name: Run real GLP compiler corpus
+        run: |
+          set -euo pipefail
+          mkdir -p "$QSTAR_REAL_GLP_REPORT_DIR"
+          out="$QSTAR_REAL_GLP_REPORT_DIR/real-glp-compiler-corpus.out"
+          err="$QSTAR_REAL_GLP_REPORT_DIR/real-glp-compiler-corpus.err"
+          status="$QSTAR_REAL_GLP_REPORT_DIR/real-glp-compiler-corpus.status"
+          set +e
+          make qstar-real-glp-compiler-corpus-tests > "$out" 2> "$err"
+          rc=$?
+          set -e
+          cat "$out"
+          if [ -s "$err" ]; then
+            cat "$err" >&2
+          fi
+          if [ "$rc" -ne 0 ]; then
+            printf 'status=fail rc=%s\n' "$rc" | tee "$status"
+            exit "$rc"
+          elif grep -F "status=skipped reason=compiler-not-found" "$out" "$err" >/dev/null 2>&1; then
+            printf 'status=skipped reason=compiler-not-found require_compilers=%s\n' \
+              "$QSTAR_REQUIRE_REAL_COMPILERS" | tee "$status"
+            case "$QSTAR_REQUIRE_REAL_COMPILERS" in
+              true|1) exit 1 ;;
+            esac
+          else
+            grep -F "real_glp_compiler_corpus status=ok" "$out"
+            printf 'status=ok\n' | tee "$status"
+          fi
+
+      - name: Upload real GLP compiler artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qstar-real-glp-${{ matrix.host }}
+          path: |
+            dist/real-glp/${{ matrix.host }}/environment.txt
+            dist/real-glp/${{ matrix.host }}/rust-install.status
+            dist/real-glp/${{ matrix.host }}/rustc-version.txt
+            dist/real-glp/${{ matrix.host }}/zig-install.status
+            dist/real-glp/${{ matrix.host }}/zig-version.txt
+            dist/real-glp/${{ matrix.host }}/make-all.log
+            dist/real-glp/${{ matrix.host }}/real-glp-compiler-corpus.out
+            dist/real-glp/${{ matrix.host }}/real-glp-compiler-corpus.err
+            dist/real-glp/${{ matrix.host }}/real-glp-compiler-corpus.status
+          if-no-files-found: ignore

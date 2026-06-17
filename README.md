@@ -92,6 +92,13 @@ make qstar-real-glp-compiler-corpus-tests
 make qstar-real-language-init-scaffold-tests
 ```
 
+The hosted Linux/macOS version of the real compiler corpus is an optional manual
+GitHub Actions lane:
+
+```sh
+gh workflow run "Real GLP Compiler Validation"
+```
+
 Maintainers can verify the uploaded GitHub release asset, not just the local
 source-tree tarball, with:
 

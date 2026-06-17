@@ -9,6 +9,15 @@ Run it with:
 make qstar-real-glp-compiler-corpus-tests
 ```
 
+Hosted maintainers can also run the optional Linux/macOS GitHub Actions lane:
+
+```sh
+gh workflow run "Real GLP Compiler Validation"
+```
+
+That lane installs/caches Rust and Zig, uploads environment and corpus logs as
+artifacts, and is documented in `docs/real-glp-compiler-ci.md`.
+
 The script skips a language when its compiler is not available on `PATH`.
 Currently it checks:
 

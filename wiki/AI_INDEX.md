@@ -101,6 +101,12 @@ QStar가 하지 않는 일:
   project-local `ZIG_GLOBAL_CACHE_DIR`/`ZIG_LOCAL_CACHE_DIR` env redaction,
   macOS `lang.zig.macos_min_version` target ergonomics를 검증한다.
   compiler가 없으면 해당 language는 실패가 아니라 명시적 skip으로 기록된다.
+- `.github/workflows/real-glp-compiler-validation.yml`은 이 real GLP compiler corpus를
+  hosted Linux/macOS `workflow_dispatch` lane으로 실행한다. 기본
+  `require_compilers=true` 정책에서는 Rust/Zig 설치 실패나 compiler missing skip을
+  실패로 처리하고, `qstar-real-glp-linux-x86_64`, `qstar-real-glp-macos` artifact에
+  install status, environment, corpus stdout/stderr/status를 남긴다. 세부 정책은
+  `docs/real-glp-compiler-ci.md`에 있다.
 - `make qstar-real-language-init-scaffold-tests`는 optional gate다. 실제 `rustc`와 `zig`가
   PATH에 있으면 `qstar init --use-language=rust|zig`로 생성한 `app`, `lib`, `tool`,
   `workspace` scaffold를 Stella/Ninja 양쪽에서 build하고, executable 산출물은 직접 실행한다.

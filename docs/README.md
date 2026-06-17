@@ -63,6 +63,9 @@ Important documents:
   model, provider vendoring, and provider-defined scaffold metadata.
 - `../tests/corpus/real-glp/README.md`: optional real Rust/Zig compiler corpus
   for GLP provider validation beyond fake compiler shims.
+- `real-glp-compiler-ci.md`: hosted Linux/macOS `workflow_dispatch` lane for
+  the optional real Rust/Zig compiler corpus, including toolchain cache,
+  artifact, and skip policy.
 - `../tests/real-language-init-scaffold.sh`: optional real Rust/Zig compiler gate
   that validates `qstar init --use-language=rust|zig` app/lib/tool/workspace
   scaffolds with Stella and Ninja.
