@@ -387,10 +387,11 @@ check_init_rust_backend_contract() {
 	PATH="$fake_rust_bin:$PATH" "$qstar" --file "$project/qstar.lua" explain "$explain_target" > "$tmp/$prefix-explain.out" 2> "$tmp/$prefix-explain.err"
 	contains "$tmp/$prefix-explain.out" "language=rust"
 	contains "$tmp/$prefix-explain.out" "provider=rust"
+	contains "$tmp/$prefix-explain.out" "--crate-type, lib"
 	contains "$tmp/$prefix-explain.out" "--emit=obj"
 	PATH="$fake_rust_bin:$PATH" "$qstar" --file "$project/qstar.lua" dry-run "$build_target" > "$tmp/$prefix-dry-run.out" 2> "$tmp/$prefix-dry-run.err"
 	contains "$tmp/$prefix-dry-run.out" "dry_run_step id=$action_id"
-	contains "$tmp/$prefix-dry-run.out" "argv=[rustc, --edition, 2021, --emit=obj"
+	contains "$tmp/$prefix-dry-run.out" "argv=[rustc, --edition, 2021, --crate-type, lib, --emit=obj"
 	PATH="$fake_rust_bin:$PATH" "$qstar" --file "$project/qstar.lua" build "$build_target" > "$tmp/$prefix-build.out" 2> "$tmp/$prefix-build.err"
 	contains "$tmp/$prefix-build.out" "status ok"
 	PATH="$fake_rust_bin:$PATH" "$qstar" --file "$project/qstar.lua" action-log "$action_id" > "$tmp/$prefix-action-log.out" 2> "$tmp/$prefix-action-log.err"
@@ -3059,6 +3060,7 @@ qstar.config "rust_release" {
   lang = {
     rust = rust.options {
       edition = "2021",
+      crate_type = "lib",
       cfg = {
         "feature_demo",
       },
@@ -3092,6 +3094,7 @@ contains "$tmp/standard-rust-graph.out" "tools.rust.compiler [tools/rustc]"
 "$qstar" --file "$tmp/standard-rust/qstar.lua" explain //:core > "$tmp/standard-rust-explain.out" 2> "$tmp/standard-rust-explain.err"
 contains "$tmp/standard-rust-explain.out" "source_file path=src/main.rs language=rust tool=provider-compiler provider=rust provider_role=compiler toolset_role=rust.compiler output_group=objects role=compile"
 contains "$tmp/standard-rust-explain.out" "--edition, 2021"
+contains "$tmp/standard-rust-explain.out" "--crate-type, lib"
 contains "$tmp/standard-rust-explain.out" "--emit=obj"
 contains "$tmp/standard-rust-explain.out" "--cfg, feature_demo"
 contains "$tmp/standard-rust-explain.out" "--extern, dep=vendor/libdep.rlib"
@@ -3099,7 +3102,7 @@ contains "$tmp/standard-rust-explain.out" "-C, panic=abort"
 contains "$tmp/standard-rust-explain.out" "-o, build/qstar/out/___core/obj0.o"
 "$qstar" --file "$tmp/standard-rust/qstar.lua" dry-run //:core > "$tmp/standard-rust-dry-run.out" 2> "$tmp/standard-rust-dry-run.err"
 contains "$tmp/standard-rust-dry-run.out" "dry_run_step id=//:core:compile:0 owner=//:core kind=compile language=rust tool=provider-compiler"
-contains "$tmp/standard-rust-dry-run.out" "argv=[tools/rustc, --edition, 2021, --emit=obj, src/main.rs"
+contains "$tmp/standard-rust-dry-run.out" "argv=[tools/rustc, --edition, 2021, --crate-type, lib, --emit=obj, src/main.rs"
 contains "$tmp/standard-rust-dry-run.out" "--cfg, feature_demo"
 contains "$tmp/standard-rust-dry-run.out" "--extern, dep=vendor/libdep.rlib"
 "$qstar" --file "$tmp/standard-rust/qstar.lua" build //:core > "$tmp/standard-rust-build.out" 2> "$tmp/standard-rust-build.err"
@@ -3109,6 +3112,7 @@ if ! find "$tmp/standard-rust/build" -name obj0.o -type f | grep -q .; then
 fi
 "$qstar" --file "$tmp/standard-rust/qstar.lua" action-log //:core:compile:0 > "$tmp/standard-rust-action-log.out" 2> "$tmp/standard-rust-action-log.err"
 contains "$tmp/standard-rust-action-log.out" "tools/rustc"
+contains "$tmp/standard-rust-action-log.out" "--crate-type"
 contains "$tmp/standard-rust-action-log.out" "--emit=obj"
 "$qstar" --file "$tmp/standard-rust/qstar.lua" replay //:core:compile:0 > "$tmp/standard-rust-replay.out" 2> "$tmp/standard-rust-replay.err"
 contains "$tmp/standard-rust-replay.out" "tools/rustc"

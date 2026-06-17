@@ -31,6 +31,9 @@ local zig = qstar.use_language("zig")
 `qstar.use_language` activates a provider namespace before `lang.<namespace>`
 is accepted. Built-in `lang.c`, `lang.cxx`, and `lang.asm` are preloaded.
 QStar ships standard `zig`, `rust`, and `cuda` providers.
+The Rust provider's real `rustc` path is documented in `docs/rust-provider.md`;
+it exposes `crate_type` for `rustc --crate-type` and currently treats full Rust
+executable final linking as a future provider final-action extension.
 
 Provider packages use a manifest plus implementation split:
 

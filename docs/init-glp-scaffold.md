@@ -687,6 +687,11 @@ return qstar.language_provider {
       values = {"2021", "2024"},
       default = "2021",
     },
+    crate_type = {
+      type = "enum",
+      values = {"lib", "rlib", "staticlib", "cdylib", "dylib", "bin", "proc-macro"},
+      default = "lib",
+    },
     compile_options = {
       type = "list",
       default = {},
@@ -703,6 +708,11 @@ return qstar.language_provider {
     api = "qstar.scaffold/1",
     tools = {
       compiler = {"rustc"},
+    },
+    options = {
+      edition = "2021",
+      crate_type = "lib",
+      compile_options = {},
     },
     shapes = {
       app = {

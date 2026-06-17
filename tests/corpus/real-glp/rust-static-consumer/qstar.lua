@@ -26,7 +26,7 @@ qstar.config "native" {
     },
     rust = rust.options {
       edition = "2021",
-      compile_options = {"--crate-type=lib"},
+      crate_type = "lib",
     },
   },
 }
@@ -59,4 +59,3 @@ qstar.run_target "smoke" {
     contains = "rust-value=77",
   },
 }
-

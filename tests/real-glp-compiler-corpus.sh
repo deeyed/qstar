@@ -171,7 +171,7 @@ MINGW*|MSYS*|CYGWIN*)
 esac
 
 run_language rust rustc //:rust_core:compile:0 rust-value=77 rustc \
-	"--crate-type=lib" \
+	"--crate-type" \
 	build/qstar/out/___rust_core/obj0.o \
 	build/qstar/out/___rust_core/librust_core.a \
 	build/qstar/out/___consumer/consumer

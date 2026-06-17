@@ -218,6 +218,47 @@ source diagnostic을 낸다. Raw string이 built-in C/C++/ASM suffix와 provider
 match되어도 같은 이유로 거절된다. 이 경우에는 diagnostic이 제안하는 explicit provider helper를
 써서 의도를 고정한다.
 
+## Rust Provider Notes
+
+표준 Rust provider는 real `rustc --emit=obj` 경로를 지원한다. `crate_type` option은
+`rustc --crate-type`으로 내려가며 기본값은 `lib`이다.
+
+```lua
+local rust = qstar.use_language("rust")
+
+qstar.toolset "host" {
+  tools = {
+    c = { compiler = qstar.cli {"cc"} },
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+    rust = rust.tools {
+      compiler = qstar.cli {"rustc"},
+    },
+  },
+}
+
+qstar.config "native" {
+  toolset = "//:host",
+  lang = {
+    rust = rust.options {
+      edition = "2021",
+      crate_type = "lib",
+    },
+  },
+}
+
+qstar.staticlib "rust_core" {
+  configs = {"//:native"},
+  sources = {"src/rust_core.rs"},
+}
+```
+
+이 경로는 Rust source를 C ABI object/staticlib로 노출해 다른 QStar target이 소비하는 용도에
+맞춰져 있다. 완전한 Rust executable은 아직 provider final-action contract가 없으므로
+`qstar.executable`의 C-style link action으로 정식 지원하지 않는다. 필요하면 `qstar.custom_target`
+으로 `rustc`/`cargo`를 직접 호출하거나, 후속 GLP final-action 설계에서 provider가 executable
+link action까지 선언하도록 확장해야 한다. 자세한 예제와 한계는 `docs/rust-provider.md`에 둔다.
+
 기존 object artifact bridge도 계속 유효하다. 외부 compiler 호출을 더 세밀하게 제어해야 하면
 `qstar.custom_target`으로 작성하고, 결과 object를 `qstar.output(path, {format = "object"})`로
 표시한 뒤 consuming target의 `sources`에 넣는다.

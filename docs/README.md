@@ -52,6 +52,8 @@ Important documents:
 - `rule-model.md`: target rule and link model notes.
 - `ninja-backend-parity.md`: Ninja lowering parity contract.
 - `language-provider-backend-contract.md`: external object artifact bridge boundary.
+- `rust-provider.md`: standard Rust provider options, real rustc staticlib
+  consumer path, and current executable limitation.
 - `init-glp-scaffold.md`: Korean reference for the generic `qstar init` shape
   model, provider vendoring, and provider-defined scaffold metadata.
 - `../tests/corpus/real-glp/README.md`: optional real Rust/Zig compiler corpus
