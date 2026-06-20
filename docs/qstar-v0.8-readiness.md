@@ -42,7 +42,7 @@ Windows를 official support라고 부르지 않으면서도 "validation-backed b
 | --- | --- | --- |
 | macOS arm64 | Public beta asset | 유지, release smoke/codesign fresh run만 patch line에서 보강 |
 | Linux x86_64 | Public beta asset published from hosted Ubuntu lane | 0.8에서도 release-backed beta host로 유지 |
-| Windows | Validation-backed beta candidate, no asset | official support 전 반복 검증 대상 |
+| Windows | Validation-backed beta candidate, zip asset skeleton, no published asset | official support 전 반복 검증 대상 |
 | Stella executor | Q233 medium/large refresh에서 Ninja급 또는 Ninja보다 빠른 timing report | 계속 성능 gate freshness 유지 |
 | Ninja backend | C/C++/ASM/custom/configure/run/group/sharedlib parity candidate | Windows artifact parity로 확장 |
 | Sharedlib | macOS `.dylib`, Linux `.so`, Windows `.dll`/import `.lib` sealed | PDB/debug ownership은 deferred |
@@ -83,7 +83,7 @@ Windows는 아직 official support가 아니다.
 | --- | --- |
 | Workflow | `.github/workflows/windows-validation.yml`, manual `workflow_dispatch` |
 | Baseline lane | MSYS2 UCRT64 gcc |
-| Public asset | none |
+| Public asset | planned `qstar-v<version>-windows-x86_64.zip`; dry-run package plan only |
 | Native source build | beta candidate lane에서 `make all CC=gcc` 검증 |
 | Current known native blocker | no known blocker in the sealed candidate contract; future failures must be recorded as structured artifacts |
 | Daemon transport | Windows named pipe deferred |
@@ -93,8 +93,9 @@ Windows는 아직 official support가 아니다.
 | Status artifact | `qstar-windows-beta-candidate`, `windows-beta-candidate-status.txt`, `KNOWN_ISSUES.md`, failure detail dirs |
 
 0.8의 첫 번째 목표였던 "manual alpha"에서 "validation-backed beta candidate"로의 이동은
-Q225에서 문서/게이트/Actions artifact 기준으로 닫힌다. 이 말은 곧바로 Windows asset을
-공개한다는 뜻이 아니다. 현재 beta candidate가 보장하는 것은 다음이다.
+Q225에서 문서/게이트/Actions artifact 기준으로 닫힌다. Q246은 여기서 한 단계 더 나아가
+Windows public beta asset을 만들기 위한 package skeleton을 둔다. 이 말은 곧바로 Windows
+asset을 공개한다는 뜻이 아니다. 현재 beta candidate가 보장하는 것은 다음이다.
 
 - Q220의 Stella CreateProcess runner가 hosted Windows lane에서 검증된다.
 - Q221의 Ninja launcher parity가 같은 platform process layer 위에서 검증된다.
@@ -110,6 +111,9 @@ Q225에서 문서/게이트/Actions artifact 기준으로 닫힌다. 이 말은 
   함께 검증한다.
 - Windows sharedlib `.dll`/import `.lib` backend lowering은 Stella/Ninja 양쪽의
   action-log, consumer import-library link, stage/install layout으로 검증한다.
+- Windows package prep은 `qstar-v<version>-windows-x86_64.zip` asset name,
+  `bin/qstar.exe`, installed docs/wiki/manpages, and bundled language providers
+  layout을 `QSTAR_RELEASE_DRY_RUN=1` plan으로 검증한다.
 
 ## Daemon Beta Status
 
@@ -144,6 +148,7 @@ v1.0 blocker를 0.8 기준으로 다시 정렬한다.
 - macOS arm64 public asset, install smoke, codesign smoke 유지
 - Linux x86_64 public asset, hosted download smoke, gcc/clang validation 유지
 - Windows source build, install smoke, release asset, artifact policy 반복 검증
+- Windows package dry-run plan과 future `.zip` asset upload/download smoke
 - CI/release matrix가 macOS, Linux, Windows를 모두 커버
 
 ### P0: Windows Artifact Implementation
@@ -192,6 +197,8 @@ v1.0 blocker를 0.8 기준으로 다시 정렬한다.
 
 - Windows process/event runner boundary
 - Windows native beta candidate failure artifact contract
+- Windows public beta package skeleton: `windows-x86_64` platform, zip naming,
+  `.exe` runtime layout, docs/man/wiki/provider inclusion policy
 - Windows `.exe`/static `.lib` real-host validation
 - Windows sharedlib `.dll` + import `.lib` Graph IR/action model
 - Stella/Ninja Windows sharedlib parity tests
@@ -203,7 +210,7 @@ v1.0 blocker를 0.8 기준으로 다시 정렬한다.
 0.8에 넣지 않을 것:
 
 - daemon default-on
-- Windows public asset without native build/install/package gate
+- Windows public asset without native build/install/package gate and download smoke
 - package resolver, registry, lockfile, fetch policy
 - mandatory `qstar.toml`, `project-specific TOML`, `.foreign/toolsets/*.toml`
 - domain-specific builtin target
@@ -238,6 +245,7 @@ v1.0 blocker를 0.8 기준으로 다시 정렬한다.
 | Q218-Q222 | Windows beta candidate process, execution, Ninja, install/stage freshness | MSYS2 lane has source build, Stella/Ninja execution, install/stage evidence, and structured failure artifacts |
 | Q223-Q224 | Windows `.dll`/import `.lib` implementation | Graph IR selector, Stella/Ninja multi-output lowering, consumer import-library link, stage/install layout green |
 | Q225 | 0.8 beta readiness seal | docs/wiki/man/README/platform table, Actions artifact, named sharedlib parity gate, release gate summary aligned |
+| Q246 | Windows package skeleton | `windows-x86_64` zip plan, `.exe`/docs/man/wiki/provider layout, dry-run workflow artifact aligned |
 
 ## 0.8 Release Draft Gate
 
@@ -275,11 +283,15 @@ make qstar-windows-native-alpha-tests CC=gcc
 make qstar-windows-execution-corpus-tests CC=gcc
 make qstar-windows-prep-tests CC=gcc
 make qstar-windows-sharedlib-artifact-parity-tests CC=gcc
+make qstar-windows-release-package-tests CC=gcc
 ```
 
 The Windows workflow uploads `qstar-windows-beta-candidate`, including
 `windows-beta-candidate-status.txt`, `KNOWN_ISSUES.md`, and the failure detail
-directories needed to debug the first failed step.
+directories needed to debug the first failed step. Q246 also puts
+`release-package/qstar-v<version>-windows-x86_64.package-plan.txt` and
+`release-package/qstar-v<version>-windows-x86_64.expected-contents.txt` in that
+artifact when the package dry-run succeeds.
 
 ## Release Line Decision
 

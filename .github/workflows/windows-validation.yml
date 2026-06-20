@@ -42,6 +42,8 @@ jobs:
           install: >-
             make
             git
+            zip
+            unzip
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-ninja
 
@@ -63,6 +65,10 @@ jobs:
             gcc --version | head -n 1
             printf 'qstar-windows-beta: ninja='
             ninja --version
+            printf 'qstar-windows-beta: zip='
+            zip --version | head -n 1
+            printf 'qstar-windows-beta: unzip='
+            unzip -v | head -n 1
           } | tee "$QSTAR_WINDOWS_BETA_DIR/environment.txt"
           printf 'status=ok step=environment baseline=%s\n' \
             "$QSTAR_WINDOWS_BETA_BASELINE" > "$QSTAR_WINDOWS_BETA_STATUS_DIR/environment.status"
@@ -217,6 +223,45 @@ jobs:
           fi
           exit "$rc"
 
+      - name: Windows release package dry-run
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          package_dir="$QSTAR_WINDOWS_BETA_DIR/release-package"
+          rm -rf "$package_dir"
+          set +e
+          QSTAR_RELEASE_PLATFORM=windows-x86_64 \
+          QSTAR_RELEASE_DRY_RUN=1 \
+          QSTAR_RELEASE_DIST="$package_dir" \
+            tools/package-public-beta.sh 2>&1 | tee "$QSTAR_WINDOWS_BETA_DIR/windows-package.log"
+          rc=$?
+          set -e
+          if test "$rc" -eq 0; then
+            set +e
+            plan=$(find "$package_dir" -name 'qstar-v*-windows-x86_64.package-plan.txt' -print -quit)
+            expected=$(find "$package_dir" -name 'qstar-v*-windows-x86_64.expected-contents.txt' -print -quit)
+            test -n "$plan"
+            test -n "$expected"
+            grep -F 'asset=qstar-v' "$plan"
+            grep -F 'archive_format=zip' "$plan"
+            grep -F 'binary=bin/qstar.exe' "$plan"
+            grep -F 'bin/qstar.exe' "$expected"
+            verify_rc=$?
+            set -e
+            if test "$verify_rc" -eq 0; then
+              printf 'status=ok step=windows-package mode=dry-run plan=%s expected=%s\n' \
+                "$plan" "$expected" > "$QSTAR_WINDOWS_BETA_STATUS_DIR/windows-package.status"
+            else
+              printf 'status=fail step=windows-package mode=dry-run rc=%s log=windows-package.log detail=release-package\n' "$verify_rc" \
+                > "$QSTAR_WINDOWS_BETA_STATUS_DIR/windows-package.status"
+              rc=$verify_rc
+            fi
+          else
+            printf 'status=fail step=windows-package mode=dry-run rc=%s log=windows-package.log detail=release-package\n' "$rc" \
+              > "$QSTAR_WINDOWS_BETA_STATUS_DIR/windows-package.status"
+          fi
+          exit "$rc"
+
       - name: Write beta candidate summary
         if: always()
         shell: msys2 {0}
@@ -228,7 +273,7 @@ jobs:
           known="$QSTAR_WINDOWS_BETA_DIR/KNOWN_ISSUES.md"
           {
             printf 'baseline=%s\n' "$QSTAR_WINDOWS_BETA_BASELINE"
-            for step in environment make-all version native-alpha windows-execution windows-prep windows-sharedlib ninja-backend-parity install; do
+            for step in environment make-all version native-alpha windows-execution windows-prep windows-sharedlib ninja-backend-parity install windows-package; do
               file="$QSTAR_WINDOWS_BETA_STATUS_DIR/$step.status"
               if test -f "$file"; then
                 cat "$file"
@@ -247,6 +292,7 @@ jobs:
             printf '%s\n' "- windows execution detail dir: \`windows-execution-detail/\` when that script fails"
             printf '%s\n' "- windows prep detail dir: \`windows-prep-detail/\` when that script fails"
             printf '%s\n' "- windows sharedlib detail dir: \`windows-sharedlib-detail/\` when that script fails"
+            printf '%s\n' "- windows package plan dir: \`release-package/\` after the package dry-run"
             if grep -q 'status=fail' "$status_line"; then
               printf '\n## Observed Failures\n\n'
               grep 'status=fail' "$status_line" | while IFS= read -r line; do
@@ -259,7 +305,7 @@ jobs:
             printf '\n## Deferred By Design\n\n'
             printf '%s\n' "- daemon named pipe transport"
             printf '%s\n' "- Visual Studio, nmake, and direct MSVC bootstrap"
-            printf '%s\n' "- Windows public release asset"
+            printf '%s\n' "- Windows public release asset publication"
             printf '%s\n' "- PDB/debug artifact ownership"
             printf '%s\n' "- MSVC/clang-cl execution corpus"
           } > "$known"
@@ -273,6 +319,7 @@ jobs:
             printf '%s\n' '- status file: `windows-beta-candidate-status.txt`'
             printf '%s\n' '- known issues file: `KNOWN_ISSUES.md`'
             printf '%s\n' '- failure detail dirs: `native-alpha-detail/`, `windows-execution-detail/`, `windows-prep-detail/`, `windows-sharedlib-detail/` when present'
+            printf '%s\n' '- package prep dir: `release-package/` contains the Windows zip layout dry-run plan'
             printf '%s\n' '- support level: validation-backed beta candidate, not official Windows support'
           } > "$QSTAR_WINDOWS_BETA_DIR/SUMMARY.md"
 

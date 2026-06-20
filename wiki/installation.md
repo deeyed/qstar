@@ -6,10 +6,11 @@ release workflow 또는 clean Linux x86_64 host에서 source build 검증,
 `linux-x86_64` tarball packaging, extracted tarball smoke, Stella/Ninja medium
 performance artifact collection을 통과한 산출물만 사용한다.
 Windows host 지원은 validation-backed beta candidate 단계다. Windows는 아직 공식
-지원이 아니고 public asset도 없지만, path/process/response-file 준비 규칙,
-CreateProcess execution, install/stage layout, sharedlib runtime/import artifact를
-MSYS2 UCRT64 기반 manual Windows workflow에서 검증한다. 모든 platform에서 소스에서
-직접 빌드할 수 있도록 검증 경로를 늘려간다.
+지원이 아니고 published public asset도 없지만, Q246부터
+`qstar-v<version>-windows-x86_64.zip` package skeleton과 dry-run layout plan을 갖는다.
+path/process/response-file 준비 규칙, CreateProcess execution, install/stage layout,
+sharedlib runtime/import artifact, package layout plan을 MSYS2 UCRT64 기반 manual Windows
+workflow에서 검증한다. 모든 platform에서 소스에서 직접 빌드할 수 있도록 검증 경로를 늘려간다.
 
 ## 최소 예제
 
@@ -145,8 +146,8 @@ line protocol이 존재하는지 확인한다.
 
 ## Windows 준비 경로
 
-Windows release asset은 아직 없다. 현재 QStar는 official support 전에 다음 규칙과
-artifact behavior를 beta candidate contract로 고정한다.
+Windows release asset은 아직 published 상태가 아니다. 현재 QStar는 official support 전에
+다음 규칙과 artifact behavior를 beta candidate contract로 고정한다.
 
 - QStar DSL path는 Windows에서도 `/` 기반 package-relative path다.
 - `src\\main.c`, `C:\\SDK\\include` 같은 path는 source/include/output/stage field에
@@ -163,12 +164,14 @@ artifact behavior를 beta candidate contract로 고정한다.
 - Windows sharedlib는 runtime `.dll`과 import `.lib`를 모델링하고 Stella/Ninja 양쪽에서
   lowering한다. `qstar.target_file("//:plugin")`은 runtime `.dll`,
   `qstar.target_file("//:plugin", { artifact = "import_lib" })`은 import `.lib`를 가리킨다.
-- PDB/debug와 Windows public release packaging은 아직 official contract가 아니다.
-  상세 정책은 `docs/windows-artifact-policy.md`에 둔다.
+- PDB/debug는 아직 official contract가 아니다. Windows public release packaging은
+  `windows-x86_64` zip skeleton과 dry-run plan까지만 contract이며, actual upload/download
+  smoke는 future gate다. 상세 정책은 `docs/windows-artifact-policy.md`에 둔다.
 
 ```sh
 make qstar-windows-prep-tests
 make qstar-windows-sharedlib-artifact-parity-tests
+make qstar-windows-release-package-tests
 ./build/bin/qstar --file tests/corpus/response-files/qstar.lua build //:all
 ```
 
@@ -177,9 +180,10 @@ MSYS2 UCRT64 환경에서 `make all CC=gcc`, `qstar --version`,
 `make qstar-windows-native-alpha-tests CC=gcc`,
 `make qstar-windows-execution-corpus-tests CC=gcc`,
 `make qstar-windows-prep-tests CC=gcc`,
-`make qstar-windows-sharedlib-artifact-parity-tests CC=gcc`, install docs/man smoke를 실행하고
-`qstar-windows-beta-candidate` artifact로 실패 로그와 detail bundle을 올린다. 그래도 regular
-CI나 public release asset gate가 되기 전까지 Windows official support로 표기하지 않는다.
+`make qstar-windows-sharedlib-artifact-parity-tests CC=gcc`, install docs/man smoke,
+Windows package dry-run을 실행하고 `qstar-windows-beta-candidate` artifact로 실패 로그와
+detail bundle, `release-package/` plan을 올린다. 그래도 regular CI나 public release asset
+upload/download-smoke gate가 되기 전까지 Windows official support로 표기하지 않는다.
 
 ## 관련 diagnostic
 

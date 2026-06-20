@@ -100,7 +100,7 @@ contains "$tmp/wiki-workflows.out" "qstar.step.export_stage"
 contains "$tmp/wiki-workflows.out" "install-local"
 not_contains "$tmp/wiki-workflows.out" "qstar install //"
 
-forbid_tree 'qstar\.profile|--profile|--toolchain|--stdlib|QSTAR_PROFILE|QSTAR_TARGET|qstar\.exe\b|qstar\.genrule\b|qstar\.config_header\b|qstar \[options\] install|usage: qstar install|qstar install //|install //:|qstar-install-manifest-v2|Compatibility command for conventional|clean --target|clean \[--target|Fl -target|hidden profile|toolchain/profile' \
+forbid_tree 'qstar\.profile|--profile|--toolchain|--stdlib|QSTAR_PROFILE|QSTAR_TARGET|qstar\.exe[[:space:]]*["({]|qstar\.genrule\b|qstar\.config_header\b|qstar \[options\] install|usage: qstar install|qstar install //|install //:|qstar-install-manifest-v2|Compatibility command for conventional|clean --target|clean \[--target|Fl -target|hidden profile|toolchain/profile' \
 	README.md README.ko.md docs wiki man \
 	editors/vscode/qstar/snippets editors/vscode/qstar/syntaxes \
 	tools/sync-github-wiki.sh

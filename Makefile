@@ -64,7 +64,7 @@ LUA_SRCS = \
 
 QSTAR_OBJS = $(QSTAR_SRCS:%.c=$(QSTAR_BUILD)/%.o)
 LUA_OBJS = $(LUA_SRCS:%.c=$(QSTAR_BUILD)/%.o)
-.PHONY: all check qstar-tests qstar-fmt-tests qstar-lint-tests qstar-lsp-tests qstar-lsp-navigation-tests qstar-editor-query-tests qstar-ninja-backend-parity-tests qstar-generic-dsl-backend-parity-tests qstar-real-glp-compiler-corpus-tests qstar-real-language-init-scaffold-tests qstar-medium-project-readiness-tests qstar-large-project-performance-tests qstar-perf-summary-tests qstar-performance-release-gate qstar-self-host-tests qstar-linux-validation-tests qstar-linux-daemon-validation-tests qstar-windows-prep-tests qstar-windows-native-alpha-tests qstar-windows-execution-corpus-tests qstar-windows-sharedlib-artifact-parity-tests qstar-public-beta-package qstar-public-beta-linux-package qstar-public-beta-github-upload qstar-public-beta-release-tests qstar-public-beta-download-smoke vscode-extension-tests qstar-v0-release-tests qstar-v0.1-release-tests qstar-v0.1-hardening-tests qstar-v0.2-authoring-tests qstar-v0.2-rc-tests qstar-v0.3-rc-tests qstar-v0.4-pilot-tests qstar-v0.5-readiness-tests qstar-pilot-readiness-tests qstar-wiki-cli-sync-tests qstar-release-candidate-tests qstar-full-regression-tests qstar-systems-corpus-tests qstar-project-corpus-tests qstar-standalone-integration-tests qstar-executor-v2-tests install clean
+.PHONY: all check qstar-tests qstar-fmt-tests qstar-lint-tests qstar-lsp-tests qstar-lsp-navigation-tests qstar-editor-query-tests qstar-ninja-backend-parity-tests qstar-generic-dsl-backend-parity-tests qstar-real-glp-compiler-corpus-tests qstar-real-language-init-scaffold-tests qstar-medium-project-readiness-tests qstar-large-project-performance-tests qstar-perf-summary-tests qstar-performance-release-gate qstar-self-host-tests qstar-linux-validation-tests qstar-linux-daemon-validation-tests qstar-windows-prep-tests qstar-windows-native-alpha-tests qstar-windows-execution-corpus-tests qstar-windows-sharedlib-artifact-parity-tests qstar-windows-release-package-tests qstar-public-beta-package qstar-public-beta-linux-package qstar-public-beta-github-upload qstar-public-beta-release-tests qstar-public-beta-download-smoke vscode-extension-tests qstar-v0-release-tests qstar-v0.1-release-tests qstar-v0.1-hardening-tests qstar-v0.2-authoring-tests qstar-v0.2-rc-tests qstar-v0.3-rc-tests qstar-v0.4-pilot-tests qstar-v0.5-readiness-tests qstar-pilot-readiness-tests qstar-wiki-cli-sync-tests qstar-release-candidate-tests qstar-full-regression-tests qstar-systems-corpus-tests qstar-project-corpus-tests qstar-standalone-integration-tests qstar-executor-v2-tests install clean
 
 all: $(BIN_DIR)/qstar
 
@@ -91,7 +91,8 @@ check: all
 	QSTAR_TEST_QSTAR="$$bin" QSTAR_LINUX_VALIDATION_CC="$${QSTAR_LINUX_VALIDATION_CC:-$(CC)}" sh tests/linux-validation.sh; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/windows-prep.sh; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/windows-native-alpha.sh; \
-	QSTAR_TEST_QSTAR="$$bin" QSTAR_WINDOWS_EXECUTION_CC="$(CC)" sh tests/windows-execution-corpus.sh
+	QSTAR_TEST_QSTAR="$$bin" QSTAR_WINDOWS_EXECUTION_CC="$(CC)" sh tests/windows-execution-corpus.sh; \
+	sh tests/windows-release-package.sh
 
 qstar-tests: check
 
@@ -223,6 +224,9 @@ qstar-windows-sharedlib-artifact-parity-tests: all
 	case "$$bin" in /*) ;; *) bin="$(CURDIR)/$$bin";; esac; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/windows-sharedlib-artifact-parity.sh
 
+qstar-windows-release-package-tests: all
+	sh tests/windows-release-package.sh
+
 qstar-public-beta-package: all
 	$(SHELL) tools/package-public-beta.sh
 
@@ -277,7 +281,17 @@ qstar-executor-v2-tests: check
 
 install: all
 	mkdir -p "$(PREFIX)/bin"
-	cp "$(BIN_DIR)/qstar" "$(PREFIX)/bin/qstar"
+	if [ -f "$(BIN_DIR)/qstar" ]; then \
+		cp "$(BIN_DIR)/qstar" "$(PREFIX)/bin/qstar"; \
+	elif [ -f "$(BIN_DIR)/qstar.exe" ]; then \
+		cp "$(BIN_DIR)/qstar.exe" "$(PREFIX)/bin/qstar"; \
+	else \
+		printf '%s\n' "missing built qstar binary under $(BIN_DIR)" >&2; \
+		exit 1; \
+	fi
+	if [ -f "$(BIN_DIR)/qstar.exe" ]; then \
+		cp "$(BIN_DIR)/qstar.exe" "$(PREFIX)/bin/qstar.exe"; \
+	fi
 	if command -v codesign >/dev/null 2>&1 && [ "$$(uname -s)" = Darwin ]; then \
 		codesign --force --sign - "$(PREFIX)/bin/qstar"; \
 	fi
@@ -295,4 +309,4 @@ install: all
 	cp man/man5/qstar-lua.5 "$(MAN_DIR)/man5/qstar-lua.5"
 
 clean:
-	rm -rf $(QSTAR_BUILD) $(BIN_DIR)/qstar
+	rm -rf $(QSTAR_BUILD) $(BIN_DIR)/qstar $(BIN_DIR)/qstar.exe

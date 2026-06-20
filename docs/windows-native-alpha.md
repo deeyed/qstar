@@ -3,7 +3,10 @@
 Round Q159 moved Windows from a documentation-only preparation path to a manual
 native CI alpha. Q225 keeps the historical file name but upgrades the current
 lane to a validation-backed beta candidate. This is still not official Windows
-host support and does not produce a public Windows release asset.
+host support and does not publish a public Windows release asset. Q246 adds the
+first public beta asset preparation skeleton: the Windows workflow now records a
+dry-run package plan for a future `qstar-v<version>-windows-x86_64.zip` runtime
+archive.
 
 ## Support Level
 
@@ -16,7 +19,7 @@ bootstrap shell: MSYS2 UCRT64
 baseline lane: msys2-ucrt64-gcc
 primary compiler: mingw-w64-ucrt-x86_64-gcc
 status artifact: qstar-windows-beta-candidate
-release asset: none
+release asset: planned qstar-v<version>-windows-x86_64.zip, not published
 official support: no
 ```
 
@@ -34,6 +37,14 @@ Round Q225 renames the uploaded workflow artifact to
 beside the legacy `windows-alpha-status.txt` compatibility file. The artifact
 also includes `windows-sharedlib-detail/` when the named shared-library artifact
 parity gate fails.
+
+Round Q246 keeps Windows in beta-candidate territory but adds release-package
+prep. The public beta package script now recognizes `windows-x86_64`, assigns
+that platform the zip asset name `qstar-v<version>-windows-x86_64.zip`, and
+defines a prefix-style runtime layout with `bin/qstar.exe`, installed docs,
+manpages, wiki, and bundled language providers. The hosted Windows workflow runs
+that path in `QSTAR_RELEASE_DRY_RUN=1` mode and uploads the generated
+`release-package/` plan files with the beta candidate artifact.
 
 Round Q178 adds a native execution corpus to that same alpha lane. The new
 `tests/corpus/windows-execution` project is intentionally separate from the
@@ -154,6 +165,9 @@ make qstar-windows-execution-corpus-tests CC=gcc
 make qstar-windows-prep-tests CC=gcc
 make qstar-windows-sharedlib-artifact-parity-tests CC=gcc
 make install CC=gcc PREFIX=/tmp/qstar-windows-smoke
+QSTAR_RELEASE_PLATFORM=windows-x86_64 QSTAR_RELEASE_DRY_RUN=1 \
+  QSTAR_RELEASE_DIST=dist/windows-beta-candidate/release-package \
+  tools/package-public-beta.sh
 ```
 
 Round Q164 isolates the Unix socket Stella daemon implementation from Windows
@@ -229,6 +243,9 @@ windows-sharedlib-detail/failure.status
 windows-sharedlib-detail/tmp/*.out
 windows-sharedlib-detail/tmp/*.err
 windows-sharedlib-detail/windows-artifacts/build-qstar/...
+release-package/qstar-v<version>-windows-x86_64.package-plan.txt
+release-package/qstar-v<version>-windows-x86_64.expected-contents.txt
+windows-package.log
 SUMMARY.md
 KNOWN_ISSUES.md
 windows-beta-candidate-status.txt
@@ -242,6 +259,7 @@ status/windows-prep.status
 status/windows-sharedlib.status
 status/ninja-backend-parity.status
 status/install.status
+status/windows-package.status
 ```
 
 If a step fails, its status file is written before the step exits non-zero. The
@@ -254,7 +272,10 @@ only when the corresponding script fails. The `tmp/` subdirectory preserves the
 script's captured `.out`/`.err` files. The corpus subdirectories preserve
 generated build artifacts such as response files, `compile_commands.json`,
 `ninja/build.ninja`, `logs/last-failure.replay`, action logs, generated object
-bridge outputs, and any stage tree that existed before the failure.
+bridge outputs, and any stage tree that existed before the failure. The
+`release-package/` directory is created on successful package dry-run as well;
+it is the machine-readable contract for the future Windows public beta zip
+layout.
 
 ## Local Contract Smoke
 
@@ -264,6 +285,7 @@ Non-Windows hosts can run the contract-only subset:
 make qstar-windows-native-alpha-tests
 make qstar-windows-prep-tests
 make qstar-windows-sharedlib-artifact-parity-tests
+make qstar-windows-release-package-tests
 ```
 
 On non-Windows hosts, `tests/windows-native-alpha.sh` reports
@@ -375,6 +397,10 @@ Current known gaps:
   `windows-sharedlib-detail/`. If a future Windows beta candidate failure does
   not include the matching detail directory for the failing script, treat that
   as an artifact-contract regression before deeper Windows execution work.
+- Q246 adds Windows public beta package prep, not a published asset. The planned
+  runtime asset name is `qstar-v<version>-windows-x86_64.zip`; the package
+  layout must contain `bin/qstar.exe`, `share/doc/qstar/wiki`, `share/man`,
+  and bundled language providers under `share/qstar/languages`.
 - Q172 has not promoted Windows to official support. It only makes
   `msys2-ucrt64-gcc` the baseline lane and ensures failed runs leave structured
   status and known-issue artifacts.
@@ -386,10 +412,10 @@ Current known gaps:
   release asset or official support claim.
 - Stella daemon on Windows is disabled/deferred. The future supported transport
   is a named pipe with Windows ACL rules, not Unix sockets.
-- No Windows public release asset.
+- No published Windows public release asset yet.
 - The `.exe`/static archive/object bridge/sharedlib runtime-import install-stage
-  subset is beta-candidate validated. PDB/debug and full Windows packaging layout are
-  still deferred.
+  subset is beta-candidate validated. PDB/debug and actual Windows package
+  upload/download-smoke are still deferred.
 - Windows artifact policy is currently a beta-candidate contract in
   `docs/windows-artifact-policy.md`; native validation still has to prove real
   `.exe`, explicit static `.lib`, runtime `.dll`, import `.lib`, and PDB/debug
@@ -400,7 +426,8 @@ Current known gaps:
 - Real MSVC/clang-cl compiler execution is not yet a release gate.
 - Windows `.dll`/import `.lib` shared-library lowering is in the beta candidate
   lane and has a named `qstar-windows-sharedlib-artifact-parity-tests` gate.
-  PDB/debug and release packaging remain deferred.
+  PDB/debug remains deferred; release packaging has a dry-run skeleton but is
+  not yet a published public asset.
 - Persistent Stella daemon uses Unix socket paths today; Windows named pipe
   support is deferred.
 - QStar DSL package paths still intentionally reject drive letters and
@@ -431,5 +458,5 @@ after:
 - process spawn, response files, path normalization, sharedlib runtime/import
   artifacts, and install layout are tested on Windows with real tools;
 - release packaging rules for `.exe`, `.lib`, `.dll`, import library, PDB, docs,
-  and manpage-equivalent artifacts are decided;
+  and manpage-equivalent artifacts are decided and package-smoked;
 - a public Windows release asset is built and download-smoked.

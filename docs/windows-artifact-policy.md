@@ -5,21 +5,24 @@ runtime `.dll`, import `.lib`, and PDB/debug artifacts before full Windows
 support. Round Q174 promotes executable and static-library artifacts from
 contract-only planning to a local regression gate. Round Q223 sealed the
 Windows shared-library artifact map, Round Q224 lowers that map through
-Stella and Ninja, and Round Q225 promotes the shared-library checks into a
-named beta-candidate release gate.
+Stella and Ninja, Round Q225 promotes the shared-library checks into a
+named beta-candidate release gate, and Round Q246 adds the Windows public beta
+package skeleton without publishing a Windows asset.
 
 ```txt
 host support: validation-backed beta candidate
-release asset: none
+release asset: planned qstar-v<version>-windows-x86_64.zip, not published
 policy status: beta-candidate artifact contract
 implementation plan: sealed for Q173
 exe/static artifact gate: sealed for Q174
 sharedlib Graph IR gate: sealed for Q223
 sharedlib lowering gate: sealed for Q224
 sharedlib parity gate: sealed for Q225
+package skeleton gate: sealed for Q246
 local prep gate: make qstar-windows-prep-tests
 native smoke gate: make qstar-windows-native-alpha-tests
 named sharedlib gate: make qstar-windows-sharedlib-artifact-parity-tests
+package contract gate: make qstar-windows-release-package-tests
 ```
 
 ## Executable Artifacts
@@ -136,4 +139,6 @@ The Windows execution corpus adds real MSYS2 GCC coverage for `.exe -> bin`,
 static archive -> `lib`, generated object bridge staging, and Windows sharedlib
 runtime/import-lib build artifacts through both Stella and Ninja. These gates
 make Windows a validation-backed beta candidate; they still do not claim
-official Windows support or publish a Windows release asset.
+official Windows support or publish a Windows release asset. The Q246 package
+skeleton fixes the future zip name and runtime layout, but upload and
+download-smoke remain future release gates.
