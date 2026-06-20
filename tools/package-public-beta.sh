@@ -26,6 +26,25 @@ normalize_bool() {
 	esac
 }
 
+path_matches() {
+	actual=$1
+	expected=$2
+	if test "$actual" = "$expected"; then
+		return 0
+	fi
+	if command -v cygpath >/dev/null 2>&1; then
+		expected_mixed=$(cygpath -m "$expected" 2>/dev/null || true)
+		if test -n "$expected_mixed" && test "$actual" = "$expected_mixed"; then
+			return 0
+		fi
+		actual_posix=$(cygpath -u "$actual" 2>/dev/null || true)
+		if test -n "$actual_posix" && test "$actual_posix" = "$expected"; then
+			return 0
+		fi
+	fi
+	return 1
+}
+
 root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 cd "$root"
 
@@ -292,15 +311,11 @@ test -s "$install_root/share/man/man1/qstar.1" || fail "installed qstar(1) manpa
 test -s "$install_root/share/man/man5/qstar-lua.5" || fail "installed qstar-lua(5) manpage missing"
 
 docs_path=$(QSTAR_DOC_DIR="$install_root/share/doc/qstar" "$installed_bin" docs --path)
-case "$docs_path" in
-	"$install_root"/share/doc/qstar/wiki) ;;
-	*) fail "docs --path returned '$docs_path'" ;;
-esac
+expected_docs_path=$install_root/share/doc/qstar/wiki
+path_matches "$docs_path" "$expected_docs_path" || fail "docs --path returned '$docs_path'"
 ai_path=$(QSTAR_DOC_DIR="$install_root/share/doc/qstar" "$installed_bin" docs --ai-index)
-case "$ai_path" in
-	"$install_root"/share/doc/qstar/wiki/AI_INDEX.md) ;;
-	*) fail "docs --ai-index returned '$ai_path'" ;;
-esac
+expected_ai_path=$install_root/share/doc/qstar/wiki/AI_INDEX.md
+path_matches "$ai_path" "$expected_ai_path" || fail "docs --ai-index returned '$ai_path'"
 QSTAR_DOC_DIR="$install_root/share/doc/qstar" \
 	"$installed_bin" docs --show reference/qstar-lua.md > "$docs_show_report"
 grep -F "qstar.project" "$docs_show_report" >/dev/null || \
@@ -403,15 +418,13 @@ extract_version=$("$extract_bin" --version)
 test "$extract_version" = "$expected_version" || \
 	fail "extracted qstar version '$extract_version' does not match '$expected_version'"
 extract_docs_path=$(QSTAR_DOC_DIR="$extract_root/share/doc/qstar" "$extract_bin" docs --path)
-case "$extract_docs_path" in
-	"$extract_root"/share/doc/qstar/wiki) ;;
-	*) fail "extracted docs --path returned '$extract_docs_path'" ;;
-esac
+expected_extract_docs_path=$extract_root/share/doc/qstar/wiki
+path_matches "$extract_docs_path" "$expected_extract_docs_path" || \
+	fail "extracted docs --path returned '$extract_docs_path'"
 extract_ai_path=$(QSTAR_DOC_DIR="$extract_root/share/doc/qstar" "$extract_bin" docs --ai-index)
-case "$extract_ai_path" in
-	"$extract_root"/share/doc/qstar/wiki/AI_INDEX.md) ;;
-	*) fail "extracted docs --ai-index returned '$extract_ai_path'" ;;
-esac
+expected_extract_ai_path=$extract_root/share/doc/qstar/wiki/AI_INDEX.md
+path_matches "$extract_ai_path" "$expected_extract_ai_path" || \
+	fail "extracted docs --ai-index returned '$extract_ai_path'"
 QSTAR_DOC_DIR="$extract_root/share/doc/qstar" \
 	"$extract_bin" docs --show reference/qstar-lua.md > "$extract_docs_show_report"
 grep -F "qstar.project" "$extract_docs_show_report" >/dev/null || \
