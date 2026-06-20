@@ -293,10 +293,14 @@ upload is intentionally in scope.
 Windows alpha/beta candidate fresh run:
 
 ```sh
-gh workflow run windows-validation.yml \
-  --ref main \
-  -f run_ninja_parity=true
+gh workflow run windows-validation.yml --ref main
 ```
+
+The optional `run_ninja_parity=true` input is diagnostic-only for 0.8. The beta
+candidate gate already covers the Windows execution corpus with Stella and Ninja,
+Windows prep, sharedlib artifact parity, install docs/man smoke, and release
+asset smoke. The broader `qstar-ninja-backend-parity-tests` corpus still carries
+POSIX-style executable runtime expectations that can be skipped on Windows.
 
 The Windows workflow uploads `qstar-windows-beta-candidate`, including
 `windows-beta-candidate-status.txt`, `KNOWN_ISSUES.md`, and the failure detail
