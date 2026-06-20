@@ -3,8 +3,10 @@
 Stella daemon은 QStar의 장기 성능 구조다. Round Q151 기준으로 foreground server, build
 client, streaming build output, in-memory dirty/deps state snapshot, file watcher invalidation,
 performance gate, read-only query API가 들어왔다. `0.6.0-beta`에서는 documented beta opt-in
-feature로 다루며, stable/default-on surface는 아니다. 정본 설계 문서는 `docs/daemon/stella-daemon.md`, beta
-readiness 판단은 `docs/daemon-beta-readiness.md`다.
+feature로 다루며, stable/default-on surface는 아니다. Q249 기준 daemon은 v1 stable surface,
+default build path, remote API가 아니며 하나의 package root/build directory에만 묶이는 local
+Unix socket service다. 정본 설계 문서는 `docs/daemon/stella-daemon.md`, beta readiness 판단은
+`docs/daemon-beta-readiness.md`다.
 
 ## 명령 이름
 
@@ -83,6 +85,9 @@ build/qstar/stella/daemon/qstar-daemon.sock
 | `--use-daemon=always` | daemon 연결 또는 request 실패 시 command 실패 |
 
 Package root mismatch 같은 보안 오류는 fallback 대상이 아니다.
+Fallback은 daemon build stream이 시작되기 전 unavailable 상태에서만 허용된다. Build stream 시작
+후 crash, package root mismatch, entry file mismatch, build directory mismatch는 normal Stella로
+조용히 재실행하지 않는다.
 
 Q151 이후 결론:
 
@@ -94,6 +99,9 @@ Q151 이후 결론:
   daemon은 default-on이 아니다.
 - Linux `daemon_socket_smoke=true` lane은 inotify watcher trace와 `qstar daemon --status`
   artifact를 남긴다.
+- Q249 `make qstar-daemon-beta-boundary-tests`는 macOS/Linux socket 허용 host에서 normal Stella
+  parity, auto fallback, read API, socket permission, identity mismatch, stale socket/pid/lock
+  cleanup을 한 번에 확인한다.
 
 Build stream이 시작된 뒤 daemon이 죽으면 client는 partial output 뒤에
 `qstar: daemon stream interrupted before final status`를 출력하고 실패한다. 이 경우
@@ -167,6 +175,7 @@ Q167부터 Linux opt-in CI lane은 `make qstar-linux-daemon-validation-tests`를
 `daemon_watcher status=active backend=inotify`, watcher event trace, server log,
 skip/fail reason artifact를 보존한다. 이 lane은 `workflow_dispatch`의
 `daemon_socket_smoke=true`에서 실행된다.
+Q249부터 같은 lane은 `daemon_beta_boundary status=ok host=Linux` artifact도 남긴다.
 
 Default-on 전까지 남은 gap:
 
@@ -200,6 +209,7 @@ qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/
 `hello`, `workspace.info`, `diagnostics.list`, `compile_commands.path`, `build.summary`는
 `qstar-daemon-read-v1` JSON을 반환한다. `targets.list`는 기존
 `qstar list-targets --format json`과 같은 `qstar-targets-v1` schema를 반환한다.
+이 여섯 method는 Q249 boundary regression에서 모두 직접 호출되어 docs와 구현 drift를 막는다.
 
 Deferred read/action API:
 

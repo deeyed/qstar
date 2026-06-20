@@ -12,7 +12,7 @@ load를 처음부터 반복하지 않는 구조를 만드는 것이다.
 
 ```txt
 status: documented-beta-opt-in-candidate
-round: Q167
+round: Q249
 command namespace: qstar daemon
 initial hosts: macOS and Linux over Unix domain sockets
 deferred hosts: Windows named pipe
@@ -27,6 +27,9 @@ transport is a named pipe with Windows ACL validation.
 Round Q167 strengthens Linux validation with an opt-in CI lane that records
 `inotify` watcher status/events, daemon server logs, schedule traces, and
 skip/fail reason artifacts.
+Round Q249 keeps the beta boundary explicit and adds a cross Unix host boundary
+regression for fallback parity, read API freshness, socket permissions, identity
+mismatch, and stale lifecycle sidecars.
 
 ## Decision
 
@@ -70,6 +73,11 @@ name도 `stella`로 기록할 수 있지만, CLI command는 `qstar daemon`이다
 예측 가능성을 위해 normal Stella path를 유지하고, IDE/editor frontend와 performance
 실험은 `--use-daemon=auto` 또는 explicit daemon lifecycle로 시작한다. 충분히 안정화되면 future
 release에서 default policy를 다시 검토한다.
+Q249 기준으로 이 경계는 더 엄격하게 문서화한다. Daemon은 v1 stable/default-on surface가 아니며,
+remote API도 아니다. 하나의 daemon instance는 하나의 package root와 하나의 effective build
+directory에만 묶인다.
+English shorthand: it is not v1 stable/default-on, not remote, and not a replacement for the default
+normal Stella path.
 
 Fallback은 silent success가 아니다. `--verbose` 또는 `--schedule-trace`에서는 다음처럼
 보여야 한다.
@@ -80,6 +88,9 @@ daemon status=unavailable reason=socket-missing fallback=stella
 
 일반 output에서는 daemon fallback이 build result를 오염시키지 않아야 한다. 단,
 `--use-daemon=always`에서는 fallback하지 않고 명확한 diagnostic을 낸다.
+Fallback은 daemon build stream이 시작되기 전의 unavailable 상태에만 적용한다. Package root,
+entry file, build directory mismatch, 또는 stream 시작 뒤 crash는 security/consistency 문제이므로
+normal Stella로 조용히 재실행하지 않는다.
 
 Q144 MVP는 같은 daemon process 안에서 Graph IR와 lowered plan cache 결과를 memory에
 유지한다. Q146부터 daemon build response는 byte-count buffer가 아니라 event stream으로
@@ -347,6 +358,8 @@ build.summary
 Responses are JSON. `targets.list` intentionally reuses the existing `qstar-targets-v1` schema from
 `qstar list-targets --format json`; the other methods use `qstar-daemon-read-v1`. The method
 contract is documented in `docs/contracts/daemon-read-api.md`.
+Q249 regression keeps all six current methods in the beta boundary smoke so IDE-facing docs do not
+drift away from the implemented server.
 
 Deferred read/action APIs:
 
@@ -389,6 +402,13 @@ Fallback behavior:
 
 Root mismatch is never a fallback case because falling back could hide a security problem.
 
+`make qstar-daemon-beta-boundary-tests` exercises this table on macOS/Linux hosts that allow Unix
+socket bind. It also compares a normal Stella build result with a daemon build result, verifies
+read-only query methods, rejects insecure socket directories and non-socket paths, and checks stale
+socket/pid/lock cleanup. In sandboxed environments where Unix socket bind is denied, the test writes
+`daemon_beta_boundary status=skipped reason=socket-bind-not-permitted` instead of pretending the
+daemon path was validated.
+
 ## Implementation Rounds
 
 Recommended future implementation order:
@@ -404,8 +424,10 @@ Recommended future implementation order:
 8. Q175: lifecycle beta seal with stale socket/pid/lock cleanup regression,
    package-root mismatch hard reject, Linux inotify status artifact, and Windows named pipe
    deferred status.
-9. IDE/AI read-only API surface and audit log.
-10. Windows named pipe design refresh and native validation.
+9. Q249: beta boundary hardening with cross Unix fallback/parity/read/security/lifecycle regression,
+   refreshed help/docs wording, and optional Linux workflow artifacts.
+10. IDE/AI read-only API surface and audit log.
+11. Windows named pipe design refresh and native validation.
 
 ## Non-Goals
 

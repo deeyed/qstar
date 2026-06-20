@@ -145,7 +145,8 @@ qstar -B build/ninja -G ninja build //:app
 ## Stella Daemon
 
 QStar also has a documented beta opt-in daemon workflow. The default
-`qstar build` path still uses normal Stella; daemon residency is explicit.
+`qstar build` path still uses normal Stella; daemon residency is explicit and
+is not a v1 stable/default-on surface.
 
 ```sh
 qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --start
@@ -157,6 +158,7 @@ qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --stop
 The read API is intended for IDE/AI tooling and currently exposes `hello`,
 `workspace.info`, `targets.list`, `diagnostics.list`, `compile_commands.path`,
 and `build.summary`. Socket, pid, and lock files are local-only and owner-only;
+package/build identity mismatches are rejected instead of hidden by fallback.
 Windows named pipe support remains deferred.
 
 ## Authoring Surface

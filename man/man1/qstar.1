@@ -178,9 +178,10 @@ Beta opt-in daemon clients also accept
 .Fl -use-daemon Ar auto|never|always
 and
 .Fl -daemon-socket Ar path .
-The daemon path is opt-in and not the default; normal
+The daemon path is beta opt-in and not the default; normal
 .Ar stella
-build behavior is unchanged.
+build behavior is unchanged. It is not a v1 stable surface, not a remote API,
+and is scoped to one package root and one build directory.
 Default output is compact progress plus the final build summary.
 Verbose output adds status lines and
 .Li build_action
@@ -227,7 +228,9 @@ progress, diagnostic, action, summary, and raw output events. The CLI hides
 protocol frames and renders the same CMake-style progress and warning/error
 color policy as normal Stella builds. If the stream starts and then terminates
 before a final status, the client reports daemon stream interruption and does
-not silently rerun the build through fallback. Q147 keeps compact dirty-check
+not silently rerun the build through fallback. Fallback only covers unavailable
+daemon state before build streaming begins; package root, entry file, or build
+directory mismatch is rejected. Q147 keeps compact dirty-check
 and discovered-dependency state in process memory for daemon builds, while
 continuing to write
 .Pa state/state.db
@@ -268,7 +271,11 @@ mismatch is rejected instead of hidden by fallback. Q154 adds background
 and
 .Fl -stop
 with pid and lock sidecar files, while default-on lifecycle policy remains
-deferred.
+deferred. Q249 adds
+.Ic make qstar-daemon-beta-boundary-tests
+as a cross Unix beta-boundary regression for normal Stella parity, auto
+fallback, read API freshness, socket permission checks, identity mismatch
+rejection, and stale socket/pid/lock cleanup.
 .Pp
 Action descriptions are also preserved in action-log and replay metadata.
 .Ic qstar action-log ,

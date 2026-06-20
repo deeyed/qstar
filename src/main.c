@@ -32,7 +32,7 @@ usage(FILE *out)
 	fputs("       qstar [options] last-failure\n", out);
 	fputs("       qstar [options] action-log <action-id>\n", out);
 	fputs("       qstar [options] replay <action-id>\n", out);
-	fputs("       qstar [options] daemon --socket path --start|--stop|--serve|--status|--query method  # beta\n", out);
+	fputs("       qstar [options] daemon --socket path --start|--stop|--serve|--status|--query method  # beta opt-in; not default\n", out);
 	fputs("       qstar lsp --stdio\n", out);
 	fputs("       qstar init app|lib|tool|empty|workspace [directory] [--name name] [--use-language list] [--dry-run]\n", out);
 	fputs("       qstar [options] --dump-graph\n", out);
@@ -50,8 +50,8 @@ usage(FILE *out)
 	fputs("       --progress auto|plain|off  # default: CMake-style action progress\n", out);
 	fputs("       --verbose  # keep progress and add argv/cache/action details\n", out);
 	fputs("       --schedule-trace  # add scheduler internals such as schedule_action\n", out);
-	fputs("       --use-daemon auto|never|always  # beta Stella daemon client\n", out);
-	fputs("       --daemon-socket path  # beta Unix socket path; Windows named pipe deferred\n", out);
+	fputs("       --use-daemon auto|never|always  # beta opt-in Stella daemon client\n", out);
+	fputs("       --daemon-socket path  # local Unix socket path; Windows named pipe deferred\n", out);
 	fputs("       --quiet\n", out);
 }
 
@@ -101,8 +101,8 @@ command_help(FILE *out, const char *cmd)
 		fputs("--verbose keeps progress and adds argv/cache/action details.\n", out);
 		fputs("--schedule-trace adds scheduler internals; default output hides Stage/Status/schedule_action/build_action details.\n", out);
 		fputs("--color controls warning:/error: ANSI color in text output; JSON diagnostics stay uncolored.\n", out);
-		fputs("--use-daemon is experimental; auto falls back to normal Stella, always fails on daemon errors.\n", out);
-		fputs("--daemon-socket selects the experimental Unix socket path; Windows named pipe support is deferred.\n", out);
+		fputs("--use-daemon is beta opt-in; auto falls back before daemon build streaming starts, always fails on daemon errors.\n", out);
+		fputs("--daemon-socket selects a local Unix socket path; Windows named pipe support is deferred.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "daemon") == 0) {
@@ -112,6 +112,8 @@ command_help(FILE *out, const char *cmd)
 		fputs("       qstar [options] daemon --socket path --status\n", out);
 		fputs("       qstar [options] daemon --socket path --query method\n", out);
 		fputs("Run the beta opt-in persistent Stella daemon lifecycle on Unix socket hosts.\n", out);
+		fputs("Beta boundary: not v1 stable, not default-on, not remote, and scoped to one package root/build directory.\n", out);
+		fputs("Socket/pid/lock sidecars are local and owner-only; identity mismatch is rejected, not silently fallbacked.\n", out);
 		fputs("Windows named pipe daemon support is deferred.\n", out);
 		fputs("Read-only query methods: hello, workspace.info, targets.list, diagnostics.list, compile_commands.path, build.summary.\n", out);
 		fputs("This is not a stable public surface yet; normal qstar build is unchanged.\n", out);

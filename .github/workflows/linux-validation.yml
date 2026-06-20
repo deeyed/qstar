@@ -243,6 +243,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/perf
+          boundary_tmp="${RUNNER_TEMP}/qstar-daemon-boundary"
+          QSTAR_DAEMON_BOUNDARY_TMPDIR="$boundary_tmp" \
+          QSTAR_DAEMON_BOUNDARY_ARTIFACT_DIR="dist/perf" \
+            make qstar-daemon-beta-boundary-tests
+          grep -F "daemon_beta_boundary status=ok host=Linux" \
+            dist/perf/daemon-beta-boundary-status.txt
           daemon_tmp="${RUNNER_TEMP}/qstar-daemon-validation"
           QSTAR_DAEMON_TMPDIR="$daemon_tmp" \
           QSTAR_DAEMON_ARTIFACT_DIR="dist/perf" \
@@ -287,6 +293,9 @@ jobs:
           path: |
             dist/perf/linux-daemon-validation-status.txt
             dist/perf/linux-daemon-validation-reason.txt
+            dist/perf/daemon-beta-boundary-status.txt
+            dist/perf/daemon-beta-boundary-reason.txt
+            dist/perf/daemon-beta-boundary/**
             dist/perf/linux-daemon-validation-trace.txt
             dist/perf/linux-daemon-validation-trace.err
             dist/perf/linux-daemon-validation-noop-trace.txt

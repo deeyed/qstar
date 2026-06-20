@@ -41,7 +41,10 @@ Q153 이후 socket permission hardening과 protocol mismatch diagnostic은 beta 
 stale socket/pid/lock cleanup regression, Linux inotify status query artifact를 묶었다.
 Stable API version promise, release 간 반복 Linux daemon history, Windows named pipe가 더
 닫히기 전까지 daemon은 default-on이 아니다. Q233은 GLP/Windows work 이후 medium/large
-daemon timing과 local daemon socket smoke freshness를 다시 확인했다.
+daemon timing과 local daemon socket smoke freshness를 다시 확인했다. Q249는 이 상태를 v1
+stable로 착각하지 않도록 help/docs를 다시 조이고, normal Stella parity, auto fallback,
+read-only query API, socket permission, identity mismatch, stale socket/pid/lock cleanup을
+한 번에 확인하는 beta boundary regression을 추가했다.
 
 ## Q145-Q233 Summary
 
@@ -56,6 +59,7 @@ daemon timing과 local daemon socket smoke freshness를 다시 확인했다.
 | Q167 | Linux opt-in CI에서 `inotify` watcher trace, daemon status/reason artifact 추가 |
 | Q175 | lifecycle beta seal: stale socket/pid/lock cleanup, root mismatch reject, Linux status artifact |
 | Q233 | GLP/Windows 이후 local medium/large daemon timing과 daemon socket smoke freshness 재측정 |
+| Q249 | daemon beta boundary: fallback parity, read API freshness, socket permission, mismatch, stale lifecycle regression |
 
 Q150 read API method:
 
@@ -108,6 +112,9 @@ Linux는 Q142 이후 Ubuntu gcc/clang workflow가 medium performance artifact를
 `daemon_watcher status=active backend=inotify`와 watcher event trace를 artifact로 남긴다.
 Q175부터 같은 lane은 daemon socket 준비 뒤 `qstar daemon --status`도 기록해
 `daemon status=ok experimental=1 pid=...` lifecycle surface를 함께 남긴다.
+Q249부터 같은 optional lane은 `make qstar-daemon-beta-boundary-tests`도 실행해
+`daemon_beta_boundary status=ok host=Linux` artifact를 남긴다. 이 artifact는 Linux watcher
+성능 자체가 아니라 beta boundary가 유지되는지 확인한다.
 그래도 daemon socket과 watcher behavior는 Linux CI에서 계속 validation-backed로만 표기한다.
 Windows는 `qstar daemon` official host support로 표기하지 않는다.
 
@@ -135,6 +142,8 @@ stale socket probe는 beta opt-in 기준으로 구현되어 있다. Q154 이후 
 lock file, duplicate start diagnostic도 beta opt-in 기준으로 구현되어 있다. Q175 이후 smoke는
 죽은 foreground daemon이 남긴 stale socket을 `--start`가 정리하는지, stale pid/lock sidecar가
 보수적으로 정리되는지, 다른 package root가 같은 socket에 붙을 때 hard reject되는지도 확인한다.
+Q249 boundary test는 insecure socket directory와 non-socket path reject를 별도 artifact로 남기며,
+normal Stella와 daemon build 결과가 같은지도 확인한다.
 
 ## Release Gate
 
@@ -143,6 +152,7 @@ Daemon beta opt-in feature를 release note에 포함하려면 다음 gate가 통
 ```sh
 make all
 make check
+make qstar-daemon-beta-boundary-tests
 make qstar-self-host-tests
 make qstar-medium-project-readiness-tests
 make qstar-public-beta-release-tests
@@ -153,6 +163,7 @@ Socket 허용 host에서는 다음을 추가로 실행한다.
 
 ```sh
 QSTAR_TEST_QSTAR=build/bin/qstar sh tests/smoke.sh
+QSTAR_TEST_QSTAR=build/bin/qstar sh tests/daemon-beta-boundary.sh
 QSTAR_TEST_QSTAR=build/bin/qstar sh tests/medium-project-performance.sh
 ```
 

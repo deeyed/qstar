@@ -118,7 +118,8 @@ qstar -B build/ninja -G ninja build //:app
 ## Stella Daemon
 
 QStar에는 문서화된 beta opt-in daemon workflow가 있다. 기본 `qstar build`는 여전히 일반
-Stella executor를 사용하며, daemon residency는 명시적으로 켤 때만 사용한다.
+Stella executor를 사용하며, daemon residency는 명시적으로 켤 때만 사용한다. v1 stable/default-on
+표면은 아니다.
 
 ```sh
 qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --start
@@ -129,7 +130,8 @@ qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --stop
 
 read API는 IDE/AI tooling을 위한 것이며 현재 `hello`, `workspace.info`, `targets.list`,
 `diagnostics.list`, `compile_commands.path`, `build.summary`를 제공한다. Socket/pid/lock file은
-local-only, owner-only 정책을 따른다. Windows named pipe는 아직 deferred다.
+local-only, owner-only 정책을 따른다. package/build identity mismatch는 fallback으로 숨기지 않고
+거부한다. Windows named pipe는 아직 deferred다.
 
 ## 작성 예시
 

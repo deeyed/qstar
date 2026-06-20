@@ -326,7 +326,10 @@ QStar가 하지 않는 일:
   `--stop`, duplicate start, package-root/build-dir mismatch hard reject, stale socket cleanup,
   stale pid cleanup, stale lock cleanup을 regression으로 묶는다. Linux
   `daemon_socket_smoke=true` lane은 inotify trace와 함께 `qstar daemon --status` artifact도
-  남긴다. Windows named pipe는 계속 deferred다. 판단 문서는
+  남긴다. Q249부터 `make qstar-daemon-beta-boundary-tests`는 normal Stella parity, auto fallback,
+  read API freshness, socket permission, identity mismatch, stale socket/pid/lock cleanup을 묶고
+  Linux optional lane에 `daemon_beta_boundary status=ok host=Linux` artifact를 남긴다. Windows
+  named pipe는 계속 deferred다. 판단 문서는
   `docs/daemon-beta-readiness.md`에 둔다.
 - Stella dirty-check의 canonical fast state는 `build/qstar/state/state.db`다.
   `build/qstar/state/actions.json`은 기본 생성물이 아니며

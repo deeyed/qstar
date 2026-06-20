@@ -7,12 +7,14 @@ read-only API 계약이다. 이 API는 build/test/clean 같은 mutation을 열�
 
 ## 상태
 
-- Status: experimental
+- Status: beta opt-in, read-only, not v1 stable
 - Protocol magic: `qstar-daemon-query-v1`
 - CLI helper: `qstar daemon --socket path --query method`
 - Response: JSON text
 - 기본 권한: read-only
 - Remote access: out of scope
+- Q249 regression: `make qstar-daemon-beta-boundary-tests` calls all current methods on socket-capable
+  macOS/Linux hosts
 
 ## 보안 원칙
 
@@ -40,6 +42,8 @@ qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/
 `--file`, `-B`, `-G`, `--color`, `--progress`는 build command와 같은
 effective graph identity를 만든다. IDE는 build panel, target tree, diagnostics panel이 모두
 같은 identity를 보도록 같은 option set을 유지해야 한다.
+다른 package root, entry file, build directory identity를 가진 daemon에 붙으면 read API도 build
+client와 같은 방식으로 거부된다. 이 mismatch는 fallback 대상이 아니다.
 
 ## Methods
 
