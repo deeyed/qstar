@@ -39,6 +39,7 @@ cat > "$work/_Sidebar.md" <<'EOF'
 - [Home](Home)
 - [Getting Started](getting-started)
 - [Installation](installation)
+- [v1 Readiness](v1-readiness)
 - [AI Index](AI_INDEX)
 
 ## Concepts

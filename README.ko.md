@@ -20,6 +20,7 @@ MSYS2 UCRT64 기반 validation-backed beta candidate 단계이고 GitHub Actions
 아니다.
 `0.6.x-beta` line은 release/package/documentation hotfix용 patch line으로 남긴다.
 QStar 1.0은 macOS, Linux, Windows 공식 지원이 모두 갖춰진 뒤에 올린다.
+v1 gap checklist는 [docs/qstar-v1-readiness.md](docs/qstar-v1-readiness.md)에 둔다.
 
 ## 특징
 
@@ -239,11 +240,14 @@ Windows beta candidate lane은 source build, execution corpus, install/stage lay
 sharedlib runtime/import artifact와 public beta candidate zip 생성/추출 smoke를 검증하지만,
 Windows GitHub Release publication과 download-smoke는 아직 future release gate다.
 1.0은 macOS, Linux, Windows release artifact와 CI가 갖춰진 뒤에 올린다.
+정확한 남은 blocker와 stable surface policy는
+[docs/qstar-v1-readiness.md](docs/qstar-v1-readiness.md)에 둔다.
 
 ## 문서
 
 - [GitHub Wiki](https://github.com/deeyed/qstar/wiki)
 - [AI Index](wiki/AI_INDEX.md)
+- [v1 readiness gap report](docs/qstar-v1-readiness.md)
 - [Getting Started](wiki/getting-started.md)
 - [QStar Lua Reference](wiki/reference/qstar-lua.md)
 - [Modules and Imports](wiki/reference/modules.md)

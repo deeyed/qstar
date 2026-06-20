@@ -110,6 +110,8 @@ Important documents:
 - `qstar-v0.6-post-release-smoke.md`: post-release artifact smoke notes.
 - `qstar-v0.7-readiness.md`: v0.7 readiness gate.
 - `qstar-v0.8-readiness.md`: v0.8 beta readiness and release-candidate gate.
+- `qstar-v1-readiness.md`: v1 readiness gaps, stable DSL candidates, and
+  compatibility/removal policy.
 - `releases/TEMPLATE.md`: release note template.
 - `releases/v0.7.0-beta.md`: current public beta release note.
 - `releases/v0.8.0-beta.md`: v0.8 beta release-candidate checklist and draft release note.

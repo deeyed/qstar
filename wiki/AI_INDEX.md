@@ -168,6 +168,14 @@ QStar가 하지 않는 일:
   Windows process/event portability, real-host `.exe`/static `.lib`, Windows sharedlib
   artifact parity, daemon default-prep hardening을 맡는다. Daemon은 계속 opt-in이고,
   package resolver/registry/lockfile/fetch policy는 QStar core 밖에 둔다.
+- v1 공개 전 남은 gap과 stable surface 기준은 `docs/qstar-v1-readiness.md`에 둔다.
+  Q252 기준 v1은 아직 ready가 아니다. Stable DSL 후보는 project/toolset/config,
+  artifact targets, generated actions, run/stage/group, root `qstar.command`,
+  imports/modules, GLP consumer activation, command/workflow helpers, and authoring
+  helpers로 묶는다. v1 blocker는 Windows official GitHub Release asset/download smoke,
+  stable compatibility/removal policy, GLP provider-author API freeze/versioning,
+  daemon beta boundary, release matrix repetition, and package manager out-of-core
+  boundary다. Package resolver/registry/lockfile/fetch policy는 v1에서도 QStar core 밖이다.
 - 0.6 beta release 판단과 `0.6.1-beta` public prerelease line은
   `docs/qstar-v0.6-readiness.md`에 둔다. 이 문서는 daemon beta opt-in, self-host,
   Stella/Ninja benchmark, Linux x86_64 beta asset, Windows status, package smoke,

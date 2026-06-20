@@ -23,6 +23,7 @@ evidence, not a published GitHub Release asset or official Windows host support.
 QStar 1.0 is reserved for a release that is validated across macOS, Linux, and
 Windows. The `0.6.x-beta` line is reserved for release/package/documentation
 hotfixes.
+The v1 gap checklist is tracked in [docs/qstar-v1-readiness.md](docs/qstar-v1-readiness.md).
 
 ## Highlights
 
@@ -274,11 +275,14 @@ but Windows GitHub Release publication and download-smoke are still future
 release gates.
 The 1.0 milestone requires
 validated release artifacts and CI coverage for macOS, Linux, and Windows.
+The exact remaining blockers and stable-surface policy are tracked in
+[docs/qstar-v1-readiness.md](docs/qstar-v1-readiness.md).
 
 ## Documentation
 
 - [GitHub Wiki](https://github.com/deeyed/qstar/wiki)
 - [AI Index](wiki/AI_INDEX.md)
+- [v1 readiness gap report](docs/qstar-v1-readiness.md)
 - [Getting Started](wiki/getting-started.md)
 - [QStar Lua Reference](wiki/reference/qstar-lua.md)
 - [Modules and Imports](wiki/reference/modules.md)
