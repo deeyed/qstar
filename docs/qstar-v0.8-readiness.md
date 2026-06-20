@@ -43,10 +43,10 @@ Windows를 official support라고 부르지 않으면서도 "validation-backed b
 | macOS arm64 | Public beta asset | 유지, release smoke/codesign fresh run만 patch line에서 보강 |
 | Linux x86_64 | Public beta asset published from hosted Ubuntu lane | 0.8에서도 release-backed beta host로 유지 |
 | Windows | Validation-backed beta candidate, Actions public beta candidate zip build/extract smoke, GitHub Release publication deferred | official support 전 반복 검증 대상 |
-| Stella executor | Q233 medium/large refresh에서 Ninja급 또는 Ninja보다 빠른 timing report | 계속 성능 gate freshness 유지 |
+| Stella executor | Q250 medium/large refresh에서 report-only timing gate green; large 500 normal Stella clean은 Ninja보다 느렸지만 daemon/no-op/incremental은 우세 | 계속 성능 gate freshness 유지 |
 | Ninja backend | C/C++/ASM/custom/configure/run/group/sharedlib parity candidate | Windows artifact parity로 확장 |
 | Sharedlib | macOS `.dylib`, Linux `.so`, Windows `.dll`/import `.lib` sealed | PDB/debug ownership은 deferred |
-| Stella daemon | documented beta opt-in, lifecycle/security hardening, Q233 local daemon timing refresh | default 준비는 하되 default-on 금지 |
+| Stella daemon | documented beta opt-in, lifecycle/security hardening, Q250 local daemon timing refresh | default 준비는 하되 default-on 금지 |
 | Docs/wiki/man/AI_INDEX | 0.7 surface drift guard | 0.8 Windows/daemon/release status 추가 |
 
 ## Linux Asset Status
@@ -172,8 +172,8 @@ v1.0 blocker를 0.8 기준으로 다시 정렬한다.
 - Ninja root pollution 방지 유지
 - medium/large performance gate freshness 유지
 - daemon performance는 release input이지 stable guarantee가 아님을 유지
-- Q233 이후 performance freshness 정본은
-  `docs/perf/q233-backend-daemon-refresh.md`에 둔다. Real Rust/Zig GLP compiler corpus는
+- Q250 이후 performance freshness 정본은
+  `docs/perf/q250-v0.8-backend-performance-refresh.md`에 둔다. Real Rust/Zig GLP compiler corpus는
   backend timing 수치에 섞지 않고 correctness gate로 분리한다.
 
 ### P1: Daemon Default Decision

@@ -279,6 +279,12 @@ QStar가 하지 않는 일:
   `docs/perf/q233-backend-daemon-refresh.md`에 둔다. Q233 기준 medium corpus는 Stella
   `244/68/96ms`, daemon `289/68/88ms`, Ninja `254/74/116ms`였고, large 500 corpus는
   Stella `2412/105/140ms`, daemon `2614/107/151ms`, Ninja `2737/156/211ms`였다.
+  Q250 v0.8 freshness snapshot은 `docs/perf/q250-v0.8-backend-performance-refresh.md`에 둔다.
+  Q250 기준 medium corpus는 Stella `264/72/91ms`, daemon `259/68/89ms`, Ninja
+  `262/74/100ms`였고, large 500 corpus는 Stella `4681/100/141ms`, daemon
+  `2599/108/149ms`, Ninja `3893/154/207ms`였다. Large 500 clean에서 normal Stella median은
+  Ninja보다 느렸지만 daemon clean은 Ninja보다 빨랐다. 이 수치는 report-only release input이고
+  stable guarantee가 아니다.
   Real Rust/Zig GLP compiler corpus는 성능 숫자에 섞지 않고 optional correctness gate로
   분리한다.
   Round Q149 이후 medium/large gate는 socket이 허용되는 host에서 experimental daemon도

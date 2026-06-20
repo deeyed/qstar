@@ -15,7 +15,8 @@ QStar is currently in beta. The current release-prep line is `v0.7.0-beta`,
 with macOS arm64 and Linux x86_64 runtime tarballs. Linux assets
 are produced only from the Ubuntu release workflow or a clean Linux x86_64 host,
 after source validation, Ninja backend parity, extracted tarball smoke, and
-Stella/Ninja medium performance artifact collection. Windows has a manual native
+Stella/Ninja medium performance artifact collection. Performance numbers are
+report-only release inputs, not stable guarantees. Windows has a manual native
 validation candidate that builds, extracts, and smoke-tests a `windows-x86_64`
 public beta candidate zip asset in GitHub Actions. That asset is validation
 evidence, not a published GitHub Release asset or official Windows host support.

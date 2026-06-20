@@ -12,7 +12,8 @@ unit은 Stella/Ninja 공통 backend action contract로 lowering된다.
 현재 공개 버전은 베타다. 현재 release-prep line은 `v0.7.0-beta`이며 macOS arm64와
 Linux x86_64 runtime tarball을 대상으로 한다. Linux asset은 Ubuntu release workflow 또는
 clean Linux x86_64 host에서 source validation, Ninja backend parity, extracted tarball smoke,
-Stella/Ninja medium performance artifact collection을 통과한 산출물만 사용한다. Windows는
+Stella/Ninja medium performance artifact collection을 통과한 산출물만 사용한다. 성능 숫자는
+report-only release input이며 stable guarantee가 아니다. Windows는
 MSYS2 UCRT64 기반 validation-backed beta candidate 단계이고 GitHub Actions에서
 `windows-x86_64` public beta candidate zip을 실제로 생성, 추출, smoke한다. 이 asset은
 검증 증거이며, 아직 GitHub Release에 공개된 Windows asset이나 official host support는

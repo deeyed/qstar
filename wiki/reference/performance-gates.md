@@ -76,29 +76,45 @@ socket bind가 sandbox나 host policy 때문에 불가능하면 daemon phase는
 
 ## 최신 베타 스냅샷
 
-Round Q233 local macOS arm64 대표 측정값은
-`docs/perf/q233-backend-daemon-refresh.md`에 보존한다. 이 refresh는 GLP/Windows work 이후
-medium, large, Stella daemon, real Rust/Zig compiler corpus를 다시 분리해서 측정한 값이다.
+Round Q250 local macOS arm64 repeat-3 대표 측정값은
+`docs/perf/q250-v0.8-backend-performance-refresh.md`에 보존한다. 이 refresh는 GLP, Windows
+beta path, generic command workflow, built-in install hard cut, daemon beta boundary hardening
+이후 medium/large corpus와 Stella daemon을 다시 분리해서 측정한 값이다.
 
-Medium corpus, socket-permitting daemon run:
+Medium corpus, daemon excluded:
 
 | Backend | Clean | No-op | Incremental | Ninja ratio clean/no-op/incremental |
 | --- | ---: | ---: | ---: | --- |
-| Stella | 244ms | 68ms | 96ms | 0.96x / 0.92x / 0.83x |
-| Stella daemon | 289ms | 68ms | 88ms | 1.14x / 0.92x / 0.76x |
-| Stella explicit jobs | 246ms | 68ms | 89ms | 0.97x / 0.92x / 0.77x |
-| Ninja | 254ms | 74ms | 116ms | baseline |
+| Stella | 264ms | 72ms | 91ms | 1.01x / 0.97x / 0.91x |
+| Stella explicit jobs | 290ms | 66ms | 90ms | 1.11x / 0.89x / 0.90x |
+| Ninja | 262ms | 74ms | 100ms | baseline |
 
-Large corpus:
+Medium corpus, daemon included:
+
+| Backend | Clean | No-op | Incremental | Ninja ratio clean/no-op/incremental |
+| --- | ---: | ---: | ---: | --- |
+| Stella daemon | 259ms | 68ms | 89ms | 0.99x / 0.92x / 0.89x |
+| Ninja | 262ms | 74ms | 100ms | baseline |
+
+Large corpus, daemon excluded:
 
 | Mode | Backend | Clean | No-op | Incremental | Ninja ratio clean/no-op/incremental |
 | --- | --- | ---: | ---: | ---: | --- |
-| 200 | Stella | 1094ms | 75ms | 134ms | 0.81x / 0.71x / 0.80x |
-| 200 | Stella daemon | 1179ms | 102ms | 126ms | 0.88x / 0.97x / 0.75x |
-| 200 | Ninja | 1344ms | 105ms | 167ms | baseline |
-| 500 | Stella | 2412ms | 105ms | 140ms | 0.88x / 0.67x / 0.66x |
-| 500 | Stella daemon | 2614ms | 107ms | 151ms | 0.96x / 0.69x / 0.72x |
-| 500 | Ninja | 2737ms | 156ms | 211ms | baseline |
+| 200 | Stella | 979ms | 81ms | 123ms | 0.86x / 0.77x / 0.79x |
+| 200 | Stella explicit jobs | 999ms | 79ms | 121ms | 0.88x / 0.75x / 0.78x |
+| 200 | Ninja | 1140ms | 105ms | 155ms | baseline |
+| 500 | Stella | 4681ms | 100ms | 141ms | 1.20x / 0.65x / 0.68x |
+| 500 | Stella explicit jobs | 4691ms | 98ms | 135ms | 1.20x / 0.64x / 0.65x |
+| 500 | Ninja | 3893ms | 154ms | 207ms | baseline |
+
+Large corpus, daemon included:
+
+| Mode | Backend | Clean | No-op | Incremental | Ninja ratio clean/no-op/incremental |
+| --- | --- | ---: | ---: | ---: | --- |
+| 200 | Stella daemon | 1085ms | 84ms | 120ms | 0.95x / 0.80x / 0.77x |
+| 200 | Ninja | 1140ms | 105ms | 155ms | baseline |
+| 500 | Stella daemon | 2599ms | 108ms | 149ms | 0.67x / 0.70x / 0.72x |
+| 500 | Ninja | 3893ms | 154ms | 207ms | baseline |
 
 Old/new comparison:
 
@@ -109,6 +125,8 @@ Old/new comparison:
 | Q137 explicit jobs | 237ms | 68ms | 88ms | 251ms | 73ms | 97ms |
 | Q233 medium Stella | 244ms | 68ms | 96ms | 254ms | 74ms | 116ms |
 | Q233 medium daemon | 289ms | 68ms | 88ms | 254ms | 74ms | 116ms |
+| Q250 medium Stella | 264ms | 72ms | 91ms | 262ms | 74ms | 100ms |
+| Q250 medium daemon | 259ms | 68ms | 89ms | 262ms | 74ms | 100ms |
 
 Stella no-op과 incremental은 이 corpus에서 Ninja급 latency를 보인다. Q125는 clean
 build 중 state/deps/action metadata write path를 buffered write로 정리하고, build
@@ -130,7 +148,10 @@ clean build의 metadata write를 더 줄였다.
 Q137 대표 측정에서는 Stella clean이 Ninja 대비 2배 이내 목표를 넘어 1.5배 이내에 들어왔다.
 Q233 대표 측정에서는 GLP/Windows work 이후에도 medium normal Stella가 Ninja와 같은 급이고,
 large 200/500 target corpus에서는 normal Stella와 Stella daemon 모두 Ninja보다 빠르게 나왔다.
-하지만 timing은 host CPU, filesystem cache, compiler warm state에 흔들리므로, 이 수치를
+Q250 대표 측정에서는 medium과 large 200은 계속 같은 경향을 보였지만, large 500 clean에서는
+normal Stella와 explicit-jobs Stella median이 Ninja보다 느려졌다. 같은 Q250 run에서 large 500
+daemon clean, no-op, incremental은 Ninja보다 빠르게 측정됐다. 하지만 timing은 host CPU,
+filesystem cache, compiler warm state에 흔들리므로, 이 수치를
 stable 성능 보장으로 선언하지 않는다. Gate는 default jobs, ready queue width,
 async final action count, staticlib argv parity를 hard check하고, timing ratio는 report-only로
 유지한다.
@@ -252,6 +273,9 @@ dist/perf/large-release-summary.md
 | Q169 | macOS arm64 | medium 47 | 1 | 236ms | 76ms | 91ms | 269ms | 74ms | 103ms | skipped: socket bind |
 | Q176 dry run | macOS arm64 | medium 47 | 1 | 269ms | 68ms | 89ms | 252ms | 72ms | 97ms | skipped: socket bind |
 | Q176 dry run | macOS arm64 | large 200 | 1 | 984ms | 72ms | 114ms | 1012ms | 92ms | 141ms | skipped: socket bind |
+| Q250 | macOS arm64 | medium 47 | 3 | 264ms | 72ms | 91ms | 262ms | 74ms | 100ms | measured: 259/68/89ms |
+| Q250 | macOS arm64 | large 200 | 3 | 979ms | 81ms | 123ms | 1140ms | 105ms | 155ms | measured: 1085/84/120ms |
+| Q250 | macOS arm64 | large 500 | 3 | 4681ms | 100ms | 141ms | 3893ms | 154ms | 207ms | measured: 2599/108/149ms |
 
 Q176 dry run은 `QSTAR_PERF_REPEAT=1 QSTAR_LARGE_PROJECT_TARGETS=200`으로 release artifact
 format을 검증한 값이다. Public release note에는 repeat-3 또는 hosted CI artifact를 우선한다.

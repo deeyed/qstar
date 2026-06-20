@@ -85,6 +85,8 @@ Important documents:
 - `performance-gates.md`: Stella/Ninja performance gate contract.
 - `qstar-generic-dsl-backend-seal.md`: Q193 backend/performance seal after the
   generic DSL hard cut.
+- `perf/q250-v0.8-backend-performance-refresh.md`: v0.8 release-prep
+  Stella/Ninja/daemon repeat-3 performance freshness snapshot.
 - `perf/q233-backend-daemon-refresh.md`: post-GLP/Windows medium, large,
   daemon, and real Rust/Zig compiler freshness snapshot.
 - `perf/q166-large-performance-refresh.md`: large synthetic Stella/Ninja/daemon timing.
