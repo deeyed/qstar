@@ -12,7 +12,8 @@ candidate in Actions without publishing it to GitHub Releases.
 
 ```txt
 host support: validation-backed beta candidate
-release asset: qstar-v<version>-windows-x86_64.zip candidate in Actions, not published
+release asset: qstar-v<version>-windows-x86_64.zip public beta candidate built and extracted in Actions
+release publication: GitHub Release upload/download-smoke deferred
 policy status: beta-candidate artifact contract
 implementation plan: sealed for Q173
 exe/static artifact gate: sealed for Q174
@@ -142,8 +143,8 @@ The Windows execution corpus adds real MSYS2 GCC coverage for `.exe -> bin`,
 static archive -> `lib`, generated object bridge staging, and Windows sharedlib
 runtime/import-lib build artifacts through both Stella and Ninja. These gates
 make Windows a validation-backed beta candidate; they still do not claim
-official Windows support or publish a Windows release asset. The Q246 package
-skeleton fixes the future zip name and runtime layout. Q247 proves the zip can
-be created, extracted, used for docs/provider vendoring, and used for small
-Stella/Ninja builds. GitHub Release upload and downloaded-asset smoke remain
-future release gates.
+official Windows support. The Q246 package skeleton fixed the zip name and
+runtime layout. Q247 proves the public beta candidate zip can be created,
+extracted, used for docs/provider vendoring, and used for small Stella/Ninja
+builds. GitHub Release upload and downloaded-asset smoke remain future release
+gates.

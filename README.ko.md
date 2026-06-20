@@ -14,8 +14,9 @@ Linux x86_64 runtime tarball을 대상으로 한다. Linux asset은 Ubuntu relea
 clean Linux x86_64 host에서 source validation, Ninja backend parity, extracted tarball smoke,
 Stella/Ninja medium performance artifact collection을 통과한 산출물만 사용한다. Windows는
 MSYS2 UCRT64 기반 validation-backed beta candidate 단계이고 GitHub Actions에서
-`windows-x86_64` zip asset candidate를 실제로 생성하고 smoke하지만, 아직 배포된 public
-release asset이나 official host support는 없다.
+`windows-x86_64` public beta candidate zip을 실제로 생성, 추출, smoke한다. 이 asset은
+검증 증거이며, 아직 GitHub Release에 공개된 Windows asset이나 official host support는
+아니다.
 `0.6.x-beta` line은 release/package/documentation hotfix용 patch line으로 남긴다.
 QStar 1.0은 macOS, Linux, Windows 공식 지원이 모두 갖춰진 뒤에 올린다.
 
@@ -227,13 +228,13 @@ qstar replay <action-id>
 | --- | --- |
 | macOS arm64 | 0.7 beta release-prep artifact |
 | Linux x86_64 | Ubuntu release workflow 또는 clean Linux host 산출 0.7 beta release-prep artifact |
-| Windows | MSYS2 UCRT64 기반 validation-backed beta candidate, Actions zip asset smoke, 배포된 public release asset 없음 |
+| Windows | MSYS2 UCRT64 기반 validation-backed beta candidate, Actions에서 `windows-x86_64` public beta candidate zip 생성/추출 smoke, official GitHub Release asset은 deferred |
 
 QStar는 명시적 toolset, config, argv-vector command, language provider source unit,
 object artifact bridge로 custom toolchain과 cross-compilation target을 표현한다. Host 지원 선언은 보수적으로 가져간다.
 Windows beta candidate lane은 source build, execution corpus, install/stage layout,
-sharedlib runtime/import artifact와 release zip 생성/추출 smoke를 검증하지만 Windows release
-asset은 아직 GitHub Release로 배포하지 않는다.
+sharedlib runtime/import artifact와 public beta candidate zip 생성/추출 smoke를 검증하지만,
+Windows GitHub Release publication과 download-smoke는 아직 future release gate다.
 1.0은 macOS, Linux, Windows release artifact와 CI가 갖춰진 뒤에 올린다.
 
 ## 문서

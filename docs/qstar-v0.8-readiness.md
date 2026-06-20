@@ -42,7 +42,7 @@ Windows를 official support라고 부르지 않으면서도 "validation-backed b
 | --- | --- | --- |
 | macOS arm64 | Public beta asset | 유지, release smoke/codesign fresh run만 patch line에서 보강 |
 | Linux x86_64 | Public beta asset published from hosted Ubuntu lane | 0.8에서도 release-backed beta host로 유지 |
-| Windows | Validation-backed beta candidate, Actions zip asset smoke, no published asset | official support 전 반복 검증 대상 |
+| Windows | Validation-backed beta candidate, Actions public beta candidate zip build/extract smoke, GitHub Release publication deferred | official support 전 반복 검증 대상 |
 | Stella executor | Q233 medium/large refresh에서 Ninja급 또는 Ninja보다 빠른 timing report | 계속 성능 gate freshness 유지 |
 | Ninja backend | C/C++/ASM/custom/configure/run/group/sharedlib parity candidate | Windows artifact parity로 확장 |
 | Sharedlib | macOS `.dylib`, Linux `.so`, Windows `.dll`/import `.lib` sealed | PDB/debug ownership은 deferred |
@@ -83,7 +83,8 @@ Windows는 아직 official support가 아니다.
 | --- | --- |
 | Workflow | `.github/workflows/windows-validation.yml`, manual `workflow_dispatch` |
 | Baseline lane | MSYS2 UCRT64 gcc |
-| Public asset | `qstar-v<version>-windows-x86_64.zip` candidate artifact in Actions; not published to GitHub Releases |
+| Public beta candidate asset | `qstar-v<version>-windows-x86_64.zip` candidate artifact built, extracted, and smoke-tested in Actions |
+| Release publication | GitHub Release upload/download-smoke deferred |
 | Native source build | beta candidate lane에서 `make all CC=gcc` 검증 |
 | Current known native blocker | no known blocker in the sealed candidate contract; future failures must be recorded as structured artifacts |
 | Daemon transport | Windows named pipe deferred |
@@ -95,8 +96,9 @@ Windows는 아직 official support가 아니다.
 0.8의 첫 번째 목표였던 "manual alpha"에서 "validation-backed beta candidate"로의 이동은
 Q225에서 문서/게이트/Actions artifact 기준으로 닫힌다. Q246은 여기서 한 단계 더 나아가
 Windows public beta asset을 만들기 위한 package skeleton을 뒀고, Q247은 실제 Windows zip
-asset candidate를 생성해 추출 smoke까지 수행한다. 이 말은 곧바로 Windows asset을 GitHub
-Release에 공개한다는 뜻이 아니다. 현재 beta candidate가 보장하는 것은 다음이다.
+asset candidate를 생성해 추출 smoke까지 수행한다. 이 asset은 public beta candidate로
+준비/검증된 Actions artifact지만, 곧바로 GitHub Release publication이나 official Windows
+support를 뜻하지 않는다. 현재 beta candidate가 보장하는 것은 다음이다.
 
 - Q220의 Stella CreateProcess runner가 hosted Windows lane에서 검증된다.
 - Q221의 Ninja launcher parity가 같은 platform process layer 위에서 검증된다.
@@ -148,7 +150,7 @@ v1.0 blocker를 0.8 기준으로 다시 정렬한다.
 
 - macOS arm64 public asset, install smoke, codesign smoke 유지
 - Linux x86_64 public asset, hosted download smoke, gcc/clang validation 유지
-- Windows source build, install smoke, release asset, artifact policy 반복 검증
+- Windows source build, install smoke, public beta candidate asset, artifact policy 반복 검증
 - Windows Actions zip asset artifact와 future GitHub Release upload/download smoke
 - CI/release matrix가 macOS, Linux, Windows를 모두 커버
 
@@ -213,7 +215,7 @@ v1.0 blocker를 0.8 기준으로 다시 정렬한다.
 0.8에 넣지 않을 것:
 
 - daemon default-on
-- Windows public asset without native build/install/package gate and download smoke
+- Windows GitHub Release asset without native build/install/package gate and download smoke
 - package resolver, registry, lockfile, fetch policy
 - mandatory `qstar.toml`, `project-specific TOML`, `.foreign/toolsets/*.toml`
 - domain-specific builtin target

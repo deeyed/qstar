@@ -6,9 +6,9 @@ release workflow 또는 clean Linux x86_64 host에서 source build 검증,
 `linux-x86_64` tarball packaging, extracted tarball smoke, Stella/Ninja medium
 performance artifact collection을 통과한 산출물만 사용한다.
 Windows host 지원은 validation-backed beta candidate 단계다. Windows는 아직 공식
-지원이 아니고 GitHub Release에 published된 public asset도 없지만, Q247부터
-`qstar-v<version>-windows-x86_64.zip` asset candidate를 Actions에서 실제 생성하고 추출
-smoke한다.
+지원이 아니지만, Q247부터 `qstar-v<version>-windows-x86_64.zip` public beta candidate
+asset을 Actions에서 실제 생성, 추출, smoke한다. GitHub Release에 공개되는 Windows
+asset과 uploaded-asset download smoke는 아직 future release gate다.
 path/process/response-file 준비 규칙, CreateProcess execution, install/stage layout,
 sharedlib runtime/import artifact, package layout, extracted asset behavior를 MSYS2 UCRT64 기반 manual Windows
 workflow에서 검증한다. 모든 platform에서 소스에서 직접 빌드할 수 있도록 검증 경로를 늘려간다.
@@ -147,8 +147,8 @@ line protocol이 존재하는지 확인한다.
 
 ## Windows 준비 경로
 
-Windows release asset은 아직 published 상태가 아니다. 현재 QStar는 official support 전에
-다음 규칙과 artifact behavior를 beta candidate contract로 고정한다.
+Windows public beta candidate asset은 Actions artifact로 준비/검증된다. 현재 QStar는
+official support 전에 다음 규칙과 artifact behavior를 beta candidate contract로 고정한다.
 
 - QStar DSL path는 Windows에서도 `/` 기반 package-relative path다.
 - `src\\main.c`, `C:\\SDK\\include` 같은 path는 source/include/output/stage field에
@@ -165,7 +165,7 @@ Windows release asset은 아직 published 상태가 아니다. 현재 QStar는 o
 - Windows sharedlib는 runtime `.dll`과 import `.lib`를 모델링하고 Stella/Ninja 양쪽에서
   lowering한다. `qstar.target_file("//:plugin")`은 runtime `.dll`,
   `qstar.target_file("//:plugin", { artifact = "import_lib" })`은 import `.lib`를 가리킨다.
-- PDB/debug는 아직 official contract가 아니다. Windows public release packaging은
+- PDB/debug는 아직 official contract가 아니다. Windows public beta candidate packaging은
   `windows-x86_64` zip Actions artifact와 extracted smoke까지 contract이며, GitHub Release
   upload/download smoke는 future gate다. 상세 정책은 `docs/windows-artifact-policy.md`에 둔다.
 

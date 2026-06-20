@@ -1,4 +1,4 @@
-.Dd June 14, 2026
+.Dd June 20, 2026
 .Dt QSTAR 1
 .Os
 .Sh NAME
@@ -39,6 +39,15 @@ generated object artifacts.
 Generated actions use
 .Ic qstar.cli
 argv vectors, not shell strings.
+.Pp
+Platform support is intentionally conservative. macOS arm64 and Linux x86_64
+are the public beta runtime asset hosts for the current line. Windows is a
+validation-backed beta candidate through the MSYS2 UCRT64 workflow: the manual
+Windows lane builds, extracts, and smoke-tests a
+.Pa qstar-v<version>-windows-x86_64.zip
+public beta candidate asset, but GitHub Release publication, official Windows
+host support, daemon named pipes, Visual Studio/MSVC bootstrap lanes, and
+PDB/debug artifact ownership remain deferred.
 .Sh OPTIONS
 .Bl -tag -width "--generator"
 .It Fl -file Ar qstar.lua

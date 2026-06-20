@@ -3,11 +3,12 @@
 Round Q159 moved Windows from a documentation-only preparation path to a manual
 native CI alpha. Q225 keeps the historical file name but upgrades the current
 lane to a validation-backed beta candidate. This is still not official Windows
-host support and does not publish a public Windows release asset. Q246 adds the
-first public beta asset preparation skeleton: the Windows workflow now records a
-dry-run package plan for a future `qstar-v<version>-windows-x86_64.zip` runtime
-archive. Q247 moves that lane from dry-run to an actual zip asset candidate
-smoke inside GitHub Actions.
+host support. Q246 added the first public beta asset preparation skeleton:
+the Windows workflow recorded a dry-run package plan for
+`qstar-v<version>-windows-x86_64.zip`. Q247 moves that lane from dry-run to an
+actual public beta candidate zip smoke inside GitHub Actions. The asset is
+prepared and validated as an Actions artifact, while GitHub Release publication
+and official Windows support remain separate future gates.
 
 ## Support Level
 
@@ -20,7 +21,8 @@ bootstrap shell: MSYS2 UCRT64
 baseline lane: msys2-ucrt64-gcc
 primary compiler: mingw-w64-ucrt-x86_64-gcc
 status artifact: qstar-windows-beta-candidate
-release asset: qstar-v<version>-windows-x86_64.zip candidate artifact in Actions, not published
+release asset: qstar-v<version>-windows-x86_64.zip public beta candidate artifact in Actions
+release publication: GitHub Release upload/download-smoke deferred
 official support: no
 ```
 
@@ -61,8 +63,8 @@ runs the extracted `bin/qstar.exe` through:
   binary
 
 This is still not GitHub Release publication. It is the minimum evidence that a
-Windows public beta asset can be produced and consumed by a user-like extracted
-tree.
+Windows public beta candidate asset can be produced and consumed by a user-like
+extracted tree.
 
 Round Q178 adds a native execution corpus to that same alpha lane. The new
 `tests/corpus/windows-execution` project is intentionally separate from the
@@ -428,15 +430,16 @@ Current known gaps:
   `windows-sharedlib-detail/`. If a future Windows beta candidate failure does
   not include the matching detail directory for the failing script, treat that
   as an artifact-contract regression before deeper Windows execution work.
-- Q246 adds Windows public beta package prep, not a published asset. The planned
-  runtime asset name is `qstar-v<version>-windows-x86_64.zip`; the package
-  layout must contain `bin/qstar.exe`, `share/doc/qstar/wiki`, `share/man`,
-  and bundled language providers under `share/qstar/languages`.
+- Q246 adds Windows public beta package prep. The runtime asset name is
+  `qstar-v<version>-windows-x86_64.zip`; the package layout must contain
+  `bin/qstar.exe`, `share/doc/qstar/wiki`, `share/man`, and bundled language
+  providers under `share/qstar/languages`.
 - Q247 adds actual Windows zip creation and extracted package smoke to the
   manual Actions lane. A green Q247 run proves the package can be created,
   extracted, used for docs lookup, used to vendor standard providers, and used
-  to build small Stella/Ninja projects from the extracted binary. It still does
-  not publish the asset to GitHub Releases.
+  to build small Stella/Ninja projects from the extracted binary. It is a
+  prepared and validated public beta candidate asset, but GitHub Release
+  publication is still deferred.
 - Q172 has not promoted Windows to official support. It only makes
   `msys2-ucrt64-gcc` the baseline lane and ensures failed runs leave structured
   status and known-issue artifacts.
@@ -444,11 +447,13 @@ Current known gaps:
   CreateProcess execution for it, Q221 adds Ninja execution coverage, and Q222
   adds install/stage layout validation for the same corpus. Q225 treats the lane
   as validation-backed beta candidate evidence: a green execution corpus and
-  sharedlib parity gate still do not by themselves create a Windows public
-  release asset or official support claim.
+  sharedlib parity gate are part of the beta evidence, but they still do not
+  create an official Windows support claim.
 - Stella daemon on Windows is disabled/deferred. The future supported transport
   is a named pipe with Windows ACL rules, not Unix sockets.
-- No published Windows public release asset yet.
+- Windows public beta candidate zip is built and smoke-tested as an Actions
+  artifact; GitHub Release publication and uploaded-asset download smoke remain
+  future release gates.
 - The `.exe`/static archive/object bridge/sharedlib runtime-import install-stage
   subset is beta-candidate validated. PDB/debug and GitHub Release
   upload/download-smoke are still deferred.
@@ -463,7 +468,7 @@ Current known gaps:
 - Windows `.dll`/import `.lib` shared-library lowering is in the beta candidate
   lane and has a named `qstar-windows-sharedlib-artifact-parity-tests` gate.
   PDB/debug remains deferred; release packaging now has an actual Actions zip
-  artifact smoke but is not yet a published public asset.
+  artifact smoke but not a GitHub Release publication/download-smoke gate.
 - Persistent Stella daemon uses Unix socket paths today; Windows named pipe
   support is deferred.
 - QStar DSL package paths still intentionally reject drive letters and
@@ -478,8 +483,9 @@ Use the generated artifact in this order:
 1. Read `windows-beta-candidate-status.txt` for the first `status=fail` line.
 2. Open the corresponding `*.log` file named in that status line.
 3. Copy the failure class, not the entire raw log, into this Known Issues list.
-4. Keep daemon named pipe, MSVC bootstrap, public Windows asset, and PDB/debug
-   policy deferred unless a later round explicitly takes ownership of them.
+4. Keep daemon named pipe, MSVC bootstrap, GitHub Release publication,
+   Visual Studio lane, and PDB/debug policy deferred unless a later round
+   explicitly takes ownership of them.
 
 ## Promotion Criteria
 
@@ -495,4 +501,4 @@ after:
   artifacts, and install layout are tested on Windows with real tools;
 - release packaging rules for `.exe`, `.lib`, `.dll`, import library, PDB, docs,
   and manpage-equivalent artifacts are decided and package-smoked;
-- a public Windows release asset is built and download-smoked.
+- a Windows GitHub Release asset is uploaded and download-smoked.
