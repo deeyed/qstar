@@ -26,6 +26,30 @@ qstar.stage "workflow_layout" {
   },
 }
 
+qstar.stage "install_layout" {
+  root = "stage/install",
+  description = qstar.status("Staging install-style layout"),
+  files = {
+    qstar.stage_file(
+      qstar.target_file("//:payload_artifact"),
+      "share/generic-command-artifact-workflow/payload.artifact"
+    ),
+    qstar.stage_file(
+      "assets/manifest.txt",
+      "share/generic-command-artifact-workflow/manifest.txt"
+    ),
+  },
+}
+
+qstar.stage "package_layout" {
+  root = "stage/package",
+  description = qstar.status("Staging package layout"),
+  files = {
+    qstar.stage_file(qstar.target_file("//:payload_artifact"), "payload/payload.artifact"),
+    qstar.stage_file("assets/manifest.txt", "metadata/manifest.txt"),
+  },
+}
+
 qstar.run_target "artifact_smoke" {
   inputs = {
     qstar.target_file("//:payload_artifact"),
@@ -97,6 +121,56 @@ qstar.command "workflow" {
       },
       description = qstar.status("Checking workflow command inputs"),
     },
+    qstar.step.export_stage("//:workflow_layout", {
+      to = qstar.param("out"),
+    }),
+  },
+}
+
+qstar.command "install" {
+  description = qstar.status("Export the project-defined install layout"),
+  aliases = {
+    "install-local",
+  },
+  options = {
+    out = qstar.param.path {
+      default = "exports/install",
+      description = "Install-style export destination inside the package",
+    },
+  },
+  steps = {
+    qstar.step.export_stage("//:install_layout", {
+      to = qstar.param("out"),
+    }),
+  },
+}
+
+qstar.command "package-local" {
+  description = qstar.status("Build and export a package-style layout"),
+  options = {
+    out = qstar.param.path {
+      default = "exports/package",
+      description = "Package-style export destination inside the package",
+    },
+  },
+  steps = {
+    qstar.step.build("//:payload_artifact"),
+    qstar.step.stage("//:package_layout"),
+    qstar.step.export_stage("//:package_layout", {
+      to = qstar.param("out"),
+    }),
+  },
+}
+
+qstar.command "export-local" {
+  description = qstar.status("Export the checked workflow layout"),
+  options = {
+    out = qstar.param.path {
+      default = "exports/local",
+      description = "Workflow export destination inside the package",
+    },
+  },
+  steps = {
     qstar.step.export_stage("//:workflow_layout", {
       to = qstar.param("out"),
     }),

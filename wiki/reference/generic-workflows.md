@@ -135,6 +135,10 @@ artifact installer가 없으며, project-specific layout export는 command 안�
 작성한다. `qstar.command "install"`은 허용된다. 이 이름도 `deploy`, `flash`, `publish`,
 `bundle`과 마찬가지로 프로젝트가 정의하는 user-facing command일 뿐이다.
 
+Canonical fixture는 같은 원칙을 `install`, `install-local`, `package-local`,
+`export-local` 네 command로 봉인한다. 모두 root `qstar.command`이며 최종 copy/export는
+`qstar.step.export_stage`가 담당한다.
+
 ## 실패 예제
 
 ```lua
@@ -158,6 +162,10 @@ qstar --file qstar.lua build //:artifact_smoke
 qstar --file qstar.lua -G ninja build //:artifact_smoke
 qstar --file qstar.lua commands
 qstar --file qstar.lua workflow --out exports/local --mode full
+qstar --file qstar.lua install --out exports/install
+qstar --file qstar.lua install-local --out exports/install-local
+qstar --file qstar.lua package-local --out exports/package
+qstar --file qstar.lua export-local --out exports/local
 qstar --file qstar.lua action-log qstar-command:workflow:run:2
 qstar --file qstar.lua replay qstar-command:workflow:run:2
 ```

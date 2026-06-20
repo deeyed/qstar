@@ -240,7 +240,8 @@ qstar emit-ninja //:app
 qstar build //:app
 qstar test //...
 qstar commands
-qstar install --out exports/install  # if qstar.lua declares qstar.command "install"
+qstar install --out exports/install  # project command declared by qstar.lua
+qstar package-local --out exports/package  # project command declared by qstar.lua
 qstar stage //:image --dry-run
 qstar why-rebuild //:app
 qstar clean //:app

@@ -404,6 +404,7 @@ qstar.stage "install_layout" {
 }
 
 qstar.command "install" {
+  aliases = {"install-local"},
   options = {
     out = qstar.param.path { default = "exports/install" },
   },
@@ -419,6 +420,20 @@ This avoids hard-coding Unix-only assumptions into every project. A CLI tool can
 define an `install` command. A packaged-output project can define a `bundle`
 command. A board bring-up project can define a `flash` command. QStar sees only
 layout and copy/export semantics.
+
+The canonical regression fixture keeps three user-facing command names around
+this model:
+
+```sh
+qstar install --out exports/install
+qstar install-local --out exports/install-local
+qstar package-local --out exports/package
+qstar export-local --out exports/local
+```
+
+All four are root `qstar.command` entries in
+`tests/projects/generic-command-artifact-workflow/qstar.lua`; none are built-in
+artifact installers.
 
 ## 8. `qstar.import_module` Cache/Reuse
 
@@ -507,7 +522,8 @@ Diagnostics should mention the declaring file and line whenever possible.
 
 1. `tests/smoke.sh`는 문법, diagnostic, action-log/replay, docs/wiki/man/snippet drift를 확인한다.
 2. `tests/projects/generic-command-artifact-workflow`는 transform, stage input, run input,
-   project command option, bool argv helper, explicit layout export를 하나의 fixture로 묶는다.
+   project command option, bool argv helper, explicit layout export, project-defined
+   `install`/`install-local`/`package-local`/`export-local` command를 하나의 fixture로 묶는다.
 3. `tests/ninja-backend-parity.sh`는 같은 fixture를 Stella와 Ninja 양쪽에서 실행해 producer
    edge가 backend별로 갈라지지 않는지 확인한다.
 4. `make check`와 GitHub Actions Linux Validation은 이 seal을 기본 회귀 경로에 포함한다.
