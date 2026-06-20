@@ -116,6 +116,13 @@ find_one() {
 	printf '%s\n' "$result"
 }
 
+rewrite_host_cc() {
+	file=$1
+	tmp=$file.tmp
+	sed "s/qstar.cli {\"cc\"}/qstar.cli {\"$cc_tool\"}/g" "$file" > "$tmp"
+	mv "$tmp" "$file"
+}
+
 test -n "$version" || fail "could not read QSTAR_VERSION"
 
 rm -rf "$smoke_dir"
@@ -201,17 +208,13 @@ cat > "$fake_bin/cc" <<EOF
 exec "$cc_tool" "\$@"
 EOF
 chmod +x "$fake_bin/cc"
-case "$cc_path" in
-*.exe|*.EXE)
-	cp "$cc_path" "$fake_bin/cc.exe"
-	;;
-esac
 
 hello_name=hello
 hello=$smoke_dir/$hello_name
 run_logged_in init-hello "$smoke_dir" env PATH="$fake_bin:$PATH" \
 	"$qstar_bin" init app "$hello_name" --use-language=c
 test -f "$hello/qstar.lua" || fail "qstar init app did not create qstar.lua"
+rewrite_host_cc "$hello/qstar.lua"
 run_logged_in build-hello-stella "$smoke_dir" env PATH="$fake_bin:$PATH" \
 	"$qstar_bin" --file "$hello_name/qstar.lua" build //:app
 contains "$smoke_dir/logs/build-hello-stella.out" "status ok"
