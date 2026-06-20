@@ -127,6 +127,61 @@ skip_string(const char *p)
 	return p;
 }
 
+/** Lua long bracket opener([=[ 같은 형태)인지 확인하고 '=' 개수를 반환한다. */
+static int
+lua_long_bracket_open(const char *p, size_t *equals)
+{
+	const char *q;
+	size_t n;
+
+	if (*p != '[')
+		return 0;
+	q = p + 1;
+	n = 0;
+	while (*q == '=') {
+		n++;
+		q++;
+	}
+	if (*q != '[')
+		return 0;
+	if (equals)
+		*equals = n;
+	return 1;
+}
+
+/** Lua long bracket body를 closing delimiter 뒤까지 건너뛴다. */
+static const char *
+skip_lua_long_bracket(const char *p)
+{
+	const char *q, *r;
+	size_t equals, seen;
+
+	if (!lua_long_bracket_open(p, &equals))
+		return p;
+	q = p + equals + 2;
+	while (*q) {
+		if (*q == ']') {
+			r = q + 1;
+			seen = 0;
+			while (seen < equals && *r == '=') {
+				seen++;
+				r++;
+			}
+			if (seen == equals && *r == ']')
+				return r + 1;
+		}
+		q++;
+	}
+	return q;
+}
+
+/** Lua long comment(--[[...]] 또는 --[=[...]=]) opener인지 확인한다. */
+static int
+is_lua_long_comment(const char *p)
+{
+	return p[0] == '-' && p[1] == '-' && lua_long_bracket_open(p + 2, NULL);
+}
+
 /** span이 keyword로 시작하고 뒤가 identifier 문자가 아닌지 확인한다. */
 static int
 starts_with_keyword(const char *p, const char *keyword)
@@ -172,6 +227,10 @@ find_lua_block_end(const char *p)
 			continue;
 		}
 		if (*q == '-' && q[1] == '-') {
+			if (is_lua_long_comment(q)) {
+				q = skip_lua_long_bracket(q + 2);
+				continue;
+			}
 			while (*q && *q != '\n')
 				q++;
 			continue;
@@ -235,11 +294,25 @@ find_statement_end(const char *p)
 	    starts_with_keyword(p, "for") || starts_with_keyword(p, "while") ||
 	    starts_with_keyword(p, "if") || starts_with_keyword(p, "repeat"))
 		return find_lua_block_end(p);
+	if (is_lua_long_comment(p)) {
+		q = skip_lua_long_bracket(p + 2);
+		while (*q == ' ' || *q == '\t')
+			q++;
+		if (*q == '\r')
+			q++;
+		if (*q == '\n')
+			q++;
+		return q;
+	}
 	depth = 0;
 	saw_block = 0;
 	for (q = p; *q; q++) {
 		if (*q == '"' || *q == '\'') {
 			q = skip_string(q) - 1;
+			continue;
+		}
+		if (*q == '-' && q[1] == '-' && is_lua_long_comment(q)) {
+			q = skip_lua_long_bracket(q + 2) - 1;
 			continue;
 		}
 		if (*q == '{') {
@@ -430,6 +503,11 @@ format_statement(struct fmt_buf *out, const char *start, size_t len)
 	trim_span(&s, &len);
 	if (len == 0)
 		return 0;
+	if (is_lua_long_comment(s)) {
+		if (fmt_append_n(out, s, len) < 0)
+			return -1;
+		return fmt_append(out, "\n");
+	}
 	if (!is_qstar_statement(s, len)) {
 		line = copy_trimmed(s, len);
 		if (!line)

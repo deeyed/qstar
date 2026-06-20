@@ -4109,6 +4109,31 @@ contains "$tmp/fmt-check-after.out" "status ok"
 "$qstar" --file "$tmp/fmt/qstar.lua" fmt --check > "$tmp/fmt-file-option.out" 2> "$tmp/fmt-file-option.err"
 contains "$tmp/fmt-file-option.out" "status ok"
 
+mkdir -p "$tmp/fmt-comment"
+cat > "$tmp/fmt-comment/qstar.lua" <<'EOF'
+--[[
+Host unit tests for scheduler-before core primitives.
+This fixture verifies that Lua long comments stay compact.
+Formatter output must not insert blank lines inside the comment.
+]]
+
+qstar.executable "app" {
+sources={"src/main.c"},
+}
+EOF
+"$qstar" fmt --stdout "$tmp/fmt-comment/qstar.lua" > "$tmp/fmt-comment.out" 2> "$tmp/fmt-comment.err"
+contains "$tmp/fmt-comment.out" "--[["
+contains "$tmp/fmt-comment.out" "Host unit tests for scheduler-before core primitives."
+contains "$tmp/fmt-comment.out" "Formatter output must not insert blank lines inside the comment."
+if ! awk '
+	/^--\[\[$/ { in_comment = 1; seen_comment = 1; next }
+	in_comment && /^\]\]$/ { in_comment = 0; next }
+	in_comment && $0 == "" { exit 1 }
+	END { if (!seen_comment || in_comment) exit 1 }
+' "$tmp/fmt-comment.out"; then
+	fail "qstar fmt inserted blank lines inside a Lua long comment"
+fi
+
 mkdir -p "$tmp/fmt-heavy"
 cat > "$tmp/fmt-heavy/qstar.lua" <<'EOF'
 local function common_c()
