@@ -18,6 +18,18 @@
 #include <mach-o/dyld.h>
 #endif
 
+#if defined(_WIN32)
+#if defined(__has_include)
+#if __has_include(<windows.h>)
+#define QSTAR_LUA_HAVE_WINDOWS_H 1
+#include <windows.h>
+#endif
+#elif defined(_MSC_VER) || defined(__MINGW32__) || defined(__MINGW64__)
+#define QSTAR_LUA_HAVE_WINDOWS_H 1
+#include <windows.h>
+#endif
+#endif
+
 struct qstar_lua_context {
 	struct qstar_graph *graph;
 	char root_dir[QSTAR_PATH_MAX];
@@ -7295,6 +7307,19 @@ current_executable_path(char *dst, size_t dstlen)
 	if (n < 0 || (size_t)n >= sizeof(raw))
 		return -1;
 	raw[n] = '\0';
+	return copy_existing_path(raw, dst, dstlen);
+#elif defined(_WIN32) && defined(QSTAR_LUA_HAVE_WINDOWS_H)
+	DWORD n;
+	size_t i;
+
+	n = GetModuleFileNameA(NULL, raw, (DWORD)sizeof(raw));
+	if (n == 0 || n >= (DWORD)sizeof(raw))
+		return -1;
+	raw[n] = '\0';
+	for (i = 0; raw[i]; i++) {
+		if (raw[i] == '\\')
+			raw[i] = '/';
+	}
 	return copy_existing_path(raw, dst, dstlen);
 #else
 	(void)dst;

@@ -26,6 +26,7 @@ jobs:
       QSTAR_WINDOWS_EXECUTION_ARTIFACT_DIR: dist/windows-beta-candidate/windows-execution-detail
       QSTAR_WINDOWS_PREP_ARTIFACT_DIR: dist/windows-beta-candidate/windows-prep-detail
       QSTAR_WINDOWS_SHARED_ARTIFACT_DIR: dist/windows-beta-candidate/windows-sharedlib-detail
+      QSTAR_WINDOWS_RELEASE_ARTIFACT_DIR: dist/windows-beta-candidate/release-asset-detail
       QSTAR_WINDOWS_BETA_BASELINE: msys2-ucrt64-gcc
       QSTAR_WINDOWS_ALPHA_BASELINE: msys2-ucrt64-gcc
     steps:
@@ -42,6 +43,7 @@ jobs:
           install: >-
             make
             git
+            file
             zip
             unzip
             mingw-w64-ucrt-x86_64-gcc
@@ -223,42 +225,48 @@ jobs:
           fi
           exit "$rc"
 
-      - name: Windows release package dry-run
+      - name: Windows release asset smoke
         shell: msys2 {0}
         run: |
           set -euo pipefail
           package_dir="$QSTAR_WINDOWS_BETA_DIR/release-package"
-          rm -rf "$package_dir"
+          smoke_dir="$QSTAR_WINDOWS_BETA_DIR/release-asset-smoke"
+          rm -rf "$package_dir" "$smoke_dir" "$QSTAR_WINDOWS_RELEASE_ARTIFACT_DIR"
           set +e
-          QSTAR_RELEASE_PLATFORM=windows-x86_64 \
-          QSTAR_RELEASE_DRY_RUN=1 \
-          QSTAR_RELEASE_DIST="$package_dir" \
-            tools/package-public-beta.sh 2>&1 | tee "$QSTAR_WINDOWS_BETA_DIR/windows-package.log"
+          QSTAR_WINDOWS_RELEASE_DIST="$package_dir" \
+          QSTAR_WINDOWS_RELEASE_SMOKE_DIR="$smoke_dir" \
+          QSTAR_WINDOWS_RELEASE_ARTIFACT_DIR="$QSTAR_WINDOWS_RELEASE_ARTIFACT_DIR" \
+          QSTAR_WINDOWS_RELEASE_CC=gcc \
+            sh tests/windows-release-asset-smoke.sh 2>&1 | tee "$QSTAR_WINDOWS_BETA_DIR/windows-release-asset.log"
           rc=$?
           set -e
           if test "$rc" -eq 0; then
             set +e
+            asset=$(find "$package_dir" -name 'qstar-v*-windows-x86_64.zip' -print -quit)
+            sha=$(find "$package_dir" -name 'SHA256SUMS' -print -quit)
             plan=$(find "$package_dir" -name 'qstar-v*-windows-x86_64.package-plan.txt' -print -quit)
-            expected=$(find "$package_dir" -name 'qstar-v*-windows-x86_64.expected-contents.txt' -print -quit)
+            smoke_status="$smoke_dir/release-asset.status"
+            test -n "$asset"
+            test -n "$sha"
             test -n "$plan"
-            test -n "$expected"
-            grep -F 'asset=qstar-v' "$plan"
+            test -f "$smoke_status"
             grep -F 'archive_format=zip' "$plan"
             grep -F 'binary=bin/qstar.exe' "$plan"
-            grep -F 'bin/qstar.exe' "$expected"
+            grep -F "$(basename "$asset")" "$sha"
+            grep -F 'status=ok script=windows-release-asset' "$smoke_status"
             verify_rc=$?
             set -e
             if test "$verify_rc" -eq 0; then
-              printf 'status=ok step=windows-package mode=dry-run plan=%s expected=%s\n' \
-                "$plan" "$expected" > "$QSTAR_WINDOWS_BETA_STATUS_DIR/windows-package.status"
+              printf 'status=ok step=windows-release-asset asset=%s smoke=%s\n' \
+                "$asset" "$smoke_dir" > "$QSTAR_WINDOWS_BETA_STATUS_DIR/windows-release-asset.status"
             else
-              printf 'status=fail step=windows-package mode=dry-run rc=%s log=windows-package.log detail=release-package\n' "$verify_rc" \
-                > "$QSTAR_WINDOWS_BETA_STATUS_DIR/windows-package.status"
+              printf 'status=fail step=windows-release-asset rc=%s log=windows-release-asset.log detail=release-asset-detail\n' "$verify_rc" \
+                > "$QSTAR_WINDOWS_BETA_STATUS_DIR/windows-release-asset.status"
               rc=$verify_rc
             fi
           else
-            printf 'status=fail step=windows-package mode=dry-run rc=%s log=windows-package.log detail=release-package\n' "$rc" \
-              > "$QSTAR_WINDOWS_BETA_STATUS_DIR/windows-package.status"
+            printf 'status=fail step=windows-release-asset rc=%s log=windows-release-asset.log detail=release-asset-detail\n' "$rc" \
+              > "$QSTAR_WINDOWS_BETA_STATUS_DIR/windows-release-asset.status"
           fi
           exit "$rc"
 
@@ -273,7 +281,7 @@ jobs:
           known="$QSTAR_WINDOWS_BETA_DIR/KNOWN_ISSUES.md"
           {
             printf 'baseline=%s\n' "$QSTAR_WINDOWS_BETA_BASELINE"
-            for step in environment make-all version native-alpha windows-execution windows-prep windows-sharedlib ninja-backend-parity install windows-package; do
+            for step in environment make-all version native-alpha windows-execution windows-prep windows-sharedlib ninja-backend-parity install windows-release-asset; do
               file="$QSTAR_WINDOWS_BETA_STATUS_DIR/$step.status"
               if test -f "$file"; then
                 cat "$file"
@@ -292,7 +300,9 @@ jobs:
             printf '%s\n' "- windows execution detail dir: \`windows-execution-detail/\` when that script fails"
             printf '%s\n' "- windows prep detail dir: \`windows-prep-detail/\` when that script fails"
             printf '%s\n' "- windows sharedlib detail dir: \`windows-sharedlib-detail/\` when that script fails"
-            printf '%s\n' "- windows package plan dir: \`release-package/\` after the package dry-run"
+            printf '%s\n' "- windows release package dir: \`release-package/\` after the asset smoke"
+            printf '%s\n' "- windows release smoke dir: \`release-asset-smoke/\` after the extracted asset smoke"
+            printf '%s\n' "- windows release asset detail dir: \`release-asset-detail/\` when that script fails"
             if grep -q 'status=fail' "$status_line"; then
               printf '\n## Observed Failures\n\n'
               grep 'status=fail' "$status_line" | while IFS= read -r line; do
@@ -305,7 +315,7 @@ jobs:
             printf '\n## Deferred By Design\n\n'
             printf '%s\n' "- daemon named pipe transport"
             printf '%s\n' "- Visual Studio, nmake, and direct MSVC bootstrap"
-            printf '%s\n' "- Windows public release asset publication"
+            printf '%s\n' "- Windows GitHub Release publication"
             printf '%s\n' "- PDB/debug artifact ownership"
             printf '%s\n' "- MSVC/clang-cl execution corpus"
           } > "$known"
@@ -319,9 +329,28 @@ jobs:
             printf '%s\n' '- status file: `windows-beta-candidate-status.txt`'
             printf '%s\n' '- known issues file: `KNOWN_ISSUES.md`'
             printf '%s\n' '- failure detail dirs: `native-alpha-detail/`, `windows-execution-detail/`, `windows-prep-detail/`, `windows-sharedlib-detail/` when present'
-            printf '%s\n' '- package prep dir: `release-package/` contains the Windows zip layout dry-run plan'
+            printf '%s\n' '- release package dir: `release-package/` contains the Windows zip asset candidate and SHA256SUMS'
+            printf '%s\n' '- release smoke dir: `release-asset-smoke/` contains extracted asset smoke logs'
             printf '%s\n' '- support level: validation-backed beta candidate, not official Windows support'
           } > "$QSTAR_WINDOWS_BETA_DIR/SUMMARY.md"
+
+      - name: Upload Windows beta release asset candidate
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qstar-windows-beta-release-asset
+          path: |
+            dist/windows-beta-candidate/release-package/qstar-v*-windows-x86_64.zip
+            dist/windows-beta-candidate/release-package/SHA256SUMS
+            dist/windows-beta-candidate/release-package/qstar-v*-windows-x86_64.contents.txt
+            dist/windows-beta-candidate/release-package/qstar-v*-windows-x86_64.expected-contents.txt
+            dist/windows-beta-candidate/release-package/qstar-v*-windows-x86_64.package-plan.txt
+            dist/windows-beta-candidate/release-package/file-windows-x86_64.txt
+            dist/windows-beta-candidate/release-package/extract-file-windows-x86_64.txt
+            dist/windows-beta-candidate/release-asset-smoke/release-asset.status
+            dist/windows-beta-candidate/release-asset-smoke/logs/*.out
+            dist/windows-beta-candidate/release-asset-smoke/logs/*.err
+          if-no-files-found: warn
 
       - name: Upload Windows beta candidate logs
         if: always()

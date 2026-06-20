@@ -2,8 +2,9 @@
 
 이 문서는 QStar public beta release를 다시 만들 때의 수동 실수를 줄이기 위한
 canonical checklist다. 현재 published release asset은 macOS arm64와 Linux x86_64 runtime
-tarball을 대상으로 한다. Windows는 Q246부터 public beta asset preparation skeleton을 갖지만
-아직 published asset이 아니다. VSCode extension은 별도 검증/패키징 대상이며 runtime package에 포함하지 않는다.
+tarball을 대상으로 한다. Windows는 Q247부터 Actions에서 public beta zip asset candidate를
+실제로 만들고 추출 smoke까지 수행하지만 아직 GitHub Release에 published된 asset은 아니다.
+VSCode extension은 별도 검증/패키징 대상이며 runtime package에 포함하지 않는다.
 VSCode extension is not included in the public beta runtime package.
 
 ## Release Target
@@ -11,8 +12,9 @@ VSCode extension is not included in the public beta runtime package.
 현재 beta package 이름은 runtime version에서 파생한다. Public artifact는 macOS arm64와
 Linux x86_64를 배포한다. Linux x86_64 artifact는 Ubuntu release workflow 또는 clean
 Linux x86_64 host에서 만든 산출물만 사용한다. Windows는 `windows-x86_64` platform을
-`qstar-v<version>-windows-x86_64.zip`으로 준비하지만, 실제 업로드 전에는 dry-run package
-plan만 release readiness evidence로 사용한다.
+`qstar-v<version>-windows-x86_64.zip`으로 준비한다. Q247 기준 이 zip은 Windows manual
+workflow의 Actions artifact로 생성/추출 smoke되며, GitHub Release upload 전에는 release
+readiness evidence로만 사용한다.
 
 ```txt
 runtime version: qstar 0.7.0-beta
@@ -59,8 +61,9 @@ make qstar-public-beta-release-tests
 - Linux x86_64 package dry-run에서는 `file bin/qstar`가 ELF x86-64 binary로 보고하고
   `ldd` output을 기록한다.
 - macOS/Linux tarball layout이 prefix install 구조다.
-- Windows package dry-run에서는 `windows-x86_64` zip asset name, `bin/qstar.exe`,
-  docs/wiki/manpage, bundled provider inclusion policy를 plan file로 기록한다.
+- Windows Actions asset smoke에서는 `windows-x86_64` zip asset을 실제 생성하고,
+  extracted `bin/qstar.exe`로 version, docs, provider vendoring, `qstar init app`,
+  Stella/Ninja 최소 build를 확인한다.
 - `SHA256SUMS`가 release tarball을 포함한다.
 - VSCode `.vsix`는 runtime package에 포함되지 않는다.
 
@@ -144,20 +147,21 @@ gate로 넣지 않는다. 대신 `.github/workflows/linux-validation.yml`의
 job으로 실행하고, `backend=stella-daemon` clean/noop/incremental line이 모두 존재하는지
 확인한다.
 
-Windows package prep은 실제 public asset upload가 아니라 layout contract gate다.
-Non-Windows host에서도 다음 contract smoke를 실행할 수 있다.
+Windows package prep은 GitHub Release upload가 아니라 Actions artifact gate다. Non-Windows
+host에서는 contract-only smoke를 실행하고, Windows hosted workflow에서는 actual zip smoke를
+실행한다.
 
 ```sh
 make qstar-windows-release-package-tests
-QSTAR_RELEASE_PLATFORM=windows-x86_64 QSTAR_RELEASE_DRY_RUN=1 \
-  tools/package-public-beta.sh
+make qstar-windows-release-asset-smoke-tests
 test -f dist/release/qstar-v0.7.0-beta-windows-x86_64.package-plan.txt
 test -f dist/release/qstar-v0.7.0-beta-windows-x86_64.expected-contents.txt
 ```
 
-Windows workflow는 이 dry-run을 `dist/windows-beta-candidate/release-package` 아래에
-보존한다. 실제 Windows `.zip` package와 GitHub uploaded-asset download smoke는 아직
-future gate다.
+Windows workflow는 actual zip을 `dist/windows-beta-candidate/release-package` 아래에 만들고
+`qstar-windows-beta-release-asset` artifact로 업로드한다. `release-asset-smoke/`에는 zip을
+다시 푼 뒤 extracted binary로 실행한 smoke logs가 남는다. GitHub Release uploaded-asset
+download smoke는 아직 future gate다.
 
 ## Runtime Package Layout
 
@@ -189,7 +193,7 @@ export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 ```
 
-Windows planned zip layout은 같은 prefix model을 쓰되 executable name만 `.exe`를 포함한다.
+Windows zip layout은 같은 prefix model을 쓰되 executable name만 `.exe`를 포함한다.
 
 ```txt
 bin/qstar.exe
@@ -211,7 +215,7 @@ LICENSE/lua.txt
 LICENSE/README.md
 ```
 
-예상 설치 명령은 future Windows asset이 published된 뒤 다음 모양이 된다.
+예상 설치 명령은 Windows asset이 GitHub Release에 published된 뒤 다음 모양이 된다.
 
 ```sh
 unzip -q qstar-v0.7.0-beta-windows-x86_64.zip -d "$HOME/.local"

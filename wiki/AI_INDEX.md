@@ -129,10 +129,11 @@ QStar가 하지 않는 일:
   `tests/ninja-backend-parity.sh`는 같은 fixture를 `-G ninja`로 실행한다.
 - Public beta runtime package는 `make qstar-public-beta-release-tests`로 만든다. 이 gate는
   installed binary version, installed wiki/manpages, macOS codesign, prefix-style
-  tarball layout, `SHA256SUMS`, VSCode `.vsix` 미포함 정책을 확인한다. Q246부터
-  `QSTAR_RELEASE_PLATFORM=windows-x86_64 QSTAR_RELEASE_DRY_RUN=1 tools/package-public-beta.sh`
-  는 future Windows public beta zip인 `qstar-v<version>-windows-x86_64.zip`의
-  `bin/qstar.exe`, docs/wiki/manpage, bundled provider layout을 package plan으로 기록한다.
+  tarball layout, `SHA256SUMS`, VSCode `.vsix` 미포함 정책을 확인한다. Q247부터
+  `make qstar-windows-release-asset-smoke-tests`와 Windows manual workflow는 future Windows
+  public beta zip인 `qstar-v<version>-windows-x86_64.zip`을 만들고, extracted
+  `bin/qstar.exe`로 docs lookup, provider vendoring, `qstar init app`, Stella/Ninja 최소
+  build를 검증한다.
   GitHub Wiki mirror는 `tools/sync-github-wiki.sh`로 수행한다.
 - GitHub release 생성 뒤에는 `make qstar-public-beta-download-smoke`를 실행해 실제 uploaded
   asset을 다시 다운로드하고 `SHA256SUMS`, `/tmp` extract, `qstar --version`, installed
@@ -212,13 +213,15 @@ QStar가 하지 않는 일:
   workflow다. Baseline lane은 `msys2-ucrt64-gcc`이며, job 이름은
   `windows beta candidate / msys2-ucrt64-gcc baseline`이다. MSYS2 UCRT64에서
   `make all CC=gcc`, `qstar --version`, native smoke, execution corpus, Windows prep,
-  sharedlib parity, install docs/man smoke, Windows package dry-run을 실행하고
+  sharedlib parity, install docs/man smoke, Windows release asset smoke를 실행하고
   `qstar-windows-beta-candidate`
   artifact로 로그를 남긴다. 이 artifact는 `windows-beta-candidate-status.txt`,
   legacy `windows-alpha-status.txt`, `KNOWN_ISSUES.md`, `status/*.status`,
   `native-alpha-detail/`, `windows-execution-detail/`, `windows-prep-detail/`,
-  `windows-sharedlib-detail/`, `release-package/`을 포함해 실패 class와 future package
-  layout을 raw log만으로 추적하지 않게 한다.
+  `windows-sharedlib-detail/`, `release-package/`, `release-asset-smoke/`을 포함해 실패
+  class와 future package layout/smoke를 raw log만으로 추적하지 않게 한다. 별도
+  `qstar-windows-beta-release-asset` artifact는 zip candidate, `SHA256SUMS`, package reports,
+  extracted smoke logs를 담는다.
   Q172 hosted run `https://github.com/deeyed/qstar/actions/runs/27508325529`은
   `src/executor.c`의 POSIX `<poll.h>` include에서 `make all CC=gcc`가 실패했다. Q179는
   `src/executor.c`와 `src/ninja.c`의 POSIX process runner boundary를 `_WIN32` compile stub으로
@@ -247,8 +250,8 @@ QStar가 하지 않는 일:
   named release gate로 승격했다. PDB/debug artifact는 opt-in/deferred이며 implicit
   install/stage 대상이 아니다. Automatic static `.lib`, MSVC `link.exe`/`lib.exe`,
   PDB/debug은 아직 official contract가 아니다. Windows release packaging은
-  `windows-x86_64` zip skeleton과 dry-run plan까지만 contract이며, actual upload/download
-  smoke는 future gate다. 상세 정책은 `docs/windows-artifact-policy.md`에 둔다.
+  `windows-x86_64` zip Actions artifact와 extracted smoke까지 contract이며, GitHub Release
+  upload/download smoke는 future gate다. 상세 정책은 `docs/windows-artifact-policy.md`에 둔다.
   Q174부터 `tests/corpus/windows-artifacts`는 `windows_fake` toolset으로
   `.exe`/explicit static `.lib` regression을 맡고, Q222부터 real Windows execution corpus도
   stage/install layout과 manifest normalization을 검증한다. Windows sharedlib selector

@@ -16,9 +16,9 @@ with macOS arm64 and Linux x86_64 runtime tarballs. Linux assets
 are produced only from the Ubuntu release workflow or a clean Linux x86_64 host,
 after source validation, Ninja backend parity, extracted tarball smoke, and
 Stella/Ninja medium performance artifact collection. Windows has a manual native
-validation candidate and a `windows-x86_64` zip package skeleton, but no
-published public asset or official host support yet. QStar 1.0 is reserved for a
-release that is validated across macOS, Linux, and
+validation candidate that builds and smoke-tests a `windows-x86_64` zip asset
+candidate in GitHub Actions, but no published public release asset or official
+host support yet. QStar 1.0 is reserved for a release that is validated across macOS, Linux, and
 Windows. The `0.6.x-beta` line is reserved for release/package/documentation
 hotfixes.
 
@@ -258,15 +258,15 @@ qstar replay <action-id>
 | --- | --- |
 | macOS arm64 | 0.7 beta release-prep artifact |
 | Linux x86_64 | 0.7 beta release-prep artifact from Ubuntu release workflow or clean Linux host |
-| Windows | Validation-backed beta candidate through MSYS2 UCRT64; zip package skeleton, no published public asset yet |
+| Windows | Validation-backed beta candidate through MSYS2 UCRT64; zip asset smoke in Actions, no published public release asset yet |
 
 QStar can model custom toolchains and cross-compilation targets through explicit
 toolsets, configs, argv-vector commands, language provider source units, and
 object artifact bridges. Official
 host support is intentionally conservative: the Windows beta candidate lane
 validates source build, execution corpus, install/stage layout, and sharedlib
-runtime/import artifacts plus a release package dry-run plan, but it does not
-publish a Windows release asset yet.
+runtime/import artifacts plus a generated/extracted release zip smoke, but it
+does not publish a Windows release asset yet.
 The 1.0 milestone requires
 validated release artifacts and CI coverage for macOS, Linux, and Windows.
 

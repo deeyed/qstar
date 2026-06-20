@@ -6,7 +6,8 @@ lane to a validation-backed beta candidate. This is still not official Windows
 host support and does not publish a public Windows release asset. Q246 adds the
 first public beta asset preparation skeleton: the Windows workflow now records a
 dry-run package plan for a future `qstar-v<version>-windows-x86_64.zip` runtime
-archive.
+archive. Q247 moves that lane from dry-run to an actual zip asset candidate
+smoke inside GitHub Actions.
 
 ## Support Level
 
@@ -19,7 +20,7 @@ bootstrap shell: MSYS2 UCRT64
 baseline lane: msys2-ucrt64-gcc
 primary compiler: mingw-w64-ucrt-x86_64-gcc
 status artifact: qstar-windows-beta-candidate
-release asset: planned qstar-v<version>-windows-x86_64.zip, not published
+release asset: qstar-v<version>-windows-x86_64.zip candidate artifact in Actions, not published
 official support: no
 ```
 
@@ -45,6 +46,23 @@ defines a prefix-style runtime layout with `bin/qstar.exe`, installed docs,
 manpages, wiki, and bundled language providers. The hosted Windows workflow runs
 that path in `QSTAR_RELEASE_DRY_RUN=1` mode and uploads the generated
 `release-package/` plan files with the beta candidate artifact.
+
+Round Q247 changes the hosted Windows workflow from package dry-run to actual
+asset smoke. It creates `qstar-v<version>-windows-x86_64.zip`, uploads it as the
+`qstar-windows-beta-release-asset` Actions artifact, extracts the zip, and then
+runs the extracted `bin/qstar.exe` through:
+
+- `qstar --version`
+- `qstar docs --path`, `--ai-index`, and `docs --show reference/qstar-lua.md`
+- installed provider file checks under `share/qstar/languages`
+- `qstar init app hello --use-language=c` followed by `qstar build //:app`
+- provider vendoring through `qstar init app hello-zig --use-language=zig`
+- a minimal Windows execution corpus with Stella and Ninja using the extracted
+  binary
+
+This is still not GitHub Release publication. It is the minimum evidence that a
+Windows public beta asset can be produced and consumed by a user-like extracted
+tree.
 
 Round Q178 adds a native execution corpus to that same alpha lane. The new
 `tests/corpus/windows-execution` project is intentionally separate from the
@@ -165,9 +183,10 @@ make qstar-windows-execution-corpus-tests CC=gcc
 make qstar-windows-prep-tests CC=gcc
 make qstar-windows-sharedlib-artifact-parity-tests CC=gcc
 make install CC=gcc PREFIX=/tmp/qstar-windows-smoke
-QSTAR_RELEASE_PLATFORM=windows-x86_64 QSTAR_RELEASE_DRY_RUN=1 \
-  QSTAR_RELEASE_DIST=dist/windows-beta-candidate/release-package \
-  tools/package-public-beta.sh
+QSTAR_WINDOWS_RELEASE_DIST=dist/windows-beta-candidate/release-package \
+QSTAR_WINDOWS_RELEASE_SMOKE_DIR=dist/windows-beta-candidate/release-asset-smoke \
+QSTAR_WINDOWS_RELEASE_ARTIFACT_DIR=dist/windows-beta-candidate/release-asset-detail \
+  sh tests/windows-release-asset-smoke.sh
 ```
 
 Round Q164 isolates the Unix socket Stella daemon implementation from Windows
@@ -243,9 +262,18 @@ windows-sharedlib-detail/failure.status
 windows-sharedlib-detail/tmp/*.out
 windows-sharedlib-detail/tmp/*.err
 windows-sharedlib-detail/windows-artifacts/build-qstar/...
+release-asset-detail/failure.status
+release-asset-detail/release-package/...
+release-asset-detail/release-asset-smoke/...
 release-package/qstar-v<version>-windows-x86_64.package-plan.txt
 release-package/qstar-v<version>-windows-x86_64.expected-contents.txt
-windows-package.log
+release-package/qstar-v<version>-windows-x86_64.zip
+release-package/SHA256SUMS
+release-package/qstar-v<version>-windows-x86_64.contents.txt
+release-asset-smoke/release-asset.status
+release-asset-smoke/logs/*.out
+release-asset-smoke/logs/*.err
+windows-release-asset.log
 SUMMARY.md
 KNOWN_ISSUES.md
 windows-beta-candidate-status.txt
@@ -259,7 +287,7 @@ status/windows-prep.status
 status/windows-sharedlib.status
 status/ninja-backend-parity.status
 status/install.status
-status/windows-package.status
+status/windows-release-asset.status
 ```
 
 If a step fails, its status file is written before the step exits non-zero. The
@@ -273,9 +301,11 @@ script's captured `.out`/`.err` files. The corpus subdirectories preserve
 generated build artifacts such as response files, `compile_commands.json`,
 `ninja/build.ninja`, `logs/last-failure.replay`, action logs, generated object
 bridge outputs, and any stage tree that existed before the failure. The
-`release-package/` directory is created on successful package dry-run as well;
-it is the machine-readable contract for the future Windows public beta zip
-layout.
+`release-package/` directory now contains the actual Windows zip candidate,
+checksums, file reports, contents report, and package plan. The
+`release-asset-smoke/` directory contains user-like extracted package smoke logs.
+If the release asset smoke fails, `release-asset-detail/` copies the package and
+smoke directories into a failure-focused bundle.
 
 ## Local Contract Smoke
 
@@ -286,6 +316,7 @@ make qstar-windows-native-alpha-tests
 make qstar-windows-prep-tests
 make qstar-windows-sharedlib-artifact-parity-tests
 make qstar-windows-release-package-tests
+make qstar-windows-release-asset-smoke-tests
 ```
 
 On non-Windows hosts, `tests/windows-native-alpha.sh` reports
@@ -401,6 +432,11 @@ Current known gaps:
   runtime asset name is `qstar-v<version>-windows-x86_64.zip`; the package
   layout must contain `bin/qstar.exe`, `share/doc/qstar/wiki`, `share/man`,
   and bundled language providers under `share/qstar/languages`.
+- Q247 adds actual Windows zip creation and extracted package smoke to the
+  manual Actions lane. A green Q247 run proves the package can be created,
+  extracted, used for docs lookup, used to vendor standard providers, and used
+  to build small Stella/Ninja projects from the extracted binary. It still does
+  not publish the asset to GitHub Releases.
 - Q172 has not promoted Windows to official support. It only makes
   `msys2-ucrt64-gcc` the baseline lane and ensures failed runs leave structured
   status and known-issue artifacts.
@@ -414,7 +450,7 @@ Current known gaps:
   is a named pipe with Windows ACL rules, not Unix sockets.
 - No published Windows public release asset yet.
 - The `.exe`/static archive/object bridge/sharedlib runtime-import install-stage
-  subset is beta-candidate validated. PDB/debug and actual Windows package
+  subset is beta-candidate validated. PDB/debug and GitHub Release
   upload/download-smoke are still deferred.
 - Windows artifact policy is currently a beta-candidate contract in
   `docs/windows-artifact-policy.md`; native validation still has to prove real
@@ -426,8 +462,8 @@ Current known gaps:
 - Real MSVC/clang-cl compiler execution is not yet a release gate.
 - Windows `.dll`/import `.lib` shared-library lowering is in the beta candidate
   lane and has a named `qstar-windows-sharedlib-artifact-parity-tests` gate.
-  PDB/debug remains deferred; release packaging has a dry-run skeleton but is
-  not yet a published public asset.
+  PDB/debug remains deferred; release packaging now has an actual Actions zip
+  artifact smoke but is not yet a published public asset.
 - Persistent Stella daemon uses Unix socket paths today; Windows named pipe
   support is deferred.
 - QStar DSL package paths still intentionally reject drive letters and
