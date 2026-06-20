@@ -99,6 +99,16 @@ run_logged() {
 	"$@" > "$smoke_dir/logs/$name.out" 2> "$smoke_dir/logs/$name.err"
 }
 
+run_logged_in() {
+	name=$1
+	cwd=$2
+	shift 2
+	(
+		cd "$cwd"
+		"$@"
+	) > "$smoke_dir/logs/$name.out" 2> "$smoke_dir/logs/$name.err"
+}
+
 find_one() {
 	pattern=$1
 	result=$(find "$dist" -maxdepth 1 -name "$pattern" -print -quit)
@@ -184,43 +194,53 @@ test -f "$extract/share/qstar/languages/cuda/cuda.qsm" ||
 
 fake_bin=$smoke_dir/fake-bin
 mkdir -p "$fake_bin"
+cc_path=$(command -v "$cc_tool" 2>/dev/null || true)
+test -n "$cc_path" || fail "could not find '$cc_tool' for fake cc shim"
 cat > "$fake_bin/cc" <<EOF
 #!/bin/sh
 exec "$cc_tool" "\$@"
 EOF
 chmod +x "$fake_bin/cc"
+case "$cc_path" in
+*.exe|*.EXE)
+	cp "$cc_path" "$fake_bin/cc.exe"
+	;;
+esac
 
-hello=$smoke_dir/hello
-run_logged init-hello env PATH="$fake_bin:$PATH" \
-	"$qstar_bin" init app "$hello" --use-language=c
+hello_name=hello
+hello=$smoke_dir/$hello_name
+run_logged_in init-hello "$smoke_dir" env PATH="$fake_bin:$PATH" \
+	"$qstar_bin" init app "$hello_name" --use-language=c
 test -f "$hello/qstar.lua" || fail "qstar init app did not create qstar.lua"
-run_logged build-hello-stella env PATH="$fake_bin:$PATH" \
-	"$qstar_bin" --file "$hello/qstar.lua" build //:app
+run_logged_in build-hello-stella "$smoke_dir" env PATH="$fake_bin:$PATH" \
+	"$qstar_bin" --file "$hello_name/qstar.lua" build //:app
 contains "$smoke_dir/logs/build-hello-stella.out" "status ok"
 hello_exe=$(find "$hello/build/qstar/out" -name 'app.exe' -o -name 'app' | head -n 1)
 test -n "$hello_exe" || fail "qstar init app build did not produce an app artifact"
 run_logged run-hello "$hello_exe"
 
-zig_project=$smoke_dir/hello-zig
-run_logged init-zig env PATH="$fake_bin:$PATH" \
-	"$qstar_bin" init app "$zig_project" --use-language=zig
+zig_name=hello-zig
+zig_project=$smoke_dir/$zig_name
+run_logged_in init-zig "$smoke_dir" env PATH="$fake_bin:$PATH" \
+	"$qstar_bin" init app "$zig_name" --use-language=zig
 contains "$smoke_dir/logs/init-zig.out" "vendor qstar/languages/zig"
 test -f "$zig_project/qstar/languages/zig/zig.qsm" ||
 	fail "extracted qstar init did not vendor Zig manifest"
 test -f "$zig_project/qstar/languages/zig/provider.lua" ||
 	fail "extracted qstar init did not vendor Zig implementation"
 
-corpus=$smoke_dir/windows-execution-corpus
+corpus_name=windows-execution-corpus
+corpus=$smoke_dir/$corpus_name
 rm -rf "$corpus"
 cp -R "$repo_dir/tests/corpus/windows-execution" "$corpus"
-run_logged corpus-stella env PATH="$fake_bin:$PATH" \
-	"$qstar_bin" --file "$corpus/qstar.lua" build //:hello_smoke
+run_logged_in corpus-stella "$smoke_dir" env PATH="$fake_bin:$PATH" \
+	"$qstar_bin" --file "$corpus_name/qstar.lua" build //:hello_smoke
 contains "$smoke_dir/logs/corpus-stella.out" "status ok"
 
 if command -v ninja >/dev/null 2>&1; then
 	rm -rf "$corpus/build" "$corpus/stage" "$corpus/.ninja_log" "$corpus/.ninja_deps"
-	run_logged corpus-ninja env PATH="$fake_bin:$PATH" \
-		"$qstar_bin" --file "$corpus/qstar.lua" -G ninja build //:hello_smoke
+	run_logged_in corpus-ninja "$smoke_dir" env PATH="$fake_bin:$PATH" \
+		"$qstar_bin" --file "$corpus_name/qstar.lua" -G ninja build //:hello_smoke
 	contains "$smoke_dir/logs/corpus-ninja.out" "backend ninja"
 	contains "$smoke_dir/logs/corpus-ninja.out" "status ok"
 else
