@@ -224,10 +224,10 @@ QStar가 하지 않는 일:
   runner, QStar Ninja launcher가 같은 process start/wait/kill/status contract를 사용하게 했다.
   Q220은 Stella action runner의 Windows backend를 `CreateProcessA`로 채웠고, Q221은 같은
   `tests/corpus/windows-execution` graph를 `-G ninja`로도 실행하게 해 QStar-launched Ninja가
-  response files, generated object bridge, run_target expect, install, action-log/replay,
+  response files, generated object bridge, run_target expect, stage, action-log/replay,
   root `.ninja_*` pollution guard를 Windows lane에서 같이 검증하게 했다. Q222는 이 lane에
   `.exe -> bin`, static archive -> `lib`, generated object bridge stage layout,
-  `qstar-install-manifest-v2`/`qstar-stage-manifest-v2` slash-normalized path 검증을 더했다.
+  `qstar-stage-manifest-v2` slash-normalized path 검증을 더했다.
   Q164부터 `src/daemon.c`는 Windows stub을 제공해 Unix socket include 실패를 피하고,
   Windows host에서 `qstar daemon`/`--use-daemon=always`는 named pipe 구현 전까지 deferred
   diagnostic으로 처리한다.
@@ -656,7 +656,7 @@ qstar --file qstar.lua -B out/qstar -G stella build //:target
 qstar --file qstar.lua -G ninja build //:smoke
 qstar --file qstar.lua test //...
 qstar --file qstar.lua stage //:bundle --dry-run
-qstar --file qstar.lua install //:target --prefix /tmp/qstar-install --dry-run
+qstar --file qstar.lua install --out exports/install
 make qstar-linux-validation-tests
 make qstar-windows-prep-tests
 make qstar-windows-native-alpha-tests

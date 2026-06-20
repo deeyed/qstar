@@ -1525,12 +1525,6 @@ if command -v ninja >/dev/null 2>&1; then
 	test -f "$tmp/ninja-parity/stage/bundle/bin/app" || fail "ninja stage output missing"
 	contains "$tmp/ninja-parity/build/qstar/stage/___bundle/manifest.json" "\"schema\":\"qstar-stage-manifest-v2\""
 	contains "$tmp/ninja-parity/build/qstar/stage/___bundle/manifest.json" "\"producer\":\"//:app\""
-	"$qstar" --file "$tmp/ninja-parity/qstar.lua" -G ninja install //:app --prefix "$tmp/ninja-parity-prefix" > "$tmp/ninja-parity-install.out" 2> "$tmp/ninja-parity-install.err"
-	contains "$tmp/ninja-parity-install.out" "backend ninja"
-	contains "$tmp/ninja-parity-install.out" "install_file src=build/qstar/out/___app/app"
-	test -f "$tmp/ninja-parity-prefix/bin/app" || fail "ninja install output missing"
-	contains "$tmp/ninja-parity/build/qstar/install/manifest.json" "\"schema\":\"qstar-install-manifest-v2\""
-	contains "$tmp/ninja-parity/build/qstar/install/manifest.json" "\"role\":\"exe\""
 fi
 
 step "Ninja compile_commands root policy" "ninja-policy-root"
@@ -4156,7 +4150,7 @@ contains "$tmp/fmt-heavy.out" "  sources = {"
 contains "$tmp/fmt-heavy.out" "  lang = {"
 contains "$tmp/fmt-heavy.out" "    c=common_c(),"
 
-for help_cmd in build test stage dry-run emit-ninja lint fmt list-targets check install last-failure replay docs; do
+for help_cmd in build test stage dry-run emit-ninja lint fmt list-targets check last-failure replay docs; do
 	"$qstar" "$help_cmd" --help > "$tmp/help-$help_cmd.out" 2> "$tmp/help-$help_cmd.err"
 	contains "$tmp/help-$help_cmd.out" "usage: qstar"
 done
@@ -4176,8 +4170,8 @@ not_contains "$tmp/help-build-alias.out" "[ 5%] Stage"
 contains "$tmp/help-docs-alias.out" "usage: qstar docs"
 contains "$tmp/help-docs-alias.out" "Generic workflow docs cover qstar.transform"
 "$qstar" help install > "$tmp/help-install-alias.out" 2> "$tmp/help-install-alias.err"
-contains "$tmp/help-install-alias.out" "Compatibility command for conventional"
-contains "$tmp/help-install-alias.out" "qstar.step.export_stage"
+contains "$tmp/help-install-alias.out" "usage: qstar"
+not_contains "$tmp/help-install-alias.out" "Compatibility command for conventional"
 "$qstar" docs > "$tmp/docs.out" 2> "$tmp/docs.err"
 contains "$tmp/docs.out" "qstar docs v1"
 contains "$tmp/docs.out" "wiki/AI_INDEX.md"
@@ -5543,6 +5537,20 @@ qstar.stage "shared_bundle" {
   root = "stage/shared",
   files = {
     qstar.stage_file(qstar.target_file("//:plugin"), "lib/plugin.shared"),
+    qstar.stage_file("include/core.h", "include/core.h"),
+  },
+}
+
+qstar.command "install" {
+  options = {
+    out = qstar.param.path {
+      default = "exports/shared",
+    },
+  },
+  steps = {
+    qstar.step.export_stage("//:shared_bundle", {
+      to = qstar.param("out"),
+    }),
   },
 }
 
@@ -5713,12 +5721,12 @@ contains "$tmp/shared-stage.out" "stage_file src=$shared_artifact dst=stage/shar
 test -f "$tmp/stage/shared/lib/plugin.shared" || fail "sharedlib stage artifact missing"
 contains "$tmp/build/qstar/stage/___shared_bundle/manifest.json" "\"producer\":\"//:plugin\""
 
-step "sharedlib install" "shared-install"
-"$qstar" --file "$tmp/qstar.lua" install //:plugin --prefix "$tmp/shared-prefix" > "$tmp/shared-install.out" 2> "$tmp/shared-install.err"
-contains "$tmp/shared-install.out" "status ok"
-test -f "$tmp/shared-prefix/lib/$(basename "$shared_artifact")" || fail "sharedlib install artifact missing"
-test -f "$tmp/shared-prefix/include/core.h" || fail "sharedlib install header missing"
-contains "$tmp/build/qstar/install/manifest.json" "\"role\":\"sharedlib\""
+step "sharedlib project install command" "shared-install"
+"$qstar" --file "$tmp/qstar.lua" install --out exported/shared > "$tmp/shared-install.out" 2> "$tmp/shared-install.err"
+contains "$tmp/shared-install.out" "command install"
+contains "$tmp/shared-install.out" "command_export_stage label=//:shared_bundle to=exported/shared mode=copy"
+test -f "$tmp/exported/shared/lib/plugin.shared" || fail "sharedlib command export artifact missing"
+test -f "$tmp/exported/shared/include/core.h" || fail "sharedlib command export header missing"
 
 step "sharedlib ninja lowering" "shared-ninja-emit"
 "$qstar" --file "$tmp/qstar.lua" emit-ninja //:plugin_app > "$tmp/shared-ninja-emit.out" 2> "$tmp/shared-ninja-emit.err"
@@ -5806,6 +5814,37 @@ qstar.executable "install_app" {
   sources = {"src/install_main.c"},
   deps = {"//:install_core"},
 }
+
+qstar.stage "install_app_layout" {
+  root = "stage/install-app",
+  description = qstar.status("Staging install_app layout"),
+  files = {
+    qstar.stage_file(qstar.target_file("//:install_app"), "bin/install_app"),
+  },
+}
+
+qstar.stage "install_core_layout" {
+  root = "stage/install-core",
+  description = qstar.status("Staging install_core layout"),
+  files = {
+    qstar.stage_file(qstar.target_file("//:install_core"), "lib/libinstall_core.a"),
+    qstar.stage_file("include/core.h", "include/core.h"),
+    qstar.stage_file("generated/install_config.h", "include/generated/install_config.h"),
+  },
+}
+
+qstar.command "install" {
+  options = {
+    out = qstar.param.path {
+      default = "exports/install-core",
+    },
+  },
+  steps = {
+    qstar.step.export_stage("//:install_core_layout", {
+      to = qstar.param("out"),
+    }),
+  },
+}
 EOF
 
 "$qstar" --file "$tmp/qstar.lua" test //:unit_pass > "$tmp/test-pass.out" 2> "$tmp/test-pass.err"
@@ -5824,26 +5863,21 @@ contains "$tmp/test-timeout.out" "test_result label=//:unit_timeout status=timeo
 
 "$qstar" --file "$tmp/qstar.lua" build //:install_app > "$tmp/install-build.out" 2> "$tmp/install-build.err"
 contains "$tmp/install-build.out" "status ok"
-"$qstar" --file "$tmp/qstar.lua" install //:install_app --prefix "$tmp/prefix" --dry-run > "$tmp/install-dry.out" 2> "$tmp/install-dry.err"
+"$qstar" --file "$tmp/qstar.lua" stage //:install_app_layout --dry-run > "$tmp/install-dry.out" 2> "$tmp/install-dry.err"
 contains "$tmp/install-dry.out" "mode dry-run"
-contains "$tmp/install-dry.out" "install_file src=build/qstar/out/___install_app/install_app"
-contains "$tmp/install-dry.out" "description=\"Installing build/qstar/out/___install_app/install_app\""
-contains "$tmp/install-dry.out" "install_diff dst=$tmp/prefix/bin/install_app action=would-create"
-"$qstar" --file "$tmp/qstar.lua" install //:install_core --prefix "$tmp/prefix" > "$tmp/install-lib.out" 2> "$tmp/install-lib.err"
-contains "$tmp/install-lib.out" "status ok"
-test -f "$tmp/prefix/lib/libinstall_core.a" || fail "missing installed staticlib"
-test -f "$tmp/prefix/include/core.h" || fail "missing installed public header"
-test -f "$tmp/prefix/include/generated/install_config.h" || fail "missing installed generated public header"
-test -f "$tmp/build/qstar/install/manifest.json" || fail "missing install manifest"
-contains "$tmp/build/qstar/install/manifest.json" "\"schema\":\"qstar-install-manifest-v2\""
-contains "$tmp/build/qstar/install/manifest.json" "\"role\":\"staticlib\""
-contains "$tmp/build/qstar/install/manifest.json" "\"role\":\"header\""
-contains "$tmp/build/qstar/install/manifest.json" "\"cmake_config\":\"deferred\""
-
-if "$qstar" --file "$tmp/qstar.lua" install //:unit_pass --prefix "$tmp/prefix" > "$tmp/install-test.out" 2> "$tmp/install-test.err"; then
-	fail "non-installable test target unexpectedly installed"
-fi
-contains "$tmp/install-test.err" "not installable"
+contains "$tmp/install-dry.out" "stage_file src=build/qstar/out/___install_app/install_app dst=stage/install-app/bin/install_app mode=dry-run"
+contains "$tmp/install-dry.out" "description=\"Staging install_app layout\""
+contains "$tmp/install-dry.out" "stage_diff dst=stage/install-app/bin/install_app action=would-create"
+"$qstar" --file "$tmp/qstar.lua" install --out exported/install-core > "$tmp/install-lib.out" 2> "$tmp/install-lib.err"
+contains "$tmp/install-lib.out" "command install"
+contains "$tmp/install-lib.out" "command_export_stage label=//:install_core_layout to=exported/install-core mode=copy"
+test -f "$tmp/exported/install-core/lib/libinstall_core.a" || fail "missing exported staticlib"
+test -f "$tmp/exported/install-core/include/core.h" || fail "missing exported public header"
+test -f "$tmp/exported/install-core/include/generated/install_config.h" || fail "missing exported generated public header"
+test -f "$tmp/build/qstar/stage/___install_core_layout/manifest.json" || fail "missing stage manifest"
+contains "$tmp/build/qstar/stage/___install_core_layout/manifest.json" "\"schema\":\"qstar-stage-manifest-v2\""
+contains "$tmp/build/qstar/stage/___install_core_layout/manifest.json" "\"kind\":\"target\""
+contains "$tmp/build/qstar/stage/___install_core_layout/manifest.json" "\"kind\":\"custom_output\""
 
 manual_root=$(pwd)/tests/manual
 project_root=$(pwd)/tests/projects
@@ -5856,11 +5890,11 @@ contains "$tmp/c-only/build/qstar/compile_commands.json" "src/main.c"
 contains "$tmp/c-only/build/qstar/compile_commands.json" "src/core.c"
 "$qstar" --file "$tmp/c-only/qstar.lua" test //:unit > "$tmp/c-only-test.out" 2> "$tmp/c-only-test.err"
 contains "$tmp/c-only-test.out" "test_result label=//:unit status=pass"
-"$qstar" --file "$tmp/c-only/qstar.lua" install //:core --prefix "$tmp/c-only-prefix" > "$tmp/c-only-install.out" 2> "$tmp/c-only-install.err"
-contains "$tmp/c-only-install.out" "status ok"
-test -f "$tmp/c-only-prefix/lib/libcore.a" || fail "c-only sample did not install libcore.a"
-test -f "$tmp/c-only-prefix/include/corpus.h" || fail "c-only sample did not install public header"
 contains "$tmp/c-only/build/qstar/compile_commands.json" "tests/unit.c"
+"$qstar" --file "$tmp/c-only/qstar.lua" install --out exported/install > "$tmp/c-only-install.out" 2> "$tmp/c-only-install.err"
+contains "$tmp/c-only-install.out" "command install"
+test -f "$tmp/c-only/exported/install/lib/libcore.a" || fail "c-only sample did not export libcore.a"
+test -f "$tmp/c-only/exported/install/include/corpus.h" || fail "c-only sample did not export public header"
 "$qstar" --file "$tmp/c-only/qstar.lua" clean > "$tmp/c-only-clean.out" 2> "$tmp/c-only-clean.err"
 contains "$tmp/c-only-clean.out" "clean_all build/qstar compile_commands=build"
 "$qstar" --file "$tmp/c-only/qstar.lua" build //:app --verbose > "$tmp/c-only-rebuild.out" 2> "$tmp/c-only-rebuild.err"
@@ -5891,14 +5925,13 @@ contains "$tmp/project-c-build.out" "status ok"
 "$tmp/project-c/build/qstar/out/___app/app"
 "$qstar" --file "$tmp/project-c/qstar.lua" test //:unit > "$tmp/project-c-test.out" 2> "$tmp/project-c-test.err"
 contains "$tmp/project-c-test.out" "test_result label=//:unit status=pass"
-"$qstar" --file "$tmp/project-c/qstar.lua" install //:core --prefix "$tmp/project-c-prefix" > "$tmp/project-c-install.out" 2> "$tmp/project-c-install.err"
-test -f "$tmp/project-c-prefix/lib/libcore.a" || fail "project corpus c lib did not install"
-test -f "$tmp/project-c-prefix/include/corpus.h" || fail "project corpus c header did not install"
-contains "$tmp/project-c/build/qstar/install/manifest.json" "\"schema\":\"qstar-install-manifest-v2\""
-contains "$tmp/project-c/build/qstar/install/manifest.json" "\"role\":\"staticlib\""
-contains "$tmp/project-c/build/qstar/install/manifest.json" "\"cmake_config\":\"deferred\""
-contains "$tmp/project-c/build/qstar/compile_commands.json" "src/core.c"
 contains "$tmp/project-c/build/qstar/compile_commands.json" "tests/unit.c"
+"$qstar" --file "$tmp/project-c/qstar.lua" install --out exported/install > "$tmp/project-c-install.out" 2> "$tmp/project-c-install.err"
+test -f "$tmp/project-c/exported/install/lib/libcore.a" || fail "project corpus c lib did not export"
+test -f "$tmp/project-c/exported/install/include/corpus.h" || fail "project corpus c header did not export"
+contains "$tmp/project-c/build/qstar/stage/___install_layout/manifest.json" "\"schema\":\"qstar-stage-manifest-v2\""
+contains "$tmp/project-c/build/qstar/stage/___install_layout/manifest.json" "\"kind\":\"target\""
+contains "$tmp/project-c/build/qstar/compile_commands.json" "src/core.c"
 test ! -e "$tmp/project-c/build/qstar/state/graph.json" || fail "project corpus graph snapshot should be debug opt-in"
 test ! -e "$tmp/project-c/build/qstar/state/last-summary.json" || fail "project corpus success summary should be debug opt-in"
 "$qstar" --file "$tmp/project-c/qstar.lua" build //:app --verbose > "$tmp/project-c-skip.out" 2> "$tmp/project-c-skip.err"
@@ -6180,12 +6213,13 @@ cp -R "$project_root/multipkg" "$tmp/project-multipkg"
 contains "$tmp/project-multipkg-build.out" "package-root $tmp/project-multipkg"
 contains "$tmp/project-multipkg-build.out" "status ok"
 "$tmp/project-multipkg/build/qstar/out/__app_app/app"
-"$qstar" --file "$tmp/project-multipkg/qstar.lua" install //lib:core --prefix "$tmp/project-multipkg-prefix" > "$tmp/project-multipkg-install.out" 2> "$tmp/project-multipkg-install.err"
-test -f "$tmp/project-multipkg-prefix/lib/libcore.a" || fail "multipkg corpus lib did not install"
-test -f "$tmp/project-multipkg-prefix/include/core.h" || fail "multipkg corpus header did not install"
-contains "$tmp/project-multipkg/build/qstar/install/manifest.json" "\"schema\":\"qstar-install-manifest-v2\""
 contains "$tmp/project-multipkg/build/qstar/compile_commands.json" "lib/src/core.c"
 contains "$tmp/project-multipkg/build/qstar/compile_commands.json" "app/src/main.c"
+"$qstar" --file "$tmp/project-multipkg/qstar.lua" install --out exported/install > "$tmp/project-multipkg-install.out" 2> "$tmp/project-multipkg-install.err"
+test -f "$tmp/project-multipkg/exported/install/lib/libcore.a" || fail "multipkg corpus lib did not export"
+test -f "$tmp/project-multipkg/exported/install/include/core.h" || fail "multipkg corpus header did not export"
+contains "$tmp/project-multipkg/build/qstar/stage/___install_layout/manifest.json" "\"schema\":\"qstar-stage-manifest-v2\""
+contains "$tmp/project-multipkg/build/qstar/compile_commands.json" "lib/src/core.c"
 
 cp -R "$project_root/source-dir-style" "$tmp/project-source-dir"
 "$qstar" --file "$tmp/project-source-dir/qstar.lua" lint //... > "$tmp/project-source-dir-lint.out" 2> "$tmp/project-source-dir-lint.err"
@@ -6736,7 +6770,7 @@ contains ".github/workflows/windows-validation.yml" "make qstar-windows-prep-tes
 contains ".github/workflows/windows-validation.yml" "make qstar-windows-sharedlib-artifact-parity-tests"
 contains ".github/workflows/windows-validation.yml" "qstar-windows-beta-candidate"
 contains ".github/workflows/windows-validation.yml" "run_ninja_parity"
-contains "tests/windows-prep.sh" "windows-artifacts-prefix/bin/named_tool.exe"
+contains "tests/windows-prep.sh" "stage/windows-layout/bin/named_tool.exe"
 contains "tests/windows-prep.sh" "--qstar-internal-toolchain clang dry-run"
 contains "tests/windows-prep.sh" "___windows_rsp_compile_0.rsp"
 contains "tests/windows-prep.sh" "/DTRAIL=tail"
@@ -6745,13 +6779,13 @@ contains "tests/windows-prep.sh" "mapped_named.exe"
 contains "tests/windows-prep.sh" "windows_static.lib"
 contains "tests/windows-prep.sh" "windows-list.json"
 contains "tests/windows-prep.sh" "artifact_name"
-contains "tests/windows-prep.sh" "windows-artifacts-prefix/bin/tool.exe"
-contains "tests/windows-prep.sh" "windows-artifacts-plugin-prefix/bin/plugin.dll"
-contains "tests/windows-prep.sh" "windows-artifacts-plugin-prefix/lib/plugin.lib"
+contains "tests/windows-prep.sh" "stage/windows-layout/bin/tool.exe"
+contains "tests/windows-prep.sh" "stage/windows-plugin/bin/plugin.dll"
+contains "tests/windows-prep.sh" "stage/windows-plugin/lib/plugin.lib"
 contains "tests/windows-prep.sh" "known artifacts: runtime, import_lib"
-contains "tests/windows-prep.sh" "windows-artifacts-ninja-prefix/lib/core.lib"
+contains "tests/windows-prep.sh" "stage/windows-layout/lib/core.lib"
 contains "tests/windows-prep.sh" "output_count=2"
-contains "tests/windows-prep.sh" "windows-artifacts-ninja-prefix/bin/plugin.dll"
+contains "tests/windows-prep.sh" "stage/windows-plugin/bin/plugin.dll"
 contains "tests/windows-prep.sh" "backslash stage destination unexpectedly succeeded"
 contains "tests/windows-execution-corpus.sh" "staged generated object bridge output missing"
 contains "tests/windows-execution-corpus.sh" "ninja staged generated object bridge output missing"
@@ -7270,9 +7304,10 @@ contains "$tmp/init-lib/qstar.lua" "name = \"init-lib\""
 test -f "$tmp/init-lib/src/init_lib.c" || fail "init lib did not apply project_ident source path"
 "$qstar" --file "$tmp/init-lib/qstar.lua" test //:unit > "$tmp/init-lib-test.out" 2> "$tmp/init-lib-test.err"
 contains "$tmp/init-lib-test.out" "test_result label=//:unit status=pass"
-"$qstar" --file "$tmp/init-lib/qstar.lua" install //:core --prefix "$tmp/init-lib-prefix" > "$tmp/init-lib-install.out" 2> "$tmp/init-lib-install.err"
-test -f "$tmp/init-lib-prefix/lib/libcore.a" || fail "init lib did not install static library"
-test -f "$tmp/init-lib-prefix/include/init_lib.h" || fail "init lib did not install public header"
+"$qstar" --file "$tmp/init-lib/qstar.lua" install --out exported/install > "$tmp/init-lib-install.out" 2> "$tmp/init-lib-install.err"
+contains "$tmp/init-lib-install.out" "command install"
+test -f "$tmp/init-lib/exported/install/lib/libcore.a" || fail "init lib did not export static library"
+test -f "$tmp/init-lib/exported/install/include/init_lib.h" || fail "init lib did not export public header"
 
 "$qstar" init tool "$tmp/init-tool" --name init-tool > "$tmp/init-tool.out" 2> "$tmp/init-tool.err"
 contains "$tmp/init-tool.out" "shape tool"
@@ -9709,6 +9744,19 @@ qstar.command "export-bundle" {
   },
 }
 
+qstar.command "install" {
+  options = {
+    out = qstar.param.path {
+      default = "exported/install",
+    },
+  },
+  steps = {
+    qstar.step.export_stage("//:bundle", {
+      to = qstar.param("out"),
+    }),
+  },
+}
+
 qstar.command "timeout-run" {
   steps = {
     qstar.step.run {
@@ -9726,6 +9774,7 @@ fi
 contains "$tmp/project-command-list.out" "qstar commands v1"
 contains "$tmp/project-command-list.out" "command make-app default=true aliases=[go] options=2 steps=1"
 contains "$tmp/project-command-list.out" "command combo default=false aliases=[] options=0 steps=1"
+contains "$tmp/project-command-list.out" "command install default=false aliases=[] options=1 steps=1"
 not_contains "$tmp/project-command-list.out" "secret"
 if ! "$qstar" --file "$tmp/project-command/qstar.lua" commands --format json > "$tmp/project-command-list-json.out" 2> "$tmp/project-command-list-json.err"; then
 	cat "$tmp/project-command-list-json.out" >&2
@@ -9806,6 +9855,15 @@ fi
 contains "$tmp/project-command-export.out" "command_step 1/1 kind=export_stage label=//:bundle"
 contains "$tmp/project-command-export.out" "command_export_stage label=//:bundle to=exported/custom mode=copy"
 contains "$tmp/project-command/exported/custom/data/input.txt" "fixture payload"
+rm -rf "$tmp/project-command/exported/install"
+if ! "$qstar" --file "$tmp/project-command/qstar.lua" install --out exported/install > "$tmp/project-command-install.out" 2> "$tmp/project-command-install.err"; then
+	cat "$tmp/project-command-install.out" >&2
+	cat "$tmp/project-command-install.err" >&2
+	fail "project command named install failed"
+fi
+contains "$tmp/project-command-install.out" "command install"
+contains "$tmp/project-command-install.out" "command_export_stage label=//:bundle to=exported/install mode=copy"
+contains "$tmp/project-command/exported/install/data/input.txt" "fixture payload"
 if "$qstar" --file "$tmp/project-command/qstar.lua" --progress off timeout-run > "$tmp/project-command-timeout.out" 2> "$tmp/project-command-timeout.err"; then
 	fail "project command timeout unexpectedly succeeded"
 fi
@@ -9846,19 +9904,6 @@ if "$qstar" --file "$tmp/project-command-bad/qstar.lua" commands > "$tmp/project
 	fail "reserved project command unexpectedly succeeded"
 fi
 contains "$tmp/project-command-reserved.err" "project command name 'build' is reserved"
-cat > "$tmp/project-command-bad/qstar.lua" <<'EOF'
-qstar.command "install" {
-  steps = {
-    qstar.step.check("//..."),
-  },
-}
-EOF
-if "$qstar" --file "$tmp/project-command-bad/qstar.lua" commands > "$tmp/project-command-install-reserved.out" 2> "$tmp/project-command-install-reserved.err"; then
-	fail "install project command unexpectedly succeeded"
-fi
-contains "$tmp/project-command-install-reserved.err" "project command name 'install' is reserved by the qstar CLI compatibility artifact install command"
-contains "$tmp/project-command-install-reserved.err" "qstar.step.export_stage"
-
 mkdir -p "$tmp/project-command-bad-runtime"
 cat > "$tmp/project-command-bad-runtime/qstar.lua" <<'EOF'
 qstar.command "bad-runtime" {

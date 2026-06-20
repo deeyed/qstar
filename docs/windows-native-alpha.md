@@ -295,7 +295,8 @@ The corpus covers:
   run
 - `//:bridge_object` + `//:bridge_app`: generated object artifact bridge dry-run,
   build, and run
-- `qstar install //:app` and `qstar install //:core` into a temporary prefix
+- `qstar.stage` layout checks for executable, static library, generated object,
+  runtime `.dll`, and import `.lib` artifacts
 
 The status file is:
 

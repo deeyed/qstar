@@ -51,9 +51,9 @@ destination도 layout conflict로 거절된다.
 
 Stage layout을 다른 action이나 project command가 소비해야 하면 `qstar.stage_dir("//:bundle")`를
 `run_target.inputs`나 `qstar.step.run.inputs`에 선언하고, command argv에서는
-`qstar.input(N)`으로 참조한다. 사람이 직접 실행하는 layout export는 built-in `install`을
-덮어쓰지 말고 root `qstar.command` 안에서 `qstar.step.export_stage("//:bundle", { to = ... })`로
-표현한다.
+`qstar.input(N)`으로 참조한다. 사람이 직접 실행하는 layout export는 root `qstar.command`
+안에서 `qstar.step.export_stage("//:bundle", { to = ... })`로 표현한다. `install`,
+`deploy`, `flash`, `publish` 같은 command 이름은 프로젝트가 직접 선택한다.
 
 ## 관련 CLI
 
@@ -70,4 +70,4 @@ qstar --file qstar.lua last-failure
 - `stage destination is duplicated`
 - `stage destination layout conflict`
 - `failure_kind=package-failure`
-- `project command name 'install' is reserved`
+- `project command name 'build' is reserved`

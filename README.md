@@ -239,7 +239,8 @@ qstar dry-run //:app
 qstar emit-ninja //:app
 qstar build //:app
 qstar test //...
-qstar install //:app --prefix /tmp/qstar-install
+qstar commands
+qstar install --out exports/install  # if qstar.lua declares qstar.command "install"
 qstar stage //:image --dry-run
 qstar why-rebuild //:app
 qstar clean //:app

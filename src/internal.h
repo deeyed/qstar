@@ -335,7 +335,7 @@ const char *qstar_target_output_group(const struct qstar_target *target);
 /** target artifact가 local executor에서 실행 가능한 파일인지 확인한다. */
 int qstar_target_has_executable_artifact(const struct qstar_target *target);
 
-/** target artifact가 qstar install 대상인지 확인한다. */
+/** target artifact가 conventional layout export에 적합한지 확인한다. */
 int qstar_target_is_installable(const struct qstar_target *target);
 
 /** compile action의 사용자-facing description을 만든다. */
@@ -355,9 +355,6 @@ int qstar_action_description_run(const struct qstar_target *target, char *dst, s
 
 /** stage action의 사용자-facing description을 만든다. */
 int qstar_action_description_stage(const struct qstar_stage *stage, char *dst, size_t dstlen);
-
-/** install action의 사용자-facing description을 만든다. */
-int qstar_action_description_install(const char *artifact, char *dst, size_t dstlen);
 
 struct qstar_init_options {
 	const char *shape;

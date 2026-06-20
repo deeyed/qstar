@@ -258,7 +258,7 @@ qstar_target_has_executable_artifact(const struct qstar_target *target)
 	return rule ? rule->executable_artifact : 0;
 }
 
-/** target artifact가 qstar install 대상인지 확인한다. */
+/** target artifact가 conventional layout export에 적합한지 확인한다. */
 int
 qstar_target_is_installable(const struct qstar_target *target)
 {
@@ -390,12 +390,4 @@ qstar_action_description_stage(const struct qstar_stage *stage, char *dst, size_
 		return description_format(dst, dstlen, "%s", stage->description);
 	return description_format(dst, dstlen, "Staging %s",
 	    stage && stage->label ? stage->label : "<stage>");
-}
-
-/** install action의 사용자-facing description을 만든다. */
-int
-qstar_action_description_install(const char *artifact, char *dst, size_t dstlen)
-{
-	return description_format(dst, dstlen, "Installing %s",
-	    artifact && *artifact ? artifact : "<artifact>");
 }

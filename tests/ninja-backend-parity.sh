@@ -160,6 +160,19 @@ qstar.stage "shared_bundle" {
   },
 }
 
+qstar.command "install" {
+  options = {
+    out = qstar.param.path {
+      default = "exports/shared",
+    },
+  },
+  steps = {
+    qstar.step.export_stage("//:shared_bundle", {
+      to = qstar.param("out"),
+    }),
+  },
+}
+
 QSTAR
 cat > "$tmp/shared/src/plugin.c" <<'SRC'
 int plugin_value(void) { return 9; }
@@ -255,10 +268,10 @@ if command -v ninja >/dev/null 2>&1; then
 		contains "$tmp/c-app-build.out" "status ok"
 		printf 'qstar-ninja-backend-parity: c-app executable runtime skipped reason=windows-explicit-exe-required\n'
 	fi
-	"$qstar" --file "$c_app/qstar.lua" -G ninja install //:core --prefix "$tmp/c-app-prefix" > "$tmp/c-app-install.out" 2> "$tmp/c-app-install.err"
+	"$qstar" --file "$c_app/qstar.lua" -G ninja install --out exports/install > "$tmp/c-app-install.out" 2> "$tmp/c-app-install.err"
 	contains "$tmp/c-app-install.out" "backend ninja"
-	test -f "$tmp/c-app-prefix/lib/libcore.a" || fail "c-app ninja install lib missing"
-	test -f "$tmp/c-app-prefix/include/corpus.h" || fail "c-app ninja install header missing"
+	test -f "$c_app/exports/install/lib/libcore.a" || fail "c-app ninja command export lib missing"
+	test -f "$c_app/exports/install/include/corpus.h" || fail "c-app ninja command export header missing"
 	test ! -f "$c_app/.ninja_log" || fail "c-app ninja wrote package root .ninja_log"
 	test ! -f "$c_app/.ninja_deps" || fail "c-app ninja wrote package root .ninja_deps"
 
@@ -278,9 +291,6 @@ if command -v ninja >/dev/null 2>&1; then
 		contains "$tmp/generated-stage.out" "stage_file src=build/qstar/out/___app/app"
 		test -f "$generated/stage/bundle/bin/app" || fail "generated ninja stage app missing"
 		test -f "$generated/stage/bundle/share/value.c" || fail "generated ninja stage source missing"
-		"$qstar" --file "$generated/qstar.lua" -G ninja install //:app --prefix "$tmp/generated-prefix" > "$tmp/generated-install.out" 2> "$tmp/generated-install.err"
-		contains "$tmp/generated-install.out" "backend ninja"
-		test -f "$tmp/generated-prefix/bin/app" || fail "generated ninja install app missing"
 	else
 		"$qstar" --file "$generated/qstar.lua" -G ninja build //:make_value --progress off > "$tmp/generated-build.out" 2> "$tmp/generated-build.err"
 		contains "$tmp/generated-build.out" "backend ninja"
@@ -348,10 +358,10 @@ if command -v ninja >/dev/null 2>&1; then
 		contains "$tmp/shared-stage.out" "backend ninja"
 		contains "$tmp/shared-stage.out" "stage_file src=$shared_artifact dst=stage/shared/lib/plugin.shared mode=copy"
 		test -f "$tmp/shared/stage/shared/lib/plugin.shared" || fail "sharedlib ninja stage artifact missing"
-		"$qstar" --file "$tmp/shared/qstar.lua" -G ninja install //:plugin --prefix "$tmp/shared-prefix" > "$tmp/shared-install.out" 2> "$tmp/shared-install.err"
+		"$qstar" --file "$tmp/shared/qstar.lua" -G ninja install --out exports/shared > "$tmp/shared-install.out" 2> "$tmp/shared-install.err"
 		contains "$tmp/shared-install.out" "backend ninja"
-		test -f "$tmp/shared-prefix/lib/$(basename "$shared_artifact")" || fail "sharedlib ninja install artifact missing"
-		contains "$tmp/shared/build/qstar/install/manifest.json" "\"role\":\"sharedlib\""
+		test -f "$tmp/shared/exports/shared/lib/plugin.shared" || fail "sharedlib ninja command export artifact missing"
+		contains "$tmp/shared/build/qstar/stage/___shared_bundle/manifest.json" "\"producer\":\"//:plugin\""
 		test ! -f "$tmp/shared/.ninja_log" || fail "sharedlib ninja wrote package root .ninja_log"
 		test ! -f "$tmp/shared/.ninja_deps" || fail "sharedlib ninja wrote package root .ninja_deps"
 		else

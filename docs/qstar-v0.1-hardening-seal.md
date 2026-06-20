@@ -127,7 +127,7 @@ qstar/build/bin/qstar init app /tmp/my-qstar-app
 cd /tmp/my-qstar-app
 /path/to/qstar/build/bin/qstar --file qstar.lua build //:app
 /path/to/qstar/build/bin/qstar --file qstar.lua test //:unit
-/path/to/qstar/build/bin/qstar --file qstar.lua install //:app --prefix /tmp/qstar-install --dry-run
+/path/to/qstar/build/bin/qstar --file qstar.lua install --out exports/install
 ```
 
 For external sources, QStar still uses public-ish process invocation only. It does

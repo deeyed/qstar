@@ -1517,8 +1517,30 @@ write_lib_shape(const struct init_context *ctx, FILE *out, char *error, size_t e
 	    "  configs = {\"//:debug\"},\n"
 	    "  sources = {\"tests/unit.c\"},\n"
 	    "  deps = {\"//:core\"},\n"
+	    "}\n"
+	    "\n"
+	    "qstar.stage \"install_layout\" {\n"
+	    "  root = \"build/qstar/stage/install\",\n"
+	    "  files = {\n"
+	    "    qstar.stage_file(qstar.target_file(\"//:core\"), \"lib/libcore.a\"),\n"
+	    "    qstar.stage_file(\"include/%s.h\", \"include/%s.h\"),\n"
+	    "  },\n"
+	    "}\n"
+	    "\n"
+	    "qstar.command \"install\" {\n"
+	    "  options = {\n"
+	    "    out = qstar.param.path {\n"
+	    "      default = \"exports/install\",\n"
+	    "    },\n"
+	    "  },\n"
+	    "  steps = {\n"
+	    "    qstar.step.export_stage(\"//:install_layout\", {\n"
+	    "      to = qstar.param(\"out\"),\n"
+	    "    }),\n"
+	    "  },\n"
 	    "}\n",
-	    ctx->project_ident, ctx->project_ident) < 0 ||
+	    ctx->project_ident, ctx->project_ident, ctx->project_ident,
+	    ctx->project_ident) < 0 ||
 	    format_qstar_lua(ctx, body, sizeof(body), error, error_len,
 	    target_body) < 0)
 		return -1;
@@ -1637,8 +1659,28 @@ write_workspace_shape(const struct init_context *ctx, FILE *out, char *error,
 	    "    \"//packages/core:core\",\n"
 	    "    \"//packages/app:app\",\n"
 	    "  },\n"
-	    "}\n",
-	    "") < 0 ||
+	    "}\n"
+	    "\n"
+	    "qstar.stage \"install_layout\" {\n"
+	    "  root = \"build/qstar/stage/install\",\n"
+	    "  files = {\n"
+	    "    qstar.stage_file(qstar.target_file(\"//packages/core:core\"), \"lib/libcore.a\"),\n"
+	    "    qstar.stage_file(\"packages/core/include/core.h\", \"include/core.h\"),\n"
+	    "  },\n"
+	    "}\n"
+	    "\n"
+	    "qstar.command \"install\" {\n"
+	    "  options = {\n"
+	    "    out = qstar.param.path {\n"
+	    "      default = \"exports/install\",\n"
+	    "    },\n"
+	    "  },\n"
+	    "  steps = {\n"
+	    "    qstar.step.export_stage(\"//:install_layout\", {\n"
+	    "      to = qstar.param(\"out\"),\n"
+	    "    }),\n"
+	    "  },\n"
+	    "}\n") < 0 ||
 	    format_qstar_lua(ctx, body, sizeof(body), error, error_len,
 	    target_body) < 0)
 		return -1;

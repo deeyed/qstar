@@ -23,3 +23,24 @@ qstar.test "unit" {
   sources = {"tests/unit.c"},
   deps = {"//:core"},
 }
+
+qstar.stage "install_layout" {
+  root = "build/qstar/stage/install",
+  files = {
+    qstar.stage_file(qstar.target_file("//:core"), "lib/libcore.a"),
+    qstar.stage_file("include/corpus.h", "include/corpus.h"),
+  },
+}
+
+qstar.command "install" {
+  options = {
+    out = qstar.param.path {
+      default = "exports/install",
+    },
+  },
+  steps = {
+    qstar.step.export_stage("//:install_layout", {
+      to = qstar.param("out"),
+    }),
+  },
+}

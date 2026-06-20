@@ -171,60 +171,6 @@ native-windows-execution)
 	;;
 esac
 
-prefix="$tmp/prefix"
-"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows install //:app \
-	--prefix "$prefix" > "$tmp/install-app.out" 2> "$tmp/install-app.err"
-contains "$tmp/install-app.out" "install_file src=build/qstar/out/___app/app.exe"
-contains "$tmp/install-app.out" "role=exe"
-test -f "$prefix/bin/app.exe" || fail "installed app.exe missing"
-install_manifest="$corpus/$build_dir/install/manifest.json"
-contains "$install_manifest" "\"schema\":\"qstar-install-manifest-v2\""
-contains "$install_manifest" "\"prefix\":\""
-contains "$install_manifest" "/prefix\""
-contains "$install_manifest" "\"role\":\"exe\""
-contains "$install_manifest" "\"src\":\"build/qstar/out/___app/app.exe\""
-contains "$install_manifest" "/prefix/bin/app.exe\""
-not_contains "$install_manifest" "\\"
-
-"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows install //:core \
-	--prefix "$prefix" > "$tmp/install-core.out" 2> "$tmp/install-core.err"
-contains "$tmp/install-core.out" "install_file src=build/qstar/out/___core/libwinexec_core.a"
-contains "$tmp/install-core.out" "role=staticlib"
-test -f "$prefix/lib/libwinexec_core.a" ||
-	fail "installed static library missing"
-contains "$install_manifest" "\"role\":\"staticlib\""
-contains "$install_manifest" "\"src\":\"build/qstar/out/___core/libwinexec_core.a\""
-contains "$install_manifest" "/prefix/lib/libwinexec_core.a\""
-not_contains "$install_manifest" "\\"
-
-"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows install //:bridge_app \
-	--prefix "$prefix" > "$tmp/install-bridge-app.out" 2> "$tmp/install-bridge-app.err"
-contains "$tmp/install-bridge-app.out" "install_file src=build/qstar/out/___bridge_app/bridge_app.exe"
-contains "$tmp/install-bridge-app.out" "role=exe"
-test -f "$prefix/bin/bridge_app.exe" || fail "installed bridge_app.exe missing"
-contains "$install_manifest" "\"role\":\"exe\""
-contains "$install_manifest" "\"src\":\"build/qstar/out/___bridge_app/bridge_app.exe\""
-contains "$install_manifest" "/prefix/bin/bridge_app.exe\""
-not_contains "$install_manifest" "\\"
-
-case "$mode" in
-native-windows-execution)
-	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows install //:plugin \
-		--prefix "$prefix" > "$tmp/install-plugin.out" \
-		2> "$tmp/install-plugin.err"
-	contains "$tmp/install-plugin.out" "install_file src=build/qstar/out/___plugin/plugin.dll"
-	contains "$tmp/install-plugin.out" "role=sharedlib artifact=runtime"
-	contains "$tmp/install-plugin.out" "install_file src=build/qstar/out/___plugin/plugin.lib"
-	contains "$tmp/install-plugin.out" "role=import_lib artifact=import_lib"
-	test -f "$prefix/bin/plugin.dll" || fail "installed plugin.dll missing"
-	test -f "$prefix/lib/plugin.lib" || fail "installed plugin.lib missing"
-	install_manifest="$corpus/$build_dir/install/manifest.json"
-	contains "$install_manifest" "\"role\":\"sharedlib\",\"artifact\":\"runtime\""
-	contains "$install_manifest" "\"role\":\"import_lib\",\"artifact\":\"import_lib\""
-	not_contains "$install_manifest" "\\"
-	;;
-esac
-
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows stage //:layout \
 	> "$tmp/stage-layout.out" 2> "$tmp/stage-layout.err"
 contains "$tmp/stage-layout.out" "stage_file src=build/qstar/out/___app/app.exe"
@@ -333,51 +279,6 @@ if command -v ninja >/dev/null 2>&1; then
 		> "$tmp/ninja-bridge-replay.out" 2> "$tmp/ninja-bridge-replay.err"
 	contains "$tmp/ninja-bridge-replay.out" "qstar replay v1"
 	contains "$tmp/ninja-bridge-replay.out" "tools/build-object.sh"
-	ninja_prefix="$tmp/ninja-prefix"
-	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
-		-G ninja install //:app --prefix "$ninja_prefix" \
-		> "$tmp/ninja-install-app.out" 2> "$tmp/ninja-install-app.err"
-	contains "$tmp/ninja-install-app.out" "backend ninja"
-	test -f "$ninja_prefix/bin/app.exe" || fail "ninja installed app.exe missing"
-	install_manifest="$corpus/$build_dir/install/manifest.json"
-	contains "$install_manifest" "\"role\":\"exe\""
-	contains "$install_manifest" "/ninja-prefix/bin/app.exe\""
-	not_contains "$install_manifest" "\\"
-	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
-		-G ninja install //:core --prefix "$ninja_prefix" \
-		> "$tmp/ninja-install-core.out" 2> "$tmp/ninja-install-core.err"
-	contains "$tmp/ninja-install-core.out" "backend ninja"
-	test -f "$ninja_prefix/lib/libwinexec_core.a" ||
-		fail "ninja installed static library missing"
-	contains "$install_manifest" "\"role\":\"staticlib\""
-	contains "$install_manifest" "/ninja-prefix/lib/libwinexec_core.a\""
-	not_contains "$install_manifest" "\\"
-	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
-		-G ninja install //:bridge_app --prefix "$ninja_prefix" \
-		> "$tmp/ninja-install-bridge-app.out" 2> "$tmp/ninja-install-bridge-app.err"
-	contains "$tmp/ninja-install-bridge-app.out" "backend ninja"
-	test -f "$ninja_prefix/bin/bridge_app.exe" ||
-		fail "ninja installed bridge_app.exe missing"
-	contains "$install_manifest" "\"role\":\"exe\""
-	contains "$install_manifest" "/ninja-prefix/bin/bridge_app.exe\""
-	not_contains "$install_manifest" "\\"
-	case "$mode" in
-	native-windows-execution)
-		"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
-			-G ninja install //:plugin --prefix "$ninja_prefix" \
-			> "$tmp/ninja-install-plugin.out" \
-			2> "$tmp/ninja-install-plugin.err"
-		contains "$tmp/ninja-install-plugin.out" "backend ninja"
-		test -f "$ninja_prefix/bin/plugin.dll" ||
-			fail "ninja installed plugin.dll missing"
-		test -f "$ninja_prefix/lib/plugin.lib" ||
-			fail "ninja installed plugin.lib missing"
-		install_manifest="$corpus/$build_dir/install/manifest.json"
-		contains "$install_manifest" "\"role\":\"sharedlib\",\"artifact\":\"runtime\""
-		contains "$install_manifest" "\"role\":\"import_lib\",\"artifact\":\"import_lib\""
-		not_contains "$install_manifest" "\\"
-		;;
-	esac
 	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
 		-G ninja stage //:layout > "$tmp/ninja-stage-layout.out" \
 		2> "$tmp/ninja-stage-layout.err"

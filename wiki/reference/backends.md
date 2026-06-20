@@ -130,7 +130,7 @@ qstar --file qstar.lua emit-ninja //:app
 qstar --file qstar.lua -G ninja build //:app
 qstar --file qstar.lua -G ninja test //:unit
 qstar --file qstar.lua -G ninja stage //:bundle
-qstar --file qstar.lua -G ninja install //:app --prefix /tmp/qstar-install
+qstar --file qstar.lua -G ninja install --out exports/install
 ```
 
 ## 관련 diagnostic

@@ -136,21 +136,6 @@ contains "$stage_manifest" "\"artifact\":\"runtime\""
 contains "$stage_manifest" "\"artifact\":\"import_lib\""
 not_contains "$stage_manifest" "\\"
 
-"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
-	--qstar-internal-toolchain clang install //:plugin \
-	--prefix "$tmp/windows-sharedlib-prefix" \
-	> "$tmp/install-plugin.out" 2> "$tmp/install-plugin.err"
-contains "$tmp/install-plugin.out" "role=sharedlib artifact=runtime"
-contains "$tmp/install-plugin.out" "role=import_lib artifact=import_lib"
-test -f "$tmp/windows-sharedlib-prefix/bin/plugin.dll" ||
-	fail "Stella Windows sharedlib installed runtime plugin.dll missing"
-test -f "$tmp/windows-sharedlib-prefix/lib/plugin.lib" ||
-	fail "Stella Windows sharedlib installed import plugin.lib missing"
-install_manifest="$corpus/$build_dir/install/manifest.json"
-contains "$install_manifest" "\"role\":\"sharedlib\",\"artifact\":\"runtime\""
-contains "$install_manifest" "\"role\":\"import_lib\",\"artifact\":\"import_lib\""
-not_contains "$install_manifest" "\\"
-
 if command -v ninja >/dev/null 2>&1; then
 	rm -rf "$corpus/$build_dir" "$corpus/.ninja_log" "$corpus/.ninja_deps"
 	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
@@ -198,21 +183,6 @@ if command -v ninja >/dev/null 2>&1; then
 		fail "Ninja Windows sharedlib staged runtime plugin.dll missing"
 	test -f "$corpus/$build_dir/stage/windows-plugin/lib/plugin.lib" ||
 		fail "Ninja Windows sharedlib staged import plugin.lib missing"
-
-	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
-		--qstar-internal-toolchain clang -G ninja install //:plugin \
-		--prefix "$tmp/windows-sharedlib-ninja-prefix" \
-		> "$tmp/ninja-install-plugin.out" \
-		2> "$tmp/ninja-install-plugin.err"
-	contains "$tmp/ninja-install-plugin.out" "backend ninja"
-	test -f "$tmp/windows-sharedlib-ninja-prefix/bin/plugin.dll" ||
-		fail "Ninja Windows sharedlib installed runtime plugin.dll missing"
-	test -f "$tmp/windows-sharedlib-ninja-prefix/lib/plugin.lib" ||
-		fail "Ninja Windows sharedlib installed import plugin.lib missing"
-	install_manifest="$corpus/$build_dir/install/manifest.json"
-	contains "$install_manifest" "\"role\":\"sharedlib\",\"artifact\":\"runtime\""
-	contains "$install_manifest" "\"role\":\"import_lib\",\"artifact\":\"import_lib\""
-	not_contains "$install_manifest" "\\"
 	printf 'qstar-windows-sharedlib-artifact-parity: ninja=passed\n'
 else
 	printf 'qstar-windows-sharedlib-artifact-parity: ninja=skipped reason=ninja-not-found\n'

@@ -248,15 +248,14 @@ The detailed artifact contract is `docs/windows-artifact-policy.md`. Summary:
   `qstar.target_file("//:plugin", { artifact = "import_lib" })` selects the
   import library. Dependent targets link against the import `.lib`.
   PDB/debug ownership and general runtime search path policy remain deferred.
-- Q222 validates the current alpha install/stage subset on Windows hosts:
-  executable `.exe` files land under `bin/`, static archive artifacts land under
-  `lib/`, generated object bridge outputs can be staged, and
-  `qstar-install-manifest-v2` / `qstar-stage-manifest-v2` record slash-normalized
-  path fields.
+- Q222 validates the current alpha stage/layout subset on Windows hosts:
+  executable `.exe` files can be staged under `bin/`, static archive artifacts
+  under `lib/`, generated object bridge outputs can be staged, and
+  `qstar-stage-manifest-v2` records slash-normalized path fields.
 
 Do not claim Windows packaging support until `.exe`, static `.lib`, runtime
 `.dll`, import `.lib`, debug artifact, and install layout behavior are
-validated on Windows.
+validated on Windows through explicit stage/export workflows.
 
 ## Regression Gate
 

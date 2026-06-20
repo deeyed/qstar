@@ -216,13 +216,14 @@ top-level command를 추가하면 project CLI가 fragment evaluation order에 �
 - It must not start with `-`, `:`, `/`, or `@`.
 - It must not contain path separators.
 - It cannot collide with another command or alias.
-- It cannot override reserved core commands unless a compatibility rule explicitly demotes
-  that core command into project-command dispatch.
+- It cannot override reserved core commands.
+- `install` is intentionally not reserved; projects may define it as a normal
+  layout export command.
 
 Reserved names initially include:
 
 ```text
-build, test, stage, check, lint, fmt, clean, install, docs, daemon,
+build, test, stage, check, lint, fmt, clean, docs, daemon,
 list-targets, query, doctor, explain, dry-run, emit-ninja, why-rebuild,
 log, action-log, replay, last-failure, init
 ```
@@ -383,9 +384,9 @@ qstar.command "probe" {
 
 ## 7. Install As Explicit Layout Export
 
-The existing `qstar install` command is a compatibility command for conventional tool/library
-artifact installation. It is useful, but it is not the generic deployment model for every project.
-The more generic model is:
+QStar has no built-in `qstar install` artifact installer. Install, export, deploy,
+flash, package, or publish workflows are project-owned commands built from generic
+layout primitives. The generic model is:
 
 ```text
 explicit layout -> optional external export command
@@ -402,22 +403,22 @@ qstar.stage "install_layout" {
   },
 }
 
-qstar.command "install-local" {
+qstar.command "install" {
   options = {
-    prefix = qstar.param.path { required = true },
+    out = qstar.param.path { default = "exports/install" },
   },
   steps = {
     qstar.step.export_stage("//:install_layout", {
-      to = qstar.param("prefix"),
+      to = qstar.param("out"),
     }),
   },
 }
 ```
 
-This avoids hard-coding Unix-only assumptions into every project. A CLI tool can still use the
-compatibility `qstar install` command for conventional artifacts. A packaged-output project can
-define a bundle command. A data project can define an export command. QStar sees only layout and
-copy/export semantics.
+This avoids hard-coding Unix-only assumptions into every project. A CLI tool can
+define an `install` command. A packaged-output project can define a `bundle`
+command. A board bring-up project can define a `flash` command. QStar sees only
+layout and copy/export semantics.
 
 ## 8. `qstar.import_module` Cache/Reuse
 

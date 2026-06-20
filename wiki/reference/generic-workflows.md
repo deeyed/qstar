@@ -130,10 +130,10 @@ producer로 추적한다. `qstar.stage_dir("//:workflow_layout")`는 stage root�
 선언하고, command argv에는 `qstar.input(N)`으로 넘긴다. 따라서 Stella와 Ninja 모두
 consumer action 전에 transform과 stage producer를 먼저 실행한다.
 
-`qstar.step.export_stage`는 explicit layout export다. Built-in `qstar install`은 conventional
-artifact install 호환 명령으로 남아 있고, project-specific layout export는 command 안에서
-명시적으로 작성한다. `qstar.command "install"`처럼 core CLI 이름을 덮어쓰는 command나 alias는
-거절된다.
+`qstar.step.export_stage`는 explicit layout export다. QStar에는 built-in `qstar install`
+artifact installer가 없으며, project-specific layout export는 command 안에서 명시적으로
+작성한다. `qstar.command "install"`은 허용된다. 이 이름도 `deploy`, `flash`, `publish`,
+`bundle`과 마찬가지로 프로젝트가 정의하는 user-facing command일 뿐이다.
 
 ## 실패 예제
 
@@ -171,6 +171,6 @@ concepts so public syntax does not grow domain-specific target kinds.
 
 - `qstar.stage_dir is only valid in run_target inputs`
 - `qstar.stage_dir in run_target command must also be declared in inputs`
-- `project command name 'install' is reserved`
+- `project command name 'build' is reserved`
 - `unknown transform field`
 - `transform '//:name' requires input`

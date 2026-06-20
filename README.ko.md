@@ -208,7 +208,8 @@ qstar dry-run //:app
 qstar emit-ninja //:app
 qstar build //:app
 qstar test //...
-qstar install //:app --prefix /tmp/qstar-install
+qstar commands
+qstar install --out exports/install  # qstar.lua가 qstar.command "install"을 선언한 경우
 qstar stage //:image --dry-run
 qstar why-rebuild //:app
 qstar clean --target //:app

@@ -54,7 +54,7 @@ Header surface도 C provider option이므로 `lang.c.public_headers`로 옮겨�
 ```sh
 qstar --file qstar.lua lint //:core
 qstar --file qstar.lua dry-run //:core
-qstar --file qstar.lua install //:core --prefix /tmp/qstar-prefix
+qstar --file qstar.lua install --out exports/install
 ```
 
 ## 관련 diagnostic

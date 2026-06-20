@@ -40,7 +40,8 @@ stable public protocol은 아니다.
   `link_inputs`. Header/include surface는 `lang.c`, `lang.cxx`, `lang.asm`
   아래에 둔다.
 - commands: `list-targets`, `query`, `doctor`, `check`, `explain`, `dry-run`, `build`,
-  `test`, `install`, `why-rebuild`, `log`, `last-failure`, `clean`, `--dump-graph`.
+  `test`, `stage`, project-defined `qstar.command`, `why-rebuild`, `log`,
+  `last-failure`, `clean`, `--dump-graph`.
 - diagnostics: default text and `--diagnostics json` skeleton.
 
 이 contract는 v0 authoring을 깨뜨리지 않기 위한 최소 약속이다. 출력 text의 공백,
@@ -53,7 +54,7 @@ Round 20 manual corpus는 QStar를 손으로 써볼 수 있게 하는 작은 pro
 
 | sample | 목적 |
 | --- | --- |
-| `qstar/tests/manual/c-only` | C static library, executable, test target, install flow |
+| `qstar/tests/manual/c-only` | C static library, executable, test target, explicit layout export |
 | `qstar/tests/manual/generated` | generated config header와 generated C source chaining |
 | `qstar/tests/manual/generated-extra` | C/external mixed target의 dry-run command plan |
 
@@ -66,7 +67,7 @@ cp -R qstar/tests/manual/c-only "$tmp/c-only"
 cd "$tmp/c-only"
 /path/to/qstar/build/bin/qstar --file qstar.lua build //:app
 /path/to/qstar/build/bin/qstar --file qstar.lua test //:unit
-/path/to/qstar/build/bin/qstar --file qstar.lua install //:core --prefix "$tmp/install"
+/path/to/qstar/build/bin/qstar --file qstar.lua install --out exports/install
 ```
 
 Generated sample:

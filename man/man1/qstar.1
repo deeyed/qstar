@@ -20,7 +20,7 @@
 .Sh DESCRIPTION
 .Nm
 evaluates QStar authoring files, validates a target graph, renders command
-plans, and runs a limited local executor for build, test, install, stage, and
+plans, and runs a limited local executor for build, test, stage, and
 external smoke actions.
 The project entrypoint is
 .Pa qstar.lua .
@@ -55,8 +55,8 @@ runs the local Stella executor.
 emits and runs a Ninja backend for C/C++/ASM compile, generated actions,
 static libraries, executable/test links, run target wrappers, and group phony
 targets.
-Stage and install copy/manifest work is still performed by QStar, but referenced
-target artifacts are built through the effective generator.
+Stage copy/manifest work is still performed by QStar, but referenced target
+artifacts are built through the effective generator.
 .It Fl -generator Ar stella|ninja|auto
 Alias for
 .Fl G .
@@ -95,8 +95,9 @@ for the stable machine-readable command listing.
 Run a root project command declared by
 .Ic qstar.command .
 Project commands are made of generic QStar steps such as build, test, stage,
-check, lint, or command call steps. Global QStar options still appear before
-the project command name; command-specific options appear after it.
+check, lint, command call, or explicit layout export steps. Global QStar options
+still appear before the project command name; command-specific options appear
+after it.
 .It Ic query
 Print one target, generated action, stage, or config by label.
 .It Ic doctor
@@ -137,7 +138,7 @@ executable/test links, and
 wrappers, plus
 .Ic qstar.group
 phony targets.
-Stage/install copy and manifest actions remain QStar-owned.
+Stage copy and manifest actions remain QStar-owned.
 Shared library consumers receive build-tree
 .Ar @loader_path
 or
@@ -282,18 +283,11 @@ is requested. Failed actions and the last-failure replay are still written
 immediately.
 .It Ic test
 Build and run QStar test targets.
-.It Ic install
-Compatibility command for conventional target artifact installation. It builds
-the target artifact if needed, copies it into a prefix, and writes install
-manifest state. For explicit layout export of project-defined layouts, use
-.Ic qstar.stage
-with
-.Ic qstar.step.export_stage
-from a project command. Use
-.Fl -dry-run
-to preview the copy plan.
 .It Ic stage
-Create a copy-only staged package tree.
+Create a copy-only staged package tree. Projects can export that layout with
+.Ic qstar.step.export_stage
+inside a root
+.Ic qstar.command .
 .It Ic why-rebuild
 Explain cache state and why a target would rebuild.
 .It Ic clean

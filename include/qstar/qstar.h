@@ -458,11 +458,6 @@ enum {
 	QSTAR_COLOR_NEVER = 2
 };
 
-struct qstar_install_options {
-	const char *prefix;
-	int dry_run;
-};
-
 struct qstar_stage_options {
 	const char *root;
 	int dry_run;
@@ -765,10 +760,6 @@ int qstar_graph_clean(struct qstar_graph *graph, const char *label, FILE *out);
 
 /** QStar test target을 build한 뒤 제한된 runner로 실행한다. */
 int qstar_graph_test(struct qstar_graph *graph, const char *label, FILE *out);
-
-/** QStar installable artifact와 public header를 prefix 아래 배치한다. */
-int qstar_graph_install(struct qstar_graph *graph, const char *label,
-    const struct qstar_install_options *options, FILE *out);
 
 /** QStar boot/package staging rule을 package-local root 아래 copy-only로 실행한다. */
 int qstar_graph_stage(struct qstar_graph *graph, const char *label,

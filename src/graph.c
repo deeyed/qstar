@@ -1987,7 +1987,7 @@ project_command_name_reserved(const char *name)
 		"help", "version", "docs", "init", "lsp", "fmt", "daemon",
 		"commands", "command", "list-targets", "query", "doctor",
 		"check", "lint", "explain", "dry-run", "emit-ninja", "build",
-		"test", "install", "stage", "why-rebuild", "clean", "log",
+		"test", "stage", "why-rebuild", "clean", "log",
 		"last-failure", "action-log", "replay", NULL
 	};
 	size_t i;
@@ -2002,11 +2002,6 @@ project_command_name_reserved(const char *name)
 static void
 set_project_command_reserved_error(struct qstar_graph *graph, const char *name)
 {
-	if (name && strcmp(name, "install") == 0) {
-		qstar_set_error(graph,
-		    "qstar: project command name 'install' is reserved by the qstar CLI compatibility artifact install command; use qstar.step.export_stage in a differently named command for explicit layout export");
-		return;
-	}
 	qstar_set_error(graph,
 	    "qstar: project command name '%s' is reserved by the qstar CLI",
 	    name ? name : "");
@@ -2644,11 +2639,6 @@ qstar_graph_validate_project_commands(struct qstar_graph *graph)
 			    "qstar: invalid project command name '%s'",
 			    command->name ? command->name : "");
 		if (project_command_name_reserved(command->name)) {
-			if (command->name && strcmp(command->name, "install") == 0)
-				return qstar_set_error_origin(graph,
-				    command->origin_file, command->origin_line,
-				    "name", command->name,
-				    "qstar: project command name 'install' is reserved by the qstar CLI compatibility artifact install command; use qstar.step.export_stage in a differently named command for explicit layout export");
 			return qstar_set_error_origin(graph, command->origin_file,
 			    command->origin_line, "name", command->name,
 			    "qstar: project command name '%s' is reserved by the qstar CLI",
@@ -2673,11 +2663,6 @@ qstar_graph_validate_project_commands(struct qstar_graph *graph)
 				    "qstar: invalid alias '%s' in project command '%s'",
 				    command->aliases.items[j], command->name);
 			if (project_command_name_reserved(command->aliases.items[j])) {
-				if (strcmp(command->aliases.items[j], "install") == 0)
-					return qstar_set_error_origin(graph,
-					    command->origin_file, command->origin_line,
-					    "aliases", command->name,
-					    "qstar: project command alias 'install' is reserved by the qstar CLI compatibility artifact install command; use qstar.step.export_stage in a differently named command for explicit layout export");
 				return qstar_set_error_origin(graph, command->origin_file,
 				    command->origin_line, "aliases", command->name,
 				    "qstar: project command alias '%s' is reserved by the qstar CLI",

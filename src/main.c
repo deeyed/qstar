@@ -25,7 +25,6 @@ usage(FILE *out)
 	fputs("       qstar [options] emit-ninja [label]\n", out);
 	fputs("       qstar [options] build [label]\n", out);
 	fputs("       qstar [options] test [label|//...]\n", out);
-	fputs("       qstar [options] install [label] --prefix path [--dry-run]\n", out);
 	fputs("       qstar [options] stage <label> [--root path] [--dry-run]\n", out);
 	fputs("       qstar [options] why-rebuild [label]\n", out);
 	fputs("       qstar [options] clean [label]\n", out);
@@ -70,7 +69,7 @@ command_has_static_help(const char *cmd)
 	static const char *const commands[] = {
 		"build", "daemon", "docs", "init", "test", "stage", "dry-run",
 		"emit-ninja", "lint", "fmt", "list-targets", "commands",
-		"check", "install", "last-failure", "replay", "clean",
+		"check", "last-failure", "replay", "clean",
 		"query", "doctor", "explain", "why-rebuild", "log",
 		"action-log", NULL
 	};
@@ -181,12 +180,6 @@ command_help(FILE *out, const char *cmd)
 	if (strcmp(cmd, "check") == 0) {
 		fputs("usage: qstar [options] check [label|//...]\n", out);
 		fputs("Validate the graph and input files without executing actions.\n", out);
-		return;
-	}
-	if (strcmp(cmd, "install") == 0) {
-		fputs("usage: qstar [options] install [label] --prefix path [--dry-run]\n", out);
-		fputs("Compatibility command for conventional executable/staticlib/sharedlib/header artifact installation.\n", out);
-		fputs("For explicit project layout export, declare qstar.command with qstar.step.export_stage.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "last-failure") == 0) {
@@ -497,7 +490,6 @@ main(int argc, char **argv)
 	const char *cli_build_context, *cli_target, *cli_platform, *cli_toolchain, *cli_stdlib;
 	const char *cli_generator, *cli_build_dir, *daemon_socket;
 	struct qstar_build_options build_options;
-	struct qstar_install_options install_options;
 	struct qstar_stage_options stage_options;
 	char init_error[512];
 	char plan_cache_reason[128], plan_cache_store_reason[128];
@@ -508,7 +500,6 @@ main(int argc, char **argv)
 
 	qstar_graph_init(&graph);
 	memset(&build_options, 0, sizeof(build_options));
-	memset(&install_options, 0, sizeof(install_options));
 	memset(&stage_options, 0, sizeof(stage_options));
 	plan_cache_reason[0] = '\0';
 	plan_cache_store_reason[0] = '\0';
@@ -930,27 +921,6 @@ main(int argc, char **argv)
 				return 2;
 			}
 		}
-	} else if (strcmp(cmd, "install") == 0) {
-		while (arg < argc) {
-			if (strcmp(argv[arg], "--prefix") == 0) {
-				if (arg + 1 >= argc) {
-					usage(stderr);
-					qstar_graph_free(&graph);
-					return 2;
-				}
-				install_options.prefix = argv[arg + 1];
-				arg += 2;
-			} else if (strcmp(argv[arg], "--dry-run") == 0) {
-				install_options.dry_run = 1;
-				arg++;
-			} else if (!label) {
-				label = argv[arg++];
-			} else {
-				usage(stderr);
-				qstar_graph_free(&graph);
-				return 2;
-			}
-		}
 	} else if (strcmp(cmd, "stage") == 0) {
 		while (arg < argc) {
 			if (strcmp(argv[arg], "--root") == 0) {
@@ -1186,7 +1156,7 @@ main(int argc, char **argv)
 	    (strcmp(cmd, "check") == 0 || strcmp(cmd, "doctor") == 0 ||
 	    strcmp(cmd, "build") == 0 || strcmp(cmd, "test") == 0 ||
 	    strcmp(cmd, "emit-ninja") == 0 ||
-	    strcmp(cmd, "install") == 0 || strcmp(cmd, "stage") == 0 ||
+	    strcmp(cmd, "stage") == 0 ||
 	    strcmp(cmd, "why-rebuild") == 0 ||
 	    strcmp(cmd, "lint") == 0 || project_command_requested))
 		rc = qstar_graph_validate_file_inputs(&graph);
@@ -1237,8 +1207,6 @@ main(int argc, char **argv)
 			rc = strcmp(qstar_graph_generator(&graph), "ninja") == 0 ?
 			    qstar_graph_test_ninja(&graph, label, stdout) :
 			    qstar_graph_test(&graph, label, stdout);
-		else if (strcmp(cmd, "install") == 0)
-			rc = qstar_graph_install(&graph, label, &install_options, stdout);
 		else if (strcmp(cmd, "stage") == 0)
 			rc = qstar_graph_stage(&graph, label, &stage_options, stdout);
 		else if (strcmp(cmd, "why-rebuild") == 0)

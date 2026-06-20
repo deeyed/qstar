@@ -187,13 +187,12 @@ and
 Command names and aliases cannot collide with built-in
 .Nm
 CLI commands.
-The built-in
+The name
 .Ic install
-command remains a compatibility artifact install command; project-defined
-layout export should use
-.Ic qstar.step.export_stage
-from a differently named
-.Ic qstar.command .
+is not a built-in CLI command in the QStar DSL surface; projects may define it
+as a normal
+.Ic qstar.command
+when they want a user-facing layout export workflow.
 .It Ic qstar.step.build
 Project command step that builds a target, generated action, stage, run target,
 or group label.
