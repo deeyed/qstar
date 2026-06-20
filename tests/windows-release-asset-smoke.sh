@@ -56,6 +56,21 @@ contains() {
 		fail "missing pattern '$pattern' in $file"
 }
 
+contains_path() {
+	file=$1
+	expected=$2
+	if grep -F -q -- "$expected" "$file"; then
+		return 0
+	fi
+	if command -v cygpath >/dev/null 2>&1; then
+		expected_mixed=$(cygpath -m "$expected" 2>/dev/null || true)
+		if test -n "$expected_mixed" && grep -F -q -- "$expected_mixed" "$file"; then
+			return 0
+		fi
+	fi
+	fail "missing path '$expected' in $file"
+}
+
 finish() {
 	rc=$?
 	set +e
@@ -150,10 +165,10 @@ run_logged version "$qstar_bin" --version
 contains "$smoke_dir/logs/version.out" "qstar $version"
 run_logged docs-path env QSTAR_DOC_DIR="$extract/share/doc/qstar" \
 	"$qstar_bin" docs --path
-contains "$smoke_dir/logs/docs-path.out" "$extract/share/doc/qstar/wiki"
+contains_path "$smoke_dir/logs/docs-path.out" "$extract/share/doc/qstar/wiki"
 run_logged docs-ai-index env QSTAR_DOC_DIR="$extract/share/doc/qstar" \
 	"$qstar_bin" docs --ai-index
-contains "$smoke_dir/logs/docs-ai-index.out" "$extract/share/doc/qstar/wiki/AI_INDEX.md"
+contains_path "$smoke_dir/logs/docs-ai-index.out" "$extract/share/doc/qstar/wiki/AI_INDEX.md"
 run_logged docs-show env QSTAR_DOC_DIR="$extract/share/doc/qstar" \
 	"$qstar_bin" docs --show reference/qstar-lua.md
 contains "$smoke_dir/logs/docs-show.out" "qstar.project"
