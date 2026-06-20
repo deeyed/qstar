@@ -85,6 +85,7 @@ check: all
 	bin="$(BIN_DIR)/qstar"; \
 	case "$$bin" in /*) ;; *) bin="$(CURDIR)/$$bin";; esac; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/smoke.sh; \
+	QSTAR_TEST_QSTAR="$$bin" sh tests/wiki-cli-sync.sh; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/ninja-backend-parity.sh; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/medium-project-performance.sh; \
 	QSTAR_TEST_QSTAR="$$bin" QSTAR_LINUX_VALIDATION_CC="$${QSTAR_LINUX_VALIDATION_CC:-$(CC)}" sh tests/linux-validation.sh; \
@@ -257,7 +258,10 @@ qstar-v0.5-readiness-tests: check
 
 qstar-pilot-readiness-tests: check
 
-qstar-wiki-cli-sync-tests: check
+qstar-wiki-cli-sync-tests: all
+	bin="$(BIN_DIR)/qstar"; \
+	case "$$bin" in /*) ;; *) bin="$(CURDIR)/$$bin";; esac; \
+	QSTAR_TEST_QSTAR="$$bin" sh tests/wiki-cli-sync.sh
 
 qstar-release-candidate-tests: check qstar-generic-dsl-backend-parity-tests
 

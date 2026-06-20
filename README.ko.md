@@ -213,7 +213,7 @@ qstar install --out exports/install  # qstar.lua가 선언한 project command
 qstar package-local --out exports/package  # qstar.lua가 선언한 project command
 qstar stage //:image --dry-run
 qstar why-rebuild //:app
-qstar clean --target //:app
+qstar clean //:app
 qstar log //:app
 qstar last-failure
 qstar action-log <action-id>

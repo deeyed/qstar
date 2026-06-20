@@ -54,7 +54,7 @@ layout도 QStar core 내부 C 문자열 template로 고정되어 있었다. 새 
 - provider package manager.
 - compiler/toolchain 자동 설치.
 - target triple, sysroot, resource dir, stdlib 정책 자동 추론.
-- host-specific hidden profile 생성.
+- host-specific hidden build context 생성.
 - provider가 arbitrary Lua나 shell script를 실행해 파일을 생성하는 구조.
 
 위 항목들은 QStar가 다시 domain-specific build policy를 품게 만들 수 있으므로 초기
@@ -298,7 +298,7 @@ C/C++/ASM은 builtin이므로 provider 파일을 복사하지 않는다.
 - config를 명시한다.
 - external provider는 `qstar.use_language("<id>")`로 명시 활성화한다.
 - provider helper를 사용해 source unit과 options를 작성한다.
-- hidden toolchain/profile/cross policy를 생성하지 않는다.
+- hidden toolchain/build-context/cross policy를 생성하지 않는다.
 
 ## Shape: app
 
