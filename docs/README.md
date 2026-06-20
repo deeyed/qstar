@@ -109,10 +109,10 @@ Important documents:
 - `qstar-v0.6-readiness.md`: v0.6 readiness gate.
 - `qstar-v0.6-post-release-smoke.md`: post-release artifact smoke notes.
 - `qstar-v0.7-readiness.md`: v0.7 readiness gate.
-- `qstar-v0.8-readiness.md`: next feature-line readiness gate.
+- `qstar-v0.8-readiness.md`: v0.8 beta readiness and release-candidate gate.
 - `releases/TEMPLATE.md`: release note template.
 - `releases/v0.7.0-beta.md`: current public beta release note.
-- `releases/v0.8.0-beta.md`: draft release note for the next beta feature line.
+- `releases/v0.8.0-beta.md`: v0.8 beta release-candidate checklist and draft release note.
 
 Hard-cut rule: public docs must teach the current generic DSL only. Historical
 notes may keep round names, but examples must point readers back to the current

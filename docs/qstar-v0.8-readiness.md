@@ -252,45 +252,50 @@ v1.0 blocker를 0.8 기준으로 다시 정렬한다.
 | Q225 | 0.8 beta readiness seal | docs/wiki/man/README/platform table, Actions artifact, named sharedlib parity gate, release gate summary aligned |
 | Q246 | Windows package skeleton | `windows-x86_64` zip plan, `.exe`/docs/man/wiki/provider layout, dry-run workflow artifact aligned |
 | Q247 | Windows asset smoke | actual `windows-x86_64` zip artifact, extracted package smoke, provider vendoring, init/build, Stella/Ninja minimal corpus |
+| Q251 | 0.8 beta release candidate gate | local `make qstar-v0.8-release-tests` umbrella gate, published-asset download smoke opt-in, hosted Linux/Windows fresh-run commands aligned |
 
-## 0.8 Release Draft Gate
+## 0.8 Release Candidate Gate
 
-Before tagging a future `v0.8.0-beta`:
+Before tagging a future `v0.8.0-beta`, run the single local gate:
 
 ```sh
-make all
-make check
-make qstar-self-host-tests
-make qstar-generic-dsl-backend-parity-tests
-make qstar-medium-project-readiness-tests
-make qstar-large-project-performance-tests
-make qstar-public-beta-release-tests
-git diff --check
-./build/bin/qstar --version
+make qstar-v0.8-release-tests
 ```
 
-Linux hosted validation:
+This umbrella target expands to `make check`, generic DSL backend parity, optional
+real GLP compiler corpus, real-language init scaffold validation, repeat
+medium/large performance summaries, current-host public beta package smoke,
+Windows package/asset contract smoke, `git diff --check`, and `qstar --version`.
+It deliberately skips GitHub release download smoke until assets exist.
+The Windows sharedlib artifact subset remains the named
+`qstar-windows-sharedlib-artifact-parity-tests` gate inside the hosted Windows
+candidate lane.
+
+After GitHub Release upload, run the published-asset smoke explicitly:
 
 ```sh
-make all
-make check
-make qstar-linux-validation-tests
-make qstar-ninja-backend-parity-tests
-QSTAR_RELEASE_PLATFORM=linux-x86_64 QSTAR_RELEASE_TAG=v0.8.0-beta \
-  tools/package-public-beta.sh
+QSTAR_RUN_RELEASE_DOWNLOAD_SMOKE=1 make qstar-v0.8-release-tests
 ```
 
-Windows alpha/beta candidate:
+Linux hosted fresh run:
 
 ```sh
-make all CC=gcc
-build/bin/qstar --version
-make qstar-windows-native-alpha-tests CC=gcc
-make qstar-windows-execution-corpus-tests CC=gcc
-make qstar-windows-prep-tests CC=gcc
-make qstar-windows-sharedlib-artifact-parity-tests CC=gcc
-make qstar-windows-release-package-tests CC=gcc
-make qstar-windows-release-asset-smoke-tests CC=gcc
+gh workflow run linux-validation.yml \
+  --ref main \
+  -f release_tag=v0.8.0-beta \
+  -f publish_linux_asset=false \
+  -f daemon_socket_smoke=true
+```
+
+Only set `publish_linux_asset=true` after the release tag exists and release
+upload is intentionally in scope.
+
+Windows alpha/beta candidate fresh run:
+
+```sh
+gh workflow run windows-validation.yml \
+  --ref main \
+  -f run_ninja_parity=true
 ```
 
 The Windows workflow uploads `qstar-windows-beta-candidate`, including

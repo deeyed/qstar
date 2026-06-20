@@ -140,6 +140,13 @@ QStar가 하지 않는 일:
   docs/manpages, macOS codesign을 확인한다. Linux x86_64 download smoke는 Linux host에서
   `file(1)`, `ldd(1)`, wiki home, Lua reference, manpage source/render report도 보존한다.
   0.6 post-release 기록은 `docs/qstar-v0.6-post-release-smoke.md`에 둔다.
+- 0.8 beta release candidate 판단은 `make qstar-v0.8-release-tests`와
+  `docs/releases/v0.8.0-beta.md`를 canonical entry로 쓴다. 이 target은 `make check`,
+  generic DSL backend parity, optional real GLP compiler corpus, real-language init scaffold
+  validation, repeat performance release summaries, current-host public beta package smoke,
+  Windows package/asset contract smoke, `git diff --check`, `qstar --version`을 묶는다.
+  Published GitHub release asset download smoke는 asset이 올라온 뒤에만
+  `QSTAR_RUN_RELEASE_DOWNLOAD_SMOKE=1 make qstar-v0.8-release-tests`로 opt-in 실행한다.
 - Progress output contract는 `docs/progress-output.md`와 `wiki/reference/progress-output.md`에
   둔다. QStar 0.5 UI line은 `[ 75%] Linking CXX executable app` 같은 CMake-style
   action description을 일반 출력으로 사용하고, legacy scheduler stage wording, `Status: ...`,
