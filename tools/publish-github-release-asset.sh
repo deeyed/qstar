@@ -17,38 +17,61 @@ test -n "$platform" || fail "QSTAR_RELEASE_PLATFORM is required"
 
 tag=${QSTAR_RELEASE_TAG:-v$version}
 repo=${QSTAR_RELEASE_REPO:-deeyed/qstar}
-asset_base=qstar-$tag-$platform.tar.gz
 dist=${QSTAR_RELEASE_DIST:-dist/release}
 case "$dist" in
 	/*) dist_abs=$dist ;;
 	*) dist_abs=$root/$dist ;;
 esac
-archive=$dist_abs/$asset_base
 sha_file=$dist_abs/SHA256SUMS
 merged_sha=$dist_abs/SHA256SUMS.merged
 
 test "$tag" = "v$version" || \
 	fail "QSTAR_RELEASE_TAG '$tag' does not match runtime version 'v$version'"
 
+host=$(uname -s)
+arch=$(uname -m)
+case "$host" in
+	MINGW*|MSYS*|CYGWIN*)
+		host_family=windows
+		;;
+	*)
+		host_family=$host
+		;;
+esac
+
 case "$platform" in
 	linux-x86_64)
-		test "$(uname -s)" = Linux || \
+		archive_ext=tar.gz
+		test "$host" = Linux || \
 			fail "linux-x86_64 release asset must be published from a Linux host"
-		case "$(uname -m)" in
+		case "$arch" in
 		x86_64|amd64) ;;
 		*) fail "linux-x86_64 release asset must be published from an x86_64 Linux host" ;;
 		esac
 		;;
 	macos-arm64)
-		test "$(uname -s)" = Darwin || \
+		archive_ext=tar.gz
+		test "$host" = Darwin || \
 			fail "macos-arm64 release asset must be published from a Darwin host"
-		test "$(uname -m)" = arm64 || \
+		test "$arch" = arm64 || \
 			fail "macos-arm64 release asset must be published from an arm64 Darwin host"
+		;;
+	windows-x86_64)
+		archive_ext=zip
+		test "$host_family" = windows || \
+			fail "windows-x86_64 release asset must be published from a Windows/MSYS2 host"
+		case "$arch" in
+		x86_64|amd64) ;;
+		*) fail "windows-x86_64 release asset must be published from an x86_64 Windows host" ;;
+		esac
 		;;
 	*)
 		fail "unsupported release platform '$platform'"
 		;;
 esac
+
+asset_base=qstar-$tag-$platform.$archive_ext
+archive=$dist_abs/$asset_base
 
 command -v gh >/dev/null 2>&1 || fail "gh is required to publish a GitHub release asset"
 command -v awk >/dev/null 2>&1 || fail "awk is required to merge SHA256SUMS"

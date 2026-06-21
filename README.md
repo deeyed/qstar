@@ -18,8 +18,10 @@ after source validation, Ninja backend parity, extracted tarball smoke, and
 Stella/Ninja medium performance artifact collection. Performance numbers are
 report-only release inputs, not stable guarantees. Windows has a manual native
 validation candidate that builds, extracts, and smoke-tests a `windows-x86_64`
-public beta candidate zip asset in GitHub Actions. That asset is validation
-evidence, not a published GitHub Release asset or official Windows host support.
+public beta candidate zip asset in GitHub Actions. The same manual workflow has
+an opt-in `publish_windows_asset=true` job that publishes and download-smokes the
+Windows zip for a release tag. Windows is still beta until that hosted evidence
+is green for the selected release.
 QStar 1.0 is reserved for a release that is validated across macOS, Linux, and
 Windows. The `0.6.x-beta` line is reserved for release/package/documentation
 hotfixes.
@@ -263,7 +265,7 @@ qstar replay <action-id>
 | --- | --- |
 | macOS arm64 | 0.7 beta release-prep artifact |
 | Linux x86_64 | 0.7 beta release-prep artifact from Ubuntu release workflow or clean Linux host |
-| Windows | Validation-backed beta candidate through MSYS2 UCRT64; Actions builds and extracts the `windows-x86_64` public beta candidate zip; official GitHub Release asset deferred |
+| Windows | Validation-backed beta candidate through MSYS2 UCRT64; Actions builds/extracts the `windows-x86_64` public beta candidate zip; optional GitHub Release publish/download smoke gate exists |
 
 QStar can model custom toolchains and cross-compilation targets through explicit
 toolsets, configs, argv-vector commands, language provider source units, and
@@ -271,8 +273,8 @@ object artifact bridges. Official
 host support is intentionally conservative: the Windows beta candidate lane
 validates source build, execution corpus, install/stage layout, and sharedlib
 runtime/import artifacts plus a generated/extracted public beta candidate zip,
-but Windows GitHub Release publication and download-smoke are still future
-release gates.
+and the Q253 manual publish job can verify the uploaded zip from GitHub Release.
+Windows is not official support until that release-backed evidence is green.
 The 1.0 milestone requires
 validated release artifacts and CI coverage for macOS, Linux, and Windows.
 The exact remaining blockers and stable-surface policy are tracked in

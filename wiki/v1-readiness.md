@@ -15,7 +15,10 @@ v1 decision: not ready
 
 ## 핵심 blocker
 
-- Windows official GitHub Release asset과 downloaded-asset smoke.
+- Windows official GitHub Release asset과 downloaded-asset smoke. Q253 기준
+  `windows-validation.yml`의 `publish_windows_asset=true` run이
+  `windows_release_asset status=published`, `download_smoke=ok` evidence를 남겨야
+  조건부 해소된다.
 - Stable DSL compatibility/removal policy의 release-line 적용.
 - GLP provider-author API freeze 또는 version negotiation.
 - daemon stable/default boundary 확정. 현재는 beta opt-in이다.
@@ -38,6 +41,9 @@ make check
 make qstar-v0.8-release-tests
 gh workflow run linux-validation.yml --ref main
 gh workflow run windows-validation.yml --ref main
+gh workflow run windows-validation.yml --ref v<version> \
+  -f release_tag=v<version> \
+  -f publish_windows_asset=true
 git diff --check
 ```
 

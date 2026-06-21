@@ -3,7 +3,10 @@
 이 문서는 QStar public beta release를 다시 만들 때의 수동 실수를 줄이기 위한
 canonical checklist다. 현재 published release asset은 macOS arm64와 Linux x86_64 runtime
 tarball을 대상으로 한다. Windows는 Q247부터 Actions에서 public beta zip asset candidate를
-실제로 만들고 추출 smoke까지 수행하지만 아직 GitHub Release에 published된 asset은 아니다.
+실제로 만들고 추출 smoke까지 수행했고, Q253부터는 명시적 `workflow_dispatch`
+`publish_windows_asset=true` job으로 GitHub Release upload와 downloaded-asset smoke까지
+검증할 수 있다. Windows official support는 이 opt-in publish/download gate가 green으로
+남긴 evidence가 있을 때만 판단한다.
 VSCode extension은 별도 검증/패키징 대상이며 runtime package에 포함하지 않는다.
 VSCode extension is not included in the public beta runtime package.
 
@@ -13,8 +16,8 @@ VSCode extension is not included in the public beta runtime package.
 Linux x86_64를 배포한다. Linux x86_64 artifact는 Ubuntu release workflow 또는 clean
 Linux x86_64 host에서 만든 산출물만 사용한다. Windows는 `windows-x86_64` platform을
 `qstar-v<version>-windows-x86_64.zip`으로 준비한다. Q247 기준 이 zip은 Windows manual
-workflow의 Actions artifact로 생성/추출 smoke되며, GitHub Release upload 전에는 release
-readiness evidence로만 사용한다.
+workflow의 Actions artifact로 생성/추출 smoke되며, Q253 기준 같은 workflow의 opt-in
+publish job이 GitHub Release upload, `SHA256SUMS` merge, downloaded zip smoke까지 맡는다.
 
 ```txt
 runtime version: qstar 0.7.0-beta
@@ -77,10 +80,13 @@ make qstar-public-beta-download-smoke
 ```
 
 이 target은 `tools/smoke-github-release.sh`를 실행한다. Script는 GitHub release의
-tarball과 `SHA256SUMS`를 다운로드하고, checksum, prefix layout, `/tmp` extract 후
+runtime archive와 `SHA256SUMS`를 다운로드하고, checksum, prefix layout, `/tmp` extract 후
 `qstar --version`, installed docs, installed wiki home, installed Lua reference,
 installed manpages, `file(1)`, macOS codesign을 확인한다. Linux x86_64 smoke는 Linux
-host에서만 실행되며 `ldd(1)` report도 남긴다. 자세한 0.6 post-release 기록은
+host에서만 실행되며 `ldd(1)` report도 남긴다. Windows x86_64 smoke는 Windows/MSYS2 host에서
+`qstar-v<version>-windows-x86_64.zip`을 내려받아 `bin/qstar.exe`, docs/man, bundled
+providers, `qstar init app`, Zig provider vendoring, Stella build, Ninja build를 검증한다.
+자세한 0.6 post-release 기록은
 `docs/qstar-v0.6-post-release-smoke.md`에 둔다.
 
 ## Install Smoke
@@ -147,9 +153,10 @@ gate로 넣지 않는다. 대신 `.github/workflows/linux-validation.yml`의
 job으로 실행하고, `backend=stella-daemon` clean/noop/incremental line이 모두 존재하는지
 확인한다.
 
-Windows package prep은 GitHub Release upload가 아니라 Actions artifact gate다. Non-Windows
-host에서는 contract-only smoke를 실행하고, Windows hosted workflow에서는 actual zip smoke를
-실행한다.
+Windows package prep은 기본적으로 Actions artifact gate다. Non-Windows host에서는
+contract-only smoke를 실행하고, Windows hosted workflow에서는 actual zip smoke를 실행한다.
+GitHub Release upload는 같은 workflow에서 `publish_windows_asset=true`를 명시했을 때만
+수행한다.
 
 ```sh
 make qstar-windows-release-package-tests
@@ -158,10 +165,17 @@ test -f dist/release/qstar-v0.7.0-beta-windows-x86_64.package-plan.txt
 test -f dist/release/qstar-v0.7.0-beta-windows-x86_64.expected-contents.txt
 ```
 
-Windows workflow는 actual zip을 `dist/windows-beta-candidate/release-package` 아래에 만들고
+Windows workflow는 default beta candidate job에서 actual zip을
+`dist/windows-beta-candidate/release-package` 아래에 만들고
 `qstar-windows-beta-release-asset` artifact로 업로드한다. `release-asset-smoke/`에는 zip을
-다시 푼 뒤 extracted binary로 실행한 smoke logs가 남는다. GitHub Release uploaded-asset
-download smoke는 아직 future gate다.
+다시 푼 뒤 extracted binary로 실행한 smoke logs가 남는다. Opt-in publish job은 release tag를
+checkout한 뒤 `tools/publish-github-release-asset.sh`로 `qstar-v<version>-windows-x86_64.zip`과
+merged `SHA256SUMS`를 GitHub Release에 업로드하고, 곧바로
+`make qstar-public-beta-download-smoke`를 `QSTAR_RELEASE_PLATFORM=windows-x86_64`로 실행해
+uploaded zip을 다시 내려받아 검증한다. Green run은
+`qstar-windows-x86_64-published-release-asset` artifact와
+`windows-hosted-release-decision.txt`에 `windows_release_asset status=published`,
+`download_smoke=ok`를 남긴다.
 
 ## Runtime Package Layout
 
@@ -289,6 +303,16 @@ workflow: Linux Validation
 release_tag: v0.7.0-beta
 publish_linux_asset: true
 daemon_socket_smoke: optional
+```
+
+Windows asset은 release tag가 존재하고 Windows official beta asset publication이 의도된
+경우에만 manual Windows workflow에서 붙인다.
+
+```txt
+workflow: Windows Beta Candidate Validation
+release_tag: v0.7.0-beta
+publish_windows_asset: true
+run_ninja_parity: optional
 ```
 
 GitHub release 생성은 QStar commit/push, wiki sync, release smoke가 끝난 뒤에만 수행한다.

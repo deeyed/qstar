@@ -139,6 +139,9 @@ QStar가 하지 않는 일:
   asset을 다시 다운로드하고 `SHA256SUMS`, `/tmp` extract, `qstar --version`, installed
   docs/manpages, macOS codesign을 확인한다. Linux x86_64 download smoke는 Linux host에서
   `file(1)`, `ldd(1)`, wiki home, Lua reference, manpage source/render report도 보존한다.
+  Windows x86_64 download smoke는 Windows/MSYS2 host에서
+  `qstar-v<version>-windows-x86_64.zip`을 내려받아 `bin/qstar.exe`, docs/man, bundled
+  providers, `qstar init app`, Zig provider vendoring, Stella build, Ninja build를 검증한다.
   0.6 post-release 기록은 `docs/qstar-v0.6-post-release-smoke.md`에 둔다.
 - 0.8 beta release candidate 판단은 `make qstar-v0.8-release-tests`와
   `docs/releases/v0.8.0-beta.md`를 canonical entry로 쓴다. 이 target은 `make check`,
@@ -265,8 +268,12 @@ QStar가 하지 않는 일:
   named release gate로 승격했다. PDB/debug artifact는 opt-in/deferred이며 implicit
   install/stage 대상이 아니다. Automatic static `.lib`, MSVC `link.exe`/`lib.exe`,
   PDB/debug은 아직 official contract가 아니다. Windows public beta candidate packaging은
-  `windows-x86_64` zip Actions artifact와 extracted smoke까지 contract이며, GitHub Release
-  publication/download smoke는 future gate다. 상세 정책은 `docs/windows-artifact-policy.md`에 둔다.
+  `windows-x86_64` zip Actions artifact와 extracted smoke까지 default contract이며, Q253부터
+  manual `publish_windows_asset=true` job이 GitHub Release publication/download smoke를 맡는다.
+  Green publish run은 `qstar-windows-x86_64-published-release-asset` artifact와
+  `windows-hosted-release-decision.txt`의 `windows_release_asset status=published`,
+  `download_smoke=ok`를 evidence로 남겨야 한다. 상세 정책은
+  `docs/windows-artifact-policy.md`에 둔다.
   Q174부터 `tests/corpus/windows-artifacts`는 `windows_fake` toolset으로
   `.exe`/explicit static `.lib` regression을 맡고, Q222부터 real Windows execution corpus도
   stage/install layout과 manifest normalization을 검증한다. Windows sharedlib selector

@@ -7,8 +7,10 @@ release workflow 또는 clean Linux x86_64 host에서 source build 검증,
 performance artifact collection을 통과한 산출물만 사용한다.
 Windows host 지원은 validation-backed beta candidate 단계다. Windows는 아직 공식
 지원이 아니지만, Q247부터 `qstar-v<version>-windows-x86_64.zip` public beta candidate
-asset을 Actions에서 실제 생성, 추출, smoke한다. GitHub Release에 공개되는 Windows
-asset과 uploaded-asset download smoke는 아직 future release gate다.
+asset을 Actions에서 실제 생성, 추출, smoke한다. Q253부터는 manual
+`publish_windows_asset=true` job이 GitHub Release에 Windows zip을 publish하고 다시
+download-smoke하는 경로를 제공한다. 이 hosted evidence가 green일 때만 Windows official
+asset blocker를 조건부 해소할 수 있다.
 path/process/response-file 준비 규칙, CreateProcess execution, install/stage layout,
 sharedlib runtime/import artifact, package layout, extracted asset behavior를 MSYS2 UCRT64 기반 manual Windows
 workflow에서 검증한다. 모든 platform에서 소스에서 직접 빌드할 수 있도록 검증 경로를 늘려간다.
@@ -73,8 +75,10 @@ GitHub release를 만든 뒤에는 실제 uploaded asset을 다시 다운로드�
 make qstar-public-beta-download-smoke
 ```
 
-이 gate는 release tarball과 `SHA256SUMS`를 GitHub에서 다운로드하고, checksum, `/tmp`
-extract, `qstar --version`, installed docs/manpages, macOS codesign을 확인한다.
+이 gate는 release archive와 `SHA256SUMS`를 GitHub에서 다운로드하고, checksum, `/tmp`
+extract, `qstar --version`, installed docs/manpages, macOS codesign을 확인한다. Windows
+`windows-x86_64` smoke는 zip에서 `bin/qstar.exe`를 추출하고 bundled providers,
+`qstar init app`, Zig provider vendoring, Stella/Ninja build까지 검증한다.
 
 ## 실패 예제
 
@@ -166,8 +170,9 @@ official support 전에 다음 규칙과 artifact behavior를 beta candidate con
   lowering한다. `qstar.target_file("//:plugin")`은 runtime `.dll`,
   `qstar.target_file("//:plugin", { artifact = "import_lib" })`은 import `.lib`를 가리킨다.
 - PDB/debug는 아직 official contract가 아니다. Windows public beta candidate packaging은
-  `windows-x86_64` zip Actions artifact와 extracted smoke까지 contract이며, GitHub Release
-  upload/download smoke는 future gate다. 상세 정책은 `docs/windows-artifact-policy.md`에 둔다.
+  `windows-x86_64` zip Actions artifact와 extracted smoke까지 default contract이며, Q253
+  manual publish job이 GitHub Release upload/download smoke를 맡는다. 상세 정책은
+  `docs/windows-artifact-policy.md`에 둔다.
 
 ```sh
 make qstar-windows-prep-tests
@@ -186,8 +191,11 @@ MSYS2 UCRT64 환경에서 `make all CC=gcc`, `qstar --version`,
 Windows release asset smoke를 실행하고 `qstar-windows-beta-candidate` artifact로 실패 로그와
 detail bundle, `release-package/` plan 및 smoke logs를 올린다. 별도
 `qstar-windows-beta-release-asset` artifact는 생성된 zip candidate와 `SHA256SUMS`를 담는다.
-그래도 regular CI나 public release asset upload/download-smoke gate가 되기 전까지 Windows
-official support로 표기하지 않는다.
+`publish_windows_asset=true`를 지정한 release-mutating run은
+`qstar-windows-x86_64-published-release-asset` artifact와
+`windows-hosted-release-decision.txt`에 uploaded/downloaded smoke 결과를 남긴다. 그래도
+regular CI와 release-backed evidence가 반복 green이 되기 전까지 Windows official support로
+표기하지 않는다.
 
 ## 관련 diagnostic
 

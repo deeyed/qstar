@@ -8,6 +8,16 @@ on:
         required: false
         default: false
         type: boolean
+      release_tag:
+        description: "Release tag used by the optional Windows asset publish job"
+        required: false
+        default: v0.7.0-beta
+        type: string
+      publish_windows_asset:
+        description: "Publish the Windows x86_64 beta asset to the selected GitHub Release"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -315,7 +325,7 @@ jobs:
             printf '\n## Deferred By Design\n\n'
             printf '%s\n' "- daemon named pipe transport"
             printf '%s\n' "- Visual Studio, nmake, and direct MSVC bootstrap"
-            printf '%s\n' "- Windows GitHub Release publication"
+            printf '%s\n' "- Windows GitHub Release publication unless publish_windows_asset=true was run"
             printf '%s\n' "- PDB/debug artifact ownership"
             printf '%s\n' "- MSVC/clang-cl execution corpus"
           } > "$known"
@@ -359,3 +369,136 @@ jobs:
           name: qstar-windows-beta-candidate
           path: dist/windows-beta-candidate
           if-no-files-found: warn
+
+  publish-windows-release-asset:
+    name: windows / publish release asset
+    runs-on: windows-latest
+    timeout-minutes: 45
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_windows_asset }}
+    permissions:
+      contents: write
+    env:
+      QSTAR_RELEASE_PLATFORM: windows-x86_64
+      QSTAR_RELEASE_TAG: ${{ inputs.release_tag }}
+      QSTAR_RELEASE_REPO: ${{ github.repository }}
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
+          submodules: recursive
+
+      - name: Install MSYS2 release tools
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          path-type: inherit
+          install: >-
+            make
+            git
+            file
+            zip
+            unzip
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-ninja
+
+      - name: Record Windows release publish environment
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/release
+          {
+            printf 'qstar-windows-release-publish: tag=%s\n' "$QSTAR_RELEASE_TAG"
+            printf 'qstar-windows-release-publish: platform=%s\n' "$QSTAR_RELEASE_PLATFORM"
+            printf 'qstar-windows-release-publish: uname='
+            uname -a
+            printf 'qstar-windows-release-publish: gcc='
+            gcc --version | head -n 1
+            printf 'qstar-windows-release-publish: ninja='
+            ninja --version
+            printf 'qstar-windows-release-publish: gh='
+            gh --version | head -n 1
+          } | tee dist/release/windows-publish-environment.txt
+
+      - name: Run Windows release gates
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          test -n "$QSTAR_RELEASE_TAG"
+          make all CC=gcc
+          make check
+          make qstar-windows-native-alpha-tests CC=gcc
+          make qstar-windows-execution-corpus-tests CC=gcc
+          make qstar-windows-prep-tests CC=gcc
+          make qstar-windows-sharedlib-artifact-parity-tests CC=gcc
+
+      - name: Publish Windows beta release asset
+        shell: msys2 {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: tools/publish-github-release-asset.sh
+
+      - name: Download published Windows asset smoke
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          smoke_dir="$PWD/dist/release/download-smoke-windows-x86_64"
+          mkdir -p "$smoke_dir"
+          QSTAR_RELEASE_PLATFORM=windows-x86_64 \
+          QSTAR_RELEASE_TAG="$QSTAR_RELEASE_TAG" \
+          QSTAR_RELEASE_SMOKE_DIR="$smoke_dir" \
+            make qstar-public-beta-download-smoke | tee "$smoke_dir/download-smoke.log"
+          grep -F "qstar-release-download-smoke: status=ok" "$smoke_dir/download-smoke.log"
+          test -s "$smoke_dir/download/SHA256SUMS"
+          test -s "$smoke_dir/download/contents.txt"
+          test -s "$smoke_dir/download/file-windows-x86_64.txt"
+          test -s "$smoke_dir/download/docs-show-home.txt"
+          test -s "$smoke_dir/download/docs-show-qstar-lua.txt"
+          test -s "$smoke_dir/download/build-hello-stella.out"
+          test -s "$smoke_dir/download/build-hello-ninja.out"
+          test -s "$smoke_dir/download/init-zig.out"
+          grep -F "bin/qstar.exe" "$smoke_dir/download/contents.txt"
+          grep -F "vendor qstar/languages/zig" "$smoke_dir/download/init-zig.out"
+
+      - name: Write Windows hosted release decision
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          decision="dist/release/windows-hosted-release-decision.txt"
+          mkdir -p "$(dirname "$decision")"
+          {
+            printf 'windows_release_asset status=published\n'
+            printf 'tag=%s\n' "$QSTAR_RELEASE_TAG"
+            printf 'platform=%s\n' "$QSTAR_RELEASE_PLATFORM"
+            printf 'download_smoke=ok\n'
+            printf 'artifact=qstar-%s-%s.zip\n' "$QSTAR_RELEASE_TAG" "$QSTAR_RELEASE_PLATFORM"
+            printf 'reports=download-smoke-windows-x86_64\n'
+          } > "$decision"
+
+      - name: Upload published Windows asset reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qstar-windows-x86_64-published-release-asset
+          path: |
+            dist/release/qstar-v*-windows-x86_64.zip
+            dist/release/SHA256SUMS
+            dist/release/qstar-v*-windows-x86_64.contents.txt
+            dist/release/qstar-v*-windows-x86_64.expected-contents.txt
+            dist/release/qstar-v*-windows-x86_64.package-plan.txt
+            dist/release/file-windows-x86_64.txt
+            dist/release/extract-file-windows-x86_64.txt
+            dist/release/windows-publish-environment.txt
+            dist/release/download-smoke-windows-x86_64/download/SHA256SUMS
+            dist/release/download-smoke-windows-x86_64/download/contents.txt
+            dist/release/download-smoke-windows-x86_64/download/file-windows-x86_64.txt
+            dist/release/download-smoke-windows-x86_64/download/docs-show-home.txt
+            dist/release/download-smoke-windows-x86_64/download/docs-show-qstar-lua.txt
+            dist/release/download-smoke-windows-x86_64/download/init-hello.out
+            dist/release/download-smoke-windows-x86_64/download/init-zig.out
+            dist/release/download-smoke-windows-x86_64/download/build-hello-stella.out
+            dist/release/download-smoke-windows-x86_64/download/build-hello-ninja.out
+            dist/release/download-smoke-windows-x86_64/download-smoke.log
+            dist/release/windows-hosted-release-decision.txt
+          if-no-files-found: ignore

@@ -6,9 +6,10 @@ lane to a validation-backed beta candidate. This is still not official Windows
 host support. Q246 added the first public beta asset preparation skeleton:
 the Windows workflow recorded a dry-run package plan for
 `qstar-v<version>-windows-x86_64.zip`. Q247 moves that lane from dry-run to an
-actual public beta candidate zip smoke inside GitHub Actions. The asset is
-prepared and validated as an Actions artifact, while GitHub Release publication
-and official Windows support remain separate future gates.
+actual public beta candidate zip smoke inside GitHub Actions. Q253 adds an
+explicit opt-in GitHub Release publication/download-smoke job for that same
+zip. The asset is official beta evidence only after that publish job uploads it
+to a release, downloads it again, and records a green decision artifact.
 
 ## Support Level
 
@@ -22,7 +23,7 @@ baseline lane: msys2-ucrt64-gcc
 primary compiler: mingw-w64-ucrt-x86_64-gcc
 status artifact: qstar-windows-beta-candidate
 release asset: qstar-v<version>-windows-x86_64.zip public beta candidate artifact in Actions
-release publication: GitHub Release upload/download-smoke deferred
+release publication: opt-in publish_windows_asset=true job uploads and download-smokes the zip
 official support: no
 ```
 
@@ -65,6 +66,21 @@ runs the extracted `bin/qstar.exe` through:
 This is still not GitHub Release publication. It is the minimum evidence that a
 Windows public beta candidate asset can be produced and consumed by a user-like
 extracted tree.
+
+Round Q253 adds the publication gate without making it the default path. The
+manual workflow now accepts `release_tag` and `publish_windows_asset` inputs.
+When `publish_windows_asset=true`, the `windows / publish release asset` job
+checks out the tag, builds QStar on Windows/MSYS2 UCRT64, runs the Windows
+release gates, uploads `qstar-v<version>-windows-x86_64.zip` plus merged
+`SHA256SUMS` through `tools/publish-github-release-asset.sh`, then runs
+`make qstar-public-beta-download-smoke` with
+`QSTAR_RELEASE_PLATFORM=windows-x86_64`. The downloaded-asset smoke verifies
+`bin/qstar.exe`, docs/man files, bundled providers, `qstar init app`,
+Zig provider vendoring, Stella build, and Ninja build from the extracted
+release tree. A green publish run uploads
+`qstar-windows-x86_64-published-release-asset` and writes
+`windows_release_asset status=published` plus `download_smoke=ok` into
+`windows-hosted-release-decision.txt`.
 
 Round Q178 adds a native execution corpus to that same alpha lane. The new
 `tests/corpus/windows-execution` project is intentionally separate from the
@@ -171,8 +187,11 @@ separate future lanes rather than hidden requirements of this alpha gate.
 workflow_dispatch
   inputs:
     run_ninja_parity: false by default
+    release_tag: v0.7.0-beta by default
+    publish_windows_asset: false by default
   job:
     windows beta candidate / msys2-ucrt64-gcc baseline
+    windows / publish release asset when publish_windows_asset=true
 ```
 
 The default beta candidate job runs:
@@ -236,6 +255,12 @@ All beta candidate logs are uploaded as the `qstar-windows-beta-candidate`
 artifact. This is required because native Windows failures can still be
 environment-sensitive even after the candidate contract is sealed.
 
+The optional publish job is release-mutating and therefore stays manual. It is
+the only Windows lane allowed to write GitHub Release assets. It requires the
+target release tag to match the runtime version, publishes only from a
+Windows/MSYS2 x86_64 host, and preserves downloaded-asset smoke reports under
+`download-smoke-windows-x86_64/`.
+
 Round Q172 makes the artifact layout explicit:
 
 ```txt
@@ -275,6 +300,17 @@ release-package/qstar-v<version>-windows-x86_64.contents.txt
 release-asset-smoke/release-asset.status
 release-asset-smoke/logs/*.out
 release-asset-smoke/logs/*.err
+download-smoke-windows-x86_64/download/SHA256SUMS
+download-smoke-windows-x86_64/download/contents.txt
+download-smoke-windows-x86_64/download/file-windows-x86_64.txt
+download-smoke-windows-x86_64/download/docs-show-home.txt
+download-smoke-windows-x86_64/download/docs-show-qstar-lua.txt
+download-smoke-windows-x86_64/download/init-hello.out
+download-smoke-windows-x86_64/download/init-zig.out
+download-smoke-windows-x86_64/download/build-hello-stella.out
+download-smoke-windows-x86_64/download/build-hello-ninja.out
+download-smoke-windows-x86_64/download-smoke.log
+windows-hosted-release-decision.txt
 windows-release-asset.log
 SUMMARY.md
 KNOWN_ISSUES.md
@@ -438,8 +474,11 @@ Current known gaps:
   manual Actions lane. A green Q247 run proves the package can be created,
   extracted, used for docs lookup, used to vendor standard providers, and used
   to build small Stella/Ninja projects from the extracted binary. It is a
-  prepared and validated public beta candidate asset, but GitHub Release
-  publication is still deferred.
+  prepared and validated public beta candidate asset.
+- Q253 adds the official beta asset publication gate. This does not publish by
+  default; `publish_windows_asset=true` must be selected for a release tag. A
+  green run proves the zip was uploaded to GitHub Release, checksum-merged into
+  `SHA256SUMS`, downloaded again, and smoke-tested from the release URL.
 - Q172 has not promoted Windows to official support. It only makes
   `msys2-ucrt64-gcc` the baseline lane and ensures failed runs leave structured
   status and known-issue artifacts.
@@ -452,11 +491,12 @@ Current known gaps:
 - Stella daemon on Windows is disabled/deferred. The future supported transport
   is a named pipe with Windows ACL rules, not Unix sockets.
 - Windows public beta candidate zip is built and smoke-tested as an Actions
-  artifact; GitHub Release publication and uploaded-asset download smoke remain
-  future release gates.
+  artifact by default. GitHub Release publication and uploaded-asset download
+  smoke are now an explicit manual `publish_windows_asset=true` gate.
 - The `.exe`/static archive/object bridge/sharedlib runtime-import install-stage
-  subset is beta-candidate validated. PDB/debug and GitHub Release
-  upload/download-smoke are still deferred.
+  subset is beta-candidate validated. PDB/debug is still deferred; GitHub
+  Release upload/download-smoke is opt-in and must leave a green hosted
+  decision artifact before it counts as release-backed evidence.
 - Windows artifact policy is currently a beta-candidate contract in
   `docs/windows-artifact-policy.md`; native validation still has to prove real
   `.exe`, explicit static `.lib`, runtime `.dll`, import `.lib`, and PDB/debug
@@ -468,7 +508,7 @@ Current known gaps:
 - Windows `.dll`/import `.lib` shared-library lowering is in the beta candidate
   lane and has a named `qstar-windows-sharedlib-artifact-parity-tests` gate.
   PDB/debug remains deferred; release packaging now has an actual Actions zip
-  artifact smoke but not a GitHub Release publication/download-smoke gate.
+  artifact smoke plus an opt-in GitHub Release publication/download-smoke gate.
 - Persistent Stella daemon uses Unix socket paths today; Windows named pipe
   support is deferred.
 - QStar DSL package paths still intentionally reject drive letters and
@@ -483,9 +523,10 @@ Use the generated artifact in this order:
 1. Read `windows-beta-candidate-status.txt` for the first `status=fail` line.
 2. Open the corresponding `*.log` file named in that status line.
 3. Copy the failure class, not the entire raw log, into this Known Issues list.
-4. Keep daemon named pipe, MSVC bootstrap, GitHub Release publication,
-   Visual Studio lane, and PDB/debug policy deferred unless a later round
-   explicitly takes ownership of them.
+4. Keep daemon named pipe, MSVC bootstrap, Visual Studio lane, and PDB/debug
+   policy deferred unless a later round explicitly takes ownership of them.
+   Treat GitHub Release publication as owned only when a Q253
+   `publish_windows_asset=true` run is the evidence being discussed.
 
 ## Promotion Criteria
 
@@ -501,4 +542,5 @@ after:
   artifacts, and install layout are tested on Windows with real tools;
 - release packaging rules for `.exe`, `.lib`, `.dll`, import library, PDB, docs,
   and manpage-equivalent artifacts are decided and package-smoked;
-- a Windows GitHub Release asset is uploaded and download-smoked.
+- a Windows GitHub Release asset is uploaded and download-smoked by the Q253
+  opt-in publication job.

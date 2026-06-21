@@ -8,12 +8,13 @@ Windows shared-library artifact map, Round Q224 lowers that map through
 Stella and Ninja, Round Q225 promotes the shared-library checks into a
 named beta-candidate release gate, and Round Q246 adds the Windows public beta
 package skeleton. Round Q247 creates and extracts the Windows zip asset
-candidate in Actions without publishing it to GitHub Releases.
+candidate in Actions. Round Q253 adds the opt-in GitHub Release publish and
+download smoke gate for that zip.
 
 ```txt
 host support: validation-backed beta candidate
 release asset: qstar-v<version>-windows-x86_64.zip public beta candidate built and extracted in Actions
-release publication: GitHub Release upload/download-smoke deferred
+release publication: opt-in publish_windows_asset=true GitHub Release upload/download-smoke gate
 policy status: beta-candidate artifact contract
 implementation plan: sealed for Q173
 exe/static artifact gate: sealed for Q174
@@ -22,6 +23,7 @@ sharedlib lowering gate: sealed for Q224
 sharedlib parity gate: sealed for Q225
 package skeleton gate: sealed for Q246
 package smoke gate: sealed for Q247
+release publication gate: sealed for Q253
 local prep gate: make qstar-windows-prep-tests
 native smoke gate: make qstar-windows-native-alpha-tests
 named sharedlib gate: make qstar-windows-sharedlib-artifact-parity-tests
@@ -146,5 +148,9 @@ make Windows a validation-backed beta candidate; they still do not claim
 official Windows support. The Q246 package skeleton fixed the zip name and
 runtime layout. Q247 proves the public beta candidate zip can be created,
 extracted, used for docs/provider vendoring, and used for small Stella/Ninja
-builds. GitHub Release upload and downloaded-asset smoke remain future release
-gates.
+builds. Q253 adds the release-backed path: the manual Windows workflow can
+publish `qstar-v<version>-windows-x86_64.zip`, merge its checksum into
+`SHA256SUMS`, download the uploaded zip, and repeat the docs/provider/init plus
+Stella/Ninja build smoke from the extracted release tree. Official Windows
+support still requires a green published-asset decision artifact, not only a
+candidate zip artifact.

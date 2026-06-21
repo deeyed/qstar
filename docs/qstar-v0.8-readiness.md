@@ -42,7 +42,7 @@ Windows를 official support라고 부르지 않으면서도 "validation-backed b
 | --- | --- | --- |
 | macOS arm64 | Public beta asset | 유지, release smoke/codesign fresh run만 patch line에서 보강 |
 | Linux x86_64 | Public beta asset published from hosted Ubuntu lane | 0.8에서도 release-backed beta host로 유지 |
-| Windows | Validation-backed beta candidate, Actions public beta candidate zip build/extract smoke, GitHub Release publication deferred | official support 전 반복 검증 대상 |
+| Windows | Validation-backed beta candidate, Actions public beta candidate zip build/extract smoke, opt-in GitHub Release publish/download gate | official support 전 반복 검증 대상 |
 | Stella executor | Q250 medium/large refresh에서 report-only timing gate green; large 500 normal Stella clean은 Ninja보다 느렸지만 daemon/no-op/incremental은 우세 | 계속 성능 gate freshness 유지 |
 | Ninja backend | C/C++/ASM/custom/configure/run/group/sharedlib parity candidate | Windows artifact parity로 확장 |
 | Sharedlib | macOS `.dylib`, Linux `.so`, Windows `.dll`/import `.lib` sealed | PDB/debug ownership은 deferred |
@@ -84,7 +84,7 @@ Windows는 아직 official support가 아니다.
 | Workflow | `.github/workflows/windows-validation.yml`, manual `workflow_dispatch` |
 | Baseline lane | MSYS2 UCRT64 gcc |
 | Public beta candidate asset | `qstar-v<version>-windows-x86_64.zip` candidate artifact built, extracted, and smoke-tested in Actions |
-| Release publication | GitHub Release upload/download-smoke deferred |
+| Release publication | Q253 opt-in `publish_windows_asset=true` job uploads and download-smokes the Windows zip |
 | Native source build | beta candidate lane에서 `make all CC=gcc` 검증 |
 | Current known native blocker | no known blocker in the sealed candidate contract; future failures must be recorded as structured artifacts |
 | Daemon transport | Windows named pipe deferred |
@@ -97,8 +97,11 @@ Windows는 아직 official support가 아니다.
 Q225에서 문서/게이트/Actions artifact 기준으로 닫힌다. Q246은 여기서 한 단계 더 나아가
 Windows public beta asset을 만들기 위한 package skeleton을 뒀고, Q247은 실제 Windows zip
 asset candidate를 생성해 추출 smoke까지 수행한다. 이 asset은 public beta candidate로
-준비/검증된 Actions artifact지만, 곧바로 GitHub Release publication이나 official Windows
-support를 뜻하지 않는다. 현재 beta candidate가 보장하는 것은 다음이다.
+준비/검증된 Actions artifact다. Q253은 여기서 한 단계 더 나아가 release tag에 대해
+`publish_windows_asset=true`를 켰을 때 GitHub Release upload, `SHA256SUMS` merge,
+uploaded zip download smoke까지 수행하는 opt-in publication gate를 둔다. 그래도 official
+Windows support는 해당 hosted decision artifact가 green일 때만 판단한다. 현재 beta
+candidate가 보장하는 것은 다음이다.
 
 - Q220의 Stella CreateProcess runner가 hosted Windows lane에서 검증된다.
 - Q221의 Ninja launcher parity가 같은 platform process layer 위에서 검증된다.
@@ -117,6 +120,8 @@ support를 뜻하지 않는다. 현재 beta candidate가 보장하는 것은 다
 - Windows release asset smoke는 `qstar-v<version>-windows-x86_64.zip`을 실제 생성하고,
   zip을 추출한 뒤 `qstar --version`, docs lookup, provider vendoring, `qstar init app`,
   Stella/Ninja 최소 build를 extracted `bin/qstar.exe`로 검증한다.
+- Windows release publication smoke는 opt-in job에서 uploaded zip을 다시 내려받고 같은
+  docs/provider/init/Stella/Ninja 검증을 release URL 기준으로 반복한다.
 
 ## Daemon Beta Status
 
@@ -151,7 +156,7 @@ v1.0 blocker를 0.8 기준으로 다시 정렬한다.
 - macOS arm64 public asset, install smoke, codesign smoke 유지
 - Linux x86_64 public asset, hosted download smoke, gcc/clang validation 유지
 - Windows source build, install smoke, public beta candidate asset, artifact policy 반복 검증
-- Windows Actions zip asset artifact와 future GitHub Release upload/download smoke
+- Windows Actions zip asset artifact와 Q253 GitHub Release upload/download smoke evidence
 - CI/release matrix가 macOS, Linux, Windows를 모두 커버
 
 ### P0: Windows Artifact Implementation
@@ -204,6 +209,8 @@ v1.0 blocker를 0.8 기준으로 다시 정렬한다.
   `.exe` runtime layout, docs/man/wiki/provider inclusion policy
 - Windows public beta asset smoke: actual zip creation, extracted binary docs,
   provider vendoring, `qstar init app`, and Stella/Ninja minimal corpus
+- Windows public beta asset publication gate: opt-in upload/download smoke for
+  `qstar-v<version>-windows-x86_64.zip`
 - Windows `.exe`/static `.lib` real-host validation
 - Windows sharedlib `.dll` + import `.lib` Graph IR/action model
 - Stella/Ninja Windows sharedlib parity tests
@@ -215,7 +222,7 @@ v1.0 blocker를 0.8 기준으로 다시 정렬한다.
 0.8에 넣지 않을 것:
 
 - daemon default-on
-- Windows GitHub Release asset without native build/install/package gate and download smoke
+- Windows GitHub Release asset without native build/install/package gate and download smoke evidence
 - package resolver, registry, lockfile, fetch policy
 - mandatory `qstar.toml`, `project-specific TOML`, `.foreign/toolsets/*.toml`
 - domain-specific builtin target
@@ -253,6 +260,7 @@ v1.0 blocker를 0.8 기준으로 다시 정렬한다.
 | Q246 | Windows package skeleton | `windows-x86_64` zip plan, `.exe`/docs/man/wiki/provider layout, dry-run workflow artifact aligned |
 | Q247 | Windows asset smoke | actual `windows-x86_64` zip artifact, extracted package smoke, provider vendoring, init/build, Stella/Ninja minimal corpus |
 | Q251 | 0.8 beta release candidate gate | local `make qstar-v0.8-release-tests` umbrella gate, published-asset download smoke opt-in, hosted Linux/Windows fresh-run commands aligned |
+| Q253 | Windows official beta asset publication gate | opt-in `publish_windows_asset=true` job uploads Windows zip to GitHub Release, merges `SHA256SUMS`, downloads the zip, and records `windows_release_asset status=published` with `download_smoke=ok` |
 
 ## 0.8 Release Candidate Gate
 
@@ -301,6 +309,17 @@ candidate gate already covers the Windows execution corpus with Stella and Ninja
 Windows prep, sharedlib artifact parity, install docs/man smoke, and release
 asset smoke. The broader `qstar-ninja-backend-parity-tests` corpus still carries
 POSIX-style executable runtime expectations that can be skipped on Windows.
+
+To publish a Windows beta asset after a release tag exists, use:
+
+```sh
+gh workflow run windows-validation.yml \
+  --ref v0.8.0-beta \
+  -f release_tag=v0.8.0-beta \
+  -f publish_windows_asset=true
+```
+
+That job is release-mutating and must not be used as an ordinary freshness run.
 
 The Windows workflow uploads `qstar-windows-beta-candidate`, including
 `windows-beta-candidate-status.txt`, `KNOWN_ISSUES.md`, and the failure detail
