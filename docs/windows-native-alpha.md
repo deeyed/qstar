@@ -82,6 +82,24 @@ release tree. A green publish run uploads
 `windows_release_asset status=published` plus `download_smoke=ok` into
 `windows-hosted-release-decision.txt`.
 
+Round Q254 recorded the first release-backed Windows asset evidence on
+`v0.7.19-beta`:
+
+```txt
+workflow: https://github.com/deeyed/qstar/actions/runs/27935992747
+release: https://github.com/deeyed/qstar/releases/tag/v0.7.19-beta
+asset: qstar-v0.7.19-beta-windows-x86_64.zip
+windows_release_asset status=published
+download_smoke=ok
+```
+
+The downloaded smoke verified the published zip checksum, extracted
+`bin/qstar.exe`, docs/man files, bundled providers, `qstar init app`, Zig
+provider vendoring, Stella build, and Ninja build from the extracted release
+tree. This moves the Windows release asset blocker from "conditionally
+closable" to "evidence held" for the 0.7 beta line. It still does not make
+Windows official support; the gate must be repeated for the v1 candidate tag.
+
 Round Q178 adds a native execution corpus to that same alpha lane. The new
 `tests/corpus/windows-execution` project is intentionally separate from the
 Windows artifact contract corpus: it uses the MSYS2 UCRT64 GCC lane to build and

@@ -151,6 +151,9 @@ extracted, used for docs/provider vendoring, and used for small Stella/Ninja
 builds. Q253 adds the release-backed path: the manual Windows workflow can
 publish `qstar-v<version>-windows-x86_64.zip`, merge its checksum into
 `SHA256SUMS`, download the uploaded zip, and repeat the docs/provider/init plus
-Stella/Ninja build smoke from the extracted release tree. Official Windows
-support still requires a green published-asset decision artifact, not only a
-candidate zip artifact.
+Stella/Ninja build smoke from the extracted release tree. Q254 records the
+first green published-asset decision on `v0.7.19-beta`:
+https://github.com/deeyed/qstar/actions/runs/27935992747. The decision artifact
+recorded `windows_release_asset status=published` and `download_smoke=ok` for
+`qstar-v0.7.19-beta-windows-x86_64.zip`. Official Windows support still
+requires repeating this release-backed gate on the v1 candidate tag.

@@ -163,11 +163,13 @@ For v1, every public reference must classify APIs into one of three buckets:
 | --- | --- | --- |
 | macOS arm64 | Public beta release asset exists. Local package/download smoke and codesign checks are active. | Release asset must be produced from a clean tag, uploaded, downloaded, checksum-verified, docs/man/wiki smoke-tested, and `make qstar-v0.8-release-tests` or successor gate must pass on the release branch. |
 | Linux x86_64 | Public beta release asset exists from hosted Ubuntu lane. gcc/clang source validation, Ninja parity, package dry-run, download smoke, and performance artifacts exist. | Ubuntu hosted release workflow or clean Linux host must produce the artifact. Uploaded asset must pass download smoke with `file`, `ldd`, docs/wiki/man checks, Ninja backend parity, install smoke, and medium performance artifact collection. |
-| Windows x86_64 | Validation-backed beta candidate. MSYS2 UCRT64 lane builds source, runs execution/prep/sharedlib gates, creates/extracts zip candidate, and uploads artifacts. Q253 adds an explicit `publish_windows_asset=true` release publication/download-smoke job. | Windows GitHub Release zip must be published from the native workflow, downloaded again, checksum-verified, extracted, and smoke-tested with `qstar --version`, docs/man lookup, provider vendoring, `qstar init app`, Stella build, Ninja build, install/stage layout, and sharedlib runtime/import `.lib` consumer link. The blocker is conditionally closable when `windows-hosted-release-decision.txt` records `windows_release_asset status=published` and `download_smoke=ok` for the target release tag. |
+| Windows x86_64 | Validation-backed beta candidate with release-backed evidence. The v0.7.19-beta Windows workflow run published `qstar-v0.7.19-beta-windows-x86_64.zip` to GitHub Release and download-smoked it from the uploaded asset. Evidence: https://github.com/deeyed/qstar/actions/runs/27935992747. | Windows remains beta until repeated release gates are clean on the v1 candidate tag, but the former release-asset blocker has concrete evidence: `windows-hosted-release-decision.txt` recorded `windows_release_asset status=published` and `download_smoke=ok`, and the downloaded smoke verified `qstar --version`, docs/man lookup, provider vendoring, `qstar init app`, Stella build, and Ninja build. |
 
 Official host support means all required artifacts are release-backed, not merely
-local or candidate artifacts. Windows remains beta until the Q253 release asset
-publication and downloaded-asset smoke are both green for the selected release tag.
+local or candidate artifacts. Windows now has one release-backed beta evidence
+run on `v0.7.19-beta`, but it remains beta until the same gate is repeated for
+the v1 candidate tag and the remaining platform/daemon/compatibility blockers
+are resolved.
 
 ## Daemon Stable Conditions
 
@@ -272,7 +274,7 @@ QStar can start a v1 release candidate only when this checklist is true:
 
 | Blocker | Why it blocks v1 | Required closure |
 | --- | --- | --- |
-| Windows official artifact | v1 promises all three OSes, but Windows is still candidate-only until the Q253 publication gate records release-backed evidence. | Run `windows-validation.yml` with `publish_windows_asset=true` for the release tag. The resulting artifact must include `windows-hosted-release-decision.txt` with `windows_release_asset status=published` and `download_smoke=ok`. |
+| Windows official artifact | v1 promises all three OSes. This blocker has v0.7.19-beta evidence, but must be repeated on the final v1 candidate tag. | Q254 evidence exists: `windows-validation.yml` run 27935992747 published the Windows zip and produced `windows-hosted-release-decision.txt` with `windows_release_asset status=published` and `download_smoke=ok`. Repeat this gate before v1. |
 | Stable compatibility policy | v1 needs a promise for removals and field stability. | Link this policy from README/wiki/man/release notes and add drift guards. |
 | GLP provider-author stability | External language authors need a stable manifest/lowering contract. | Freeze or version `qstar.lang/1`, provider sandbox, lowering result, and provider scaffold contracts. |
 | Daemon boundary | daemon is beta opt-in and not default/stable. | Keep daemon beta in v1 docs, or finish separate stable daemon gate. |
