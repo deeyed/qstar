@@ -498,6 +498,7 @@ jobs:
             dist/release/download-smoke-windows-x86_64/download/init-zig.out
             dist/release/download-smoke-windows-x86_64/download/build-hello-stella.out
             dist/release/download-smoke-windows-x86_64/download/build-hello-ninja.out
+            dist/release/download-smoke-windows-x86_64/download/*.err
             dist/release/download-smoke-windows-x86_64/download-smoke.log
             dist/release/windows-hosted-release-decision.txt
           if-no-files-found: ignore

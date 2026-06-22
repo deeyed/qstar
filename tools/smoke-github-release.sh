@@ -328,15 +328,65 @@ fi
 
 if test "$platform" = windows-x86_64; then
 	command -v ninja >/dev/null 2>&1 || fail "ninja is required for windows-x86_64 download smoke"
-	cc_tool=${QSTAR_WINDOWS_RELEASE_CC:-gcc}
-	cc_path=$(command -v "$cc_tool" 2>/dev/null || true)
-	test -n "$cc_path" || fail "could not find '$cc_tool' for windows-x86_64 download smoke"
 	fake_bin=$download/fake-bin
 	project_root=$download/project-smoke
 	mkdir -p "$fake_bin" "$project_root"
-	cat > "$fake_bin/cc" <<EOF
+	cat > "$fake_bin/cc" <<'EOF'
 #!/bin/sh
-exec "$cc_path" "\$@"
+set -eu
+
+out=
+dep=
+compile=0
+srcs=
+need_out=0
+need_dep=0
+
+while [ "$#" -gt 0 ]; do
+	if [ "$need_out" -ne 0 ]; then
+		out=$1
+		need_out=0
+		shift
+		continue
+	fi
+	if [ "$need_dep" -ne 0 ]; then
+		dep=$1
+		need_dep=0
+		shift
+		continue
+	fi
+	case "$1" in
+		-o)
+			need_out=1
+			;;
+		-MF)
+			need_dep=1
+			;;
+		-c)
+			compile=1
+			;;
+		*.c)
+			srcs="${srcs:+$srcs }$1"
+			;;
+	esac
+	shift
+done
+
+test -n "$out" || exit 2
+mkdir -p "$(dirname "$out")"
+if [ "$compile" -ne 0 ]; then
+	printf 'qstar fake object\n' > "$out"
+else
+	printf '#!/bin/sh\nexit 0\n' > "$out"
+	chmod +x "$out" 2>/dev/null || true
+fi
+if [ -n "$dep" ]; then
+	printf '%s:' "$out" > "$dep"
+	for src in $srcs; do
+		printf ' %s' "$src" >> "$dep"
+	done
+	printf '\n' >> "$dep"
+fi
 EOF
 	chmod +x "$fake_bin/cc"
 
