@@ -338,6 +338,10 @@ target_primary_artifact_filename(const struct qstar_graph *graph,
 		} else {
 			suffix = ".so";
 		}
+	} else if ((strcmp(target->kind, "exe") == 0 ||
+	    strcmp(target->kind, "test") == 0) &&
+	    qstar_platform_is_windows(qstar_graph_platform(graph))) {
+		suffix = ".exe";
 	}
 	n = snprintf(dst, dstlen, "%s%s%s", prefix, target->name, suffix);
 	return n >= 0 && (size_t)n < dstlen ? 0 : -1;

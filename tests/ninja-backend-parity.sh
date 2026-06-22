@@ -250,7 +250,7 @@ fi
 contains "$tmp/shared/build/qstar/ninja/build.ninja" \
 	"build/qstar/out/___plugin/plugin.dll build/qstar/out/___plugin/plugin.lib: qstar_link"
 contains "$tmp/shared/build/qstar/ninja/build.ninja" \
-	"build/qstar/out/___plugin_app/plugin_app: qstar_link build/qstar/out/___plugin_app/obj0.o build/qstar/out/___plugin/plugin.lib"
+	"build/qstar/out/___plugin_app/plugin_app.exe: qstar_link build/qstar/out/___plugin_app/obj0.o build/qstar/out/___plugin/plugin.lib"
 contains "$tmp/shared/build/qstar/ninja/build.ninja" "-Wl,--out-implib,build/qstar/out/___plugin/plugin.lib"
 
 if command -v ninja >/dev/null 2>&1; then

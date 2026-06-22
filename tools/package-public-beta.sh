@@ -122,7 +122,12 @@ esac
 
 expected_version="qstar $version"
 tag=$(git describe --tags --exact-match 2>/dev/null || true)
-if test -n "$tag" && test "$tag" != "v$version"; then
+dirty=0
+if ! git diff --quiet --ignore-submodules -- 2>/dev/null ||
+    ! git diff --cached --quiet --ignore-submodules -- 2>/dev/null; then
+	dirty=1
+fi
+if test -n "$tag" && test "$tag" != "v$version" && test "$dirty" -eq 0; then
 	fail "current tag '$tag' does not match runtime version 'v$version'"
 fi
 if test -n "${QSTAR_RELEASE_TAG:-}" && test "$QSTAR_RELEASE_TAG" != "v$version"; then
@@ -250,7 +255,9 @@ if test "$dry_run" -ne 0; then
 	printf 'qstar-release-package: archive_format=%s\n' "$archive_format"
 	printf 'qstar-release-package: asset=%s\n' "$archive"
 	printf 'qstar-release-package: plan=%s\n' "$plan_file"
-	if test -n "$tag"; then
+	if test -n "$tag" && test "$dirty" -ne 0 && test "$tag" != "v$version"; then
+		printf 'qstar-release-package: tag=dirty-on-tag:%s\n' "$tag"
+	elif test -n "$tag"; then
 		printf 'qstar-release-package: tag=%s\n' "$tag"
 	else
 		printf 'qstar-release-package: tag=not-on-tag\n'
@@ -482,7 +489,9 @@ printf 'qstar-release-package: asset=%s\n' "$archive"
 printf 'qstar-release-package: sha256sums=%s\n' "$sha_file"
 printf 'qstar-release-package: plan=%s\n' "$plan_file"
 printf 'qstar-release-package: extract_smoke=%s\n' "$extract_root"
-if test -n "$tag"; then
+if test -n "$tag" && test "$dirty" -ne 0 && test "$tag" != "v$version"; then
+	printf 'qstar-release-package: tag=dirty-on-tag:%s\n' "$tag"
+elif test -n "$tag"; then
 	printf 'qstar-release-package: tag=%s\n' "$tag"
 else
 	printf 'qstar-release-package: tag=not-on-tag\n'
