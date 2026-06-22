@@ -328,67 +328,67 @@ fi
 
 if test "$platform" = windows-x86_64; then
 	command -v ninja >/dev/null 2>&1 || fail "ninja is required for windows-x86_64 download smoke"
+	cc_tool=${QSTAR_WINDOWS_RELEASE_CC:-gcc}
+	cc_path=$(command -v "$cc_tool" 2>/dev/null || true)
+	test -n "$cc_path" || fail "could not find '$cc_tool' to build fake cc.exe for windows-x86_64 download smoke"
 	fake_bin=$download/fake-bin
 	project_root=$download/project-smoke
 	mkdir -p "$fake_bin" "$project_root"
-	cat > "$fake_bin/cc" <<'EOF'
-#!/bin/sh
-set -eu
+	cat > "$fake_bin/fake_cc.c" <<'EOF'
+#include <stdio.h>
+#include <string.h>
 
-out=
-dep=
-compile=0
-srcs=
-need_out=0
-need_dep=0
+static int ends_with(const char *s, const char *suffix) {
+	size_t n = strlen(s);
+	size_t m = strlen(suffix);
+	return n >= m && strcmp(s + n - m, suffix) == 0;
+}
 
-while [ "$#" -gt 0 ]; do
-	if [ "$need_out" -ne 0 ]; then
-		out=$1
-		need_out=0
-		shift
-		continue
-	fi
-	if [ "$need_dep" -ne 0 ]; then
-		dep=$1
-		need_dep=0
-		shift
-		continue
-	fi
-	case "$1" in
-		-o)
-			need_out=1
-			;;
-		-MF)
-			need_dep=1
-			;;
-		-c)
-			compile=1
-			;;
-		*.c)
-			srcs="${srcs:+$srcs }$1"
-			;;
-	esac
-	shift
-done
+int main(int argc, char **argv) {
+	const char *out = NULL;
+	const char *dep = NULL;
+	const char *srcs[128];
+	int nsrc = 0;
+	int compile = 0;
 
-test -n "$out" || exit 2
-mkdir -p "$(dirname "$out")"
-if [ "$compile" -ne 0 ]; then
-	printf 'qstar fake object\n' > "$out"
-else
-	printf '#!/bin/sh\nexit 0\n' > "$out"
-	chmod +x "$out" 2>/dev/null || true
-fi
-if [ -n "$dep" ]; then
-	printf '%s:' "$out" > "$dep"
-	for src in $srcs; do
-		printf ' %s' "$src" >> "$dep"
-	done
-	printf '\n' >> "$dep"
-fi
+	for (int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
+			out = argv[++i];
+		} else if (strcmp(argv[i], "-MF") == 0 && i + 1 < argc) {
+			dep = argv[++i];
+		} else if (strcmp(argv[i], "-c") == 0) {
+			compile = 1;
+		} else if (ends_with(argv[i], ".c") && nsrc < 128) {
+			srcs[nsrc++] = argv[i];
+		}
+	}
+
+	if (!out) {
+		return 2;
+	}
+	FILE *f = fopen(out, "wb");
+	if (!f) {
+		return 3;
+	}
+	fputs(compile ? "qstar fake object\n" : "qstar fake linked output\n", f);
+	fclose(f);
+
+	if (dep) {
+		FILE *d = fopen(dep, "wb");
+		if (!d) {
+			return 4;
+		}
+		fprintf(d, "%s:", out);
+		for (int i = 0; i < nsrc; i++) {
+			fprintf(d, " %s", srcs[i]);
+		}
+		fputc('\n', d);
+		fclose(d);
+	}
+	return 0;
+}
 EOF
-	chmod +x "$fake_bin/cc"
+	"$cc_path" "$fake_bin/fake_cc.c" -o "$fake_bin/cc.exe"
 
 	hello_name=hello
 	run_logged_in init-hello "$project_root" env PATH="$fake_bin:$PATH" \
