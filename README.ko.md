@@ -9,7 +9,7 @@ Language provider는 `qstar.use_language(...)`로 활성화할 수 있다. QStar
 Rust, CUDA provider를 함께 설치하며, project-local provider package도 사용할 수 있다. 외부 source
 unit은 Stella/Ninja 공통 backend action contract로 lowering된다.
 
-현재 공개 버전은 베타다. 현재 release-prep line은 `v0.7.10-beta`이며 macOS arm64와
+현재 공개 버전은 베타다. 현재 release-prep line은 `v0.7.11-beta`이며 macOS arm64와
 Linux x86_64 runtime tarball을 대상으로 한다. Linux asset은 Ubuntu release workflow 또는
 clean Linux x86_64 host에서 source validation, Ninja backend parity, extracted tarball smoke,
 Stella/Ninja medium performance artifact collection을 통과한 산출물만 사용한다. 성능 숫자는
@@ -46,12 +46,12 @@ GitHub Releases에서 host에 맞는 runtime tarball을 내려받는다.
 
 ```sh
 # macOS arm64
-tar -xzf qstar-v0.7.10-beta-macos-arm64.tar.gz -C "$HOME/.local"
+tar -xzf qstar-v0.7.11-beta-macos-arm64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 
 # Linux x86_64
-tar -xzf qstar-v0.7.10-beta-linux-x86_64.tar.gz -C "$HOME/.local"
+tar -xzf qstar-v0.7.11-beta-linux-x86_64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 ```
