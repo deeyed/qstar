@@ -8,10 +8,10 @@
 #define QSTAR_PATH_MAX 4096
 #endif
 
-#define QSTAR_VERSION "0.7.12-beta"
+#define QSTAR_VERSION "0.7.13-beta"
 #define QSTAR_VERSION_MAJOR 0
 #define QSTAR_VERSION_MINOR 7
-#define QSTAR_VERSION_PATCH 12
+#define QSTAR_VERSION_PATCH 13
 
 struct qstar_string_list {
 	char **items;

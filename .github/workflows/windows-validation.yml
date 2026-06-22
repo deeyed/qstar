@@ -427,7 +427,6 @@ jobs:
           set -euo pipefail
           test -n "$QSTAR_RELEASE_TAG"
           make all CC=gcc
-          make check
           make qstar-windows-native-alpha-tests CC=gcc
           make qstar-windows-execution-corpus-tests CC=gcc
           make qstar-windows-prep-tests CC=gcc

@@ -6,7 +6,7 @@ checklist로 고정하는 것이다.
 
 ```txt
 status: v1 readiness gaps defined
-current public line: qstar 0.7.12-beta
+current public line: qstar 0.7.13-beta
 candidate feature line: qstar 0.8.0-beta
 v1 decision: not ready
 baseline date: 2026-06-21
