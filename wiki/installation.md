@@ -18,11 +18,11 @@ workflow에서 검증한다. 모든 platform에서 소스에서 직접 빌드할
 ## 최소 예제
 
 ```sh
-tar -xzf qstar-v0.7.8-beta-macos-arm64.tar.gz -C "$HOME/.local"
+tar -xzf qstar-v0.7.9-beta-macos-arm64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 
-tar -xzf qstar-v0.7.8-beta-linux-x86_64.tar.gz -C "$HOME/.local"
+tar -xzf qstar-v0.7.9-beta-linux-x86_64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 ```
@@ -59,7 +59,7 @@ Public beta tarball은 Makefile-built binary를 기준으로 만든다.
 
 ```sh
 make qstar-public-beta-release-tests
-tar -tzf dist/release/qstar-v0.7.8-beta-macos-arm64.tar.gz
+tar -tzf dist/release/qstar-v0.7.9-beta-macos-arm64.tar.gz
 cat dist/release/SHA256SUMS
 ```
 
@@ -126,7 +126,7 @@ compiler lane은 `QSTAR_LINUX_VALIDATION_CC=gcc|clang`으로 고정한다. gcc l
 
 ```sh
 QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh
-test -f dist/release/qstar-v0.7.8-beta-linux-x86_64.tar.gz
+test -f dist/release/qstar-v0.7.9-beta-linux-x86_64.tar.gz
 test -s dist/release/file-linux-x86_64.txt
 test -s dist/release/ldd-linux-x86_64.txt
 test -s dist/release/extract-file-linux-x86_64.txt
@@ -138,7 +138,7 @@ manpage가 tarball에 들어가는지, `SHA256SUMS`가 생성되는지를 확인
 다시 extract해서 extracted `qstar --version`, `qstar docs --path`, `qstar docs --show`,
 manpage file, `file(1)`, `ldd(1)` smoke를 반복한다. GitHub release에 Linux asset을
 붙일 때는 `.github/workflows/linux-validation.yml`의 `workflow_dispatch` input
-`publish_linux_asset=true`, `release_tag=v0.7.8-beta`를 사용한다.
+`publish_linux_asset=true`, `release_tag=v0.7.9-beta`를 사용한다.
 이 publish lane은 upload 직후 GitHub release URL에서 Linux asset을 다시 다운로드하고
 `make qstar-public-beta-download-smoke`로 checksum, extracted tree, wiki home, Lua
 reference, manpage source/render report, `file(1)`, `ldd(1)`를 확인한다. 결과는
