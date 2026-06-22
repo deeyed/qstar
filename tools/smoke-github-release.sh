@@ -336,7 +336,7 @@ if test "$platform" = windows-x86_64; then
 	mkdir -p "$fake_bin" "$project_root"
 	cat > "$fake_bin/cc" <<EOF
 #!/bin/sh
-exec "$cc_tool" "\$@"
+exec "$cc_path" "\$@"
 EOF
 	chmod +x "$fake_bin/cc"
 

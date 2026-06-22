@@ -205,7 +205,7 @@ cc_path=$(command -v "$cc_tool" 2>/dev/null || true)
 test -n "$cc_path" || fail "could not find '$cc_tool' for fake cc shim"
 cat > "$fake_bin/cc" <<EOF
 #!/bin/sh
-exec "$cc_tool" "\$@"
+exec "$cc_path" "\$@"
 EOF
 chmod +x "$fake_bin/cc"
 
