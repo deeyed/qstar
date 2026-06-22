@@ -395,7 +395,11 @@ EOF
 		"$qstar_bin" init app "$hello_name" --use-language=c
 	test -f "$project_root/$hello_name/qstar.lua" || \
 		fail "downloaded qstar init app did not create qstar.lua"
-	fake_cc_lua=$(printf '%s' "$fake_bin/cc.exe" | sed 's/[\\&]/\\&/g')
+	fake_cc_path=$fake_bin/cc.exe
+	if command -v cygpath >/dev/null 2>&1; then
+		fake_cc_path=$(cygpath -m "$fake_cc_path")
+	fi
+	fake_cc_lua=$(printf '%s' "$fake_cc_path" | sed 's/[\\&]/\\&/g')
 	sed \
 		-e "s@qstar.toolset \"host\" {@qstar.toolset \"host\" {\n  allow_absolute_tools = true,@" \
 		-e "s@qstar.cli {\"cc\"}@qstar.cli {\"$fake_cc_lua\"}@g" \

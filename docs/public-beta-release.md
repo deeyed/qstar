@@ -20,11 +20,11 @@ workflow의 Actions artifact로 생성/추출 smoke되며, Q253 기준 같은 wo
 publish job이 GitHub Release upload, `SHA256SUMS` merge, downloaded zip smoke까지 맡는다.
 
 ```txt
-runtime version: qstar 0.7.18-beta
-release tag: v0.7.18-beta
-macOS asset: qstar-v0.7.18-beta-macos-arm64.tar.gz
-Linux asset: qstar-v0.7.18-beta-linux-x86_64.tar.gz
-Windows planned asset: qstar-v0.7.18-beta-windows-x86_64.zip
+runtime version: qstar 0.7.19-beta
+release tag: v0.7.19-beta
+macOS asset: qstar-v0.7.19-beta-macos-arm64.tar.gz
+Linux asset: qstar-v0.7.19-beta-linux-x86_64.tar.gz
+Windows planned asset: qstar-v0.7.19-beta-windows-x86_64.zip
 checksum file: SHA256SUMS
 ```
 
@@ -35,15 +35,16 @@ checksum file: SHA256SUMS
 tree는 `tag=dirty-on-tag:<tag>`를 출력할 수 있지만, clean tree에서 tag와 runtime
 version이 다르면 실패한다.
 
-현재 patch release line은 `0.7.18-beta`다. `v0.7.0-beta` tag는 이전 feature beta
+현재 patch release line은 `0.7.19-beta`다. `v0.7.0-beta` tag는 이전 feature beta
 release로, `v0.7.1-beta`, `v0.7.2-beta`, `v0.7.3-beta`, `v0.7.4-beta`,
 `v0.7.5-beta`, `v0.7.6-beta`, `v0.7.7-beta`, `v0.7.8-beta`, `v0.7.9-beta`,
 `v0.7.10-beta`, `v0.7.11-beta`, `v0.7.12-beta`, `v0.7.13-beta`,
-`v0.7.14-beta`, `v0.7.15-beta`, `v0.7.16-beta`, `v0.7.17-beta` tag는
+`v0.7.14-beta`, `v0.7.15-beta`, `v0.7.16-beta`, `v0.7.17-beta`,
+`v0.7.18-beta` tag는
 이전 patch release로
 보존하고 이동하지 않는다.
 Default `qstar build` path는 바꾸지 않는다.
-Release note는 `docs/releases/v0.7.18-beta.md`, 판단 기준은
+Release note는 `docs/releases/v0.7.19-beta.md`, 판단 기준은
 `docs/qstar-v0.7-readiness.md`와 `docs/qstar-v1-readiness.md`에 둔다.
 
 ## Local Gate
@@ -120,7 +121,7 @@ dry-run을 수행한다.
 
 ```sh
 QSTAR_RELEASE_PLATFORM=linux-x86_64 tools/package-public-beta.sh
-test -f dist/release/qstar-v0.7.18-beta-linux-x86_64.tar.gz
+test -f dist/release/qstar-v0.7.19-beta-linux-x86_64.tar.gz
 test -s dist/release/file-linux-x86_64.txt
 test -s dist/release/ldd-linux-x86_64.txt
 ```
@@ -141,7 +142,7 @@ rendered manpage smoke를 `qstar-linux-x86_64-release-candidate-dry-run` artifac
 
 ```sh
 QSTAR_RELEASE_PLATFORM=linux-x86_64 \
-QSTAR_RELEASE_TAG=v0.7.18-beta \
+QSTAR_RELEASE_TAG=v0.7.19-beta \
 QSTAR_RELEASE_REPO=deeyed/qstar \
   tools/publish-github-release-asset.sh
 ```
@@ -149,7 +150,7 @@ QSTAR_RELEASE_REPO=deeyed/qstar \
 이 upload script는 GitHub release의 기존 `SHA256SUMS`를 내려받고, 같은 platform entry를
 교체한 뒤 Linux checksum을 병합해 다시 업로드한다. 따라서 macOS와 Linux checksum은 같은
 `SHA256SUMS` 안에 공존한다. `.github/workflows/linux-validation.yml`에서는
-`workflow_dispatch` input `publish_linux_asset=true`와 `release_tag=v0.7.18-beta`를 지정해
+`workflow_dispatch` input `publish_linux_asset=true`와 `release_tag=v0.7.19-beta`를 지정해
 같은 작업을 Ubuntu에서 수행한다. Round Q163 이후 이 publish job은 upload 직후
 `make qstar-public-beta-download-smoke`를 다시 실행해 GitHub release URL에서 내려받은
 Linux tarball을 검증하고, `download-smoke-linux-x86_64` artifact에 checksum,
@@ -169,8 +170,8 @@ GitHub Release upload는 같은 workflow에서 `publish_windows_asset=true`를 �
 ```sh
 make qstar-windows-release-package-tests
 make qstar-windows-release-asset-smoke-tests
-test -f dist/release/qstar-v0.7.18-beta-windows-x86_64.package-plan.txt
-test -f dist/release/qstar-v0.7.18-beta-windows-x86_64.expected-contents.txt
+test -f dist/release/qstar-v0.7.19-beta-windows-x86_64.package-plan.txt
+test -f dist/release/qstar-v0.7.19-beta-windows-x86_64.expected-contents.txt
 ```
 
 Windows workflow는 default beta candidate job에서 actual zip을
@@ -206,11 +207,11 @@ LICENSE/README.md
 예상 설치 명령:
 
 ```sh
-tar -xzf qstar-v0.7.18-beta-macos-arm64.tar.gz -C "$HOME/.local"
+tar -xzf qstar-v0.7.19-beta-macos-arm64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 
-tar -xzf qstar-v0.7.18-beta-linux-x86_64.tar.gz -C "$HOME/.local"
+tar -xzf qstar-v0.7.19-beta-linux-x86_64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 ```
@@ -240,7 +241,7 @@ LICENSE/README.md
 예상 설치 명령은 Windows asset이 GitHub Release에 published된 뒤 다음 모양이 된다.
 
 ```sh
-unzip -q qstar-v0.7.18-beta-windows-x86_64.zip -d "$HOME/.local"
+unzip -q qstar-v0.7.19-beta-windows-x86_64.zip -d "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar.exe --version
 ```
@@ -291,15 +292,15 @@ sample workspace, license payload만 확인하는 좁은 smoke다. Runtime과 ba
 Local smoke가 끝난 뒤 tag와 GitHub release를 만든다.
 
 ```sh
-git tag -a v0.7.18-beta -m "QStar v0.7.18 beta"
-git push origin v0.7.18-beta
+git tag -a v0.7.19-beta -m "QStar v0.7.19 beta"
+git push origin v0.7.19-beta
 
-gh release create v0.7.18-beta \
-  dist/release/qstar-v0.7.18-beta-macos-arm64.tar.gz \
+gh release create v0.7.19-beta \
+  dist/release/qstar-v0.7.19-beta-macos-arm64.tar.gz \
   dist/release/SHA256SUMS \
   --repo deeyed/qstar \
-  --title "QStar v0.7.18 Beta" \
-  --notes-file docs/releases/v0.7.18-beta.md \
+  --title "QStar v0.7.19 Beta" \
+  --notes-file docs/releases/v0.7.19-beta.md \
   --prerelease \
   --latest=false
 ```
@@ -308,7 +309,7 @@ Linux asset은 macOS release 생성 후 Ubuntu workflow에서 다음 input으로
 
 ```txt
 workflow: Linux Validation
-release_tag: v0.7.18-beta
+release_tag: v0.7.19-beta
 publish_linux_asset: true
 daemon_socket_smoke: optional
 ```
@@ -318,7 +319,7 @@ Windows asset은 release tag가 존재하고 Windows official beta asset publica
 
 ```txt
 workflow: Windows Beta Candidate Validation
-release_tag: v0.7.18-beta
+release_tag: v0.7.19-beta
 publish_windows_asset: true
 run_ninja_parity: optional
 ```

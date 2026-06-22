@@ -11,7 +11,7 @@ external object artifact flows. Language providers can be activated with
 and also accepts project-local provider packages. Provider source units lower through the same
 Stella/Ninja backend action contract.
 
-QStar is currently in beta. The current release-prep line is `v0.7.18-beta`,
+QStar is currently in beta. The current release-prep line is `v0.7.19-beta`,
 with macOS arm64 and Linux x86_64 runtime tarballs. Linux assets
 are produced only from the Ubuntu release workflow or a clean Linux x86_64 host,
 after source validation, Ninja backend parity, extracted tarball smoke, and
@@ -55,12 +55,12 @@ Download the runtime tarball for your host from the
 
 ```sh
 # macOS arm64
-tar -xzf qstar-v0.7.18-beta-macos-arm64.tar.gz -C "$HOME/.local"
+tar -xzf qstar-v0.7.19-beta-macos-arm64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 
 # Linux x86_64
-tar -xzf qstar-v0.7.18-beta-linux-x86_64.tar.gz -C "$HOME/.local"
+tar -xzf qstar-v0.7.19-beta-linux-x86_64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 ```
