@@ -5,7 +5,7 @@
 
 ```txt
 status: 0.8 beta readiness sealed
-current public line: qstar 0.7.2-beta
+current public line: qstar 0.7.3-beta
 candidate feature line: qstar 0.8.0-beta
 baseline date: 2026-06-17
 decision: seal Windows as validation-backed beta candidate; keep daemon opt-in; keep package resolver out-of-core

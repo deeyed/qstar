@@ -8,6 +8,13 @@ last_step="setup"
 last_prefix=
 dumped=0
 daemon_pid=
+host=$(uname -s 2>/dev/null || printf unknown)
+host_windows=0
+case "$host" in
+	MINGW*|MSYS*|CYGWIN*)
+		host_windows=1
+		;;
+esac
 
 dump_file_tail() {
 	file=$1
@@ -613,7 +620,12 @@ if "$qstar" --file "$tmp/qstar.lua" daemon --socket "tcp://127.0.0.1:9417" --sta
 	fail "remote daemon socket path unexpectedly succeeded"
 fi
 contains "$tmp/daemon-remote.out" "daemon status=unavailable"
-contains "$tmp/daemon-remote.out" "remote daemon socket paths are not supported"
+if [ "$host_windows" -eq 1 ]; then
+	contains "$tmp/daemon-remote.out" "windows-named-pipe-deferred"
+	contains "$tmp/daemon-remote.err" "Windows Stella daemon support is deferred"
+else
+	contains "$tmp/daemon-remote.out" "remote daemon socket paths are not supported"
+fi
 daemon_insecure_dir="$tmp/daemon-insecure"
 mkdir -p "$daemon_insecure_dir"
 chmod 755 "$daemon_insecure_dir"
@@ -621,27 +633,42 @@ if "$qstar" --file "$tmp/qstar.lua" daemon --socket "$daemon_insecure_dir/qstar-
 	fail "insecure daemon socket directory unexpectedly succeeded"
 fi
 contains "$tmp/daemon-insecure.out" "daemon status=unavailable"
-contains "$tmp/daemon-insecure.out" "daemon socket directory must be owner-only"
+if [ "$host_windows" -eq 1 ]; then
+	contains "$tmp/daemon-insecure.out" "windows-named-pipe-deferred"
+	contains "$tmp/daemon-insecure.err" "Windows Stella daemon support is deferred"
+else
+	contains "$tmp/daemon-insecure.out" "daemon socket directory must be owner-only"
+fi
 daemon_bad_sock="$daemon_dir/not-a-socket.sock"
 printf 'not a socket\n' > "$daemon_bad_sock"
 if "$qstar" --file "$tmp/qstar.lua" daemon --socket "$daemon_bad_sock" --serve > "$tmp/daemon-stale-file.out" 2> "$tmp/daemon-stale-file.err"; then
 	fail "non-socket daemon path unexpectedly started a server"
 fi
-contains "$tmp/daemon-stale-file.err" "daemon socket path exists and is not a socket"
+if [ "$host_windows" -eq 1 ]; then
+	contains "$tmp/daemon-stale-file.err" "Windows Stella daemon support is deferred"
+else
+	contains "$tmp/daemon-stale-file.err" "daemon socket path exists and is not a socket"
+fi
 contains "$daemon_bad_sock" "not a socket"
 rm -f "$daemon_bad_sock"
 
 step "initial build smoke: experimental Stella daemon" "daemon"
 daemon_sock="$daemon_dir/qstar-daemon.sock"
 rm -f "$daemon_sock"
-"$qstar" --file "$tmp/qstar.lua" daemon --socket "$daemon_sock" --serve > "$tmp/daemon-server.out" 2> "$tmp/daemon-server.err" &
-daemon_pid=$!
-i=0
-while [ ! -S "$daemon_sock" ] && kill -0 "$daemon_pid" 2>/dev/null && [ "$i" -lt 30 ]; do
-	sleep 0.1
-	i=$((i + 1))
-done
-if [ -S "$daemon_sock" ]; then
+if [ "$host_windows" -eq 1 ]; then
+	if "$qstar" --file "$tmp/qstar.lua" daemon --socket "$daemon_sock" --serve > "$tmp/daemon-server.out" 2> "$tmp/daemon-server.err"; then
+		fail "Windows daemon server unexpectedly started"
+	fi
+	contains "$tmp/daemon-server.err" "Windows Stella daemon support is deferred"
+else
+	"$qstar" --file "$tmp/qstar.lua" daemon --socket "$daemon_sock" --serve > "$tmp/daemon-server.out" 2> "$tmp/daemon-server.err" &
+	daemon_pid=$!
+	i=0
+	while [ ! -S "$daemon_sock" ] && kill -0 "$daemon_pid" 2>/dev/null && [ "$i" -lt 30 ]; do
+		sleep 0.1
+		i=$((i + 1))
+	done
+	if [ -S "$daemon_sock" ]; then
 	"$qstar" --file "$tmp/qstar.lua" daemon --socket "$daemon_sock" --status > "$tmp/daemon-status.out" 2> "$tmp/daemon-status.err"
 	contains "$tmp/daemon-status.out" "daemon status=ok experimental=1"
 	"$qstar" --file "$tmp/qstar.lua" -B build/daemon daemon --socket "$daemon_sock" --query hello > "$tmp/daemon-query-hello.out" 2> "$tmp/daemon-query-hello.err"
@@ -775,6 +802,7 @@ else
 	else
 		fail "experimental daemon socket did not become ready"
 	fi
+fi
 fi
 "$qstar" --file "$tmp/qstar.lua" -B build/daemon-fallback build //:app --use-daemon=auto --daemon-socket "$daemon_sock" --schedule-trace --progress off --color never > "$tmp/daemon-fallback.out" 2> "$tmp/daemon-fallback.err"
 contains "$tmp/daemon-fallback.out" "daemon status=unavailable"
@@ -1572,9 +1600,9 @@ test ! -f "$tmp/ninja-policy-off/compile_commands.json" || fail "ninja off polic
 
 step "version command surface" "version-flag"
 "$qstar" --version > "$tmp/version-flag.out" 2> "$tmp/version-flag.err"
-test "$(cat "$tmp/version-flag.out")" = "qstar 0.7.2-beta" || fail "qstar --version drifted"
+test "$(cat "$tmp/version-flag.out")" = "qstar 0.7.3-beta" || fail "qstar --version drifted"
 "$qstar" version > "$tmp/version-cmd.out" 2> "$tmp/version-cmd.err"
-test "$(cat "$tmp/version-cmd.out")" = "qstar 0.7.2-beta" || fail "qstar version drifted"
+test "$(cat "$tmp/version-cmd.out")" = "qstar 0.7.3-beta" || fail "qstar version drifted"
 
 "$qstar" --file "$tmp/qstar.lua" lint > "$tmp/lint-ok.out" 2> "$tmp/lint-ok.err"
 contains "$tmp/lint-ok.out" "qstar lint v1"
@@ -1653,7 +1681,7 @@ EOF
 "$qstar" --file "$tmp/lua-authoring/qstar.lua" --dump-graph > "$tmp/lua-authoring.out" 2> "$tmp/lua-authoring.err"
 contains "$tmp/lua-authoring.out" "cflags [-Wall, -Wextra"
 contains "$tmp/lua-authoring.out" "-DQSTAR_TARGET=HOST"
-contains "$tmp/lua-authoring.out" "-DQSTAR_VERSION=0.7.2-beta"
+contains "$tmp/lua-authoring.out" "-DQSTAR_VERSION=0.7.3-beta"
 contains "$tmp/lua-authoring.out" "-DQSTAR_VERSION_MINOR=7"
 contains "$tmp/lua-authoring.out" "-DQSTAR_HOST_OS="
 contains "$tmp/lua-authoring.out" "-DQSTAR_HOST_ARCH="
@@ -6475,7 +6503,7 @@ contains "docs/qstar-v0.1-hardening-seal.md" "qstar/tests/projects/package-flow"
 contains "docs/qstar-v0.1-hardening-seal.md" "qstar action-log <action-id>"
 contains "docs/qstar-v0.1-hardening-seal.md" "qstar replay <action-id>"
 contains "README.md" "QStar is a standalone build system"
-contains "README.md" "v0.7.2-beta"
+contains "README.md" "v0.7.3-beta"
 contains "README.md" "docs/qstar-v1-readiness.md"
 contains "README.md" "English | [한국어](README.ko.md)"
 contains "README.md" "make qstar-self-host-tests"
@@ -6486,7 +6514,7 @@ contains "README.md" "Validation-backed beta candidate"
 contains "README.md" "GitHub Wiki"
 contains "README.md" "Apache License, Version 2.0"
 contains "README.ko.md" "[English](README.md) | 한국어"
-contains "README.ko.md" "v0.7.2-beta"
+contains "README.ko.md" "v0.7.3-beta"
 contains "README.ko.md" "docs/qstar-v1-readiness.md"
 contains "README.ko.md" "make qstar-public-beta-download-smoke"
 contains "README.ko.md" "Linux x86_64 runtime tarball"
@@ -6559,10 +6587,10 @@ contains "docs/releases/v0.7.0-beta.md" "qstar-v0.7.0-beta-linux-x86_64.tar.gz"
 contains "docs/releases/v0.7.0-beta.md" "linux_release_asset status=published"
 contains "docs/releases/v0.7.0-beta.md" "https://github.com/deeyed/qstar/actions/runs/27507809666"
 contains "docs/releases/v0.7.0-beta.md" "Windows public release asset"
-contains "docs/releases/v0.7.2-beta.md" "QStar v0.7.2 Beta"
-contains "docs/releases/v0.7.2-beta.md" "qstar-v0.7.2-beta-windows-x86_64.zip"
-contains "docs/releases/v0.7.2-beta.md" "publish_windows_asset=true"
-contains "docs/releases/v0.7.2-beta.md" "Windows official beta asset"
+contains "docs/releases/v0.7.3-beta.md" "QStar v0.7.3 Beta"
+contains "docs/releases/v0.7.3-beta.md" "qstar-v0.7.3-beta-windows-x86_64.zip"
+contains "docs/releases/v0.7.3-beta.md" "publish_windows_asset=true"
+contains "docs/releases/v0.7.3-beta.md" "Windows official beta asset"
 contains "docs/releases/v0.8.0-beta.md" "QStar v0.8.0 Beta Release Candidate Gate"
 contains "docs/releases/v0.8.0-beta.md" "Windows asset publication is not automatic"
 contains "docs/releases/v0.8.0-beta.md" "explicit static"
@@ -6580,7 +6608,7 @@ contains "docs/qstar-v0.6-post-release-smoke.md" "SHA256SUMS"
 contains "docs/daemon-beta-readiness.md" "documented beta opt-in feature"
 contains "docs/daemon-beta-readiness.md" "default"
 contains "docs/daemon-beta-readiness.md" "Windows named pipe"
-contains "docs/daemon-beta-readiness.md" "0.7.2-beta"
+contains "docs/daemon-beta-readiness.md" "0.7.3-beta"
 contains "docs/daemon-beta-readiness.md" "docs/perf/q233-backend-daemon-refresh.md"
 contains "docs/daemon-beta-readiness.md" "Q175"
 contains "docs/daemon-beta-readiness.md" "Q233"
@@ -6946,15 +6974,15 @@ contains "docs/README.md" "releases/TEMPLATE.md"
 contains "docs/README.md" "progress-output.md"
 contains "docs/README.md" "qstar-v0.6-readiness.md"
 contains "docs/README.md" "qstar-v0.7-readiness.md"
-contains "docs/README.md" "releases/v0.7.2-beta.md"
+contains "docs/README.md" "releases/v0.7.3-beta.md"
 contains "docs/README.md" "releases/v0.7.0-beta.md"
 contains "docs/README.md" "qstar-v0.5-readiness.md"
 contains "docs/README.md" "qstar-pilot-readiness-seal.md"
 contains "docs/README.md" "qstar-submodule-extraction-prep.md"
 contains "docs/public-beta-release.md" "Public Beta Release Gate"
-contains "docs/public-beta-release.md" "qstar-v0.7.2-beta-macos-arm64.tar.gz"
-contains "docs/public-beta-release.md" "qstar-v0.7.2-beta-linux-x86_64.tar.gz"
-contains "docs/public-beta-release.md" "0.7.2-beta"
+contains "docs/public-beta-release.md" "qstar-v0.7.3-beta-macos-arm64.tar.gz"
+contains "docs/public-beta-release.md" "qstar-v0.7.3-beta-linux-x86_64.tar.gz"
+contains "docs/public-beta-release.md" "0.7.3-beta"
 contains "docs/public-beta-release.md" "qstar-public-beta-release-tests"
 contains "docs/public-beta-release.md" "qstar-public-beta-download-smoke"
 contains "docs/public-beta-release.md" "tools/smoke-github-release.sh"

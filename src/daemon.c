@@ -70,7 +70,7 @@ qstar_daemon_command(int argc, char **argv, const char *file,
     const char *cli_platform, const char *cli_toolchain, const char *cli_stdlib,
     FILE *out)
 {
-	int i;
+	int i, status;
 
 	(void)file;
 	(void)cli_build_dir;
@@ -79,12 +79,21 @@ qstar_daemon_command(int argc, char **argv, const char *file,
 	(void)cli_platform;
 	(void)cli_toolchain;
 	(void)cli_stdlib;
+	status = 0;
 	for (i = 0; i < argc; i++) {
 		if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
 			fprintf(out, "qstar daemon: %s\n",
 			    QSTAR_WINDOWS_DAEMON_UNSUPPORTED);
 			return 0;
 		}
+		if (strcmp(argv[i], "--status") == 0)
+			status = 1;
+	}
+	if (status) {
+		fprintf(out,
+		    "daemon status=unavailable reason=windows-named-pipe-deferred\n");
+		fprintf(stderr, "qstar: %s\n", QSTAR_WINDOWS_DAEMON_UNSUPPORTED);
+		return 1;
 	}
 	fprintf(stderr, "qstar: %s\n", QSTAR_WINDOWS_DAEMON_UNSUPPORTED);
 	return 1;
