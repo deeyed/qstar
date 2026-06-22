@@ -14,6 +14,11 @@ MINGW*|MSYS*|CYGWIN*)
 	host_windows=1
 	;;
 esac
+exe_suffix=
+if [ "$host_windows" -eq 1 ]; then
+	exe_suffix=.exe
+fi
+c_app_artifact="build/qstar/out/___app/app$exe_suffix"
 
 fail() {
 	echo "qstar-ninja-backend-parity: $*" >&2
@@ -49,17 +54,17 @@ contains "$c_app/build/qstar/ninja/build.ninja" "qstar_action_id = //:unit:link:
 contains "$c_app/build/qstar/ninja/build.ninja" "qstar_action_id = //:all:group:0"
 contains "$c_app/build/qstar/ninja/build.ninja" "description = Building C object build/qstar/out/___core/obj0.o"
 contains "$c_app/build/qstar/ninja/build.ninja" "description = Linking C static library build/qstar/out/___core/libcore.a"
-contains "$c_app/build/qstar/ninja/build.ninja" "description = Linking C executable build/qstar/out/___app/app"
+contains "$c_app/build/qstar/ninja/build.ninja" "description = Linking C executable $c_app_artifact"
 contains "$c_app/build/qstar/compile_commands.json" "src/core.c"
 contains "$c_app/build/qstar/compile_commands.json" "src/main.c"
 "$qstar" --file "$c_app/qstar.lua" action-log //:app:link:0 > "$tmp/c-app-link-log.out" 2> "$tmp/c-app-link-log.err"
 contains "$tmp/c-app-link-log.out" "qstar action-log v1"
 contains "$tmp/c-app-link-log.out" "backend=ninja"
-contains "$tmp/c-app-link-log.out" "description='Linking C executable build/qstar/out/___app/app'"
+contains "$tmp/c-app-link-log.out" "description='Linking C executable $c_app_artifact'"
 "$qstar" --file "$c_app/qstar.lua" replay //:app:link:0 > "$tmp/c-app-link-replay.out" 2> "$tmp/c-app-link-replay.err"
 contains "$tmp/c-app-link-replay.out" "qstar replay v1"
-contains "$tmp/c-app-link-replay.out" "description='Linking C executable build/qstar/out/___app/app'"
-contains "$tmp/c-app-link-replay.out" "build/qstar/out/___app/app"
+contains "$tmp/c-app-link-replay.out" "description='Linking C executable $c_app_artifact'"
+contains "$tmp/c-app-link-replay.out" "$c_app_artifact"
 
 "$qstar" --file "$generated/qstar.lua" emit-ninja //:all > "$tmp/generated-emit.out" 2> "$tmp/generated-emit.err"
 contains "$generated/build/qstar/ninja/build.ninja" "rule qstar_generate"
@@ -97,7 +102,7 @@ if [ "$host_windows" -eq 1 ]; then
 	contains "$tmp/object-bridge-emit.out" "ninja_file build/qstar/ninja/build.ninja"
 	contains "$object_bridge/build/qstar/ninja/build.ninja" "qstar_action_id = //:objc_object:generate:0"
 	contains "$object_bridge/build/qstar/ninja/build.ninja" "description = Building Objective-C object AppDelegate.o"
-	contains "$object_bridge/build/qstar/ninja/build.ninja" "build/qstar/out/___app/app: qstar_link build/qstar/out/___app/obj0.o build/qstar/generated/objc/AppDelegate.o"
+	contains "$object_bridge/build/qstar/ninja/build.ninja" "$c_app_artifact: qstar_link build/qstar/out/___app/obj0.o build/qstar/generated/objc/AppDelegate.o"
 	"$qstar" --file "$object_bridge/qstar.lua" emit-ninja //:objc_static \
 		> "$tmp/object-bridge-static-emit.out" 2> "$tmp/object-bridge-static-emit.err"
 	contains "$object_bridge/build/qstar/ninja/build.ninja" "build/qstar/out/___objc_static/libobjc_static.a: qstar_archive build/qstar/generated/objc/AppDelegate.o"
