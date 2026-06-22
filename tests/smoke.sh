@@ -1616,9 +1616,9 @@ test ! -f "$tmp/ninja-policy-off/compile_commands.json" || fail "ninja off polic
 
 step "version command surface" "version-flag"
 "$qstar" --version > "$tmp/version-flag.out" 2> "$tmp/version-flag.err"
-test "$(cat "$tmp/version-flag.out")" = "qstar 0.7.7-beta" || fail "qstar --version drifted"
+test "$(cat "$tmp/version-flag.out")" = "qstar 0.7.8-beta" || fail "qstar --version drifted"
 "$qstar" version > "$tmp/version-cmd.out" 2> "$tmp/version-cmd.err"
-test "$(cat "$tmp/version-cmd.out")" = "qstar 0.7.7-beta" || fail "qstar version drifted"
+test "$(cat "$tmp/version-cmd.out")" = "qstar 0.7.8-beta" || fail "qstar version drifted"
 
 "$qstar" --file "$tmp/qstar.lua" lint > "$tmp/lint-ok.out" 2> "$tmp/lint-ok.err"
 contains "$tmp/lint-ok.out" "qstar lint v1"
@@ -1697,7 +1697,7 @@ EOF
 "$qstar" --file "$tmp/lua-authoring/qstar.lua" --dump-graph > "$tmp/lua-authoring.out" 2> "$tmp/lua-authoring.err"
 contains "$tmp/lua-authoring.out" "cflags [-Wall, -Wextra"
 contains "$tmp/lua-authoring.out" "-DQSTAR_TARGET=HOST"
-contains "$tmp/lua-authoring.out" "-DQSTAR_VERSION=0.7.7-beta"
+contains "$tmp/lua-authoring.out" "-DQSTAR_VERSION=0.7.8-beta"
 contains "$tmp/lua-authoring.out" "-DQSTAR_VERSION_MINOR=7"
 contains "$tmp/lua-authoring.out" "-DQSTAR_HOST_OS="
 contains "$tmp/lua-authoring.out" "-DQSTAR_HOST_ARCH="
@@ -2167,7 +2167,9 @@ qstar.staticlib "core" {
   sources = {"src/main.c"},
 }
 EOF
+step "toolset provider namespace check" "toolset-check"
 "$qstar" --file "$tmp/toolset/qstar.lua" check > "$tmp/toolset-check.out" 2> "$tmp/toolset-check.err"
+step "toolset provider namespace graph" "toolset-graph"
 "$qstar" --file "$tmp/toolset/qstar.lua" --dump-graph > "$tmp/toolset-graph.out" 2> "$tmp/toolset-graph.err"
 contains "$tmp/toolset-graph.out" "toolset //:clang_like"
 contains "$tmp/toolset-graph.out" "tools.c.compiler [clang]"
@@ -2179,9 +2181,11 @@ contains "$tmp/toolset-graph.out" "allow_absolute_tools false"
 contains "$tmp/toolset-graph.out" "path_tools [llvm-objcopy]"
 contains "$tmp/toolset-graph.out" "config //:use_clang"
 contains "$tmp/toolset-graph.out" "toolset //:host_like"
+step "toolset provider namespace list" "toolset-list"
 "$qstar" --file "$tmp/toolset/qstar.lua" list-targets > "$tmp/toolset-list.out" 2> "$tmp/toolset-list.err"
 contains "$tmp/toolset-list.out" "toolset-count 2"
 contains "$tmp/toolset-list.out" "toolset //:clang_like"
+step "toolset provider namespace json" "toolset-json"
 "$qstar" --file "$tmp/toolset/qstar.lua" list-targets --format json > "$tmp/toolset-json.out" 2> "$tmp/toolset-json.err"
 contains "$tmp/toolset-json.out" "\"toolset_count\":2"
 contains "$tmp/toolset-json.out" "\"toolsets\":["
@@ -2190,10 +2194,18 @@ contains "$tmp/toolset-json.out" "\"zig.compiler\":[\"zig\"]"
 contains "$tmp/toolset-json.out" "\"toolset\":\"//:host_like\""
 
 mkdir -p "$tmp/toolset-wire/src" "$tmp/toolset-wire/tools"
+toolset_wire_cc=${CC:-cc}
+if ! command -v "$toolset_wire_cc" >/dev/null 2>&1; then
+	if command -v c99 >/dev/null 2>&1; then
+		toolset_wire_cc=c99
+	elif command -v gcc >/dev/null 2>&1; then
+		toolset_wire_cc=gcc
+	fi
+fi
 cat > "$tmp/toolset-wire/tools/toolset-cc.sh" <<'EOF'
 #!/bin/sh
 printf 'cc\n' >> "$QSTAR_TOOLSET_WIRE_LOG"
-exec cc "$@"
+exec "${QSTAR_TOOLSET_WIRE_CC:-cc}" "$@"
 EOF
 cat > "$tmp/toolset-wire/tools/toolset-ar.sh" <<'EOF'
 #!/bin/sh
@@ -2203,7 +2215,7 @@ EOF
 cat > "$tmp/toolset-wire/tools/toolset-link.sh" <<'EOF'
 #!/bin/sh
 printf 'link\n' >> "$QSTAR_TOOLSET_WIRE_LOG"
-exec cc "$@"
+exec "${QSTAR_TOOLSET_WIRE_CC:-cc}" "$@"
 EOF
 cat > "$tmp/toolset-wire/tools/toolset-gen" <<'EOF'
 #!/bin/sh
@@ -2287,21 +2299,25 @@ qstar.executable "app" {
   },
 }
 EOF
+step "toolset provider namespace wire dry-run" "toolset-wire-dry"
 PATH="$tmp/toolset-wire/tools:$PATH" "$qstar" --file "$tmp/toolset-wire/qstar.lua" dry-run //:app > "$tmp/toolset-wire-dry.out" 2> "$tmp/toolset-wire-dry.err"
 contains "$tmp/toolset-wire-dry.out" "resolver=toolset-schema-v1 toolset=//:local"
 contains "$tmp/toolset-wire-dry.out" "response_file="
 contains "$tmp/toolset-wire-dry.out" "response_style=posix"
 contains "$tmp/toolset-wire-dry.out" "resolved_tool=toolset-gen"
-QSTAR_TOOLSET_WIRE_LOG="$tmp/toolset-wire/stella.log" PATH="$tmp/toolset-wire/tools:$PATH" "$qstar" --file "$tmp/toolset-wire/qstar.lua" build //:app --progress off > "$tmp/toolset-wire-build.out" 2> "$tmp/toolset-wire-build.err"
+step "toolset provider namespace wire build" "toolset-wire-build"
+QSTAR_TOOLSET_WIRE_CC="$toolset_wire_cc" QSTAR_TOOLSET_WIRE_LOG="$tmp/toolset-wire/stella.log" PATH="$tmp/toolset-wire/tools:$PATH" "$qstar" --file "$tmp/toolset-wire/qstar.lua" build //:app --progress off > "$tmp/toolset-wire-build.out" 2> "$tmp/toolset-wire-build.err"
 contains "$tmp/toolset-wire-build.out" "status ok"
 contains "$tmp/toolset-wire/stella.log" "gen"
 contains "$tmp/toolset-wire/stella.log" "cc"
 contains "$tmp/toolset-wire/stella.log" "ar"
 contains "$tmp/toolset-wire/stella.log" "link"
+step "toolset provider namespace wire action-log" "toolset-wire-link-log"
 "$qstar" --file "$tmp/toolset-wire/qstar.lua" action-log //:app:link:0 > "$tmp/toolset-wire-link-log.out" 2> "$tmp/toolset-wire-link-log.err"
 contains "$tmp/toolset-wire-link-log.out" "argv[0]=tools/toolset-link.sh"
 if command -v ninja >/dev/null 2>&1; then
-  QSTAR_TOOLSET_WIRE_LOG="$tmp/toolset-wire/ninja.log" PATH="$tmp/toolset-wire/tools:$PATH" "$qstar" --file "$tmp/toolset-wire/qstar.lua" -B build/ninja-qstar -G ninja build //:app --progress off > "$tmp/toolset-wire-ninja-build.out" 2> "$tmp/toolset-wire-ninja-build.err"
+  step "toolset provider namespace wire ninja" "toolset-wire-ninja-build"
+  QSTAR_TOOLSET_WIRE_CC="$toolset_wire_cc" QSTAR_TOOLSET_WIRE_LOG="$tmp/toolset-wire/ninja.log" PATH="$tmp/toolset-wire/tools:$PATH" "$qstar" --file "$tmp/toolset-wire/qstar.lua" -B build/ninja-qstar -G ninja build //:app --progress off > "$tmp/toolset-wire-ninja-build.out" 2> "$tmp/toolset-wire-ninja-build.err"
   contains "$tmp/toolset-wire-ninja-build.out" "backend ninja"
   contains "$tmp/toolset-wire-ninja-build.out" "status ok"
   contains "$tmp/toolset-wire/build/ninja-qstar/ninja/build.ninja" "tools/toolset-cc.sh"
@@ -6524,7 +6540,7 @@ contains "docs/qstar-v0.1-hardening-seal.md" "qstar/tests/projects/package-flow"
 contains "docs/qstar-v0.1-hardening-seal.md" "qstar action-log <action-id>"
 contains "docs/qstar-v0.1-hardening-seal.md" "qstar replay <action-id>"
 contains "README.md" "QStar is a standalone build system"
-contains "README.md" "v0.7.7-beta"
+contains "README.md" "v0.7.8-beta"
 contains "README.md" "docs/qstar-v1-readiness.md"
 contains "README.md" "English | [한국어](README.ko.md)"
 contains "README.md" "make qstar-self-host-tests"
@@ -6535,7 +6551,7 @@ contains "README.md" "Validation-backed beta candidate"
 contains "README.md" "GitHub Wiki"
 contains "README.md" "Apache License, Version 2.0"
 contains "README.ko.md" "[English](README.md) | 한국어"
-contains "README.ko.md" "v0.7.7-beta"
+contains "README.ko.md" "v0.7.8-beta"
 contains "README.ko.md" "docs/qstar-v1-readiness.md"
 contains "README.ko.md" "make qstar-public-beta-download-smoke"
 contains "README.ko.md" "Linux x86_64 runtime tarball"
@@ -6608,10 +6624,10 @@ contains "docs/releases/v0.7.0-beta.md" "qstar-v0.7.0-beta-linux-x86_64.tar.gz"
 contains "docs/releases/v0.7.0-beta.md" "linux_release_asset status=published"
 contains "docs/releases/v0.7.0-beta.md" "https://github.com/deeyed/qstar/actions/runs/27507809666"
 contains "docs/releases/v0.7.0-beta.md" "Windows public release asset"
-contains "docs/releases/v0.7.7-beta.md" "QStar v0.7.7 Beta"
-contains "docs/releases/v0.7.7-beta.md" "qstar-v0.7.7-beta-windows-x86_64.zip"
-contains "docs/releases/v0.7.7-beta.md" "publish_windows_asset=true"
-contains "docs/releases/v0.7.7-beta.md" "Windows official beta asset"
+contains "docs/releases/v0.7.8-beta.md" "QStar v0.7.8 Beta"
+contains "docs/releases/v0.7.8-beta.md" "qstar-v0.7.8-beta-windows-x86_64.zip"
+contains "docs/releases/v0.7.8-beta.md" "publish_windows_asset=true"
+contains "docs/releases/v0.7.8-beta.md" "Windows official beta asset"
 contains "docs/releases/v0.8.0-beta.md" "QStar v0.8.0 Beta Release Candidate Gate"
 contains "docs/releases/v0.8.0-beta.md" "Windows asset publication is not automatic"
 contains "docs/releases/v0.8.0-beta.md" "explicit static"
@@ -6629,7 +6645,7 @@ contains "docs/qstar-v0.6-post-release-smoke.md" "SHA256SUMS"
 contains "docs/daemon-beta-readiness.md" "documented beta opt-in feature"
 contains "docs/daemon-beta-readiness.md" "default"
 contains "docs/daemon-beta-readiness.md" "Windows named pipe"
-contains "docs/daemon-beta-readiness.md" "0.7.7-beta"
+contains "docs/daemon-beta-readiness.md" "0.7.8-beta"
 contains "docs/daemon-beta-readiness.md" "docs/perf/q233-backend-daemon-refresh.md"
 contains "docs/daemon-beta-readiness.md" "Q175"
 contains "docs/daemon-beta-readiness.md" "Q233"
@@ -6995,15 +7011,15 @@ contains "docs/README.md" "releases/TEMPLATE.md"
 contains "docs/README.md" "progress-output.md"
 contains "docs/README.md" "qstar-v0.6-readiness.md"
 contains "docs/README.md" "qstar-v0.7-readiness.md"
-contains "docs/README.md" "releases/v0.7.7-beta.md"
+contains "docs/README.md" "releases/v0.7.8-beta.md"
 contains "docs/README.md" "releases/v0.7.0-beta.md"
 contains "docs/README.md" "qstar-v0.5-readiness.md"
 contains "docs/README.md" "qstar-pilot-readiness-seal.md"
 contains "docs/README.md" "qstar-submodule-extraction-prep.md"
 contains "docs/public-beta-release.md" "Public Beta Release Gate"
-contains "docs/public-beta-release.md" "qstar-v0.7.7-beta-macos-arm64.tar.gz"
-contains "docs/public-beta-release.md" "qstar-v0.7.7-beta-linux-x86_64.tar.gz"
-contains "docs/public-beta-release.md" "0.7.7-beta"
+contains "docs/public-beta-release.md" "qstar-v0.7.8-beta-macos-arm64.tar.gz"
+contains "docs/public-beta-release.md" "qstar-v0.7.8-beta-linux-x86_64.tar.gz"
+contains "docs/public-beta-release.md" "0.7.8-beta"
 contains "docs/public-beta-release.md" "qstar-public-beta-release-tests"
 contains "docs/public-beta-release.md" "qstar-public-beta-download-smoke"
 contains "docs/public-beta-release.md" "tools/smoke-github-release.sh"
