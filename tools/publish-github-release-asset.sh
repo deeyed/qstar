@@ -81,7 +81,18 @@ QSTAR_RELEASE_PLATFORM=$platform QSTAR_RELEASE_TAG=$tag QSTAR_RELEASE_DIST=$dist
 
 test -f "$archive" || fail "release archive was not created: $archive"
 test -f "$sha_file" || fail "release checksum file was not created: $sha_file"
-grep -F "$asset_base" "$sha_file" >/dev/null || \
+awk -v asset="$asset_base" '
+	{
+		name = $2
+		sub(/^\*/, "", name)
+		if (name == asset) {
+			found = 1
+		}
+	}
+	END {
+		exit(found ? 0 : 1)
+	}
+' "$sha_file" >/dev/null || \
 	fail "local SHA256SUMS does not mention '$asset_base'"
 
 tmp=${TMPDIR:-/tmp}/qstar-release-upload.$$
@@ -95,14 +106,36 @@ cleanup_tmp() {
 trap cleanup_tmp EXIT HUP INT TERM
 
 remote_sha=$tmp/SHA256SUMS.remote
+local_sha=$tmp/SHA256SUMS.local
 if gh release download "$tag" --repo "$repo" --pattern SHA256SUMS --dir "$tmp" >/dev/null 2>&1; then
 	mv "$tmp/SHA256SUMS" "$remote_sha"
 else
 	: > "$remote_sha"
 fi
 
-awk -v asset="$asset_base" '$2 != asset { print }' "$remote_sha" > "$merged_sha"
-awk -v asset="$asset_base" '$2 == asset { print }' "$sha_file" >> "$merged_sha"
+awk -v asset="$asset_base" '
+	{
+		name = $2
+		sub(/^\*/, "", name)
+		if (name != asset) {
+			print
+		}
+	}
+' "$remote_sha" > "$merged_sha"
+awk -v asset="$asset_base" '
+	{
+		name = $2
+		sub(/^\*/, "", name)
+		if (name == asset) {
+			print $1 "  " asset
+			found = 1
+		}
+	}
+	END {
+		exit(found ? 0 : 1)
+	}
+' "$sha_file" > "$local_sha" || fail "local SHA256SUMS does not mention '$asset_base'"
+cat "$local_sha" >> "$merged_sha"
 grep -F "$asset_base" "$merged_sha" >/dev/null || \
 	fail "merged SHA256SUMS does not mention '$asset_base'"
 mv "$merged_sha" "$sha_file"

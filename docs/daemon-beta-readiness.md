@@ -6,8 +6,8 @@ native executor를 장기 실행 build service로 붙이는 experimental daemon 
 
 ```txt
 status: daemon beta opt-in readiness gate
-current runtime version: qstar 0.7.13-beta
-release line: qstar 0.7.13-beta
+current runtime version: qstar 0.7.14-beta
+release line: qstar 0.7.14-beta
 decision: documented beta opt-in feature, not default
 baseline date: 2026-06-17
 ```
@@ -17,7 +17,7 @@ baseline date: 2026-06-17
 Stella daemon은 더 이상 문서 밖 hidden experiment로만 둘 단계는 지났다. Q145-Q150을 거치며
 streaming output, in-memory state, watcher invalidation, performance gate, read-only IDE API가
 모두 생겼다. 따라서 `0.6.0-beta`에서 처음 “documented beta opt-in” 기능으로 올렸고,
-현재 `0.7.13-beta` line에서도 explicit beta opt-in으로 유지한다.
+현재 `0.7.14-beta` line에서도 explicit beta opt-in으로 유지한다.
 
 단, daemon을 기본 build path로 켜면 안 된다.
 
