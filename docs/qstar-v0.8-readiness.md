@@ -1,11 +1,11 @@
 # QStar 0.8 Beta Readiness Seal
 
-이 문서는 `v0.7.0-beta` 이후의 0.8 feature line을 Windows beta candidate와
+이 문서는 `v0.7.x-beta` 이후의 0.8 feature line을 Windows beta candidate와
 0.8.0-beta 준비 상태로 봉인하기 위한 Q225 readiness gate다.
 
 ```txt
 status: 0.8 beta readiness sealed
-current public line: qstar 0.7.0-beta
+current public line: qstar 0.7.1-beta
 candidate feature line: qstar 0.8.0-beta
 baseline date: 2026-06-17
 decision: seal Windows as validation-backed beta candidate; keep daemon opt-in; keep package resolver out-of-core

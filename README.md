@@ -11,7 +11,7 @@ external object artifact flows. Language providers can be activated with
 and also accepts project-local provider packages. Provider source units lower through the same
 Stella/Ninja backend action contract.
 
-QStar is currently in beta. The current release-prep line is `v0.7.0-beta`,
+QStar is currently in beta. The current release-prep line is `v0.7.1-beta`,
 with macOS arm64 and Linux x86_64 runtime tarballs. Linux assets
 are produced only from the Ubuntu release workflow or a clean Linux x86_64 host,
 after source validation, Ninja backend parity, extracted tarball smoke, and
@@ -23,8 +23,8 @@ an opt-in `publish_windows_asset=true` job that publishes and download-smokes th
 Windows zip for a release tag. Windows is still beta until that hosted evidence
 is green for the selected release.
 QStar 1.0 is reserved for a release that is validated across macOS, Linux, and
-Windows. The `0.6.x-beta` line is reserved for release/package/documentation
-hotfixes.
+Windows. The `0.7.x-beta` line carries release/package/documentation patch
+updates while the next feature line is prepared.
 The v1 gap checklist is tracked in [docs/qstar-v1-readiness.md](docs/qstar-v1-readiness.md).
 
 ## Highlights
@@ -55,12 +55,12 @@ Download the runtime tarball for your host from the
 
 ```sh
 # macOS arm64
-tar -xzf qstar-v0.7.0-beta-macos-arm64.tar.gz -C "$HOME/.local"
+tar -xzf qstar-v0.7.1-beta-macos-arm64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 
 # Linux x86_64
-tar -xzf qstar-v0.7.0-beta-linux-x86_64.tar.gz -C "$HOME/.local"
+tar -xzf qstar-v0.7.1-beta-linux-x86_64.tar.gz -C "$HOME/.local"
 export PATH="$HOME/.local/bin:$PATH"
 qstar --version
 ```
