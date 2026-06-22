@@ -113,7 +113,8 @@ Important documents:
 - `qstar-v1-readiness.md`: v1 readiness gaps, stable DSL candidates, and
   compatibility/removal policy.
 - `releases/TEMPLATE.md`: release note template.
-- `releases/v0.7.17-beta.md`: current public beta patch release note.
+- `releases/v0.7.18-beta.md`: current public beta patch release note.
+- `releases/v0.7.17-beta.md`: previous public beta patch release note.
 - `releases/v0.7.16-beta.md`: previous public beta patch release note.
 - `releases/v0.7.15-beta.md`: previous public beta patch release note.
 - `releases/v0.7.14-beta.md`: previous public beta patch release note.

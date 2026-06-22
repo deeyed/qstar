@@ -395,6 +395,12 @@ EOF
 		"$qstar_bin" init app "$hello_name" --use-language=c
 	test -f "$project_root/$hello_name/qstar.lua" || \
 		fail "downloaded qstar init app did not create qstar.lua"
+	fake_cc_lua=$(printf '%s' "$fake_bin/cc.exe" | sed 's/[\\&]/\\&/g')
+	sed \
+		-e "s@qstar.toolset \"host\" {@qstar.toolset \"host\" {\n  allow_absolute_tools = true,@" \
+		-e "s@qstar.cli {\"cc\"}@qstar.cli {\"$fake_cc_lua\"}@g" \
+		"$project_root/$hello_name/qstar.lua" > "$project_root/$hello_name/qstar.lua.tmp"
+	mv "$project_root/$hello_name/qstar.lua.tmp" "$project_root/$hello_name/qstar.lua"
 	run_logged_in build-hello-stella "$project_root" env PATH="$fake_bin:$PATH" \
 		"$qstar_bin" --file "$hello_name/qstar.lua" build //:app
 	grep -F "status ok" "$download/build-hello-stella.out" >/dev/null || \
