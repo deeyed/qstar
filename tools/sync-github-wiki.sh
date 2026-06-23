@@ -40,6 +40,7 @@ cat > "$work/_Sidebar.md" <<'EOF'
 - [Getting Started](getting-started)
 - [Installation](installation)
 - [v1 Readiness](v1-readiness)
+- [Compatibility Policy](compatibility-policy)
 - [AI Index](AI_INDEX)
 
 ## Concepts

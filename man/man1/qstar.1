@@ -40,6 +40,12 @@ Generated actions use
 .Ic qstar.cli
 argv vectors, not shell strings.
 .Pp
+The intended QStar 1.0 compatibility boundary is documented in
+.Pa docs/qstar-compatibility-policy.md .
+That policy classifies public surfaces as stable-at-v1 candidates, beta opt-in,
+or out-of-core, and requires a documented deprecation window before any future
+stable surface removal.
+.Pp
 Platform support is intentionally conservative. macOS arm64 and Linux x86_64
 are the public beta runtime asset hosts for the current line. Windows is a
 validation-backed beta candidate through the MSYS2 UCRT64 workflow: the manual

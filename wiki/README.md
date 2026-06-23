@@ -32,7 +32,8 @@ standard bundle의 `share/qstar/languages/<id>/<id>.qsm`을 사용한다.
 
 AI agent가 빠르게 구조를 파악해야 한다면 [AI Index](AI_INDEX.md)를 먼저 읽는다.
 v1 공개 전 남은 gap과 stable surface 정책은
-[v1 Readiness](v1-readiness.md)에 둔다.
+[v1 Readiness](v1-readiness.md)에 둔다. Stable DSL compatibility promise와
+removal policy는 [Compatibility Policy](compatibility-policy.md)에 둔다.
 
 ## 빠른 시작
 

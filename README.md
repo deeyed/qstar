@@ -27,6 +27,8 @@ QStar 1.0 is reserved for a release that is validated across macOS, Linux, and
 Windows. The `0.7.x-beta` line carries release/package/documentation patch
 updates while the next feature line is prepared.
 The v1 gap checklist is tracked in [docs/qstar-v1-readiness.md](docs/qstar-v1-readiness.md).
+The intended v1 stable/beta/out-of-core surface split is tracked in
+[docs/qstar-compatibility-policy.md](docs/qstar-compatibility-policy.md).
 
 ## Highlights
 
@@ -280,13 +282,16 @@ release-backed gate must be repeated on the next beta/RC tag and again for the
 v1 candidate tag. The 1.0 milestone requires validated release artifacts and CI
 coverage for macOS, Linux, and Windows.
 The exact remaining blockers and stable-surface policy are tracked in
-[docs/qstar-v1-readiness.md](docs/qstar-v1-readiness.md).
+[docs/qstar-v1-readiness.md](docs/qstar-v1-readiness.md), and the compatibility
+promise itself is defined in
+[docs/qstar-compatibility-policy.md](docs/qstar-compatibility-policy.md).
 
 ## Documentation
 
 - [GitHub Wiki](https://github.com/deeyed/qstar/wiki)
 - [AI Index](wiki/AI_INDEX.md)
 - [v1 readiness gap report](docs/qstar-v1-readiness.md)
+- [Compatibility policy](docs/qstar-compatibility-policy.md)
 - [Getting Started](wiki/getting-started.md)
 - [QStar Lua Reference](wiki/reference/qstar-lua.md)
 - [Modules and Imports](wiki/reference/modules.md)

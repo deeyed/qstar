@@ -112,6 +112,8 @@ Important documents:
 - `qstar-v0.8-readiness.md`: v0.8 beta readiness and release-candidate gate.
 - `qstar-v1-readiness.md`: v1 readiness gaps, stable DSL candidates, and
   compatibility/removal policy.
+- `qstar-compatibility-policy.md`: Q256 stable/beta/out-of-core surface split,
+  post-v1 deprecation window, removal policy, and legacy hard-cut guard.
 - `releases/TEMPLATE.md`: release note template.
 - `releases/v0.7.19-beta.md`: current public beta patch release note.
 - `releases/v0.7.18-beta.md`: previous public beta patch release note.

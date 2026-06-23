@@ -3,6 +3,9 @@
 QStar 1.0은 아직 ready가 아니다. Canonical gap report는 source tree의
 [`docs/qstar-v1-readiness.md`](https://github.com/deeyed/qstar/blob/main/docs/qstar-v1-readiness.md)에
 둔다.
+Stable DSL compatibility promise는
+[`docs/qstar-compatibility-policy.md`](https://github.com/deeyed/qstar/blob/main/docs/qstar-compatibility-policy.md)에
+둔다.
 
 이 wiki page는 사용자가 GitHub Wiki에서 v1 기준을 찾을 때의 entrypoint다.
 
@@ -21,7 +24,8 @@ v1 decision: not ready
   `download_smoke=ok` evidence를 남겼다. 이 evidence는 보유 상태지만, 다음
   beta/RC tag와 v1 candidate tag에서 같은 release-mutating gate를 반복해야
   Windows official blocker가 닫힌다.
-- Stable DSL compatibility/removal policy의 release-line 적용.
+- Stable DSL compatibility/removal policy의 release-line 적용. Q256 policy는
+  봉인되었고, v1 전까지 docs/wiki/man/smoke guard sync를 유지해야 한다.
 - GLP provider-author API freeze 또는 version negotiation.
 - daemon stable/default boundary 확정. 현재는 beta opt-in이다.
 - macOS/Linux/Windows release matrix 반복 green.

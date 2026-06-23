@@ -14,6 +14,14 @@ Subdirectory fragments are named
 Helper modules are named
 .Pa <folder>/<folder>.qsm .
 .Pp
+The QStar 1.0 compatibility policy lives in
+.Pa docs/qstar-compatibility-policy.md .
+Consumer-facing project, target, generated artifact, command, stage, run target,
+and GLP activation syntax are stable-at-v1 candidates. Provider-author APIs,
+daemon protocol details, optional real-compiler validation lanes, performance
+snapshots, and internal debug state remain beta or report-only unless promoted
+by that policy.
+.Pp
 The main entrypoints are:
 .Bl -tag -width "qstar.custom_target"
 .It Ic qstar.project

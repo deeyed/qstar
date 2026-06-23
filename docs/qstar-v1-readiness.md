@@ -21,7 +21,9 @@ candidate lane까지 들어왔다.
 
 하지만 지금 `1.0.0`을 붙이면 안 된다. 아직 남은 gap은 다음이다.
 
-- stable DSL compatibility policy가 release line에 공식으로 적용된 적이 없다.
+- stable DSL compatibility policy는 `docs/qstar-compatibility-policy.md`에
+  봉인되었지만, v1 release line에서 README/wiki/man/smoke/release note까지 반복 적용된
+  적은 아직 없다.
 - Windows는 validation-backed beta candidate지만, GitHub Release에 게시된 official
   Windows asset과 downloaded-asset smoke는 Q253 opt-in publication gate가 green으로 남긴
   evidence가 있을 때만 조건부 해소된다.
@@ -131,23 +133,16 @@ are stable.
 
 ## Compatibility And Removal Policy
 
+The canonical policy is `docs/qstar-compatibility-policy.md`. Q256 sealed the
+stable-at-v1 candidate list, beta opt-in surfaces, out-of-core boundaries,
+legacy hard-cut rules, post-v1 deprecation window, diagnostic period, and release
+note obligations.
+
 QStar 0.x may continue to hard-cut legacy beta syntax when doing so protects the
-generic build-system boundary. That policy ends at v1.
-
-After v1:
-
-- Stable DSL entries listed in this document must not be removed silently.
-- Stable field removal requires a documented deprecation window and a migration
-  diagnostic before hard removal.
-- The minimum deprecation window is one minor feature line unless the syntax is
-  a security issue or corrupts builds.
-- Removed 0.x compatibility shims must not return as public APIs.
-- New experimental APIs must be explicitly documented as experimental or beta and
-  must not be mixed into the stable list by accident.
-- Error message wording can improve, but machine-readable schema names and JSON
-  fields that are documented as stable require compatibility notes.
-- Generated build files, cache internals, and physical log file locations are not
-  stable unless a document explicitly says they are.
+generic build-system boundary. That policy ends at v1. After v1, a stable
+surface cannot be removed inside the same major version without the documented
+replacement, diagnostic period, release notes, docs/wiki/man/snippet updates,
+and smoke guard described in the compatibility policy.
 
 For v1, every public reference must classify APIs into one of three buckets:
 
@@ -287,7 +282,7 @@ QStar can start a v1 release candidate only when this checklist is true:
 
 - Stable DSL list in this document, `docs/README.md`, `docs/syntax.md`,
   `wiki/reference/qstar-lua.md`, manpages, snippets, and smoke guards match.
-- Compatibility/removal policy is linked from README, wiki, release notes, and AI index.
+- Compatibility/removal policy is linked from README, wiki, manpages, release notes, and AI index.
 - macOS arm64 release asset is uploaded and downloaded successfully.
 - Linux x86_64 release asset is uploaded and downloaded successfully.
 - Windows x86_64 release asset is uploaded and downloaded successfully.
@@ -306,7 +301,7 @@ QStar can start a v1 release candidate only when this checklist is true:
 | Blocker | Why it blocks v1 | Required closure |
 | --- | --- | --- |
 | Windows official artifact | v1 promises all three OSes. This blocker has v0.7.19-beta evidence, but must be repeated on the next beta/RC tag and again on the final v1 candidate tag. | Q254 evidence exists: `windows-validation.yml` run 27935992747 published the Windows zip and produced `windows-hosted-release-decision.txt` with `windows_release_asset status=published` and `download_smoke=ok`. Repeat the same release-mutating gate with `publish_windows_asset=true`; a non-publishing freshness run is not enough. |
-| Stable compatibility policy | v1 needs a promise for removals and field stability. | Link this policy from README/wiki/man/release notes and add drift guards. |
+| Stable compatibility policy enforcement | Q256 defines the promise, but v1 must keep it synced across every public reference and release note. | `docs/qstar-compatibility-policy.md` is the canonical policy. Keep README/wiki/man/AI index links and smoke guards green through the v1 release branch. |
 | GLP provider-author stability | External language authors need a stable manifest/lowering contract. | Freeze or version `qstar.lang/1`, provider sandbox, lowering result, and provider scaffold contracts. |
 | Daemon boundary | daemon is beta opt-in and not default/stable. | Keep daemon beta in v1 docs, or finish separate stable daemon gate. |
 | Release matrix repetition | One fresh run is not enough for v1 confidence. | Repeat macOS/Linux/Windows release gates on final release branch/tag. |

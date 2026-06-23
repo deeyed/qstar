@@ -24,6 +24,8 @@ tag에서 다시 반복하기 전까지 계속 beta다.
 맡는다.
 QStar 1.0은 macOS, Linux, Windows 공식 지원이 모두 갖춰진 뒤에 올린다.
 v1 gap checklist는 [docs/qstar-v1-readiness.md](docs/qstar-v1-readiness.md)에 둔다.
+v1에서 stable로 약속할 surface와 beta/out-of-core로 남길 surface는
+[docs/qstar-compatibility-policy.md](docs/qstar-compatibility-policy.md)에 둔다.
 
 ## 특징
 
@@ -246,13 +248,15 @@ Q253 manual publish job은 `v0.7.19-beta`에서 GitHub Release에 올라간 Wind
 다음 beta/RC tag와 v1 candidate tag에서 반복해야 한다. 1.0은 macOS, Linux, Windows
 release artifact와 CI가 갖춰진 뒤에 올린다.
 정확한 남은 blocker와 stable surface policy는
-[docs/qstar-v1-readiness.md](docs/qstar-v1-readiness.md)에 둔다.
+[docs/qstar-v1-readiness.md](docs/qstar-v1-readiness.md)에 두고, compatibility promise
+자체는 [docs/qstar-compatibility-policy.md](docs/qstar-compatibility-policy.md)에 둔다.
 
 ## 문서
 
 - [GitHub Wiki](https://github.com/deeyed/qstar/wiki)
 - [AI Index](wiki/AI_INDEX.md)
 - [v1 readiness gap report](docs/qstar-v1-readiness.md)
+- [Compatibility policy](docs/qstar-compatibility-policy.md)
 - [Getting Started](wiki/getting-started.md)
 - [QStar Lua Reference](wiki/reference/qstar-lua.md)
 - [Modules and Imports](wiki/reference/modules.md)
