@@ -303,6 +303,15 @@ struct qstar_project_option {
 	int overridden;
 };
 
+struct qstar_variant {
+	char *name;
+	char *description;
+	struct qstar_string_list tags;
+	struct qstar_string_list values;
+	char *origin_file;
+	int origin_line;
+};
+
 struct qstar_package_alias {
 	char *alias;
 	char *root;
@@ -438,6 +447,9 @@ struct qstar_graph {
 	struct qstar_project_option_override *project_option_overrides;
 	size_t project_option_override_len;
 	size_t project_option_override_cap;
+	struct qstar_variant *variants;
+	size_t variant_len;
+	size_t variant_cap;
 	struct qstar_lint_diagnostic *lint_diagnostics;
 	size_t lint_len;
 	size_t lint_cap;
@@ -605,6 +617,12 @@ const struct qstar_project_option *qstar_graph_find_project_option(
 
 const char *qstar_project_option_effective_value(
     const struct qstar_project_option *option);
+
+/** Read-only user metadata variant primitive를 추가한다. */
+struct qstar_variant *qstar_graph_add_variant(struct qstar_graph *graph,
+    const char *name, const char *description,
+    const struct qstar_string_list *tags, const struct qstar_string_list *values,
+    const char *origin_file, int origin_line);
 
 /** Root project command primitive를 추가한다. */
 struct qstar_project_command *qstar_graph_add_project_command(struct qstar_graph *graph,

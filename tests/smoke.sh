@@ -10093,6 +10093,135 @@ if ! "$qstar" --file "$tmp/project-option-cache/qstar.lua" -D arch=aarch64 build
 fi
 contains "$tmp/project-option-cache-miss.out" "plan_cache status=miss reason=project-option-override-mismatch"
 
+step "variant metadata and custom triple authoring"
+mkdir -p "$tmp/variant-metadata"
+cat > "$tmp/variant-metadata/qstar.lua" <<'EOF'
+local DEVICE <const> = qstar.variant "mps2_an500" {
+  description = "Example device metadata",
+  tags = {"device", "smoke"},
+  values = {
+    arch = "armv7m",
+    triple = "sample-armv7m-none",
+    cpu = "cortex-m7",
+    board = "mps2-an500",
+    mode = "device",
+    revision = 1,
+    simulated = false,
+    features = {"timer", "uart"},
+    nested = {
+      owner = "project",
+    },
+  },
+}
+
+local HOST_SIM <const> = qstar.variant "host_sim" {
+  description = "Host simulation metadata",
+  tags = {"host"},
+  values = {
+    mode = "host",
+    triple = "host",
+  },
+}
+
+local PROJECT_TRIPLE <const> = qstar.option "project-triple" {
+  type = "combo",
+  value = "host",
+  choices = {
+    "host",
+    "sample-armv7m-none",
+  },
+}
+
+local flags = {
+  "-DVARIANT_MODE=" .. HOST_SIM.values.mode,
+  "-DDEVICE_ARCH=" .. DEVICE.values.arch,
+  "-DDEVICE_FEATURE_COUNT=" .. tostring(#DEVICE.values.features),
+}
+
+if PROJECT_TRIPLE == DEVICE.values.triple then
+  table.insert(flags, "--target=arm-none-eabi")
+  table.insert(flags, "-mcpu=" .. DEVICE.values.cpu)
+end
+
+qstar.config "variant_flags" {
+  lang = {
+    c = {
+      compile_options = flags,
+    },
+  },
+}
+EOF
+if ! "$qstar" --file "$tmp/variant-metadata/qstar.lua" -D project-triple=sample-armv7m-none --dump-graph > "$tmp/variant-dump.out" 2> "$tmp/variant-dump.err"; then
+	cat "$tmp/variant-dump.out" >&2
+	cat "$tmp/variant-dump.err" >&2
+	fail "variant metadata dump failed"
+fi
+contains "$tmp/variant-dump.out" "build_context name=default target=host"
+contains "$tmp/variant-dump.out" "variant name=mps2_an500 description=Example device metadata tags=[device, smoke]"
+contains "$tmp/variant-dump.out" "arch:string=armv7m"
+contains "$tmp/variant-dump.out" "triple:string=sample-armv7m-none"
+contains "$tmp/variant-dump.out" "cpu:string=cortex-m7"
+contains "$tmp/variant-dump.out" "board:string=mps2-an500"
+contains "$tmp/variant-dump.out" "mode:string=device"
+contains "$tmp/variant-dump.out" "revision:integer=1"
+contains "$tmp/variant-dump.out" "simulated:boolean=false"
+contains "$tmp/variant-dump.out" "features[1]:string=timer"
+contains "$tmp/variant-dump.out" "nested.owner:string=project"
+contains "$tmp/variant-dump.out" "--target=arm-none-eabi"
+contains "$tmp/variant-dump.out" "-mcpu=cortex-m7"
+mkdir -p "$tmp/variant-bad"
+cat > "$tmp/variant-bad/qstar.lua" <<'EOF'
+qstar.variant "bad" {
+  arch = "armv7m",
+  values = {
+    mode = "device",
+  },
+}
+EOF
+if "$qstar" --file "$tmp/variant-bad/qstar.lua" check > "$tmp/variant-bad-field.out" 2> "$tmp/variant-bad-field.err"; then
+	fail "variant top-level metadata key unexpectedly succeeded"
+fi
+contains "$tmp/variant-bad-field.err" "unknown qstar.variant field 'arch'; put user metadata under values"
+cat > "$tmp/variant-bad/qstar.lua" <<'EOF'
+local DEVICE <const> = qstar.variant "device" {
+  values = {
+    arch = "armv7m",
+  },
+}
+
+DEVICE.values.arch = "aarch64"
+EOF
+if "$qstar" --file "$tmp/variant-bad/qstar.lua" check > "$tmp/variant-readonly.out" 2> "$tmp/variant-readonly.err"; then
+	fail "variant read-only mutation unexpectedly succeeded"
+fi
+contains "$tmp/variant-readonly.err" "qstar.variant.values is read-only: arch"
+cat > "$tmp/variant-bad/qstar.lua" <<'EOF'
+qstar.variant "dup" {
+  values = {
+    mode = "one",
+  },
+}
+
+qstar.variant "dup" {
+  values = {
+    mode = "two",
+  },
+}
+EOF
+if "$qstar" --file "$tmp/variant-bad/qstar.lua" check > "$tmp/variant-dup.out" 2> "$tmp/variant-dup.err"; then
+	fail "duplicate variant unexpectedly succeeded"
+fi
+contains "$tmp/variant-dup.err" "duplicate variant 'dup'"
+cat > "$tmp/variant-bad/qstar.lua" <<'EOF'
+qstar.variant "missing" {
+  description = "Missing values",
+}
+EOF
+if "$qstar" --file "$tmp/variant-bad/qstar.lua" check > "$tmp/variant-missing.out" 2> "$tmp/variant-missing.err"; then
+	fail "variant without values unexpectedly succeeded"
+fi
+contains "$tmp/variant-missing.err" "qstar.variant 'missing' requires table field 'values'"
+
 step "project commands"
 mkdir -p "$tmp/project-command/src" "$tmp/project-command/tools" "$tmp/project-command/fixtures"
 cat > "$tmp/project-command/src/main.c" <<'EOF'

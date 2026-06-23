@@ -7342,6 +7342,472 @@ qstar_lua_option(lua_State *L)
 	return add_project_option_from_lua(L, name, 2);
 }
 
+static int
+readonly_variant_assignment_forbidden(lua_State *L)
+{
+	const char *table, *key;
+
+	table = lua_tostring(L, lua_upvalueindex(1));
+	key = lua_isstring(L, 2) ? lua_tostring(L, 2) : "<non-string>";
+	return luaL_error(L, "qstar: %s is read-only: %s",
+	    table ? table : "qstar.variant", key);
+}
+
+static int
+readonly_variant_iter(lua_State *L)
+{
+	if (lua_isnoneornil(L, 2))
+		lua_pushnil(L);
+	else
+		lua_pushvalue(L, 2);
+	if (lua_next(L, lua_upvalueindex(1)))
+		return 2;
+	return 0;
+}
+
+static int
+readonly_variant_pairs(lua_State *L)
+{
+	lua_pushvalue(L, lua_upvalueindex(1));
+	lua_pushcclosure(L, readonly_variant_iter, 1);
+	lua_pushnil(L);
+	lua_pushnil(L);
+	return 3;
+}
+
+static int
+readonly_variant_len(lua_State *L)
+{
+	lua_pushinteger(L, (lua_Integer)lua_rawlen(L, lua_upvalueindex(1)));
+	return 1;
+}
+
+static void
+push_readonly_proxy(lua_State *L, const char *name)
+{
+	int data;
+
+	data = qstar_lua_abs_index(L, -1);
+	lua_newtable(L);
+	lua_newtable(L);
+	lua_pushvalue(L, data);
+	lua_setfield(L, -2, "__index");
+	lua_pushstring(L, name);
+	lua_pushcclosure(L, readonly_variant_assignment_forbidden, 1);
+	lua_setfield(L, -2, "__newindex");
+	lua_pushvalue(L, data);
+	lua_pushcclosure(L, readonly_variant_pairs, 1);
+	lua_setfield(L, -2, "__pairs");
+	lua_pushvalue(L, data);
+	lua_pushcclosure(L, readonly_variant_len, 1);
+	lua_setfield(L, -2, "__len");
+	lua_pushboolean(L, 0);
+	lua_setfield(L, -2, "__metatable");
+	lua_setmetatable(L, -2);
+	lua_remove(L, data);
+}
+
+static int push_readonly_table_copy(lua_State *L, int idx, const char *name);
+
+static int
+push_readonly_scalar_copy(lua_State *L, int idx)
+{
+	if (lua_isboolean(L, idx)) {
+		lua_pushboolean(L, lua_toboolean(L, idx));
+		return 0;
+	}
+	if (lua_isinteger(L, idx)) {
+		lua_pushinteger(L, lua_tointeger(L, idx));
+		return 0;
+	}
+	if (lua_isstring(L, idx)) {
+		lua_pushstring(L, lua_tostring(L, idx));
+		return 0;
+	}
+	return -1;
+}
+
+static int
+push_readonly_table_copy(lua_State *L, int idx, const char *name)
+{
+	int src, data;
+
+	src = qstar_lua_abs_index(L, idx);
+	lua_newtable(L);
+	data = lua_gettop(L);
+	lua_pushnil(L);
+	while (lua_next(L, src) != 0) {
+		lua_pushvalue(L, -2);
+		if (lua_istable(L, -2)) {
+			if (push_readonly_table_copy(L, -2, name) < 0) {
+				lua_pop(L, 3);
+				return -1;
+			}
+		} else if (push_readonly_scalar_copy(L, -2) < 0) {
+			lua_pop(L, 3);
+			return -1;
+		}
+		lua_settable(L, data);
+		lua_pop(L, 1);
+	}
+	push_readonly_proxy(L, name);
+	return 0;
+}
+
+static int
+variant_metadata_key_valid(const char *key)
+{
+	const unsigned char *p;
+
+	if (!key || !*key)
+		return 0;
+	if (!(isalnum((unsigned char)key[0]) || key[0] == '_'))
+		return 0;
+	for (p = (const unsigned char *)key; *p; p++) {
+		if (!(isalnum(*p) || *p == '_' || *p == '-' || *p == '.'))
+			return 0;
+	}
+	return 1;
+}
+
+static int
+variant_value_entry_push(struct qstar_graph *graph, struct qstar_string_list *values,
+    const char *path, const char *type, const char *value)
+{
+	char *entry;
+	size_t n;
+	int rc;
+
+	n = strlen(path) + strlen(type) + strlen(value ? value : "") + 3;
+	entry = malloc(n);
+	if (!entry)
+		return qstar_set_error(graph, "qstar: out of memory");
+	snprintf(entry, n, "%s:%s=%s", path, type, value ? value : "");
+	rc = qstar_string_list_push(values, entry);
+	free(entry);
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	return 0;
+}
+
+static int
+variant_string_ptr_cmp(const void *a, const void *b)
+{
+	const char *const *sa, *const *sb;
+
+	sa = a;
+	sb = b;
+	return strcmp(*sa, *sb);
+}
+
+static void
+variant_sort_values(struct qstar_string_list *values)
+{
+	if (values->len > 1)
+		qsort(values->items, values->len, sizeof(values->items[0]),
+		    variant_string_ptr_cmp);
+}
+
+static int collect_variant_values(lua_State *L, int idx, struct qstar_graph *graph,
+    const char *variant_name, const char *prefix, struct qstar_string_list *values);
+
+static int
+collect_variant_scalar(lua_State *L, int idx, struct qstar_graph *graph,
+    const char *variant_name, const char *path, struct qstar_string_list *values)
+{
+	char buf[64];
+
+	if (lua_isboolean(L, idx))
+		return variant_value_entry_push(graph, values, path, "boolean",
+		    lua_toboolean(L, idx) ? "true" : "false");
+	if (lua_isinteger(L, idx)) {
+		snprintf(buf, sizeof(buf), "%lld", (long long)lua_tointeger(L, idx));
+		return variant_value_entry_push(graph, values, path, "integer", buf);
+	}
+	if (lua_isstring(L, idx))
+		return variant_value_entry_push(graph, values, path, "string",
+		    lua_tostring(L, idx));
+	if (lua_istable(L, idx))
+		return collect_variant_values(L, idx, graph, variant_name, path, values);
+	return qstar_set_error(graph,
+	    "qstar: variant '%s' values.%s must be deterministic literal data",
+	    variant_name, path && *path ? path : "<root>");
+}
+
+static int
+variant_table_shape(lua_State *L, int idx, struct qstar_graph *graph,
+    const char *variant_name, const char *prefix, int *is_list, size_t *list_len)
+{
+	const char *key;
+	size_t count, max;
+	int saw_string, saw_int;
+	lua_Integer k;
+
+	idx = qstar_lua_abs_index(L, idx);
+	count = 0;
+	max = 0;
+	saw_string = 0;
+	saw_int = 0;
+	lua_pushnil(L);
+	while (lua_next(L, idx) != 0) {
+		count++;
+		if (lua_isinteger(L, -2)) {
+			k = lua_tointeger(L, -2);
+			if (k < 1) {
+				lua_pop(L, 2);
+				return qstar_set_error(graph,
+				    "qstar: variant '%s' values.%s list index must be >= 1",
+				    variant_name, prefix && *prefix ? prefix : "<root>");
+			}
+			saw_int = 1;
+			if ((size_t)k > max)
+				max = (size_t)k;
+		} else if (lua_isstring(L, -2)) {
+			key = lua_tostring(L, -2);
+			if (!variant_metadata_key_valid(key)) {
+				lua_pop(L, 2);
+				return qstar_set_error(graph,
+				    "qstar: variant '%s' values key '%s' is invalid",
+				    variant_name, key ? key : "");
+			}
+			saw_string = 1;
+		} else {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: variant '%s' values.%s keys must be strings or list indexes",
+			    variant_name, prefix && *prefix ? prefix : "<root>");
+		}
+		lua_pop(L, 1);
+	}
+	if (count == 0)
+		return qstar_set_error(graph,
+		    "qstar: variant '%s' values.%s must not be empty",
+		    variant_name, prefix && *prefix ? prefix : "<root>");
+	if (saw_string && saw_int)
+		return qstar_set_error(graph,
+		    "qstar: variant '%s' values.%s must not mix named keys and list indexes",
+		    variant_name, prefix && *prefix ? prefix : "<root>");
+	if (saw_int && max != count)
+		return qstar_set_error(graph,
+		    "qstar: variant '%s' values.%s list indexes must be contiguous",
+		    variant_name, prefix && *prefix ? prefix : "<root>");
+	*is_list = saw_int;
+	*list_len = saw_int ? max : 0;
+	return 0;
+}
+
+static int
+collect_variant_values(lua_State *L, int idx, struct qstar_graph *graph,
+    const char *variant_name, const char *prefix, struct qstar_string_list *values)
+{
+	char child[QSTAR_PATH_MAX];
+	const char *key;
+	size_t i, list_len;
+	int is_list;
+
+	idx = qstar_lua_abs_index(L, idx);
+	if (variant_table_shape(L, idx, graph, variant_name, prefix,
+	    &is_list, &list_len) < 0)
+		return -1;
+	if (!prefix || !*prefix) {
+		if (is_list)
+			return qstar_set_error(graph,
+			    "qstar: variant '%s' values must use named metadata keys",
+			    variant_name);
+		lua_pushnil(L);
+		while (lua_next(L, idx) != 0) {
+			key = lua_tostring(L, -2);
+			if (snprintf(child, sizeof(child), "%s", key) >=
+			    (int)sizeof(child)) {
+				lua_pop(L, 2);
+				return qstar_set_error(graph,
+				    "qstar: variant '%s' metadata path is too long",
+				    variant_name);
+			}
+			if (collect_variant_scalar(L, -1, graph, variant_name, child,
+			    values) < 0) {
+				lua_pop(L, 2);
+				return -1;
+			}
+			lua_pop(L, 1);
+		}
+		return 0;
+	}
+	if (is_list) {
+		for (i = 1; i <= list_len; i++) {
+			if (snprintf(child, sizeof(child), "%s[%zu]", prefix, i) >=
+			    (int)sizeof(child))
+				return qstar_set_error(graph,
+				    "qstar: variant '%s' metadata path is too long",
+				    variant_name);
+			lua_rawgeti(L, idx, (lua_Integer)i);
+			if (collect_variant_scalar(L, -1, graph, variant_name, child,
+			    values) < 0) {
+				lua_pop(L, 1);
+				return -1;
+			}
+			lua_pop(L, 1);
+		}
+		return 0;
+	}
+	lua_pushnil(L);
+	while (lua_next(L, idx) != 0) {
+		key = lua_tostring(L, -2);
+		if (snprintf(child, sizeof(child), "%s.%s", prefix, key) >=
+		    (int)sizeof(child)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: variant '%s' metadata path is too long",
+			    variant_name);
+		}
+		if (collect_variant_scalar(L, -1, graph, variant_name, child,
+		    values) < 0) {
+			lua_pop(L, 2);
+			return -1;
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
+validate_variant_fields(lua_State *L, int table, struct qstar_graph *graph)
+{
+	const char *key;
+
+	lua_pushnil(L);
+	while (lua_next(L, table) != 0) {
+		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (!key || (strcmp(key, "values") != 0 &&
+		    strcmp(key, "description") != 0 &&
+		    strcmp(key, "tags") != 0)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph,
+			    "qstar: unknown qstar.variant field '%s'; put user metadata under values",
+			    key ? key : "<non-string>");
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
+push_variant_result(lua_State *L, const char *name, const char *description,
+    const struct qstar_string_list *tags, int values_index)
+{
+	size_t i;
+	int data;
+
+	lua_newtable(L);
+	data = lua_gettop(L);
+	lua_pushstring(L, "variant");
+	lua_setfield(L, data, "__qstar_kind");
+	lua_pushstring(L, name);
+	lua_setfield(L, data, "name");
+	lua_pushstring(L, description ? description : "");
+	lua_setfield(L, data, "description");
+	lua_newtable(L);
+	for (i = 0; tags && i < tags->len; i++) {
+		lua_pushstring(L, tags->items[i]);
+		lua_rawseti(L, -2, (lua_Integer)i + 1);
+	}
+	push_readonly_proxy(L, "qstar.variant.tags");
+	lua_setfield(L, data, "tags");
+	if (push_readonly_table_copy(L, values_index, "qstar.variant.values") < 0)
+		return -1;
+	lua_setfield(L, data, "values");
+	push_readonly_proxy(L, "qstar.variant");
+	return 0;
+}
+
+static int
+add_variant_from_lua(lua_State *L, const char *name, int table_index)
+{
+	struct qstar_lua_context *ctx;
+	struct qstar_graph *graph;
+	struct qstar_string_list tags, values;
+	struct qstar_variant *variant;
+	const char *description;
+	char origin_file[QSTAR_PATH_MAX];
+	int origin_line, values_index;
+
+	if (table_index < 0)
+		table_index = lua_gettop(L) + table_index + 1;
+	ctx = get_context(L);
+	graph = ctx->graph;
+	if (reject_graph_declaration_in_module(L, "qstar.variant") != 0)
+		return 1;
+	luaL_checktype(L, table_index, LUA_TTABLE);
+	memset(&tags, 0, sizeof(tags));
+	memset(&values, 0, sizeof(values));
+	if (validate_variant_fields(L, table_index, graph) < 0 ||
+	    read_list_field(L, table_index, "tags", &tags, graph, 0,
+	    ctx->current_dir) < 0) {
+		qstar_string_list_free(&tags);
+		return luaL_error(L, "%s", graph->error);
+	}
+	lua_getfield(L, table_index, "values");
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		qstar_string_list_free(&tags);
+		return luaL_error(L, "qstar: qstar.variant '%s' requires table field 'values'",
+		    name ? name : "");
+	}
+	values_index = lua_gettop(L);
+	if (collect_variant_values(L, values_index, graph, name, "", &values) < 0) {
+		lua_pop(L, 1);
+		qstar_string_list_free(&tags);
+		qstar_string_list_free(&values);
+		return luaL_error(L, "%s", graph->error);
+	}
+	variant_sort_values(&values);
+	description = check_string_field(L, table_index, "description");
+	current_origin(L, origin_file, sizeof(origin_file), &origin_line);
+	variant = qstar_graph_add_variant(graph, name, description, &tags, &values,
+	    origin_file, origin_line);
+	if (!variant) {
+		lua_pop(L, 1);
+		qstar_string_list_free(&tags);
+		qstar_string_list_free(&values);
+		return luaL_error(L, "%s", graph->error);
+	}
+	if (push_variant_result(L, name, description, &tags, values_index) < 0) {
+		lua_pop(L, 1);
+		qstar_string_list_free(&tags);
+		qstar_string_list_free(&values);
+		return luaL_error(L,
+		    "qstar: qstar.variant '%s' contains unsupported metadata value",
+		    name ? name : "");
+	}
+	lua_remove(L, values_index);
+	qstar_string_list_free(&tags);
+	qstar_string_list_free(&values);
+	return 1;
+}
+
+static int
+qstar_lua_variant_finish(lua_State *L)
+{
+	const char *name;
+
+	name = lua_tostring(L, lua_upvalueindex(1));
+	return add_variant_from_lua(L, name, 1);
+}
+
+static int
+qstar_lua_variant(lua_State *L)
+{
+	const char *name;
+
+	name = luaL_checkstring(L, 1);
+	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
+		lua_pushstring(L, name);
+		lua_pushcclosure(L, qstar_lua_variant_finish, 1);
+		return 1;
+	}
+	return add_variant_from_lua(L, name, 2);
+}
+
 static int eval_fragment(lua_State *L, struct qstar_lua_context *ctx, const char *file,
     const char *fragment_dir);
 static int eval_module(lua_State *L, struct qstar_lua_context *ctx, const char *file,
@@ -8405,6 +8871,8 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "project");
 	lua_pushcfunction(L, qstar_lua_option);
 	lua_setfield(L, -2, "option");
+	lua_pushcfunction(L, qstar_lua_variant);
+	lua_setfield(L, -2, "variant");
 	lua_pushcfunction(L, qstar_lua_toolset);
 	lua_setfield(L, -2, "toolset");
 	lua_pushcfunction(L, qstar_lua_config);

@@ -31,6 +31,8 @@ struct qstar_lsp_hover_entry {
 
 static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 	{ "qstar.project", "Declare package-root project metadata, build_dir, generated_dir, and compile database policy." },
+	{ "qstar.option", "Declare a typed project build option that can be overridden with global CLI -D name=value." },
+	{ "qstar.variant", "Declare a read-only user metadata variant; builtin fields are name, values, description, and tags only." },
 	{ "qstar.toolset", "Declare a tool role bundle with core archive/link roles and provider namespace tool tables." },
 	{ "qstar.use_language", "Activate a project-local or standard language provider and return its helper table." },
 	{ "qstar.language_provider", "Declare and validate a provider manifest; valid only inside provider .qsm manifests." },

@@ -403,6 +403,18 @@ free_project_option_override(struct qstar_project_option_override *override)
 	memset(override, 0, sizeof(*override));
 }
 
+/** qstar.variant metadata가 소유한 문자열을 해제한다. */
+static void
+free_variant(struct qstar_variant *variant)
+{
+	free(variant->name);
+	free(variant->description);
+	qstar_string_list_free(&variant->tags);
+	qstar_string_list_free(&variant->values);
+	free(variant->origin_file);
+	memset(variant, 0, sizeof(*variant));
+}
+
 /** package alias entry가 소유한 문자열을 해제한다. */
 static void
 free_package_alias(struct qstar_package_alias *pkg)
@@ -494,6 +506,8 @@ qstar_graph_free(struct qstar_graph *graph)
 		free_project_option(&graph->project_options[i]);
 	for (i = 0; i < graph->project_option_override_len; i++)
 		free_project_option_override(&graph->project_option_overrides[i]);
+	for (i = 0; i < graph->variant_len; i++)
+		free_variant(&graph->variants[i]);
 	for (i = 0; i < graph->lint_len; i++)
 		free_lint_diagnostic(&graph->lint_diagnostics[i]);
 	for (i = 0; i < graph->package_len; i++)
@@ -516,6 +530,7 @@ qstar_graph_free(struct qstar_graph *graph)
 	free(graph->commands);
 	free(graph->project_options);
 	free(graph->project_option_overrides);
+	free(graph->variants);
 	free(graph->lint_diagnostics);
 	free(graph->cached_actions);
 	qstar_string_list_free(&graph->evaluated_fragments);
@@ -2202,6 +2217,69 @@ qstar_graph_validate_project_option_overrides(struct qstar_graph *graph)
 			    graph->project_option_overrides[i].name);
 	}
 	return 0;
+}
+
+static int
+has_variant(const struct qstar_graph *graph, const char *name)
+{
+	size_t i;
+
+	for (i = 0; i < graph->variant_len; i++) {
+		if (strcmp(graph->variants[i].name, name) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+struct qstar_variant *
+qstar_graph_add_variant(struct qstar_graph *graph, const char *name,
+    const char *description, const struct qstar_string_list *tags,
+    const struct qstar_string_list *values, const char *origin_file, int origin_line)
+{
+	struct qstar_variant *variants, *variant;
+	size_t cap;
+
+	if (!project_option_name_valid(name)) {
+		qstar_set_error_origin(graph, origin_file, origin_line, "name", name,
+		    "qstar: invalid variant name '%s'", name ? name : "");
+		return NULL;
+	}
+	if (has_variant(graph, name)) {
+		qstar_set_error_origin(graph, origin_file, origin_line, "name", name,
+		    "qstar: duplicate variant '%s'", name);
+		return NULL;
+	}
+	if (!values || values->len == 0) {
+		qstar_set_error_origin(graph, origin_file, origin_line, "values", name,
+		    "qstar: variant '%s' requires values metadata", name);
+		return NULL;
+	}
+	if (graph->variant_len == graph->variant_cap) {
+		cap = graph->variant_cap ? graph->variant_cap * 2 : 4;
+		variants = realloc(graph->variants, cap * sizeof(graph->variants[0]));
+		if (!variants) {
+			qstar_set_error(graph, "qstar: out of memory");
+			return NULL;
+		}
+		graph->variants = variants;
+		graph->variant_cap = cap;
+	}
+	variant = &graph->variants[graph->variant_len++];
+	memset(variant, 0, sizeof(*variant));
+	variant->name = qstar_strdup(name);
+	variant->description = qstar_strdup(description ? description : "");
+	variant->origin_file = qstar_strdup(origin_file ? origin_file : "");
+	variant->origin_line = origin_line;
+	if ((tags && copy_string_list(&variant->tags, tags) < 0) ||
+	    copy_string_list(&variant->values, values) < 0) {
+		qstar_set_error(graph, "qstar: out of memory");
+		return NULL;
+	}
+	if (!variant->name || !variant->description || !variant->origin_file) {
+		qstar_set_error(graph, "qstar: out of memory");
+		return NULL;
+	}
+	return variant;
 }
 
 static int
@@ -3892,6 +3970,16 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 		    *graph->project_options[i].description ?
 		    graph->project_options[i].description : "<none>");
 		dump_list(out, &graph->project_options[i].choices);
+		fputc('\n', out);
+	}
+	for (i = 0; i < graph->variant_len; i++) {
+		fprintf(out, "variant name=%s description=%s tags=",
+		    graph->variants[i].name ? graph->variants[i].name : "",
+		    graph->variants[i].description && *graph->variants[i].description ?
+		    graph->variants[i].description : "<none>");
+		dump_list(out, &graph->variants[i].tags);
+		fputs(" values=", out);
+		dump_list(out, &graph->variants[i].values);
 		fputc('\n', out);
 	}
 	fprintf(out, "external_tool_policy allow_absolute=%s path_tools=",
