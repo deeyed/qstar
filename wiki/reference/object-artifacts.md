@@ -72,11 +72,17 @@ qstar.custom_target "objc_app_delegate" {
   description = qstar.status("Building Objective-C object AppDelegate.o"),
 }
 
+qstar.objectlib "objc_objects" {
+  sources = {
+    qstar.output("build/qstar/generated/objc/AppDelegate.o"),
+  },
+}
+
 qstar.executable "app" {
   sources = {
     "src/main.c",
-    qstar.output("build/qstar/generated/objc/AppDelegate.o"),
   },
+  objects = {"//:objc_objects"},
   link = {
     frameworks = {"Foundation"},
   },
@@ -85,8 +91,8 @@ qstar.executable "app" {
 
 Rust, Zig, Swift 같은 toolchain도 같은 원칙을 따른다. 외부 compiler가 package-relative
 object file을 만들고, 그 output이 `format = "object"`로 선언되어 있으며, consuming target이
-그 object path를 `sources`에 넣으면 QStar는 그 file을 다시 compile하지 않고 final
-archive/link input으로 사용한다.
+그 object path를 `sources`에 넣거나 `qstar.objectlib`가 object collection으로 소유하면
+QStar는 그 file을 다시 compile하지 않고 final archive/link input으로 사용한다.
 
 ## 실패 예제
 
@@ -102,7 +108,8 @@ qstar.executable "bad" {
 지원되지 않는 source suffix를 `sources`에 직접 넣으면 QStar는 built-in source registry나
 활성화된 GLP provider source registry에서 compiler 경로를 찾지 못해 diagnostic을 낸다. 해당
 언어 provider를 활성화할 수 없다면 `qstar.custom_target`으로 object artifact를 먼저 만들고,
-generated `.o` 또는 `.obj`를 consuming target의 `sources`에 넣는다.
+generated `.o` 또는 `.obj`를 consuming target의 `sources`에 넣거나 `qstar.objectlib`가
+소유하게 한 뒤 artifact target의 `objects = {...}`로 소비한다.
 
 ## 관련 CLI
 

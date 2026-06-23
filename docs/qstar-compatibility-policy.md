@@ -67,8 +67,12 @@ them as protected unless this document is updated first.
   `compile_context = "consumer"` and artifact target consumption through
   `objects = {...}`. Consumer-context objectlibs compile source-owned leaf inputs
   under each consuming target's effective configs/lang/toolset with per-consumer
-  object identity. Explicit provider source-token re-lowering remains outside
-  the stable promise; use raw provider source strings or `"own"` context there.
+  object identity. Activated GLP raw source strings, explicit provider source
+  tokens in `"own"` context, and generated object artifacts declared with
+  `qstar.output(..., {format = "object"})` are valid objectlib sources.
+  Consumer-context re-lowering of explicit provider source tokens remains
+  outside the stable promise; use raw provider source strings or `"own"` context
+  there.
 - Utility rules: `qstar.group`, `qstar.stage`, and `qstar.target_family`.
 - Generated action rules: `qstar.configure_file`, `qstar.custom_target`, and
   `qstar.transform`.

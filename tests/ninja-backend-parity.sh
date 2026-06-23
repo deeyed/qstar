@@ -93,10 +93,12 @@ if [ "$host_windows" -eq 1 ]; then
 	"$qstar" --file "$object_bridge/qstar.lua" dry-run //:app \
 		> "$tmp/object-bridge-dry.out" 2> "$tmp/object-bridge-dry.err"
 	contains "$tmp/object-bridge-dry.out" "generated_artifact output=build/qstar/generated/objc/AppDelegate.o group=objects format=object"
-	contains "$tmp/object-bridge-dry.out" "dry_run_step id=//:app:link-input:1"
+	contains "$tmp/object-bridge-dry.out" "dry_run_target //:objc_objects"
+	contains "$tmp/object-bridge-dry.out" "dry_run_step id=//:objc_objects:link-input:0"
 	"$qstar" --file "$object_bridge/qstar.lua" dry-run //:objc_static \
 		> "$tmp/object-bridge-static-dry.out" 2> "$tmp/object-bridge-static-dry.err"
-	contains "$tmp/object-bridge-static-dry.out" "dry_run_step id=//:objc_static:link-input:0"
+	contains "$tmp/object-bridge-static-dry.out" "dry_run_step id=//:objc_objects:link-input:0"
+	contains "$tmp/object-bridge-static-dry.out" "dry_run_step id=//:objc_objects:compile-objects:0"
 	"$qstar" --file "$object_bridge/qstar.lua" emit-ninja //:app \
 		> "$tmp/object-bridge-emit.out" 2> "$tmp/object-bridge-emit.err"
 	contains "$tmp/object-bridge-emit.out" "ninja_file build/qstar/ninja/build.ninja"
@@ -109,9 +111,9 @@ if [ "$host_windows" -eq 1 ]; then
 else
 	"$qstar" --file "$object_bridge/qstar.lua" dry-run //:all > "$tmp/object-bridge-dry.out" 2> "$tmp/object-bridge-dry.err"
 	contains "$tmp/object-bridge-dry.out" "generated_artifact output=build/qstar/generated/objc/AppDelegate.o group=objects format=object"
-	contains "$tmp/object-bridge-dry.out" "dry_run_step id=//:app:link-input:1"
-	contains "$tmp/object-bridge-dry.out" "dry_run_step id=//:objc_static:link-input:0"
-	contains "$tmp/object-bridge-dry.out" "dry_run_step id=//:objc_plugin:link-input:1"
+	contains "$tmp/object-bridge-dry.out" "dry_run_target //:objc_objects"
+	contains "$tmp/object-bridge-dry.out" "dry_run_step id=//:objc_objects:link-input:0"
+	contains "$tmp/object-bridge-dry.out" "dry_run_step id=//:objc_objects:compile-objects:0"
 	"$qstar" --file "$object_bridge/qstar.lua" emit-ninja //:all > "$tmp/object-bridge-emit.out" 2> "$tmp/object-bridge-emit.err"
 	contains "$tmp/object-bridge-emit.out" "ninja_file build/qstar/ninja/build.ninja"
 	contains "$object_bridge/build/qstar/ninja/build.ninja" "qstar_action_id = //:objc_object:generate:0"

@@ -595,6 +595,180 @@ EOF
 	contains "$tmp/standard-cuda-ninja-replay.out" "--fake-device-option"
 }
 
+check_standard_provider_objectlibs() {
+	project=$tmp/standard-provider-objectlibs
+	mkdir -p "$project/src" "$project/tools"
+	write_fake_zig_bin "$project/tools"
+	write_fake_rust_bin "$project/tools"
+	write_fake_cuda_bin "$project/tools"
+	cat > "$project/src/zig_leaf.zig" <<'EOF'
+pub export fn qstar_fake_zig_value() i32 {
+    return 42;
+}
+EOF
+	cat > "$project/src/rust_leaf.rs" <<'EOF'
+#[no_mangle]
+pub extern "C" fn qstar_fake_rust_value() -> i32 {
+    42
+}
+EOF
+	cat > "$project/src/cuda_leaf.cu" <<'EOF'
+extern "C" int qstar_fake_cuda_value() {
+    return 42;
+}
+EOF
+	cat > "$project/qstar.lua" <<'EOF'
+local zig = qstar.use_language("zig")
+local rust = qstar.use_language("rust")
+local cuda = qstar.use_language("cuda")
+
+qstar.project {
+  name = "standard-provider-objectlibs",
+  version = "0.1.0",
+  root = ".",
+  build_dir = "build/qstar",
+}
+
+qstar.toolset "host" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    zig = zig.tools {
+      compiler = qstar.cli {"tools/fake-zig"},
+    },
+    rust = rust.tools {
+      compiler = qstar.cli {"tools/rustc"},
+    },
+    cuda = cuda.tools {
+      compiler = qstar.cli {"tools/nvcc"},
+    },
+  },
+}
+
+qstar.config "providers" {
+  toolset = "//:host",
+  lang = {
+    zig = zig.options {
+      optimize = "ReleaseSafe",
+      compile_options = {"--objectlib-raw-zig"},
+    },
+    rust = rust.options {
+      edition = "2021",
+      crate_type = "lib",
+    },
+    cuda = cuda.options {
+      arch = "sm_70",
+      compile_options = {"--objectlib-raw-cuda"},
+    },
+  },
+}
+
+qstar.objectlib "zig_objects" {
+  configs = {"//:providers"},
+  sources = {"src/zig_leaf.zig"},
+}
+
+qstar.objectlib "rust_objects" {
+  configs = {"//:providers"},
+  sources = {
+    rust.object("src/rust_leaf.rs", {
+      cfg = {"objectlib_token"},
+      compile_options = {"-C", "panic=abort"},
+    }),
+  },
+}
+
+qstar.objectlib "cuda_objects" {
+  configs = {"//:providers"},
+  sources = {
+    cuda.object("src/cuda_leaf.cu", {
+      compile_options = {"--objectlib-token-cuda"},
+    }),
+  },
+}
+
+qstar.staticlib "zig_pack" {
+  configs = {"//:providers"},
+  objects = {"//:zig_objects"},
+}
+
+qstar.staticlib "rust_pack" {
+  configs = {"//:providers"},
+  objects = {"//:rust_objects"},
+}
+
+qstar.staticlib "cuda_pack" {
+  configs = {"//:providers"},
+  objects = {"//:cuda_objects"},
+}
+
+qstar.group "all" {
+  deps = {"//:zig_pack", "//:rust_pack", "//:cuda_pack"},
+}
+EOF
+	step "standard provider objectlib check" standard-provider-objectlib-check
+	"$qstar" --file "$project/qstar.lua" check > "$tmp/standard-provider-objectlib-check.out" 2> "$tmp/standard-provider-objectlib-check.err"
+	step "standard provider objectlib explain" standard-provider-objectlib-explain
+	"$qstar" --file "$project/qstar.lua" explain //:all > "$tmp/standard-provider-objectlib-explain.out" 2> "$tmp/standard-provider-objectlib-explain.err"
+	contains "$tmp/standard-provider-objectlib-explain.out" "target //:zig_objects"
+	contains "$tmp/standard-provider-objectlib-explain.out" "source_file path=src/zig_leaf.zig language=zig tool=provider-compiler"
+	contains "$tmp/standard-provider-objectlib-explain.out" "target //:rust_objects"
+	contains "$tmp/standard-provider-objectlib-explain.out" "source_file path=src/rust_leaf.rs language=rust tool=provider-compiler"
+	contains "$tmp/standard-provider-objectlib-explain.out" "target //:cuda_objects"
+	contains "$tmp/standard-provider-objectlib-explain.out" "source_file path=src/cuda_leaf.cu language=cuda tool=provider-compiler"
+	step "standard provider objectlib dry-run" standard-provider-objectlib-dry-run
+	"$qstar" --file "$project/qstar.lua" dry-run //:all > "$tmp/standard-provider-objectlib-dry-run.out" 2> "$tmp/standard-provider-objectlib-dry-run.err"
+	contains "$tmp/standard-provider-objectlib-dry-run.out" "dry_run_step id=//:zig_objects:compile:0 owner=//:zig_objects kind=compile language=zig"
+	contains "$tmp/standard-provider-objectlib-dry-run.out" "dry_run_step id=//:rust_objects:compile:0 owner=//:rust_objects kind=compile language=rust"
+	contains "$tmp/standard-provider-objectlib-dry-run.out" "dry_run_step id=//:cuda_objects:compile:0 owner=//:cuda_objects kind=compile language=cuda"
+	contains "$tmp/standard-provider-objectlib-dry-run.out" "dry_run_step id=//:zig_objects:compile-objects:0 owner=//:zig_objects kind=compile-objects"
+	step "standard provider objectlib build" standard-provider-objectlib-build
+	"$qstar" --file "$project/qstar.lua" build //:all > "$tmp/standard-provider-objectlib-build.out" 2> "$tmp/standard-provider-objectlib-build.err"
+	contains "$tmp/standard-provider-objectlib-build.out" "status ok"
+	test -f "$project/build/qstar/out/___zig_objects/obj0.o" ||
+		fail "standard Zig objectlib object missing"
+	test -f "$project/build/qstar/out/___rust_objects/obj0.o" ||
+		fail "standard Rust objectlib object missing"
+	test -f "$project/build/qstar/out/___cuda_objects/obj0.o" ||
+		fail "standard CUDA objectlib object missing"
+	test -f "$project/build/qstar/out/___zig_pack/libzig_pack.a" ||
+		fail "standard Zig objectlib archive missing"
+	test -f "$project/build/qstar/out/___rust_pack/librust_pack.a" ||
+		fail "standard Rust objectlib archive missing"
+	test -f "$project/build/qstar/out/___cuda_pack/libcuda_pack.a" ||
+		fail "standard CUDA objectlib archive missing"
+	step "standard provider objectlib action-log" standard-provider-objectlib-action-log
+	"$qstar" --file "$project/qstar.lua" action-log //:zig_objects:compile:0 > "$tmp/standard-provider-objectlib-zig-log.out" 2> "$tmp/standard-provider-objectlib-zig-log.err"
+	contains "$tmp/standard-provider-objectlib-zig-log.out" "tools/fake-zig"
+	contains "$tmp/standard-provider-objectlib-zig-log.out" "build-obj"
+	contains "$tmp/standard-provider-objectlib-zig-log.out" "--objectlib-raw-zig"
+	"$qstar" --file "$project/qstar.lua" action-log //:rust_objects:compile:0 > "$tmp/standard-provider-objectlib-rust-log.out" 2> "$tmp/standard-provider-objectlib-rust-log.err"
+	contains "$tmp/standard-provider-objectlib-rust-log.out" "tools/rustc"
+	contains "$tmp/standard-provider-objectlib-rust-log.out" "--emit=obj"
+	contains "$tmp/standard-provider-objectlib-rust-log.out" "objectlib_token"
+	"$qstar" --file "$project/qstar.lua" action-log //:cuda_objects:compile:0 > "$tmp/standard-provider-objectlib-cuda-log.out" 2> "$tmp/standard-provider-objectlib-cuda-log.err"
+	contains "$tmp/standard-provider-objectlib-cuda-log.out" "tools/nvcc"
+	contains "$tmp/standard-provider-objectlib-cuda-log.out" "--objectlib-token-cuda"
+	step "standard provider objectlib ninja" standard-provider-objectlib-ninja
+	"$qstar" --file "$project/qstar.lua" -B build-ninja -G ninja build //:all > "$tmp/standard-provider-objectlib-ninja.out" 2> "$tmp/standard-provider-objectlib-ninja.err"
+	contains "$tmp/standard-provider-objectlib-ninja.out" "backend ninja"
+	test -f "$project/build-ninja/out/___zig_objects/obj0.o" ||
+		fail "standard Zig objectlib Ninja object missing"
+	test -f "$project/build-ninja/out/___rust_objects/obj0.o" ||
+		fail "standard Rust objectlib Ninja object missing"
+	test -f "$project/build-ninja/out/___cuda_objects/obj0.o" ||
+		fail "standard CUDA objectlib Ninja object missing"
+	test -f "$project/build-ninja/out/___zig_pack/libzig_pack.a" ||
+		fail "standard Zig objectlib Ninja archive missing"
+	test -f "$project/build-ninja/out/___rust_pack/librust_pack.a" ||
+		fail "standard Rust objectlib Ninja archive missing"
+	test -f "$project/build-ninja/out/___cuda_pack/libcuda_pack.a" ||
+		fail "standard CUDA objectlib Ninja archive missing"
+	step "standard provider objectlib ninja replay" standard-provider-objectlib-ninja-replay
+	"$qstar" --file "$project/qstar.lua" -B build-ninja -G ninja replay //:cuda_objects:compile:0 > "$tmp/standard-provider-objectlib-ninja-replay.out" 2> "$tmp/standard-provider-objectlib-ninja-replay.err"
+	contains "$tmp/standard-provider-objectlib-ninja-replay.out" "tools/nvcc"
+	contains "$tmp/standard-provider-objectlib-ninja-replay.out" "--objectlib-token-cuda"
+}
+
 check_standard_option_schema() {
 	project=$tmp/standard-provider-options
 	mkdir -p "$project"
@@ -681,6 +855,8 @@ step "standard Rust provider" standard-rust
 check_standard_rust
 step "standard CUDA provider" standard-cuda
 check_standard_cuda
+step "standard provider objectlibs" standard-provider-objectlibs
+check_standard_provider_objectlibs
 step "standard provider option schema" standard-provider-options
 check_standard_option_schema
 

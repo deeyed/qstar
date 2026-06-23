@@ -23,7 +23,7 @@ qstar.custom_target "objc_object" {
   description = qstar.status("Building Objective-C object AppDelegate.o"),
 }
 
-qstar.staticlib "objc_static" {
+qstar.objectlib "objc_objects" {
   sources = {
     qstar.output("build/qstar/generated/objc/AppDelegate.o"),
   },
@@ -32,15 +32,19 @@ qstar.staticlib "objc_static" {
 qstar.sharedlib "objc_plugin" {
   sources = {
     "src/plugin.c",
-    qstar.output("build/qstar/generated/objc/AppDelegate.o"),
   },
+  objects = {"//:objc_objects"},
+}
+
+qstar.staticlib "objc_static" {
+  objects = {"//:objc_objects"},
 }
 
 qstar.executable "app" {
   sources = {
     "src/main.c",
-    qstar.output("build/qstar/generated/objc/AppDelegate.o"),
   },
+  objects = {"//:objc_objects"},
 }
 
 qstar.group "all" {
