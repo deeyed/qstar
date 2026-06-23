@@ -9,7 +9,7 @@ status: v1 readiness gaps defined
 current public line: qstar 0.7.19-beta
 candidate feature line: qstar 0.8.0-beta
 v1 decision: not ready
-baseline date: 2026-06-21
+baseline date: 2026-06-23
 ```
 
 ## Verdict
@@ -27,6 +27,9 @@ candidate lane까지 들어왔다.
 - Windows는 validation-backed beta candidate지만, GitHub Release에 게시된 official
   Windows asset과 downloaded-asset smoke는 Q253 opt-in publication gate가 green으로 남긴
   evidence가 있을 때만 조건부 해소된다.
+- macOS, Linux, Windows release evidence는 `docs/release-matrix-evidence.md`에
+  ledger로 묶는다. 이 ledger는 local smoke, candidate artifact, published GitHub Release
+  asset을 같은 것으로 취급하지 않는다.
 - daemon은 documented beta opt-in이며, default-on이나 stable protocol promise가 아니다.
 - GLP consumer surface와 standard provider consumer contract는 stable 후보로 정리됐고,
   provider-author API는 `qstar.lang/1` versioned beta contract로 남겨졌다.
@@ -153,6 +156,8 @@ For v1, every public reference must classify APIs into one of three buckets:
 | Out-of-core | Intentionally not QStar core. |
 
 ## OS Support Matrix
+
+Canonical evidence ledger: `docs/release-matrix-evidence.md`.
 
 | Host | Current status | Official v1 condition |
 | --- | --- | --- |

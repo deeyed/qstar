@@ -286,13 +286,17 @@ coverage for macOS, Linux, and Windows.
 The exact remaining blockers and stable-surface policy are tracked in
 [docs/qstar-v1-readiness.md](docs/qstar-v1-readiness.md), and the compatibility
 promise itself is defined in
-[docs/qstar-compatibility-policy.md](docs/qstar-compatibility-policy.md).
+[docs/qstar-compatibility-policy.md](docs/qstar-compatibility-policy.md). The
+three-OS release evidence ledger is
+[docs/release-matrix-evidence.md](docs/release-matrix-evidence.md), which
+separates local smoke, candidate artifacts, and published GitHub Release assets.
 
 ## Documentation
 
 - [GitHub Wiki](https://github.com/deeyed/qstar/wiki)
 - [AI Index](wiki/AI_INDEX.md)
 - [v1 readiness gap report](docs/qstar-v1-readiness.md)
+- [Three-OS release evidence ledger](docs/release-matrix-evidence.md)
 - [Compatibility policy](docs/qstar-compatibility-policy.md)
 - [Getting Started](wiki/getting-started.md)
 - [QStar Lua Reference](wiki/reference/qstar-lua.md)

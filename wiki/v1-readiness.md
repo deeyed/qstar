@@ -28,6 +28,9 @@ v1 decision: not ready
   봉인되었고, v1 전까지 docs/wiki/man/smoke guard sync를 유지해야 한다.
 - daemon stable/default boundary 확정. 현재는 beta opt-in이다.
 - macOS/Linux/Windows release matrix 반복 green.
+- 자세한 OS별 release evidence ledger는
+  [`docs/release-matrix-evidence.md`](https://github.com/deeyed/qstar/blob/main/docs/release-matrix-evidence.md)에 둔다.
+  이 ledger는 local smoke, candidate artifact, published GitHub Release asset을 구분한다.
 - package resolver, registry, lockfile, fetch policy out-of-core 원칙 유지.
 
 ## Stable Surface 후보

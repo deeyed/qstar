@@ -33,7 +33,9 @@ standard bundle의 `share/qstar/languages/<id>/<id>.qsm`을 사용한다.
 AI agent가 빠르게 구조를 파악해야 한다면 [AI Index](AI_INDEX.md)를 먼저 읽는다.
 v1 공개 전 남은 gap과 stable surface 정책은
 [v1 Readiness](v1-readiness.md)에 둔다. Stable DSL compatibility promise와
-removal policy는 [Compatibility Policy](compatibility-policy.md)에 둔다.
+removal policy는 [Compatibility Policy](compatibility-policy.md)에 둔다. macOS/Linux/Windows
+release evidence ledger의 정본은
+[docs/release-matrix-evidence.md](https://github.com/deeyed/qstar/blob/main/docs/release-matrix-evidence.md)다.
 
 ## 빠른 시작
 
@@ -132,6 +134,7 @@ qstar docs --show reference/qstar-lua.md
 7. [Language Providers](reference/language-providers.md)
 8. [Generic Workflows](reference/generic-workflows.md)
 9. [v1 Readiness](v1-readiness.md)
+10. [Release Matrix Evidence](https://github.com/deeyed/qstar/blob/main/docs/release-matrix-evidence.md)
 
 ## Reference
 
@@ -152,6 +155,7 @@ qstar docs --show reference/qstar-lua.md
 - [Stella Daemon](reference/stella-daemon.md)
 - [Progress Output](reference/progress-output.md)
 - [Diagnostics](reference/diagnostics.md)
+- [Release Matrix Evidence](https://github.com/deeyed/qstar/blob/main/docs/release-matrix-evidence.md)
 
 ## Tutorials
 

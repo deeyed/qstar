@@ -7,7 +7,7 @@
 status: 0.8 beta readiness sealed
 current public line: qstar 0.7.19-beta
 candidate feature line: qstar 0.8.0-beta
-baseline date: 2026-06-17
+baseline date: 2026-06-23
 decision: seal Windows as validation-backed beta candidate; keep daemon opt-in; keep package resolver out-of-core
 ```
 
@@ -29,6 +29,9 @@ Windows를 official support라고 부르지 않으면서도 "validation-backed b
 5. Linux asset은 이미 public beta asset이므로 0.8에서는 유지보수와 hosted verification
    freshness를 맡긴다.
 6. package resolver, registry, lockfile, fetch policy는 계속 QStar core 밖에 둔다.
+7. macOS/Linux/Windows release evidence는 `docs/release-matrix-evidence.md`의
+   three-OS ledger를 기준으로 판단한다. Candidate artifact와 published GitHub Release
+   asset을 혼동하지 않는다.
 
 0.8은 QStar를 "macOS/Linux에서 쓸 수 있는 beta build system"에서
 "Windows beta path를 검증 가능한 artifact와 gate로 가진 cross-host build system"으로
@@ -152,6 +155,8 @@ Stella daemon은 documented beta opt-in 상태를 유지한다.
 v1.0 blocker를 0.8 기준으로 다시 정렬한다.
 
 ### P0: Official Host Matrix
+
+정본 evidence ledger는 `docs/release-matrix-evidence.md`다.
 
 - macOS arm64 public asset, install smoke, codesign smoke 유지
 - Linux x86_64 public asset, hosted download smoke, gcc/clang validation 유지

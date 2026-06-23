@@ -151,6 +151,11 @@ QStar가 하지 않는 일:
   `qstar-v<version>-windows-x86_64.zip`을 내려받아 `bin/qstar.exe`, docs/man, bundled
   providers, `qstar init app`, Zig provider vendoring, Stella build, Ninja build를 검증한다.
   0.6 post-release 기록은 `docs/qstar-v0.6-post-release-smoke.md`에 둔다.
+- Three-OS release evidence ledger는 `docs/release-matrix-evidence.md`다. Q260 기준
+  macOS/Linux/Windows evidence를 local smoke, candidate artifact, published GitHub Release
+  asset으로 구분한다. v1 판단에서 candidate artifact와 published release asset은 같은
+  evidence가 아니며, Windows는 `v0.7.19-beta` seed evidence를 보유했지만 다음 beta/RC tag와
+  v1 candidate tag에서 같은 `publish_windows_asset=true` release-mutating gate를 반복해야 한다.
 - 0.8 beta release candidate 판단은 `make qstar-v0.8-release-tests`와
   `docs/releases/v0.8.0-beta.md`를 canonical entry로 쓴다. 이 target은 `make check`,
   generic DSL backend parity, optional real GLP compiler corpus, real-language init scaffold
