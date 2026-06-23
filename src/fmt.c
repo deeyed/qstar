@@ -182,6 +182,47 @@ is_lua_long_comment(const char *p)
 	return p[0] == '-' && p[1] == '-' && lua_long_bracket_open(p + 2, NULL);
 }
 
+/** Lua single-line comment opener인지 확인한다. */
+static int
+is_lua_line_comment(const char *p)
+{
+	return p[0] == '-' && p[1] == '-' && !is_lua_long_comment(p);
+}
+
+/** Lua single-line comment 한 줄을 line ending 뒤까지 건너뛴다. */
+static const char *
+skip_lua_line_comment(const char *p)
+{
+	while (*p && *p != '\n' && *p != '\r')
+		p++;
+	if (*p == '\r') {
+		p++;
+		if (*p == '\n')
+			p++;
+	} else if (*p == '\n')
+		p++;
+	return p;
+}
+
+/** 빈 줄 없이 붙어 있는 Lua single-line comment group 끝 위치를 찾는다. */
+static const char *
+find_lua_line_comment_group_end(const char *p)
+{
+	const char *q, *next;
+
+	q = p;
+	while (is_lua_line_comment(q)) {
+		q = skip_lua_line_comment(q);
+		next = q;
+		while (*next == ' ' || *next == '\t')
+			next++;
+		if (!is_lua_line_comment(next))
+			break;
+		q = next;
+	}
+	return q;
+}
+
 /** span이 keyword로 시작하고 뒤가 identifier 문자가 아닌지 확인한다. */
 static int
 starts_with_keyword(const char *p, const char *keyword)
@@ -304,6 +345,8 @@ find_statement_end(const char *p)
 			q++;
 		return q;
 	}
+	if (is_lua_line_comment(p))
+		return find_lua_line_comment_group_end(p);
 	depth = 0;
 	saw_block = 0;
 	for (q = p; *q; q++) {

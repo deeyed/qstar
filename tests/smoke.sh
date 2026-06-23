@@ -4196,6 +4196,37 @@ if ! awk '
 	fail "qstar fmt inserted blank lines inside a Lua long comment"
 fi
 
+mkdir -p "$tmp/fmt-line-comment"
+cat > "$tmp/fmt-line-comment/qstar.lua" <<'EOF'
+-- Delos 루트 QStar 진입점.
+-- 이 파일은 project metadata와 최상위 import/command만 담당한다.
+-- 실제 source 등록은 각 폴더의 `.qst` fragment가 맡고, 최종 image assembly는 `targets/` 아래에서 수행한다.
+
+qstar.project { name = "fmt-line-comment", root = "." }
+EOF
+"$qstar" fmt --stdout "$tmp/fmt-line-comment/qstar.lua" > "$tmp/fmt-line-comment.out" 2> "$tmp/fmt-line-comment.err"
+contains "$tmp/fmt-line-comment.out" "-- Delos 루트 QStar 진입점."
+contains "$tmp/fmt-line-comment.out" "-- 이 파일은 project metadata와 최상위 import/command만 담당한다."
+contains "$tmp/fmt-line-comment.out" "-- 실제 source 등록은 각 폴더의 \`.qst\` fragment가 맡고, 최종 image assembly는 \`targets/\` 아래에서 수행한다."
+if ! awk '
+	$0 == "-- Delos 루트 QStar 진입점." { state = 1; next }
+	state == 1 {
+		if ($0 != "-- 이 파일은 project metadata와 최상위 import/command만 담당한다.")
+			exit 1
+		state = 2
+		next
+	}
+	state == 2 {
+		if ($0 != "-- 실제 source 등록은 각 폴더의 `.qst` fragment가 맡고, 최종 image assembly는 `targets/` 아래에서 수행한다.")
+			exit 1
+		state = 3
+		next
+	}
+	END { if (state != 3) exit 1 }
+' "$tmp/fmt-line-comment.out"; then
+	fail "qstar fmt inserted blank lines inside a Lua line comment group"
+fi
+
 mkdir -p "$tmp/fmt-heavy"
 cat > "$tmp/fmt-heavy/qstar.lua" <<'EOF'
 local function common_c()
