@@ -98,7 +98,18 @@ The downloaded smoke verified the published zip checksum, extracted
 provider vendoring, Stella build, and Ninja build from the extracted release
 tree. This moves the Windows release asset blocker from "conditionally
 closable" to "evidence held" for the 0.7 beta line. It still does not make
-Windows official support; the gate must be repeated for the v1 candidate tag.
+Windows official support; the gate must be repeated on the next beta/RC tag and
+again for the v1 candidate tag.
+
+Release-backed repetition rule: the next beta or release-candidate tag must run
+the same `publish_windows_asset=true` path after its GitHub Release exists. The
+required success artifact is again
+`qstar-windows-x86_64-published-release-asset` with
+`windows-hosted-release-decision.txt` recording
+`windows_release_asset status=published` and `download_smoke=ok`. A normal
+`windows-validation.yml --ref main` run remains a freshness check only; it does
+not replace the release-backed repetition gate because it does not publish and
+download-smoke the actual release zip.
 
 Round Q178 adds a native execution corpus to that same alpha lane. The new
 `tests/corpus/windows-execution` project is intentionally separate from the

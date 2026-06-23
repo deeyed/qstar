@@ -320,6 +320,15 @@ gh workflow run windows-validation.yml \
 ```
 
 That job is release-mutating and must not be used as an ordinary freshness run.
+It is also the required Windows release gate repetition after `v0.7.19-beta`.
+The next beta/RC tag must produce a fresh
+`qstar-windows-x86_64-published-release-asset` artifact whose
+`windows-hosted-release-decision.txt` records:
+
+```txt
+windows_release_asset status=published
+download_smoke=ok
+```
 
 The Windows workflow uploads `qstar-windows-beta-candidate`, including
 `windows-beta-candidate-status.txt`, `KNOWN_ISSUES.md`, and the failure detail

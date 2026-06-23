@@ -22,7 +22,7 @@ public beta candidate zip asset in GitHub Actions. The same manual workflow has
 an opt-in `publish_windows_asset=true` job that publishes and download-smokes the
 Windows zip for a release tag. That release-backed Windows evidence is now green
 for `v0.7.19-beta`, but Windows remains beta until the same gate is repeated on
-the v1 candidate tag.
+the next beta/RC tag and again on the v1 candidate tag.
 QStar 1.0 is reserved for a release that is validated across macOS, Linux, and
 Windows. The `0.7.x-beta` line carries release/package/documentation patch
 updates while the next feature line is prepared.
@@ -276,9 +276,9 @@ validates source build, execution corpus, install/stage layout, and sharedlib
 runtime/import artifacts plus a generated/extracted public beta candidate zip,
 and the Q253 manual publish job has verified the uploaded `v0.7.19-beta`
 Windows zip from GitHub Release. Windows is still not official support; the same
-release-backed gate must be repeated for the v1 candidate tag. The 1.0
-milestone requires validated release artifacts and CI coverage for macOS,
-Linux, and Windows.
+release-backed gate must be repeated on the next beta/RC tag and again for the
+v1 candidate tag. The 1.0 milestone requires validated release artifacts and CI
+coverage for macOS, Linux, and Windows.
 The exact remaining blockers and stable-surface policy are tracked in
 [docs/qstar-v1-readiness.md](docs/qstar-v1-readiness.md).
 

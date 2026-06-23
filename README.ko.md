@@ -18,8 +18,8 @@ MSYS2 UCRT64 기반 validation-backed beta candidate 단계이고 GitHub Actions
 `windows-x86_64` public beta candidate zip을 실제로 생성, 추출, smoke한다. 같은 manual
 workflow에는 release tag용 Windows zip을 GitHub Release에 publish하고 다시 내려받아 smoke하는
 opt-in `publish_windows_asset=true` job도 있다. 이 release-backed Windows evidence는
-`v0.7.19-beta`에서 green이지만, Windows는 같은 gate를 v1 candidate tag에서 반복하기
-전까지 계속 beta다.
+`v0.7.19-beta`에서 green이지만, Windows는 같은 gate를 다음 beta/RC tag와 v1 candidate
+tag에서 다시 반복하기 전까지 계속 beta다.
 `0.7.x-beta` line은 다음 feature line을 준비하는 동안 release/package/documentation patch를
 맡는다.
 QStar 1.0은 macOS, Linux, Windows 공식 지원이 모두 갖춰진 뒤에 올린다.
@@ -243,8 +243,8 @@ Windows beta candidate lane은 source build, execution corpus, install/stage lay
 sharedlib runtime/import artifact와 public beta candidate zip 생성/추출 smoke를 검증하지만,
 Q253 manual publish job은 `v0.7.19-beta`에서 GitHub Release에 올라간 Windows zip을 다시
 내려받아 검증했다. Windows는 아직 official support가 아니며, 같은 release-backed gate를
-v1 candidate tag에서 반복해야 한다. 1.0은 macOS, Linux, Windows release artifact와 CI가
-갖춰진 뒤에 올린다.
+다음 beta/RC tag와 v1 candidate tag에서 반복해야 한다. 1.0은 macOS, Linux, Windows
+release artifact와 CI가 갖춰진 뒤에 올린다.
 정확한 남은 blocker와 stable surface policy는
 [docs/qstar-v1-readiness.md](docs/qstar-v1-readiness.md)에 둔다.
 

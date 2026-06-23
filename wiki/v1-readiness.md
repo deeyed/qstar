@@ -17,8 +17,10 @@ v1 decision: not ready
 
 - Windows official GitHub Release asset과 downloaded-asset smoke. Q253 기준
   `windows-validation.yml`의 `publish_windows_asset=true` run이
-  `windows_release_asset status=published`, `download_smoke=ok` evidence를 남겨야
-  조건부 해소된다.
+  `v0.7.19-beta`에서 `windows_release_asset status=published`,
+  `download_smoke=ok` evidence를 남겼다. 이 evidence는 보유 상태지만, 다음
+  beta/RC tag와 v1 candidate tag에서 같은 release-mutating gate를 반복해야
+  Windows official blocker가 닫힌다.
 - Stable DSL compatibility/removal policy의 release-line 적용.
 - GLP provider-author API freeze 또는 version negotiation.
 - daemon stable/default boundary 확정. 현재는 beta opt-in이다.
@@ -46,6 +48,10 @@ gh workflow run windows-validation.yml --ref v<version> \
   -f publish_windows_asset=true
 git diff --check
 ```
+
+Windows release gate는 GitHub Release asset을 실제로 publish한 뒤 다시 내려받아
+smoke해야 한다. `windows-validation.yml --ref main` freshness run은 유용하지만,
+release asset을 mutate/re-consume하지 않으므로 반복 evidence를 대체하지 않는다.
 
 미래에 v1 전용 release gate 이름이 생길 수 있지만, 범위는 Q251 v0.8 gate보다 좁아지면
 안 된다.

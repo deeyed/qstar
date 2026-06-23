@@ -156,4 +156,6 @@ first green published-asset decision on `v0.7.19-beta`:
 https://github.com/deeyed/qstar/actions/runs/27935992747. The decision artifact
 recorded `windows_release_asset status=published` and `download_smoke=ok` for
 `qstar-v0.7.19-beta-windows-x86_64.zip`. Official Windows support still
-requires repeating this release-backed gate on the v1 candidate tag.
+requires repeating this release-backed gate on the next beta/RC tag and again on
+the v1 candidate tag. The repetition must exercise the GitHub Release asset
+itself, not only the Actions candidate zip artifact.

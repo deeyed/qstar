@@ -276,7 +276,10 @@ QStar가 하지 않는 일:
   https://github.com/deeyed/qstar/actions/runs/27935992747 이 이 조건을 처음
   만족했고, GitHub Release에는 `qstar-v0.7.19-beta-windows-x86_64.zip`이
   published asset으로 올라갔다. Windows는 여전히 beta지만, v1 blocker 중
-  release asset evidence는 "보유" 상태다. 상세 정책은 `docs/windows-artifact-policy.md`에 둔다.
+  release asset evidence는 "보유" 상태다. 다음 beta/RC tag와 v1 candidate tag에서는
+  같은 `publish_windows_asset=true` release-mutating gate를 반복해야 하며, 단순
+  `--ref main` freshness run은 이 반복 evidence를 대체하지 않는다. 상세 정책은
+  `docs/windows-artifact-policy.md`에 둔다.
   Q174부터 `tests/corpus/windows-artifacts`는 `windows_fake` toolset으로
   `.exe`/explicit static `.lib` regression을 맡고, Q222부터 real Windows execution corpus도
   stage/install layout과 manifest normalization을 검증한다. Windows sharedlib selector

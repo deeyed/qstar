@@ -163,13 +163,44 @@ For v1, every public reference must classify APIs into one of three buckets:
 | --- | --- | --- |
 | macOS arm64 | Public beta release asset exists. Local package/download smoke and codesign checks are active. | Release asset must be produced from a clean tag, uploaded, downloaded, checksum-verified, docs/man/wiki smoke-tested, and `make qstar-v0.8-release-tests` or successor gate must pass on the release branch. |
 | Linux x86_64 | Public beta release asset exists from hosted Ubuntu lane. gcc/clang source validation, Ninja parity, package dry-run, download smoke, and performance artifacts exist. | Ubuntu hosted release workflow or clean Linux host must produce the artifact. Uploaded asset must pass download smoke with `file`, `ldd`, docs/wiki/man checks, Ninja backend parity, install smoke, and medium performance artifact collection. |
-| Windows x86_64 | Validation-backed beta candidate with release-backed evidence. The v0.7.19-beta Windows workflow run published `qstar-v0.7.19-beta-windows-x86_64.zip` to GitHub Release and download-smoked it from the uploaded asset. Evidence: https://github.com/deeyed/qstar/actions/runs/27935992747. | Windows remains beta until repeated release gates are clean on the v1 candidate tag, but the former release-asset blocker has concrete evidence: `windows-hosted-release-decision.txt` recorded `windows_release_asset status=published` and `download_smoke=ok`, and the downloaded smoke verified `qstar --version`, docs/man lookup, provider vendoring, `qstar init app`, Stella build, and Ninja build. |
+| Windows x86_64 | Validation-backed beta candidate with release-backed evidence. The v0.7.19-beta Windows workflow run published `qstar-v0.7.19-beta-windows-x86_64.zip` to GitHub Release and download-smoked it from the uploaded asset. Evidence: https://github.com/deeyed/qstar/actions/runs/27935992747. | Windows remains beta until repeated release gates are clean on the next beta/RC tag and the v1 candidate tag, but the former release-asset blocker has concrete evidence: `windows-hosted-release-decision.txt` recorded `windows_release_asset status=published` and `download_smoke=ok`, and the downloaded smoke verified `qstar --version`, docs/man lookup, provider vendoring, `qstar init app`, Stella build, and Ninja build. |
 
 Official host support means all required artifacts are release-backed, not merely
 local or candidate artifacts. Windows now has one release-backed beta evidence
 run on `v0.7.19-beta`, but it remains beta until the same gate is repeated for
-the v1 candidate tag and the remaining platform/daemon/compatibility blockers
-are resolved.
+the next beta/RC tag and the v1 candidate tag, and the remaining
+platform/daemon/compatibility blockers are resolved.
+
+## Windows Release Gate Repetition
+
+The `v0.7.19-beta` Windows publish/download smoke is seed evidence, not final v1
+closure. The next beta or release-candidate tag must repeat the same
+release-mutating workflow before this evidence can be treated as durable.
+
+After the next beta/RC tag and GitHub Release exist, run:
+
+```sh
+gh workflow run windows-validation.yml \
+  --ref <tag> \
+  -f release_tag=<tag> \
+  -f publish_windows_asset=true
+```
+
+The run counts as repeated Windows release evidence only when the
+`qstar-windows-x86_64-published-release-asset` artifact contains
+`windows-hosted-release-decision.txt` with:
+
+```txt
+windows_release_asset status=published
+download_smoke=ok
+```
+
+The downloaded smoke must continue to cover the uploaded zip checksum,
+`qstar --version`, docs/man lookup, bundled provider vendoring, `qstar init app`,
+Stella build, and Ninja build from the extracted release tree. A plain
+`windows-validation.yml --ref main` freshness run is useful, but it does not
+replace this release-backed repetition gate because it does not mutate and then
+re-consume a GitHub Release asset.
 
 ## Daemon Stable Conditions
 
@@ -274,7 +305,7 @@ QStar can start a v1 release candidate only when this checklist is true:
 
 | Blocker | Why it blocks v1 | Required closure |
 | --- | --- | --- |
-| Windows official artifact | v1 promises all three OSes. This blocker has v0.7.19-beta evidence, but must be repeated on the final v1 candidate tag. | Q254 evidence exists: `windows-validation.yml` run 27935992747 published the Windows zip and produced `windows-hosted-release-decision.txt` with `windows_release_asset status=published` and `download_smoke=ok`. Repeat this gate before v1. |
+| Windows official artifact | v1 promises all three OSes. This blocker has v0.7.19-beta evidence, but must be repeated on the next beta/RC tag and again on the final v1 candidate tag. | Q254 evidence exists: `windows-validation.yml` run 27935992747 published the Windows zip and produced `windows-hosted-release-decision.txt` with `windows_release_asset status=published` and `download_smoke=ok`. Repeat the same release-mutating gate with `publish_windows_asset=true`; a non-publishing freshness run is not enough. |
 | Stable compatibility policy | v1 needs a promise for removals and field stability. | Link this policy from README/wiki/man/release notes and add drift guards. |
 | GLP provider-author stability | External language authors need a stable manifest/lowering contract. | Freeze or version `qstar.lang/1`, provider sandbox, lowering result, and provider scaffold contracts. |
 | Daemon boundary | daemon is beta opt-in and not default/stable. | Keep daemon beta in v1 docs, or finish separate stable daemon gate. |
