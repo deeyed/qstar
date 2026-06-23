@@ -89,6 +89,24 @@ case "$host" in
 	Darwin) object_shared_artifact="build/qstar/out/___objc_plugin/libobjc_plugin.dylib" ;;
 	*) object_shared_artifact="build/qstar/out/___objc_plugin/libobjc_plugin.so" ;;
 esac
+"$qstar" --file "$object_bridge/qstar.lua" list-targets --format json \
+	> "$tmp/object-bridge-list-targets.out" 2> "$tmp/object-bridge-list-targets.err"
+contains "$tmp/object-bridge-list-targets.out" "\"generated_action_count\":1"
+contains "$tmp/object-bridge-list-targets.out" "\"label\":\"//:objc_objects\""
+contains "$tmp/object-bridge-list-targets.out" "\"kind\":\"objectlib\""
+contains "$tmp/object-bridge-list-targets.out" "\"sources\":[\"build/qstar/generated/objc/AppDelegate.o\"]"
+contains "$tmp/object-bridge-list-targets.out" "\"compile_context\":\"own\""
+contains "$tmp/object-bridge-list-targets.out" "\"objects\":[\"//:objc_objects\"]"
+contains "$tmp/object-bridge-list-targets.out" "\"output_artifacts\":[{\"path\":\"build/qstar/generated/objc/AppDelegate.o\",\"group\":\"objects\",\"format\":\"object\""
+"$qstar" --file "$object_bridge/qstar.lua" query //:objc_objects \
+	> "$tmp/object-bridge-query.out" 2> "$tmp/object-bridge-query.err"
+contains "$tmp/object-bridge-query.out" "kind objectlib"
+contains "$tmp/object-bridge-query.out" "sources [build/qstar/generated/objc/AppDelegate.o]"
+contains "$tmp/object-bridge-query.out" "compile_context own"
+"$qstar" --file "$object_bridge/qstar.lua" query //:app \
+	> "$tmp/object-bridge-app-query.out" 2> "$tmp/object-bridge-app-query.err"
+contains "$tmp/object-bridge-app-query.out" "kind exe"
+contains "$tmp/object-bridge-app-query.out" "objects [//:objc_objects]"
 if [ "$host_windows" -eq 1 ]; then
 	"$qstar" --file "$object_bridge/qstar.lua" dry-run //:app \
 		> "$tmp/object-bridge-dry.out" 2> "$tmp/object-bridge-dry.err"

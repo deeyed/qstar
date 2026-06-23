@@ -1023,6 +1023,12 @@ dump_consumer_objectlib_compile_plan(FILE *out, const struct qstar_plan *plan,
 			qstar_target_source_classify(objectlib, j, &source);
 			if (!qstar_source_requires_compile(&source))
 				continue;
+			if (qstar_target_provider_source_unit(objectlib, j))
+				return qstar_set_error_origin(plan->graph,
+				    objectlib->origin_file, objectlib->origin_line,
+				    "sources", objectlib->label,
+				    "qstar: provider source token '%s' cannot be used from compile_context = \"consumer\" objectlib yet; use raw provider source strings or compile_context = \"own\"",
+				    objectlib->sources.items[j]);
 			if (objectlib_source_object_input(plan->graph, target, objectlib, j,
 			    output, sizeof(output)) < 0 ||
 			    objectlib_source_depfile_output(plan->graph, target, objectlib, j,
@@ -2387,6 +2393,12 @@ dump_dry_run_consumer_objectlib_compiles(FILE *out, const struct qstar_plan *pla
 			qstar_target_source_classify(objectlib, j, &source);
 			if (!qstar_source_requires_compile(&source))
 				continue;
+			if (qstar_target_provider_source_unit(objectlib, j))
+				return qstar_set_error_origin(plan->graph,
+				    objectlib->origin_file, objectlib->origin_line,
+				    "sources", objectlib->label,
+				    "qstar: provider source token '%s' cannot be used from compile_context = \"consumer\" objectlib yet; use raw provider source strings or compile_context = \"own\"",
+				    objectlib->sources.items[j]);
 			if (objectlib_source_object_input(plan->graph, target, objectlib, j,
 			    output, sizeof(output)) < 0 ||
 			    objectlib_source_depfile_output(plan->graph, target, objectlib, j,

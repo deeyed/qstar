@@ -1883,7 +1883,7 @@ write_action_log_stream(FILE *f, char *const argv[], const char *exit_text,
 {
 	size_t i;
 
-	fprintf(f, "qstar-action-log v2\nexit=%s\n", exit_text);
+	fprintf(f, "qstar-action-log v2\nexit=%s\nbackend=stella\n", exit_text);
 	write_log_description(f, description);
 	write_env_redacted(f, env);
 	write_action_outputs(f, outputs);
