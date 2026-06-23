@@ -135,6 +135,16 @@ QStar가 하지 않는 일:
   fixture는 `tests/projects/generic-command-artifact-workflow`다. `tests/smoke.sh`는
   Stella path, docs/wiki/man/snippet drift, action-log/replay를 확인하고
   `tests/ninja-backend-parity.sh`는 같은 fixture를 `-G ninja`로 실행한다.
+- Configurable build surface implementation spec은
+  `docs/configurable-build-surface.md`와
+  `wiki/reference/configurable-build-surface.md`다. 이 spec은 `qstar.option`,
+  CLI `-D name=value`, `qstar.variant`, custom triple branching,
+  `qstar.objectlib`, target `objects = {...}`, fragment-relative `./` paths,
+  nested `qstar.subdir`를 정의한다. `arch`, `triple`, `cpu`, `board`, `mode`,
+  `runtime`처럼 project마다 의미가 달라질 수 있는 vocabulary는 QStar builtin schema가
+  아니라 project option name 또는 `qstar.variant.values` 아래의 free-form user
+  metadata로만 쓸 수 있다. QStar core must not auto-inject compiler/linker argv from
+  these names.
 - Public beta runtime package는 `make qstar-public-beta-release-tests`로 만든다. 이 gate는
   installed binary version, installed wiki/manpages, macOS codesign, prefix-style
   tarball layout, `SHA256SUMS`, VSCode `.vsix` 미포함 정책을 확인한다. Q247부터

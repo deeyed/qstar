@@ -71,8 +71,14 @@ Important documents:
   generated artifact consumption, `qstar.transform`, typed command options,
   bool argument helpers, module import cache/reuse, and explicit layout export
   without domain-specific syntax.
+- `configurable-build-surface.md`: Korean implementation specification for
+  `qstar.option`, `qstar.variant`, `qstar.objectlib`, CLI `-D` project option
+  overrides, custom triple branching, fragment-relative `./` paths, and nested
+  `qstar.subdir` without domain-specific builtin fields.
 - `../wiki/reference/generic-workflows.md`: user-facing reference for the
   command/artifact/stage workflow surface.
+- `../wiki/reference/configurable-build-surface.md`: user-facing Korean
+  reference mirror for the configurable build surface implementation spec.
 - `../tests/projects/generic-command-artifact-workflow`: Stella/Ninja fixture
   that exercises transform -> stage -> run inputs -> project command
   `export_stage`.

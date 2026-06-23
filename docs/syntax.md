@@ -2,6 +2,11 @@
 
 `wiki/reference/qstar-lua.md` is the canonical user-facing syntax reference.
 This file is a short developer-side drift guard for the current generic DSL.
+The next configurable build surface implementation spec lives in
+`docs/configurable-build-surface.md` and its wiki mirror at
+`wiki/reference/configurable-build-surface.md`; it defines `qstar.option`,
+`qstar.variant`, `qstar.objectlib`, CLI `-D` option overrides, nested
+`qstar.subdir`, and explicit fragment-relative `./` path resolution.
 
 ## Entrypoints
 

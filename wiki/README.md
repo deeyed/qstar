@@ -134,8 +134,9 @@ qstar docs --show reference/qstar-lua.md
 6. [Language Namespaces](concepts/language-namespaces.md)
 7. [Language Providers](reference/language-providers.md)
 8. [Generic Workflows](reference/generic-workflows.md)
-9. [v1 Readiness](v1-readiness.md)
-10. [Release Matrix Evidence](https://github.com/deeyed/qstar/blob/main/docs/release-matrix-evidence.md)
+9. [Configurable Build Surface](reference/configurable-build-surface.md)
+10. [v1 Readiness](v1-readiness.md)
+11. [Release Matrix Evidence](https://github.com/deeyed/qstar/blob/main/docs/release-matrix-evidence.md)
 
 ## Reference
 
@@ -148,6 +149,7 @@ qstar docs --show reference/qstar-lua.md
 - [C++ Language Options](reference/lang-cxx.md)
 - [Language Providers](reference/language-providers.md)
 - [Generic Workflows](reference/generic-workflows.md)
+- [Configurable Build Surface](reference/configurable-build-surface.md)
 - [Object Artifacts](reference/object-artifacts.md)
 - [Custom Target](reference/custom-target.md)
 - [Run Target](reference/run-target.md)

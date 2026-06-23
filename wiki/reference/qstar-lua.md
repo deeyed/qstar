@@ -59,6 +59,20 @@ qstar.staticlib "core" {
 - `qstar.subdir`, `qstar.import_file`, `qstar.import_module`: explicit graph/module loading.
 - `qstar.use_language`: activate a bundled or project-local language provider and return its helper table.
 
+다음 configurable build surface의 구현 기준은
+[Configurable Build Surface](configurable-build-surface.md)에 둔다.
+
+- `qstar.option`: CLI `-D name=value`로 override되는 project build option.
+- `qstar.variant`: name, `values`, `description`, `tags`만 builtin인 read-only
+  user metadata table.
+- `qstar.objectlib`: artifact target의 `objects = {...}`로 소비되는 generic object
+  collection target.
+- nested `qstar.subdir`와 explicit fragment-relative `./` path resolution.
+
+그 spec은 어떤 이름이 QStar builtin schema이고 어떤 이름이 자유 project metadata인지
+구분한다. `arch`, `triple`, `cpu`, `board`, `mode`, `runtime`처럼 project마다 의미가
+달라질 수 있는 vocabulary는 QStar builtin field가 되어서는 안 된다.
+
 Provider-only author APIs:
 
 - `qstar.language_provider`: validate and return a provider manifest; valid only inside provider `.qsm` files.
