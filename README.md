@@ -27,6 +27,9 @@ QStar 1.0 is reserved for a release that is validated across macOS, Linux, and
 Windows. The `0.7.x-beta` line carries release/package/documentation patch
 updates while the next feature line is prepared.
 The v1 gap checklist is tracked in [docs/qstar-v1-readiness.md](docs/qstar-v1-readiness.md).
+The local v1 release-candidate skeleton gate is
+`make qstar-v1-release-candidate-tests`; actual GitHub Release
+publish/download smoke remains a separate manual gate for tagged releases.
 The intended v1 stable/beta/out-of-core surface split is tracked in
 [docs/qstar-compatibility-policy.md](docs/qstar-compatibility-policy.md).
 

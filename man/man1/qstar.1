@@ -1,4 +1,4 @@
-.Dd June 20, 2026
+.Dd June 23, 2026
 .Dt QSTAR 1
 .Os
 .Sh NAME
@@ -45,6 +45,10 @@ The intended QStar 1.0 compatibility boundary is documented in
 That policy classifies public surfaces as stable-at-v1 candidates, beta opt-in,
 or out-of-core, and requires a documented deprecation window before any future
 stable surface removal.
+The local v1 release-candidate skeleton gate is
+.Ic make qstar-v1-release-candidate-tests .
+GitHub Release publish/download smoke remains a separate manual gate for
+tagged releases.
 .Pp
 Platform support is intentionally conservative. macOS arm64 and Linux x86_64
 are the public beta runtime asset hosts for the current line. Windows is a

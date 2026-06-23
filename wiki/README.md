@@ -36,6 +36,7 @@ v1 공개 전 남은 gap과 stable surface 정책은
 removal policy는 [Compatibility Policy](compatibility-policy.md)에 둔다. macOS/Linux/Windows
 release evidence ledger의 정본은
 [docs/release-matrix-evidence.md](https://github.com/deeyed/qstar/blob/main/docs/release-matrix-evidence.md)다.
+Local v1 release-candidate skeleton gate는 `make qstar-v1-release-candidate-tests`다.
 
 ## 빠른 시작
 

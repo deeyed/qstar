@@ -115,7 +115,8 @@ Important documents:
 - `qstar-v0.7-readiness.md`: v0.7 readiness gate.
 - `qstar-v0.8-readiness.md`: v0.8 beta readiness and release-candidate gate.
 - `qstar-v1-readiness.md`: v1 readiness gaps, stable DSL candidates, and
-  compatibility/removal policy.
+  compatibility/removal policy. The local v1 release-candidate skeleton gate is
+  `make qstar-v1-release-candidate-tests`.
 - `release-matrix-evidence.md`: Q260 macOS/Linux/Windows release evidence
   ledger that distinguishes local smoke, candidate artifacts, and published
   GitHub Release assets.

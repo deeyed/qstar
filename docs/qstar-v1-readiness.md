@@ -40,6 +40,33 @@ candidate lane까지 들어왔다.
 
 따라서 v1은 기능 추가 라운드가 아니라 blocker 제거 라운드로 열어야 한다.
 
+## Local Release Candidate Gate
+
+Q261부터 v1 준비 여부를 로컬에서 한 번에 판단하는 skeleton gate는 다음이다.
+
+```sh
+make qstar-v1-release-candidate-tests
+```
+
+이 target은 `make check`, wiki/CLI/man sync, compatibility policy guard, generic DSL
+backend parity, standard GLP provider compatibility, Linux validation, Windows
+contract/beta artifact checks, Windows sharedlib artifact parity, release matrix
+evidence doc guard, `git diff --check`, and `qstar --version`을 묶는다.
+
+이 gate는 local/candidate evidence를 모으는 release-candidate skeleton이다. GitHub Release에
+실제로 asset을 publish하고 다시 download-smoke하는 단계는 tag와 release가 있을 때만 별도
+manual gate로 실행한다.
+일반 실행에서는 `release-download-smoke=skipped`로 기록되어 published-asset evidence가
+아직 수집되지 않았음을 명시한다.
+
+```sh
+QSTAR_RUN_RELEASE_DOWNLOAD_SMOKE=1 make qstar-v1-release-candidate-tests
+```
+
+위 opt-in은 이미 published asset이 있는 tag/release context에서만 의미가 있다. 일반 checkout
+freshness run은 release asset을 mutate/re-consume하지 않으므로 Windows/Linux/macOS official
+evidence를 대체하지 않는다.
+
 ## Stable DSL Candidate Surface
 
 아래 표면은 v1에서 안정 표면으로 묶을 후보이며, v1 tag 전에 docs/wiki/man/snippet/smoke가
@@ -161,7 +188,7 @@ Canonical evidence ledger: `docs/release-matrix-evidence.md`.
 
 | Host | Current status | Official v1 condition |
 | --- | --- | --- |
-| macOS arm64 | Public beta release asset exists. Local package/download smoke and codesign checks are active. | Release asset must be produced from a clean tag, uploaded, downloaded, checksum-verified, docs/man/wiki smoke-tested, and `make qstar-v0.8-release-tests` or successor gate must pass on the release branch. |
+| macOS arm64 | Public beta release asset exists. Local package/download smoke and codesign checks are active. | Release asset must be produced from a clean tag, uploaded, downloaded, checksum-verified, docs/man/wiki smoke-tested, and `make qstar-v1-release-candidate-tests` must pass on the release branch. |
 | Linux x86_64 | Public beta release asset exists from hosted Ubuntu lane. gcc/clang source validation, Ninja parity, package dry-run, download smoke, and performance artifacts exist. | Ubuntu hosted release workflow or clean Linux host must produce the artifact. Uploaded asset must pass download smoke with `file`, `ldd`, docs/wiki/man checks, Ninja backend parity, install smoke, and medium performance artifact collection. |
 | Windows x86_64 | Validation-backed beta candidate with release-backed evidence. The v0.7.19-beta Windows workflow run published `qstar-v0.7.19-beta-windows-x86_64.zip` to GitHub Release and download-smoked it from the uploaded asset. Evidence: https://github.com/deeyed/qstar/actions/runs/27935992747. | Windows remains beta until repeated release gates are clean on the next beta/RC tag and the v1 candidate tag, but the former release-asset blocker has concrete evidence: `windows-hosted-release-decision.txt` recorded `windows_release_asset status=published` and `download_smoke=ok`, and the downloaded smoke verified `qstar --version`, docs/man lookup, provider vendoring, `qstar init app`, Stella build, and Ninja build. |
 
@@ -317,7 +344,7 @@ QStar can start a v1 release candidate only when this checklist is true:
 - Windows x86_64 release asset is uploaded and downloaded successfully.
 - Windows sharedlib `.dll` plus import `.lib` consumer link remains green.
 - `make check` passes locally.
-- `make qstar-v0.8-release-tests` or successor v1 release gate passes locally.
+- `make qstar-v1-release-candidate-tests` passes locally.
 - Linux hosted validation passes on gcc and clang.
 - Windows beta/RC validation passes on the official native workflow.
 - Daemon remains clearly beta opt-in, or a separate stable daemon gate has passed.
@@ -356,13 +383,14 @@ For this document change:
 ```sh
 make check
 make qstar-wiki-cli-sync-tests
+make qstar-v1-release-candidate-tests
 git diff --check
 ```
 
 For a future v1 release candidate:
 
 ```sh
-make qstar-v0.8-release-tests
+make qstar-v1-release-candidate-tests
 gh workflow run linux-validation.yml --ref main
 gh workflow run windows-validation.yml --ref main
 gh workflow run windows-validation.yml --ref v<version> \
@@ -370,5 +398,6 @@ gh workflow run windows-validation.yml --ref v<version> \
   -f publish_windows_asset=true
 ```
 
-The exact target name may change to a v1-specific release gate later, but the
-scope must remain at least as broad as the Q251 v0.8 gate.
+The Makefile gate is a local release-candidate skeleton. It intentionally does
+not publish GitHub Release assets by default; published-asset download smoke is
+manual and tag-bound.

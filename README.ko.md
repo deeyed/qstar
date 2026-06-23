@@ -24,6 +24,9 @@ tag에서 다시 반복하기 전까지 계속 beta다.
 맡는다.
 QStar 1.0은 macOS, Linux, Windows 공식 지원이 모두 갖춰진 뒤에 올린다.
 v1 gap checklist는 [docs/qstar-v1-readiness.md](docs/qstar-v1-readiness.md)에 둔다.
+로컬 v1 release-candidate skeleton gate는
+`make qstar-v1-release-candidate-tests`이며, 실제 GitHub Release publish/download
+smoke는 tag가 있을 때만 별도 manual gate로 실행한다.
 v1에서 stable로 약속할 surface와 beta/out-of-core로 남길 surface는
 [docs/qstar-compatibility-policy.md](docs/qstar-compatibility-policy.md)에 둔다.
 

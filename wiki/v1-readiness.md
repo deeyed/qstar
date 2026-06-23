@@ -47,8 +47,7 @@ consumer-facing GLP는 stable 후보로 남는다.
 v1 release candidate는 최소한 다음 gate를 통과해야 한다.
 
 ```sh
-make check
-make qstar-v0.8-release-tests
+make qstar-v1-release-candidate-tests
 gh workflow run linux-validation.yml --ref main
 gh workflow run windows-validation.yml --ref main
 gh workflow run windows-validation.yml --ref v<version> \
@@ -61,5 +60,6 @@ Windows release gate는 GitHub Release asset을 실제로 publish한 뒤 다시 
 smoke해야 한다. `windows-validation.yml --ref main` freshness run은 유용하지만,
 release asset을 mutate/re-consume하지 않으므로 반복 evidence를 대체하지 않는다.
 
-미래에 v1 전용 release gate 이름이 생길 수 있지만, 범위는 Q251 v0.8 gate보다 좁아지면
-안 된다.
+`make qstar-v1-release-candidate-tests`는 local release-candidate skeleton이다. 실제
+GitHub Release publish/download smoke는 tag와 release가 있을 때만 별도 manual gate로
+남긴다.

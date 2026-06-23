@@ -195,7 +195,13 @@ QStar가 하지 않는 일:
   manifest API는 추측 실행하지 않고 reject한다. v1 blocker는 Windows official GitHub
   Release asset/download smoke repetition, daemon beta boundary, release matrix repetition,
   and package manager out-of-core boundary다. Package resolver/registry/lockfile/fetch
-  policy는 v1에서도 QStar core 밖이다.
+  policy는 v1에서도 QStar core 밖이다. Q261 기준 local v1 release-candidate skeleton은
+  `make qstar-v1-release-candidate-tests`다. 이 target은 `make check`, wiki/CLI/man sync,
+  compatibility policy guard, generic DSL backend parity, standard GLP provider compatibility,
+  Linux validation, Windows contract/beta artifact checks, Windows sharedlib artifact parity,
+  release matrix evidence doc guard, `git diff --check`, and `qstar --version`을 묶는다.
+  실제 GitHub Release publish/download smoke는 tag와 release가 있을 때만 별도 manual gate로
+  남긴다.
 - 0.6 beta release 판단과 `0.6.1-beta` public prerelease line은
   `docs/qstar-v0.6-readiness.md`에 둔다. 이 문서는 daemon beta opt-in, self-host,
   Stella/Ninja benchmark, Linux x86_64 beta asset, Windows status, package smoke,
