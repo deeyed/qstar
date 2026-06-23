@@ -57,6 +57,7 @@ static int ninja_argv_push_provider_template(struct qstar_graph *graph,
     struct ninja_argv *argv, const struct qstar_target *target,
     const struct qstar_resolved_toolchain *toolchain,
     const struct qstar_string_list *template);
+static void ninja_path(FILE *f, const char *s);
 
 /** graph에서 canonical label target을 찾는다. */
 static const struct qstar_target *
@@ -405,6 +406,60 @@ target_source_object_input(struct qstar_graph *graph, const struct qstar_target 
 		    (int)dstlen ? 0 : -1;
 	}
 	return qstar_graph_object_output_path(graph, target, index, dst, dstlen);
+}
+
+/** own-context objectlib의 object 입력을 Ninja argv에 추가한다. */
+static int
+ninja_argv_push_objectlib_objects(struct qstar_graph *graph, struct ninja_argv *argv,
+    const struct qstar_target *target)
+{
+	const struct qstar_target *objectlib;
+	char object[QSTAR_PATH_MAX];
+	size_t i, j;
+
+	for (i = 0; i < target->objects.len; i++) {
+		objectlib = find_target(graph, target->objects.items[i]);
+		if (!objectlib)
+			return qstar_set_error(graph,
+			    "qstar: unknown objectlib '%s' referenced by '%s'",
+			    target->objects.items[i], target->label);
+		for (j = 0; j < objectlib->sources.len; j++) {
+			if (target_source_object_input(graph, objectlib, j, object,
+			    sizeof(object)) < 0)
+				return qstar_set_error(graph,
+				    "qstar: objectlib object path too long");
+			if (ninja_argv_push(graph, argv, object) < 0)
+				return -1;
+		}
+	}
+	return 0;
+}
+
+/** own-context objectlib의 object 입력을 Ninja edge input으로 출력한다. */
+static int
+write_objectlib_object_deps(struct qstar_graph *graph, FILE *f,
+    const struct qstar_target *target)
+{
+	const struct qstar_target *objectlib;
+	char object[QSTAR_PATH_MAX];
+	size_t i, j;
+
+	for (i = 0; i < target->objects.len; i++) {
+		objectlib = find_target(graph, target->objects.items[i]);
+		if (!objectlib)
+			return qstar_set_error(graph,
+			    "qstar: unknown objectlib '%s' referenced by '%s'",
+			    target->objects.items[i], target->label);
+		for (j = 0; j < objectlib->sources.len; j++) {
+			if (target_source_object_input(graph, objectlib, j, object,
+			    sizeof(object)) < 0)
+				return qstar_set_error(graph,
+				    "qstar: objectlib object path too long");
+			fputc(' ', f);
+			ninja_path(f, object);
+		}
+	}
+	return 0;
 }
 
 /** JSON string 문자 하나를 escape하여 출력한다. */
@@ -1319,6 +1374,11 @@ resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
 			return qstar_set_error_origin(graph, target->origin_file,
 			    target->origin_line, "target_file", target->label,
 			    "qstar: qstar.target_file cannot reference group target '%s' because it has no artifact",
+			    label);
+		if (strcmp(target->kind, "objectlib") == 0)
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, "target_file", target->label,
+			    "qstar: qstar.target_file cannot reference objectlib target '%s' because object libraries have no artifact; consume it with objects = { ... }",
 			    label);
 		return qstar_graph_target_artifact_path(graph, target, artifact, dst, dstlen);
 	}
@@ -2350,7 +2410,8 @@ collect_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *d
 		return 0;
 	if (qstar_string_list_push(seen, dep->label) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
-	if (strcmp(dep->kind, "group") == 0)
+	if (strcmp(dep->kind, "group") == 0 ||
+	    strcmp(dep->kind, "objectlib") == 0)
 		return 0;
 	if (qstar_graph_target_link_artifact_path(graph, dep, toolchain->platform, artifact,
 	    sizeof(artifact)) < 0)
@@ -2653,6 +2714,8 @@ emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		if (ninja_argv_push(graph, &argv, object) < 0)
 			goto fail;
 	}
+	if (ninja_argv_push_objectlib_objects(graph, &argv, target) < 0)
+		goto fail;
 	if (qstar_action_description_final(target, "archive", artifact, description,
 	    sizeof(description)) < 0)
 		goto fail;
@@ -2673,6 +2736,8 @@ emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		fputc(' ', ctx->ninja);
 		ninja_path(ctx->ninja, object);
 	}
+	if (write_objectlib_object_deps(graph, ctx->ninja, target) < 0)
+		goto fail;
 	if (target->link_inputs.len) {
 		fputs(" |", ctx->ninja);
 		for (i = 0; i < target->link_inputs.len; i++) {
@@ -2774,6 +2839,8 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		if (ninja_argv_push(graph, &argv, object) < 0)
 			goto fail;
 	}
+	if (ninja_argv_push_objectlib_objects(graph, &argv, target) < 0)
+		goto fail;
 	if (collect_dep_artifacts(graph, target, toolchain, &dep_artifacts) < 0)
 		goto fail;
 	for (i = 0; i < dep_artifacts.len; i++) {
@@ -2811,19 +2878,21 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		fputc(' ', ctx->ninja);
 		ninja_path(ctx->ninja, object);
 	}
-		for (i = 0; i < dep_artifacts.len; i++) {
-			fputc(' ', ctx->ninja);
-			ninja_path(ctx->ninja, dep_artifacts.items[i]);
+	if (write_objectlib_object_deps(graph, ctx->ninja, target) < 0)
+		goto fail;
+	for (i = 0; i < dep_artifacts.len; i++) {
+		fputc(' ', ctx->ninja);
+		ninja_path(ctx->ninja, dep_artifacts.items[i]);
+	}
+	if (target->link_inputs.len) {
+		fputs(" |", ctx->ninja);
+		for (i = 0; i < target->link_inputs.len; i++) {
+			if (write_genrule_dep_item(graph, ctx->ninja,
+			    target->link_inputs.items[i]) < 0)
+				goto fail;
 		}
-		if (target->link_inputs.len) {
-			fputs(" |", ctx->ninja);
-			for (i = 0; i < target->link_inputs.len; i++) {
-				if (write_genrule_dep_item(graph, ctx->ninja,
-				    target->link_inputs.items[i]) < 0)
-					goto fail;
-			}
-		}
-		if (target->deps.len || target->private_deps.len) {
+	}
+	if (target->deps.len || target->private_deps.len) {
 		fputs(" ||", ctx->ninja);
 		if (write_dep_aliases(graph, ctx->ninja, target, &target->deps) < 0 ||
 		    write_dep_aliases(graph, ctx->ninja, target, &target->private_deps) < 0)
@@ -2860,6 +2929,45 @@ fail:
 	qstar_string_list_free(&dep_artifacts);
 	ninja_argv_free(&argv);
 	return -1;
+}
+
+/** objectlib target을 object collection alias로 lower한다. */
+static int
+emit_objectlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
+    const struct qstar_target *target)
+{
+	char alias[QSTAR_PATH_MAX], action_id[QSTAR_PATH_MAX], object[QSTAR_PATH_MAX];
+	size_t i;
+
+	if (ninja_alias_path(graph, target->label, alias, sizeof(alias)) < 0)
+		return qstar_set_error(graph, "qstar: ninja objectlib alias path too long");
+	snprintf(action_id, sizeof(action_id), "%s:compile-objects:0", target->label);
+	fprintf(ctx->ninja, "# qstar-action-id: %s\n", action_id);
+	fputs("build ", ctx->ninja);
+	ninja_path(ctx->ninja, alias);
+	fputs(": phony", ctx->ninja);
+	for (i = 0; i < target->sources.len; i++) {
+		struct qstar_source_info source;
+
+		if (qstar_target_source_classify(target, i, &source) < 0)
+			return -1;
+		if (!qstar_source_requires_compile(&source) &&
+		    !qstar_source_is_link_object(&source))
+			continue;
+		if (target_source_object_input(graph, target, i, object, sizeof(object)) < 0)
+			return qstar_set_error(graph, "qstar: objectlib object path too long");
+		fputc(' ', ctx->ninja);
+		ninja_path(ctx->ninja, object);
+	}
+	if (target->deps.len || target->private_deps.len) {
+		fputs(" ||", ctx->ninja);
+		if (write_dep_aliases(graph, ctx->ninja, target, &target->deps) < 0 ||
+		    write_dep_aliases(graph, ctx->ninja, target, &target->private_deps) < 0)
+			return -1;
+	}
+	fprintf(ctx->ninja, "\n  qstar_action_id = %s\n\n", action_id);
+	ctx->edge_count++;
+	return 0;
 }
 
 /** group target을 Ninja phony edge로 lower한다. */
@@ -3338,10 +3446,11 @@ emit_target(struct qstar_graph *graph, const struct qstar_target *target, size_t
 	if (strcmp(target->kind, "staticlib") != 0 &&
 	    strcmp(target->kind, "sharedlib") != 0 &&
 	    strcmp(target->kind, "exe") != 0 &&
-	    strcmp(target->kind, "test") != 0)
+	    strcmp(target->kind, "test") != 0 &&
+	    strcmp(target->kind, "objectlib") != 0)
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "kind", target->label,
-		    "qstar: ninja backend supports custom_target, executable, test, run_target, staticlib, sharedlib, and group in this release; target '%s' is kind '%s'",
+		    "qstar: ninja backend supports custom_target, executable, test, run_target, objectlib, staticlib, sharedlib, and group in this release; target '%s' is kind '%s'",
 		    target->label, target->kind);
 	if (qstar_resolve_toolchain(graph, target, &toolchain) < 0)
 		return -1;
@@ -3356,6 +3465,8 @@ emit_target(struct qstar_graph *graph, const struct qstar_target *target, size_t
 	if (qstar_target_has_provider_final_action(target))
 		return emit_provider_final_edge(graph, ctx, target, &toolchain) < 0 ?
 		    -1 : 0;
+	if (strcmp(target->kind, "objectlib") == 0)
+		return emit_objectlib_edge(graph, ctx, target);
 	if (strcmp(target->kind, "staticlib") == 0)
 		return emit_staticlib_edge(graph, ctx, target, &toolchain);
 	return emit_link_edge(graph, ctx, target, &toolchain);

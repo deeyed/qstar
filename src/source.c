@@ -121,6 +121,11 @@ validate_link_input_item(struct qstar_graph *graph, const struct qstar_target *o
 			    owner->origin_line, "link_inputs", owner->label,
 			    "qstar: qstar.target_file cannot reference group target '%s' because group targets have no artifact",
 			    label);
+		if (target && strcmp(target->kind, "objectlib") == 0)
+			return qstar_set_error_origin(graph, owner->origin_file,
+			    owner->origin_line, "link_inputs", owner->label,
+			    "qstar: qstar.target_file cannot reference objectlib target '%s' because object libraries have no artifact; consume it with objects = { ... }",
+			    label);
 		if (!target && !qstar_graph_find_genrule(graph, label))
 			return qstar_set_error_origin(graph, owner->origin_file,
 			    owner->origin_line, "link_inputs", owner->label,
@@ -198,6 +203,11 @@ validate_target_file_artifact_ref(struct qstar_graph *graph, const char *token,
 			return qstar_set_error_origin(graph, origin_file, origin_line,
 			    field, owner,
 			    "qstar: qstar.target_file cannot reference group target '%s' because group targets have no artifact; depend on the group directly or reference one of its artifact-producing deps",
+			    label);
+		if (strcmp(target->kind, "objectlib") == 0)
+			return qstar_set_error_origin(graph, origin_file, origin_line,
+			    field, owner,
+			    "qstar: qstar.target_file cannot reference objectlib target '%s' because object libraries have no artifact; consume it with objects = { ... }",
 			    label);
 		if (artifact[0] &&
 		    qstar_graph_target_artifact_path(graph, target, artifact, resolved,
@@ -530,6 +540,101 @@ validate_link_lists(struct qstar_graph *graph, const struct qstar_target *target
 	return 0;
 }
 
+static int
+target_can_consume_objectlibs(const struct qstar_target *target)
+{
+	return target &&
+	    (strcmp(target->kind, "exe") == 0 ||
+	    strcmp(target->kind, "test") == 0 ||
+	    strcmp(target->kind, "staticlib") == 0 ||
+	    strcmp(target->kind, "sharedlib") == 0);
+}
+
+static int
+validate_objectlib_target(struct qstar_graph *graph, const struct qstar_target *target)
+{
+	if (strcmp(target->kind, "objectlib") != 0) {
+		if (target->objects.len && !target_can_consume_objectlibs(target))
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, "objects", target->label,
+			    "qstar: target '%s' kind '%s' cannot consume object libraries",
+			    target->label, target->kind);
+		return 0;
+	}
+	if (!target->compile_context || strcmp(target->compile_context, "own") == 0)
+		;
+	else if (strcmp(target->compile_context, "consumer") == 0)
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "compile_context", target->label,
+		    "qstar: objectlib '%s' compile_context = \"consumer\" is reserved but not implemented; use compile_context = \"own\"",
+		    target->label);
+	else
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "compile_context", target->label,
+		    "qstar: objectlib '%s' compile_context must be \"own\" or \"consumer\"",
+		    target->label);
+	if (target->objects.len)
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "objects", target->label,
+		    "qstar: objectlib '%s' cannot consume other object libraries in this release",
+		    target->label);
+	if (target->libs.len || target->lib_dirs.len || target->frameworks.len ||
+	    target->link_options.len || target->link_inputs.len ||
+	    (target->artifact_name && *target->artifact_name))
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "kind", target->label,
+		    "qstar: objectlib '%s' has no link/archive artifact; use sources/configs/lang/toolset/deps/visibility only",
+		    target->label);
+	return 0;
+}
+
+static int
+validate_object_consumers(struct qstar_graph *graph, const struct qstar_target *target)
+{
+	const struct qstar_target *objectlib;
+	const char *label, *dup;
+	size_t i;
+
+	if (list_has_duplicate(&target->objects, &dup))
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "objects", target->label,
+		    "qstar: duplicate object library '%s' in '%s'", dup,
+		    target->label);
+	if (!target->objects.len)
+		return 0;
+	if (!target_can_consume_objectlibs(target))
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "objects", target->label,
+		    "qstar: target '%s' kind '%s' cannot consume object libraries",
+		    target->label, target->kind);
+	for (i = 0; i < target->objects.len; i++) {
+		label = target->objects.items[i];
+		objectlib = find_target(graph, label);
+		if (!objectlib)
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, "objects", target->label,
+			    "qstar: target '%s' references unknown object library '%s'",
+			    target->label, label);
+		if (strcmp(objectlib->kind, "objectlib") != 0)
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, "objects", target->label,
+			    "qstar: target '%s' objects entry '%s' is kind '%s', expected objectlib",
+			    target->label, label, objectlib->kind);
+		if (!target_visible_to(objectlib, target))
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, "objects", target->label,
+			    "qstar: object library '%s' is not visible to '%s'",
+			    label, target->label);
+		if (objectlib->compile_context &&
+		    strcmp(objectlib->compile_context, "own") != 0)
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, "objects", target->label,
+			    "qstar: target '%s' can consume only own-context objectlib '%s'",
+			    target->label, label);
+	}
+	return 0;
+}
+
 /** generated action skeleton 하나의 input/output edge를 검증한다. */
 static int
 validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
@@ -577,6 +682,12 @@ validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 				    genrule->origin_file, genrule->origin_line,
 				    "inputs", genrule->label,
 				    "qstar: qstar.target_file cannot reference group target '%s' because group targets have no artifact; depend on the group directly or reference one of its artifact-producing deps",
+				    label);
+			if (target && strcmp(target->kind, "objectlib") == 0)
+				return qstar_set_error_origin(graph,
+				    genrule->origin_file, genrule->origin_line,
+				    "inputs", genrule->label,
+				    "qstar: qstar.target_file cannot reference objectlib target '%s' because object libraries have no artifact; consume it with objects = { ... }",
 				    label);
 			if (target && artifact[0] &&
 			    qstar_graph_target_artifact_path(graph, target, artifact,
@@ -843,7 +954,9 @@ qstar_graph_validate_sources(struct qstar_graph *graph)
 
 	for (i = 0; i < graph->len; i++) {
 		if (validate_source_list(graph, &graph->targets[i]) < 0 ||
-		    validate_link_lists(graph, &graph->targets[i]) < 0)
+		    validate_link_lists(graph, &graph->targets[i]) < 0 ||
+		    validate_objectlib_target(graph, &graph->targets[i]) < 0 ||
+		    validate_object_consumers(graph, &graph->targets[i]) < 0)
 			return -1;
 	}
 	return 0;

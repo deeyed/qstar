@@ -1575,6 +1575,8 @@ reject_group_action_fields(lua_State *L, int table, struct qstar_graph *graph,
 {
 	static const char *fields[] = {
 		"sources",
+		"objects",
+		"compile_context",
 		"lang",
 		"configs",
 		"libs",
@@ -2841,7 +2843,7 @@ target_has_native_final_inputs(const struct qstar_target *target)
 {
 	return target->deps.len || target->private_deps.len || target->libs.len ||
 	    target->lib_dirs.len || target->frameworks.len || target->link_options.len ||
-	    target->link_inputs.len;
+	    target->link_inputs.len || target->objects.len;
 }
 
 static const struct qstar_language_final_schema *
@@ -3326,7 +3328,7 @@ validate_target_fields(lua_State *L, int table, struct qstar_graph *graph)
 {
 	static const char *const allowed[] = {
 		"kind", "configs", "sources", "deps", "public_deps", "private_deps",
-		"visibility", "libs", "lib_dirs", "link", "link_options",
+		"objects", "compile_context", "visibility", "libs", "lib_dirs", "link", "link_options",
 		"link_inputs", "lang", "toolset",
 		"artifact_name", "inputs", "command", "description", "timeout", "expect", NULL
 	};
@@ -3485,6 +3487,7 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	    qstar_graph_apply_target_configs(graph, target) < 0 ||
 	    read_lang_options(L, table_index, target, graph) < 0 ||
 	    read_sources_field(L, table_index, "sources", target, graph) < 0 ||
+	    read_list_field(L, table_index, "objects", &target->objects, graph, 1, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "deps", &target->deps, graph, 1, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "public_deps", &target->deps, graph, 1, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "private_deps", &target->private_deps, graph, 1, target->fragment_dir) < 0 ||
@@ -3497,6 +3500,14 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	    &target->link_inputs, graph, target->fragment_dir) < 0)
 		return luaL_error(L, "%s", graph->error);
 	artifact_name = check_string_field(L, table_index, "artifact_name");
+	{
+		const char *compile_context;
+
+		compile_context = check_string_field(L, table_index, "compile_context");
+		if (compile_context && replace_lua_string(&target->compile_context,
+		    compile_context, graph) < 0)
+			return luaL_error(L, "%s", graph->error);
+	}
 	if (read_label_scalar_field(L, table_index, "toolset", &target->toolset, graph,
 	    target->fragment_dir, NULL) < 0)
 		return luaL_error(L, "%s", graph->error);
@@ -9088,6 +9099,9 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_pushstring(L, "sharedlib");
 	lua_pushcclosure(L, qstar_lua_target, 1);
 	lua_setfield(L, -2, "sharedlib");
+	lua_pushstring(L, "objectlib");
+	lua_pushcclosure(L, qstar_lua_target, 1);
+	lua_setfield(L, -2, "objectlib");
 	lua_pushstring(L, "test");
 	lua_pushcclosure(L, qstar_lua_target, 1);
 	lua_setfield(L, -2, "test");

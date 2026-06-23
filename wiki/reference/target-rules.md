@@ -17,6 +17,7 @@ qstar.executable "app" {
 qstar.executable "app" { sources = {"src/main.c"} }
 qstar.config "common_c" { lang = { c = { compile_options = {"-Wall"} } } }
 qstar.staticlib "core" { sources = {"src/core.c"} }
+qstar.objectlib "core_objects" { sources = {"src/core_extra.c"} }
 qstar.sharedlib "plugin" { sources = {"src/plugin.c"} }
 qstar.test "unit" { sources = {"tests/unit.c"} }
 qstar.custom_target "generated" { outputs = {qstar.output("generated/value.c")} }
@@ -41,6 +42,13 @@ import `.lib`를 함께 만들고, dependent artifact target은 import `.lib`를
 
 Artifact target은 `configs = {"//:common_c"}`로 reusable option bundle을 참조할 수
 있다. Config merge 규칙은 [Reusable Configs](configs.md)에 둔다.
+
+`qstar.objectlib`는 archive/link final artifact를 만들지 않는 object collection target이다.
+현재 구현된 context는 `compile_context = "own"`이며, source는 objectlib 자신의
+configs/lang/toolset으로 한 번 compile된다. `compile_context = "consumer"`는 future
+value로 예약되어 있고 현재는 diagnostic으로 거부된다. Executable/staticlib/sharedlib/test는
+`objects = {"//:core_objects"}`로 objectlib를 소비한다. `qstar.target_file("//:core_objects")`
+는 objectlib에 primary artifact가 없기 때문에 error다.
 
 `qstar.group`은 output이 없는 deps-only aggregate target이다. `build //:module_parts`는
 group의 dependency closure만 빌드하고 archive/link/run action을 만들지 않는다.

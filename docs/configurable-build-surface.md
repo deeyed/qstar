@@ -229,7 +229,6 @@ ownership을 갖고, 상위 fragment나 root target이 조합을 결정할 수 �
 
 ```lua
 qstar.objectlib "core_objects" {
-  compile_context = "own",
   configs = {"//qstar/policies:common"},
   sources = {
     "./core.c",
@@ -286,15 +285,17 @@ QStar builtin field:
 
 | 값 | 의미 |
 | --- | --- |
-| `"own"` | Objectlib가 자기 configs, target-local lang option, toolset으로 한 번 compile된다. CMake `OBJECT` library에 가장 가깝다. |
-| `"consumer"` | Objectlib source가 각 consuming target의 effective compile context 안에서 compile된다. Leaf fragment가 source list를 소유하고 upper target이 platform/config를 소유할 때 쓴다. |
+| `"own"` | Objectlib가 자기 configs, target-local lang option, toolset으로 한 번 compile된다. CMake `OBJECT` library에 가장 가깝고, Q266에서 구현된 현재 동작이다. |
+| `"consumer"` | 예약된 future value다. 현재는 명확한 diagnostic으로 거부된다. Leaf fragment가 source list를 소유하고 upper target이 platform/config를 소유하는 모델은 후속 라운드에서 다룬다. |
 
 기본값은 `"own"`이다. 숨은 재compile을 줄이고 일반 object library 기대와 더 잘 맞기
-때문이다. CMake식 계층적 source ownership과 upper-level platform selection을 원하면
-`compile_context = "consumer"`를 명시한다.
+때문이다. CMake식 계층적 source ownership과 upper-level platform selection을 완전히
+원하는 경우에도 현재는 `compile_context = "own"`으로 시작하고, consumer-context
+recompile은 future surface로 둔다.
 
-`"consumer"`는 C/C++ 전용이라는 뜻이 아니다. Built-in C/C++/ASM provider나 활성화된 외부
-GLP provider가 object artifact를 emit할 수 있다면 같은 model을 사용해야 한다.
+`"consumer"`가 나중에 열리더라도 C/C++ 전용이라는 뜻은 아니다. Built-in C/C++/ASM
+provider나 활성화된 외부 GLP provider가 object artifact를 emit할 수 있다면 같은 model을
+사용해야 한다.
 
 `qstar.objectlib`는 object artifact 개념이지 C 전용 문법이 아니다. 반드시 다음을 받을 수
 있어야 한다.

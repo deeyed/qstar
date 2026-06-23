@@ -153,6 +153,7 @@ free_target(struct qstar_target *target)
 	qstar_string_list_free(&target->modules.exclude);
 	qstar_string_list_free(&target->configs);
 	qstar_string_list_free(&target->sources);
+	qstar_string_list_free(&target->objects);
 	for (i = 0; i < target->provider_source_len; i++) {
 		free(target->provider_sources[i].path);
 		free(target->provider_sources[i].provider);
@@ -198,6 +199,7 @@ free_target(struct qstar_target *target)
 	qstar_string_list_free(&target->run_command);
 	free(target->description);
 	free(target->artifact_name);
+	free(target->compile_context);
 	free(target->cxx_standard);
 	free(target->run_expect_contains);
 	free(target->run_expect_file);
@@ -1169,6 +1171,7 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	target->toolchain = qstar_strdup("host");
 	target->stdlib_policy = qstar_strdup("system");
 	target->artifact_name = qstar_strdup("");
+	target->compile_context = qstar_strdup("own");
 	target->cxx_standard = qstar_strdup("");
 	target->run_expect_contains = qstar_strdup("");
 	target->run_expect_file = qstar_strdup("");
@@ -1176,7 +1179,7 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	target->toolset = qstar_strdup("");
 	if (!target->label || !target->name || !target->kind || !target->fragment_dir ||
 	    !target->origin_file || !target->toolchain || !target->stdlib_policy ||
-	    !target->artifact_name || !target->cxx_standard ||
+	    !target->artifact_name || !target->compile_context || !target->cxx_standard ||
 	    !target->run_expect_contains || !target->run_expect_file ||
 	    !target->description || !target->toolset) {
 		qstar_set_error(graph, "qstar: out of memory");
@@ -3600,6 +3603,12 @@ dump_target(const struct qstar_graph *graph, const struct qstar_target *target, 
 	fputs("  sources ", out);
 	dump_list(out, &target->sources);
 	fputc('\n', out);
+	fputs("  objects ", out);
+	dump_list(out, &target->objects);
+	fputc('\n', out);
+	fprintf(out, "  compile_context %s\n",
+	    target->compile_context && *target->compile_context ?
+	    target->compile_context : "own");
 	fputs("  public_headers ", out);
 	dump_list(out, &target->public_headers);
 	fputc('\n', out);
@@ -4284,6 +4293,11 @@ dump_target_json(FILE *out, const struct qstar_graph *graph,
 	dump_json_list(out, &target->configs);
 	fputs(",\"sources\":", out);
 	dump_json_list(out, &target->sources);
+	fputs(",\"objects\":", out);
+	dump_json_list(out, &target->objects);
+	fputs(",\"compile_context\":", out);
+	dump_json_string(out, target->compile_context && *target->compile_context ?
+	    target->compile_context : "own");
 	fputs(",\"public_headers\":", out);
 	dump_json_list(out, &target->public_headers);
 	fputs(",\"deps\":", out);
@@ -4748,6 +4762,12 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	fputs("  sources ", out);
 	dump_list(out, &target->sources);
 	fputc('\n', out);
+	fputs("  objects ", out);
+	dump_list(out, &target->objects);
+	fputc('\n', out);
+	fprintf(out, "  compile_context %s\n",
+	    target->compile_context && *target->compile_context ?
+	    target->compile_context : "own");
 	fputs("  public_headers ", out);
 	dump_list(out, &target->public_headers);
 	fputc('\n', out);

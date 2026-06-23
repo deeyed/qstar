@@ -180,6 +180,32 @@ visit_target(struct qstar_graph *graph, struct qstar_plan *plan, size_t index)
 		    graph->targets[index].label);
 	plan->state[index] = 1;
 	target = &graph->targets[index];
+#define VISIT_TARGET_LABEL_LIST(list_field, field_name, allow_external) \
+	do { \
+		for (i = 0; i < target->list_field.len; i++) { \
+			dep = target->list_field.items[i]; \
+			dep_index = target_index(graph, dep); \
+			if (dep_index < 0) { \
+				if ((allow_external) && dep[0] == '@') { \
+					if (external_dep_resolved(graph, dep, &pkg)) \
+						continue; \
+					return qstar_set_error_origin(graph, target->origin_file, \
+					    target->origin_line, field_name, target->label, \
+					    "qstar: unresolved package dependency '%s' referenced by '%s'", \
+					    dep, target->label); \
+				} \
+				if (qstar_graph_find_genrule(graph, dep)) \
+					continue; \
+				return qstar_set_error_origin(graph, target->origin_file, \
+				    target->origin_line, field_name, target->label, \
+				    "qstar: unknown dependency label '%s' referenced by '%s'", \
+				    dep, target->label); \
+			} \
+			if (visit_target(graph, plan, (size_t)dep_index) < 0) \
+				return -1; \
+		} \
+	} while (0)
+	VISIT_TARGET_LABEL_LIST(objects, "objects", 0);
 	for (i = 0; i < target->deps.len; i++) {
 		dep = target->deps.items[i];
 		dep_index = target_index(graph, dep);
@@ -224,6 +250,7 @@ visit_target(struct qstar_graph *graph, struct qstar_plan *plan, size_t index)
 		if (visit_target(graph, plan, (size_t)dep_index) < 0)
 			return -1;
 	}
+#undef VISIT_TARGET_LABEL_LIST
 	plan->state[index] = 2;
 	return plan_push(graph, plan, target);
 }
@@ -1939,6 +1966,12 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	fputs("  sources ", out);
 	dump_list(out, &target->sources);
 	fputc('\n', out);
+	fputs("  objects ", out);
+	dump_list(out, &target->objects);
+	fputc('\n', out);
+	fprintf(out, "  compile_context %s\n",
+	    target->compile_context && *target->compile_context ?
+	    target->compile_context : "own");
 	fputs("  public_headers ", out);
 	dump_list(out, &target->public_headers);
 	fputc('\n', out);
@@ -2044,6 +2077,19 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 		    target->sources.items[i], output, source.language, source.tool_role, i);
 		dump_compile_argv(out, target, plan->graph, &toolchain, &source,
 		    target->sources.items[i], output, i);
+	}
+	if (strcmp(target->kind, "objectlib") == 0) {
+		snprintf(id, sizeof(id), "%s:compile-objects:0", target->label);
+		dump_progress_action_exclusion(out, "  ", target->label,
+		    "objectlib-alias");
+		dump_action_description(out, "  ", id, "Collecting objects");
+		fprintf(out,
+		    "  action compile-objects input=<target-objects> output=<none>\n");
+		dump_action_key(out, plan->graph, target, "compile-objects",
+		    "<target-objects>", "<none>", "objects", 0);
+		dump_command_skeleton(out, plan->graph, target, "compile-objects",
+		    "<target-objects>", "<none>", "objects", "object-collector", 0);
+		return 0;
 	}
 	action = qstar_target_final_action(target);
 	final_tool = strcmp(action, "archive") == 0 ? "archiver" :
@@ -2212,6 +2258,18 @@ dump_dry_run_final(FILE *out, const struct qstar_plan *plan, const struct qstar_
 
 	if (qstar_resolve_toolchain(plan->graph, target, &toolchain) < 0)
 		return -1;
+	if (strcmp(target->kind, "objectlib") == 0) {
+		snprintf(id, sizeof(id), "%s:compile-objects:0", target->label);
+		dump_progress_action_exclusion(out, "  ", target->label,
+		    "objectlib-alias");
+		dump_action_description(out, "  ", id, "Collecting objects");
+		fprintf(out,
+		    "dry_run_step id=%s:compile-objects:0 owner=%s kind=compile-objects "
+		    "tool=object-collector toolchain=%s input=<target-objects> "
+		    "output=<none> execute=no\n",
+		    target->label, target->label, toolchain.name);
+		return 0;
+	}
 	action = qstar_target_final_action(target);
 	tool = strcmp(action, "archive") == 0 ? "archiver" :
 	    strcmp(action, "compile-objects") == 0 ? "object-collector" : "linker";
@@ -2278,6 +2336,12 @@ qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out)
 		fputs("  configs ", out);
 		dump_list(out, &plan.order[i]->configs);
 		fputc('\n', out);
+		fputs("  objects ", out);
+		dump_list(out, &plan.order[i]->objects);
+		fputc('\n', out);
+		fprintf(out, "  compile_context %s\n",
+		    plan.order[i]->compile_context && *plan.order[i]->compile_context ?
+		    plan.order[i]->compile_context : "own");
 		{
 		struct qstar_resolved_toolchain toolchain;
 		if (strcmp(plan.order[i]->kind, "run_target") == 0) {

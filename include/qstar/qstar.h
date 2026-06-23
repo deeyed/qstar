@@ -72,6 +72,7 @@ struct qstar_target {
 	struct qstar_modules modules;
 	struct qstar_string_list configs;
 	struct qstar_string_list sources;
+	struct qstar_string_list objects;
 	struct qstar_provider_source_unit *provider_sources;
 	size_t provider_source_len;
 	size_t provider_source_cap;
@@ -102,6 +103,7 @@ struct qstar_target {
 	struct qstar_string_list run_command;
 	char *description;
 	char *artifact_name;
+	char *compile_context;
 	char *cxx_standard;
 	char *run_expect_contains;
 	char *run_expect_file;

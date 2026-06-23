@@ -11,7 +11,7 @@
 #define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v7"
 #define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v1"
 #define QSTAR_STELLA_ACTION_MAGIC "qstar-stella-actions-cache-v2"
-#define QSTAR_STELLA_PLAN_ABI 9
+#define QSTAR_STELLA_PLAN_ABI 10
 #define QSTAR_STELLA_HASH_INIT 1469598103934665603ULL
 #define QSTAR_STELLA_HASH_PRIME 1099511628211ULL
 #define QSTAR_STELLA_MAX_STRING (16U * 1024U * 1024U)
@@ -398,6 +398,7 @@ write_target(FILE *f, const struct qstar_target *t)
 		return -1;
 	WLIST(configs);
 	WLIST(sources);
+	WLIST(objects);
 	WLIST(public_headers);
 	WLIST(private_headers);
 	WLIST(include_dirs);
@@ -421,6 +422,7 @@ write_target(FILE *f, const struct qstar_target *t)
 	WLIST(run_command);
 	WSTR(description);
 	WSTR(artifact_name);
+	WSTR(compile_context);
 	WSTR(cxx_standard);
 	WSTR(run_expect_contains);
 	WSTR(run_expect_file);
@@ -456,6 +458,7 @@ read_target(FILE *f, struct qstar_target *t)
 		return -1;
 	RLIST(configs);
 	RLIST(sources);
+	RLIST(objects);
 	RLIST(public_headers);
 	RLIST(private_headers);
 	RLIST(include_dirs);
@@ -479,6 +482,7 @@ read_target(FILE *f, struct qstar_target *t)
 	RLIST(run_command);
 	RSTR(description);
 	RSTR(artifact_name);
+	RSTR(compile_context);
 	RSTR(cxx_standard);
 	RSTR(run_expect_contains);
 	RSTR(run_expect_file);

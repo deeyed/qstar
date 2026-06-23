@@ -175,7 +175,7 @@ qstar -D project-triple=sample-armv7m-none build //:app
 
 ```lua
 qstar.objectlib "core_objects" {
-  compile_context = "consumer",
+  compile_context = "own",
   sources = {
     "./core.c",
     "./clock.c",
@@ -209,8 +209,8 @@ QStar builtin field:
 
 | 값 | 의미 |
 | --- | --- |
-| `"own"` | Objectlib가 자기 context로 한 번 compile된다. |
-| `"consumer"` | Objectlib source가 각 consuming target의 effective context 안에서 compile된다. |
+| `"own"` | Objectlib가 자기 context로 한 번 compile된다. Q266에서 구현된 현재 동작이다. |
+| `"consumer"` | 예약된 future value다. 현재는 diagnostic으로 거부된다. |
 
 `qstar.objectlib`는 generic하다. Built-in C/C++/ASM source, 활성화된 GLP raw source
 string, explicit provider source token, generated object output을 모두 처리해야 한다.

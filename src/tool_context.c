@@ -403,7 +403,8 @@ qstar_graph_target_artifact_map(const struct qstar_graph *graph,
 
 	memset(map, 0, sizeof(*map));
 	if (!target || !target->kind || strcmp(target->kind, "group") == 0 ||
-	    strcmp(target->kind, "run_target") == 0)
+	    strcmp(target->kind, "run_target") == 0 ||
+	    strcmp(target->kind, "objectlib") == 0)
 		return 0;
 	if (target_primary_artifact_filename(graph, target, filename, sizeof(filename)) < 0 ||
 	    artifact_path_with_filename(graph, target, filename, path, sizeof(path)) < 0)
@@ -478,6 +479,11 @@ qstar_graph_target_artifact_path(struct qstar_graph *graph,
 	if (i == map.len) {
 		if (!graph)
 			return -1;
+		if (target && target->kind && strcmp(target->kind, "objectlib") == 0)
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, "target_file", target->label,
+			    "qstar: qstar.target_file cannot reference objectlib target '%s' because object libraries have no artifact; consume it with objects = { ... }",
+			    target->label);
 		known_artifact_selectors(&map, known, sizeof(known));
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "target_file", target->label,

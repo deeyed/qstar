@@ -212,6 +212,7 @@ static int copy_static_inputs(struct qstar_string_list *dst,
 enum qstar_sched_node_kind {
 	QSTAR_SCHED_COMPILE,
 	QSTAR_SCHED_FINAL,
+	QSTAR_SCHED_OBJECTLIB,
 	QSTAR_SCHED_GENERATE,
 	QSTAR_SCHED_STAGE,
 	QSTAR_SCHED_RUN,
@@ -392,6 +393,8 @@ progress_stage_name(const struct qstar_sched_node *node)
 		return "compiling";
 	case QSTAR_SCHED_FINAL:
 		return final_stage_name(node->target);
+	case QSTAR_SCHED_OBJECTLIB:
+		return "collecting";
 	case QSTAR_SCHED_GENERATE:
 		return "generating";
 	case QSTAR_SCHED_STAGE:
@@ -424,6 +427,8 @@ progress_node_counts(const struct qstar_sched_node *node)
 	if (!node)
 		return 0;
 	if (node->kind == QSTAR_SCHED_GROUP)
+		return 0;
+	if (node->kind == QSTAR_SCHED_OBJECTLIB)
 		return 0;
 	return 1;
 }
@@ -4296,6 +4301,65 @@ target_source_object_input(struct qstar_graph *graph, const struct qstar_target 
 	return qstar_graph_object_output_path(graph, target, index, dst, dstlen);
 }
 
+/** own-context objectlib가 consumer final action에 제공하는 object 목록을 순회한다. */
+static int
+append_objectlib_objects(struct qstar_graph *graph, const struct qstar_target *target,
+    char **argv, size_t *argc)
+{
+	const struct qstar_target *objectlib;
+	char object[QSTAR_PATH_MAX];
+	size_t i, j;
+
+	for (i = 0; i < target->objects.len; i++) {
+		objectlib = find_target(graph, target->objects.items[i]);
+		if (!objectlib)
+			return qstar_set_error(graph,
+			    "qstar: unknown objectlib '%s' referenced by '%s'",
+			    target->objects.items[i], target->label);
+		for (j = 0; j < objectlib->sources.len; j++) {
+			if (target_source_object_input(graph, objectlib, j, object,
+			    sizeof(object)) < 0)
+				return qstar_set_error(graph,
+				    "qstar: objectlib object path too long");
+			if (*argc + 1 >= QSTAR_EXEC_MAX_ARGV)
+				return qstar_set_error(graph,
+				    "qstar: final command for '%s' has too many object inputs",
+				    target->label);
+			argv[(*argc)++] = qstar_strdup(object);
+			if (!argv[*argc - 1])
+				return qstar_set_error(graph, "qstar: out of memory");
+		}
+	}
+	return 0;
+}
+
+/** own-context objectlib가 consumer final action의 static input으로 제공하는 object 목록을 추가한다. */
+static int
+append_objectlib_inputs(struct qstar_graph *graph, const struct qstar_target *target,
+    struct qstar_string_list *inputs)
+{
+	const struct qstar_target *objectlib;
+	char object[QSTAR_PATH_MAX];
+	size_t i, j;
+
+	for (i = 0; i < target->objects.len; i++) {
+		objectlib = find_target(graph, target->objects.items[i]);
+		if (!objectlib)
+			return qstar_set_error(graph,
+			    "qstar: unknown objectlib '%s' referenced by '%s'",
+			    target->objects.items[i], target->label);
+		for (j = 0; j < objectlib->sources.len; j++) {
+			if (target_source_object_input(graph, objectlib, j, object,
+			    sizeof(object)) < 0)
+				return qstar_set_error(graph,
+				    "qstar: objectlib object path too long");
+			if (qstar_string_list_push(inputs, object) < 0)
+				return qstar_set_error(graph, "qstar: out of memory");
+		}
+	}
+	return 0;
+}
+
 /** target 안에서 실제 compiler process가 필요한 source 개수를 센다. */
 static size_t
 target_compile_input_count(const struct qstar_target *target)
@@ -4570,6 +4634,11 @@ resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
 		return qstar_set_error_origin(graph, target->origin_file,
 		    target->origin_line, "target_file", target->label,
 		    "qstar: qstar.target_file cannot reference group target '%s' because group targets have no artifact; depend on the group directly or reference one of its artifact-producing deps",
+		    label);
+	if (strcmp(target->kind, "objectlib") == 0)
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "target_file", target->label,
+		    "qstar: qstar.target_file cannot reference objectlib target '%s' because object libraries have no artifact; consume it with objects = { ... }",
 		    label);
 	return qstar_graph_target_artifact_path(graph, target, artifact, dst, dstlen);
 }
@@ -6497,7 +6566,8 @@ append_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *de
 		return 0;
 	if (qstar_string_list_push(seen, dep->label) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
-	if (strcmp(dep->kind, "group") == 0)
+	if (strcmp(dep->kind, "group") == 0 ||
+	    strcmp(dep->kind, "objectlib") == 0)
 		return 0;
 	if (qstar_graph_target_link_artifact_path(graph, dep, toolchain->platform, artifact,
 	    sizeof(artifact)) < 0)
@@ -7069,6 +7139,10 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		if (!argv[argc - 1])
 			return qstar_set_error(graph, "qstar: out of memory");
 	}
+	if (append_objectlib_objects(graph, target, argv, &argc) < 0) {
+		free_dep_artifacts(argv, owned_first, argc);
+		return -1;
+	}
 	dep_first = argc;
 	if (strcmp(target->kind, "staticlib") != 0 &&
 	    append_dep_artifacts(graph, target, toolchain, argv, &argc) < 0) {
@@ -7101,6 +7175,11 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 			qstar_string_list_free(&inputs);
 			return qstar_set_error(graph, "qstar: out of memory");
 		}
+	}
+	if (append_objectlib_inputs(graph, target, &inputs) < 0) {
+		qstar_string_list_free(&inputs);
+		free_dep_artifacts(argv, owned_first, argc);
+		return -1;
 	}
 	for (i = dep_first; i < argc; i++) {
 		if (qstar_string_list_push(&inputs, argv[i]) < 0) {
@@ -7384,7 +7463,8 @@ lowered_cache_visit(struct qstar_graph *graph, const struct qstar_target *target
 		prepared_action_free(&action);
 	}
 	final_action = qstar_target_final_action(target);
-	if (strcmp(final_action, "group") == 0 || strcmp(final_action, "run") == 0)
+	if (strcmp(final_action, "group") == 0 || strcmp(final_action, "run") == 0 ||
+	    strcmp(target->kind, "objectlib") == 0)
 		return 0;
 	if (prepare_final_action(graph, &ctx->build, target, &toolchain, &action) < 0)
 		return -1;
@@ -7474,6 +7554,14 @@ build_target(struct qstar_graph *graph, const struct qstar_target *target, size_
 				return -1;
 		}
 	}
+	if (strcmp(target->kind, "objectlib") == 0) {
+		fprintf(ctx->out,
+		    "objectlib_target label=%s sources=%zu compile_context=%s action=none artifact=<none>\n",
+		    target->label, target->sources.len,
+		    target->compile_context && *target->compile_context ?
+		    target->compile_context : "own");
+		return 0;
+	}
 	return run_final(graph, ctx, target, &toolchain);
 }
 
@@ -7486,6 +7574,8 @@ sched_kind_name(enum qstar_sched_node_kind kind)
 		return "compile";
 	case QSTAR_SCHED_FINAL:
 		return "final";
+	case QSTAR_SCHED_OBJECTLIB:
+		return "objectlib";
 	case QSTAR_SCHED_GENERATE:
 		return "generate";
 	case QSTAR_SCHED_STAGE:
@@ -8179,7 +8269,8 @@ scheduler_create_target_nodes(struct qstar_scheduler *sched, const struct qstar_
 		build_tracef(ctx,
 		    "parallel_compile target=%s jobs=%d sources=%zu mode=process-v3 failure=cancel-active fairness=ready-queue\n",
 		    target->label, ctx->jobs, compile_ordinal);
-	if (scheduler_add_node(sched, QSTAR_SCHED_FINAL, target, NULL, 0, 0,
+	if (scheduler_add_node(sched, strcmp(target->kind, "objectlib") == 0 ?
+	    QSTAR_SCHED_OBJECTLIB : QSTAR_SCHED_FINAL, target, NULL, 0, 0,
 	    &node_index) < 0)
 		return -1;
 	sched->nodes[node_index].toolchain = toolchain;
@@ -8540,7 +8631,8 @@ scheduler_connect_target_edges(struct qstar_scheduler *sched)
 		if (target_index < 0 || sched->target_final_node[target_index] < 0)
 			return qstar_set_error(sched->graph, "qstar: missing target final node");
 		final_node = (size_t)sched->target_final_node[target_index];
-		if (scheduler_connect_target_dep_list(sched, &target->deps, final_node) < 0 ||
+		if (scheduler_connect_target_dep_list(sched, &target->objects, final_node) < 0 ||
+		    scheduler_connect_target_dep_list(sched, &target->deps, final_node) < 0 ||
 		    scheduler_connect_target_dep_list(sched, &target->private_deps,
 		    final_node) < 0)
 			return -1;
@@ -8670,6 +8762,14 @@ scheduler_run_sync_node(struct qstar_scheduler *sched, size_t node_index)
 		    "group_target label=%s deps=%zu private_deps=%zu action=none artifact=<none>\n",
 		    node->target->label, node->target->deps.len,
 		    node->target->private_deps.len);
+		return 0;
+	}
+	if (node->kind == QSTAR_SCHED_OBJECTLIB) {
+		fprintf(sched->ctx->out,
+		    "objectlib_target label=%s sources=%zu compile_context=%s action=none artifact=<none>\n",
+		    node->target->label, node->target->sources.len,
+		    node->target->compile_context && *node->target->compile_context ?
+		    node->target->compile_context : "own");
 		return 0;
 	}
 	if (node->kind == QSTAR_SCHED_GENERATE)

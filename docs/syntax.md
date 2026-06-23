@@ -329,16 +329,29 @@ qstar.staticlib "core" {
   sources = {"src/core.c"},
 }
 
+qstar.objectlib "core_objects" {
+  configs = {"//:common_c"},
+  sources = {"src/core_extra.c"},
+  compile_context = "own",
+}
+
 qstar.executable "app" {
   configs = {"//:common_c"},
   sources = {"src/main.c"},
   deps = {"//:core"},
+  objects = {"//:core_objects"},
 }
 
 qstar.group "all" {
   deps = {"//:app"},
 }
 ```
+
+`qstar.objectlib` compiles or collects object files but has no final
+archive/link artifact. The implemented context is `compile_context = "own"`;
+`"consumer"` is reserved and currently rejected. Artifact targets consume
+object libraries through `objects = {...}`. `qstar.target_file("//:objects")`
+is an error for objectlib targets.
 
 `qstar.group` has no artifact and cannot be used with `qstar.target_file`.
 `qstar.target_file("//:label")` resolves to the target's primary artifact. A

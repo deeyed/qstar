@@ -17,6 +17,9 @@ v1 promise: candidate surface defined, v1 release gate still required
 
 - `qstar.project`, `qstar.toolset`, `qstar.config`
 - `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`, `qstar.test`
+- `qstar.objectlib`의 `compile_context = "own"` object collection과 artifact
+  target의 `objects = {...}` 소비. `compile_context = "consumer"`는 아직
+  reserved/beta 값으로 남긴다.
 - `qstar.custom_target`, `qstar.transform`, `qstar.configure_file`
 - `qstar.run_target`, `qstar.group`, `qstar.stage`, `qstar.target_family`
 - `qstar.command`, `qstar.step.*`, `qstar.param.*`, bool argv helper

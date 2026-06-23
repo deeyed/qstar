@@ -2058,6 +2058,128 @@ if "$qstar" --file "$tmp/fragment-relative-bad/qstar.lua" check > "$tmp/fragment
 fi
 contains "$tmp/fragment-relative-bad.err" "source path './../escape.c' must be package-relative"
 
+step "objectlib own-context graph model" "objectlib"
+mkdir -p "$tmp/objectlib/src" "$tmp/objectlib-bad/src"
+cat > "$tmp/objectlib/src/core.c" <<'EOF'
+int qstar_objectlib_value(void) {
+  return 42;
+}
+EOF
+cat > "$tmp/objectlib/src/main.c" <<'EOF'
+int qstar_objectlib_value(void);
+
+int main(void) {
+  return qstar_objectlib_value() == 42 ? 0 : 1;
+}
+EOF
+cat > "$tmp/objectlib/qstar.lua" <<'EOF'
+qstar.project {
+  name = "objectlib-basic",
+  root = ".",
+}
+
+qstar.config "pic" {
+  lang = {
+    c = {
+      compile_options = {"-fPIC"},
+    },
+  },
+}
+
+qstar.objectlib "core_objects" {
+  configs = {"//:pic"},
+  sources = {"src/core.c"},
+  compile_context = "own",
+}
+
+qstar.executable "app" {
+  sources = {"src/main.c"},
+  objects = {"//:core_objects"},
+}
+
+qstar.staticlib "packed" {
+  objects = {"//:core_objects"},
+}
+EOF
+if [ "$host_windows" -eq 0 ]; then
+	cat >> "$tmp/objectlib/qstar.lua" <<'EOF'
+qstar.sharedlib "plugin" {
+  objects = {"//:core_objects"},
+}
+
+qstar.group "all" {
+  deps = {"//:app", "//:packed", "//:plugin"},
+}
+EOF
+else
+	cat >> "$tmp/objectlib/qstar.lua" <<'EOF'
+qstar.group "all" {
+  deps = {"//:app", "//:packed"},
+}
+EOF
+fi
+if ! "$qstar" --file "$tmp/objectlib/qstar.lua" dry-run //:all > "$tmp/objectlib-dry.out" 2> "$tmp/objectlib-dry.err"; then
+	cat "$tmp/objectlib-dry.out" >&2
+	cat "$tmp/objectlib-dry.err" >&2
+	fail "objectlib dry-run failed"
+fi
+contains "$tmp/objectlib-dry.out" "dry_run_target //:core_objects"
+contains "$tmp/objectlib-dry.out" "kind=objectlib"
+contains "$tmp/objectlib-dry.out" "dry_run_step id=//:core_objects:compile:0"
+contains "$tmp/objectlib-dry.out" "dry_run_step id=//:core_objects:compile-objects:0 owner=//:core_objects kind=compile-objects"
+contains "$tmp/objectlib-dry.out" "  objects [//:core_objects]"
+if ! "$qstar" --file "$tmp/objectlib/qstar.lua" build //:all --progress off > "$tmp/objectlib-build.out" 2> "$tmp/objectlib-build.err"; then
+	cat "$tmp/objectlib-build.out" >&2
+	cat "$tmp/objectlib-build.err" >&2
+	fail "objectlib Stella build failed"
+fi
+contains "$tmp/objectlib-build.out" "objectlib_target label=//:core_objects sources=1 compile_context=own action=none artifact=<none>"
+contains "$tmp/objectlib-build.out" "status ok"
+test -f "$tmp/objectlib/build/qstar/out/___app/app$exe_suffix" || fail "objectlib executable missing"
+test -f "$tmp/objectlib/build/qstar/out/___packed/libpacked.a" || fail "objectlib staticlib missing"
+case "$(uname -s)" in
+	Darwin) objectlib_shared="build/qstar/out/___plugin/libplugin.dylib" ;;
+	MINGW*|MSYS*|CYGWIN*) objectlib_shared= ;;
+	*) objectlib_shared="build/qstar/out/___plugin/libplugin.so" ;;
+esac
+if [ -n "$objectlib_shared" ]; then
+	test -f "$tmp/objectlib/$objectlib_shared" || fail "objectlib sharedlib missing"
+fi
+"$tmp/objectlib/build/qstar/out/___app/app$exe_suffix"
+if command -v ninja >/dev/null 2>&1; then
+	rm -rf "$tmp/objectlib/build-ninja"
+	if ! "$qstar" --file "$tmp/objectlib/qstar.lua" -G ninja -B build-ninja build //:all --progress off > "$tmp/objectlib-ninja.out" 2> "$tmp/objectlib-ninja.err"; then
+		cat "$tmp/objectlib-ninja.out" >&2
+		cat "$tmp/objectlib-ninja.err" >&2
+		fail "objectlib Ninja build failed"
+	fi
+	contains "$tmp/objectlib-ninja.out" "status ok"
+	test -f "$tmp/objectlib/build-ninja/out/___app/app$exe_suffix" || fail "objectlib ninja executable missing"
+	test -f "$tmp/objectlib/build-ninja/out/___packed/libpacked.a" || fail "objectlib ninja staticlib missing"
+	if [ -n "$objectlib_shared" ]; then
+		test -f "$tmp/objectlib/build-ninja/${objectlib_shared#build/qstar/}" || fail "objectlib ninja sharedlib missing"
+	fi
+	"$tmp/objectlib/build-ninja/out/___app/app$exe_suffix"
+fi
+cat > "$tmp/objectlib-bad/src/core.c" <<'EOF'
+int value(void) {
+  return 1;
+}
+EOF
+cat > "$tmp/objectlib-bad/qstar.lua" <<'EOF'
+qstar.objectlib "objs" {
+  sources = {"src/core.c"},
+}
+
+qstar.run_target "bad" {
+  command = qstar.cli {"echo", qstar.target_file("//:objs")},
+}
+EOF
+if "$qstar" --file "$tmp/objectlib-bad/qstar.lua" check > "$tmp/objectlib-bad.out" 2> "$tmp/objectlib-bad.err"; then
+	fail "qstar.target_file(objectlib) unexpectedly succeeded"
+fi
+contains "$tmp/objectlib-bad.err" "qstar.target_file cannot reference objectlib target '//:objs'"
+
 step "import missing module diagnostic" "import-missing-module"
 mkdir -p "$tmp/import-missing-module"
 cat > "$tmp/import-missing-module/qstar.lua" <<'EOF'

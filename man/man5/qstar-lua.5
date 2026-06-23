@@ -126,6 +126,17 @@ artifact. Dependents link against the import library, while
 selects the runtime DLL by default and
 .Ic qstar.target_file(label, { artifact = "import_lib" })
 selects the import library. PDB/debug artifact ownership remains deferred.
+.It Ic qstar.objectlib
+Object collection target. It compiles or collects object inputs but does not
+produce an archive, shared library, executable, or primary artifact.
+Artifact-producing targets consume it through their
+.Ic objects
+field. Calling
+.Ic qstar.target_file(...)
+for an object library is an error. The implemented compile context is
+.Li own ;
+.Li consumer
+is reserved and currently rejected with a diagnostic.
 .It Ic qstar.test
 Test executable target.
 .Pp
