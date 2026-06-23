@@ -40,6 +40,34 @@ documented option schema, raw source classification, init vendoring behavior는
 consumer-facing stable 후보로 취급한다. 반면 각 provider의 `provider.lua` 내부 argv 구성,
 cache layout, lowering hook 구현은 beta다.
 
+## Standard Provider Compatibility Coverage
+
+Q258부터 bundled Zig/Rust/CUDA provider는 전용 fake-tool gate로 반복 검증한다.
+
+```sh
+make qstar-standard-provider-compatibility-tests
+```
+
+이 gate는 실제 `zig`, `rustc`, `nvcc` 설치를 요구하지 않는다. 실제 compiler 검증은
+optional `make qstar-real-glp-compiler-corpus-tests`가 맡고, standard provider compatibility
+gate는 QStar가 약속하는 consumer-facing 표면이 Stella와 Ninja에서 깨지지 않는지를 본다.
+
+검증 범위:
+
+| Surface | Coverage |
+| --- | --- |
+| Standard bundle lookup | project-local vendoring 없이 `qstar.use_language("zig")`, `qstar.use_language("rust")`, `qstar.use_language("cuda")`가 설치/checkout standard bundle을 찾는다. |
+| Tool bundle syntax | `tools.zig = zig.tools {...}`, `tools.rust = rust.tools {...}`, `tools.cuda = cuda.tools {...}`가 각각 `zig.compiler`, `rust.compiler`, `cuda.compiler` role을 등록한다. |
+| Option schema | `lang.zig`, `lang.rust`, `lang.cuda`의 documented option success path와 enum/string/list failure diagnostic을 확인한다. |
+| Raw source classification | `sources = {"src/main.zig"}`, `sources = {"src/main.rs"}`, `sources = {"src/main.cu"}`가 활성화된 provider source registry를 통해 낮아진다. |
+| Provider lowering | Zig/Rust `qstar.staticlib`는 provider final staticlib action으로, CUDA는 provider object compile action과 normal archive consumption으로 낮아진다. |
+| Backend parity | `check`, `--dump-graph`, `explain`, `dry-run`, Stella `build`, `action-log`, `replay`, Ninja `build`, Ninja `action-log`, Ninja `replay`를 확인한다. |
+
+이 coverage가 의미하는 것은 “standard provider implementation 내부가 stable”이라는 뜻이 아니다.
+Stable 후보는 short id, namespace, helper 이름, documented option schema, raw source suffix
+classification, provider final/object lowering behavior 같은 사용자 표면이다. `provider.lua` 내부
+argv 구성, cache layout, lowering hook 구현은 계속 provider-author beta bucket에 남는다.
+
 ## Provider Activation
 
 QStar는 표준 Zig/Rust/CUDA provider를 설치물에 함께 포함한다. 따라서 일반 사용자는 provider

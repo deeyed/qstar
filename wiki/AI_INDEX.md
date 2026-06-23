@@ -101,6 +101,14 @@ QStar가 하지 않는 일:
   project-local `ZIG_GLOBAL_CACHE_DIR`/`ZIG_LOCAL_CACHE_DIR` env redaction,
   macOS `lang.zig.macos_min_version` target ergonomics를 검증한다.
   compiler가 없으면 해당 language는 실패가 아니라 명시적 skip으로 기록된다.
+- `make qstar-standard-provider-compatibility-tests`는 Q258 standard provider fake-tool
+  gate다. 실제 Zig/Rust/CUDA compiler 설치와 무관하게 bundled `zig`, `rust`, `cuda`
+  provider의 standard bundle lookup, `tools.<provider>` nested tool bundle,
+  `lang.<provider>` option schema success/failure, raw source classification,
+  Zig/Rust provider final staticlib lowering, CUDA provider object lowering,
+  Stella/Ninja build/action-log/replay parity를 검증한다. Standard provider의 consumer-facing
+  id/namespace/helper/option/source behavior는 v1 stable 후보이고, `provider.lua` 내부
+  argv/cache/lowering 구현은 provider-author beta다.
 - `.github/workflows/real-glp-compiler-validation.yml`은 이 real GLP compiler corpus를
   hosted Linux/macOS `workflow_dispatch` lane으로 실행한다. 기본
   `require_compilers=true` 정책에서는 Rust/Zig 설치 실패나 compiler missing skip을

@@ -23,6 +23,10 @@ v1 promise: candidate surface defined, v1 release gate still required
 - `qstar.import_file`, cached `qstar.import_module`, `qstar.subdir`
 - consumer-facing GLP: `qstar.use_language`, `lang.<namespace>`, provider
   helper, raw provider source classification
+- standard provider consumer 계약: bundled `zig`, `rust`, `cuda`의 short id,
+  namespace, documented helper, option schema, raw source suffix behavior는
+  `make qstar-standard-provider-compatibility-tests`로 fake-tool Stella/Ninja
+  compatibility coverage를 가진다.
 - generated artifact helpers: `qstar.input`, `qstar.output`,
   `qstar.target_file`, `qstar.stage_dir`, `qstar.stage_file`
 - authoring helpers: `qstar.files`, `qstar.join`, `qstar.copy`,

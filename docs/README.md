@@ -59,7 +59,7 @@ Important documents:
 - `ninja-backend-parity.md`: Ninja lowering parity contract.
 - `language-provider-backend-contract.md`: GLP backend contract, Q257
   provider-author versioned beta boundary, standard provider compatibility
-  promise, and Stella/Ninja lowering contract.
+  promise, Q258 compatibility coverage, and Stella/Ninja lowering contract.
 - `zig-provider.md`: standard Zig provider options, final artifact lowering,
   cache behavior, macOS target ergonomics, and real Zig staticlib/executable fixtures.
 - `rust-provider.md`: standard Rust provider options, final artifact lowering,
@@ -78,6 +78,8 @@ Important documents:
   `export_stage`.
 - `../tests/corpus/real-glp/README.md`: optional real Rust/Zig compiler corpus
   for GLP provider validation beyond fake compiler shims.
+- `../tests/standard-provider-compatibility.sh`: fake compiler gate that seals
+  the bundled Zig/Rust/CUDA provider consumer contract across Stella and Ninja.
 - `real-glp-compiler-ci.md`: hosted Linux/macOS `workflow_dispatch` lane for
   the optional real Rust/Zig compiler corpus, including toolchain cache,
   artifact, and skip policy.

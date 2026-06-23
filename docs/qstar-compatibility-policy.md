@@ -96,7 +96,9 @@ them as protected unless this document is updated first.
 - Standard provider consumer contracts for bundled `zig`, `rust`, and `cuda`
   include their short ids, namespaces, documented helper exports, documented
   option schemas, raw source suffix classification, and provider vendoring
-  behavior.
+  behavior. `make qstar-standard-provider-compatibility-tests` is the fake-tool
+  Stella/Ninja gate that keeps this consumer contract covered without requiring
+  real Zig/Rust/CUDA compiler installations.
 
 This section is the consumer-facing GLP promise. The provider-author API is a
 separate beta surface until the checklist below is completed.

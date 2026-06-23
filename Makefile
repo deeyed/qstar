@@ -64,7 +64,7 @@ LUA_SRCS = \
 
 QSTAR_OBJS = $(QSTAR_SRCS:%.c=$(QSTAR_BUILD)/%.o)
 LUA_OBJS = $(LUA_SRCS:%.c=$(QSTAR_BUILD)/%.o)
-.PHONY: all check qstar-tests qstar-fmt-tests qstar-lint-tests qstar-lsp-tests qstar-lsp-navigation-tests qstar-editor-query-tests qstar-ninja-backend-parity-tests qstar-generic-dsl-backend-parity-tests qstar-real-glp-compiler-corpus-tests qstar-real-language-init-scaffold-tests qstar-medium-project-readiness-tests qstar-large-project-performance-tests qstar-perf-summary-tests qstar-performance-release-gate qstar-self-host-tests qstar-linux-validation-tests qstar-linux-daemon-validation-tests qstar-daemon-beta-boundary-tests qstar-windows-prep-tests qstar-windows-native-alpha-tests qstar-windows-execution-corpus-tests qstar-windows-sharedlib-artifact-parity-tests qstar-windows-release-package-tests qstar-windows-release-asset-smoke-tests qstar-public-beta-package qstar-public-beta-linux-package qstar-public-beta-github-upload qstar-public-beta-release-tests qstar-public-beta-download-smoke qstar-v0.8-release-tests vscode-extension-tests qstar-v0-release-tests qstar-v0.1-release-tests qstar-v0.1-hardening-tests qstar-v0.2-authoring-tests qstar-v0.2-rc-tests qstar-v0.3-rc-tests qstar-v0.4-pilot-tests qstar-v0.5-readiness-tests qstar-pilot-readiness-tests qstar-wiki-cli-sync-tests qstar-release-candidate-tests qstar-full-regression-tests qstar-systems-corpus-tests qstar-project-corpus-tests qstar-standalone-integration-tests qstar-executor-v2-tests install clean
+.PHONY: all check qstar-tests qstar-fmt-tests qstar-lint-tests qstar-lsp-tests qstar-lsp-navigation-tests qstar-editor-query-tests qstar-ninja-backend-parity-tests qstar-generic-dsl-backend-parity-tests qstar-standard-provider-compatibility-tests qstar-real-glp-compiler-corpus-tests qstar-real-language-init-scaffold-tests qstar-medium-project-readiness-tests qstar-large-project-performance-tests qstar-perf-summary-tests qstar-performance-release-gate qstar-self-host-tests qstar-linux-validation-tests qstar-linux-daemon-validation-tests qstar-daemon-beta-boundary-tests qstar-windows-prep-tests qstar-windows-native-alpha-tests qstar-windows-execution-corpus-tests qstar-windows-sharedlib-artifact-parity-tests qstar-windows-release-package-tests qstar-windows-release-asset-smoke-tests qstar-public-beta-package qstar-public-beta-linux-package qstar-public-beta-github-upload qstar-public-beta-release-tests qstar-public-beta-download-smoke qstar-v0.8-release-tests vscode-extension-tests qstar-v0-release-tests qstar-v0.1-release-tests qstar-v0.1-hardening-tests qstar-v0.2-authoring-tests qstar-v0.2-rc-tests qstar-v0.3-rc-tests qstar-v0.4-pilot-tests qstar-v0.5-readiness-tests qstar-pilot-readiness-tests qstar-wiki-cli-sync-tests qstar-release-candidate-tests qstar-full-regression-tests qstar-systems-corpus-tests qstar-project-corpus-tests qstar-standalone-integration-tests qstar-executor-v2-tests install clean
 
 all: $(BIN_DIR)/qstar
 
@@ -85,6 +85,7 @@ check: all
 	bin="$(BIN_DIR)/qstar"; \
 	case "$$bin" in /*) ;; *) bin="$(CURDIR)/$$bin";; esac; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/smoke.sh; \
+	QSTAR_TEST_QSTAR="$$bin" sh tests/standard-provider-compatibility.sh; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/wiki-cli-sync.sh; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/daemon-beta-boundary.sh; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/ninja-backend-parity.sh; \
@@ -117,6 +118,11 @@ qstar-generic-dsl-backend-parity-tests: all
 	bin="$(BIN_DIR)/qstar"; \
 	case "$$bin" in /*) ;; *) bin="$(CURDIR)/$$bin";; esac; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/generic-dsl-backend-seal.sh
+
+qstar-standard-provider-compatibility-tests: all
+	bin="$(BIN_DIR)/qstar"; \
+	case "$$bin" in /*) ;; *) bin="$(CURDIR)/$$bin";; esac; \
+	QSTAR_TEST_QSTAR="$$bin" sh tests/standard-provider-compatibility.sh
 
 qstar-real-glp-compiler-corpus-tests: all
 	bin="$(BIN_DIR)/qstar"; \
@@ -251,7 +257,7 @@ qstar-public-beta-release-tests: qstar-public-beta-package
 qstar-public-beta-download-smoke:
 	$(SHELL) tools/smoke-github-release.sh
 
-qstar-v0.8-release-tests: check qstar-generic-dsl-backend-parity-tests qstar-real-glp-compiler-corpus-tests qstar-real-language-init-scaffold-tests qstar-performance-release-gate qstar-public-beta-package qstar-windows-release-package-tests qstar-windows-release-asset-smoke-tests
+qstar-v0.8-release-tests: check qstar-generic-dsl-backend-parity-tests qstar-standard-provider-compatibility-tests qstar-real-glp-compiler-corpus-tests qstar-real-language-init-scaffold-tests qstar-performance-release-gate qstar-public-beta-package qstar-windows-release-package-tests qstar-windows-release-asset-smoke-tests
 	git diff --check
 	$(BIN_DIR)/qstar --version
 	if [ "$${QSTAR_RUN_RELEASE_DOWNLOAD_SMOKE:-0}" = 1 ]; then \

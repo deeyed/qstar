@@ -201,3 +201,33 @@ provider-author surface. They can change implementation strategy as long as the
 documented consumer-facing ids, namespaces, helper names, option schemas, source
 classification behavior, and init vendoring behavior remain compatible or follow
 the compatibility policy.
+
+## Standard provider compatibility coverage
+
+Q258 adds a dedicated fake-tool gate for the bundled standard providers:
+
+```sh
+make qstar-standard-provider-compatibility-tests
+```
+
+This gate is separate from the optional real compiler corpus. It does not require
+`zig`, `rustc`, or `nvcc` to be installed. Instead, it validates the QStar-facing
+contract with deterministic fake compilers so the compatibility surface can run
+as part of ordinary regression testing.
+
+The coverage is:
+
+| Area | Zig | Rust | CUDA |
+| --- | --- | --- | --- |
+| Standard bundle lookup | `qstar.use_language("zig")` resolves the bundled manifest when the project does not vendor `qstar/languages/zig`. | `qstar.use_language("rust")` resolves the bundled manifest without project-local vendoring. | `qstar.use_language("cuda")` resolves the bundled manifest without project-local vendoring. |
+| Tool bundle syntax | `tools.zig = zig.tools { compiler = qstar.cli {...} }` records `zig.compiler`. | `tools.rust = rust.tools { compiler = qstar.cli {...} }` records `rust.compiler`. | `tools.cuda = cuda.tools { compiler = qstar.cli {...} }` records `cuda.compiler`. |
+| Option schema | `target`, `optimize`, `macos_min_version`, and `compile_options` are accepted; invalid `optimize` enum values fail. | `edition`, `crate_type`, `cfg`, `externs`, and `compile_options` are accepted; invalid `crate_type` enum values fail. | `arch` and `compile_options` are accepted; wrong string/list types fail. |
+| Raw source classification | `sources = {"src/main.zig"}` lowers through the Zig source registry. | `sources = {"src/main.rs"}` lowers through the Rust source registry. | `sources = {"src/main.cu"}` lowers through the CUDA source registry. |
+| Final or object lowering | `qstar.staticlib` with only Zig sources uses the provider final staticlib action. | `qstar.staticlib` with only Rust sources uses the provider final staticlib action. | CUDA source lowers to provider-owned object compile action and then normal archive consumption. |
+| Backend contract | `check`, `--dump-graph`, `explain`, `dry-run`, Stella `build`, `action-log`, `replay`, Ninja `build`, Ninja `action-log`, and Ninja `replay`. | Same. | Same. |
+
+The optional `make qstar-real-glp-compiler-corpus-tests` remains the real
+compiler evidence path. It proves that the standard providers' generated argv can
+drive real Rust/Zig compilers when available. The Q258 standard provider gate
+proves that the QStar DSL/Graph/backend compatibility contract itself does not
+regress even on machines without those compilers.
