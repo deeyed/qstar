@@ -1,21 +1,21 @@
 # QStar 설정 가능 빌드 표면
 
-상태: 구현 기준 문서. 이 문서는 project build option, 사용자 정의 variant,
-objectlib, 계층적 fragment authoring을 QStar가 어떤 문법으로 구현해야 하는지 정의한다.
-목표는 domain-specific profile을 되살리는 것이 아니라, CMake/Meson/Xmake 수준의 범용
-빌드시스템에서 자연스러운 설정 표면을 QStar 방식으로 정리하는 것이다.
+상태: 현재 지원 문법 reference. 이 문서는 project build option, 사용자 정의 variant,
+objectlib, 계층적 fragment authoring을 QStar가 현재 어떤 public 문법으로 지원하는지
+정의한다. 목표는 domain-specific profile을 되살리는 것이 아니라, CMake/Meson/Xmake
+수준의 범용 빌드시스템에서 자연스러운 설정 표면을 QStar 방식으로 정리하는 것이다.
 
-이 문서는 다음 구현 라운드의 정본이다. 여기의 문법은 QStar가 정확히 구현해야 할
-사용자-facing surface를 정의한다. 구현 전에는 기존 runtime reference와 구분해서 읽어야
-하지만, 구현 후에는 `wiki/reference/qstar-lua.md`와 manpage의 stable DSL 표면으로
-승격한다.
+이 문서는 구현 계획 문서가 아니라 `wiki/reference/qstar-lua.md`, `qstar-lua(5)`,
+LSP completion, CLI help, drift guard가 따라야 하는 현재 configurable build surface의
+정본이다. 예제는 모두 특정 board, kernel, bootloader, OS image, toolchain을 QStar
+builtin 의미론으로 만들지 않고 project-authored metadata와 explicit argv로 표현한다.
 
 ## 핵심 원칙
 
 QStar는 project graph, option evaluation, artifact dependency, command workflow,
 stage/layout, source/provider lowering을 맡는다. QStar core는 특정 언어, 특정 OS,
 특정 toolchain, 특정 board, 특정 image format, 특정 software domain을 builtin
-의미론으로 알면 안 된다.
+의미론으로 알지 않는다.
 
 허용되는 설계:
 
@@ -298,8 +298,8 @@ QStar builtin field:
 현재 consumer-context 재-lowering 대상이 아니다. 그런 source는 `compile_context = "own"`을
 쓰거나 raw source string으로 둔다.
 
-`qstar.objectlib`는 object artifact 개념이지 C 전용 문법이 아니다. 반드시 다음을 받을 수
-있어야 한다.
+`qstar.objectlib`는 object artifact 개념이지 C 전용 문법이 아니다. 현재 지원되는 source
+형태는 다음과 같다.
 
 - built-in `lang.c`, `lang.cxx`, `lang.asm` source
 - `"./main.zig"` 같은 활성화된 GLP raw source string
@@ -390,15 +390,21 @@ module은 pure table/function을 반환할 수 있지만 실제 source declarati
 | Nested `qstar.subdir` | CMake `add_subdirectory()` / Meson `subdir()` | 명시적 fragment hierarchy다. Implicit recursive globbing이 아니다. |
 | `"./path"` in fragment | Current source dir relative path | 명시적 fragment-relative path syntax다. |
 
-## 구현 상태
+## 현재 지원 상태
 
-- Q263: graph-evaluation option registry, `qstar.option`, global `-D name=value`와
-  `-Dname=value` parsing.
-- Q264: `qstar.variant` with `values` free metadata와 top-level free-form key rejection.
-- Q265: nested `qstar.subdir`와 explicit `./` fragment-relative path resolution.
-- Q266: `qstar.objectlib`, artifact target `objects = {...}`, `compile_context = "own"`.
-- Q267: `compile_context = "consumer"` lowering, per-consumer object identity/cache key,
-  duplicate source lint와 `target_family allow_shared_sources` 상호작용.
-- 관련 docs/wiki/man/help/LSP/formatter/tests는 각 라운드에서 갱신한다.
+- `qstar.option`, global `-D name=value`, `-Dname=value`, type/value/choices validation,
+  duplicate/unknown override diagnostic, cache/explain identity 반영을 지원한다.
+- `qstar.variant`는 `values` free metadata, `description`, `tags`, read-only result,
+  top-level free-form key rejection을 지원한다.
+- nested `qstar.subdir`와 explicit `./` fragment-relative path resolution을 지원한다.
+- `qstar.objectlib`, artifact target `objects = {...}`, `compile_context = "own"`과
+  `compile_context = "consumer"`를 지원한다.
+- `compile_context = "consumer"`는 per-consumer object identity/cache key,
+  duplicate source lint와 `target_family allow_shared_sources` 상호작용을 지원한다.
+- objectlib는 built-in C/C++/ASM source, activated GLP raw source string, `"own"`
+  context의 explicit provider source token, generated object bridge를 지원한다.
+- Stella/Ninja/explain/dry-run/action-log/replay/compile_commands/list-targets/query는
+  objectlib와 GLP object action을 같은 action id와 artifact contract로 노출한다.
+- Public docs/wiki/man/help/LSP/formatter/tests는 이 current surface를 기준으로 유지한다.
 - Profile-era field와 domain-specific builtin vocabulary가 재등장하지 않도록 drift guard를
   유지한다.

@@ -50,6 +50,10 @@ compile한다. `compile_context = "consumer"`는 source ownership을 objectlib�
 per-consumer object로 compile한다. Executable/staticlib/sharedlib/test는
 `objects = {"//:core_objects"}`로 objectlib를 소비한다. `qstar.target_file("//:core_objects")`
 는 objectlib에 primary artifact가 없기 때문에 error다.
+Objectlib source는 built-in C/C++/ASM source, activated GLP raw source string,
+`"own"` context의 explicit provider source token, generated object output을 받을 수 있다.
+Explicit provider source token은 concrete action/output을 담기 때문에
+`compile_context = "consumer"`에서는 raw provider source string이나 `"own"` context를 쓴다.
 
 `qstar.group`은 output이 없는 deps-only aggregate target이다. `build //:module_parts`는
 group의 dependency closure만 빌드하고 archive/link/run action을 만들지 않는다.

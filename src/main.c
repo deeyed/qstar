@@ -126,6 +126,7 @@ command_help(FILE *out, const char *cmd)
 		fputs("--path prints the wiki root; --ai-index prints AI_INDEX.md; --show prints a document.\n", out);
 		fputs("Language provider docs cover bundled standard providers such as zig and project-local providers.\n", out);
 		fputs("Generic workflow docs cover qstar.transform, run_target.inputs, qstar.command, and explicit layout export.\n", out);
+		fputs("Configurable build docs cover qstar.option, qstar.variant, qstar.objectlib, nested subdir, and fragment-relative paths.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "init") == 0) {
@@ -157,7 +158,7 @@ command_help(FILE *out, const char *cmd)
 	if (strcmp(cmd, "emit-ninja") == 0) {
 		fputs("usage: qstar [options] emit-ninja [label]\n", out);
 		fputs("Emit build/qstar/ninja/build.ninja and policy-controlled compile_commands.json.\n", out);
-		fputs("Lowers C/C++/ASM compile, generated, staticlib, sharedlib, executable/test, run_target, and group edges.\n", out);
+		fputs("Lowers built-in and activated GLP compile/objectlib actions, generated actions, artifacts, run_target, and group edges.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "lint") == 0) {

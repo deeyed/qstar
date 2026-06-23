@@ -4775,8 +4775,11 @@ contains "$tmp/lsp.out" "\"diagnostics\":[]"
 contains "$tmp/lsp.out" "Create an executable target."
 contains "$tmp/lsp.out" "\"label\":\"qstar.config\""
 contains "$tmp/lsp.out" "\"label\":\"qstar.configure_file\""
+contains "$tmp/lsp.out" "\"label\":\"qstar.objectlib\""
 contains "$tmp/lsp.out" "\"label\":\"qstar.import_module\""
 contains "$tmp/lsp.out" "\"label\":\"qstar.merge\""
+contains "$tmp/lsp.out" "\"label\":\"compile_context\""
+contains "$tmp/lsp.out" "\"label\":\"choices\""
 
 mkdir -p "$tmp/lsp-missing"
 cat > "$tmp/lsp-missing/qstar.lua" <<'EOF'

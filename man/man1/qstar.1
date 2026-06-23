@@ -71,9 +71,9 @@ resolves to
 .Ar stella
 runs the local Stella executor.
 .Ar ninja
-emits and runs a Ninja backend for C/C++/ASM compile, generated actions,
-static libraries, executable/test links, run target wrappers, and group phony
-targets.
+emits and runs a Ninja backend for built-in and activated GLP compile/objectlib
+actions, generated actions, static and shared libraries, executable/test links,
+run target wrappers, and group phony targets.
 Stage copy/manifest work is still performed by QStar, but referenced target
 artifacts are built through the effective generator.
 .It Fl -generator Ar stella|ninja|auto
@@ -83,6 +83,15 @@ Alias for
 Override
 .Ic qstar.project
 build_dir with a package-relative build directory.
+.It Fl D Ar name=value
+Override a declared
+.Ic qstar.option
+project build option before graph evaluation.
+The compact form
+.Fl D Ns Ar name=value
+is also accepted. Unknown option names, duplicate overrides, and type or choice
+mismatches are diagnostics. QStar validates and returns the option value to Lua;
+projects still write explicit compiler and linker argv.
 .It Fl -color Ar auto|always|never
 Control ANSI color for text output.
 JSON diagnostics are never colorized.
@@ -148,7 +157,9 @@ Emit
 and the policy-controlled
 .Pa compile_commands.json
 without running Ninja.
-The Ninja backend lowers C/C++/ASM compile actions,
+The Ninja backend lowers built-in C/C++/ASM compile actions,
+.Ic qstar.objectlib
+object collection actions, activated GLP raw source object actions,
 .Ic qstar.configure_file ,
 .Ic qstar.custom_target ,
 static libraries, shared libraries on macOS, Linux, and Windows platform contexts,

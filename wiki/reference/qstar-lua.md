@@ -47,9 +47,14 @@ qstar.staticlib "core" {
 ## Graph entrypoints
 
 - `qstar.project`: project metadata, `build_dir`, `generated_dir`, compile database policy.
+- `qstar.option`: CLI `-D name=value`로 override되는 typed project build option.
+- `qstar.variant`: name, `values`, `description`, `tags`만 builtin인 read-only
+  user metadata table.
 - `qstar.toolset`: explicit compiler/archive/link/response-file/external tool role bundle.
 - `qstar.config`: reusable option bundle used through target `configs`.
 - `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`, `qstar.test`: artifact targets.
+- `qstar.objectlib`: artifact target의 `objects = {...}`로 소비되는 generic object
+  collection target.
 - `qstar.custom_target`, `qstar.transform`, `qstar.configure_file`: generated outputs.
 - `qstar.run_target`: external smoke/run action.
 - `qstar.group`: deps-only aggregate with no command, output, install surface, or artifact.
@@ -59,19 +64,23 @@ qstar.staticlib "core" {
 - `qstar.subdir`, `qstar.import_file`, `qstar.import_module`: explicit graph/module loading.
 - `qstar.use_language`: activate a bundled or project-local language provider and return its helper table.
 
-다음 configurable build surface의 구현 기준은
-[Configurable Build Surface](configurable-build-surface.md)에 둔다.
+Configurable build surface의 현재 reference는
+[Configurable Build Surface](configurable-build-surface.md)에 둔다. 이 문서는
+`qstar.option`, `qstar.variant`, `qstar.objectlib`, nested `qstar.subdir`, explicit
+fragment-relative `./` path가 어떤 builtin schema를 갖는지와 어떤 이름이 project
+free metadata인지 구분한다. `arch`, `triple`, `cpu`, `board`, `mode`, `runtime`처럼
+project마다 의미가 달라질 수 있는 vocabulary는 QStar builtin field가 되어서는 안 된다.
+QStar는 이 값을 보고 compiler/linker argv를 자동 주입하지 않으며, project가 Lua `if`와
+`qstar.config.lang.*.compile_options` 또는 `link_options`로 explicit argv를 작성한다.
 
-- `qstar.option`: CLI `-D name=value`로 override되는 project build option.
-- `qstar.variant`: name, `values`, `description`, `tags`만 builtin인 read-only
-  user metadata table.
-- `qstar.objectlib`: artifact target의 `objects = {...}`로 소비되는 generic object
-  collection target.
-- nested `qstar.subdir`와 explicit fragment-relative `./` path resolution.
-
-그 spec은 어떤 이름이 QStar builtin schema이고 어떤 이름이 자유 project metadata인지
-구분한다. `arch`, `triple`, `cpu`, `board`, `mode`, `runtime`처럼 project마다 의미가
-달라질 수 있는 vocabulary는 QStar builtin field가 되어서는 안 된다.
+`qstar.objectlib`는 built-in C/C++/ASM source, activated GLP raw source string,
+`"own"` context의 explicit provider source token, generated object bridge를 지원한다.
+`compile_context = "consumer"`는 source ownership을 objectlib에 두되 consuming artifact
+target의 effective configs/lang/toolset으로 per-consumer object를 만든다. Explicit provider
+source token은 concrete action/output을 담기 때문에 consumer-context 재-lowering 대상이
+아니며, raw provider source string이나 `compile_context = "own"`을 사용한다.
+Stella/Ninja/explain/dry-run/action-log/replay/compile_commands/list-targets/query는
+objectlib와 GLP object action을 같은 action id와 artifact contract로 노출한다.
 
 Provider-only author APIs:
 

@@ -35,6 +35,51 @@ option overrides build_dir for the current invocation.
 The generated_dir field controls the package-relative root for generated
 outputs and defaults to
 .Pa generated .
+.It Ic qstar.option
+Declare a typed project build option that can be overridden before graph
+evaluation with global CLI
+.Fl D Ar name=value
+or
+.Fl D Ns Ar name=value .
+The supported fields are
+.Ic type ,
+.Ic value ,
+.Ic choices ,
+and
+.Ic description .
+Supported types are
+.Li string ,
+.Li boolean ,
+.Li integer ,
+.Li combo ,
+and
+.Li list .
+The call returns the effective Lua value, so projects branch with ordinary Lua
+.Ic if
+and write explicit compiler or linker argv through configs and target fields.
+.Nm
+does not infer target triples, architectures, boards, runtimes, or toolchain
+policy from option names.
+.It Ic qstar.variant
+Declare a named read-only user metadata table. Built-in fields are only the
+name argument,
+.Ic values ,
+.Ic description ,
+and
+.Ic tags .
+Keys such as
+.Ic arch ,
+.Ic triple ,
+.Ic cpu ,
+.Ic board ,
+.Ic mode ,
+or
+.Ic runtime
+are project metadata only when they appear under
+.Ic values ;
+they are not parsed by
+.Nm
+and do not inject argv.
 .It Ic qstar.toolset
 Explicit compiler, archive, link, response-file, and external tool role bundle.
 .It Ic qstar.use_language
@@ -134,11 +179,24 @@ Artifact-producing targets consume it through their
 field. Calling
 .Ic qstar.target_file(...)
 for an object library is an error. The implemented compile context is
-.Li own ;
+.Li own
+or
+.Li consumer .
+.Li own
+compiles once under the object library's configs, language options, and toolset.
 .Li consumer
-compiles the object library's source-owned inputs under each consuming artifact
-target's effective configs, language options, and toolset, using per-consumer
-object identities.
+keeps source ownership in the object library but compiles each source under the
+consuming artifact target's effective configs, language options, and toolset,
+using per-consumer object identities. Object libraries accept built-in
+C/C++/ASM sources, activated GLP raw source strings, generated object outputs,
+and explicit provider source tokens in
+.Li own
+context. Explicit provider source tokens already carry a concrete
+action/output and are rejected in
+.Li consumer
+context; use raw provider source strings or
+.Li own
+context instead.
 .It Ic qstar.test
 Test executable target.
 .Pp
@@ -366,10 +424,16 @@ Copy-only package or staging tree.
 .El
 .Pp
 Language-specific options must live under
+.Ic lang.<namespace> .
+Built-in namespaces are
 .Ic lang.c ,
 .Ic lang.cxx ,
-.Ic lang.asm .
-Top-level include/header/module/compile fields are rejected.
+and
+.Ic lang.asm ;
+activated language providers add dynamic namespaces such as
+.Ic lang.zig
+according to the provider option schema. Top-level include/header/module/compile
+fields are rejected.
 .Pp
 Target
 .Ic configs

@@ -1,9 +1,9 @@
 # Configurable Build Surface
 
 이 문서는 `qstar.option`, `qstar.variant`, `qstar.objectlib`, fragment-relative
-path, nested `qstar.subdir`를 구현하기 위한 사용자-facing 정본이다. 아직 runtime에 모두
-들어간 문법이 아니라, 다음 구현 라운드가 따라야 하는 spec이다. 구현이 끝나면 이 내용은
-`reference/qstar-lua.md`, manpage, help, LSP reference로 승격된다.
+path, nested `qstar.subdir`의 현재 지원 문법 reference다. 구현 계획 문서가 아니라
+`reference/qstar-lua.md`, manpage, help, LSP reference, drift guard가 따라야 하는
+사용자-facing 정본이다.
 
 ## 원칙
 
@@ -212,9 +212,9 @@ QStar builtin field:
 | `"own"` | Objectlib가 자기 context로 한 번 compile된다. |
 | `"consumer"` | Objectlib는 source ownership만 갖고, consuming artifact target의 effective configs/lang/toolset으로 source가 per-consumer object로 compile된다. |
 
-`qstar.objectlib`는 generic하다. Built-in C/C++/ASM source, 활성화된 GLP raw source
+`qstar.objectlib`는 generic하다. 현재 built-in C/C++/ASM source, 활성화된 GLP raw source
 string, `"own"` context의 explicit provider source token, generated object output을
-처리해야 한다. Provider helper가 이미 concrete action/output을 담는 explicit source token은
+지원한다. Provider helper가 이미 concrete action/output을 담는 explicit source token은
 현재 consumer-context 재-lowering 대상이 아니므로 raw source string이나 `"own"` context를
 사용한다.
 `cflags` 같은 C-specific field나 `domain_sources` 같은 domain-specific field를 늘리면
@@ -286,3 +286,21 @@ registration.
 | `qstar.objectlib` `"consumer"` | Interface/source-set-like ownership | Consumer compile context. |
 | Nested `qstar.subdir` | `add_subdirectory()` / `subdir()` | Explicit fragment hierarchy. |
 | `"./path"` | Current source dir relative path | Explicit fragment-relative path. |
+
+## 현재 지원 상태
+
+- `qstar.option`, global `-D name=value`, `-Dname=value`, type/value/choices validation,
+  duplicate/unknown override diagnostic, cache/explain identity 반영을 지원한다.
+- `qstar.variant`는 `values` free metadata, `description`, `tags`, read-only result,
+  top-level free-form key rejection을 지원한다.
+- nested `qstar.subdir`와 explicit `./` fragment-relative path resolution을 지원한다.
+- `qstar.objectlib`, artifact target `objects = {...}`, `compile_context = "own"`과
+  `compile_context = "consumer"`를 지원한다.
+- `compile_context = "consumer"`는 per-consumer object identity/cache key,
+  duplicate source lint와 `target_family allow_shared_sources` 상호작용을 지원한다.
+- objectlib는 built-in C/C++/ASM source, activated GLP raw source string, `"own"`
+  context의 explicit provider source token, generated object bridge를 지원한다.
+- Stella/Ninja/explain/dry-run/action-log/replay/compile_commands/list-targets/query는
+  objectlib와 GLP object action을 같은 action id와 artifact contract로 노출한다.
+- Profile-era field와 domain-specific builtin vocabulary가 재등장하지 않도록 drift guard를
+  유지한다.

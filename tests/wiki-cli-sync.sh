@@ -71,16 +71,27 @@ for help_cmd in build test stage dry-run emit-ninja lint fmt list-targets check 
 	not_contains "$tmp/help-$help_cmd.out" "--toolchain"
 	not_contains "$tmp/help-$help_cmd.out" "--stdlib"
 done
+contains "$tmp/help-docs.out" "Configurable build docs cover qstar.option, qstar.variant, qstar.objectlib"
+contains "$tmp/help-emit-ninja.out" "activated GLP compile/objectlib actions"
 
 contains man/man1/qstar.1 ".It Ic commands"
 contains man/man1/qstar.1 ".It Ar project-command"
 contains man/man1/qstar.1 ".It Ic stage"
 contains man/man1/qstar.1 ".It Ic clean"
 contains man/man1/qstar.1 "single target output when a label is"
+contains man/man1/qstar.1 ".It Fl D Ar name=value"
+contains man/man1/qstar.1 "activated GLP raw source object actions"
 not_contains man/man1/qstar.1 ".It Ic install"
 not_contains man/man1/qstar.1 "Fl -target"
 not_contains man/man1/qstar.1 "qstar install"
 not_contains man/man1/qstar.1 "install requires --prefix"
+
+contains man/man5/qstar-lua.5 ".It Ic qstar.option"
+contains man/man5/qstar-lua.5 ".It Ic qstar.variant"
+contains man/man5/qstar-lua.5 ".It Ic qstar.objectlib"
+contains man/man5/qstar-lua.5 "Explicit provider source tokens already carry"
+contains man/man5/qstar-lua.5 "Language-specific options must live under"
+contains man/man5/qstar-lua.5 "activated language providers add dynamic namespaces"
 
 "$qstar" docs --show reference/qstar-lua.md > "$tmp/wiki-qstar-lua.out" \
 	2> "$tmp/wiki-qstar-lua.err"
@@ -88,8 +99,20 @@ test ! -s "$tmp/wiki-qstar-lua.err" ||
 	fail "docs --show reference/qstar-lua.md wrote stderr"
 contains "$tmp/wiki-qstar-lua.out" "qstar commands --format json"
 contains "$tmp/wiki-qstar-lua.out" "Command name과 alias는"
+contains "$tmp/wiki-qstar-lua.out" "qstar.objectlib"
+contains "$tmp/wiki-qstar-lua.out" "Stella/Ninja/explain/dry-run/action-log/replay/compile_commands"
 not_contains "$tmp/wiki-qstar-lua.out" "qstar [options] install"
 not_contains "$tmp/wiki-qstar-lua.out" "qstar install //"
+
+"$qstar" docs --show reference/configurable-build-surface.md \
+	> "$tmp/wiki-configurable.out" 2> "$tmp/wiki-configurable.err"
+test ! -s "$tmp/wiki-configurable.err" ||
+	fail "docs --show reference/configurable-build-surface.md wrote stderr"
+contains "$tmp/wiki-configurable.out" "현재 지원 문법 reference"
+contains "$tmp/wiki-configurable.out" "현재 지원 상태"
+contains "$tmp/wiki-configurable.out" "Stella/Ninja/explain/dry-run/action-log/replay/compile_commands"
+not_contains "$tmp/wiki-configurable.out" "아직 runtime에 모두"
+not_contains "$tmp/wiki-configurable.out" "다음 구현 라운드"
 
 "$qstar" docs --show reference/generic-workflows.md > "$tmp/wiki-workflows.out" \
 	2> "$tmp/wiki-workflows.err"
@@ -99,6 +122,16 @@ contains "$tmp/wiki-workflows.out" 'built-in `qstar install`'
 contains "$tmp/wiki-workflows.out" "qstar.step.export_stage"
 contains "$tmp/wiki-workflows.out" "install-local"
 not_contains "$tmp/wiki-workflows.out" "qstar install //"
+
+contains docs/configurable-build-surface.md "현재 지원 문법 reference"
+contains docs/configurable-build-surface.md "현재 지원 상태"
+contains docs/syntax.md "current configurable build surface reference"
+contains docs/README.md "current-surface reference"
+contains wiki/AI_INDEX.md "Configurable build surface current public reference"
+contains src/lsp.c "qstar.objectlib"
+contains src/lsp.c "compile_context"
+contains src/lsp.c "value"
+contains src/lsp.c "choices"
 
 forbid_tree 'qstar\.profile|--profile|--toolchain|--stdlib|QSTAR_PROFILE|QSTAR_TARGET|qstar\.exe[[:space:]]*["({]|qstar\.genrule\b|qstar\.config_header\b|qstar \[options\] install|usage: qstar install|qstar install //|install //:|qstar-install-manifest-v2|Compatibility command for conventional|clean --target|clean \[--target|Fl -target|hidden profile|toolchain/profile' \
 	README.md README.ko.md docs wiki man \

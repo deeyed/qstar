@@ -2,7 +2,7 @@
 
 `wiki/reference/qstar-lua.md` is the canonical user-facing syntax reference.
 This file is a short developer-side drift guard for the current generic DSL.
-The next configurable build surface implementation spec lives in
+The current configurable build surface reference lives in
 `docs/configurable-build-surface.md` and its wiki mirror at
 `wiki/reference/configurable-build-surface.md`; it defines `qstar.option`,
 `qstar.variant`, `qstar.objectlib`, CLI `-D` option overrides, nested
@@ -354,6 +354,11 @@ objectlib but compiles each source under every consuming artifact target's
 effective configs/lang/toolset, with per-consumer object identities. Artifact
 targets consume object libraries through `objects = {...}`.
 `qstar.target_file("//:objects")` is an error for objectlib targets.
+Objectlib sources can be built-in C/C++/ASM sources, activated GLP raw source
+strings, explicit provider source tokens in `"own"` context, or generated
+object outputs. Explicit provider source tokens are rejected in
+`compile_context = "consumer"` because they already carry a concrete
+action/output.
 
 `qstar.group` has no artifact and cannot be used with `qstar.target_file`.
 `qstar.target_file("//:label")` resolves to the target's primary artifact. A
