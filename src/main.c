@@ -41,6 +41,7 @@ usage(FILE *out)
 	fputs("       -G stella|ninja|auto\n", out);
 	fputs("       --generator stella|ninja|auto\n", out);
 	fputs("       -B path\n", out);
+	fputs("       -D name=value  # project option override; -Dname=value also accepted\n", out);
 	fputs("       --package-alias @name=/path\n", out);
 	fputs("       --diagnostics text|json\n", out);
 	fputs("       --diagnostic-format text|line  # compatibility alias\n", out);
@@ -483,6 +484,26 @@ add_package_alias_spec(struct qstar_graph *graph, const char *spec)
 	return qstar_graph_add_package_alias(graph, alias, eq + 1);
 }
 
+/** CLI project option override spec을 name/value 쌍으로 분리해 graph에 기록한다. */
+static int
+add_project_option_override_spec(struct qstar_graph *graph, const char *spec)
+{
+	const char *eq;
+	char name[QSTAR_PATH_MAX];
+	size_t n;
+
+	eq = strchr(spec, '=');
+	if (!eq || eq == spec)
+		return qstar_set_error(graph,
+		    "qstar: project option override must be name=value");
+	n = (size_t)(eq - spec);
+	if (n + 1 > sizeof(name))
+		return qstar_set_error(graph, "qstar: project option name is too long");
+	memcpy(name, spec, n);
+	name[n] = '\0';
+	return qstar_graph_add_project_option_override(graph, name, eq + 1);
+}
+
 /** 독립 QStar developer binary의 CLI entrypoint다. */
 int
 main(int argc, char **argv)
@@ -536,7 +557,8 @@ main(int argc, char **argv)
 	build_options.color_mode = QSTAR_COLOR_AUTO;
 	while (arg < argc &&
 	    (strncmp(argv[arg], "--", 2) == 0 || strcmp(argv[arg], "-G") == 0 ||
-	    strcmp(argv[arg], "-B") == 0 || is_help_arg(argv[arg])) &&
+	    strcmp(argv[arg], "-B") == 0 || strcmp(argv[arg], "-D") == 0 ||
+	    strncmp(argv[arg], "-D", 2) == 0 || is_help_arg(argv[arg])) &&
 	    strcmp(argv[arg], "--dump-graph") != 0) {
 		if (is_help_arg(argv[arg])) {
 			usage(stdout);
@@ -567,6 +589,25 @@ main(int argc, char **argv)
 			}
 			cli_build_dir = argv[arg + 1];
 			arg += 2;
+		} else if (strcmp(argv[arg], "-D") == 0) {
+			if (arg + 1 >= argc) {
+				usage(stderr);
+				qstar_graph_free(&graph);
+				return 2;
+			}
+			if (add_project_option_override_spec(&graph, argv[arg + 1]) < 0) {
+				fprintf(stderr, "%s\n", graph.error);
+				qstar_graph_free(&graph);
+				return 1;
+			}
+			arg += 2;
+		} else if (strncmp(argv[arg], "-D", 2) == 0) {
+			if (add_project_option_override_spec(&graph, argv[arg] + 2) < 0) {
+				fprintf(stderr, "%s\n", graph.error);
+				qstar_graph_free(&graph);
+				return 1;
+			}
+			arg++;
 		} else if (strcmp(argv[arg], "--package-alias") == 0) {
 			if (arg + 1 >= argc) {
 				usage(stderr);
@@ -1133,6 +1174,8 @@ main(int argc, char **argv)
 	}
 	if (rc == 0 && !plan_cache_loaded)
 		rc = qstar_lua_eval_file(&graph, file);
+	if (rc == 0 && !plan_cache_loaded)
+		rc = qstar_graph_validate_project_option_overrides(&graph);
 	if (rc == 0 && !cli_overrides_applied)
 		rc = qstar_graph_set_cli_overrides(&graph, cli_generator, cli_build_dir);
 	if (rc == 0 && !plan_cache_loaded)

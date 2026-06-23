@@ -380,6 +380,29 @@ free_project(struct qstar_project *project)
 	memset(project, 0, sizeof(*project));
 }
 
+/** qstar.option declaration이 소유한 문자열을 해제한다. */
+static void
+free_project_option(struct qstar_project_option *option)
+{
+	free(option->name);
+	free(option->type);
+	free(option->value);
+	free(option->description);
+	qstar_string_list_free(&option->choices);
+	free(option->override_value);
+	free(option->origin_file);
+	memset(option, 0, sizeof(*option));
+}
+
+/** CLI -D project option override가 소유한 문자열을 해제한다. */
+static void
+free_project_option_override(struct qstar_project_option_override *override)
+{
+	free(override->name);
+	free(override->value);
+	memset(override, 0, sizeof(*override));
+}
+
 /** package alias entry가 소유한 문자열을 해제한다. */
 static void
 free_package_alias(struct qstar_package_alias *pkg)
@@ -467,6 +490,10 @@ qstar_graph_free(struct qstar_graph *graph)
 		free_target_family(&graph->families[i]);
 	for (i = 0; i < graph->command_len; i++)
 		free_project_command(&graph->commands[i]);
+	for (i = 0; i < graph->project_option_len; i++)
+		free_project_option(&graph->project_options[i]);
+	for (i = 0; i < graph->project_option_override_len; i++)
+		free_project_option_override(&graph->project_option_overrides[i]);
 	for (i = 0; i < graph->lint_len; i++)
 		free_lint_diagnostic(&graph->lint_diagnostics[i]);
 	for (i = 0; i < graph->package_len; i++)
@@ -487,6 +514,8 @@ qstar_graph_free(struct qstar_graph *graph)
 	free(graph->stages);
 	free(graph->families);
 	free(graph->commands);
+	free(graph->project_options);
+	free(graph->project_option_overrides);
 	free(graph->lint_diagnostics);
 	free(graph->cached_actions);
 	qstar_string_list_free(&graph->evaluated_fragments);
@@ -1946,6 +1975,233 @@ qstar_graph_add_target_family(struct qstar_graph *graph, const char *name,
 		return NULL;
 	}
 	return family;
+}
+
+static int
+project_option_name_valid(const char *name)
+{
+	const unsigned char *p;
+
+	if (!name || !*name)
+		return 0;
+	if (!(isalnum((unsigned char)name[0]) || name[0] == '_'))
+		return 0;
+	for (p = (const unsigned char *)name; *p; p++) {
+		if (!(isalnum(*p) || *p == '_' || *p == '-' || *p == '.'))
+			return 0;
+	}
+	return 1;
+}
+
+static int
+project_string_list_contains(const struct qstar_string_list *list, const char *value)
+{
+	size_t i;
+
+	for (i = 0; list && i < list->len; i++) {
+		if (strcmp(list->items[i], value) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+static int
+project_option_type_valid(const char *type)
+{
+	return type && (strcmp(type, "string") == 0 ||
+	    strcmp(type, "boolean") == 0 ||
+	    strcmp(type, "integer") == 0 ||
+	    strcmp(type, "combo") == 0 ||
+	    strcmp(type, "list") == 0);
+}
+
+static int
+project_option_value_valid(const char *type, const char *value,
+    const struct qstar_string_list *choices)
+{
+	char *end;
+
+	if (!type || !value)
+		return 0;
+	if (strcmp(type, "string") == 0 || strcmp(type, "list") == 0)
+		return 1;
+	if (strcmp(type, "boolean") == 0)
+		return strcmp(value, "true") == 0 || strcmp(value, "false") == 0;
+	if (strcmp(type, "integer") == 0) {
+		if (!*value)
+			return 0;
+		(void)strtol(value, &end, 10);
+		return end && *end == '\0';
+	}
+	if (strcmp(type, "combo") == 0)
+		return project_string_list_contains(choices, value);
+	return 0;
+}
+
+static const struct qstar_project_option_override *
+find_project_option_override(const struct qstar_graph *graph, const char *name)
+{
+	size_t i;
+
+	for (i = 0; i < graph->project_option_override_len; i++) {
+		if (strcmp(graph->project_option_overrides[i].name, name) == 0)
+			return &graph->project_option_overrides[i];
+	}
+	return NULL;
+}
+
+const struct qstar_project_option *
+qstar_graph_find_project_option(const struct qstar_graph *graph, const char *name)
+{
+	size_t i;
+
+	for (i = 0; i < graph->project_option_len; i++) {
+		if (strcmp(graph->project_options[i].name, name) == 0)
+			return &graph->project_options[i];
+	}
+	return NULL;
+}
+
+const char *
+qstar_project_option_effective_value(const struct qstar_project_option *option)
+{
+	if (!option)
+		return "";
+	return option->overridden && option->override_value ? option->override_value :
+	    (option->value ? option->value : "");
+}
+
+int
+qstar_graph_add_project_option_override(struct qstar_graph *graph,
+    const char *name, const char *value)
+{
+	struct qstar_project_option_override *overrides, *override;
+	size_t cap;
+
+	if (!project_option_name_valid(name))
+		return qstar_set_error(graph, "qstar: invalid project option name '%s'",
+		    name ? name : "");
+	if (!value)
+		return qstar_set_error(graph, "qstar: project option override '%s' needs a value",
+		    name);
+	if (find_project_option_override(graph, name))
+		return qstar_set_error(graph,
+		    "qstar: duplicate project option override '-D %s'", name);
+	if (graph->project_option_override_len == graph->project_option_override_cap) {
+		cap = graph->project_option_override_cap ?
+		    graph->project_option_override_cap * 2 : 4;
+		overrides = realloc(graph->project_option_overrides,
+		    cap * sizeof(graph->project_option_overrides[0]));
+		if (!overrides)
+			return qstar_set_error(graph, "qstar: out of memory");
+		graph->project_option_overrides = overrides;
+		graph->project_option_override_cap = cap;
+	}
+	override = &graph->project_option_overrides[graph->project_option_override_len++];
+	memset(override, 0, sizeof(*override));
+	override->name = qstar_strdup(name);
+	override->value = qstar_strdup(value);
+	if (!override->name || !override->value)
+		return qstar_set_error(graph, "qstar: out of memory");
+	return 0;
+}
+
+struct qstar_project_option *
+qstar_graph_add_project_option(struct qstar_graph *graph, const char *name,
+    const char *type, const char *value, const char *description,
+    const struct qstar_string_list *choices, const char *origin_file, int origin_line)
+{
+	const struct qstar_project_option_override *override;
+	struct qstar_project_option *options, *option;
+	size_t cap;
+
+	if (!project_option_name_valid(name)) {
+		qstar_set_error_origin(graph, origin_file, origin_line, "name", name,
+		    "qstar: invalid project option name '%s'", name ? name : "");
+		return NULL;
+	}
+	if (qstar_graph_find_project_option(graph, name)) {
+		qstar_set_error_origin(graph, origin_file, origin_line, "name", name,
+		    "qstar: duplicate project option '%s'", name);
+		return NULL;
+	}
+	if (!project_option_type_valid(type)) {
+		qstar_set_error_origin(graph, origin_file, origin_line, "type", name,
+		    "qstar: project option '%s' has unknown type '%s'", name,
+		    type ? type : "");
+		return NULL;
+	}
+	if (strcmp(type, "combo") == 0 && (!choices || choices->len == 0)) {
+		qstar_set_error_origin(graph, origin_file, origin_line, "choices", name,
+		    "qstar: project option '%s' type combo requires choices", name);
+		return NULL;
+	}
+	if (strcmp(type, "combo") != 0 && choices && choices->len > 0) {
+		qstar_set_error_origin(graph, origin_file, origin_line, "choices", name,
+		    "qstar: project option '%s' choices are only valid for combo", name);
+		return NULL;
+	}
+	if (!project_option_value_valid(type, value, choices)) {
+		qstar_set_error_origin(graph, origin_file, origin_line, "value", name,
+		    "qstar: project option '%s' value '%s' is invalid for type %s",
+		    name, value ? value : "", type);
+		return NULL;
+	}
+	override = find_project_option_override(graph, name);
+	if (override && !project_option_value_valid(type, override->value, choices)) {
+		qstar_set_error_origin(graph, origin_file, origin_line, "value", name,
+		    "qstar: project option '%s' override value '%s' is invalid for type %s",
+		    name, override->value ? override->value : "", type);
+		return NULL;
+	}
+	if (graph->project_option_len == graph->project_option_cap) {
+		cap = graph->project_option_cap ? graph->project_option_cap * 2 : 4;
+		options = realloc(graph->project_options,
+		    cap * sizeof(graph->project_options[0]));
+		if (!options) {
+			qstar_set_error(graph, "qstar: out of memory");
+			return NULL;
+		}
+		graph->project_options = options;
+		graph->project_option_cap = cap;
+	}
+	option = &graph->project_options[graph->project_option_len++];
+	memset(option, 0, sizeof(*option));
+	option->name = qstar_strdup(name);
+	option->type = qstar_strdup(type);
+	option->value = qstar_strdup(value ? value : "");
+	option->description = qstar_strdup(description ? description : "");
+	option->origin_file = qstar_strdup(origin_file ? origin_file : "");
+	option->origin_line = origin_line;
+	if (choices && copy_string_list(&option->choices, choices) < 0) {
+		qstar_set_error(graph, "qstar: out of memory");
+		return NULL;
+	}
+	if (override) {
+		option->override_value = qstar_strdup(override->value);
+		option->overridden = 1;
+	}
+	if (!option->name || !option->type || !option->value || !option->description ||
+	    !option->origin_file || (override && !option->override_value)) {
+		qstar_set_error(graph, "qstar: out of memory");
+		return NULL;
+	}
+	return option;
+}
+
+int
+qstar_graph_validate_project_option_overrides(struct qstar_graph *graph)
+{
+	size_t i;
+
+	for (i = 0; i < graph->project_option_override_len; i++) {
+		if (!qstar_graph_find_project_option(graph,
+		    graph->project_option_overrides[i].name))
+			return qstar_set_error(graph,
+			    "qstar: unknown project option override '-D %s'",
+			    graph->project_option_overrides[i].name);
+	}
+	return 0;
 }
 
 static int
@@ -3624,6 +3880,20 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 	fputs(" include_dirs=", out);
 	dump_list(out, &graph->build_context.include_dirs);
 	fputc('\n', out);
+	for (i = 0; i < graph->project_option_len; i++) {
+		fprintf(out,
+		    "project_option name=%s type=%s value=%s effective=%s overridden=%s description=%s choices=",
+		    graph->project_options[i].name ? graph->project_options[i].name : "",
+		    graph->project_options[i].type ? graph->project_options[i].type : "",
+		    graph->project_options[i].value ? graph->project_options[i].value : "",
+		    qstar_project_option_effective_value(&graph->project_options[i]),
+		    graph->project_options[i].overridden ? "true" : "false",
+		    graph->project_options[i].description &&
+		    *graph->project_options[i].description ?
+		    graph->project_options[i].description : "<none>");
+		dump_list(out, &graph->project_options[i].choices);
+		fputc('\n', out);
+	}
 	fprintf(out, "external_tool_policy allow_absolute=%s path_tools=",
 	    graph->build_context.allow_absolute_tools ? graph->build_context.allow_absolute_tools : "false");
 	dump_list(out, &graph->build_context.path_tools);

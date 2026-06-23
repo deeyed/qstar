@@ -79,7 +79,7 @@ qstar -Darch=armv7m check //...
 
 - `-D name=value`와 `-Dname=value`를 모두 허용한다.
 - 선언되지 않은 option 이름은 error다.
-- 같은 option이 여러 번 들어오면 마지막 값이 이긴다.
+- 같은 option이 여러 번 들어오면 duplicate override error다.
 - 최종 option 값은 graph/cache identity에 포함된다.
 - `-D`는 QStar project option만 설정한다. 환경변수를 설정하거나 source file 내부의
   문자열을 치환하지 않는다.

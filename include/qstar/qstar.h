@@ -286,6 +286,23 @@ struct qstar_project {
 	char *compile_commands;
 };
 
+struct qstar_project_option_override {
+	char *name;
+	char *value;
+};
+
+struct qstar_project_option {
+	char *name;
+	char *type;
+	char *value;
+	char *description;
+	struct qstar_string_list choices;
+	char *override_value;
+	char *origin_file;
+	int origin_line;
+	int overridden;
+};
+
 struct qstar_package_alias {
 	char *alias;
 	char *root;
@@ -415,6 +432,12 @@ struct qstar_graph {
 	struct qstar_project_command *commands;
 	size_t command_len;
 	size_t command_cap;
+	struct qstar_project_option *project_options;
+	size_t project_option_len;
+	size_t project_option_cap;
+	struct qstar_project_option_override *project_option_overrides;
+	size_t project_option_override_len;
+	size_t project_option_override_cap;
 	struct qstar_lint_diagnostic *lint_diagnostics;
 	size_t lint_len;
 	size_t lint_cap;
@@ -567,6 +590,22 @@ struct qstar_stage *qstar_graph_add_stage(struct qstar_graph *graph, const char 
 struct qstar_target_family *qstar_graph_add_target_family(struct qstar_graph *graph,
     const char *name, const char *fragment_dir, const char *origin_file, int origin_line);
 
+/** CLI -D project option override를 graph evaluation 입력으로 추가한다. */
+int qstar_graph_add_project_option_override(struct qstar_graph *graph,
+    const char *name, const char *value);
+
+/** Root project option primitive를 추가하고 CLI override를 적용한다. */
+struct qstar_project_option *qstar_graph_add_project_option(struct qstar_graph *graph,
+    const char *name, const char *type, const char *value,
+    const char *description, const struct qstar_string_list *choices,
+    const char *origin_file, int origin_line);
+
+const struct qstar_project_option *qstar_graph_find_project_option(
+    const struct qstar_graph *graph, const char *name);
+
+const char *qstar_project_option_effective_value(
+    const struct qstar_project_option *option);
+
 /** Root project command primitive를 추가한다. */
 struct qstar_project_command *qstar_graph_add_project_command(struct qstar_graph *graph,
     const char *name, const char *origin_file, int origin_line);
@@ -717,6 +756,9 @@ int qstar_graph_list_project_commands_json(const struct qstar_graph *graph, FILE
 
 /** QStar root project command declarations를 검증한다. */
 int qstar_graph_validate_project_commands(struct qstar_graph *graph);
+
+/** CLI -D override가 선언된 qstar.option에 모두 소비됐는지 검증한다. */
+int qstar_graph_validate_project_option_overrides(struct qstar_graph *graph);
 
 /** QStar project command name 또는 alias를 찾는다. */
 const struct qstar_project_command *qstar_graph_find_project_command(

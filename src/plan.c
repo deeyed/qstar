@@ -335,6 +335,8 @@ dump_closure_order(FILE *out, const struct qstar_plan *plan)
 static void
 dump_plan_inputs(FILE *out, const struct qstar_graph *graph)
 {
+	size_t i;
+
 	fprintf(out, "build_context name=%s target=%s platform=%s toolchain=%s stdlib=%s\n",
 	    context_or_default(graph->build_context.name, "default"),
 	    context_or_default(graph->build_context.target, "host"),
@@ -359,6 +361,17 @@ dump_plan_inputs(FILE *out, const struct qstar_graph *graph)
 	fputs(" include_dirs=", out);
 	dump_list(out, &graph->build_context.include_dirs);
 	fputc('\n', out);
+	for (i = 0; i < graph->project_option_len; i++) {
+		fprintf(out,
+		    "project_option name=%s type=%s value=%s effective=%s overridden=%s choices=",
+		    graph->project_options[i].name ? graph->project_options[i].name : "",
+		    graph->project_options[i].type ? graph->project_options[i].type : "",
+		    graph->project_options[i].value ? graph->project_options[i].value : "",
+		    qstar_project_option_effective_value(&graph->project_options[i]),
+		    graph->project_options[i].overridden ? "true" : "false");
+		dump_list(out, &graph->project_options[i].choices);
+		fputc('\n', out);
+	}
 	fprintf(out, "external_tool_policy allow_absolute=%s path_tools=",
 	    context_or_default(graph->build_context.allow_absolute_tools, "false"));
 	dump_list(out, &graph->build_context.path_tools);

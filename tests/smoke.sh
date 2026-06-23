@@ -9963,6 +9963,136 @@ if "$qstar" --file "$tmp/stage-bad/qstar.lua" check > "$tmp/stage-bad-missing.ou
 fi
 contains "$tmp/stage-bad-missing.err" "stage source target '//:missing' in '//:bad' is unknown"
 
+step "project option registry and CLI -D"
+mkdir -p "$tmp/project-option"
+cat > "$tmp/project-option/qstar.lua" <<'EOF'
+local ARCH <const> = qstar.option "arch" {
+  type = "combo",
+  value = "host",
+  choices = {"host", "armv7m", "aarch64"},
+  description = "Project architecture selector",
+}
+
+local FEATURE <const> = qstar.option "feature" {
+  type = "boolean",
+  value = false,
+}
+
+local COUNT <const> = qstar.option "count" {
+  type = "integer",
+  value = 1,
+}
+
+local NAMES <const> = qstar.option "names" {
+  type = "list",
+  value = {"alpha", "beta"},
+}
+
+local flags = {
+  "-DARCH=" .. ARCH,
+  "-DCOUNT=" .. tostring(COUNT),
+  "-DNAME0=" .. NAMES[1],
+}
+
+if FEATURE then
+  table.insert(flags, "-DFEATURE=1")
+end
+
+qstar.config "optcfg" {
+  lang = {
+    c = {
+      compile_options = flags,
+    },
+  },
+}
+EOF
+if ! "$qstar" --file "$tmp/project-option/qstar.lua" -D arch=armv7m -D feature=true -D count=7 -D names=gamma,delta --dump-graph > "$tmp/project-option-dump.out" 2> "$tmp/project-option-dump.err"; then
+	cat "$tmp/project-option-dump.out" >&2
+	cat "$tmp/project-option-dump.err" >&2
+	fail "project option dump with CLI -D failed"
+fi
+contains "$tmp/project-option-dump.out" "project_option name=arch type=combo value=host effective=armv7m overridden=true"
+contains "$tmp/project-option-dump.out" "project_option name=feature type=boolean value=false effective=true overridden=true"
+contains "$tmp/project-option-dump.out" "project_option name=count type=integer value=1 effective=7 overridden=true"
+contains "$tmp/project-option-dump.out" "project_option name=names type=list value=alpha,beta effective=gamma,delta overridden=true"
+contains "$tmp/project-option-dump.out" "-DARCH=armv7m"
+contains "$tmp/project-option-dump.out" "-DCOUNT=7"
+contains "$tmp/project-option-dump.out" "-DNAME0=gamma"
+contains "$tmp/project-option-dump.out" "-DFEATURE=1"
+if ! "$qstar" --file "$tmp/project-option/qstar.lua" -Darch=aarch64 check > "$tmp/project-option-compact.out" 2> "$tmp/project-option-compact.err"; then
+	cat "$tmp/project-option-compact.out" >&2
+	cat "$tmp/project-option-compact.err" >&2
+	fail "project option compact -D failed"
+fi
+contains "$tmp/project-option-compact.out" "status ok"
+if ! "$qstar" --file "$tmp/project-option/qstar.lua" -D arch=armv7m explain > "$tmp/project-option-explain.out" 2> "$tmp/project-option-explain.err"; then
+	cat "$tmp/project-option-explain.out" >&2
+	cat "$tmp/project-option-explain.err" >&2
+	fail "project option explain failed"
+fi
+contains "$tmp/project-option-explain.out" "project_option name=arch type=combo value=host effective=armv7m overridden=true"
+if "$qstar" --file "$tmp/project-option/qstar.lua" -D missing=value check > "$tmp/project-option-unknown.out" 2> "$tmp/project-option-unknown.err"; then
+	fail "unknown project option override unexpectedly succeeded"
+fi
+contains "$tmp/project-option-unknown.err" "unknown project option override '-D missing'"
+if "$qstar" --file "$tmp/project-option/qstar.lua" -D arch=armv7m -D arch=aarch64 check > "$tmp/project-option-dup.out" 2> "$tmp/project-option-dup.err"; then
+	fail "duplicate project option override unexpectedly succeeded"
+fi
+contains "$tmp/project-option-dup.err" "duplicate project option override '-D arch'"
+if "$qstar" --file "$tmp/project-option/qstar.lua" -D arch=mips check > "$tmp/project-option-invalid-combo.out" 2> "$tmp/project-option-invalid-combo.err"; then
+	fail "invalid combo project option unexpectedly succeeded"
+fi
+contains "$tmp/project-option-invalid-combo.err" "project option 'arch' override value 'mips' is invalid for type combo"
+if "$qstar" --file "$tmp/project-option/qstar.lua" -D count=nope check > "$tmp/project-option-invalid-int.out" 2> "$tmp/project-option-invalid-int.err"; then
+	fail "invalid integer project option unexpectedly succeeded"
+fi
+contains "$tmp/project-option-invalid-int.err" "project option 'count' override value 'nope' is invalid for type integer"
+mkdir -p "$tmp/project-option-cache/tools"
+cat > "$tmp/project-option-cache/tools/write-stamp.sh" <<'EOF'
+#!/bin/sh
+set -eu
+mkdir -p "$(dirname "$1")"
+printf '%s\n' "$2" > "$1"
+EOF
+chmod +x "$tmp/project-option-cache/tools/write-stamp.sh"
+cat > "$tmp/project-option-cache/qstar.lua" <<'EOF'
+local ARCH <const> = qstar.option "arch" {
+  type = "combo",
+  value = "host",
+  choices = {"host", "armv7m", "aarch64"},
+}
+
+qstar.custom_target "stamp" {
+  outputs = {
+    qstar.output("generated/stamp.txt"),
+  },
+  command = qstar.cli {
+    "tools/write-stamp.sh",
+    qstar.output(0),
+    ARCH,
+  },
+  description = qstar.status("Writing project option stamp"),
+}
+EOF
+if ! "$qstar" --file "$tmp/project-option-cache/qstar.lua" -D arch=armv7m build //:stamp --schedule-trace > "$tmp/project-option-cache-first.out" 2> "$tmp/project-option-cache-first.err"; then
+	cat "$tmp/project-option-cache-first.out" >&2
+	cat "$tmp/project-option-cache-first.err" >&2
+	fail "project option cache first build failed"
+fi
+contains "$tmp/project-option-cache-first.out" "plan_cache status=miss"
+if ! "$qstar" --file "$tmp/project-option-cache/qstar.lua" -D arch=armv7m build //:stamp --schedule-trace > "$tmp/project-option-cache-hit.out" 2> "$tmp/project-option-cache-hit.err"; then
+	cat "$tmp/project-option-cache-hit.out" >&2
+	cat "$tmp/project-option-cache-hit.err" >&2
+	fail "project option cache second build failed"
+fi
+contains "$tmp/project-option-cache-hit.out" "plan_cache status=hit"
+if ! "$qstar" --file "$tmp/project-option-cache/qstar.lua" -D arch=aarch64 build //:stamp --schedule-trace > "$tmp/project-option-cache-miss.out" 2> "$tmp/project-option-cache-miss.err"; then
+	cat "$tmp/project-option-cache-miss.out" >&2
+	cat "$tmp/project-option-cache-miss.err" >&2
+	fail "project option cache mismatch build failed"
+fi
+contains "$tmp/project-option-cache-miss.out" "plan_cache status=miss reason=project-option-override-mismatch"
+
 step "project commands"
 mkdir -p "$tmp/project-command/src" "$tmp/project-command/tools" "$tmp/project-command/fixtures"
 cat > "$tmp/project-command/src/main.c" <<'EOF'

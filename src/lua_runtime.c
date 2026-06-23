@@ -7131,6 +7131,217 @@ qstar_lua_project(lua_State *L)
 	return 0;
 }
 
+static int
+validate_project_option_fields(lua_State *L, int table, struct qstar_graph *graph)
+{
+	const char *key;
+
+	lua_pushnil(L);
+	while (lua_next(L, table) != 0) {
+		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (!key || (strcmp(key, "type") != 0 &&
+		    strcmp(key, "value") != 0 &&
+		    strcmp(key, "choices") != 0 &&
+		    strcmp(key, "description") != 0)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph,
+			    "qstar: unknown qstar.option field '%s'",
+			    key ? key : "<non-string>");
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
+join_project_option_list(lua_State *L, int idx, char **out)
+{
+	const char *s;
+	size_t i, n, total, len, pos;
+	char *buf;
+
+	idx = qstar_lua_abs_index(L, idx);
+	n = lua_rawlen(L, idx);
+	total = 1;
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, idx, (lua_Integer)i);
+		if (!lua_isstring(L, -1)) {
+			lua_pop(L, 1);
+			return -1;
+		}
+		total += strlen(lua_tostring(L, -1));
+		if (i > 1)
+			total++;
+		lua_pop(L, 1);
+	}
+	buf = malloc(total);
+	if (!buf)
+		return -2;
+	pos = 0;
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, idx, (lua_Integer)i);
+		s = lua_tostring(L, -1);
+		if (i > 1)
+			buf[pos++] = ',';
+		len = strlen(s);
+		memcpy(buf + pos, s, len);
+		pos += len;
+		lua_pop(L, 1);
+	}
+	buf[pos] = '\0';
+	*out = buf;
+	return 0;
+}
+
+static int
+read_project_option_value(lua_State *L, int table, const char *type, char **out)
+{
+	char tmp[64];
+	int rc;
+
+	lua_getfield(L, table, "value");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	if (strcmp(type, "boolean") == 0) {
+		if (!lua_isboolean(L, -1)) {
+			lua_pop(L, 1);
+			return -1;
+		}
+		*out = qstar_strdup(lua_toboolean(L, -1) ? "true" : "false");
+		lua_pop(L, 1);
+		return *out ? 0 : -2;
+	}
+	if (strcmp(type, "integer") == 0) {
+		if (!lua_isinteger(L, -1)) {
+			lua_pop(L, 1);
+			return -1;
+		}
+		snprintf(tmp, sizeof(tmp), "%lld", (long long)lua_tointeger(L, -1));
+		*out = qstar_strdup(tmp);
+		lua_pop(L, 1);
+		return *out ? 0 : -2;
+	}
+	if (strcmp(type, "list") == 0 && lua_istable(L, -1)) {
+		rc = join_project_option_list(L, -1, out);
+		lua_pop(L, 1);
+		return rc;
+	}
+	if (!lua_isstring(L, -1)) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	*out = qstar_strdup(lua_tostring(L, -1));
+	lua_pop(L, 1);
+	return *out ? 0 : -2;
+}
+
+static int
+push_project_option_result(lua_State *L, const struct qstar_project_option *option)
+{
+	const char *value, *p, *q;
+	char *end;
+	size_t len, index;
+
+	value = qstar_project_option_effective_value(option);
+	if (strcmp(option->type, "boolean") == 0) {
+		lua_pushboolean(L, strcmp(value, "true") == 0);
+		return 1;
+	}
+	if (strcmp(option->type, "integer") == 0) {
+		lua_pushinteger(L, (lua_Integer)strtol(value, &end, 10));
+		return 1;
+	}
+	if (strcmp(option->type, "list") == 0) {
+		lua_newtable(L);
+		index = 1;
+		p = value;
+		while (p && *p) {
+			q = strchr(p, ',');
+			len = q ? (size_t)(q - p) : strlen(p);
+			lua_pushlstring(L, p, len);
+			lua_rawseti(L, -2, (lua_Integer)index++);
+			p = q ? q + 1 : NULL;
+		}
+		return 1;
+	}
+	lua_pushstring(L, value);
+	return 1;
+}
+
+static int
+add_project_option_from_lua(lua_State *L, const char *name, int table_index)
+{
+	struct qstar_lua_context *ctx;
+	struct qstar_graph *graph;
+	struct qstar_string_list choices;
+	struct qstar_project_option *option;
+	const char *type, *description;
+	char *value;
+	char origin_file[QSTAR_PATH_MAX];
+	int origin_line, value_rc;
+
+	if (table_index < 0)
+		table_index = lua_gettop(L) + table_index + 1;
+	ctx = get_context(L);
+	graph = ctx->graph;
+	if (reject_graph_declaration_in_module(L, "qstar.option") != 0)
+		return 1;
+	luaL_checktype(L, table_index, LUA_TTABLE);
+	type = check_string_field(L, table_index, "type");
+	if (!type)
+		return luaL_error(L, "qstar: qstar.option '%s' requires field 'type'",
+		    name ? name : "");
+	value = NULL;
+	value_rc = read_project_option_value(L, table_index, type, &value);
+	if (value_rc == -2)
+		return luaL_error(L, "qstar: out of memory");
+	if (value_rc < 0)
+		return luaL_error(L, "qstar: qstar.option '%s' requires a value matching type %s",
+		    name ? name : "", type);
+	memset(&choices, 0, sizeof(choices));
+	if (validate_project_option_fields(L, table_index, graph) < 0 ||
+	    read_list_field(L, table_index, "choices", &choices, graph, 0,
+	    ctx->current_dir) < 0) {
+		free(value);
+		qstar_string_list_free(&choices);
+		return luaL_error(L, "%s", graph->error);
+	}
+	description = check_string_field(L, table_index, "description");
+	current_origin(L, origin_file, sizeof(origin_file), &origin_line);
+	option = qstar_graph_add_project_option(graph, name, type, value, description,
+	    &choices, origin_file, origin_line);
+	free(value);
+	qstar_string_list_free(&choices);
+	if (!option)
+		return luaL_error(L, "%s", graph->error);
+	return push_project_option_result(L, option);
+}
+
+static int
+qstar_lua_option_finish(lua_State *L)
+{
+	const char *name;
+
+	name = lua_tostring(L, lua_upvalueindex(1));
+	return add_project_option_from_lua(L, name, 1);
+}
+
+static int
+qstar_lua_option(lua_State *L)
+{
+	const char *name;
+
+	name = luaL_checkstring(L, 1);
+	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
+		lua_pushstring(L, name);
+		lua_pushcclosure(L, qstar_lua_option_finish, 1);
+		return 1;
+	}
+	return add_project_option_from_lua(L, name, 2);
+}
+
 static int eval_fragment(lua_State *L, struct qstar_lua_context *ctx, const char *file,
     const char *fragment_dir);
 static int eval_module(lua_State *L, struct qstar_lua_context *ctx, const char *file,
@@ -8192,6 +8403,8 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "__call");
 	lua_setmetatable(L, -2);
 	lua_setfield(L, -2, "project");
+	lua_pushcfunction(L, qstar_lua_option);
+	lua_setfield(L, -2, "option");
 	lua_pushcfunction(L, qstar_lua_toolset);
 	lua_setfield(L, -2, "toolset");
 	lua_pushcfunction(L, qstar_lua_config);

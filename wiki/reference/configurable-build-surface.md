@@ -42,6 +42,13 @@ qstar -D arch=armv7m build //:app
 qstar -Darch=armv7m check //...
 ```
 
+규칙:
+
+- `-D name=value`와 `-Dname=value`를 모두 허용한다.
+- 선언되지 않은 option 이름은 error다.
+- 같은 option이 여러 번 들어오면 duplicate override error다.
+- 최종 option 값은 graph/cache identity에 포함된다.
+
 QStar builtin field:
 
 | 필드 | 필수 | 의미 |

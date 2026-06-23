@@ -1203,6 +1203,20 @@ package_alias_hash(const struct qstar_graph *graph)
 	return h;
 }
 
+static unsigned long long
+project_option_override_hash(const struct qstar_graph *graph)
+{
+	unsigned long long h;
+	size_t i;
+
+	h = QSTAR_STELLA_HASH_INIT;
+	for (i = 0; i < graph->project_option_override_len; i++) {
+		h = hash_string(h, graph->project_option_overrides[i].name);
+		h = hash_string(h, graph->project_option_overrides[i].value);
+	}
+	return h;
+}
+
 /** lowered action 하나를 actions.qsa에 기록한다. */
 static int
 write_cached_action(FILE *f, const struct qstar_cached_action *action)
@@ -1385,6 +1399,8 @@ write_manifest(const struct qstar_graph *graph, const char *path, const char *fi
 	json_string(f, cli_stdlib);
 	fprintf(f, ",\n  \"package_alias_hash\":\"%016llx\"",
 	    package_alias_hash(graph));
+	fprintf(f, ",\n  \"project_option_override_hash\":\"%016llx\"",
+	    project_option_override_hash(graph));
 	fprintf(f, ",\n  \"input_fingerprint\":\"%016llx\"", input_hash);
 	fprintf(f, ",\n  \"action_count\":%zu", action_count);
 	fprintf(f, ",\n  \"target_count\":%zu", graph->len);
@@ -1401,6 +1417,20 @@ same_package_alias_hash(const char *manifest, const struct qstar_graph *graph)
 
 	snprintf(expected, sizeof(expected), "%016llx", package_alias_hash(graph));
 	actual = json_get_string(manifest, "package_alias_hash");
+	ok = actual && strcmp(actual, expected) == 0;
+	free(actual);
+	return ok;
+}
+
+static int
+same_project_option_override_hash(const char *manifest, const struct qstar_graph *graph)
+{
+	char expected[32], *actual;
+	int ok;
+
+	snprintf(expected, sizeof(expected), "%016llx",
+	    project_option_override_hash(graph));
+	actual = json_get_string(manifest, "project_option_override_hash");
 	ok = actual && strcmp(actual, expected) == 0;
 	free(actual);
 	return ok;
@@ -1458,6 +1488,10 @@ manifest_matches(const char *manifest, const struct qstar_graph *graph, const ch
 	}
 	if (!same_package_alias_hash(manifest, graph)) {
 		set_reason(reason, reason_len, "package-alias-mismatch");
+		return 0;
+	}
+	if (!same_project_option_override_hash(manifest, graph)) {
+		set_reason(reason, reason_len, "project-option-override-mismatch");
 		return 0;
 	}
 	return 1;
