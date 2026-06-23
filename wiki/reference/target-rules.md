@@ -44,9 +44,10 @@ Artifact target은 `configs = {"//:common_c"}`로 reusable option bundle을 참�
 있다. Config merge 규칙은 [Reusable Configs](configs.md)에 둔다.
 
 `qstar.objectlib`는 archive/link final artifact를 만들지 않는 object collection target이다.
-현재 구현된 context는 `compile_context = "own"`이며, source는 objectlib 자신의
-configs/lang/toolset으로 한 번 compile된다. `compile_context = "consumer"`는 future
-value로 예약되어 있고 현재는 diagnostic으로 거부된다. Executable/staticlib/sharedlib/test는
+`compile_context = "own"`은 source를 objectlib 자신의 configs/lang/toolset으로 한 번
+compile한다. `compile_context = "consumer"`는 source ownership을 objectlib에 두고,
+각 consuming executable/staticlib/sharedlib/test의 effective configs/lang/toolset 안에서
+per-consumer object로 compile한다. Executable/staticlib/sharedlib/test는
 `objects = {"//:core_objects"}`로 objectlib를 소비한다. `qstar.target_file("//:core_objects")`
 는 objectlib에 primary artifact가 없기 때문에 error다.
 

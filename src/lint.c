@@ -323,6 +323,39 @@ target_pair_allows_shared_source(const struct qstar_graph *graph,
 	return 0;
 }
 
+/** objectlib가 consumer context에서 compile되는지 확인한다. */
+static int
+objectlib_uses_consumer_context(const struct qstar_target *objectlib)
+{
+	return objectlib && objectlib->compile_context &&
+	    strcmp(objectlib->compile_context, "consumer") == 0;
+}
+
+/** duplicate source lint용 effective source list를 수집한다. */
+static int
+collect_effective_lint_sources(struct qstar_graph *graph,
+    const struct qstar_target *target, struct qstar_string_list *sources)
+{
+	const struct qstar_target *objectlib;
+	size_t i, j;
+
+	for (i = 0; i < target->sources.len; i++) {
+		if (qstar_string_list_push(sources, target->sources.items[i]) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+	}
+	for (i = 0; i < target->objects.len; i++) {
+		objectlib = find_target(graph, target->objects.items[i]);
+		if (!objectlib || !objectlib_uses_consumer_context(objectlib))
+			continue;
+		for (j = 0; j < objectlib->sources.len; j++) {
+			if (qstar_string_list_push(sources,
+			    objectlib->sources.items[j]) < 0)
+				return qstar_set_error(graph, "qstar: out of memory");
+		}
+	}
+	return 0;
+}
+
 /** 기록된 evaluated fragment에 path가 포함되는지 검사한다. */
 static int
 fragment_was_evaluated(const struct qstar_graph *graph, const char *path)
@@ -518,17 +551,33 @@ lint_target_shape(struct qstar_graph *graph, const struct qstar_target *target,
 static int
 lint_duplicate_sources_across_targets(struct qstar_graph *graph, const char *label)
 {
+	struct qstar_string_list a_sources, b_sources;
 	size_t i, j, a, b;
+	int rc;
 
 	for (i = 0; i < graph->len; i++) {
 		for (j = i + 1; j < graph->len; j++) {
 			if (!target_in_scope(&graph->targets[i], label) &&
 			    !target_in_scope(&graph->targets[j], label))
 				continue;
-			for (a = 0; a < graph->targets[i].sources.len; a++) {
-				for (b = 0; b < graph->targets[j].sources.len; b++) {
-					if (strcmp(graph->targets[i].sources.items[a],
-					    graph->targets[j].sources.items[b]) != 0)
+			if (objectlib_uses_consumer_context(&graph->targets[i]) ||
+			    objectlib_uses_consumer_context(&graph->targets[j]))
+				continue;
+			memset(&a_sources, 0, sizeof(a_sources));
+			memset(&b_sources, 0, sizeof(b_sources));
+			rc = collect_effective_lint_sources(graph, &graph->targets[i],
+			    &a_sources) < 0 ||
+			    collect_effective_lint_sources(graph, &graph->targets[j],
+			    &b_sources) < 0 ? -1 : 0;
+			if (rc < 0) {
+				qstar_string_list_free(&a_sources);
+				qstar_string_list_free(&b_sources);
+				return -1;
+			}
+			for (a = 0; a < a_sources.len; a++) {
+				for (b = 0; b < b_sources.len; b++) {
+					if (strcmp(a_sources.items[a],
+					    b_sources.items[b]) != 0)
 						continue;
 					if (target_pair_allows_shared_source(graph,
 					    &graph->targets[i], &graph->targets[j]))
@@ -538,12 +587,17 @@ lint_duplicate_sources_across_targets(struct qstar_graph *graph, const char *lab
 					    graph->targets[j].origin_line, "sources",
 					    graph->targets[j].label,
 					    "source '%s' is used by both '%s' and '%s'",
-					    graph->targets[i].sources.items[a],
+					    a_sources.items[a],
 					    graph->targets[i].label,
-					    graph->targets[j].label) < 0)
+					    graph->targets[j].label) < 0) {
+						qstar_string_list_free(&a_sources);
+						qstar_string_list_free(&b_sources);
 						return -1;
+					}
 				}
 			}
+			qstar_string_list_free(&a_sources);
+			qstar_string_list_free(&b_sources);
 		}
 	}
 	return 0;

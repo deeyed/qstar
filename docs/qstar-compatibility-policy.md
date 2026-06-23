@@ -63,10 +63,12 @@ them as protected unless this document is updated first.
 
 - Artifact targets: `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`,
   and `qstar.test`.
-- Object collection targets: `qstar.objectlib` with `compile_context = "own"`
-  and artifact target consumption through `objects = {...}`. `compile_context =
-  "consumer"` remains reserved/beta and is rejected until its backend contract is
-  implemented.
+- Object collection targets: `qstar.objectlib` with `compile_context = "own"` or
+  `compile_context = "consumer"` and artifact target consumption through
+  `objects = {...}`. Consumer-context objectlibs compile source-owned leaf inputs
+  under each consuming target's effective configs/lang/toolset with per-consumer
+  object identity. Explicit provider source-token re-lowering remains outside
+  the stable promise; use raw provider source strings or `"own"` context there.
 - Utility rules: `qstar.group`, `qstar.stage`, and `qstar.target_family`.
 - Generated action rules: `qstar.configure_file`, `qstar.custom_target`, and
   `qstar.transform`.

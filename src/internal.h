@@ -260,9 +260,19 @@ void qstar_mangle_label(const char *label, char *dst, size_t dstlen);
 int qstar_graph_object_output_path(const struct qstar_graph *graph,
     const struct qstar_target *target, size_t index, char *dst, size_t dstlen);
 
+/** consumer-context objectlib compile object output path를 만든다. */
+int qstar_graph_consumer_object_output_path(const struct qstar_graph *graph,
+    const struct qstar_target *consumer, const struct qstar_target *objectlib,
+    size_t index, char *dst, size_t dstlen);
+
 /** compile depfile output path를 deterministic package-relative path로 만든다. */
 int qstar_graph_depfile_output_path(const struct qstar_graph *graph,
     const struct qstar_target *target, size_t index, char *dst, size_t dstlen);
+
+/** consumer-context objectlib compile depfile output path를 만든다. */
+int qstar_graph_consumer_depfile_output_path(const struct qstar_graph *graph,
+    const struct qstar_target *consumer, const struct qstar_target *objectlib,
+    size_t index, char *dst, size_t dstlen);
 
 /** target artifact output path를 deterministic package-relative path로 만든다. */
 int qstar_artifact_output_path(const struct qstar_target *target, char *dst, size_t dstlen);

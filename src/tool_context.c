@@ -258,6 +258,24 @@ qstar_graph_object_output_path(const struct qstar_graph *graph,
 	    qstar_graph_build_path(graph, sub, dst, dstlen) : -1;
 }
 
+/** consumer-context objectlib compile object output path를 만든다. */
+int
+qstar_graph_consumer_object_output_path(const struct qstar_graph *graph,
+    const struct qstar_target *consumer, const struct qstar_target *objectlib,
+    size_t index, char *dst, size_t dstlen)
+{
+	char consumer_owner[QSTAR_PATH_MAX], object_owner[QSTAR_PATH_MAX];
+	char sub[QSTAR_PATH_MAX];
+	int n;
+
+	qstar_mangle_label(consumer->label, consumer_owner, sizeof(consumer_owner));
+	qstar_mangle_label(objectlib->label, object_owner, sizeof(object_owner));
+	n = snprintf(sub, sizeof(sub), "out/%s/objects/%s/obj%zu.o",
+	    consumer_owner, object_owner, index);
+	return n >= 0 && (size_t)n < sizeof(sub) ?
+	    qstar_graph_build_path(graph, sub, dst, dstlen) : -1;
+}
+
 /** compile depfile output path를 deterministic package-relative path로 만든다. */
 int
 qstar_graph_depfile_output_path(const struct qstar_graph *graph,
@@ -268,6 +286,24 @@ qstar_graph_depfile_output_path(const struct qstar_graph *graph,
 
 	qstar_mangle_label(target->label, owner, sizeof(owner));
 	n = snprintf(sub, sizeof(sub), "out/%s/obj%zu.d", owner, index);
+	return n >= 0 && (size_t)n < sizeof(sub) ?
+	    qstar_graph_build_path(graph, sub, dst, dstlen) : -1;
+}
+
+/** consumer-context objectlib compile depfile output path를 만든다. */
+int
+qstar_graph_consumer_depfile_output_path(const struct qstar_graph *graph,
+    const struct qstar_target *consumer, const struct qstar_target *objectlib,
+    size_t index, char *dst, size_t dstlen)
+{
+	char consumer_owner[QSTAR_PATH_MAX], object_owner[QSTAR_PATH_MAX];
+	char sub[QSTAR_PATH_MAX];
+	int n;
+
+	qstar_mangle_label(consumer->label, consumer_owner, sizeof(consumer_owner));
+	qstar_mangle_label(objectlib->label, object_owner, sizeof(object_owner));
+	n = snprintf(sub, sizeof(sub), "out/%s/objects/%s/obj%zu.d",
+	    consumer_owner, object_owner, index);
 	return n >= 0 && (size_t)n < sizeof(sub) ?
 	    qstar_graph_build_path(graph, sub, dst, dstlen) : -1;
 }

@@ -613,6 +613,64 @@ plan_find_target(const struct qstar_graph *graph, const char *label)
 	return NULL;
 }
 
+/** objectlib가 consumer context에서 compile되는지 확인한다. */
+static int
+objectlib_uses_consumer_context(const struct qstar_target *objectlib)
+{
+	return objectlib && objectlib->compile_context &&
+	    strcmp(objectlib->compile_context, "consumer") == 0;
+}
+
+/** consumer target 안에서 objectlib source가 제공하는 object path를 계산한다. */
+static int
+objectlib_source_object_input(struct qstar_graph *graph,
+    const struct qstar_target *consumer, const struct qstar_target *objectlib,
+    size_t index, char *dst, size_t dstlen)
+{
+	struct qstar_source_info source;
+
+	if (qstar_target_source_classify(objectlib, index, &source) < 0)
+		return qstar_set_error(graph, "qstar: unsupported source '%s'",
+		    objectlib->sources.items[index]);
+	if (qstar_source_is_link_object(&source))
+		return snprintf(dst, dstlen, "%s", objectlib->sources.items[index]) <
+		    (int)dstlen ? 0 : -1;
+	if (objectlib_uses_consumer_context(objectlib))
+		return qstar_graph_consumer_object_output_path(graph, consumer, objectlib,
+		    index, dst, dstlen);
+	return qstar_graph_object_output_path(graph, objectlib, index, dst, dstlen);
+}
+
+/** consumer target 안에서 objectlib source의 depfile path를 계산한다. */
+static int
+objectlib_source_depfile_output(struct qstar_graph *graph,
+    const struct qstar_target *consumer, const struct qstar_target *objectlib,
+    size_t index, char *dst, size_t dstlen)
+{
+	if (objectlib_uses_consumer_context(objectlib))
+		return qstar_graph_consumer_depfile_output_path(graph, consumer, objectlib,
+		    index, dst, dstlen);
+	return qstar_graph_depfile_output_path(graph, objectlib, index, dst, dstlen);
+}
+
+/** consumer target 안에서 objectlib source compile action id index를 계산한다. */
+static size_t
+objectlib_consumer_compile_index(const struct qstar_graph *graph,
+    const struct qstar_target *consumer, size_t objectlib_list_index,
+    size_t source_index)
+{
+	const struct qstar_target *objectlib;
+	size_t i, index;
+
+	index = consumer->sources.len;
+	for (i = 0; i < objectlib_list_index; i++) {
+		objectlib = plan_find_target(graph, consumer->objects.items[i]);
+		if (objectlib)
+			index += objectlib->sources.len;
+	}
+	return index + source_index;
+}
+
 /** generated action input artifact edge를 explain/dry-run에 출력한다. */
 static void
 dump_genrule_input_edges(FILE *out, const struct qstar_graph *graph,
@@ -835,9 +893,10 @@ plan_argv_provider_template(FILE *out, struct qstar_argv_dump *dump,
 /** compile action의 실제 argv plan을 출력한다. */
 static void
 dump_compile_argv(FILE *out, const struct qstar_target *target,
-    const struct qstar_graph *graph,
+    const struct qstar_target *source_owner, const struct qstar_graph *graph,
     const struct qstar_resolved_toolchain *toolchain, const struct qstar_source_info *source,
-    const char *input, const char *output, size_t index)
+    const char *input, const char *output, size_t source_index, size_t action_index,
+    const char *depfile_override)
 {
 	const struct qstar_provider_source_unit *provider_unit;
 	char id[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], std_arg[128];
@@ -850,11 +909,15 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 
 	memset(&includes, 0, sizeof(includes));
 	collect_compile_include_dirs(graph, target, &includes);
-	snprintf(id, sizeof(id), "%s:compile:%zu", target->label, index);
-	qstar_graph_depfile_output_path(graph, target, index, depfile, sizeof(depfile));
+	snprintf(id, sizeof(id), "%s:compile:%zu", target->label, action_index);
+	if (depfile_override)
+		snprintf(depfile, sizeof(depfile), "%s", depfile_override);
+	else
+		qstar_graph_depfile_output_path(graph, target, source_index, depfile,
+		    sizeof(depfile));
 	is_asm = qstar_source_is_asm(source);
 	is_cxx = strcmp(source->provider, "cxx") == 0;
-	provider_unit = qstar_target_provider_source_unit(target, index);
+	provider_unit = qstar_target_provider_source_unit(source_owner, source_index);
 	provider_source = provider_unit != NULL;
 	wants_depfile = !provider_source &&
 	    (strcmp(source->provider, "c") == 0 || is_cxx ||
@@ -939,6 +1002,56 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	}
 	end_argv(out, &dump);
 	qstar_string_list_free(&includes);
+}
+
+/** consumer-context objectlib compile action을 command plan에 출력한다. */
+static int
+dump_consumer_objectlib_compile_plan(FILE *out, const struct qstar_plan *plan,
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain)
+{
+	const struct qstar_target *objectlib;
+	struct qstar_source_info source;
+	char output[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX];
+	char description[QSTAR_PATH_MAX];
+	size_t i, j, action_index;
+
+	for (i = 0; i < target->objects.len; i++) {
+		objectlib = plan_find_target(plan->graph, target->objects.items[i]);
+		if (!objectlib || !objectlib_uses_consumer_context(objectlib))
+			continue;
+		for (j = 0; j < objectlib->sources.len; j++) {
+			qstar_target_source_classify(objectlib, j, &source);
+			if (!qstar_source_requires_compile(&source))
+				continue;
+			if (objectlib_source_object_input(plan->graph, target, objectlib, j,
+			    output, sizeof(output)) < 0 ||
+			    objectlib_source_depfile_output(plan->graph, target, objectlib, j,
+			    depfile, sizeof(depfile)) < 0)
+				return qstar_set_error(plan->graph,
+				    "qstar: consumer objectlib path too long");
+			action_index = objectlib_consumer_compile_index(plan->graph, target,
+			    i, j);
+			snprintf(id, sizeof(id), "%s:compile:%zu", target->label,
+			    action_index);
+			if (qstar_action_description_compile(objectlib, &source, output,
+			    description, sizeof(description)) < 0)
+				snprintf(description, sizeof(description), "<too-long>");
+			dump_action_description(out, "  ", id, description);
+			fprintf(out,
+			    "  action compile source=%s source_owner=%s output=%s compile_context=consumer\n",
+			    objectlib->sources.items[j], objectlib->label, output);
+			dump_action_key(out, plan->graph, target, "compile",
+			    objectlib->sources.items[j], output, source.language,
+			    action_index);
+			dump_command_skeleton(out, plan->graph, target, "compile",
+			    objectlib->sources.items[j], output, source.language,
+			    source.tool_role, action_index);
+			dump_compile_argv(out, target, objectlib, plan->graph, toolchain,
+			    &source, objectlib->sources.items[j], output, j,
+			    action_index, depfile);
+		}
+	}
+	return 0;
 }
 
 /** MSVC target에서 clang-cl style driver가 link flag boundary를 필요로 하는지 본다. */
@@ -2046,7 +2159,8 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	if (dump_resolved_toolchain(out, plan, target, &toolchain) < 0)
 		return -1;
 	dump_effective_compile_merge(out, plan->graph, target, &toolchain);
-	for (i = 0; !qstar_target_has_provider_final_action(target) &&
+	for (i = 0; !objectlib_uses_consumer_context(target) &&
+	    !qstar_target_has_provider_final_action(target) &&
 	    i < target->sources.len; i++) {
 		qstar_target_source_classify(target, i, &source);
 		if (!qstar_source_requires_compile(&source)) {
@@ -2075,9 +2189,11 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 		    output, source.language, i);
 		dump_command_skeleton(out, plan->graph, target, "compile",
 		    target->sources.items[i], output, source.language, source.tool_role, i);
-		dump_compile_argv(out, target, plan->graph, &toolchain, &source,
-		    target->sources.items[i], output, i);
+		dump_compile_argv(out, target, target, plan->graph, &toolchain, &source,
+		    target->sources.items[i], output, i, i, NULL);
 	}
+	if (dump_consumer_objectlib_compile_plan(out, plan, target, &toolchain) < 0)
+		return -1;
 	if (strcmp(target->kind, "objectlib") == 0) {
 		snprintf(id, sizeof(id), "%s:compile-objects:0", target->label);
 		dump_progress_action_exclusion(out, "  ", target->label,
@@ -2217,7 +2333,8 @@ dump_dry_run_compiles(FILE *out, const struct qstar_plan *plan,
 
 	if (qstar_resolve_toolchain(plan->graph, target, &toolchain) < 0)
 		return -1;
-	for (i = 0; !qstar_target_has_provider_final_action(target) &&
+	for (i = 0; !objectlib_uses_consumer_context(target) &&
+	    !qstar_target_has_provider_final_action(target) &&
 	    i < target->sources.len; i++) {
 		qstar_target_source_classify(target, i, &source);
 		if (!qstar_source_requires_compile(&source)) {
@@ -2242,8 +2359,59 @@ dump_dry_run_compiles(FILE *out, const struct qstar_plan *plan,
 		    "tool=%s toolchain=%s input=%s output=%s execute=no\n",
 		    target->label, i, target->label, source.language, source.tool_role,
 		    toolchain.name, target->sources.items[i], output);
-		dump_compile_argv(out, target, plan->graph, &toolchain, &source,
-		    target->sources.items[i], output, i);
+		dump_compile_argv(out, target, target, plan->graph, &toolchain, &source,
+		    target->sources.items[i], output, i, i, NULL);
+	}
+	return 0;
+}
+
+/** consumer-context objectlib compile dry-run step을 출력한다. */
+static int
+dump_dry_run_consumer_objectlib_compiles(FILE *out, const struct qstar_plan *plan,
+    const struct qstar_target *target)
+{
+	const struct qstar_target *objectlib;
+	struct qstar_source_info source;
+	struct qstar_resolved_toolchain toolchain;
+	char output[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX];
+	char description[QSTAR_PATH_MAX];
+	size_t i, j, action_index;
+
+	if (qstar_resolve_toolchain(plan->graph, target, &toolchain) < 0)
+		return -1;
+	for (i = 0; i < target->objects.len; i++) {
+		objectlib = plan_find_target(plan->graph, target->objects.items[i]);
+		if (!objectlib || !objectlib_uses_consumer_context(objectlib))
+			continue;
+		for (j = 0; j < objectlib->sources.len; j++) {
+			qstar_target_source_classify(objectlib, j, &source);
+			if (!qstar_source_requires_compile(&source))
+				continue;
+			if (objectlib_source_object_input(plan->graph, target, objectlib, j,
+			    output, sizeof(output)) < 0 ||
+			    objectlib_source_depfile_output(plan->graph, target, objectlib, j,
+			    depfile, sizeof(depfile)) < 0)
+				return qstar_set_error(plan->graph,
+				    "qstar: consumer objectlib path too long");
+			action_index = objectlib_consumer_compile_index(plan->graph, target,
+			    i, j);
+			snprintf(id, sizeof(id), "%s:compile:%zu", target->label,
+			    action_index);
+			if (qstar_action_description_compile(objectlib, &source, output,
+			    description, sizeof(description)) < 0)
+				snprintf(description, sizeof(description), "<too-long>");
+			dump_action_description(out, "  ", id, description);
+			fprintf(out,
+			    "dry_run_step id=%s:compile:%zu owner=%s source_owner=%s "
+			    "kind=compile language=%s tool=%s toolchain=%s input=%s "
+			    "output=%s compile_context=consumer execute=no\n",
+			    target->label, action_index, target->label, objectlib->label,
+			    source.language, source.tool_role, toolchain.name,
+			    objectlib->sources.items[j], output);
+			dump_compile_argv(out, target, objectlib, plan->graph, &toolchain,
+			    &source, objectlib->sources.items[j], output, j,
+			    action_index, depfile);
+		}
 	}
 	return 0;
 }
@@ -2377,6 +2545,8 @@ qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out)
 		}
 		dump_dry_run_genrules(out, &plan, plan.order[i]);
 		if (dump_dry_run_compiles(out, &plan, plan.order[i]) < 0 ||
+		    dump_dry_run_consumer_objectlib_compiles(out, &plan,
+		    plan.order[i]) < 0 ||
 		    dump_dry_run_final(out, &plan, plan.order[i]) < 0) {
 			free_plan(&plan);
 			return -1;

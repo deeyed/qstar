@@ -139,8 +139,9 @@ QStar가 하지 않는 일:
   `docs/configurable-build-surface.md`와
   `wiki/reference/configurable-build-surface.md`다. 이 spec은 `qstar.option`,
   CLI `-D name=value`, `qstar.variant`, custom triple branching,
-  `qstar.objectlib`, target `objects = {...}`, fragment-relative `./` paths,
-  nested `qstar.subdir`를 정의한다. `arch`, `triple`, `cpu`, `board`, `mode`,
+  `qstar.objectlib`의 `compile_context = "own" | "consumer"`, target
+  `objects = {...}`, fragment-relative `./` paths, nested `qstar.subdir`를
+  정의한다. `arch`, `triple`, `cpu`, `board`, `mode`,
   `runtime`처럼 project마다 의미가 달라질 수 있는 vocabulary는 QStar builtin schema가
   아니라 project option name 또는 `qstar.variant.values` 아래의 free-form user
   metadata로만 쓸 수 있다. QStar core must not auto-inject compiler/linker argv from

@@ -17,9 +17,11 @@ v1 promise: candidate surface defined, v1 release gate still required
 
 - `qstar.project`, `qstar.toolset`, `qstar.config`
 - `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`, `qstar.test`
-- `qstar.objectlib`의 `compile_context = "own"` object collection과 artifact
-  target의 `objects = {...}` 소비. `compile_context = "consumer"`는 아직
-  reserved/beta 값으로 남긴다.
+- `qstar.objectlib`의 `compile_context = "own" | "consumer"` object collection과
+  artifact target의 `objects = {...}` 소비. Consumer-context objectlib는 source-owned
+  leaf input을 각 consuming target의 effective configs/lang/toolset으로 per-consumer
+  object에 compile한다. Explicit provider source-token 재-lowering은 stable 약속 밖에
+  두고, raw provider source string 또는 `"own"` context를 사용한다.
 - `qstar.custom_target`, `qstar.transform`, `qstar.configure_file`
 - `qstar.run_target`, `qstar.group`, `qstar.stage`, `qstar.target_family`
 - `qstar.command`, `qstar.step.*`, `qstar.param.*`, bool argv helper

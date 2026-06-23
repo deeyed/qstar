@@ -561,13 +561,9 @@ validate_objectlib_target(struct qstar_graph *graph, const struct qstar_target *
 			    target->label, target->kind);
 		return 0;
 	}
-	if (!target->compile_context || strcmp(target->compile_context, "own") == 0)
+	if (!target->compile_context || strcmp(target->compile_context, "own") == 0 ||
+	    strcmp(target->compile_context, "consumer") == 0)
 		;
-	else if (strcmp(target->compile_context, "consumer") == 0)
-		return qstar_set_error_origin(graph, target->origin_file,
-		    target->origin_line, "compile_context", target->label,
-		    "qstar: objectlib '%s' compile_context = \"consumer\" is reserved but not implemented; use compile_context = \"own\"",
-		    target->label);
 	else
 		return qstar_set_error_origin(graph, target->origin_file,
 		    target->origin_line, "compile_context", target->label,
@@ -625,12 +621,6 @@ validate_object_consumers(struct qstar_graph *graph, const struct qstar_target *
 			    target->origin_line, "objects", target->label,
 			    "qstar: object library '%s' is not visible to '%s'",
 			    label, target->label);
-		if (objectlib->compile_context &&
-		    strcmp(objectlib->compile_context, "own") != 0)
-			return qstar_set_error_origin(graph, target->origin_file,
-			    target->origin_line, "objects", target->label,
-			    "qstar: target '%s' can consume only own-context objectlib '%s'",
-			    target->label, label);
 	}
 	return 0;
 }

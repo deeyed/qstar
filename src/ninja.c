@@ -369,25 +369,29 @@ collect_compile_include_dirs(const struct qstar_graph *graph, const struct qstar
 
 /** Ninja backend가 처리할 수 있는 compile source인지 검증한다. */
 static int
-validate_ninja_compile_source(struct qstar_graph *graph, const struct qstar_target *target,
+validate_ninja_compile_source(struct qstar_graph *graph,
+    const struct qstar_target *source_owner,
     const struct qstar_source_info *source, size_t index)
 {
 	if (source->header_input)
-		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-		    "sources", target->label,
+		return qstar_set_error_origin(graph, source_owner->origin_file,
+		    source_owner->origin_line,
+		    "sources", source_owner->label,
 		    "qstar: header source '%s' must be listed as lang.*.public_headers/private_headers",
-		    target->sources.items[index]);
+		    source_owner->sources.items[index]);
 	if (qstar_source_is_cxx_module(source))
-		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-		    "sources", target->label,
+		return qstar_set_error_origin(graph, source_owner->origin_file,
+		    source_owner->origin_line,
+		    "sources", source_owner->label,
 		    "qstar: ninja backend MVP does not support C++ module source '%s'",
-		    target->sources.items[index]);
+		    source_owner->sources.items[index]);
 	if (!qstar_graph_language_provider_is_available(graph, source->provider) ||
 	    !qstar_source_toolset_role(source)[0])
-		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-		    "sources", target->label,
+		return qstar_set_error_origin(graph, source_owner->origin_file,
+		    source_owner->origin_line,
+		    "sources", source_owner->label,
 		    "qstar: ninja backend MVP does not support source '%s' with language '%s'",
-		    target->sources.items[index], source->language);
+		    source_owner->sources.items[index], source->language);
 	return 0;
 }
 
@@ -408,7 +412,65 @@ target_source_object_input(struct qstar_graph *graph, const struct qstar_target 
 	return qstar_graph_object_output_path(graph, target, index, dst, dstlen);
 }
 
-/** own-context objectlib의 object 입력을 Ninja argv에 추가한다. */
+/** objectlib가 consumer context에서 compile되는지 확인한다. */
+static int
+objectlib_uses_consumer_context(const struct qstar_target *objectlib)
+{
+	return objectlib && objectlib->compile_context &&
+	    strcmp(objectlib->compile_context, "consumer") == 0;
+}
+
+/** consumer target 안에서 objectlib source가 제공하는 object path를 계산한다. */
+static int
+objectlib_source_object_input(struct qstar_graph *graph,
+    const struct qstar_target *consumer, const struct qstar_target *objectlib,
+    size_t index, char *dst, size_t dstlen)
+{
+	struct qstar_source_info source;
+
+	if (qstar_target_source_classify(objectlib, index, &source) < 0)
+		return qstar_set_error(graph, "qstar: unsupported source '%s'",
+		    objectlib->sources.items[index]);
+	if (qstar_source_is_link_object(&source))
+		return snprintf(dst, dstlen, "%s", objectlib->sources.items[index]) <
+		    (int)dstlen ? 0 : -1;
+	if (objectlib_uses_consumer_context(objectlib))
+		return qstar_graph_consumer_object_output_path(graph, consumer, objectlib,
+		    index, dst, dstlen);
+	return qstar_graph_object_output_path(graph, objectlib, index, dst, dstlen);
+}
+
+/** consumer target 안에서 objectlib source의 depfile path를 계산한다. */
+static int
+objectlib_source_depfile_output(struct qstar_graph *graph,
+    const struct qstar_target *consumer, const struct qstar_target *objectlib,
+    size_t index, char *dst, size_t dstlen)
+{
+	if (objectlib_uses_consumer_context(objectlib))
+		return qstar_graph_consumer_depfile_output_path(graph, consumer, objectlib,
+		    index, dst, dstlen);
+	return qstar_graph_depfile_output_path(graph, objectlib, index, dst, dstlen);
+}
+
+/** consumer target 안에서 objectlib source compile action id index를 계산한다. */
+static size_t
+objectlib_consumer_compile_index(struct qstar_graph *graph,
+    const struct qstar_target *consumer, size_t objectlib_list_index,
+    size_t source_index)
+{
+	const struct qstar_target *objectlib;
+	size_t i, index;
+
+	index = consumer->sources.len;
+	for (i = 0; i < objectlib_list_index; i++) {
+		objectlib = find_target(graph, consumer->objects.items[i]);
+		if (objectlib)
+			index += objectlib->sources.len;
+	}
+	return index + source_index;
+}
+
+/** objectlib의 object 입력을 Ninja argv에 추가한다. */
 static int
 ninja_argv_push_objectlib_objects(struct qstar_graph *graph, struct ninja_argv *argv,
     const struct qstar_target *target)
@@ -424,7 +486,7 @@ ninja_argv_push_objectlib_objects(struct qstar_graph *graph, struct ninja_argv *
 			    "qstar: unknown objectlib '%s' referenced by '%s'",
 			    target->objects.items[i], target->label);
 		for (j = 0; j < objectlib->sources.len; j++) {
-			if (target_source_object_input(graph, objectlib, j, object,
+			if (objectlib_source_object_input(graph, target, objectlib, j, object,
 			    sizeof(object)) < 0)
 				return qstar_set_error(graph,
 				    "qstar: objectlib object path too long");
@@ -435,7 +497,7 @@ ninja_argv_push_objectlib_objects(struct qstar_graph *graph, struct ninja_argv *
 	return 0;
 }
 
-/** own-context objectlib의 object 입력을 Ninja edge input으로 출력한다. */
+/** objectlib의 object 입력을 Ninja edge input으로 출력한다. */
 static int
 write_objectlib_object_deps(struct qstar_graph *graph, FILE *f,
     const struct qstar_target *target)
@@ -451,7 +513,7 @@ write_objectlib_object_deps(struct qstar_graph *graph, FILE *f,
 			    "qstar: unknown objectlib '%s' referenced by '%s'",
 			    target->objects.items[i], target->label);
 		for (j = 0; j < objectlib->sources.len; j++) {
-			if (target_source_object_input(graph, objectlib, j, object,
+			if (objectlib_source_object_input(graph, target, objectlib, j, object,
 			    sizeof(object)) < 0)
 				return qstar_set_error(graph,
 				    "qstar: objectlib object path too long");
@@ -1924,9 +1986,10 @@ emit_consumed_genrules(struct qstar_graph *graph, struct ninja_ctx *ctx,
 
 /** compile action 하나를 Ninja edge와 compile_commands record로 lower한다. */
 static int
-emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
-    const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
-    size_t index)
+emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
+    const struct qstar_target *target, const struct qstar_target *source_owner,
+    const struct qstar_resolved_toolchain *toolchain, size_t index,
+    size_t action_index, const char *object_override, const char *depfile_override)
 {
 	struct qstar_source_info source;
 	const struct qstar_provider_source_unit *provider_unit;
@@ -1940,14 +2003,22 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	size_t i;
 
 	memset(&argv, 0, sizeof(argv));
-	qstar_target_source_classify(target, index, &source);
+	qstar_target_source_classify(source_owner, index, &source);
 	if (!qstar_source_requires_compile(&source))
 		return 0;
-	if (validate_ninja_compile_source(graph, target, &source, index) < 0)
+	if (validate_ninja_compile_source(graph, source_owner, &source, index) < 0)
 		return -1;
-	if (qstar_graph_object_output_path(graph, target, index, object, sizeof(object)) < 0 ||
-	    qstar_graph_depfile_output_path(graph, target, index, depfile, sizeof(depfile)) < 0 ||
-	    path_dirname(object, out_dir, sizeof(out_dir)) < 0)
+	if (object_override)
+		snprintf(object, sizeof(object), "%s", object_override);
+	else if (qstar_graph_object_output_path(graph, target, index, object,
+	    sizeof(object)) < 0)
+		return qstar_set_error(graph, "qstar: ninja object output path too long");
+	if (depfile_override)
+		snprintf(depfile, sizeof(depfile), "%s", depfile_override);
+	else if (qstar_graph_depfile_output_path(graph, target, index, depfile,
+	    sizeof(depfile)) < 0)
+		return qstar_set_error(graph, "qstar: ninja depfile output path too long");
+	if (path_dirname(object, out_dir, sizeof(out_dir)) < 0)
 		return qstar_set_error(graph, "qstar: ninja object output path too long");
 	if (mkdir_parent_under_root(graph, object) < 0 ||
 	    mkdir_parent_under_root(graph, depfile) < 0)
@@ -1957,12 +2028,20 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		return qstar_set_error(graph, "qstar: out of memory");
 	is_asm = qstar_source_is_asm(&source);
 	is_cxx = strcmp(source.provider, "cxx") == 0;
-	provider_unit = qstar_target_provider_source_unit(target, index);
+	provider_unit = qstar_target_provider_source_unit(source_owner, index);
+	if (provider_unit && source_owner != target) {
+		qstar_string_list_free(&includes);
+		return qstar_set_error_origin(graph, source_owner->origin_file,
+		    source_owner->origin_line, "sources", source_owner->label,
+		    "qstar: provider source token '%s' cannot be used from compile_context = \"consumer\" objectlib yet; use raw provider source strings or compile_context = \"own\"",
+		    source_owner->sources.items[index]);
+	}
 	provider_source = provider_unit != NULL;
 	wants_depfile = !provider_source &&
 	    (strcmp(source.provider, "c") == 0 || is_cxx ||
 	    qstar_source_uses_asm_preprocessor(target, &source));
-	snprintf(action_id, sizeof(action_id), "%s:compile:%zu", target->label, index);
+	snprintf(action_id, sizeof(action_id), "%s:compile:%zu", target->label,
+	    action_index);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s",
 	    target->cxx_standard ? target->cxx_standard : "");
 	if (provider_unit) {
@@ -1975,7 +2054,7 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		if (ninja_argv_push_provider_template(graph, &argv, target,
 		    toolchain, &provider_unit->action.argv) < 0)
 			goto fail;
-		if (qstar_action_description_compile(target, &source, object,
+		if (qstar_action_description_compile(source_owner, &source, object,
 		    description, sizeof(description)) < 0)
 			goto fail;
 		for (i = 0; i < provider_unit->action.outputs.len; i++) {
@@ -2014,7 +2093,7 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		fputc('\n', ctx->ninja);
 		fprintf(ctx->ninja, "  qstar_action_id = %s\n\n", action_id);
 		write_compile_command(ctx, graph->package_root ? graph->package_root : ".",
-		    target->sources.items[index], object, &argv);
+		    source_owner->sources.items[index], object, &argv);
 		ctx->edge_count++;
 		qstar_string_list_free(&includes);
 		ninja_argv_free(&argv);
@@ -2038,7 +2117,7 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	    "assembler-with-cpp" : "assembler") < 0))
 		goto fail;
 	if (ninja_argv_push(graph, &argv, "-c") < 0 ||
-	    ninja_argv_push(graph, &argv, target->sources.items[index]) < 0 ||
+	    ninja_argv_push(graph, &argv, source_owner->sources.items[index]) < 0 ||
 	    ninja_argv_push(graph, &argv, "-o") < 0 ||
 	    ninja_argv_push(graph, &argv, object) < 0)
 		goto fail;
@@ -2086,7 +2165,7 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		    ninja_argv_push(graph, &argv, target->system_include_dirs.items[i]) < 0)
 			goto fail;
 	}
-	if (qstar_action_description_compile(target, &source, object, description,
+	if (qstar_action_description_compile(source_owner, &source, object, description,
 	    sizeof(description)) < 0)
 		goto fail;
 	fprintf(ctx->ninja, "# qstar-action-id: %s\n", action_id);
@@ -2094,8 +2173,10 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	ninja_path(ctx->ninja, object);
 	fprintf(ctx->ninja, ": %s ", wants_depfile ? "qstar_compile" :
 	    "qstar_compile_nodep");
-	ninja_path(ctx->ninja, target->sources.items[index]);
+	ninja_path(ctx->ninja, source_owner->sources.items[index]);
 	write_header_inputs(ctx->ninja, target);
+	if (source_owner != target)
+		write_header_inputs(ctx->ninja, source_owner);
 	fputc('\n', ctx->ninja);
 	fputs("  command = ", ctx->ninja);
 	if (write_edge_command(graph, ctx, action_id, toolchain, &argv, description,
@@ -2114,7 +2195,7 @@ emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	fputc('\n', ctx->ninja);
 	fprintf(ctx->ninja, "  qstar_action_id = %s\n\n", action_id);
 	write_compile_command(ctx, graph->package_root ? graph->package_root : ".",
-	    target->sources.items[index], object, &argv);
+	    source_owner->sources.items[index], object, &argv);
 	ctx->edge_count++;
 	qstar_string_list_free(&includes);
 	ninja_argv_free(&argv);
@@ -2123,6 +2204,15 @@ fail:
 	qstar_string_list_free(&includes);
 	ninja_argv_free(&argv);
 	return -1;
+}
+
+static int
+emit_compile_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
+    size_t index)
+{
+	return emit_compile_edge_from_source(graph, ctx, target, target, toolchain,
+	    index, index, NULL, NULL);
 }
 
 /** target dependency labels를 Ninja order-only dependency alias로 출력한다. */
@@ -2679,6 +2769,39 @@ fail:
 	return -1;
 }
 
+/** consumer-context objectlib source를 소비 target의 compile context로 lower한다. */
+static int
+emit_consumer_objectlib_compile_edges(struct qstar_graph *graph, struct ninja_ctx *ctx,
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain)
+{
+	const struct qstar_target *objectlib;
+	struct qstar_source_info source;
+	char object[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX];
+	size_t i, j, action_index;
+
+	for (i = 0; i < target->objects.len; i++) {
+		objectlib = find_target(graph, target->objects.items[i]);
+		if (!objectlib || !objectlib_uses_consumer_context(objectlib))
+			continue;
+		for (j = 0; j < objectlib->sources.len; j++) {
+			qstar_target_source_classify(objectlib, j, &source);
+			if (!qstar_source_requires_compile(&source))
+				continue;
+			if (objectlib_source_object_input(graph, target, objectlib, j,
+			    object, sizeof(object)) < 0 ||
+			    objectlib_source_depfile_output(graph, target, objectlib, j,
+			    depfile, sizeof(depfile)) < 0)
+				return qstar_set_error(graph,
+				    "qstar: consumer objectlib path too long");
+			action_index = objectlib_consumer_compile_index(graph, target, i, j);
+			if (emit_compile_edge_from_source(graph, ctx, target, objectlib,
+			    toolchain, j, action_index, object, depfile) < 0)
+				return -1;
+		}
+	}
+	return 0;
+}
+
 static int
 emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain)
@@ -2946,7 +3069,8 @@ emit_objectlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	fputs("build ", ctx->ninja);
 	ninja_path(ctx->ninja, alias);
 	fputs(": phony", ctx->ninja);
-	for (i = 0; i < target->sources.len; i++) {
+	for (i = 0; !objectlib_uses_consumer_context(target) &&
+	    i < target->sources.len; i++) {
 		struct qstar_source_info source;
 
 		if (qstar_target_source_classify(target, i, &source) < 0)
@@ -3457,11 +3581,14 @@ emit_target(struct qstar_graph *graph, const struct qstar_target *target, size_t
 	if (emit_consumed_genrules(graph, ctx, target) < 0 ||
 	    emit_target_link_input_producers(graph, ctx, target) < 0)
 		return -1;
-	for (i = 0; !qstar_target_has_provider_final_action(target) &&
+	for (i = 0; !objectlib_uses_consumer_context(target) &&
+	    !qstar_target_has_provider_final_action(target) &&
 	    i < target->sources.len; i++) {
 		if (emit_compile_edge(graph, ctx, target, &toolchain, i) < 0)
 			return -1;
 	}
+	if (emit_consumer_objectlib_compile_edges(graph, ctx, target, &toolchain) < 0)
+		return -1;
 	if (qstar_target_has_provider_final_action(target))
 		return emit_provider_final_edge(graph, ctx, target, &toolchain) < 0 ?
 		    -1 : 0;

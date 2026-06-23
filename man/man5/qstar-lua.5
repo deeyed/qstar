@@ -136,7 +136,9 @@ field. Calling
 for an object library is an error. The implemented compile context is
 .Li own ;
 .Li consumer
-is reserved and currently rejected with a diagnostic.
+compiles the object library's source-owned inputs under each consuming artifact
+target's effective configs, language options, and toolset, using per-consumer
+object identities.
 .It Ic qstar.test
 Test executable target.
 .Pp

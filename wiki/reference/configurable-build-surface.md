@@ -202,18 +202,21 @@ QStar builtin field:
 | `configs` | no | Reusable config labels. |
 | `deps`, `public_deps`, `private_deps` | no | Dependency/usage edges. |
 | `lang` | no | Target-local `lang.<namespace>` tables. |
-| `toolset` | no | Explicit toolset label for `"own"` context. |
+| `toolset` | no | Explicit toolset label for `"own"` context. `"consumer"` context source는 consuming target의 effective toolset을 쓴다. |
 | `visibility` | no | Label visibility policy. |
 
 `compile_context` 값:
 
 | 값 | 의미 |
 | --- | --- |
-| `"own"` | Objectlib가 자기 context로 한 번 compile된다. Q266에서 구현된 현재 동작이다. |
-| `"consumer"` | 예약된 future value다. 현재는 diagnostic으로 거부된다. |
+| `"own"` | Objectlib가 자기 context로 한 번 compile된다. |
+| `"consumer"` | Objectlib는 source ownership만 갖고, consuming artifact target의 effective configs/lang/toolset으로 source가 per-consumer object로 compile된다. |
 
 `qstar.objectlib`는 generic하다. Built-in C/C++/ASM source, 활성화된 GLP raw source
-string, explicit provider source token, generated object output을 모두 처리해야 한다.
+string, `"own"` context의 explicit provider source token, generated object output을
+처리해야 한다. Provider helper가 이미 concrete action/output을 담는 explicit source token은
+현재 consumer-context 재-lowering 대상이 아니므로 raw source string이나 `"own"` context를
+사용한다.
 `cflags` 같은 C-specific field나 `domain_sources` 같은 domain-specific field를 늘리면
 안 된다.
 

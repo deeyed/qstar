@@ -348,10 +348,12 @@ qstar.group "all" {
 ```
 
 `qstar.objectlib` compiles or collects object files but has no final
-archive/link artifact. The implemented context is `compile_context = "own"`;
-`"consumer"` is reserved and currently rejected. Artifact targets consume
-object libraries through `objects = {...}`. `qstar.target_file("//:objects")`
-is an error for objectlib targets.
+archive/link artifact. `compile_context = "own"` compiles once under the
+objectlib context. `compile_context = "consumer"` keeps source ownership in the
+objectlib but compiles each source under every consuming artifact target's
+effective configs/lang/toolset, with per-consumer object identities. Artifact
+targets consume object libraries through `objects = {...}`.
+`qstar.target_file("//:objects")` is an error for objectlib targets.
 
 `qstar.group` has no artifact and cannot be used with `qstar.target_file`.
 `qstar.target_file("//:label")` resolves to the target's primary artifact. A

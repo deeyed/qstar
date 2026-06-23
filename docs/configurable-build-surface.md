@@ -261,7 +261,7 @@ QStar builtin field:
 | `configs` | no | Reusable config label. |
 | `deps`, `public_deps`, `private_deps` | no | Artifact target과 같은 visibility vocabulary를 쓰는 dependency/usage edge. |
 | `lang` | no | Target-local `lang.<namespace>` option table. |
-| `toolset` | no | `"own"` context에서 쓰는 explicit toolset label. |
+| `toolset` | no | `"own"` context에서 쓰는 explicit toolset label. `"consumer"` context source는 consuming target의 effective toolset으로 compile된다. |
 | `visibility` | no | Label visibility policy. |
 
 금지 field:
@@ -285,24 +285,25 @@ QStar builtin field:
 
 | 값 | 의미 |
 | --- | --- |
-| `"own"` | Objectlib가 자기 configs, target-local lang option, toolset으로 한 번 compile된다. CMake `OBJECT` library에 가장 가깝고, Q266에서 구현된 현재 동작이다. |
-| `"consumer"` | 예약된 future value다. 현재는 명확한 diagnostic으로 거부된다. Leaf fragment가 source list를 소유하고 upper target이 platform/config를 소유하는 모델은 후속 라운드에서 다룬다. |
+| `"own"` | Objectlib가 자기 configs, target-local lang option, toolset으로 한 번 compile된다. CMake `OBJECT` library에 가장 가깝다. |
+| `"consumer"` | Objectlib는 source ownership만 갖고, 각 consuming artifact target의 effective configs/lang/toolset 안에서 별도 object로 compile된다. 같은 objectlib를 서로 다른 config의 target 둘이 소비하면 consumer label과 objectlib label을 포함한 서로 다른 object/cache identity를 가진다. |
 
 기본값은 `"own"`이다. 숨은 재compile을 줄이고 일반 object library 기대와 더 잘 맞기
-때문이다. CMake식 계층적 source ownership과 upper-level platform selection을 완전히
-원하는 경우에도 현재는 `compile_context = "own"`으로 시작하고, consumer-context
-recompile은 future surface로 둔다.
+때문이다. CMake식 계층적 source ownership과 upper-level platform selection이 필요하면
+`compile_context = "consumer"`를 명시한다.
 
-`"consumer"`가 나중에 열리더라도 C/C++ 전용이라는 뜻은 아니다. Built-in C/C++/ASM
-provider나 활성화된 외부 GLP provider가 object artifact를 emit할 수 있다면 같은 model을
-사용해야 한다.
+`"consumer"`는 C/C++ 전용이라는 뜻이 아니다. Built-in C/C++/ASM provider와 활성화된
+외부 GLP raw source string은 같은 model을 사용한다. 다만 `zig.object("./main.zig")`
+처럼 provider helper가 이미 concrete action/output을 담은 explicit provider source token은
+현재 consumer-context 재-lowering 대상이 아니다. 그런 source는 `compile_context = "own"`을
+쓰거나 raw source string으로 둔다.
 
 `qstar.objectlib`는 object artifact 개념이지 C 전용 문법이 아니다. 반드시 다음을 받을 수
 있어야 한다.
 
 - built-in `lang.c`, `lang.cxx`, `lang.asm` source
 - `"./main.zig"` 같은 활성화된 GLP raw source string
-- `zig.object("./main.zig")` 같은 explicit provider source token
+- `zig.object("./main.zig")` 같은 explicit provider source token (`"own"` context)
 - `qstar.output(path, {format = "object"})`로 선언된 generated object output
 
 QStar core는 `cflags`, `asmflags`, `domain_sources`, `platform_sources` 같은 field를
@@ -389,20 +390,15 @@ module은 pure table/function을 반환할 수 있지만 실제 source declarati
 | Nested `qstar.subdir` | CMake `add_subdirectory()` / Meson `subdir()` | 명시적 fragment hierarchy다. Implicit recursive globbing이 아니다. |
 | `"./path"` in fragment | Current source dir relative path | 명시적 fragment-relative path syntax다. |
 
-## 구현 체크리스트
+## 구현 상태
 
-- Graph-evaluation option registry를 추가한다.
-- Lua evaluation 전에 global `-D name=value`와 `-Dname=value`를 parse한다.
-- Builtin field validation을 가진 `qstar.option`을 추가한다.
-- `values` free metadata와 top-level free-form key rejection을 가진 `qstar.variant`를 추가한다.
-- `qstar.objectlib`를 추가한다.
-- Artifact target에 `objects` consumer field를 추가한다.
-- `compile_context = "own" | "consumer"` lowering을 추가한다.
-- Objectlib source classification이 built-in source registry와 GLP source registry를 모두
-  통과하게 한다.
-- Source/input/output/import/subdir 등 적용 가능한 context에서 explicit `./`
-  fragment-relative path resolution을 추가한다.
-- Nested `qstar.subdir`가 current authoring fragment 기준으로 resolve되게 한다.
-- 구현 후 docs/wiki/man/help/LSP/formatter/tests를 갱신한다.
+- Q263: graph-evaluation option registry, `qstar.option`, global `-D name=value`와
+  `-Dname=value` parsing.
+- Q264: `qstar.variant` with `values` free metadata와 top-level free-form key rejection.
+- Q265: nested `qstar.subdir`와 explicit `./` fragment-relative path resolution.
+- Q266: `qstar.objectlib`, artifact target `objects = {...}`, `compile_context = "own"`.
+- Q267: `compile_context = "consumer"` lowering, per-consumer object identity/cache key,
+  duplicate source lint와 `target_family allow_shared_sources` 상호작용.
+- 관련 docs/wiki/man/help/LSP/formatter/tests는 각 라운드에서 갱신한다.
 - Profile-era field와 domain-specific builtin vocabulary가 재등장하지 않도록 drift guard를
-  추가한다.
+  유지한다.

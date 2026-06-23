@@ -2161,6 +2161,159 @@ if command -v ninja >/dev/null 2>&1; then
 	fi
 	"$tmp/objectlib/build-ninja/out/___app/app$exe_suffix"
 fi
+
+step "objectlib consumer-context graph model" "objectlib-consumer"
+mkdir -p "$tmp/objectlib-consumer/src" "$tmp/objectlib-consumer-allow/src"
+cat > "$tmp/objectlib-consumer/src/value.c" <<'EOF'
+#ifndef QSTAR_OBJECTLIB_VALUE
+#error "QSTAR_OBJECTLIB_VALUE was not provided by the consumer context"
+#endif
+
+int qstar_objectlib_value(void) {
+  return QSTAR_OBJECTLIB_VALUE;
+}
+EOF
+cat > "$tmp/objectlib-consumer/src/main_one.c" <<'EOF'
+int qstar_objectlib_value(void);
+
+int main(void) {
+  return qstar_objectlib_value() == 11 ? 0 : 1;
+}
+EOF
+cat > "$tmp/objectlib-consumer/src/main_two.c" <<'EOF'
+int qstar_objectlib_value(void);
+
+int main(void) {
+  return qstar_objectlib_value() == 22 ? 0 : 1;
+}
+EOF
+cat > "$tmp/objectlib-consumer/qstar.lua" <<'EOF'
+qstar.project {
+  name = "objectlib-consumer",
+  root = ".",
+}
+
+qstar.config "value_one" {
+  lang = {
+    c = {
+      compile_options = {"-DQSTAR_OBJECTLIB_VALUE=11"},
+    },
+  },
+}
+
+qstar.config "value_two" {
+  lang = {
+    c = {
+      compile_options = {"-DQSTAR_OBJECTLIB_VALUE=22"},
+    },
+  },
+}
+
+qstar.objectlib "leaf" {
+  sources = {"src/value.c"},
+  compile_context = "consumer",
+}
+
+qstar.executable "one" {
+  configs = {"//:value_one"},
+  sources = {"src/main_one.c"},
+  objects = {"//:leaf"},
+}
+
+qstar.executable "two" {
+  configs = {"//:value_two"},
+  sources = {"src/main_two.c"},
+  objects = {"//:leaf"},
+}
+
+qstar.group "all" {
+  deps = {"//:one", "//:two"},
+}
+EOF
+if ! "$qstar" --file "$tmp/objectlib-consumer/qstar.lua" dry-run //:all > "$tmp/objectlib-consumer-dry.out" 2> "$tmp/objectlib-consumer-dry.err"; then
+	cat "$tmp/objectlib-consumer-dry.out" >&2
+	cat "$tmp/objectlib-consumer-dry.err" >&2
+	fail "objectlib consumer dry-run failed"
+fi
+contains "$tmp/objectlib-consumer-dry.out" "dry_run_step id=//:one:compile:1 owner=//:one source_owner=//:leaf"
+contains "$tmp/objectlib-consumer-dry.out" "dry_run_step id=//:two:compile:1 owner=//:two source_owner=//:leaf"
+contains "$tmp/objectlib-consumer-dry.out" "output=build/qstar/out/___one/objects/___leaf/obj0.o"
+contains "$tmp/objectlib-consumer-dry.out" "output=build/qstar/out/___two/objects/___leaf/obj0.o"
+if ! "$qstar" --file "$tmp/objectlib-consumer/qstar.lua" build //:all --progress off > "$tmp/objectlib-consumer-build.out" 2> "$tmp/objectlib-consumer-build.err"; then
+	cat "$tmp/objectlib-consumer-build.out" >&2
+	cat "$tmp/objectlib-consumer-build.err" >&2
+	fail "objectlib consumer Stella build failed"
+fi
+contains "$tmp/objectlib-consumer-build.out" "objectlib_target label=//:leaf sources=1 compile_context=consumer action=none artifact=<none>"
+contains "$tmp/objectlib-consumer-build.out" "status ok"
+test -f "$tmp/objectlib-consumer/build/qstar/out/___one/objects/___leaf/obj0.o" || fail "objectlib consumer one object missing"
+test -f "$tmp/objectlib-consumer/build/qstar/out/___two/objects/___leaf/obj0.o" || fail "objectlib consumer two object missing"
+"$tmp/objectlib-consumer/build/qstar/out/___one/one$exe_suffix"
+"$tmp/objectlib-consumer/build/qstar/out/___two/two$exe_suffix"
+if command -v ninja >/dev/null 2>&1; then
+	rm -rf "$tmp/objectlib-consumer/build-ninja"
+	if ! "$qstar" --file "$tmp/objectlib-consumer/qstar.lua" -G ninja -B build-ninja build //:all --progress off > "$tmp/objectlib-consumer-ninja.out" 2> "$tmp/objectlib-consumer-ninja.err"; then
+		cat "$tmp/objectlib-consumer-ninja.out" >&2
+		cat "$tmp/objectlib-consumer-ninja.err" >&2
+		fail "objectlib consumer Ninja build failed"
+	fi
+	contains "$tmp/objectlib-consumer-ninja.out" "status ok"
+	test -f "$tmp/objectlib-consumer/build-ninja/out/___one/objects/___leaf/obj0.o" || fail "objectlib consumer ninja one object missing"
+	test -f "$tmp/objectlib-consumer/build-ninja/out/___two/objects/___leaf/obj0.o" || fail "objectlib consumer ninja two object missing"
+	"$tmp/objectlib-consumer/build-ninja/out/___one/one$exe_suffix"
+	"$tmp/objectlib-consumer/build-ninja/out/___two/two$exe_suffix"
+fi
+if ! "$qstar" --file "$tmp/objectlib-consumer/qstar.lua" lint > "$tmp/objectlib-consumer-lint.out" 2> "$tmp/objectlib-consumer-lint.err"; then
+	cat "$tmp/objectlib-consumer-lint.out" >&2
+	cat "$tmp/objectlib-consumer-lint.err" >&2
+	fail "objectlib consumer lint failed"
+fi
+contains "$tmp/objectlib-consumer-lint.out" "QSTAR043"
+contains "$tmp/objectlib-consumer-lint.out" "used by both '//:one' and '//:two'"
+cp "$tmp/objectlib-consumer/src/value.c" "$tmp/objectlib-consumer-allow/src/value.c"
+cp "$tmp/objectlib-consumer/src/main_one.c" "$tmp/objectlib-consumer-allow/src/main_one.c"
+cp "$tmp/objectlib-consumer/src/main_two.c" "$tmp/objectlib-consumer-allow/src/main_two.c"
+cat > "$tmp/objectlib-consumer-allow/qstar.lua" <<'EOF'
+qstar.target_family "consumer_pair" {
+  targets = {"//:one", "//:two"},
+  allow_shared_sources = true,
+}
+
+qstar.config "value_one" {
+  lang = {
+    c = {
+      compile_options = {"-DQSTAR_OBJECTLIB_VALUE=11"},
+    },
+  },
+}
+
+qstar.config "value_two" {
+  lang = {
+    c = {
+      compile_options = {"-DQSTAR_OBJECTLIB_VALUE=22"},
+    },
+  },
+}
+
+qstar.objectlib "leaf" {
+  sources = {"src/value.c"},
+  compile_context = "consumer",
+}
+
+qstar.executable "one" {
+  configs = {"//:value_one"},
+  sources = {"src/main_one.c"},
+  objects = {"//:leaf"},
+}
+
+qstar.executable "two" {
+  configs = {"//:value_two"},
+  sources = {"src/main_two.c"},
+  objects = {"//:leaf"},
+}
+EOF
+"$qstar" --file "$tmp/objectlib-consumer-allow/qstar.lua" lint > "$tmp/objectlib-consumer-allow.out" 2> "$tmp/objectlib-consumer-allow.err"
+not_contains "$tmp/objectlib-consumer-allow.out" "QSTAR043"
 cat > "$tmp/objectlib-bad/src/core.c" <<'EOF'
 int value(void) {
   return 1;
