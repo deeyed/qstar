@@ -177,11 +177,12 @@ QStar가 하지 않는 일:
   artifact targets, generated actions, run/stage/group, root `qstar.command`,
   imports/modules, GLP consumer activation, command/workflow helpers, and authoring
   helpers로 묶는다. Provider-author API, Stella daemon, optional real compiler corpus,
-  performance numbers, debug state dump는 beta 또는 report-only surface다. v1 blocker는
-  Windows official GitHub Release asset/download smoke repetition, GLP provider-author
-  API freeze/versioning, daemon beta boundary, release matrix repetition, and package
-  manager out-of-core boundary다. Package resolver/registry/lockfile/fetch policy는
-  v1에서도 QStar core 밖이다.
+  performance numbers, debug state dump는 beta 또는 report-only surface다. Q257 기준
+  provider-author API는 `qstar.lang/1` versioned beta contract로 남기며, future provider
+  manifest API는 추측 실행하지 않고 reject한다. v1 blocker는 Windows official GitHub
+  Release asset/download smoke repetition, daemon beta boundary, release matrix repetition,
+  and package manager out-of-core boundary다. Package resolver/registry/lockfile/fetch
+  policy는 v1에서도 QStar core 밖이다.
 - 0.6 beta release 판단과 `0.6.1-beta` public prerelease line은
   `docs/qstar-v0.6-readiness.md`에 둔다. 이 문서는 daemon beta opt-in, self-host,
   Stella/Ninja benchmark, Linux x86_64 beta asset, Windows status, package smoke,

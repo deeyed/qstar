@@ -93,6 +93,10 @@ them as protected unless this document is updated first.
   path for source-local options and suffix collisions.
 - `qstar init --use-language=...` can vendor installed standard providers into a
   project-local `qstar/languages` tree.
+- Standard provider consumer contracts for bundled `zig`, `rust`, and `cuda`
+  include their short ids, namespaces, documented helper exports, documented
+  option schemas, raw source suffix classification, and provider vendoring
+  behavior.
 
 This section is the consumer-facing GLP promise. The provider-author API is a
 separate beta surface until the checklist below is completed.
@@ -144,9 +148,9 @@ later round explicitly promotes them.
 
 | Surface | Current boundary |
 | --- | --- |
-| Provider-author API | `qstar.language_provider`, `qstar.provider_tools`, `qstar.language_options`, `qstar.source`, `qstar.argv`, provider sandbox capability, lowering result schema, provider scaffold schema, and provider implementation loading remain beta until the GLP provider-author checklist is frozen or versioned. |
-| Standard provider internals | Bundled Zig, Rust, and CUDA providers are available to users, but provider implementation details may change as long as documented consumer syntax and options remain compatible. |
-| Provider final-action lowering internals | Consumer behavior is a stable candidate; provider-author lowering hooks remain beta until versioned. |
+| Provider-author API | `qstar.language_provider { api = "qstar.lang/1" }`, manifest fields `id`, `version`, `namespace`, `implementation`, `tools`, `units`, `finals`, `options`, `exports`, `scaffold`, implementation helpers `qstar.provider_tools`, `qstar.language_options`, `qstar.source`, `qstar.argv`, provider sandbox capability, lowering result fields `command`, `env`, `inputs`, `outputs`, `depfile`, scaffold schema, and provider implementation loading remain a versioned beta contract. Unknown/future manifest APIs are rejected instead of guessed. |
+| Standard provider internals | Bundled Zig, Rust, and CUDA provider ids, namespaces, documented helper exports, option schemas, raw source classification, final-action availability, and init vendoring behavior are consumer-facing stable candidates. Their `provider.lua` implementation details, exact compiler argv construction, cache layout, and future language-tool integration choices remain beta. |
+| Provider final-action lowering internals | Consumer behavior is a stable candidate; provider-author lowering hooks and result schema remain beta until versioned or frozen. |
 | Stella daemon | The daemon is beta opt-in, not default behavior. Socket protocol, watcher internals, read API shape, and Windows named pipe support are not v1 stable. |
 | Optional real compiler corpus | Real Rust/Zig compiler validation is useful evidence, but it is optional and skipped when compilers are unavailable. |
 | Hosted manual validation lanes | GitHub Actions workflow names and artifact layouts are release evidence contracts, not general user authoring syntax. |

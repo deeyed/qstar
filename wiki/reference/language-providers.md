@@ -18,6 +18,28 @@ action template을 consuming target 소유 object artifact 또는 provider-owned
 갖지 않는 경우 QStar는 C-style linker/archive action 대신 provider final action을 선택한다.
 외부 compiler 호출을 직접 손으로 제어해야 하는 경우에는 object artifact bridge를 계속 쓴다.
 
+## Stability Boundary
+
+Q257 기준 GLP는 consumer surface와 provider-author surface를 분리한다.
+
+| Layer | 현재 상태 | 의미 |
+| --- | --- | --- |
+| Consumer surface | v1 stable 후보 | `qstar.use_language`, `lang.<namespace>`, provider helper export, raw provider source classification, provider final artifact selection, `qstar init --use-language` vendoring은 사용자가 쓰는 표면이다. |
+| Provider-author API | versioned beta | `qstar.language_provider`, `qstar.provider_tools`, `qstar.language_options`, `qstar.source`, `qstar.argv`, provider sandbox, manifest schema, scaffold schema, lowering result schema는 provider 작성자가 의존하는 표면이며 아직 v1 stable이 아니다. |
+
+현재 QStar가 받는 provider manifest version은 `api = "qstar.lang/1"`뿐이다. 미래
+version을 추측해서 실행하지 않으며, 예를 들어 `api = "qstar.lang/999"`는 다음
+diagnostic으로 거절된다.
+
+```txt
+qstar: language provider api must be "qstar.lang/1"
+```
+
+표준 `zig`, `rust`, `cuda` provider의 short id, namespace, documented helper,
+documented option schema, raw source classification, init vendoring behavior는
+consumer-facing stable 후보로 취급한다. 반면 각 provider의 `provider.lua` 내부 argv 구성,
+cache layout, lowering hook 구현은 beta다.
+
 ## Provider Activation
 
 QStar는 표준 Zig/Rust/CUDA provider를 설치물에 함께 포함한다. 따라서 일반 사용자는 provider
@@ -61,6 +83,32 @@ local zig = qstar.use_language("zig")
 검증한다.
 `provider.lua`는 별도의 제한 sandbox에서 로드되는 implementation이다. Provider 작성자 API와
 사용자 API는 `exports` table로 분리된다.
+
+Manifest field boundary:
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `api` | yes | 현재는 정확히 `"qstar.lang/1"`만 허용한다. |
+| `id` | yes | Short id. `qstar.use_language("id")`와 provider vendoring에 쓰인다. |
+| `version` | yes | Provider package version string. Resolver 의미론은 없다. |
+| `namespace` | yes | `lang.<namespace>`와 `tools.<namespace>`에 쓰이는 namespace. |
+| `implementation` | yes | package-relative `provider.lua` path. |
+| `tools` | no | Provider tool roles such as `compiler = {role = "zig.compiler", required = true}`. |
+| `units` | no | Source unit suffix, output kind, lowering function, depfile policy. |
+| `finals` | no | Provider-owned `executable`, `staticlib`, `sharedlib` final action hooks. |
+| `options` | no | `lang.<namespace>` option schema. |
+| `exports` | yes | User-visible helper name -> implementation field map. |
+| `scaffold` | no | Optional `qstar.scaffold/1` init metadata. |
+
+Provider implementation lowering result boundary:
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `command` | yes | `qstar.argv()` result. Shell string은 허용하지 않는다. |
+| `env` | no | `"NAME=value"` list. 실행에는 실제 값이 전달되고 action-log/replay에는 redacted된다. |
+| `inputs` | no | Action key와 backend dependency edge에 들어갈 추가 input. |
+| `outputs` | no | Primary object/final artifact 외 추가 output. |
+| `depfile` | no | Make-style depfile path. Stella/Ninja가 같은 contract로 소비한다. |
 
 ```lua
 return qstar.language_provider {
@@ -213,6 +261,11 @@ implementation field만 `qstar.use_language(...)`의 반환 table에 노출한�
 manifest에서는 사용자 코드가 `zig.tools`, `zig.options`, `zig.object`를 볼 수 있다. `options` schema는
 `string`, `bool`/`boolean`, `list`, `enum` 타입과 `default` metadata를 지원한다. 사용자가
 `lang.zig`에 schema에 없는 key를 쓰거나 타입이 맞지 않는 값을 넣으면 diagnostic이 난다.
+
+Provider-author API는 beta이므로, provider package를 배포하는 작성자는
+`docs/language-provider-backend-contract.md`와 `docs/qstar-compatibility-policy.md`의 Q257
+boundary를 함께 봐야 한다. 일반 project 사용자는 provider manifest나 `provider.lua` 구현을 직접
+다루지 않고 `qstar.use_language`가 반환한 helper만 사용한다.
 
 `qstar.import_module(...)`로 provider를 조용히 등록할 수 없다. 일반 helper `.qsm` 평가 중
 `qstar.use_language(...)`를 호출하는 것도 금지된다. Provider manifest 안에서 다른 provider
@@ -498,6 +551,7 @@ qstar --file qstar.lua -G ninja build //:app
 
 - `activate a language provider with qstar.use_language(...) before listing this source`
 - `qstar.output(..., {format = "object"})`
+- `qstar: language provider api must be "qstar.lang/1"`
 - `qstar: unknown language namespace lang.zig`
 - `qstar: unknown field lang.zig.<option>`
 - `qstar: lang.zig.<option> has unsupported enum value '...'`

@@ -21,6 +21,8 @@ and GLP activation syntax are stable-at-v1 candidates. Provider-author APIs,
 daemon protocol details, optional real-compiler validation lanes, performance
 snapshots, and internal debug state remain beta or report-only unless promoted
 by that policy.
+For GLP, Q257 keeps the consumer surface as a v1 stable candidate while
+classifying the provider-author API as a versioned beta contract.
 .Pp
 The main entrypoints are:
 .Bl -tag -width "qstar.custom_target"
@@ -72,7 +74,8 @@ into provider-owned object actions.
 Explicit provider helpers remain useful for source-local options or suffix
 collision disambiguation.
 .It Ic qstar.language_provider
-Declare a provider manifest. This API is valid only inside provider
+Declare a provider manifest. This provider-author API is beta and is valid only
+inside provider
 .Pa .qsm
 manifests, must use
 .Li api = "qstar.lang/1" ,
@@ -90,6 +93,10 @@ When a primary provider shape is available,
 materializes its files, targets, fragments, default tools, and default
 options. Scaffold file and fragment paths must be package-relative; command,
 script, fetch, network, and absolute-path surfaces are not part of the schema.
+Future provider manifest versions are rejected instead of guessed; a manifest
+that does not use
+.Li qstar.lang/1
+fails with the language-provider API diagnostic.
 .It Ic qstar.config
 Reusable target option bundle referenced by target
 .Ic configs
@@ -439,6 +446,36 @@ tools, and default options consumed by
 when that provider is the primary init language. Provider implementations build lowered action argv vectors with
 .Ic qstar.argv
 inside the restricted provider sandbox.
+The author-facing manifest fields
+.Ic id ,
+.Ic version ,
+.Ic namespace ,
+.Ic implementation ,
+.Ic tools ,
+.Ic units ,
+.Ic finals ,
+.Ic options ,
+.Ic exports ,
+and
+.Ic scaffold ,
+plus lowered action result fields
+.Ic command ,
+.Ic env ,
+.Ic inputs ,
+.Ic outputs ,
+and
+.Ic depfile ,
+are documented in
+.Pa docs/language-provider-backend-contract.md
+but remain beta until the provider-author contract is frozen or versioned.
+The bundled
+.Li zig ,
+.Li rust ,
+and
+.Li cuda
+provider ids, namespaces, documented helper exports, documented options, source
+classification behavior, and init vendoring behavior are consumer-facing stable
+candidates; their implementation details remain beta.
 .Sh CONSTANTS
 .Nm
 provides constants such as

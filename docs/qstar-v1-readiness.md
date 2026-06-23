@@ -28,8 +28,8 @@ candidate lane까지 들어왔다.
   Windows asset과 downloaded-asset smoke는 Q253 opt-in publication gate가 green으로 남긴
   evidence가 있을 때만 조건부 해소된다.
 - daemon은 documented beta opt-in이며, default-on이나 stable protocol promise가 아니다.
-- GLP consumer surface는 강해졌지만, provider-author API와 standard provider compatibility
-  policy는 v1 stable 약속으로 봉인되지 않았다.
+- GLP consumer surface와 standard provider consumer contract는 stable 후보로 정리됐고,
+  provider-author API는 `qstar.lang/1` versioned beta contract로 남겨졌다.
 - package manager, registry, lockfile, fetch policy는 계속 QStar core 밖에 둔다는 경계를
   v1 문서와 release note에서 반복 확인해야 한다.
 - 성능 수치는 release input/report-only다. v1은 "항상 Ninja보다 빠름" 같은 마케팅 문구를
@@ -220,12 +220,40 @@ Daemon can become stable only when all conditions hold:
 Until then, daemon docs must keep the words beta opt-in and must not imply v1
 stable/default behavior.
 
-## GLP Stable Provider API Conditions
+## GLP Provider API Boundary
 
 GLP already makes external languages feel close to built-in C/C++/ASM from the
-user side. For v1, the remaining question is provider-author stability.
+user side. Q257 resolves the provider-author question by keeping provider
+authoring in the versioned beta bucket while preserving consumer-facing GLP as a
+v1 stable candidate.
 
-GLP can be called stable only when:
+Consumer-facing v1 candidates:
+
+- `qstar.use_language`
+- `lang.<namespace>` validated option tables
+- provider helper exports such as `zig.tools`, `zig.options`, `zig.object`
+- raw source classification through activated provider source suffixes
+- provider final artifact selection for pure provider targets
+- `qstar init --use-language` vendoring from installed standard providers
+- standard `zig`, `rust`, and `cuda` short ids, namespaces, documented options,
+  helper exports, and source suffixes
+
+Provider-author beta surface:
+
+- `qstar.language_provider { api = "qstar.lang/1", ... }`
+- manifest fields `id`, `version`, `namespace`, `implementation`, `tools`,
+  `units`, `finals`, `options`, `exports`, `scaffold`
+- implementation helpers `qstar.provider_tools`, `qstar.language_options`,
+  `qstar.source`, `qstar.argv`
+- provider implementation sandbox capabilities
+- lowering result fields `command`, `env`, `inputs`, `outputs`, `depfile`
+- `qstar.scaffold/1` provider scaffold metadata
+
+QStar accepts only `api = "qstar.lang/1"` today. Future provider manifest API
+versions are rejected instead of guessed, and must be introduced by a separate
+versioned design.
+
+Provider-author API can become stable in a later release only when:
 
 - `qstar.language_provider { api = "qstar.lang/1", ... }` has a frozen manifest
   schema or a documented version negotiation story.
@@ -245,10 +273,6 @@ GLP can be called stable only when:
   fallback warnings.
 - There is a compatibility policy for installed standard provider bundles and
   project-local provider override behavior.
-
-Consumer-facing `qstar.use_language`, `lang.<namespace>`, raw source
-classification, and provider helpers may be treated as v1 candidates. Provider
-authoring should remain beta until the above checklist is sealed.
 
 ## Package Manager Boundary
 
@@ -302,7 +326,6 @@ QStar can start a v1 release candidate only when this checklist is true:
 | --- | --- | --- |
 | Windows official artifact | v1 promises all three OSes. This blocker has v0.7.19-beta evidence, but must be repeated on the next beta/RC tag and again on the final v1 candidate tag. | Q254 evidence exists: `windows-validation.yml` run 27935992747 published the Windows zip and produced `windows-hosted-release-decision.txt` with `windows_release_asset status=published` and `download_smoke=ok`. Repeat the same release-mutating gate with `publish_windows_asset=true`; a non-publishing freshness run is not enough. |
 | Stable compatibility policy enforcement | Q256 defines the promise, but v1 must keep it synced across every public reference and release note. | `docs/qstar-compatibility-policy.md` is the canonical policy. Keep README/wiki/man/AI index links and smoke guards green through the v1 release branch. |
-| GLP provider-author stability | External language authors need a stable manifest/lowering contract. | Freeze or version `qstar.lang/1`, provider sandbox, lowering result, and provider scaffold contracts. |
 | Daemon boundary | daemon is beta opt-in and not default/stable. | Keep daemon beta in v1 docs, or finish separate stable daemon gate. |
 | Release matrix repetition | One fresh run is not enough for v1 confidence. | Repeat macOS/Linux/Windows release gates on final release branch/tag. |
 | Package manager boundary | Users may expect dependency resolution if not explicit. | Keep registry/resolver/lockfile/fetch policy out-of-core in docs and release notes. |
@@ -313,6 +336,8 @@ These are allowed to remain outside v1 if documented:
 
 - daemon default-on behavior
 - remote daemon access
+- provider-author API stable promotion, because Q257 leaves `qstar.lang/1` in the
+  documented beta bucket while keeping consumer GLP as a stable candidate
 - Windows PDB/debug artifact ownership
 - MSVC bootstrap lane, if GCC/MSYS2 is the official Windows v1 compiler lane
 - package manager, registry, lockfile, fetch

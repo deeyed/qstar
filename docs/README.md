@@ -57,7 +57,9 @@ Important documents:
 - `pipeline.md`: current evaluation/build pipeline notes.
 - `rule-model.md`: target rule and link model notes.
 - `ninja-backend-parity.md`: Ninja lowering parity contract.
-- `language-provider-backend-contract.md`: external object artifact bridge boundary.
+- `language-provider-backend-contract.md`: GLP backend contract, Q257
+  provider-author versioned beta boundary, standard provider compatibility
+  promise, and Stella/Ninja lowering contract.
 - `zig-provider.md`: standard Zig provider options, final artifact lowering,
   cache behavior, macOS target ergonomics, and real Zig staticlib/executable fixtures.
 - `rust-provider.md`: standard Rust provider options, final artifact lowering,
