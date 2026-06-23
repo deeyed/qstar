@@ -164,9 +164,11 @@ qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --stop
 
 The read API is intended for IDE/AI tooling and currently exposes `hello`,
 `workspace.info`, `targets.list`, `diagnostics.list`, `compile_commands.path`,
-and `build.summary`. Socket, pid, and lock files are local-only and owner-only;
-package/build identity mismatches are rejected instead of hidden by fallback.
-Windows named pipe support remains deferred.
+and `build.summary`. This read API is beta, not a stable machine-readable v1
+contract, and not a remote API. Socket, pid, and lock files are local-only and
+owner-only; package/build identity mismatches are rejected instead of hidden by
+fallback. Windows named pipe support remains deferred. Maintainers keep the
+boundary covered with `make qstar-daemon-beta-boundary-tests`.
 
 ## Authoring Surface
 

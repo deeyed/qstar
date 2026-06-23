@@ -5,11 +5,11 @@
 native executor를 장기 실행 build service로 붙이는 experimental daemon path를 뜻한다.
 
 ```txt
-status: daemon beta opt-in readiness gate
+status: daemon beta opt-in compatibility boundary
 current runtime version: qstar 0.7.19-beta
 release line: qstar 0.7.19-beta
 decision: documented beta opt-in feature, not default
-baseline date: 2026-06-17
+baseline date: 2026-06-23
 ```
 
 ## Verdict
@@ -143,7 +143,10 @@ lock file, duplicate start diagnostic도 beta opt-in 기준으로 구현되어 �
 죽은 foreground daemon이 남긴 stale socket을 `--start`가 정리하는지, stale pid/lock sidecar가
 보수적으로 정리되는지, 다른 package root가 같은 socket에 붙을 때 hard reject되는지도 확인한다.
 Q249 boundary test는 insecure socket directory와 non-socket path reject를 별도 artifact로 남기며,
-normal Stella와 daemon build 결과가 같은지도 확인한다.
+normal Stella와 daemon build 결과가 같은지도 확인한다. Q259는 이 문서 경계를 v1 compatibility
+policy, README, manpage, wiki/AI index와 다시 동기화한다. 특히 read API는 current beta helper일
+뿐 stable machine-readable v1 API가 아니며, `qstar-daemon-query-v1`/`qstar-daemon-read-v1` marker는
+현재 beta wire marker이지 post-v1 compatibility promise가 아니다.
 
 ## Release Gate
 
@@ -153,6 +156,7 @@ Daemon beta opt-in feature를 release note에 포함하려면 다음 gate가 통
 make all
 make check
 make qstar-daemon-beta-boundary-tests
+make qstar-wiki-cli-sync-tests
 make qstar-self-host-tests
 make qstar-medium-project-readiness-tests
 make qstar-public-beta-release-tests
@@ -177,6 +181,7 @@ Sandbox에서 socket bind가 막히면 daemon phase skip은 허용하지만, rel
 - Stella daemon is a documented beta opt-in workflow.
 - Normal `qstar build` still uses Stella without daemon residency.
 - `--use-daemon=auto|always` and `qstar daemon --query ...` remain explicit.
+- The daemon read API is beta/read-only, not a stable v1 machine-readable API.
 - macOS is the primary tested host.
 - Linux daemon validation is underway through CI artifacts.
 - Windows named pipe support is deferred.

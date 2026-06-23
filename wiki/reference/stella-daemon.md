@@ -3,8 +3,8 @@
 Stella daemon은 QStar의 장기 성능 구조다. Round Q151 기준으로 foreground server, build
 client, streaming build output, in-memory dirty/deps state snapshot, file watcher invalidation,
 performance gate, read-only query API가 들어왔다. `0.6.0-beta`에서는 documented beta opt-in
-feature로 다루며, stable/default-on surface는 아니다. Q249 기준 daemon은 v1 stable surface,
-default build path, remote API가 아니며 하나의 package root/build directory에만 묶이는 local
+feature로 다루며, stable/default-on surface는 아니다. Q259 기준 daemon은 v1 stable surface,
+default build path, stable machine-readable read API, remote API가 아니며 하나의 package root/build directory에만 묶이는 local
 Unix socket service다. 정본 설계 문서는 `docs/daemon/stella-daemon.md`, beta readiness 판단은
 `docs/daemon-beta-readiness.md`다.
 
@@ -176,6 +176,9 @@ Q167부터 Linux opt-in CI lane은 `make qstar-linux-daemon-validation-tests`를
 skip/fail reason artifact를 보존한다. 이 lane은 `workflow_dispatch`의
 `daemon_socket_smoke=true`에서 실행된다.
 Q249부터 같은 lane은 `daemon_beta_boundary status=ok host=Linux` artifact도 남긴다.
+Q259부터 socket-capable host의 boundary artifact는 `read_api_beta_boundary=ok`,
+`fallback_parity=ok`, `normal_stella_parity=ok`, `socket_permission_regression=ok`,
+`identity_mismatch_regression=ok`, `stale_lifecycle_regression=ok`를 함께 남긴다.
 
 Default-on 전까지 남은 gap:
 
@@ -210,6 +213,8 @@ qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/
 `qstar-daemon-read-v1` JSON을 반환한다. `targets.list`는 기존
 `qstar list-targets --format json`과 같은 `qstar-targets-v1` schema를 반환한다.
 이 여섯 method는 Q249 boundary regression에서 모두 직접 호출되어 docs와 구현 drift를 막는다.
+하지만 이 read API 자체는 아직 beta다. `qstar-daemon-query-v1`과 `qstar-daemon-read-v1`은 현재
+wire shape를 식별하는 marker일 뿐 v1 stable machine-readable API promise가 아니다.
 
 Deferred read/action API:
 

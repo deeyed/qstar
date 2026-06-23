@@ -374,7 +374,14 @@ QStar가 하지 않는 일:
   `daemon_socket_smoke=true` lane은 inotify trace와 함께 `qstar daemon --status` artifact도
   남긴다. Q249부터 `make qstar-daemon-beta-boundary-tests`는 normal Stella parity, auto fallback,
   read API freshness, socket permission, identity mismatch, stale socket/pid/lock cleanup을 묶고
-  Linux optional lane에 `daemon_beta_boundary status=ok host=Linux` artifact를 남긴다. Windows
+  Linux optional lane에 `daemon_beta_boundary status=ok host=Linux` artifact를 남긴다. Q259 기준
+  daemon lifecycle/build forwarding/read API/socket protocol/watcher internals/Windows named pipe는
+  v1 stable surface가 아니고, `qstar-daemon-query-v1`과 `qstar-daemon-read-v1`은 current beta
+  wire marker이지 stable machine-readable API promise가 아니다. Socket-capable host의 boundary
+  artifact는 `read_api_beta_boundary=ok`, `fallback_parity=ok`, `normal_stella_parity=ok`,
+  `socket_permission_regression=ok`, `identity_mismatch_regression=ok`,
+  `stale_lifecycle_regression=ok`를 남긴다. Unix socket bind가 sandbox에서 막히면
+  `daemon_beta_boundary status=skipped reason=socket-bind-not-permitted`가 올바른 결과다. Windows
   named pipe는 계속 deferred다. 판단 문서는
   `docs/daemon-beta-readiness.md`에 둔다.
 - Stella dirty-check의 canonical fast state는 `build/qstar/state/state.db`다.

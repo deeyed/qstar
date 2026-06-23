@@ -268,6 +268,11 @@ Q150 adds read-only daemon queries for IDE/AI integration:
 and
 .Li build.summary .
 These queries do not execute build/test/clean actions and return JSON.
+The read API itself is beta, not a stable v1 machine-readable API contract;
+.Li qstar-daemon-query-v1
+and
+.Li qstar-daemon-read-v1
+are current beta wire markers, not post-v1 compatibility promises.
 Q151 and the 0.6 beta line classify the daemon as a documented beta opt-in
 feature. The default
 build path remains normal Stella, Windows named pipe support is deferred, and

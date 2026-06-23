@@ -349,6 +349,8 @@ contains "$log_dir/stale-lock-stop.out" "daemon status=stopped pid="
 	grep -m 1 'dirty_state_memory status=' "$log_dir/daemon-build.out"
 	grep -m 1 'deps_memory status=' "$log_dir/daemon-build.out"
 	printf 'read_api=hello,workspace.info,targets.list,diagnostics.list,compile_commands.path,build.summary\n'
+	printf 'read_api_beta_boundary=ok\n'
+	printf 'fallback_parity=ok\n'
 	printf 'normal_stella_parity=ok\n'
 	printf 'socket_permission_regression=ok\n'
 	printf 'identity_mismatch_regression=ok\n'

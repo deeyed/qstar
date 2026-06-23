@@ -136,9 +136,11 @@ qstar daemon --socket build/qstar/stella/daemon/qstar-daemon.sock --stop
 ```
 
 read API는 IDE/AI tooling을 위한 것이며 현재 `hello`, `workspace.info`, `targets.list`,
-`diagnostics.list`, `compile_commands.path`, `build.summary`를 제공한다. Socket/pid/lock file은
-local-only, owner-only 정책을 따른다. package/build identity mismatch는 fallback으로 숨기지 않고
-거부한다. Windows named pipe는 아직 deferred다.
+`diagnostics.list`, `compile_commands.path`, `build.summary`를 제공한다. 이 read API는 beta이며
+v1 stable machine-readable contract도 remote API도 아니다. Socket/pid/lock file은 local-only,
+owner-only 정책을 따른다. package/build identity mismatch는 fallback으로 숨기지 않고 거부한다.
+Windows named pipe는 아직 deferred다. Maintainer는 `make qstar-daemon-beta-boundary-tests`로
+이 경계를 반복 확인한다.
 
 ## 작성 예시
 

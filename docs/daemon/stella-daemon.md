@@ -11,8 +11,8 @@ opt-in feature로 다룬다.
 load를 처음부터 반복하지 않는 구조를 만드는 것이다.
 
 ```txt
-status: documented-beta-opt-in-candidate
-round: Q249
+status: documented-beta-opt-in-boundary
+round: Q259
 command namespace: qstar daemon
 initial hosts: macOS and Linux over Unix domain sockets
 deferred hosts: Windows named pipe
@@ -29,7 +29,10 @@ Round Q167 strengthens Linux validation with an opt-in CI lane that records
 skip/fail reason artifacts.
 Round Q249 keeps the beta boundary explicit and adds a cross Unix host boundary
 regression for fallback parity, read API freshness, socket permissions, identity
-mismatch, and stale lifecycle sidecars.
+mismatch, and stale lifecycle sidecars. Round Q259 seals the compatibility wording:
+daemon lifecycle, daemon build forwarding, the read API, socket protocol, watcher
+internals, and Windows named pipe support are all beta opt-in surfaces, not v1
+stable promises.
 
 ## Decision
 
@@ -78,6 +81,8 @@ remote API도 아니다. 하나의 daemon instance는 하나의 package root와 
 directory에만 묶인다.
 English shorthand: it is not v1 stable/default-on, not remote, and not a replacement for the default
 normal Stella path.
+Q259 keeps the read API in the same bucket: it is beta/read-only and useful for
+IDE/AI tooling, but it is not a stable machine-readable API promise for v1.
 
 Fallback은 silent success가 아니다. `--verbose` 또는 `--schedule-trace`에서는 다음처럼
 보여야 한다.
@@ -360,6 +365,8 @@ Responses are JSON. `targets.list` intentionally reuses the existing `qstar-targ
 contract is documented in `docs/contracts/daemon-read-api.md`.
 Q249 regression keeps all six current methods in the beta boundary smoke so IDE-facing docs do not
 drift away from the implemented server.
+Q259 explicitly keeps this API outside the v1 stable bucket. `qstar-daemon-query-v1` and
+`qstar-daemon-read-v1` are current beta protocol markers, not a post-v1 compatibility guarantee.
 
 Deferred read/action APIs:
 
@@ -408,6 +415,10 @@ read-only query methods, rejects insecure socket directories and non-socket path
 socket/pid/lock cleanup. In sandboxed environments where Unix socket bind is denied, the test writes
 `daemon_beta_boundary status=skipped reason=socket-bind-not-permitted` instead of pretending the
 daemon path was validated.
+The status artifact records `fallback_parity=ok`, `normal_stella_parity=ok`,
+`read_api_beta_boundary=ok`, `socket_permission_regression=ok`,
+`identity_mismatch_regression=ok`, and `stale_lifecycle_regression=ok` when the socket-capable path
+is fully exercised.
 
 ## Implementation Rounds
 

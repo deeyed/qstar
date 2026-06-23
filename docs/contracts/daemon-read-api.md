@@ -16,6 +16,32 @@ read-only API 계약이다. 이 API는 build/test/clean 같은 mutation을 열�
 - Q249 regression: `make qstar-daemon-beta-boundary-tests` calls all current methods on socket-capable
   macOS/Linux hosts
 
+## Compatibility Boundary
+
+This contract is intentionally beta. `qstar-daemon-query-v1` and
+`qstar-daemon-read-v1` name the current wire shape so clients and tests can detect
+drift, but they are not a v1 stable machine-readable API promise. QStar may still
+change daemon query method names, JSON fields, socket lifecycle details, watcher
+internals, and startup policy before promoting the daemon out of beta.
+
+Stable v1 authoring and machine-readable surfaces are listed in
+`docs/qstar-compatibility-policy.md`. The daemon read API remains outside that
+stable bucket until QStar has a repeated Linux daemon validation history, a
+stable daemon API version policy, and a Windows named-pipe/ACL design.
+
+The guard for the current beta boundary is:
+
+```sh
+make qstar-daemon-beta-boundary-tests
+```
+
+On socket-capable macOS/Linux hosts it must record `read_api_beta_boundary=ok`,
+`fallback_parity=ok`, `normal_stella_parity=ok`, `socket_permission_regression=ok`,
+`identity_mismatch_regression=ok`, and `stale_lifecycle_regression=ok`. In
+sandboxed environments where Unix socket bind is unavailable, it must report
+`daemon_beta_boundary status=skipped reason=socket-bind-not-permitted` rather than
+claiming daemon validation passed.
+
 ## 보안 원칙
 
 Daemon read API는 임의 파일 읽기 API가 아니다.
