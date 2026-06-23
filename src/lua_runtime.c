@@ -640,13 +640,55 @@ push_source_unit_item(lua_State *L, int idx, struct qstar_target *target,
 }
 
 static int
+resolve_fragment_relative_path(const char *raw, const char *fragment_dir,
+    char *dst, size_t dstlen)
+{
+	const char *tail;
+
+	if (!raw || !*raw)
+		return -1;
+	if (strncmp(raw, "./", 2) != 0) {
+		if (!qstar_path_is_package_relative(raw))
+			return -1;
+		return snprintf(dst, dstlen, "%s", raw) < (int)dstlen ? 0 : -1;
+	}
+	if (!qstar_path_is_package_relative(raw))
+		return -1;
+	tail = raw + 2;
+	if (!*tail)
+		return -1;
+	if (fragment_dir && *fragment_dir) {
+		if (qstar_path_join(fragment_dir, tail, dst, dstlen) < 0)
+			return -1;
+	} else if (snprintf(dst, dstlen, "%s", tail) >= (int)dstlen) {
+		return -1;
+	}
+	return qstar_path_is_package_relative(dst) ? 0 : -1;
+}
+
+static int
+resolve_fragment_path_or_error(struct qstar_graph *graph, const char *raw,
+    const char *fragment_dir, const char *owner, char *dst, size_t dstlen)
+{
+	if (resolve_fragment_relative_path(raw, fragment_dir, dst, dstlen) == 0)
+		return 0;
+	return qstar_set_error(graph, "qstar: %s path '%s' must be package-relative (%s)",
+	    owner, raw ? raw : "", qstar_path_package_relative_reason(raw));
+}
+
+static int
 push_source_string_item(lua_State *L, const char *path, struct qstar_target *target,
     struct qstar_graph *graph)
 {
 	const struct qstar_language_unit_schema *unit;
 	const char *provider, *unit_name;
+	char resolved[QSTAR_PATH_MAX];
 	int rc;
 
+	if (resolve_fragment_path_or_error(graph, path, target->fragment_dir,
+	    "source", resolved, sizeof(resolved)) < 0)
+		return -1;
+	path = resolved;
 	rc = find_raw_provider_source_unit(graph, path, &provider, &unit_name, &unit);
 	if (rc < 0)
 		return -1;
@@ -765,6 +807,60 @@ push_table_strings(lua_State *L, int idx, struct qstar_string_list *list, struct
 }
 
 static int
+push_table_path_strings(lua_State *L, int idx, struct qstar_string_list *list,
+    struct qstar_graph *graph, const char *field, const char *fragment_dir)
+{
+	size_t n, i;
+	const char *s, *kind;
+	char path[QSTAR_PATH_MAX];
+
+	if (idx < 0)
+		idx = lua_gettop(L) + idx + 1;
+	if (lua_isnil(L, idx))
+		return 0;
+	if (!lua_istable(L, idx))
+		return qstar_set_error(graph, "qstar: field '%s' must be a list", field);
+	n = lua_rawlen(L, idx);
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, idx, (lua_Integer)i);
+		if (lua_isstring(L, -1)) {
+			s = lua_tostring(L, -1);
+			if (resolve_fragment_path_or_error(graph, s, fragment_dir, field,
+			    path, sizeof(path)) < 0) {
+				lua_pop(L, 1);
+				return -1;
+			}
+			s = path;
+			if (qstar_string_list_push(list, s) < 0) {
+				lua_pop(L, 1);
+				return qstar_set_error(graph, "qstar: out of memory");
+			}
+		} else if (lua_istable(L, -1)) {
+			lua_getfield(L, -1, "__qstar_kind");
+			kind = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+			lua_pop(L, 1);
+			if (kind && strcmp(kind, "output_path") == 0) {
+				s = output_path_table_path(L, -1);
+				if (!s || qstar_string_list_push(list, s) < 0) {
+					lua_pop(L, 1);
+					return qstar_set_error(graph, "qstar: out of memory");
+				}
+			} else {
+				lua_pop(L, 1);
+				return qstar_set_error(graph,
+				    "qstar: field '%s' contains non-string item", field);
+			}
+		} else {
+			lua_pop(L, 1);
+			return qstar_set_error(graph, "qstar: field '%s' contains non-string item",
+			    field);
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
 read_list_field(lua_State *L, int table, const char *field, struct qstar_string_list *list,
     struct qstar_graph *graph, int canonicalize, const char *fragment_dir)
 {
@@ -776,13 +872,25 @@ read_list_field(lua_State *L, int table, const char *field, struct qstar_string_
 	return rc;
 }
 
+static int
+read_path_list_field(lua_State *L, int table, const char *field,
+    struct qstar_string_list *list, struct qstar_graph *graph, const char *fragment_dir)
+{
+	int rc;
+
+	lua_getfield(L, table, field);
+	rc = push_table_path_strings(L, -1, list, graph, field, fragment_dir);
+	lua_pop(L, 1);
+	return rc;
+}
+
 /** string 또는 qstar.target_file(...) 항목을 받는 list field를 읽는다. */
 static int
 read_target_file_list_field(lua_State *L, int table, const char *field,
-    struct qstar_string_list *list, struct qstar_graph *graph)
+    struct qstar_string_list *list, struct qstar_graph *graph, const char *fragment_dir)
 {
 	const char *kind, *s;
-	char token[QSTAR_PATH_MAX];
+	char path[QSTAR_PATH_MAX], token[QSTAR_PATH_MAX];
 	size_t i, n;
 
 	lua_getfield(L, table, field);
@@ -799,6 +907,12 @@ read_target_file_list_field(lua_State *L, int table, const char *field,
 		lua_rawgeti(L, -1, (lua_Integer)i);
 		if (lua_isstring(L, -1)) {
 			s = lua_tostring(L, -1);
+			if (resolve_fragment_path_or_error(graph, s, fragment_dir, field,
+			    path, sizeof(path)) < 0) {
+				lua_pop(L, 2);
+				return -1;
+			}
+			s = path;
 		} else if (lua_istable(L, -1)) {
 			kind = qstar_table_kind(L, -1);
 			if (!kind || strcmp(kind, "target_file") != 0 ||
@@ -836,7 +950,7 @@ read_run_inputs_field(lua_State *L, int table, struct qstar_target *target,
     struct qstar_graph *graph)
 {
 	const char *kind, *s;
-	char token[QSTAR_PATH_MAX];
+	char path[QSTAR_PATH_MAX], token[QSTAR_PATH_MAX];
 	size_t i, n;
 
 	lua_getfield(L, table, "inputs");
@@ -853,6 +967,12 @@ read_run_inputs_field(lua_State *L, int table, struct qstar_target *target,
 		lua_rawgeti(L, -1, (lua_Integer)i);
 		if (lua_isstring(L, -1)) {
 			s = lua_tostring(L, -1);
+			if (resolve_fragment_path_or_error(graph, s, target->fragment_dir,
+			    "run_target input", path, sizeof(path)) < 0) {
+				lua_pop(L, 2);
+				return -1;
+			}
+			s = path;
 		} else if (lua_istable(L, -1)) {
 			kind = qstar_table_kind(L, -1);
 			if (!kind ||
@@ -1151,6 +1271,7 @@ push_genrule_output(lua_State *L, int idx, struct qstar_genrule *genrule,
 {
 	const char *path, *group, *format;
 	const char *kind;
+	char resolved[QSTAR_PATH_MAX];
 
 	if (idx < 0)
 		idx = lua_gettop(L) + idx + 1;
@@ -1181,6 +1302,10 @@ push_genrule_output(lua_State *L, int idx, struct qstar_genrule *genrule,
 	}
 	if (!path || !*path)
 		return qstar_set_error(graph, "qstar: generated output path is empty");
+	if (resolve_fragment_path_or_error(graph, path, genrule->fragment_dir,
+	    "generated output", resolved, sizeof(resolved)) < 0)
+		return -1;
+	path = resolved;
 	if (!valid_output_metadata_token(group) || !valid_output_metadata_token(format))
 		return qstar_set_error(graph,
 		    "qstar: generated output metadata for '%s' contains unsupported characters",
@@ -1233,13 +1358,17 @@ push_genrule_input(lua_State *L, int idx, struct qstar_genrule *genrule,
     struct qstar_graph *graph, const char *field)
 {
 	const char *kind, *path;
-	char token[QSTAR_PATH_MAX];
+	char resolved[QSTAR_PATH_MAX], token[QSTAR_PATH_MAX];
 
 	if (idx < 0)
 		idx = lua_gettop(L) + idx + 1;
-	if (lua_isstring(L, idx))
+	if (lua_isstring(L, idx)) {
 		path = lua_tostring(L, idx);
-	else if (lua_istable(L, idx)) {
+		if (resolve_fragment_path_or_error(graph, path, genrule->fragment_dir,
+		    "generated input", resolved, sizeof(resolved)) < 0)
+			return -1;
+		path = resolved;
+	} else if (lua_istable(L, idx)) {
 		kind = qstar_table_kind(L, idx);
 		if (!kind || strcmp(kind, "target_file") != 0 ||
 		    format_placeholder_token(L, idx, token, sizeof(token)) < 0)
@@ -1740,23 +1869,23 @@ read_lang_c(lua_State *L, int lang, struct qstar_target *target, struct qstar_gr
 	}
 	rc = validate_lang_fields(L, -1, "c", allowed, graph);
 	if (rc == 0)
-		rc = read_list_field(L, -1, "public_headers", &target->public_headers, graph, 0,
+		rc = read_path_list_field(L, -1, "public_headers", &target->public_headers, graph,
 	    target->fragment_dir);
 	if (rc == 0)
-		rc = read_list_field(L, -1, "private_headers", &target->private_headers, graph, 0,
+		rc = read_path_list_field(L, -1, "private_headers", &target->private_headers, graph,
 		    target->fragment_dir);
 	if (rc == 0)
-		rc = read_list_field(L, -1, "include_dirs", &target->include_dirs, graph, 0,
+		rc = read_path_list_field(L, -1, "include_dirs", &target->include_dirs, graph,
 	    target->fragment_dir);
 	if (rc == 0)
-		rc = read_list_field(L, -1, "public_include_dirs", &target->public_include_dirs,
-		    graph, 0, target->fragment_dir);
+		rc = read_path_list_field(L, -1, "public_include_dirs",
+		    &target->public_include_dirs, graph, target->fragment_dir);
 	if (rc == 0)
-		rc = read_list_field(L, -1, "private_include_dirs", &target->private_include_dirs,
-		    graph, 0, target->fragment_dir);
+		rc = read_path_list_field(L, -1, "private_include_dirs",
+		    &target->private_include_dirs, graph, target->fragment_dir);
 	if (rc == 0)
-		rc = read_list_field(L, -1, "system_include_dirs", &target->system_include_dirs,
-		    graph, 0, target->fragment_dir);
+		rc = read_path_list_field(L, -1, "system_include_dirs",
+		    &target->system_include_dirs, graph, target->fragment_dir);
 	if (rc == 0)
 		rc = read_list_field(L, -1, "compile_options", &target->cflags, graph, 0,
 		    target->fragment_dir);
@@ -1794,23 +1923,23 @@ read_lang_cxx(lua_State *L, int lang, struct qstar_target *target, struct qstar_
 	}
 	rc = validate_lang_fields(L, -1, "cxx", allowed, graph);
 	if (rc == 0)
-		rc = read_list_field(L, -1, "public_headers", &target->public_headers, graph, 0,
+		rc = read_path_list_field(L, -1, "public_headers", &target->public_headers, graph,
 	    target->fragment_dir);
 	if (rc == 0)
-		rc = read_list_field(L, -1, "private_headers", &target->private_headers, graph, 0,
+		rc = read_path_list_field(L, -1, "private_headers", &target->private_headers, graph,
 		    target->fragment_dir);
 	if (rc == 0)
-		rc = read_list_field(L, -1, "include_dirs", &target->include_dirs, graph, 0,
+		rc = read_path_list_field(L, -1, "include_dirs", &target->include_dirs, graph,
 	    target->fragment_dir);
 	if (rc == 0)
-		rc = read_list_field(L, -1, "public_include_dirs", &target->public_include_dirs,
-		    graph, 0, target->fragment_dir);
+		rc = read_path_list_field(L, -1, "public_include_dirs",
+		    &target->public_include_dirs, graph, target->fragment_dir);
 	if (rc == 0)
-		rc = read_list_field(L, -1, "private_include_dirs", &target->private_include_dirs,
-		    graph, 0, target->fragment_dir);
+		rc = read_path_list_field(L, -1, "private_include_dirs",
+		    &target->private_include_dirs, graph, target->fragment_dir);
 	if (rc == 0)
-		rc = read_list_field(L, -1, "system_include_dirs", &target->system_include_dirs,
-		    graph, 0, target->fragment_dir);
+		rc = read_path_list_field(L, -1, "system_include_dirs",
+		    &target->system_include_dirs, graph, target->fragment_dir);
 	if (rc == 0)
 		rc = read_list_field(L, -1, "compile_options", &target->cxxflags, graph, 0,
 		    target->fragment_dir);
@@ -1872,7 +2001,7 @@ read_lang_asm(lua_State *L, int lang, struct qstar_target *target, struct qstar_
 	}
 	rc = validate_lang_fields(L, -1, "asm", allowed, graph);
 	if (rc == 0)
-		rc = read_list_field(L, -1, "include_dirs", &target->asm_include_dirs, graph, 0,
+		rc = read_path_list_field(L, -1, "include_dirs", &target->asm_include_dirs, graph,
 	    target->fragment_dir);
 	if (rc == 0)
 		rc = read_list_field(L, -1, "compile_options", &target->asm_compile_options,
@@ -2153,14 +2282,17 @@ qstar_lua_source(lua_State *L)
 	const struct qstar_language_provider *provider;
 	const struct qstar_language_unit_schema *unit_schema;
 	const char *path, *language, *unit;
+	char resolved[QSTAR_PATH_MAX];
 
 	ctx = get_context(L);
 	graph = ctx->graph;
 	path = luaL_checkstring(L, 1);
-	if (!qstar_path_is_package_relative(path))
+	if (resolve_fragment_relative_path(path, ctx->current_dir, resolved,
+	    sizeof(resolved)) < 0)
 		return luaL_error(L,
 		    "qstar: source path '%s' must be package-relative (%s)",
 		    path, qstar_path_package_relative_reason(path));
+	path = resolved;
 	if (!lua_istable(L, 2))
 		return luaL_error(L,
 		    "qstar: qstar.source metadata must be a table");
@@ -3124,13 +3256,13 @@ add_config(lua_State *L, const char *name, int table_index, const char *fragment
 		return luaL_error(L, "%s", graph->error);
 	if (read_list_field(L, table_index, "libs", &config->options.libs, graph, 0,
 	    config->options.fragment_dir) < 0 ||
-	    read_list_field(L, table_index, "lib_dirs", &config->options.lib_dirs, graph,
-	    0, config->options.fragment_dir) < 0 ||
+	    read_path_list_field(L, table_index, "lib_dirs", &config->options.lib_dirs,
+	    graph, config->options.fragment_dir) < 0 ||
 	    read_link_options(L, table_index, &config->options, graph, "config") < 0 ||
 	    read_list_field(L, table_index, "link_options", &config->options.link_options,
 	    graph, 0, config->options.fragment_dir) < 0 ||
 	    read_target_file_list_field(L, table_index, "link_inputs",
-	    &config->options.link_inputs, graph) < 0 ||
+	    &config->options.link_inputs, graph, config->options.fragment_dir) < 0 ||
 	    read_lang_options(L, table_index, &config->options, graph) < 0)
 		return luaL_error(L, "%s", graph->error);
 	config->has_cxx_standard = nested_lang_field_present(L, table_index, "cxx",
@@ -3222,6 +3354,7 @@ read_run_expect_field(lua_State *L, int table, struct qstar_target *target,
 {
 	static const char *const allowed[] = { "contains", "file", NULL };
 	const char *key, *contains, *file;
+	char path[QSTAR_PATH_MAX];
 	size_t len, i;
 
 	if (table < 0)
@@ -3284,12 +3417,13 @@ read_run_expect_field(lua_State *L, int table, struct qstar_target *target,
 			return qstar_set_error(graph,
 			    "qstar: run_target expect.file must not be empty");
 		}
-		if (!qstar_path_is_package_relative(file)) {
+		if (resolve_fragment_relative_path(file, target->fragment_dir, path,
+		    sizeof(path)) < 0) {
 			lua_pop(L, 2);
 			return qstar_set_error(graph,
 			    "qstar: run_target expect.file must be package-relative");
 		}
-		if (replace_lua_string(&target->run_expect_file, file, graph) < 0) {
+		if (replace_lua_string(&target->run_expect_file, path, graph) < 0) {
 			lua_pop(L, 2);
 			return -1;
 		}
@@ -3356,11 +3490,11 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	    read_list_field(L, table_index, "private_deps", &target->private_deps, graph, 1, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "visibility", &target->visibility, graph, 0, target->fragment_dir) < 0 ||
 	    read_list_field(L, table_index, "libs", &target->libs, graph, 0, target->fragment_dir) < 0 ||
-	    read_list_field(L, table_index, "lib_dirs", &target->lib_dirs, graph, 0, target->fragment_dir) < 0 ||
+	    read_path_list_field(L, table_index, "lib_dirs", &target->lib_dirs, graph, target->fragment_dir) < 0 ||
 	    read_link_options(L, table_index, target, graph, "target") < 0 ||
 	    read_list_field(L, table_index, "link_options", &target->link_options, graph, 0, target->fragment_dir) < 0 ||
 	    read_target_file_list_field(L, table_index, "link_inputs",
-	    &target->link_inputs, graph) < 0)
+	    &target->link_inputs, graph, target->fragment_dir) < 0)
 		return luaL_error(L, "%s", graph->error);
 	artifact_name = check_string_field(L, table_index, "artifact_name");
 	if (read_label_scalar_field(L, table_index, "toolset", &target->toolset, graph,
@@ -3539,6 +3673,7 @@ add_config_header(lua_State *L, const char *name, int table_index, const char *f
 	char label[QSTAR_PATH_MAX], rawlabel[QSTAR_PATH_MAX];
 	char origin_file[QSTAR_PATH_MAX];
 	const char *output;
+	char resolved_output[QSTAR_PATH_MAX];
 	int origin_line;
 
 	if (table_index < 0)
@@ -3571,6 +3706,12 @@ add_config_header(lua_State *L, const char *name, int table_index, const char *f
 	output = check_string_field(L, table_index, "output");
 	if (!output || !*output)
 		return luaL_error(L, "qstar: config header '%s' requires output", name);
+	if (resolve_fragment_relative_path(output, genrule->fragment_dir,
+	    resolved_output, sizeof(resolved_output)) < 0)
+		return luaL_error(L,
+		    "qstar: config header output '%s' must be package-relative (%s)",
+		    output, qstar_path_package_relative_reason(output));
+	output = resolved_output;
 	if (qstar_string_list_push(&genrule->outputs, output) < 0)
 		return luaL_error(L, "qstar: out of memory");
 	if (read_status_description_field(L, table_index, graph,
@@ -3671,16 +3812,26 @@ qstar_lua_config_header(lua_State *L)
 /** qstar.stage_file(src, dst) table에서 source token 문자열을 만든다. */
 static int
 stage_file_src_token(lua_State *L, int idx, char *dst, size_t dstlen,
-    struct qstar_graph *graph)
+    struct qstar_graph *graph, const char *fragment_dir)
 {
 	const char *s, *kind;
+	char label[QSTAR_PATH_MAX], artifact[QSTAR_PATH_MAX];
+	int token_rc;
 
 	if (idx < 0)
 		idx = lua_gettop(L) + idx + 1;
 	if (lua_isstring(L, idx)) {
 		s = lua_tostring(L, idx);
-		return snprintf(dst, dstlen, "%s", s) < (int)dstlen ? 0 :
-		    qstar_set_error(graph, "qstar: stage_file source is too long");
+		token_rc = qstar_target_file_token_parse(s, label, sizeof(label),
+		    artifact, sizeof(artifact));
+		if (token_rc > 0)
+			return snprintf(dst, dstlen, "%s", s) < (int)dstlen ? 0 :
+			    qstar_set_error(graph, "qstar: stage_file source is too long");
+		if (token_rc < 0)
+			return qstar_set_error(graph,
+			    "qstar: malformed target_file placeholder");
+		return resolve_fragment_path_or_error(graph, s, fragment_dir,
+		    "stage_file source", dst, dstlen);
 	}
 	if (lua_istable(L, idx)) {
 		kind = qstar_table_kind(L, idx);
@@ -3724,7 +3875,8 @@ read_stage_files_field(lua_State *L, int table, struct qstar_stage *stage,
 			    stage->label);
 		}
 		lua_getfield(L, -1, "src");
-		if (stage_file_src_token(L, -1, src, sizeof(src), graph) < 0) {
+		if (stage_file_src_token(L, -1, src, sizeof(src), graph,
+		    stage->fragment_dir) < 0) {
 			lua_pop(L, 3);
 			return -1;
 		}
@@ -3755,7 +3907,7 @@ add_stage(lua_State *L, const char *name, int table_index, const char *fragment_
 	struct qstar_graph *graph;
 	struct qstar_stage *stage;
 	const char *root;
-	char label[QSTAR_PATH_MAX], rawlabel[QSTAR_PATH_MAX];
+	char label[QSTAR_PATH_MAX], rawlabel[QSTAR_PATH_MAX], resolved_root[QSTAR_PATH_MAX];
 	char origin_file[QSTAR_PATH_MAX];
 	int origin_line;
 
@@ -3785,8 +3937,13 @@ add_stage(lua_State *L, const char *name, int table_index, const char *fragment_
 		return luaL_error(L, "%s", graph->error);
 	root = check_string_field(L, table_index, "root");
 	if (root) {
+		if (resolve_fragment_relative_path(root, stage->fragment_dir,
+		    resolved_root, sizeof(resolved_root)) < 0)
+			return luaL_error(L,
+			    "qstar: stage root '%s' must be package-relative (%s)",
+			    root, qstar_path_package_relative_reason(root));
 		free(stage->root);
-		stage->root = qstar_strdup(root);
+		stage->root = qstar_strdup(resolved_root);
 		if (!stage->root)
 			return luaL_error(L, "qstar: out of memory");
 	}
@@ -3833,7 +3990,8 @@ qstar_lua_stage_file(lua_State *L)
 	const char *dst;
 
 	ctx = get_context(L);
-	if (stage_file_src_token(L, 1, src, sizeof(src), ctx->graph) < 0)
+	if (stage_file_src_token(L, 1, src, sizeof(src), ctx->graph,
+	    ctx->current_dir) < 0)
 		return luaL_error(L, "%s", ctx->graph->error);
 	dst = luaL_checkstring(L, 2);
 	lua_newtable(L);
@@ -5741,6 +5899,7 @@ qstar_lua_files(lua_State *L)
 	struct qstar_string_list files, excludes;
 	size_t i, n, out_index;
 	const char *path;
+	char resolved[QSTAR_PATH_MAX];
 
 	ctx = get_context(L);
 	memset(&files, 0, sizeof(files));
@@ -5763,7 +5922,20 @@ qstar_lua_files(lua_State *L)
 			}
 			if (has_glob_magic(lua_tostring(L, -1)))
 				ctx->graph->uses_file_globs = 1;
-			if (qstar_string_list_push(&excludes, lua_tostring(L, -1)) < 0) {
+			path = lua_tostring(L, -1);
+			if (strncmp(path, "./", 2) == 0) {
+				if (resolve_fragment_relative_path(path, ctx->current_dir,
+				    resolved, sizeof(resolved)) < 0) {
+					lua_pop(L, 2);
+					qstar_string_list_free(&files);
+					qstar_string_list_free(&excludes);
+					return luaL_error(L,
+					    "qstar: qstar.files exclude path '%s' must be package-relative",
+					    path);
+				}
+				path = resolved;
+			}
+			if (qstar_string_list_push(&excludes, path) < 0) {
 				lua_pop(L, 2);
 				qstar_string_list_free(&files);
 				qstar_string_list_free(&excludes);
@@ -5783,12 +5955,14 @@ qstar_lua_files(lua_State *L)
 			return luaL_error(L, "qstar: qstar.files contains non-string item");
 		}
 		path = lua_tostring(L, -1);
-		if (!qstar_path_is_package_relative(path)) {
+		if (resolve_fragment_relative_path(path, ctx->current_dir, resolved,
+		    sizeof(resolved)) < 0) {
 			lua_pop(L, 1);
 			qstar_string_list_free(&files);
 			qstar_string_list_free(&excludes);
 			return luaL_error(L, "qstar: qstar.files path '%s' must be package-relative", path);
 		}
+		path = resolved;
 		if (has_glob_magic(path)) {
 			ctx->graph->uses_file_globs = 1;
 			if (expand_glob(ctx, path, &files) < 0) {
@@ -5824,6 +5998,7 @@ qstar_lua_output(lua_State *L)
 	struct qstar_lua_context *ctx;
 	lua_Integer index;
 	const char *path, *group, *format;
+	char resolved[QSTAR_PATH_MAX];
 
 	if (lua_isinteger(L, 1)) {
 		index = lua_tointeger(L, 1);
@@ -5837,11 +6012,17 @@ qstar_lua_output(lua_State *L)
 		return 1;
 	}
 	path = luaL_checkstring(L, 1);
+	ctx = get_context(L);
+	if (resolve_fragment_relative_path(path, ctx->current_dir, resolved,
+	    sizeof(resolved)) < 0)
+		return luaL_error(L,
+		    "qstar: qstar.output path '%s' must be package-relative (%s)",
+		    path, qstar_path_package_relative_reason(path));
+	path = resolved;
 	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
 		lua_pushstring(L, path);
 		return 1;
 	}
-	ctx = get_context(L);
 	luaL_checktype(L, 2, LUA_TTABLE);
 	if (validate_output_metadata_fields(L, 2, ctx->graph) < 0)
 		return luaL_error(L, "%s", ctx->graph->error);
@@ -7856,9 +8037,13 @@ static int
 resolve_import_path(struct qstar_lua_context *ctx, const char *raw, char *rel,
     size_t rellen, char *full, size_t fulllen)
 {
-	if (!qstar_path_is_package_relative(raw))
+	char resolved[QSTAR_PATH_MAX];
+
+	if (resolve_fragment_relative_path(raw,
+	    strncmp(raw, "./", 2) == 0 ? ctx->current_dir : "",
+	    resolved, sizeof(resolved)) < 0)
 		return -1;
-	if (snprintf(rel, rellen, "%s", raw) >= (int)rellen)
+	if (snprintf(rel, rellen, "%s", resolved) >= (int)rellen)
 		return -1;
 	return qstar_path_join(ctx->root_dir, rel, full, fulllen);
 }
@@ -8606,12 +8791,20 @@ qstar_lua_subdir(lua_State *L)
 	current_origin(L, origin_file, sizeof(origin_file), &origin_line);
 	if (!qstar_path_is_package_relative(dir))
 		return luaL_error(L, "qstar: subdir path '%s' must be package-relative", dir);
-	if (ctx->current_dir[0]) {
+	if (strncmp(dir, "./", 2) == 0) {
+		if (resolve_fragment_relative_path(dir, ctx->current_dir, full_dir,
+		    sizeof(full_dir)) < 0)
+			return luaL_error(L, "qstar: subdir path '%s' must be package-relative",
+			    dir);
+	} else if (ctx->current_dir[0]) {
 		if (qstar_path_join(ctx->current_dir, dir, full_dir, sizeof(full_dir)) < 0)
 			return luaL_error(L, "qstar: subdir path too long");
 	} else {
 		snprintf(full_dir, sizeof(full_dir), "%s", dir);
 	}
+	if (!qstar_path_is_package_relative(full_dir))
+		return luaL_error(L, "qstar: subdir path '%s' must be package-relative",
+		    dir);
 	base = strrchr(full_dir, '/');
 	base = base ? base + 1 : full_dir;
 	snprintf(path, sizeof(path), "%s/%s.qst", full_dir, base);

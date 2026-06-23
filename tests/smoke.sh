@@ -1873,6 +1873,191 @@ if "$qstar" --file "$tmp/import-duplicate-module/qstar.lua" check > "$tmp/import
 fi
 contains "$tmp/import-module-frozen.err" "module exports is read-only: answer"
 
+step "nested subdir and fragment-relative paths" "fragment-relative"
+mkdir -p "$tmp/fragment-relative/src/core/include" \
+	"$tmp/fragment-relative/src/app/helpers" \
+	"$tmp/fragment-relative/src/app/data" \
+	"$tmp/fragment-relative/tools"
+cat > "$tmp/fragment-relative/tools/write-gen.sh" <<'EOF'
+#!/bin/sh
+set -eu
+cat > "$2" <<'GENEOF'
+int generated_value(void) { return 5; }
+GENEOF
+EOF
+chmod +x "$tmp/fragment-relative/tools/write-gen.sh"
+cat > "$tmp/fragment-relative/qstar.lua" <<'EOF'
+qstar.project {
+  name = "fragment-relative",
+  version = "0.1.0",
+  generated_dir = "src/core/generated",
+}
+
+qstar.subdir("src")
+EOF
+cat > "$tmp/fragment-relative/src/src.qst" <<'EOF'
+qstar.subdir("core")
+qstar.subdir("./app")
+EOF
+cat > "$tmp/fragment-relative/src/core/include/core.h" <<'EOF'
+int core_value(void);
+EOF
+cat > "$tmp/fragment-relative/src/core/core.c" <<'EOF'
+#include "core.h"
+int generated_value(void);
+int core_value(void) { return generated_value(); }
+EOF
+cat > "$tmp/fragment-relative/src/core/template.in" <<'EOF'
+generated template
+EOF
+cat > "$tmp/fragment-relative/src/core/policy.qst" <<'EOF'
+qstar.config "policy" {
+  lang = {
+    c = {
+      compile_options = {
+        "-DCORE_POLICY=1",
+      },
+    },
+  },
+}
+EOF
+cat > "$tmp/fragment-relative/src/core/core.qst" <<'EOF'
+qstar.import_file("./policy.qst")
+
+qstar.custom_target "generated" {
+  inputs = {
+    "./template.in",
+  },
+  outputs = {
+    qstar.output("./generated/generated.c"),
+  },
+  command = qstar.cli {
+    "tools/write-gen.sh",
+    qstar.input(0),
+    qstar.output(0),
+  },
+  description = qstar.status("Generating core source"),
+}
+
+qstar.staticlib "core" {
+  configs = {
+    ":policy",
+  },
+  sources = qstar.files {
+    "./core.c",
+    "./generated/generated.c",
+  },
+  lang = {
+    c = {
+      public_headers = {
+        "./include/core.h",
+      },
+      include_dirs = {
+        "./include",
+      },
+      public_include_dirs = {
+        "./include",
+      },
+    },
+  },
+}
+EOF
+cat > "$tmp/fragment-relative/src/app/helpers/helpers.qsm" <<'EOF'
+return {
+  flag = "-DAPP_HELPER=1",
+}
+EOF
+cat > "$tmp/fragment-relative/src/app/main.c" <<'EOF'
+#include "core.h"
+int main(void) { return core_value() == 5 ? 0 : 1; }
+EOF
+cat > "$tmp/fragment-relative/src/app/data/input.txt" <<'EOF'
+payload
+EOF
+cat > "$tmp/fragment-relative/src/app/app.qst" <<'EOF'
+local helpers = qstar.import_module("./helpers")
+
+qstar.executable "app" {
+  sources = {
+    "./main.c",
+  },
+  deps = {
+    "//src/core:core",
+  },
+  lang = {
+    c = {
+      compile_options = {
+        helpers.flag,
+      },
+    },
+  },
+}
+
+qstar.run_target "check_data" {
+  inputs = {
+    "./data/input.txt",
+  },
+  command = qstar.cli {
+    "true",
+  },
+  description = qstar.status("Checking data input"),
+}
+
+qstar.stage "bundle" {
+  root = "./stage",
+  files = {
+    qstar.stage_file("./data/input.txt", "data/input.txt"),
+  },
+}
+EOF
+if ! "$qstar" --file "$tmp/fragment-relative/qstar.lua" --dump-graph > "$tmp/fragment-relative-dump.out" 2> "$tmp/fragment-relative-dump.err"; then
+	cat "$tmp/fragment-relative-dump.out" >&2
+	cat "$tmp/fragment-relative-dump.err" >&2
+	fail "fragment-relative dump failed"
+fi
+contains "$tmp/fragment-relative-dump.out" "target //src/core:core"
+contains "$tmp/fragment-relative-dump.out" "fragment_dir src/core"
+contains "$tmp/fragment-relative-dump.out" "  sources [src/core/core.c, src/core/generated/generated.c]"
+contains "$tmp/fragment-relative-dump.out" "  public_headers [src/core/include/core.h]"
+contains "$tmp/fragment-relative-dump.out" "  include_dirs [src/core/include"
+contains "$tmp/fragment-relative-dump.out" "  public_include_dirs [src/core/include]"
+contains "$tmp/fragment-relative-dump.out" "  inputs [src/core/template.in]"
+contains "$tmp/fragment-relative-dump.out" "target //src/app:app"
+contains "$tmp/fragment-relative-dump.out" "  sources [src/app/main.c]"
+not_contains "$tmp/fragment-relative-dump.out" "./core.c"
+if ! "$qstar" --file "$tmp/fragment-relative/qstar.lua" build //src/app:app > "$tmp/fragment-relative-build.out" 2> "$tmp/fragment-relative-build.err"; then
+	cat "$tmp/fragment-relative-build.out" >&2
+	cat "$tmp/fragment-relative-build.err" >&2
+	fail "fragment-relative build failed"
+fi
+contains "$tmp/fragment-relative-build.out" "status ok"
+if ! "$qstar" --file "$tmp/fragment-relative/qstar.lua" stage //src/app:bundle > "$tmp/fragment-relative-stage.out" 2> "$tmp/fragment-relative-stage.err"; then
+	cat "$tmp/fragment-relative-stage.out" >&2
+	cat "$tmp/fragment-relative-stage.err" >&2
+	fail "fragment-relative stage failed"
+fi
+contains "$tmp/fragment-relative-stage.out" "stage_layout label=//src/app:bundle root=src/app/stage files=1 status=ok"
+contains "$tmp/fragment-relative-stage.out" "stage_file src=src/app/data/input.txt dst=src/app/stage/data/input.txt mode=copy"
+test -f "$tmp/fragment-relative/src/app/stage/data/input.txt" || fail "fragment-relative staged file missing"
+mkdir -p "$tmp/fragment-relative-bad/src/core"
+cat > "$tmp/fragment-relative-bad/qstar.lua" <<'EOF'
+qstar.subdir("src")
+EOF
+cat > "$tmp/fragment-relative-bad/src/src.qst" <<'EOF'
+qstar.subdir("core")
+EOF
+cat > "$tmp/fragment-relative-bad/src/core/core.qst" <<'EOF'
+qstar.executable "bad" {
+  sources = {
+    "./../escape.c",
+  },
+}
+EOF
+if "$qstar" --file "$tmp/fragment-relative-bad/qstar.lua" check > "$tmp/fragment-relative-bad.out" 2> "$tmp/fragment-relative-bad.err"; then
+	fail "fragment-relative package escape unexpectedly succeeded"
+fi
+contains "$tmp/fragment-relative-bad.err" "source path './../escape.c' must be package-relative"
+
 step "import missing module diagnostic" "import-missing-module"
 mkdir -p "$tmp/import-missing-module"
 cat > "$tmp/import-missing-module/qstar.lua" <<'EOF'
@@ -8561,7 +8746,7 @@ EOF
 if "$qstar" --file "$tmp/toolchain-app/qstar.lua" check //:bad_script > "$tmp/toolchain-app-bad-script.out" 2> "$tmp/toolchain-app-bad-script.err"; then
 	fail "package-escaping link_inputs unexpectedly succeeded"
 fi
-contains "$tmp/toolchain-app-bad-script.err" "link input '../escape.ld' in '//:bad_script' must be package-relative"
+contains "$tmp/toolchain-app-bad-script.err" "link_inputs path '../escape.ld' must be package-relative"
 cat > "$tmp/toolchain-app/qstar.lua" <<'EOF'
 qstar.executable "missing_script" {
   sources = {"src/module.c"},
@@ -9903,7 +10088,7 @@ EOF
 if "$qstar" --file "$tmp/stage-bad/qstar.lua" check > "$tmp/stage-bad-root.out" 2> "$tmp/stage-bad-root.err"; then
 	fail "stage root escape unexpectedly succeeded"
 fi
-contains "$tmp/stage-bad-root.err" "stage root '../stage' in '//:bad' must be package-relative"
+contains "$tmp/stage-bad-root.err" "stage root '../stage' must be package-relative"
 cat > "$tmp/stage-bad/qstar.lua" <<'EOF'
 qstar.executable "app" {
   sources = {"src/main.c"},
