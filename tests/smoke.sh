@@ -2711,6 +2711,7 @@ qstar.toolset "local" {
 }
 
 qstar.custom_target "generated" {
+  toolset = "//:local",
   outputs = {
     qstar.output("generated/value.c"),
   },
@@ -2764,7 +2765,12 @@ PATH="$tmp/toolset-wire/tools:$PATH" "$qstar" --file "$tmp/toolset-wire/qstar.lu
 contains "$tmp/toolset-wire-dry.out" "resolver=toolset-schema-v1 toolset=//:local"
 contains "$tmp/toolset-wire-dry.out" "response_file="
 contains "$tmp/toolset-wire-dry.out" "response_style=posix"
+contains "$tmp/toolset-wire-dry.out" "tool=toolset-gen.sh toolset=//:local"
 contains "$tmp/toolset-wire-dry.out" "resolved_tool=toolset-gen.sh"
+step "toolset provider namespace generated json" "toolset-wire-json"
+"$qstar" --file "$tmp/toolset-wire/qstar.lua" list-targets --format json > "$tmp/toolset-wire-json.out" 2> "$tmp/toolset-wire-json.err"
+contains "$tmp/toolset-wire-json.out" "\"label\":\"//:generated\""
+contains "$tmp/toolset-wire-json.out" "\"toolset\":\"//:local\""
 step "toolset provider namespace wire build" "toolset-wire-build"
 QSTAR_TOOLSET_WIRE_CC="$toolset_wire_cc" QSTAR_TOOLSET_WIRE_LOG="$tmp/toolset-wire/stella.log" PATH="$tmp/toolset-wire/tools:$PATH" "$qstar" --file "$tmp/toolset-wire/qstar.lua" build //:app --progress off > "$tmp/toolset-wire-build.out" 2> "$tmp/toolset-wire-build.err"
 contains "$tmp/toolset-wire-build.out" "status ok"
@@ -2775,6 +2781,12 @@ contains "$tmp/toolset-wire/stella.log" "link"
 if [ "$host_windows" -eq 1 ]; then
   echo "qstar-smoke: toolset provider namespace wire action-log skipped reason=windows-dedicated-action-log-corpus" >&2
 else
+  step "toolset provider namespace generated action-log" "toolset-wire-generate-log"
+  PATH="$tmp/toolset-wire/tools:$PATH" "$qstar" --file "$tmp/toolset-wire/qstar.lua" action-log //:generated:generate:0 > "$tmp/toolset-wire-generate-log.out" 2> "$tmp/toolset-wire-generate-log.err"
+  contains "$tmp/toolset-wire-generate-log.out" "argv[0]=toolset-gen.sh"
+  step "toolset provider namespace generated replay" "toolset-wire-generate-replay"
+  PATH="$tmp/toolset-wire/tools:$PATH" "$qstar" --file "$tmp/toolset-wire/qstar.lua" replay //:generated:generate:0 > "$tmp/toolset-wire-generate-replay.out" 2> "$tmp/toolset-wire-generate-replay.err"
+  contains "$tmp/toolset-wire-generate-replay.out" "toolset-gen.sh"
   step "toolset provider namespace wire action-log" "toolset-wire-link-log"
   "$qstar" --file "$tmp/toolset-wire/qstar.lua" action-log //:app:link:0 > "$tmp/toolset-wire-link-log.out" 2> "$tmp/toolset-wire-link-log.err"
   contains "$tmp/toolset-wire-link-log.out" "argv[0]=tools/toolset-link.sh"
@@ -5275,6 +5287,17 @@ if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-custom-tool.out" 2
 	fail "custom_target tool syntax unexpectedly succeeded"
 fi
 contains "$tmp/old-custom-tool.err" "command = qstar.cli"
+cat > "$tmp/old-api/qstar.lua" <<'EOF'
+qstar.custom_target "g" {
+  outputs = {qstar.output("generated/g.c")},
+  command = qstar.cli {"tools/gen.sh", qstar.output(0)},
+  unexpected = true,
+}
+EOF
+if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/custom-target-unknown.out" 2> "$tmp/custom-target-unknown.err"; then
+	fail "unknown custom_target field unexpectedly succeeded"
+fi
+contains "$tmp/custom-target-unknown.err" "unknown custom_target field 'unexpected'"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.executable "app" {
   sources = {"src/main.c"},
@@ -9116,10 +9139,10 @@ contains "$tmp/exttool-doctor.out" "external-tool-policy path_tools=1 tool_overr
 contains "$tmp/exttool-doctor.out" "external-tool name=qstar-extgen mode=path status=found"
 PATH="$tmp/exttool/bin:$PATH" "$qstar" --file "$tmp/exttool/qstar.lua" dry-run //:app > "$tmp/exttool-dry.out" 2> "$tmp/exttool-dry.err"
 contains "$tmp/exttool-dry.out" "dry_run_step id=//:generated_ext:generate:0"
-contains "$tmp/exttool-dry.out" "tool=qstar-extgen tool_mode=path resolved_tool=qstar-extgen"
+contains "$tmp/exttool-dry.out" "tool=qstar-extgen toolset=<none> tool_mode=path resolved_tool=qstar-extgen"
 contains "$tmp/exttool-dry.out" "command_argv id=//:generated_ext:generate:0"
 PATH="$tmp/exttool/bin:$PATH" "$qstar" --file "$tmp/exttool/qstar.lua" build //:app --verbose > "$tmp/exttool-build.out" 2> "$tmp/exttool-build.err"
-contains "$tmp/exttool-build.out" "generated_sandbox id=//:generated_ext inputs=package-root outputs=generated-only cwd=package-root network=disabled tool=qstar-extgen tool_mode=path resolved_tool=qstar-extgen"
+contains "$tmp/exttool-build.out" "generated_sandbox id=//:generated_ext inputs=package-root outputs=generated-only cwd=package-root network=disabled tool=qstar-extgen toolset=<none> tool_mode=path resolved_tool=qstar-extgen"
 contains "$tmp/exttool-build.out" "status ok"
 PATH="$tmp/exttool/bin:$PATH" "$qstar" --file "$tmp/exttool/qstar.lua" -B build/async-generated build //:app --schedule-trace --progress off --color never > "$tmp/exttool-async.out" 2> "$tmp/exttool-async.err"
 contains "$tmp/exttool-async.out" "schedule_action id=//:generated_ext:generate:0 kind=generate slot="
@@ -9179,10 +9202,10 @@ EOF
 "$qstar" --file "$tmp/tool-override/qstar.lua" doctor > "$tmp/tool-override-doctor.out" 2> "$tmp/tool-override-doctor.err"
 contains "$tmp/tool-override-doctor.out" "external-tool-policy path_tools=0 tool_overrides=0 allow_absolute=false"
 "$qstar" --file "$tmp/tool-override/qstar.lua" dry-run //:app > "$tmp/tool-override-dry.out" 2> "$tmp/tool-override-dry.err"
-contains "$tmp/tool-override-dry.out" "tool=tools/fake-objcopy.sh tool_mode=package resolved_tool=tools/fake-objcopy.sh"
+contains "$tmp/tool-override-dry.out" "tool=tools/fake-objcopy.sh toolset=<none> tool_mode=package resolved_tool=tools/fake-objcopy.sh"
 contains "$tmp/tool-override-dry.out" "argv=[tools/fake-objcopy.sh"
 "$qstar" --file "$tmp/tool-override/qstar.lua" build //:app --verbose > "$tmp/tool-override-build.out" 2> "$tmp/tool-override-build.err"
-contains "$tmp/tool-override-build.out" "tool=tools/fake-objcopy.sh tool_mode=package resolved_tool=tools/fake-objcopy.sh"
+contains "$tmp/tool-override-build.out" "tool=tools/fake-objcopy.sh toolset=<none> tool_mode=package resolved_tool=tools/fake-objcopy.sh"
 "$qstar" --file "$tmp/tool-override/qstar.lua" action-log //:generated_ext:generate:0 > "$tmp/tool-override-generated-log.out" 2> "$tmp/tool-override-generated-log.err"
 contains "$tmp/tool-override-generated-log.out" "argv[0]=tools/fake-objcopy.sh"
 "$tmp/tool-override/$app_artifact"
@@ -9473,7 +9496,7 @@ contains "$tmp/artifact-explain.out" "generated_artifact output=generated/payloa
 contains "$tmp/artifact-explain.out" "identity=generated/payload.img|group=images|format=file"
 "$qstar" --file "$tmp/artifact/qstar.lua" dry-run //:payload_image > "$tmp/artifact-dry.out" 2> "$tmp/artifact-dry.err"
 contains "$tmp/artifact-dry.out" "dry_run_generated_action //:payload_image"
-contains "$tmp/artifact-dry.out" "tool=tools/fake-objcopy.sh tool_mode=package resolved_tool=tools/fake-objcopy.sh"
+contains "$tmp/artifact-dry.out" "tool=tools/fake-objcopy.sh toolset=<none> tool_mode=package resolved_tool=tools/fake-objcopy.sh"
 contains "$tmp/artifact-dry.out" "argv=[tools/fake-objcopy.sh, -O, binary, fixtures/payload.elf, generated/payload.img]"
 "$qstar" --file "$tmp/artifact/qstar.lua" build //:payload_image --verbose > "$tmp/artifact-build.out" 2> "$tmp/artifact-build.err"
 contains "$tmp/artifact-build.out" "build_generated_action //:payload_image"
@@ -9506,13 +9529,22 @@ ELF-STUB
 transform-payload
 EOF
 cat > "$tmp/transform/qstar.lua" <<'EOF'
+qstar.toolset "image_tools" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
+  path_tools = {"fake-objcopy.sh"},
+}
+
 qstar.transform "payload_image" {
+  toolset = "//:image_tools",
   input = "fixtures/payload.elf",
   output = qstar.output("generated/payload.img", {
     group = "images",
   }),
   command = qstar.cli {
-    "tools/fake-objcopy.sh",
+    "fake-objcopy.sh",
     "-O",
     "binary",
     qstar.input(0),
@@ -9535,18 +9567,22 @@ qstar.run_target "smoke" {
 EOF
 "$qstar" --file "$tmp/transform/qstar.lua" explain //:payload_image > "$tmp/transform-explain.out" 2> "$tmp/transform-explain.err"
 contains "$tmp/transform-explain.out" "plan_generated_action //:payload_image"
+contains "$tmp/transform-explain.out" "tool=fake-objcopy.sh toolset=//:image_tools"
 contains "$tmp/transform-explain.out" "generated_artifact output=generated/payload.img group=images format=file"
 "$qstar" --file "$tmp/transform/qstar.lua" dry-run //:payload_image > "$tmp/transform-dry.out" 2> "$tmp/transform-dry.err"
 contains "$tmp/transform-dry.out" "dry_run_generated_action //:payload_image"
-contains "$tmp/transform-dry.out" "argv=[tools/fake-objcopy.sh, -O, binary, fixtures/payload.elf, generated/payload.img]"
-"$qstar" --file "$tmp/transform/qstar.lua" build //:smoke --progress off > "$tmp/transform-smoke.out" 2> "$tmp/transform-smoke.err"
+contains "$tmp/transform-dry.out" "argv=[fake-objcopy.sh, -O, binary, fixtures/payload.elf, generated/payload.img]"
+"$qstar" --file "$tmp/transform/qstar.lua" list-targets --format json > "$tmp/transform-json.out" 2> "$tmp/transform-json.err"
+contains "$tmp/transform-json.out" "\"label\":\"//:payload_image\""
+contains "$tmp/transform-json.out" "\"toolset\":\"//:image_tools\""
+PATH="$tmp/transform/tools:$PATH" "$qstar" --file "$tmp/transform/qstar.lua" build //:smoke --progress off > "$tmp/transform-smoke.out" 2> "$tmp/transform-smoke.err"
 contains "$tmp/transform-smoke.out" "run_target label=//:smoke"
 contains "$tmp/transform-smoke.out" "status ok"
 cmp "$tmp/transform/fixtures/payload.elf" "$tmp/transform/generated/payload.img" >/dev/null || fail "transform output content drifted"
 cmp "$tmp/transform/fixtures/payload.elf" "$tmp/transform/generated/copy.img" >/dev/null || fail "transform run_target input content drifted"
 if command -v ninja >/dev/null 2>&1; then
 	rm -rf "$tmp/transform/build/qstar" "$tmp/transform/generated"
-	"$qstar" --file "$tmp/transform/qstar.lua" -G ninja build //:smoke --progress off > "$tmp/transform-ninja.out" 2> "$tmp/transform-ninja.err"
+	PATH="$tmp/transform/tools:$PATH" "$qstar" --file "$tmp/transform/qstar.lua" -G ninja build //:smoke --progress off > "$tmp/transform-ninja.out" 2> "$tmp/transform-ninja.err"
 	contains "$tmp/transform-ninja.out" "backend ninja"
 	contains "$tmp/transform-ninja.out" "status ok"
 	cmp "$tmp/transform/fixtures/payload.elf" "$tmp/transform/generated/copy.img" >/dev/null || fail "ninja transform run_target input content drifted"
@@ -9565,6 +9601,44 @@ if "$qstar" --file "$tmp/transform-bad/qstar.lua" check > "$tmp/transform-bad-fi
 	fail "unknown transform field unexpectedly succeeded"
 fi
 contains "$tmp/transform-bad-field.err" "unknown transform field 'outputs'"
+cat > "$tmp/transform-bad/qstar.lua" <<'EOF'
+qstar.toolset "other" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
+  path_tools = {"other-tool"},
+}
+
+qstar.transform "bad" {
+  toolset = "//:other",
+  input = "qstar.lua",
+  output = qstar.output("generated/bad.img"),
+  command = qstar.cli {"fake-objcopy.sh", qstar.input(0), qstar.output(0)},
+}
+EOF
+if PATH="$tmp/transform/tools:$PATH" "$qstar" --file "$tmp/transform-bad/qstar.lua" build //:bad > "$tmp/transform-bad-toolset.out" 2> "$tmp/transform-bad-toolset.err"; then
+	fail "transform disallowed PATH tool unexpectedly succeeded"
+fi
+contains "$tmp/transform-bad-toolset.err" "generated action PATH tool 'fake-objcopy.sh' is not allowed by toolset path_tools"
+if command -v ninja >/dev/null 2>&1; then
+	if PATH="$tmp/transform/tools:$PATH" "$qstar" --file "$tmp/transform-bad/qstar.lua" -B build-ninja -G ninja build //:bad > "$tmp/transform-bad-toolset-ninja.out" 2> "$tmp/transform-bad-toolset-ninja.err"; then
+		fail "ninja transform disallowed PATH tool unexpectedly succeeded"
+	fi
+	contains "$tmp/transform-bad-toolset-ninja.err" "generated action PATH tool 'fake-objcopy.sh' is not allowed by toolset path_tools"
+fi
+cat > "$tmp/transform-bad/qstar.lua" <<'EOF'
+qstar.transform "bad" {
+  toolset = "//:missing",
+  input = "qstar.lua",
+  output = qstar.output("generated/bad.img"),
+  command = qstar.cli {"fake-objcopy.sh", qstar.input(0), qstar.output(0)},
+}
+EOF
+if "$qstar" --file "$tmp/transform-bad/qstar.lua" check > "$tmp/transform-bad-missing-toolset.out" 2> "$tmp/transform-bad-missing-toolset.err"; then
+	fail "transform missing toolset unexpectedly succeeded"
+fi
+contains "$tmp/transform-bad-missing-toolset.err" "references unknown toolset '//:missing'"
 cat > "$tmp/transform-bad/qstar.lua" <<'EOF'
 qstar.transform "bad" {
   output = qstar.output("generated/bad.img"),

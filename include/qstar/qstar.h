@@ -200,6 +200,7 @@ struct qstar_genrule {
 	char *origin_file;
 	int origin_line;
 	char *tool;
+	char *toolset;
 	char *description;
 	int config_header;
 	struct qstar_string_list inputs;

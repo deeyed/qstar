@@ -7,10 +7,19 @@ output으로 바꾸는 읽기 쉬운 artifact transform은 `qstar.transform` sug
 ## 최소 예제
 
 ```lua
+qstar.toolset "generators" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
+  path_tools = {"gen-value"},
+}
+
 qstar.custom_target "generated" {
+  toolset = "//:generators",
   inputs = {"tools/value.txt"},
   outputs = {qstar.output("generated/value.c")},
-  command = qstar.cli {"tools/gen-value.sh", qstar.input(0), qstar.output(0)},
+  command = qstar.cli {"gen-value", qstar.input(0), qstar.output(0)},
   description = qstar.status("Generating generated/value.c"),
 }
 ```
@@ -19,6 +28,7 @@ qstar.custom_target "generated" {
 
 ```lua
 qstar.custom_target "package_blob" {
+  toolset = "//:generators",
   inputs = {
     qstar.target_file("//:app"),
   },
@@ -44,12 +54,17 @@ dependency edge가 되며, `qstar.input(N)`으로 command에 전달하면 실제
 `description = qstar.status("...")`를 지정하면 Stella/Ninja progress output에서 action id 대신
 사용자-facing status message가 표시된다. 같은 description은 `qstar action-log`,
 `qstar replay`, `qstar last-failure`에도 `description=` metadata로 보존된다.
+`toolset = "//:generators"`를 지정하면 command 첫 argv가 그 toolset의 external tool
+policy로 해석된다. Bare PATH tool은 해당 toolset의 `path_tools`에 있어야 하며, toolset을
+생략하면 기존 build-context/graph path tool 정책을 사용한다. Package-relative command
+path(`tools/gen-value.sh`)는 package-local 실행 파일로 취급되므로 `path_tools`가 필요 없다.
 
 `qstar.transform`은 같은 generated action contract로 낮아진다. 복수 input/output이나 더
 복잡한 generator는 `qstar.custom_target`을 사용한다.
 
 ```lua
 qstar.transform "package_blob" {
+  toolset = "//:generators",
   input = qstar.target_file("//:app"),
   output = qstar.output("generated/app.bin", {
     group = "packages",
@@ -88,6 +103,7 @@ archive/link input으로만 소비한다.
 
 ```lua
 qstar.custom_target "foreign_object" {
+  toolset = "//:generators",
   inputs = {"src/foreign_source.ext"},
   outputs = {
     qstar.output("generated/foreign.o", {
@@ -130,5 +146,7 @@ qstar --file qstar.lua build //:package_blob --explain-cache
 
 - `generated output must be package-relative`
 - `generated input target is unknown`
+- `generated action references unknown toolset`
+- `generated action PATH tool '...' is not allowed by toolset path_tools`
 - `multiple producers`
 - `generated artifact identity has multiple outputs`

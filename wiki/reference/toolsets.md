@@ -98,8 +98,9 @@ qstar.config "cross_flags" {
 
 ## External Tools
 
-`qstar.custom_target`과 `qstar.run_target`에서 실행할 package-local wrapper나 PATH tool은
-`path_tools`로 허용한다.
+`qstar.custom_target`, `qstar.transform`, `qstar.run_target`에서 실행할 package-local
+wrapper나 PATH tool은 `path_tools`로 허용한다. Generated action이 `toolset`을 직접
+지정하면 bare PATH command tool은 그 toolset의 `path_tools` 안에 있어야 한다.
 
 ```lua
 qstar.toolset "host" {

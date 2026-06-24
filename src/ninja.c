@@ -1884,7 +1884,7 @@ emit_genrule_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		    ninja_argv_push(graph, &argv, script_rel) < 0)
 			goto fail;
 	} else {
-		if (qstar_resolve_command_tool_for_target(graph, target,
+		if (qstar_resolve_command_tool_for_genrule(graph, target, genrule,
 		    genrule->tool, resolved_tool, sizeof(resolved_tool), tool_mode,
 		    sizeof(tool_mode), tool_error, sizeof(tool_error)) < 0)
 			return qstar_set_error_origin(graph, genrule->origin_file,

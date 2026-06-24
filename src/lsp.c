@@ -106,7 +106,7 @@ static const struct qstar_lsp_hover_entry qstar_lsp_fields[] = {
 	{ "compile_context", "Objectlib compile mode: own compiles once, consumer compiles under each consuming target context." },
 	{ "inputs", "run_target or qstar.step.run first-class input list; accepts package files, qstar.target_file, or qstar.stage_dir." },
 	{ "configs", "Reusable qstar.config labels merged before target-local fields." },
-	{ "toolset", "Canonical qstar.toolset label selected by a target or config." },
+	{ "toolset", "Canonical qstar.toolset label selected by a target, config, custom_target, or transform." },
 	{ "tools", "Tool role map inside qstar.toolset; archive/link are core roles and compiler tools live under provider namespaces." },
 	{ "api", "Provider manifest API version, currently qstar.lang/1." },
 	{ "namespace", "Provider namespace activated as lang.<namespace>." },

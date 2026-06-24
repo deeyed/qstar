@@ -561,14 +561,27 @@ Merge rule:
 Generated file이나 복수 입출력 generator는 `qstar.custom_target`으로 표현한다. 단일 input을
 단일 output으로 바꾸는 artifact transform은 `qstar.transform` sugar를 쓸 수 있으며, 이는
 같은 generated action contract로 낮아진다.
+`qstar.custom_target`과 `qstar.transform`은 `toolset = "//:tools"`를 받을 수 있다.
+toolset이 지정된 generated action에서 command 첫 argv가 bare PATH tool이면 해당 toolset의
+`path_tools`에 있어야 한다. Toolset을 생략하면 기존 build-context/graph path-tool policy를
+따른다.
 
 ```lua
+qstar.toolset "artifact_tools" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
+  path_tools = {"package-object"},
+}
+
 qstar.transform "package_blob" {
+  toolset = "//:artifact_tools",
   input = qstar.target_file("//:app"),
   output = qstar.output("generated/app.bin", {
     group = "packages",
   }),
-  command = qstar.cli {"tools/package-object", qstar.input(0), qstar.output(0)},
+  command = qstar.cli {"package-object", qstar.input(0), qstar.output(0)},
 }
 ```
 

@@ -91,11 +91,20 @@ Generic artifact transform은 단일 input/output이면 `qstar.transform`으로 
 사용한다.
 
 ```lua
+qstar.toolset "artifact_tools" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
+  path_tools = {"package-object"},
+}
+
 qstar.transform "package_blob" {
+  toolset = "//:artifact_tools",
   input = qstar.target_file("//:app"),
   output = qstar.output("build/qstar/generated/package/blob.bin"),
   command = qstar.cli {
-    "tools/package-object",
+    "package-object",
     qstar.input(0),
     qstar.output(0),
   },
@@ -466,11 +475,20 @@ read-only.
 transforms more readable while keeping the same generic semantics.
 
 ```lua
+qstar.toolset "artifact_tools" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
+  path_tools = {"pack"},
+}
+
 qstar.transform "packed" {
+  toolset = "//:artifact_tools",
   input = qstar.target_file("//:app"),
   output = qstar.output("build/qstar/generated/packed.bin"),
   command = qstar.cli {
-    "tools/pack",
+    "pack",
     qstar.input(0),
     qstar.output(0),
   },
@@ -481,6 +499,8 @@ Rules:
 
 - It lowers to the same generated action contract as `qstar.custom_target`.
 - It has exactly one `input` and one `output`.
+- It accepts the same `toolset` and `description` policy fields as `qstar.custom_target`.
+- If `toolset` is set, a bare PATH command tool must be listed in that toolset's `path_tools`.
 - It must not know any particular file format.
 - It must not imply compile, link, archive, packaged-output, runner, package, or language semantics.
 - Docs should teach `custom_target` as the underlying primitive and `transform` as single-artifact

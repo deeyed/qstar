@@ -1422,7 +1422,7 @@ static int
 validate_transform_fields(lua_State *L, int table, struct qstar_graph *graph)
 {
 	static const char *const allowed[] = {
-		"input", "output", "command", "description", NULL
+		"input", "output", "command", "description", "toolset", NULL
 	};
 	const char *key;
 
@@ -1435,6 +1435,30 @@ validate_transform_fields(lua_State *L, int table, struct qstar_graph *graph)
 			lua_pop(L, 1);
 			return qstar_set_error(graph,
 			    "qstar: unknown transform field '%s'",
+			    key ? key : "<non-string>");
+		}
+		lua_pop(L, 1);
+	}
+	return 0;
+}
+
+static int
+validate_custom_target_fields(lua_State *L, int table, struct qstar_graph *graph)
+{
+	static const char *const allowed[] = {
+		"inputs", "outputs", "command", "description", "toolset", NULL
+	};
+	const char *key;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	lua_pushnil(L);
+	while (lua_next(L, table) != 0) {
+		key = lua_isstring(L, -2) ? lua_tostring(L, -2) : NULL;
+		if (!key || !string_in_set(key, allowed)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph,
+			    "qstar: unknown custom_target field '%s'",
 			    key ? key : "<non-string>");
 		}
 		lua_pop(L, 1);
@@ -3619,7 +3643,10 @@ add_genrule(lua_State *L, const char *name, int table_index, const char *fragmen
 	    legacy_field_present(L, table_index, "args"))
 		return luaL_error(L,
 		    "qstar: custom_target uses command = qstar.cli { ... }; tool/args are removed");
-	if (read_genrule_inputs_field(L, table_index, genrule, graph) < 0 ||
+	if (validate_custom_target_fields(L, table_index, graph) < 0 ||
+	    read_label_scalar_field(L, table_index, "toolset", &genrule->toolset, graph,
+	    genrule->fragment_dir, NULL) < 0 ||
+	    read_genrule_inputs_field(L, table_index, genrule, graph) < 0 ||
 	    read_outputs_field(L, table_index, genrule, graph) < 0 ||
 	    finish_generated_command(L, table_index, genrule, graph,
 	    "custom_target", "custom_target command") < 0)
@@ -3666,6 +3693,8 @@ add_transform(lua_State *L, const char *name, int table_index,
 	if (!genrule)
 		return luaL_error(L, "%s", graph->error);
 	if (validate_transform_fields(L, table_index, graph) < 0 ||
+	    read_label_scalar_field(L, table_index, "toolset", &genrule->toolset, graph,
+	    genrule->fragment_dir, NULL) < 0 ||
 	    read_transform_input_field(L, table_index, genrule, graph) < 0 ||
 	    read_transform_output_field(L, table_index, genrule, graph) < 0 ||
 	    finish_generated_command(L, table_index, genrule, graph,

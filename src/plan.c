@@ -1178,7 +1178,8 @@ dump_genrule_argv(FILE *out, const struct qstar_graph *graph,
 		snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
 		snprintf(tool_mode, sizeof(tool_mode), "builtin");
 		argv_item(out, &dump, resolved_tool);
-	} else if (qstar_resolve_command_tool_for_target(graph, target, genrule->tool,
+	} else if (qstar_resolve_command_tool_for_genrule(graph, target, genrule,
+	    genrule->tool,
 	    resolved_tool, sizeof(resolved_tool), tool_mode, sizeof(tool_mode),
 	    tool_error, sizeof(tool_error)) == 0)
 		argv_item(out, &dump, resolved_tool);
@@ -1569,9 +1570,9 @@ dump_consumed_genrules(FILE *out, const struct qstar_plan *plan,
 		if (genrule->config_header) {
 			snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
 			snprintf(tool_mode, sizeof(tool_mode), "builtin");
-		} else if (qstar_resolve_command_tool_for_target(plan->graph, target,
-		    genrule->tool, resolved_tool, sizeof(resolved_tool), tool_mode,
-		    sizeof(tool_mode), tool_error, sizeof(tool_error)) < 0) {
+		} else if (qstar_resolve_command_tool_for_genrule(plan->graph, target,
+		    genrule, genrule->tool, resolved_tool, sizeof(resolved_tool),
+		    tool_mode, sizeof(tool_mode), tool_error, sizeof(tool_error)) < 0) {
 			snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
 			snprintf(tool_mode, sizeof(tool_mode), "invalid");
 		}
@@ -1581,9 +1582,10 @@ dump_consumed_genrules(FILE *out, const struct qstar_plan *plan,
 			snprintf(description, sizeof(description), "<too-long>");
 		dump_action_description(out, "  ", id, description);
 		fprintf(out,
-		    "  generated_action id=%s tool=%s tool_mode=%s resolved_tool=%s inputs=%s outputs=%s output_identities=%s args=",
-		    genrule->label, genrule->tool, tool_mode, resolved_tool, inputs, outputs,
-		    identities);
+		    "  generated_action id=%s tool=%s toolset=%s tool_mode=%s resolved_tool=%s inputs=%s outputs=%s output_identities=%s args=",
+		    genrule->label, genrule->tool,
+		    genrule->toolset && *genrule->toolset ? genrule->toolset : "<none>",
+		    tool_mode, resolved_tool, inputs, outputs, identities);
 		dump_list(out, &genrule->args);
 		fputs(" execute=no\n", out);
 		dump_genrule_input_edges(out, plan->graph, genrule, "  ");
@@ -1591,18 +1593,22 @@ dump_consumed_genrules(FILE *out, const struct qstar_plan *plan,
 		fprintf(out,
 		    "  action_key id=%s:generate:0 kind=generate owner=%s consumer=%s "
 		    "input=%s output=%s language=generated build_context=%s target=%s "
-		    "toolchain=%s stdlib=%s deps=[] packages=",
+		    "toolchain=%s toolset=%s stdlib=%s deps=[] packages=",
 		    genrule->label, genrule->label, target->label, inputs, identities,
 		    context_or_default(plan->graph->build_context.name, "default"),
 		    context_or_default(plan->graph->build_context.target, "host"),
-		    target->toolchain, target->stdlib_policy);
+		    target->toolchain,
+		    genrule->toolset && *genrule->toolset ? genrule->toolset : "<none>",
+		    target->stdlib_policy);
 		dump_package_aliases(out, plan->graph);
 		fputc('\n', out);
 		fprintf(out,
 		    "  command_skeleton id=%s:generate:0 phase=generate language=generated "
-		    "tool=%s resolved_tool=%s tool_mode=%s toolchain=%s target=%s stdlib=%s input=%s output=%s "
+		    "tool=%s toolset=%s resolved_tool=%s tool_mode=%s toolchain=%s target=%s stdlib=%s input=%s output=%s "
 		    "consumer=%s execute=no\n",
-		    genrule->label, genrule->tool, resolved_tool, tool_mode,
+		    genrule->label, genrule->tool,
+		    genrule->toolset && *genrule->toolset ? genrule->toolset : "<none>",
+		    resolved_tool, tool_mode,
 		    target->toolchain, context_or_default(plan->graph->build_context.target, "host"),
 		    target->stdlib_policy, inputs, identities, target->label);
 		dump_genrule_argv(out, plan->graph, target, genrule);
@@ -1625,16 +1631,17 @@ dump_direct_genrule_plan(FILE *out, const struct qstar_graph *graph,
 	if (genrule->config_header) {
 		snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
 		snprintf(tool_mode, sizeof(tool_mode), "builtin");
-	} else if (qstar_external_tool_resolve_command_tool(graph, genrule->tool,
-	    resolved_tool, sizeof(resolved_tool), tool_mode, sizeof(tool_mode),
-	    tool_error, sizeof(tool_error)) < 0) {
+	} else if (qstar_resolve_command_tool_for_genrule(graph, NULL, genrule,
+	    genrule->tool, resolved_tool, sizeof(resolved_tool), tool_mode,
+	    sizeof(tool_mode), tool_error, sizeof(tool_error)) < 0) {
 		snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
 		snprintf(tool_mode, sizeof(tool_mode), "invalid");
 	}
 	fprintf(out,
-	    "%s_generated_action %s tool=%s tool_mode=%s resolved_tool=%s inputs=%s outputs=%s output_identities=%s\n",
-	    mode, genrule->label, genrule->tool, tool_mode, resolved_tool, inputs, outputs,
-	    identities);
+	    "%s_generated_action %s tool=%s toolset=%s tool_mode=%s resolved_tool=%s inputs=%s outputs=%s output_identities=%s\n",
+	    mode, genrule->label, genrule->tool,
+	    genrule->toolset && *genrule->toolset ? genrule->toolset : "<none>",
+	    tool_mode, resolved_tool, inputs, outputs, identities);
 	snprintf(id, sizeof(id), "%s:generate:0", genrule->label);
 	if (qstar_action_description_generate(genrule, description,
 	    sizeof(description)) < 0)
@@ -1644,16 +1651,19 @@ dump_direct_genrule_plan(FILE *out, const struct qstar_graph *graph,
 	dump_genrule_artifacts(out, genrule, "  ");
 	fprintf(out,
 	    "  action_key id=%s:generate:0 kind=generate owner=%s consumer=<direct> "
-	    "input=%s output=%s language=generated build_context=%s target=%s toolchain=custom stdlib=none deps=[] packages=",
+	    "input=%s output=%s language=generated build_context=%s target=%s toolchain=custom toolset=%s stdlib=none deps=[] packages=",
 	    genrule->label, genrule->label, inputs, identities,
 	    context_or_default(graph->build_context.name, "default"),
-	    context_or_default(graph->build_context.target, "host"));
+	    context_or_default(graph->build_context.target, "host"),
+	    genrule->toolset && *genrule->toolset ? genrule->toolset : "<none>");
 	dump_package_aliases(out, graph);
 	fputc('\n', out);
 	fprintf(out,
 	    "  command_skeleton id=%s:generate:0 phase=generate language=generated "
-	    "tool=%s resolved_tool=%s tool_mode=%s toolchain=custom target=%s stdlib=none input=%s output=%s consumer=<direct> execute=no\n",
-	    genrule->label, genrule->tool, resolved_tool, tool_mode,
+	    "tool=%s toolset=%s resolved_tool=%s tool_mode=%s toolchain=custom target=%s stdlib=none input=%s output=%s consumer=<direct> execute=no\n",
+	    genrule->label, genrule->tool,
+	    genrule->toolset && *genrule->toolset ? genrule->toolset : "<none>",
+	    resolved_tool, tool_mode,
 	    context_or_default(graph->build_context.target, "host"), inputs, identities);
 	dump_genrule_argv(out, graph, NULL, genrule);
 }
@@ -2304,9 +2314,9 @@ dump_dry_run_genrules(FILE *out, const struct qstar_plan *plan,
 		if (genrule->config_header) {
 			snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
 			snprintf(tool_mode, sizeof(tool_mode), "builtin");
-		} else if (qstar_resolve_command_tool_for_target(plan->graph, target,
-		    genrule->tool, resolved_tool, sizeof(resolved_tool), tool_mode,
-		    sizeof(tool_mode), tool_error, sizeof(tool_error)) < 0) {
+		} else if (qstar_resolve_command_tool_for_genrule(plan->graph, target,
+		    genrule, genrule->tool, resolved_tool, sizeof(resolved_tool),
+		    tool_mode, sizeof(tool_mode), tool_error, sizeof(tool_error)) < 0) {
 			snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
 			snprintf(tool_mode, sizeof(tool_mode), "invalid");
 		}
@@ -2317,8 +2327,9 @@ dump_dry_run_genrules(FILE *out, const struct qstar_plan *plan,
 		dump_action_description(out, "  ", id, description);
 		fprintf(out,
 		    "dry_run_step id=%s:generate:0 owner=%s consumer=%s kind=generate "
-		    "tool=%s tool_mode=%s resolved_tool=%s inputs=%s outputs=%s output_identities=%s args=",
+		    "tool=%s toolset=%s tool_mode=%s resolved_tool=%s inputs=%s outputs=%s output_identities=%s args=",
 		    genrule->label, genrule->label, target->label, genrule->tool,
+		    genrule->toolset && *genrule->toolset ? genrule->toolset : "<none>",
 		    tool_mode, resolved_tool, inputs, outputs, identities);
 		dump_list(out, &genrule->args);
 		fputs(" execute=no\n", out);

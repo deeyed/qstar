@@ -250,18 +250,30 @@ qstar.toolset "host" {
 ```
 
 Toolsets only select tool roles and command materialization policy. Compile and
-link options belong in `qstar.config` or target-local fields.
+link options belong in `qstar.config` or target-local fields. Generated actions
+can also select a toolset for command tool policy. If a generated action uses a
+bare PATH command tool and sets `toolset`, that tool must be listed in the
+selected toolset's `path_tools`.
 
 ## Generic Artifact Workflow
 
 ```lua
+qstar.toolset "artifact_tools" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
+  path_tools = {"transform-artifact"},
+}
+
 qstar.transform "payload_artifact" {
+  toolset = "//:artifact_tools",
   input = "fixtures/payload.artifact",
   output = qstar.output("generated/artifacts/payload.artifact", {
     group = "artifacts",
   }),
   command = qstar.cli {
-    "tools/transform-artifact.sh",
+    "transform-artifact",
     qstar.input(0),
     qstar.output(0),
   },
@@ -375,10 +387,19 @@ import `.lib` that dependent targets link against on Windows.
 ## Generated Artifacts
 
 ```lua
+qstar.toolset "artifact_tools" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
+  path_tools = {"package-object", "compile-foreign"},
+}
+
 qstar.custom_target "package_blob" {
+  toolset = "//:artifact_tools",
   inputs = {qstar.target_file("//:app")},
   outputs = {qstar.output("build/qstar/generated/app.bin", {group = "packages"})},
-  command = qstar.cli {"tools/package-object", qstar.input(0), qstar.output(0)},
+  command = qstar.cli {"package-object", qstar.input(0), qstar.output(0)},
   description = qstar.status("Packaging app.bin"),
 }
 ```
@@ -388,9 +409,10 @@ to the same generated action contract as `qstar.custom_target`.
 
 ```lua
 qstar.transform "package_blob" {
+  toolset = "//:artifact_tools",
   input = qstar.target_file("//:app"),
   output = qstar.output("build/qstar/generated/app.bin", {group = "packages"}),
-  command = qstar.cli {"tools/package-object", qstar.input(0), qstar.output(0)},
+  command = qstar.cli {"package-object", qstar.input(0), qstar.output(0)},
   description = qstar.status("Packaging app.bin"),
 }
 ```
@@ -399,11 +421,28 @@ Generated object outputs use the same surface:
 
 ```lua
 qstar.custom_target "foreign_object" {
+  toolset = "//:artifact_tools",
   inputs = {"src/foreign_source.ext"},
   outputs = {qstar.output("build/qstar/generated/foreign.o", {format = "object"})},
-  command = qstar.cli {"tools/compile-foreign.sh", qstar.input(0), qstar.output(0)},
+  command = qstar.cli {"compile-foreign", qstar.input(0), qstar.output(0)},
 }
 ```
+
+Generated action fields:
+
+| Field | Meaning |
+| --- | --- |
+| `inputs` | `custom_target` input list. Items can be package files or artifact tokens such as `qstar.target_file(...)`. |
+| `input` | `transform` single input. This is sugar for one `custom_target.inputs` item. |
+| `outputs` | `custom_target` output list. Each item is `qstar.output(...)`. |
+| `output` | `transform` single output. This is sugar for one `custom_target.outputs` item. |
+| `command` | Required `qstar.cli { ... }` argv vector. |
+| `toolset` | Optional `qstar.toolset` label used to resolve and authorize the first argv item. |
+| `description` | Optional `qstar.status("...")` progress/action-log description. |
+
+If `toolset` is omitted, generated actions keep the normal build-context and
+graph path-tool policy. Package-relative command paths such as
+`tools/generate.sh` remain package-local files and do not need `path_tools`.
 
 ## Run And Stage
 

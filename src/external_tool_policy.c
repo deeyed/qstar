@@ -177,6 +177,19 @@ toolset_allows_path_tool(const struct qstar_graph *graph, const struct qstar_tar
 	return 0;
 }
 
+/** 특정 toolset label의 PATH tool 허용 여부를 확인한다. */
+static int
+toolset_label_allows_path_tool(const struct qstar_graph *graph, const char *toolset_label,
+    const char *tool)
+{
+	const struct qstar_toolset *toolset;
+
+	if (!toolset_label || !*toolset_label)
+		return 0;
+	toolset = qstar_graph_find_toolset(graph, toolset_label);
+	return toolset && string_list_contains(&toolset->path_tools, tool);
+}
+
 /** target/toolset 문맥에서 absolute custom command가 허용되는지 확인한다. */
 static int
 toolset_allows_absolute_tool(const struct qstar_graph *graph,
@@ -196,17 +209,34 @@ toolset_allows_absolute_tool(const struct qstar_graph *graph,
 	return 0;
 }
 
+/** 특정 toolset label에서 absolute custom command 허용 여부를 확인한다. */
+static int
+toolset_label_allows_absolute_tool(const struct qstar_graph *graph,
+    const char *toolset_label)
+{
+	const struct qstar_toolset *toolset;
+
+	if (!toolset_label || !*toolset_label)
+		return 0;
+	toolset = qstar_graph_find_toolset(graph, toolset_label);
+	return toolset && context_bool_enabled(toolset->allow_absolute_tools, 0);
+}
+
 /** build context/toolset external tool policy로 custom_target 첫 argv를 실행 path로 해석한다. */
-int
-qstar_resolve_command_tool_for_target(const struct qstar_graph *graph,
-    const struct qstar_target *target, const char *tool, char *resolved, size_t resolved_len,
+static int
+resolve_command_tool(const struct qstar_graph *graph, const struct qstar_target *target,
+    const char *toolset_label, const char *tool, char *resolved, size_t resolved_len,
     char *mode, size_t mode_len, char *error, size_t error_len)
 {
 	char override[QSTAR_PATH_MAX];
 	int allow_absolute;
+	int has_explicit_toolset;
 
+	has_explicit_toolset = toolset_label && *toolset_label;
 	allow_absolute = context_bool_enabled(graph->build_context.allow_absolute_tools, 0) ||
-	    toolset_allows_absolute_tool(graph, target);
+	    (has_explicit_toolset ?
+	    toolset_label_allows_absolute_tool(graph, toolset_label) :
+	    toolset_allows_absolute_tool(graph, target));
 
 	if (!tool || !*tool) {
 		snprintf(error, error_len, "qstar: generated action tool is empty");
@@ -268,7 +298,14 @@ qstar_resolve_command_tool_for_target(const struct qstar_graph *graph,
 		    tool);
 		return -1;
 	}
-	if (!string_list_contains(&graph->build_context.path_tools, tool) &&
+	if (has_explicit_toolset) {
+		if (!toolset_label_allows_path_tool(graph, toolset_label, tool)) {
+			snprintf(error, error_len,
+			    "qstar: generated action PATH tool '%s' is not allowed by toolset path_tools",
+			    tool);
+			return -1;
+		}
+	} else if (!string_list_contains(&graph->build_context.path_tools, tool) &&
 	    !toolset_allows_path_tool(graph, target, tool)) {
 		snprintf(error, error_len,
 		    "qstar: generated action PATH tool '%s' is not allowed by toolset path_tools",
@@ -276,6 +313,28 @@ qstar_resolve_command_tool_for_target(const struct qstar_graph *graph,
 		return -1;
 	}
 	return set_tool_resolution(resolved, resolved_len, mode, mode_len, tool, "path");
+}
+
+/** build context/toolset external tool policy로 custom_target 첫 argv를 실행 path로 해석한다. */
+int
+qstar_resolve_command_tool_for_target(const struct qstar_graph *graph,
+    const struct qstar_target *target, const char *tool, char *resolved, size_t resolved_len,
+    char *mode, size_t mode_len, char *error, size_t error_len)
+{
+	return resolve_command_tool(graph, target, NULL, tool, resolved, resolved_len, mode,
+	    mode_len, error, error_len);
+}
+
+/** generated action 자체 toolset이 있으면 그 toolset policy로 command tool을 해석한다. */
+int
+qstar_resolve_command_tool_for_genrule(const struct qstar_graph *graph,
+    const struct qstar_target *target, const struct qstar_genrule *genrule,
+    const char *tool, char *resolved, size_t resolved_len, char *mode, size_t mode_len,
+    char *error, size_t error_len)
+{
+	return resolve_command_tool(graph, target,
+	    genrule && genrule->toolset && *genrule->toolset ? genrule->toolset : NULL,
+	    tool, resolved, resolved_len, mode, mode_len, error, error_len);
 }
 
 /** build context external tool policy로 custom_target 첫 argv를 실행 path로 해석한다. */

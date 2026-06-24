@@ -243,6 +243,12 @@ int qstar_resolve_command_tool_for_target(const struct qstar_graph *graph,
     const struct qstar_target *target, const char *tool, char *resolved, size_t resolved_len,
     char *mode, size_t mode_len, char *error, size_t error_len);
 
+/** generated action 자체 toolset이 있으면 그 toolset policy로 command tool을 해석한다. */
+int qstar_resolve_command_tool_for_genrule(const struct qstar_graph *graph,
+    const struct qstar_target *target, const struct qstar_genrule *genrule,
+    const char *tool, char *resolved, size_t resolved_len, char *mode, size_t mode_len,
+    char *error, size_t error_len);
+
 /** resolved tool mode가 package-local file input으로 action key에 들어가야 하는지 본다. */
 int qstar_external_tool_mode_is_package_input(const char *mode);
 

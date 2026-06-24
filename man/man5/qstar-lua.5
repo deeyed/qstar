@@ -216,11 +216,26 @@ Darwin-specific branch as
 .It Ic qstar.custom_target
 Generated action using a
 .Ic qstar.cli
-argv vector.
+argv vector. Fields are
+.Ic inputs ,
+.Ic outputs ,
+.Ic command ,
+.Ic description ,
+and optional
+.Ic toolset .
+When
+.Ic toolset
+is present, bare PATH command tools must be declared by that toolset's
+.Ic path_tools .
 .It Ic qstar.transform
 Single-input single-output generated artifact transform sugar. It lowers to the
 same generated action contract as
-.Ic qstar.custom_target .
+.Ic qstar.custom_target
+and accepts the same
+.Ic toolset
+and
+.Ic description
+policy fields.
 .It Ic qstar.configure_file
 Deterministic configured file or config header generator using
 .Ic qstar.output .

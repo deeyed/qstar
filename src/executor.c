@@ -4993,7 +4993,7 @@ prepare_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    genrule->origin_line, "command", genrule->label,
 		    "qstar: configure_file '%s' is not an external process action",
 		    genrule->label);
-	if (qstar_resolve_command_tool_for_target(graph, target, genrule->tool,
+	if (qstar_resolve_command_tool_for_genrule(graph, target, genrule, genrule->tool,
 	    resolved_tool, sizeof(resolved_tool), tool_mode, sizeof(tool_mode),
 	    tool_error, sizeof(tool_error)) < 0)
 		return qstar_set_error_origin(graph, genrule->origin_file,
@@ -5059,12 +5059,16 @@ prepare_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	    target ? target->toolchain : "custom");
 	snprintf(toolchain.target, sizeof(toolchain.target), "%s",
 	    graph->build_context.target ? graph->build_context.target : "host");
+	snprintf(toolchain.toolset, sizeof(toolchain.toolset), "%s",
+	    genrule->toolset && *genrule->toolset ? genrule->toolset : "");
 	compute_action_key(ctx, graph, target, &toolchain, action->id, "generate",
 	    action->argv, NULL, &action->inputs, NULL, output_identity, action->key,
 	    sizeof(action->key), &action->material);
 	build_tracef(ctx,
-	    "generated_sandbox id=%s inputs=package-root outputs=generated-only cwd=package-root network=disabled tool=%s tool_mode=%s resolved_tool=%s output_identity=%s\n",
-	    genrule->label, genrule->tool, tool_mode, resolved_tool, output_identity);
+	    "generated_sandbox id=%s inputs=package-root outputs=generated-only cwd=package-root network=disabled tool=%s toolset=%s tool_mode=%s resolved_tool=%s output_identity=%s\n",
+	    genrule->label, genrule->tool,
+	    genrule->toolset && *genrule->toolset ? genrule->toolset : "<none>",
+	    tool_mode, resolved_tool, output_identity);
 	if (qstar_action_description_generate(genrule, action->description,
 	    sizeof(action->description)) < 0)
 		snprintf(action->description, sizeof(action->description), "<too-long>");
@@ -11426,9 +11430,9 @@ prepare_lazy_generated_action(struct qstar_graph *graph, const struct qstar_genr
 	snprintf(action->id, sizeof(action->id), "%s:generate:0", genrule->label);
 	snprintf(action->kind, sizeof(action->kind), "generate");
 	if (!genrule->config_header &&
-	    qstar_external_tool_resolve_command_tool(graph, genrule->tool, resolved_tool,
-	    sizeof(resolved_tool), tool_mode, sizeof(tool_mode), tool_error,
-	    sizeof(tool_error)) < 0)
+	    qstar_resolve_command_tool_for_genrule(graph, NULL, genrule, genrule->tool,
+	    resolved_tool, sizeof(resolved_tool), tool_mode, sizeof(tool_mode),
+	    tool_error, sizeof(tool_error)) < 0)
 		return qstar_set_error_origin(graph, genrule->origin_file,
 		    genrule->origin_line, "command", genrule->label, "%s", tool_error);
 	if (genrule->config_header)

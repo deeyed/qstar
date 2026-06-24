@@ -11,11 +11,20 @@ project-local workflow를 표현하는 표준 문법을 정리한다.
 ## 최소 예제
 
 ```lua
+qstar.toolset "artifact_tools" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
+  path_tools = {"transform-artifact"},
+}
+
 qstar.transform "payload_artifact" {
+  toolset = "//:artifact_tools",
   input = "fixtures/payload.artifact",
   output = qstar.output("generated/artifacts/payload.artifact"),
   command = qstar.cli {
-    "tools/transform-artifact.sh",
+    "transform-artifact",
     qstar.input(0),
     qstar.output(0),
   },
@@ -34,18 +43,22 @@ qstar.run_target "smoke" {
 
 `qstar.transform`은 단일 input을 단일 output으로 바꾸는 `qstar.custom_target` sugar다.
 별도 산출물 종류를 만들지 않고 같은 generated action contract로 낮아진다. 복수
-input/output이 필요하면 `qstar.custom_target`을 사용한다.
+input/output이 필요하면 `qstar.custom_target`을 사용한다. Generated action이 bare PATH
+tool을 실행한다면 `toolset`을 지정하고 그 toolset의 `path_tools`에 tool 이름을 넣는다.
+이 규칙은 code generation, object conversion, package-local artifact transform, external
+validation 등 모든 generic workflow에 같은 방식으로 적용된다.
 
 ## 전체 예제
 
 ```lua
 qstar.transform "payload_artifact" {
+  toolset = "//:artifact_tools",
   input = "fixtures/payload.artifact",
   output = qstar.output("generated/artifacts/payload.artifact", {
     group = "artifacts",
   }),
   command = qstar.cli {
-    "tools/transform-artifact.sh",
+    "transform-artifact",
     qstar.input(0),
     qstar.output(0),
   },
@@ -182,3 +195,5 @@ concepts so public syntax does not grow domain-specific target kinds.
 - `project command name 'build' is reserved`
 - `unknown transform field`
 - `transform '//:name' requires input`
+- `generated action '//:name' references unknown toolset`
+- `generated action PATH tool '...' is not allowed by toolset path_tools`

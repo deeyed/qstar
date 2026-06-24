@@ -9,7 +9,7 @@
 #include <unistd.h>
 
 #define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v7"
-#define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v1"
+#define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v2"
 #define QSTAR_STELLA_ACTION_MAGIC "qstar-stella-actions-cache-v2"
 #define QSTAR_STELLA_PLAN_ABI 10
 #define QSTAR_STELLA_HASH_INIT 1469598103934665603ULL
@@ -508,6 +508,7 @@ write_genrule(FILE *f, const struct qstar_genrule *g)
 	    write_str(f, g->origin_file) < 0 ||
 	    write_i32(f, g->origin_line) < 0 ||
 	    write_str(f, g->tool) < 0 ||
+	    write_str(f, g->toolset) < 0 ||
 	    write_str(f, g->description) < 0 ||
 	    write_i32(f, g->config_header) < 0 ||
 	    write_list(f, &g->inputs) < 0 ||
@@ -529,6 +530,7 @@ read_genrule(FILE *f, struct qstar_genrule *g)
 	    read_str(f, &g->origin_file) < 0 ||
 	    read_i32(f, &g->origin_line) < 0 ||
 	    read_str(f, &g->tool) < 0 ||
+	    read_str(f, &g->toolset) < 0 ||
 	    read_str(f, &g->description) < 0 ||
 	    read_i32(f, &g->config_header) < 0 ||
 	    read_list(f, &g->inputs) < 0 ||

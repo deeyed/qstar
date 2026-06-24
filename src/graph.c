@@ -285,6 +285,7 @@ free_genrule(struct qstar_genrule *genrule)
 	free(genrule->fragment_dir);
 	free(genrule->origin_file);
 	free(genrule->tool);
+	free(genrule->toolset);
 	free(genrule->description);
 	qstar_string_list_free(&genrule->inputs);
 	qstar_string_list_free(&genrule->outputs);
@@ -1825,6 +1826,16 @@ qstar_graph_validate_toolsets(struct qstar_graph *graph)
 			    graph->targets[i].label, graph->targets[i].toolset);
 		}
 	}
+	for (i = 0; i < graph->genrule_len; i++) {
+		if (graph->genrules[i].toolset && *graph->genrules[i].toolset &&
+		    !has_toolset(graph, graph->genrules[i].toolset)) {
+			return qstar_set_error_origin(graph, graph->genrules[i].origin_file,
+			    graph->genrules[i].origin_line, "toolset",
+			    graph->genrules[i].label,
+			    "qstar: generated action '%s' references unknown toolset '%s'",
+			    graph->genrules[i].label, graph->genrules[i].toolset);
+		}
+	}
 	return 0;
 }
 
@@ -1878,9 +1889,11 @@ qstar_graph_add_genrule(struct qstar_graph *graph, const char *label, const char
 	genrule->origin_file = qstar_strdup(origin_file ? origin_file : "");
 	genrule->origin_line = origin_line;
 	genrule->tool = qstar_strdup("generator");
+	genrule->toolset = qstar_strdup("");
 	genrule->description = qstar_strdup("");
 	if (!genrule->label || !genrule->name || !genrule->fragment_dir ||
-	    !genrule->origin_file || !genrule->tool || !genrule->description) {
+	    !genrule->origin_file || !genrule->tool || !genrule->toolset ||
+	    !genrule->description) {
 		qstar_set_error(graph, "qstar: out of memory");
 		return NULL;
 	}
@@ -3792,6 +3805,8 @@ dump_genrule(const struct qstar_genrule *genrule, FILE *out)
 	    genrule->origin_file && *genrule->origin_file ? genrule->origin_file : "<unknown>",
 	    genrule->origin_line);
 	fprintf(out, "  tool %s\n", genrule->tool);
+	fprintf(out, "  toolset %s\n",
+	    genrule->toolset && *genrule->toolset ? genrule->toolset : "<unset>");
 	fprintf(out, "  description %s\n",
 	    genrule->description && *genrule->description ? genrule->description : "<default>");
 	fprintf(out, "  config_header %s\n", genrule->config_header ? "yes" : "no");
@@ -4499,6 +4514,9 @@ dump_genrule_json(FILE *out, const struct qstar_genrule *genrule)
 	dump_json_string(out, genrule->fragment_dir);
 	fputs(",\"tool\":", out);
 	dump_json_string(out, genrule->tool);
+	fputs(",\"toolset\":", out);
+	dump_json_string(out, genrule->toolset && *genrule->toolset ?
+	    genrule->toolset : "");
 	fputs(",\"description\":", out);
 	dump_json_string(out, genrule->description && *genrule->description ?
 	    genrule->description : "");
