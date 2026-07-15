@@ -160,6 +160,13 @@ QStar가 하지 않는 일:
   `qstar.run_target`, nested suite label을 ordered unique closure로 조합한다.
   `tags`는 exact user metadata이며 `host`, `emulator`, `hardware` 같은 값에 builtin
   platform/runner/evidence 의미가 없다. Stella와 Ninja는 같은 resolver 결과를 실행한다.
+- Generic test resource/result 정본은 `docs/test-resources-and-results.md`와
+  `wiki/reference/test-resources.md`다. `qstar.test_resource` id는 user-defined이며
+  `board`, `gpu`, `serial-port` 같은 이름에 builtin 의미가 없다. `qstar.test`는
+  `resources`, retry, setup/cleanup, timeout, manual, declarative skip을 지원한다. Scheduler는
+  resource를 setup부터 cleanup까지 보유하고 retry 전에 반환한다. Builtin result 상태는
+  pass/fail/skip/error/timeout이며 JSON `qstar-test-results-v1`, optional JUnit,
+  action-log/replay가 Stella/Ninja 공통 계약이다.
 - Public beta runtime package는 `make qstar-public-beta-release-tests`로 만든다. 이 gate는
   installed binary version, installed wiki/manpages, macOS codesign, prefix-style
   tarball layout, `SHA256SUMS`, VSCode `.vsix` 미포함 정책을 확인한다. Q247부터

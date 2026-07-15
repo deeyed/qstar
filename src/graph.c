@@ -208,6 +208,13 @@ free_target(struct qstar_target *target)
 	free(target->provider_options);
 	qstar_string_list_free(&target->run_inputs);
 	qstar_string_list_free(&target->run_command);
+	for (i = 0; i < target->test_resource_len; i++)
+		free(target->test_resources[i].name);
+	free(target->test_resources);
+	qstar_string_list_free(&target->test_retry_on);
+	qstar_string_list_free(&target->test_setup);
+	qstar_string_list_free(&target->test_cleanup);
+	free(target->test_skip_reason);
 	free(target->description);
 	free(target->artifact_name);
 	free(target->imported_artifact_kind);
@@ -342,6 +349,14 @@ free_test_suite(struct qstar_test_suite *suite)
 	free(suite->description);
 	qstar_string_list_free(&suite->tests);
 	qstar_string_list_free(&suite->tags);
+}
+
+static void
+free_test_resource(struct qstar_test_resource *resource)
+{
+	free(resource->name);
+	free(resource->origin_file);
+	free(resource->description);
 }
 
 /** root project command option schema가 소유한 문자열을 해제한다. */
@@ -502,6 +517,8 @@ qstar_graph_free(struct qstar_graph *graph)
 		free_target_family(&graph->families[i]);
 	for (i = 0; i < graph->test_suite_len; i++)
 		free_test_suite(&graph->test_suites[i]);
+	for (i = 0; i < graph->test_resource_len; i++)
+		free_test_resource(&graph->test_resources[i]);
 	for (i = 0; i < graph->command_len; i++)
 		free_project_command(&graph->commands[i]);
 	for (i = 0; i < graph->project_option_len; i++)
@@ -530,6 +547,7 @@ qstar_graph_free(struct qstar_graph *graph)
 	free(graph->stages);
 	free(graph->families);
 	free(graph->test_suites);
+	free(graph->test_resources);
 	free(graph->commands);
 	free(graph->project_options);
 	free(graph->project_option_overrides);
@@ -1164,17 +1182,92 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	target->run_expect_contains = qstar_strdup("");
 	target->run_expect_file = qstar_strdup("");
 	target->description = qstar_strdup("");
+	target->test_skip_reason = qstar_strdup("");
 	target->toolset = qstar_strdup("");
 	if (!target->label || !target->name || !target->kind || !target->fragment_dir ||
 	    !target->origin_file || !target->artifact_name ||
 	    !target->imported_artifact_kind || !target->tool_path ||
 	    !target->compile_context || !target->cxx_standard ||
 	    !target->run_expect_contains || !target->run_expect_file ||
-	    !target->description || !target->toolset) {
+	    !target->description || !target->test_skip_reason || !target->toolset) {
 		qstar_set_error(graph, "qstar: out of memory");
 		return NULL;
 	}
 	return target;
+}
+
+const struct qstar_test_resource *
+qstar_graph_find_test_resource(const struct qstar_graph *graph, const char *name)
+{
+	size_t i;
+
+	for (i = 0; graph && name && i < graph->test_resource_len; i++) {
+		if (strcmp(graph->test_resources[i].name, name) == 0)
+			return &graph->test_resources[i];
+	}
+	return NULL;
+}
+
+struct qstar_test_resource *
+qstar_graph_add_test_resource(struct qstar_graph *graph, const char *name,
+    const char *origin_file, int origin_line)
+{
+	struct qstar_test_resource *items, *resource;
+	size_t cap;
+
+	if (!name || !*name || qstar_graph_find_test_resource(graph, name)) {
+		qstar_set_error(graph, "qstar: duplicate or empty test resource '%s'",
+		    name ? name : "");
+		return NULL;
+	}
+	if (graph->test_resource_len == graph->test_resource_cap) {
+		cap = graph->test_resource_cap ? graph->test_resource_cap * 2 : 8;
+		items = realloc(graph->test_resources, cap * sizeof(items[0]));
+		if (!items) {
+			qstar_set_error(graph, "qstar: out of memory");
+			return NULL;
+		}
+		graph->test_resources = items;
+		graph->test_resource_cap = cap;
+	}
+	resource = &graph->test_resources[graph->test_resource_len++];
+	memset(resource, 0, sizeof(*resource));
+	resource->name = qstar_strdup(name);
+	resource->origin_file = qstar_strdup(origin_file ? origin_file : "");
+	resource->description = qstar_strdup("");
+	resource->origin_line = origin_line;
+	if (!resource->name || !resource->origin_file || !resource->description) {
+		qstar_set_error(graph, "qstar: out of memory");
+		return NULL;
+	}
+	return resource;
+}
+
+int
+qstar_target_add_test_resource_request(struct qstar_graph *graph,
+    struct qstar_target *target, const char *name, int amount)
+{
+	struct qstar_test_resource_request *items, *request;
+	size_t cap, i;
+
+	for (i = 0; i < target->test_resource_len; i++) {
+		if (strcmp(target->test_resources[i].name, name) == 0)
+			return qstar_set_error(graph,
+			    "qstar: duplicate test resource request '%s' on '%s'",
+			    name, target->label);
+	}
+	if (target->test_resource_len == target->test_resource_cap) {
+		cap = target->test_resource_cap ? target->test_resource_cap * 2 : 4;
+		items = realloc(target->test_resources, cap * sizeof(items[0]));
+		if (!items)
+			return qstar_set_error(graph, "qstar: out of memory");
+		target->test_resources = items;
+		target->test_resource_cap = cap;
+	}
+	request = &target->test_resources[target->test_resource_len++];
+	request->name = qstar_strdup(name);
+	request->amount = amount;
+	return request->name ? 0 : qstar_set_error(graph, "qstar: out of memory");
 }
 
 int
@@ -3964,6 +4057,32 @@ dump_target(const struct qstar_graph *graph, const struct qstar_target *target, 
 	    target->run_expect_contains ? target->run_expect_contains : "");
 	fprintf(out, "  run.expect.file %s\n",
 	    target->run_expect_file && *target->run_expect_file ? target->run_expect_file : "");
+	if (strcmp(target->kind, "test") == 0) {
+		size_t i;
+
+		fprintf(out, "  test.manual %s\n",
+		    target->test_manual ? "true" : "false");
+		fprintf(out, "  test.timeout_sec %d\n", target->test_timeout_sec);
+		fprintf(out, "  test.retry.count %d\n", target->test_retry_count);
+		fputs("  test.retry.on ", out);
+		dump_list(out, &target->test_retry_on);
+		fputc('\n', out);
+		fputs("  test.setup ", out);
+		dump_list(out, &target->test_setup);
+		fputc('\n', out);
+		fputs("  test.cleanup ", out);
+		dump_list(out, &target->test_cleanup);
+		fputc('\n', out);
+		fprintf(out, "  test.skip %s\n",
+		    target->test_skip_reason && *target->test_skip_reason ?
+		    target->test_skip_reason : "<none>");
+		fputs("  test.resources [", out);
+		for (i = 0; i < target->test_resource_len; i++)
+			fprintf(out, "%s%s=%d", i ? ", " : "",
+			    target->test_resources[i].name,
+			    target->test_resources[i].amount);
+		fputs("]\n", out);
+	}
 	fprintf(out, "  artifact_name %s\n",
 	    target->artifact_name && *target->artifact_name ? target->artifact_name :
 	    "<default>");
@@ -4291,6 +4410,17 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 		dump_target_family(&graph->families[i], out);
 	for (i = 0; i < graph->test_suite_len; i++)
 		dump_test_suite(graph, &graph->test_suites[i], out);
+	for (i = 0; i < graph->test_resource_len; i++)
+		fprintf(out,
+		    "test_resource name=%s capacity=%d description=%s origin=%s:%d\n",
+		    graph->test_resources[i].name, graph->test_resources[i].capacity,
+		    graph->test_resources[i].description &&
+		    *graph->test_resources[i].description ?
+		    graph->test_resources[i].description : "<none>",
+		    graph->test_resources[i].origin_file &&
+		    *graph->test_resources[i].origin_file ?
+		    graph->test_resources[i].origin_file : "<unknown>",
+		    graph->test_resources[i].origin_line);
 	for (i = 0; i < graph->command_len; i++) {
 		fprintf(out, "command %s\n", graph->commands[i].name);
 		fprintf(out, "  origin file=%s line=%d\n",
@@ -4539,6 +4669,14 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 		    targets[i]->origin_file : "<unknown>",
 		    targets[i]->origin_line);
 		qstar_dump_target_artifact_map_text(out, graph, targets[i], "  ");
+		if (strcmp(targets[i]->kind, "test") == 0)
+			fprintf(out,
+			    "  test-policy manual=%s timeout=%d retry=%d resources=%zu skip=%s\n",
+			    targets[i]->test_manual ? "true" : "false",
+			    targets[i]->test_timeout_sec, targets[i]->test_retry_count,
+			    targets[i]->test_resource_len,
+			    targets[i]->test_skip_reason && *targets[i]->test_skip_reason ?
+			    targets[i]->test_skip_reason : "<none>");
 	}
 	fprintf(out, "config-count %zu\n", graph->config_len);
 	for (i = 0; i < graph->config_len; i++)
@@ -4582,6 +4720,17 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 		    suites[i]->origin_file && *suites[i]->origin_file ?
 		    suites[i]->origin_file : "<unknown>", suites[i]->origin_line);
 	}
+	fprintf(out, "test-resource-count %zu\n", graph->test_resource_len);
+	for (i = 0; i < graph->test_resource_len; i++)
+		fprintf(out, "test_resource %s capacity=%d description=%s origin=%s:%d\n",
+		    graph->test_resources[i].name, graph->test_resources[i].capacity,
+		    graph->test_resources[i].description &&
+		    *graph->test_resources[i].description ?
+		    graph->test_resources[i].description : "<none>",
+		    graph->test_resources[i].origin_file &&
+		    *graph->test_resources[i].origin_file ?
+		    graph->test_resources[i].origin_file : "<unknown>",
+		    graph->test_resources[i].origin_line);
 	free(targets);
 	free(configs);
 	free(toolsets);
@@ -4661,6 +4810,26 @@ dump_target_json(FILE *out, const struct qstar_graph *graph,
 	dump_json_string(out, target->run_expect_contains ? target->run_expect_contains : "");
 	fputs(",\"run_expect_file\":", out);
 	dump_json_string(out, target->run_expect_file ? target->run_expect_file : "");
+	fputs(",\"test_policy\":{\"manual\":", out);
+	fputs(target->test_manual ? "true" : "false", out);
+	fprintf(out, ",\"timeout_sec\":%d,\"retry_count\":%d,\"retry_on\":",
+	    target->test_timeout_sec, target->test_retry_count);
+	dump_json_list(out, &target->test_retry_on);
+	fputs(",\"setup\":", out);
+	dump_json_list(out, &target->test_setup);
+	fputs(",\"cleanup\":", out);
+	dump_json_list(out, &target->test_cleanup);
+	fputs(",\"skip_reason\":", out);
+	dump_json_string(out, target->test_skip_reason ? target->test_skip_reason : "");
+	fputs(",\"resources\":{", out);
+	for (size_t resource_i = 0; resource_i < target->test_resource_len;
+	    resource_i++) {
+		if (resource_i)
+			fputc(',', out);
+		dump_json_string(out, target->test_resources[resource_i].name);
+		fprintf(out, ":%d", target->test_resources[resource_i].amount);
+	}
+	fputs("}}", out);
 	fprintf(out, ",\"is_test\":%s", strcmp(target->kind, "test") == 0 ? "true" : "false");
 	fprintf(out, ",\"installable\":%s", qstar_target_is_installable(target) ? "true" : "false");
 	fputc('}', out);
@@ -5030,10 +5199,10 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	    ",\"target_count\":%zu,\"config_count\":%zu,\"toolset_count\":%zu,"
 	    "\"language_provider_count\":%zu,"
 	    "\"generated_action_count\":%zu,\"stage_count\":%zu,\"target_family_count\":%zu,"
-	    "\"test_suite_count\":%zu",
+	    "\"test_suite_count\":%zu,\"test_resource_count\":%zu",
 	    graph->len, graph->config_len, graph->toolset_len,
 	    graph->language_provider_len, graph->genrule_len, graph->stage_len,
-	    graph->family_len, graph->test_suite_len);
+	    graph->family_len, graph->test_suite_len, graph->test_resource_len);
 	fputs(",\"targets\":[", out);
 	for (i = 0; i < graph->len; i++) {
 		if (i)
@@ -5081,6 +5250,20 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 		if (i)
 			fputc(',', out);
 		dump_test_suite_json(out, graph, suites[i]);
+	}
+	fputs("],\"test_resources\":[", out);
+	for (i = 0; i < graph->test_resource_len; i++) {
+		if (i)
+			fputc(',', out);
+		fputs("{\"name\":", out);
+		dump_json_string(out, graph->test_resources[i].name);
+		fprintf(out, ",\"capacity\":%d,\"description\":",
+		    graph->test_resources[i].capacity);
+		dump_json_string(out, graph->test_resources[i].description);
+		fputs(",\"origin_file\":", out);
+		dump_json_string(out, graph->test_resources[i].origin_file);
+		fprintf(out, ",\"origin_line\":%d}",
+		    graph->test_resources[i].origin_line);
 	}
 	fputs("]}\n", out);
 	free(targets);
@@ -5230,6 +5413,26 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	    target->run_expect_contains ? target->run_expect_contains : "");
 	fprintf(out, "  run.expect.file %s\n",
 	    target->run_expect_file && *target->run_expect_file ? target->run_expect_file : "");
+	if (strcmp(target->kind, "test") == 0) {
+		size_t i;
+
+		fprintf(out, "  test.manual %s\n",
+		    target->test_manual ? "true" : "false");
+		fprintf(out, "  test.timeout_sec %d\n", target->test_timeout_sec);
+		fprintf(out, "  test.retry.count %d\n", target->test_retry_count);
+		fputs("  test.retry.on ", out);
+		dump_list(out, &target->test_retry_on);
+		fputc('\n', out);
+		fputs("  test.resources [", out);
+		for (i = 0; i < target->test_resource_len; i++)
+			fprintf(out, "%s%s=%d", i ? ", " : "",
+			    target->test_resources[i].name,
+			    target->test_resources[i].amount);
+		fputs("]\n", out);
+		fprintf(out, "  test.skip %s\n",
+		    target->test_skip_reason && *target->test_skip_reason ?
+		    target->test_skip_reason : "<none>");
+	}
 	fprintf(out, "  artifact_name %s\n",
 	    target->artifact_name && *target->artifact_name ? target->artifact_name :
 	    "<default>");

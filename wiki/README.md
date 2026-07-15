@@ -43,6 +43,8 @@ Local v1 release-candidate skeleton gate는 `make qstar-v1-release-candidate-tes
 [Reusable Project Command Sets](reference/project-command-sets.md)에 둔다.
 Nested test/run target 분류와 tag 선택은
 [Composable Test Suites](reference/test-suites.md)에 둔다.
+Named resource capacity, retry/setup/cleanup, manual/skip, JSON/JUnit result 계약은
+[Test Resources And Results](reference/test-resources.md)에 둔다.
 
 ## 빠른 시작
 
@@ -144,8 +146,9 @@ qstar docs --show reference/qstar-lua.md
 10. [Public Declaration Schemas](reference/declaration-schemas.md)
 11. [Typed Dependencies](reference/typed-dependencies.md)
 12. [Composable Test Suites](reference/test-suites.md)
-13. [v1 Readiness](v1-readiness.md)
-14. [Release Matrix Evidence](https://github.com/deeyed/qstar/blob/main/docs/release-matrix-evidence.md)
+13. [Test Resources And Results](reference/test-resources.md)
+14. [v1 Readiness](v1-readiness.md)
+15. [Release Matrix Evidence](https://github.com/deeyed/qstar/blob/main/docs/release-matrix-evidence.md)
 
 ## Reference
 
@@ -162,6 +165,7 @@ qstar docs --show reference/qstar-lua.md
 - [Public Declaration Schemas](reference/declaration-schemas.md)
 - [Typed Dependencies](reference/typed-dependencies.md)
 - [Composable Test Suites](reference/test-suites.md)
+- [Test Resources And Results](reference/test-resources.md)
 - [Object Artifacts](reference/object-artifacts.md)
 - [Custom Target](reference/custom-target.md)
 - [Run Target](reference/run-target.md)

@@ -4,6 +4,9 @@
 `qstar.test`, `qstar.run_target`, 다른 suite label을 이름 붙은 분류 집합으로 조합하는
 Graph IR primitive다.
 
+Leaf test의 named resource, retry, setup/cleanup, manual/skip, JSON/JUnit result 계약은
+[Test Resources And Results](test-resources.md)에 있다.
+
 ```lua
 qstar.test_suite "host_units" {
   tests = {"//:scheduler_unit", "//:queue_unit"},
@@ -47,6 +50,7 @@ qstar test --suite //:verification
 qstar test --tag fast
 qstar test --tag host --tag smoke
 qstar test --suite //:verification --exclude-tag simulator
+qstar test --suite //:verification --jobs 4 --output-junit build/results/junit.xml
 ```
 
 `--suite`, `--tag`, `--exclude-tag`는 반복할 수 있다. Explicit suite와 include tag는
@@ -56,6 +60,8 @@ qstar test --suite //:verification --exclude-tag simulator
 
 기존 `qstar test //:unit`과 filter 없는 `qstar test`는 바뀌지 않는다. Filter 없는 명령은
 기존 `qstar.test` target만 실행하며 suite의 `run_target`을 암시적으로 추가하지 않는다.
+다만 leaf target의 `manual = true`는 filter 없는 자동 선택에서 skip result가 되고,
+`--include-manual`로 포함할 수 있다. Explicit target/suite/tag 선택은 manual leaf를 실행한다.
 
 ## 관찰 표면
 

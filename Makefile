@@ -35,6 +35,7 @@ QSTAR_SRCS = \
 	src/source.c \
 	src/stella_cache.c \
 	src/test_suite.c \
+	src/test_resources.c \
 	src/main.c
 
 LUA_SRCS = \
@@ -65,7 +66,7 @@ LUA_SRCS = \
 
 QSTAR_OBJS = $(QSTAR_SRCS:%.c=$(QSTAR_BUILD)/%.o)
 LUA_OBJS = $(LUA_SRCS:%.c=$(QSTAR_BUILD)/%.o)
-.PHONY: all check qstar-tests qstar-fmt-tests qstar-lint-tests qstar-lsp-tests qstar-lsp-navigation-tests qstar-editor-query-tests qstar-malformed-declaration-tests qstar-typed-dependency-target-tests qstar-reusable-command-set-tests qstar-composable-test-suite-tests qstar-ninja-backend-parity-tests qstar-generic-dsl-backend-parity-tests qstar-standard-provider-compatibility-tests qstar-real-glp-compiler-corpus-tests qstar-real-language-init-scaffold-tests qstar-medium-project-readiness-tests qstar-large-project-performance-tests qstar-perf-summary-tests qstar-performance-release-gate qstar-self-host-tests qstar-linux-validation-tests qstar-linux-daemon-validation-tests qstar-daemon-beta-boundary-tests qstar-windows-prep-tests qstar-windows-native-alpha-tests qstar-windows-execution-corpus-tests qstar-windows-sharedlib-artifact-parity-tests qstar-windows-release-package-tests qstar-windows-release-asset-smoke-tests qstar-public-beta-package qstar-public-beta-linux-package qstar-public-beta-github-upload qstar-public-beta-release-tests qstar-public-beta-download-smoke qstar-v0.8-release-tests qstar-v1-release-candidate-tests vscode-extension-tests qstar-v0-release-tests qstar-v0.1-release-tests qstar-v0.1-hardening-tests qstar-v0.2-authoring-tests qstar-v0.2-rc-tests qstar-v0.3-rc-tests qstar-v0.4-pilot-tests qstar-v0.5-readiness-tests qstar-pilot-readiness-tests qstar-wiki-cli-sync-tests qstar-release-candidate-tests qstar-full-regression-tests qstar-systems-corpus-tests qstar-project-corpus-tests qstar-standalone-integration-tests qstar-executor-v2-tests install clean
+.PHONY: all check qstar-tests qstar-fmt-tests qstar-lint-tests qstar-lsp-tests qstar-lsp-navigation-tests qstar-editor-query-tests qstar-malformed-declaration-tests qstar-typed-dependency-target-tests qstar-reusable-command-set-tests qstar-composable-test-suite-tests qstar-test-resources-results-tests qstar-ninja-backend-parity-tests qstar-generic-dsl-backend-parity-tests qstar-standard-provider-compatibility-tests qstar-real-glp-compiler-corpus-tests qstar-real-language-init-scaffold-tests qstar-medium-project-readiness-tests qstar-large-project-performance-tests qstar-perf-summary-tests qstar-performance-release-gate qstar-self-host-tests qstar-linux-validation-tests qstar-linux-daemon-validation-tests qstar-daemon-beta-boundary-tests qstar-windows-prep-tests qstar-windows-native-alpha-tests qstar-windows-execution-corpus-tests qstar-windows-sharedlib-artifact-parity-tests qstar-windows-release-package-tests qstar-windows-release-asset-smoke-tests qstar-public-beta-package qstar-public-beta-linux-package qstar-public-beta-github-upload qstar-public-beta-release-tests qstar-public-beta-download-smoke qstar-v0.8-release-tests qstar-v1-release-candidate-tests vscode-extension-tests qstar-v0-release-tests qstar-v0.1-release-tests qstar-v0.1-hardening-tests qstar-v0.2-authoring-tests qstar-v0.2-rc-tests qstar-v0.3-rc-tests qstar-v0.4-pilot-tests qstar-v0.5-readiness-tests qstar-pilot-readiness-tests qstar-wiki-cli-sync-tests qstar-release-candidate-tests qstar-full-regression-tests qstar-systems-corpus-tests qstar-project-corpus-tests qstar-standalone-integration-tests qstar-executor-v2-tests install clean
 
 all: $(BIN_DIR)/qstar
 
@@ -90,6 +91,7 @@ check: all
 	QSTAR_TEST_QSTAR="$$bin" sh tests/typed-dependency-targets.sh; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/reusable-command-sets.sh; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/composable-test-suites.sh; \
+	QSTAR_TEST_QSTAR="$$bin" sh tests/test-resources-results.sh; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/standard-provider-compatibility.sh; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/wiki-cli-sync.sh; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/daemon-beta-boundary.sh; \
@@ -133,6 +135,11 @@ qstar-composable-test-suite-tests: all
 	bin="$(BIN_DIR)/qstar"; \
 	case "$$bin" in /*) ;; *) bin="$(CURDIR)/$$bin";; esac; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/composable-test-suites.sh
+
+qstar-test-resources-results-tests: all
+	@bin="$(BIN_DIR)/qstar"; \
+	case "$$bin" in /*) ;; *) bin="$(CURDIR)/$$bin";; esac; \
+	QSTAR_TEST_QSTAR="$$bin" sh tests/test-resources-results.sh
 
 qstar-ninja-backend-parity-tests: all
 	bin="$(BIN_DIR)/qstar"; \

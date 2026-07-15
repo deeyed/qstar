@@ -132,6 +132,20 @@ Typed dependency target은 별도 strict schema를 사용한다.
 Object library는 final artifact가 없으므로 `objects`, `libs`, `lib_dirs`, `link`,
 `link_options`, `link_inputs`, `artifact_name`을 받지 않는다.
 
+`qstar.test`는 artifact target field에 다음 test policy builtin field를 추가한다.
+
+| Field | Type |
+| --- | --- |
+| `resources` | resource-id to positive integer map |
+| `retry` | table: `count` integer, `on` list<`fail`/`error`/`timeout`> |
+| `setup`, `cleanup` | `qstar.cli { ... }` table |
+| `timeout` | non-negative integer |
+| `manual` | boolean |
+| `skip` | `qstar.status("...")` table |
+
+`resources` key만 사용자 자유 resource id다. 다른 field와 retry 상태 vocabulary는 QStar
+builtin schema다.
+
 `qstar.group` builtin field:
 
 | Field | Type |
@@ -164,6 +178,7 @@ Object library는 final artifact가 없으므로 `objects`, `libs`, `lib_dirs`, 
 | `qstar.stage` | `root` string, `files` list<`qstar.stage_file(...)`>, `description` status table |
 | `qstar.target_family` | `allow_shared_sources` boolean, `variants` list<string>, `targets` list<string> |
 | `qstar.test_suite` | `tests` list<string>, `tags` list<string>, `description` status table, `manual` boolean |
+| `qstar.test_resource` | `capacity` positive integer, `description` status table |
 
 `qstar.custom_target`과 `qstar.transform`은 같은 generated action contract로 낮아지지만,
 single input/output sugar인 transform에는 plural `inputs`와 `outputs`가 없다.

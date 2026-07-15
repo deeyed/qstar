@@ -732,6 +732,42 @@ qstar query //:verification --format json
 
 The canonical contract is `docs/composable-test-suites.md`.
 
+## Test Resources And Results
+
+```lua
+qstar.test_resource "shared.slot" {
+  capacity = 1,
+  description = qstar.status("Exclusive test slot"),
+}
+
+qstar.test "integration" {
+  sources = {"tests/integration.c"},
+  resources = { ["shared.slot"] = 1 },
+  retry = { count = 2, on = {"fail", "error", "timeout"} },
+  setup = qstar.cli {"tools/setup-fixture"},
+  cleanup = qstar.cli {"tools/cleanup-fixture"},
+  timeout = 30,
+  manual = false,
+}
+```
+
+Resource ids are exact user-defined identifiers. QStar assigns no device,
+platform, runner, or evidence meaning to names such as `board`, `gpu`, or
+`serial-port`. Builtin result states are `pass`, `fail`, `skip`, `error`, and
+`timeout`. Resources remain held across setup, test body, and cleanup, and are
+released before a retry.
+
+```sh
+qstar test --jobs 8 --report-json build/results/tests.json
+qstar test --include-manual --output-junit build/results/junit.xml
+qstar action-log '//:integration:test:test:2'
+```
+
+JSON defaults to `<build_dir>/test-results.json` and uses
+`qstar-test-results-v1`. Stella and Ninja share the scheduler and result
+protocol. The canonical Korean contract is
+`docs/test-resources-and-results.md`.
+
 ## CLI
 
 ```sh

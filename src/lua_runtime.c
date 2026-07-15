@@ -494,8 +494,8 @@ validate_status_description(struct qstar_graph *graph, const char *text, size_t 
 
 /** qstar.status("...") 객체에서 validated description 문자열을 읽는다. */
 static int
-read_status_description_field(lua_State *L, int table_index, struct qstar_graph *graph,
-    char **dst)
+read_status_field(lua_State *L, int table_index, const char *field,
+    struct qstar_graph *graph, char **dst)
 {
 	const char *kind, *text;
 	size_t len;
@@ -503,7 +503,7 @@ read_status_description_field(lua_State *L, int table_index, struct qstar_graph 
 
 	if (table_index < 0)
 		table_index = lua_gettop(L) + table_index + 1;
-	lua_getfield(L, table_index, "description");
+	lua_getfield(L, table_index, field);
 	if (lua_isnil(L, -1)) {
 		lua_pop(L, 1);
 		return 0;
@@ -511,19 +511,19 @@ read_status_description_field(lua_State *L, int table_index, struct qstar_graph 
 	if (!lua_istable(L, -1)) {
 		lua_pop(L, 1);
 		return qstar_set_error(graph,
-		    "qstar: field 'description' must be qstar.status(\"...\")");
+		    "qstar: field '%s' must be qstar.status(\"...\")", field);
 	}
 	kind = qstar_table_kind(L, -1);
 	if (!kind || strcmp(kind, "status") != 0) {
 		lua_pop(L, 1);
 		return qstar_set_error(graph,
-		    "qstar: field 'description' must be qstar.status(\"...\")");
+		    "qstar: field '%s' must be qstar.status(\"...\")", field);
 	}
 	lua_getfield(L, -1, "text");
 	if (!lua_isstring(L, -1)) {
 		lua_pop(L, 2);
 		return qstar_set_error(graph,
-		    "qstar: field 'description' must be qstar.status(\"...\")");
+		    "qstar: field '%s' must be qstar.status(\"...\")", field);
 	}
 	text = lua_tolstring(L, -1, &len);
 	if (validate_status_description(graph, text, len) < 0) {
@@ -539,6 +539,13 @@ read_status_description_field(lua_State *L, int table_index, struct qstar_graph 
 	*dst = copy;
 	lua_pop(L, 2);
 	return 0;
+}
+
+static int
+read_status_description_field(lua_State *L, int table_index,
+    struct qstar_graph *graph, char **dst)
+{
+	return read_status_field(L, table_index, "description", graph, dst);
 }
 
 /** qstar.output(path, metadata)가 넘긴 output path table에서 path를 읽는다. */
@@ -3741,6 +3748,38 @@ validate_target_fields(lua_State *L, int table, struct qstar_graph *graph,
 		QSTAR_SCHEMA_FIELD("link_usage", QSTAR_LUA_SCHEMA_TABLE, "table"),
 		QSTAR_SCHEMA_END
 	};
+	static const struct qstar_lua_field_schema test_schema[] = {
+		QSTAR_SCHEMA_FIELD("kind", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_LIST("configs", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_LIST("sources", QSTAR_LUA_SCHEMA_STRING |
+		    QSTAR_LUA_SCHEMA_TABLE, "string or provider source token"),
+		QSTAR_SCHEMA_LIST("deps", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_LIST("public_deps", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_LIST("private_deps", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_LIST("objects", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_LIST("visibility", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_LIST("libs", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_LIST("lib_dirs", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_FIELD("link", QSTAR_LUA_SCHEMA_TABLE, "table"),
+		QSTAR_SCHEMA_LIST("link_options", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_LIST("link_inputs", QSTAR_LUA_SCHEMA_STRING |
+		    QSTAR_LUA_SCHEMA_TABLE, "string or qstar.target_file(...)"),
+		QSTAR_SCHEMA_FIELD("lang", QSTAR_LUA_SCHEMA_TABLE, "table"),
+		QSTAR_SCHEMA_FIELD("toolset", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_FIELD("artifact_name", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_FIELD("compile_usage", QSTAR_LUA_SCHEMA_TABLE, "table"),
+		QSTAR_SCHEMA_FIELD("link_usage", QSTAR_LUA_SCHEMA_TABLE, "table"),
+		QSTAR_SCHEMA_FIELD("resources", QSTAR_LUA_SCHEMA_TABLE,
+		    "resource-id to positive integer map"),
+		QSTAR_SCHEMA_FIELD("retry", QSTAR_LUA_SCHEMA_TABLE, "table"),
+		QSTAR_SCHEMA_FIELD("setup", QSTAR_LUA_SCHEMA_TABLE, "qstar.cli { ... }"),
+		QSTAR_SCHEMA_FIELD("cleanup", QSTAR_LUA_SCHEMA_TABLE, "qstar.cli { ... }"),
+		QSTAR_SCHEMA_FIELD("timeout", QSTAR_LUA_SCHEMA_INTEGER, "integer"),
+		QSTAR_SCHEMA_FIELD("manual", QSTAR_LUA_SCHEMA_BOOLEAN, "boolean"),
+		QSTAR_SCHEMA_FIELD("skip", QSTAR_LUA_SCHEMA_TABLE,
+		    "qstar.status(\"...\")"),
+		QSTAR_SCHEMA_END
+	};
 	static const struct qstar_lua_field_schema objectlib_schema[] = {
 		QSTAR_SCHEMA_FIELD("kind", QSTAR_LUA_SCHEMA_STRING, "string"),
 		QSTAR_SCHEMA_LIST("configs", QSTAR_LUA_SCHEMA_STRING, "string"),
@@ -3808,7 +3847,9 @@ validate_target_fields(lua_State *L, int table, struct qstar_graph *graph,
 	const struct qstar_lua_field_schema *schema;
 
 	schema = artifact_schema;
-	if (strcmp(kind, "objectlib") == 0)
+	if (strcmp(kind, "test") == 0)
+		schema = test_schema;
+	else if (strcmp(kind, "objectlib") == 0)
 		schema = objectlib_schema;
 	else if (strcmp(kind, "group") == 0)
 		schema = group_schema;
@@ -3821,6 +3862,141 @@ validate_target_fields(lua_State *L, int table, struct qstar_graph *graph,
 	else if (strcmp(kind, "tool") == 0)
 		schema = tool_schema;
 	return qstar_lua_validate_declaration(L, table, graph, api, label, schema);
+}
+
+/** qstar.test resources는 user-defined resource id -> amount map이다. */
+static int
+read_test_resources_field(lua_State *L, int table, struct qstar_target *target,
+    struct qstar_graph *graph)
+{
+	const char *name;
+	lua_Integer amount;
+
+	lua_getfield(L, table, "resources");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph,
+		    "qstar: test '%s' resources must be a resource-id to positive integer map",
+		    target->label);
+	}
+	lua_pushnil(L);
+	while (lua_next(L, -2) != 0) {
+		name = lua_type(L, -2) == LUA_TSTRING ? lua_tostring(L, -2) : NULL;
+		if (!name || !*name || !lua_isinteger(L, -1)) {
+			lua_pop(L, 3);
+			return qstar_set_error(graph,
+			    "qstar: test '%s' resources must map non-empty string ids to positive integers",
+			    target->label);
+		}
+		amount = lua_tointeger(L, -1);
+		if (amount <= 0 || amount > 2147483647LL) {
+			lua_pop(L, 3);
+			return qstar_set_error(graph,
+			    "qstar: test '%s' resource '%s' amount must be greater than zero",
+			    target->label, name);
+		}
+		if (qstar_target_add_test_resource_request(graph, target, name,
+		    (int)amount) < 0) {
+			lua_pop(L, 3);
+			return -1;
+		}
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+static int
+test_retry_state_allowed(const char *state)
+{
+	return state && (strcmp(state, "fail") == 0 ||
+	    strcmp(state, "error") == 0 || strcmp(state, "timeout") == 0);
+}
+
+/** qstar.test retry policy를 fixed result-state schema로 읽는다. */
+static int
+read_test_retry_field(lua_State *L, int table, struct qstar_target *target,
+    struct qstar_graph *graph)
+{
+	static const struct qstar_lua_field_schema schema[] = {
+		QSTAR_SCHEMA_FIELD("count", QSTAR_LUA_SCHEMA_INTEGER, "integer"),
+		QSTAR_SCHEMA_LIST("on", QSTAR_LUA_SCHEMA_STRING,
+		    "fail, error, or timeout"),
+		QSTAR_SCHEMA_END
+	};
+	const char *state;
+	size_t i;
+
+	lua_getfield(L, table, "retry");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (qstar_lua_validate_declaration(L, -1, graph, "qstar.test.retry",
+	    target->label, schema) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	target->test_retry_count = check_int_field(L, -1, "count", 0);
+	if (target->test_retry_count < 0 || target->test_retry_count > 100) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph,
+		    "qstar: test '%s' retry.count must be between 0 and 100",
+		    target->label);
+	}
+	if (read_list_field(L, -1, "on", &target->test_retry_on, graph, 0,
+	    target->fragment_dir) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	if (target->test_retry_count > 0 && target->test_retry_on.len == 0 &&
+	    (qstar_string_list_push(&target->test_retry_on, "fail") < 0 ||
+	    qstar_string_list_push(&target->test_retry_on, "error") < 0 ||
+	    qstar_string_list_push(&target->test_retry_on, "timeout") < 0)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: out of memory");
+	}
+	for (i = 0; i < target->test_retry_on.len; i++) {
+		state = target->test_retry_on.items[i];
+		if (!test_retry_state_allowed(state)) {
+			lua_pop(L, 1);
+			return qstar_set_error(graph,
+			    "qstar: test '%s' retry.on item '%s' must be fail, error, or timeout",
+			    target->label, state);
+		}
+		for (size_t j = 0; j < i; j++) {
+			if (strcmp(state, target->test_retry_on.items[j]) == 0) {
+				lua_pop(L, 1);
+				return qstar_set_error(graph,
+				    "qstar: test '%s' retry.on contains duplicate '%s'",
+				    target->label, state);
+			}
+		}
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+/** setup/cleanup qstar.cli fields를 target-owned argv lists로 읽는다. */
+static int
+read_test_hook_fields(lua_State *L, int table, struct qstar_target *target,
+    struct qstar_graph *graph)
+{
+	struct qstar_string_list empty;
+
+	memset(&empty, 0, sizeof(empty));
+	if (read_command_field(L, table, "setup", &target->test_setup, graph) < 0 ||
+	    read_command_field(L, table, "cleanup", &target->test_cleanup, graph) < 0 ||
+	    resolve_cli_placeholders(graph, &target->test_setup, &empty, &empty,
+	    "test setup") < 0 ||
+	    resolve_cli_placeholders(graph, &target->test_cleanup, &empty, &empty,
+	    "test cleanup") < 0)
+		return -1;
+	return 0;
 }
 
 /** run_target expect table은 contains와 선택적 file만 허용한다. */
@@ -4046,8 +4222,22 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 			if (read_run_expect_field(L, table_index, target, graph) < 0)
 				return qstar_lua_raise_declaration_error(L, graph, api, label);
 		}
+	if (strcmp(target->kind, "test") == 0) {
+		if (read_test_resources_field(L, table_index, target, graph) < 0 ||
+		    read_test_retry_field(L, table_index, target, graph) < 0 ||
+		    read_test_hook_fields(L, table_index, target, graph) < 0 ||
+		    read_status_field(L, table_index, "skip", graph,
+		    &target->test_skip_reason) < 0)
+			return qstar_lua_raise_declaration_error(L, graph, api, label);
+		target->test_timeout_sec = check_int_field(L, table_index, "timeout", 0);
+		if (target->test_timeout_sec < 0)
+			return luaL_error(L,
+			    "qstar: test '%s' timeout must be >= 0", target->label);
+		target->test_manual = check_bool_field(L, table_index, "manual", 0);
+	}
 	if (!target->toolset || !target->artifact_name || !target->cxx_standard ||
-	    !target->run_expect_contains || !target->run_expect_file)
+	    !target->run_expect_contains || !target->run_expect_file ||
+	    !target->test_skip_reason)
 		return luaL_error(L, "qstar: out of memory");
 	return 0;
 }
@@ -4735,6 +4925,73 @@ qstar_lua_test_suite(lua_State *L)
 		return 1;
 	}
 	return add_test_suite(L, name, 2, ctx->current_dir);
+}
+
+/** Generic test resource declaration을 graph에 추가한다. */
+static int
+add_test_resource(lua_State *L, const char *name, int table_index)
+{
+	static const struct qstar_lua_field_schema schema[] = {
+		QSTAR_SCHEMA_FIELD("capacity", QSTAR_LUA_SCHEMA_INTEGER, "integer"),
+		QSTAR_SCHEMA_FIELD("description", QSTAR_LUA_SCHEMA_TABLE,
+		    "qstar.status(\"...\")"),
+		QSTAR_SCHEMA_END
+	};
+	struct qstar_lua_context *ctx;
+	struct qstar_graph *graph;
+	struct qstar_test_resource *resource;
+	char origin_file[QSTAR_PATH_MAX];
+	int origin_line;
+
+	if (table_index < 0)
+		table_index = lua_gettop(L) + table_index + 1;
+	ctx = get_context(L);
+	graph = ctx->graph;
+	if (reject_graph_declaration_in_module(L, "qstar.test_resource") != 0)
+		return 1;
+	luaL_checktype(L, table_index, LUA_TTABLE);
+	if (!name || !*name)
+		return luaL_error(L, "qstar: test_resource name is empty");
+	current_origin(L, origin_file, sizeof(origin_file), &origin_line);
+	resource = qstar_graph_add_test_resource(graph, name, origin_file,
+	    origin_line);
+	if (!resource)
+		return qstar_lua_raise_declaration_error(L, graph,
+		    "qstar.test_resource", name);
+	if (qstar_lua_validate_declaration(L, table_index, graph,
+	    "qstar.test_resource", name, schema) < 0 ||
+	    read_status_description_field(L, table_index, graph,
+	    &resource->description) < 0)
+		return qstar_lua_raise_declaration_error(L, graph,
+		    "qstar.test_resource", name);
+	resource->capacity = check_int_field(L, table_index, "capacity", 0);
+	if (resource->capacity <= 0)
+		return luaL_error(L,
+		    "qstar: test_resource '%s' capacity must be greater than zero",
+		    name);
+	return 0;
+}
+
+static int
+qstar_lua_test_resource_finish(lua_State *L)
+{
+	return add_test_resource(L, lua_tostring(L, lua_upvalueindex(1)), 1);
+}
+
+static int
+qstar_lua_test_resource(lua_State *L)
+{
+	const char *name;
+
+	if (reject_graph_declaration_in_module(L, "qstar.test_resource") != 0)
+		return 1;
+	name = luaL_checkstring(L, 1);
+	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
+		lua_pushstring(L, name);
+		lua_pushcclosure(L, qstar_lua_test_resource_finish, 1);
+		return 1;
+	}
+	return add_test_resource(L, name, 2);
 }
 
 /** Lua stack index를 push/pop에 흔들리지 않는 absolute index로 바꾼다. */
@@ -10125,6 +10382,8 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "target_family");
 	lua_pushcfunction(L, qstar_lua_test_suite);
 	lua_setfield(L, -2, "test_suite");
+	lua_pushcfunction(L, qstar_lua_test_resource);
+	lua_setfield(L, -2, "test_resource");
 	lua_pushcfunction(L, qstar_lua_output);
 	lua_setfield(L, -2, "output");
 	lua_pushcfunction(L, qstar_lua_input);

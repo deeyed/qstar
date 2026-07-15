@@ -335,6 +335,20 @@ select ordered unique members from composable test suites. Tags are exact
 user-defined metadata with no built-in platform, runner, or evidence meaning.
 A manual suite is excluded from implicit tag discovery but remains available by
 explicit suite selection or nested membership.
+The
+.Fl -jobs Ar N
+option bounds concurrent test attempts; named resource capacities may reduce
+actual parallelism.
+.Fl -include-manual
+includes manual leaf tests in an otherwise unfiltered automatic selection.
+Explicit target, suite, or tag selection already includes manual leaf tests.
+JSON results default to
+.Pa <build-dir>/test-results.json ;
+.Fl -report-json Ar path
+overrides that package-relative path, and
+.Fl -output-junit Ar path
+adds a JUnit-compatible report. Result states are pass, fail, skip, error, and
+timeout. Stella and Ninja use the same test scheduler and result protocol.
 .It Ic stage
 Create a copy-only staged package tree. Projects can export that layout with
 .Ic qstar.step.export_stage

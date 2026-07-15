@@ -29,6 +29,7 @@ qstar.imported "vendor" {
 qstar.tool "generator" { path = "tools/generator" }
 qstar.sharedlib "plugin" { sources = {"src/plugin.c"} }
 qstar.test "unit" { sources = {"tests/unit.c"} }
+qstar.test_resource "shared.slot" { capacity = 1 }
 qstar.custom_target "generated" { outputs = {qstar.output("generated/value.c")} }
 qstar.run_target "smoke" { command = qstar.cli {"tools/smoke.sh"} }
 qstar.test_suite "verification" { tests = {"//:unit", "//:smoke"}, tags = {"fast"} }

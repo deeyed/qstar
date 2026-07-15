@@ -237,7 +237,35 @@ references this path. The same helper accepts an imported artifact with
 or a QStar executable/test target. Built executable tools create a producer edge
 before the consuming generated action in both Stella and Ninja.
 .It Ic qstar.test
-Test executable target.
+Test executable target. In addition to artifact target fields, it accepts a
+generic resource request map
+.Ic resources ,
+a
+.Ic retry
+table with integer
+.Ic count
+and
+.Ic on
+states fail/error/timeout, optional
+.Ic setup
+and
+.Ic cleanup
+argv vectors, non-negative
+.Ic timeout ,
+boolean
+.Ic manual ,
+and declarative
+.Ic skip = qstar.status("...") .
+Resources remain held through setup, test execution, and cleanup and are
+released before retry.
+.It Ic qstar.test_resource
+Declare a generic named test scheduler resource. The table requires positive
+integer
+.Ic capacity
+and may contain a one-line status
+.Ic description .
+Resource identifiers are user-defined and have no built-in device, platform,
+runner, or evidence meaning.
 .It Ic qstar.test_suite
 Composable classification of existing
 .Ic qstar.test ,

@@ -2111,6 +2111,8 @@ load_graph(struct qstar_daemon_server *server, const struct qstar_daemon_request
 	if (rc == 0 && !plan_loaded)
 		rc = qstar_graph_validate_test_suites(&server->graph);
 	if (rc == 0 && !plan_loaded)
+		rc = qstar_graph_validate_test_resources(&server->graph);
+	if (rc == 0 && !plan_loaded)
 		rc = qstar_graph_validate_file_inputs(&server->graph);
 	if (rc == 0 && !plan_loaded) {
 		store_reason[0] = '\0';

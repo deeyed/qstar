@@ -49,6 +49,7 @@ static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 	{ "qstar.tool", "Declare a package-local executable tool dependency path." },
 	{ "qstar.test", "Create a test executable target." },
 	{ "qstar.test_suite", "Classify existing qstar.test, run_target, or nested suite labels with exact user-defined tags." },
+	{ "qstar.test_resource", "Declare a generic named test scheduler resource with a positive capacity." },
 	{ "qstar.custom_target", "Create a package-local generated action." },
 	{ "qstar.transform", "Create a single-input single-output generated artifact transform." },
 	{ "qstar.run_target", "Declare a named external run action." },
@@ -129,7 +130,14 @@ static const struct qstar_lsp_hover_entry qstar_lsp_fields[] = {
 	{ "values", "Free-form qstar.variant metadata table, or allowed string values for a provider enum option." },
 	{ "tags", "Free-form string labels for qstar.variant metadata or qstar.test_suite selection; QStar assigns no platform or environment meaning." },
 	{ "tests", "Existing qstar.test, run_target, or nested qstar.test_suite labels classified by a test suite." },
-	{ "manual", "Exclude a test suite from implicit tag discovery while preserving explicit and nested selection." },
+	{ "manual", "Exclude a test target from unfiltered automatic execution, or a suite from implicit tag discovery; explicit selection remains available." },
+	{ "resources", "For qstar.test, a user-defined resource-id to positive integer request map." },
+	{ "capacity", "Positive concurrent capacity of a generic qstar.test_resource declaration." },
+	{ "retry", "Test retry policy with count and on = { fail, error, timeout }." },
+	{ "setup", "Optional qstar.cli setup action run while test resources are held." },
+	{ "cleanup", "Optional qstar.cli cleanup action always attempted before releasing test resources." },
+	{ "timeout", "Per-attempt timeout in seconds for a test, run target, or command action." },
+	{ "skip", "Declarative qstar.status reason that records a skipped test without executing it." },
 	{ "default", "Default metadata for a provider option schema or command runtime option." },
 	{ "generated_dir", "Project-level package-relative root for qstar.output generated artifacts." },
 	{ "deps", "Public dependency edges used for build, link, and include propagation." },
@@ -630,6 +638,8 @@ load_lint_graph(const char *root_file, struct qstar_graph *graph)
 		rc = qstar_graph_validate_headers(graph);
 	if (rc == 0)
 		rc = qstar_graph_validate_test_suites(graph);
+	if (rc == 0)
+		rc = qstar_graph_validate_test_resources(graph);
 	if (rc == 0)
 		rc = qstar_graph_validate_file_inputs(graph);
 	if (rc < 0 && graph->error[0])

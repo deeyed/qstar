@@ -63,6 +63,10 @@ them as protected unless this document is updated first.
 
 - Artifact targets: `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`,
   and `qstar.test`.
+- Generic test orchestration: `qstar.test_resource`, user-defined resource ids
+  and capacities, per-test `resources`, retry/setup/cleanup/timeout/manual/skip,
+  pass/fail/skip/error/timeout results, JSON `qstar-test-results-v1`, optional
+  JUnit reports, and Stella/Ninja scheduler parity.
 - Typed dependency targets: artifact-free `qstar.interface`, platform-selected
   package-local `qstar.imported`, and executable path `qstar.tool`.
 - Explicit consumer requirements through `compile_usage = {options, inputs}`
@@ -138,6 +142,8 @@ separate beta surface until the checklist below is completed.
   any other non-conflicting project command name.
 - `qstar.test_suite` consumer syntax, nested test/run target membership,
   free-form tag/manual selection, and repeated `qstar test --suite/--tag/--exclude-tag`.
+- Test execution options `--jobs`, `--include-manual`, `--report-json`, and
+  `--output-junit`.
 
 ### Common Helpers
 

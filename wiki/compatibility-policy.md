@@ -17,6 +17,8 @@ v1 promise: candidate surface defined, v1 release gate still required
 
 - `qstar.project`, `qstar.toolset`, `qstar.config`
 - `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`, `qstar.test`
+- `qstar.test_resource`와 user-defined resource capacity, per-test
+  resources/retry/setup/cleanup/timeout/manual/skip, JSON/JUnit result protocol
 - `qstar.interface`, `qstar.imported`, `qstar.tool` typed dependency target과
   explicit `compile_usage`/`link_usage`, `qstar.tool_file` executable dependency
 - `qstar.objectlib`의 `compile_context = "own" | "consumer"` object collection과

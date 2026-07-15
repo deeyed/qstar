@@ -70,6 +70,11 @@ struct qstar_imported_artifact {
 	int primary;
 };
 
+struct qstar_test_resource_request {
+	char *name;
+	int amount;
+};
+
 struct qstar_target {
 	char *label;
 	char *name;
@@ -116,6 +121,16 @@ struct qstar_target {
 	size_t provider_option_cap;
 	struct qstar_string_list run_inputs;
 	struct qstar_string_list run_command;
+	struct qstar_test_resource_request *test_resources;
+	size_t test_resource_len;
+	size_t test_resource_cap;
+	struct qstar_string_list test_retry_on;
+	struct qstar_string_list test_setup;
+	struct qstar_string_list test_cleanup;
+	char *test_skip_reason;
+	int test_retry_count;
+	int test_timeout_sec;
+	int test_manual;
 	char *description;
 	char *artifact_name;
 	char *imported_artifact_kind;
@@ -256,6 +271,14 @@ struct qstar_test_suite {
 	int manual;
 	struct qstar_string_list tests;
 	struct qstar_string_list tags;
+};
+
+struct qstar_test_resource {
+	char *name;
+	char *origin_file;
+	int origin_line;
+	char *description;
+	int capacity;
 };
 
 struct qstar_command_option {
@@ -445,6 +468,9 @@ struct qstar_graph {
 	struct qstar_test_suite *test_suites;
 	size_t test_suite_len;
 	size_t test_suite_cap;
+	struct qstar_test_resource *test_resources;
+	size_t test_resource_len;
+	size_t test_resource_cap;
 	struct qstar_project_command *commands;
 	size_t command_len;
 	size_t command_cap;
@@ -495,6 +521,10 @@ struct qstar_test_options {
 	size_t tag_len;
 	const char *const *exclude_tags;
 	size_t exclude_tag_len;
+	const char *report_json;
+	const char *output_junit;
+	int jobs;
+	int include_manual;
 };
 
 enum {
@@ -637,6 +667,15 @@ struct qstar_target_family *qstar_graph_add_target_family(struct qstar_graph *gr
 struct qstar_test_suite *qstar_graph_add_test_suite(struct qstar_graph *graph,
     const char *label, const char *name, const char *fragment_dir,
     const char *origin_file, int origin_line);
+
+/** Generic named test resource declaration을 Graph IR에 추가한다. */
+struct qstar_test_resource *qstar_graph_add_test_resource(
+    struct qstar_graph *graph, const char *name, const char *origin_file,
+    int origin_line);
+
+/** Test target에 named resource amount request를 추가한다. */
+int qstar_target_add_test_resource_request(struct qstar_graph *graph,
+    struct qstar_target *target, const char *name, int amount);
 
 /** CLI -D project option override를 graph evaluation 입력으로 추가한다. */
 int qstar_graph_add_project_option_override(struct qstar_graph *graph,
@@ -807,6 +846,13 @@ int qstar_graph_validate_project_commands(struct qstar_graph *graph);
 
 /** Test suite member kind, nesting, duplicate, cycle을 검증한다. */
 int qstar_graph_validate_test_suites(struct qstar_graph *graph);
+
+/** Test resource declarations와 target requests를 검증한다. */
+int qstar_graph_validate_test_resources(struct qstar_graph *graph);
+
+/** Name으로 generic test resource declaration을 찾는다. */
+const struct qstar_test_resource *qstar_graph_find_test_resource(
+    const struct qstar_graph *graph, const char *name);
 
 /** Canonical label로 test suite를 찾는다. */
 const struct qstar_test_suite *qstar_graph_find_test_suite(

@@ -18,7 +18,7 @@ qstar: src/core/core.qst:12: qstar.objectlib declaration '//src/core:objects': f
 | `qstar.project` | `name`, `version`, `root`, `build_dir`, `generated_dir`, `compile_commands` string |
 | `qstar.toolset` | `tools` table, response policy string/bool, `path_tools` list, absolute-tool policy string/bool |
 | `qstar.config` | `lang`, link table, library/link lists, `toolset`, `artifact_name` |
-| Artifact target | configs/sources/dependency/object/link/lang/toolset/artifact fields |
+| Artifact target | configs/sources/dependency/object/link/lang/toolset/artifact fields; `qstar.test` adds resources/retry/setup/cleanup/timeout/manual/skip |
 | `qstar.objectlib` | configs/sources/dependencies/visibility/lang/toolset와 `compile_context` |
 | `qstar.interface` | dependencies, visibility, compile_usage, link_usage |
 | `qstar.imported` | artifact_kind, platform artifacts, dependencies, visibility, compile_usage, link_usage |
@@ -31,6 +31,7 @@ qstar: src/core/core.qst:12: qstar.objectlib declaration '//src/core:objects': f
 | `qstar.stage` | root, files, description |
 | `qstar.target_family` | allow_shared_sources, variants, targets |
 | `qstar.test_suite` | tests, tags, description, manual |
+| `qstar.test_resource` | capacity, description |
 | `qstar.command`, `qstar.command_spec` | description, options, env, working_dir, steps, is_default, hidden, aliases |
 | `qstar.option` | type, value, choices, description |
 | `qstar.variant` | values, description, tags |
@@ -54,6 +55,10 @@ Artifact target, objectlib, group, run target은 같은 target table allowlist�
 `qstar.test_suite.tags`의 field와 list item type은 strict하지만 tag vocabulary는 사용자
 자유 metadata다. QStar는 tag 이름에서 platform, runner, compiler flag, evidence 등급을
 추론하지 않는다.
+
+`qstar.test.resources`는 선언된 사용자 resource id를 key로 하고 positive integer 요청량을
+value로 갖는 dynamic map이다. `retry` nested table은 `count`와 `on`만 받고 `on` 상태는
+`fail`, `error`, `timeout`으로 고정된다. Resource id 자체에는 builtin device 의미가 없다.
 
 ## Lists
 

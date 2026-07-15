@@ -61,6 +61,7 @@ qstar.staticlib "core" {
 - `qstar.custom_target`, `qstar.transform`, `qstar.configure_file`: generated outputs.
 - `qstar.run_target`: external smoke/run action.
 - `qstar.test_suite`: existing test/run target/nested suite label을 조합하는 분류 primitive.
+- `qstar.test_resource`: positive capacity를 가진 generic named test scheduler resource.
 - `qstar.group`: deps-only aggregate with no command, output, install surface, or artifact.
 - `qstar.stage`: copy-only package/stage tree.
 - `qstar.target_family`: shared-source lint grouping.

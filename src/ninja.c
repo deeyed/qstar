@@ -4012,98 +4012,6 @@ qstar_graph_build_ninja(struct qstar_graph *graph, const char *label,
 	return 0;
 }
 
-/** test target artifact를 제한된 runner로 실행한다. */
-static int
-run_ninja_test_artifact(struct qstar_graph *graph, const struct qstar_target *target, FILE *out)
-{
-	char artifact[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX], logdir[QSTAR_PATH_MAX];
-	char name[QSTAR_PATH_MAX], stdout_path[QSTAR_PATH_MAX], stderr_path[QSTAR_PATH_MAX];
-	char child_stdout_path[QSTAR_PATH_MAX], child_stderr_path[QSTAR_PATH_MAX];
-	char *argv[2];
-	const char *runner;
-	qstar_process_id pid;
-	time_t start;
-	int status, done;
-
-	if (qstar_graph_artifact_output_path(graph, target, artifact, sizeof(artifact)) < 0 ||
-	    full_path_under_root(graph, artifact, full, sizeof(full)) < 0)
-		return qstar_set_error(graph, "qstar: test artifact path too long");
-	if (!path_exists(full))
-		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-		    "test", target->label,
-		    "qstar: test artifact '%s' is missing after ninja build", artifact);
-	if (full_path_under_build(graph, "logs", logdir, sizeof(logdir)) < 0 ||
-	    mkdir_p(logdir) < 0)
-		return qstar_set_error(graph, "qstar: could not create test log dir");
-	action_log_name(target->label, name, sizeof(name));
-	snprintf(stdout_path, sizeof(stdout_path), "%s/%s.test.stdout", logdir, name);
-	snprintf(stderr_path, sizeof(stderr_path), "%s/%s.test.stderr", logdir, name);
-	if (build_log_rel(graph, name, ".test.stdout", child_stdout_path,
-	    sizeof(child_stdout_path)) < 0 ||
-	    build_log_rel(graph, name, ".test.stderr", child_stderr_path,
-	    sizeof(child_stderr_path)) < 0)
-		return qstar_set_error(graph, "qstar: test log path too long");
-	fprintf(out, "test_run label=%s artifact=%s stdout=%s stderr=%s backend=ninja\n",
-	    target->label, artifact, child_stdout_path, child_stderr_path);
-	argv[0] = artifact;
-	argv[1] = NULL;
-	if (qstar_platform_process_start_file_output(graph,
-	    graph->package_root ? graph->package_root : ".", argv, child_stdout_path,
-	    child_stderr_path, &pid, &runner) < 0)
-		return -1;
-	start = time(NULL);
-	for (;;) {
-		if (qstar_platform_process_wait_nohang(pid, &status, &done) < 0)
-			return qstar_set_error(graph, "qstar: process wait failed");
-		if (done)
-			break;
-		if (time(NULL) - start >= QSTAR_NINJA_TEST_TIMEOUT_SEC) {
-			qstar_platform_process_terminate(pid, &status);
-			fprintf(out, "test_result label=%s status=timeout timeout_sec=%d\n",
-			    target->label, QSTAR_NINJA_TEST_TIMEOUT_SEC);
-			return qstar_set_error_origin(graph, target->origin_file,
-			    target->origin_line, "test", target->label,
-			    "qstar: test '%s' timed out", target->label);
-		}
-		if (qstar_platform_process_sleep_ms(10) < 0)
-			return qstar_set_error(graph, "qstar: process wait failed");
-	}
-	if (qstar_platform_process_exited_success(status)) {
-		fprintf(out, "test_result label=%s status=pass exit=0 backend=ninja\n",
-		    target->label);
-		return 0;
-	}
-	if (qstar_platform_process_has_exit_code(status)) {
-		fprintf(out, "test_result label=%s status=fail exit=%d backend=ninja\n",
-		    target->label, qstar_platform_process_status_exit_code(status));
-		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-		    "test", target->label,
-		    "qstar: test '%s' failed with status %d", target->label,
-		    qstar_platform_process_status_exit_code(status));
-	}
-	fprintf(out, "test_result label=%s status=signal signal=%d backend=ninja\n",
-	    target->label, qstar_platform_process_signal_number(status));
-	return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-	    "test", target->label, "qstar: test '%s' terminated by signal %d",
-	    target->label, qstar_platform_process_signal_number(status));
-}
-
-/** 단일 test target을 Ninja backend로 build 후 실행한다. */
-static int
-test_one_target_ninja(struct qstar_graph *graph, const struct qstar_target *target, FILE *out)
-{
-	struct qstar_build_options options;
-
-	if (!qstar_target_has_executable_artifact(target) || strcmp(target->kind, "test") != 0)
-		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-		    "kind", target->label,
-		    "qstar: target '%s' is not a test target", target->label);
-	memset(&options, 0, sizeof(options));
-	if (qstar_graph_build_ninja(graph, target->label, &options, out) < 0)
-		return -1;
-	return run_ninja_test_artifact(graph, target, out);
-}
-
 static int
 ninja_test_options_active(const struct qstar_test_options *options)
 {
@@ -4127,22 +4035,41 @@ print_ninja_test_filter(FILE *out, const char *name,
 }
 
 static int
-ninja_test_selected_member(struct qstar_graph *graph,
-    const struct qstar_target *target, FILE *out)
+ninja_append_test_target(struct qstar_graph *graph,
+    const struct qstar_target ***targets, size_t *len, size_t *cap,
+    const struct qstar_target *target)
 {
-	struct qstar_build_options options;
+	const struct qstar_target **items;
+	size_t ncap;
 
-	fprintf(out, "test_member label=%s kind=%s backend=ninja\n",
-	    target->label, target->kind);
-	if (strcmp(target->kind, "test") == 0)
-		return test_one_target_ninja(graph, target, out);
-	if (strcmp(target->kind, "run_target") == 0) {
-		memset(&options, 0, sizeof(options));
-		return qstar_graph_build_ninja(graph, target->label, &options, out);
+	if (*len == *cap) {
+		ncap = *cap ? *cap * 2 : 8;
+		items = realloc((void *)*targets, ncap * sizeof(items[0]));
+		if (!items)
+			return qstar_set_error(graph, "qstar: out of memory");
+		*targets = items;
+		*cap = ncap;
 	}
-	return qstar_set_error(graph,
-	    "qstar: test suite member '%s' has unsupported kind '%s'",
-	    target->label, target->kind);
+	(*targets)[(*len)++] = target;
+	return 0;
+}
+
+static int
+ninja_build_test_for_batch(struct qstar_graph *graph,
+    const struct qstar_target *target, int include_manual, FILE *out)
+{
+	struct qstar_build_options build_options;
+
+	if (!qstar_target_has_executable_artifact(target) ||
+	    strcmp(target->kind, "test") != 0)
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "kind", target->label,
+		    "qstar: target '%s' is not a test target", target->label);
+	if ((target->test_skip_reason && *target->test_skip_reason) ||
+	    (target->test_manual && !include_manual))
+		return 0;
+	memset(&build_options, 0, sizeof(build_options));
+	return qstar_graph_build_ninja(graph, target->label, &build_options, out);
 }
 
 /** Ninja backend로 test 또는 suite/tag selection을 실행한다. */
@@ -4151,13 +4078,27 @@ qstar_graph_test_ninja_with_options(struct qstar_graph *graph, const char *label
     const struct qstar_test_options *options, FILE *out)
 {
 	const struct qstar_target *target;
+	const struct qstar_target **tests;
+	struct qstar_test_options effective;
+	struct qstar_build_options build_options;
 	struct qstar_string_list selected;
-	size_t i, ran;
+	size_t i, test_len, test_cap;
+	int explicit_selection;
 
 	memset(&selected, 0, sizeof(selected));
+	memset(&effective, 0, sizeof(effective));
+	if (options)
+		effective = *options;
+	tests = NULL;
+	test_len = 0;
+	test_cap = 0;
 	fputs("qstar test v1\n", out);
 	fprintf(out, "root %s\n", label && *label ? label : "//...");
 	fprintf(out, "backend ninja\n");
+	explicit_selection = ninja_test_options_active(options) ||
+	    (label && *label && strcmp(label, "//...") != 0);
+	if (explicit_selection)
+		effective.include_manual = 1;
 	if (ninja_test_options_active(options)) {
 		fputs("selection ", out);
 		print_ninja_test_filter(out, "suites", options->suites,
@@ -4185,37 +4126,70 @@ qstar_graph_test_ninja_with_options(struct qstar_graph *graph, const char *label
 		fputs("]\n", out);
 		for (i = 0; i < selected.len; i++) {
 			target = find_target(graph, selected.items[i]);
-			if (!target || ninja_test_selected_member(graph, target, out) < 0)
+			if (!target)
 				goto fail;
+			fprintf(out, "test_member label=%s kind=%s backend=ninja\n",
+			    target->label, target->kind);
+			if (strcmp(target->kind, "test") == 0) {
+				if (ninja_append_test_target(graph, &tests, &test_len,
+				    &test_cap, target) < 0 || ninja_build_test_for_batch(graph,
+				    target, effective.include_manual, out) < 0)
+					goto fail;
+			} else if (strcmp(target->kind, "run_target") == 0) {
+				memset(&build_options, 0, sizeof(build_options));
+				if (qstar_graph_build_ninja(graph, target->label,
+				    &build_options, out) < 0)
+					goto fail;
+			} else {
+				qstar_set_error(graph,
+				    "qstar: test suite member '%s' has unsupported kind '%s'",
+				    target->label, target->kind);
+				goto fail;
+			}
 		}
+		if (test_len > 0 && qstar_graph_execute_test_batch(graph, tests,
+		    test_len, &effective, "ninja", out) < 0)
+			goto fail;
 		qstar_string_list_free(&selected);
+		free(tests);
 		fputs("status ok\n", out);
 		return 0;
 	}
 	if (label && *label && strcmp(label, "//...") != 0) {
 		target = find_target(graph, label);
 		if (!target)
-			return qstar_set_error(graph, "qstar: unknown target label '%s'", label);
-		if (test_one_target_ninja(graph, target, out) < 0)
-			return -1;
+			qstar_set_error(graph, "qstar: unknown target label '%s'", label);
+		if (!target || ninja_append_test_target(graph, &tests, &test_len,
+		    &test_cap, target) < 0 || ninja_build_test_for_batch(graph, target,
+		    1, out) < 0 || qstar_graph_execute_test_batch(graph, tests,
+		    test_len, &effective, "ninja", out) < 0)
+			goto fail;
+		free(tests);
 		fputs("status ok\n", out);
 		return 0;
 	}
-	ran = 0;
 	for (i = 0; i < graph->len; i++) {
 		if (strcmp(graph->targets[i].kind, "test") != 0)
 			continue;
-		ran++;
-		if (test_one_target_ninja(graph, &graph->targets[i], out) < 0)
-			return -1;
+		if (ninja_append_test_target(graph, &tests, &test_len, &test_cap,
+		    &graph->targets[i]) < 0 || ninja_build_test_for_batch(graph,
+		    &graph->targets[i], effective.include_manual, out) < 0)
+			goto fail;
 	}
-	if (ran == 0)
-		return qstar_set_error(graph, "qstar: no test targets found");
+	if (test_len == 0) {
+		qstar_set_error(graph, "qstar: no test targets found");
+		goto fail;
+	}
+	if (qstar_graph_execute_test_batch(graph, tests, test_len, &effective,
+	    "ninja", out) < 0)
+		goto fail;
+	free(tests);
 	fputs("status ok\n", out);
 	return 0;
 
 fail:
 	qstar_string_list_free(&selected);
+	free(tests);
 	return -1;
 }
 

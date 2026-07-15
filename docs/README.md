@@ -14,6 +14,8 @@ Current DSL surface:
 - `qstar.config`
 - artifact targets: `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`,
   `qstar.test`
+- generic test orchestration: `qstar.test_resource`, per-test resource/retry/
+  setup/cleanup/manual/skip policy, JSON/JUnit result reports
 - typed dependency targets: `qstar.interface`, `qstar.imported`, `qstar.tool`,
   explicit `compile_usage`/`link_usage`, and `qstar.tool_file`
 - generated actions: `qstar.custom_target`, `qstar.transform`,
@@ -60,6 +62,9 @@ Important documents:
 - `composable-test-suites.md`: Korean canonical reference for nested suites,
   free-form tag selection, manual discovery, Stella/Ninja member closure,
   list/query membership, and test-evidence boundaries.
+- `test-resources-and-results.md`: Korean canonical reference for generic named
+  test resources, capacity scheduling, retry/setup/cleanup, manual/skip,
+  JSON/JUnit reports, and action-log/replay result linkage.
 - `typed-dependency-targets.md`: Korean canonical contract for interface-only
   dependencies, platform-selected imported artifacts, explicit compile/link
   usage propagation, executable tool dependencies, and Stella/Ninja parity.

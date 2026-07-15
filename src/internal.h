@@ -213,6 +213,15 @@ int qstar_platform_process_signal_number(int status);
 int qstar_platform_process_poll(struct qstar_platform_pollfd *fds,
     qstar_platform_poll_count nfds, int timeout_ms);
 
+/** 이미 build된 qstar.test artifact batch를 generic resource scheduler로 실행한다. */
+int qstar_graph_execute_test_batch(struct qstar_graph *graph,
+    const struct qstar_target *const *targets, size_t target_len,
+    const struct qstar_test_options *options, const char *backend, FILE *out);
+
+/** target_file/stage_dir/tool_file token을 실행용 package-relative argv로 해석한다. */
+int qstar_graph_resolve_command_token(struct qstar_graph *graph, const char *arg,
+    char *dst, size_t dstlen);
+
 /** process pipe fd에서 가능한 bytes를 non-blocking 방식으로 읽는다. */
 int qstar_platform_process_read_fd(int fd, char *buf, size_t buflen, size_t *nread,
     int *eof);

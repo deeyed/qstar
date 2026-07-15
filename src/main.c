@@ -26,7 +26,7 @@ usage(FILE *out)
 	fputs("       qstar [options] dry-run [label]\n", out);
 	fputs("       qstar [options] emit-ninja [label]\n", out);
 	fputs("       qstar [options] build [label]\n", out);
-	fputs("       qstar [options] test [label|//...] [--suite label] [--tag tag] [--exclude-tag tag]\n", out);
+	fputs("       qstar [options] test [label|//...] [--suite label] [--tag tag] [--exclude-tag tag] [--jobs N] [--include-manual] [--report-json path] [--output-junit path]\n", out);
 	fputs("       qstar [options] stage <label> [--root path] [--dry-run]\n", out);
 	fputs("       qstar [options] why-rebuild [label]\n", out);
 	fputs("       qstar [options] clean [label]\n", out);
@@ -143,9 +143,12 @@ command_help(FILE *out, const char *cmd)
 		return;
 	}
 	if (strcmp(cmd, "test") == 0) {
-		fputs("usage: qstar [options] test [label|//...] [--suite label] [--tag tag] [--exclude-tag tag]\n", out);
+		fputs("usage: qstar [options] test [label|//...] [--suite label] [--tag tag] [--exclude-tag tag] [--jobs N] [--include-manual] [--report-json path] [--output-junit path]\n", out);
 		fputs("Build and run qstar.test targets or composable test_suite members, including run_target labels.\n", out);
 		fputs("--suite, --tag, and --exclude-tag may repeat; suite filters cannot be combined with a positional target label.\n", out);
+		fputs("--jobs bounds concurrent test attempts; named resource capacities may reduce actual parallelism.\n", out);
+		fputs("Manual tests are excluded only from unfiltered automatic selection; --include-manual includes them there.\n", out);
+		fputs("JSON results default to <build-dir>/test-results.json; --output-junit adds a JUnit-compatible report.\n", out);
 		fputs("Tag values are exact user metadata strings with no built-in platform or environment meaning.\n", out);
 		return;
 	}
@@ -986,6 +989,69 @@ main(int argc, char **argv)
 				test_exclude_tags[test_options.exclude_tag_len++] =
 				    argv[arg] + 14;
 				arg++;
+			} else if (strcmp(argv[arg], "--jobs") == 0) {
+				char *end;
+				long jobs;
+
+				if (arg + 1 >= argc) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				jobs = strtol(argv[arg + 1], &end, 10);
+				if (!end || *end || jobs <= 0 || jobs > 1024) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				test_options.jobs = (int)jobs;
+				arg += 2;
+			} else if (strncmp(argv[arg], "--jobs=", 7) == 0) {
+				char *end;
+				long jobs = strtol(argv[arg] + 7, &end, 10);
+
+				if (!end || *end || jobs <= 0 || jobs > 1024) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				test_options.jobs = (int)jobs;
+				arg++;
+			} else if (strcmp(argv[arg], "--include-manual") == 0) {
+				test_options.include_manual = 1;
+				arg++;
+			} else if (strcmp(argv[arg], "--report-json") == 0) {
+				if (arg + 1 >= argc) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				test_options.report_json = argv[arg + 1];
+				arg += 2;
+			} else if (strncmp(argv[arg], "--report-json=", 14) == 0) {
+				if (!argv[arg][14]) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				test_options.report_json = argv[arg] + 14;
+				arg++;
+			} else if (strcmp(argv[arg], "--output-junit") == 0) {
+				if (arg + 1 >= argc) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				test_options.output_junit = argv[arg + 1];
+				arg += 2;
+			} else if (strncmp(argv[arg], "--output-junit=", 15) == 0) {
+				if (!argv[arg][15]) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				test_options.output_junit = argv[arg] + 15;
+				arg++;
 			} else if (strncmp(argv[arg], "--", 2) == 0 || label) {
 				usage(stderr);
 				qstar_graph_free(&graph);
@@ -1281,6 +1347,8 @@ main(int argc, char **argv)
 		rc = qstar_graph_validate_project_commands(&graph);
 	if (rc == 0 && !plan_cache_loaded)
 		rc = qstar_graph_validate_test_suites(&graph);
+	if (rc == 0 && !plan_cache_loaded)
+		rc = qstar_graph_validate_test_resources(&graph);
 	if (rc == 0 && !plan_cache_loaded &&
 	    (strcmp(cmd, "check") == 0 || strcmp(cmd, "doctor") == 0 ||
 	    strcmp(cmd, "build") == 0 || strcmp(cmd, "test") == 0 ||

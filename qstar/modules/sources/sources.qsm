@@ -22,6 +22,7 @@ function M.qstar_core()
     "src/source.c",
     "src/stella_cache.c",
     "src/test_suite.c",
+    "src/test_resources.c",
   }
 end
 
