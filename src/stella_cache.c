@@ -8,10 +8,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v7"
-#define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v2"
+#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v8"
+#define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v3"
 #define QSTAR_STELLA_ACTION_MAGIC "qstar-stella-actions-cache-v2"
-#define QSTAR_STELLA_PLAN_ABI 10
+#define QSTAR_STELLA_PLAN_ABI 11
 #define QSTAR_STELLA_HASH_INIT 1469598103934665603ULL
 #define QSTAR_STELLA_HASH_PRIME 1099511628211ULL
 #define QSTAR_STELLA_MAX_STRING (16U * 1024U * 1024U)
@@ -264,68 +264,6 @@ read_list(FILE *f, struct qstar_string_list *list)
 }
 
 static int
-write_build_context(FILE *f, const struct qstar_build_context *p)
-{
-#define WSTR(field) do { if (write_str(f, p->field) < 0) return -1; } while (0)
-#define WLIST(field) do { if (write_list(f, &p->field) < 0) return -1; } while (0)
-	WSTR(name);
-	WSTR(target);
-	WSTR(platform);
-	WSTR(toolchain);
-	WSTR(stdlib_policy);
-	WSTR(cc);
-	WSTR(cxx);
-	WSTR(ar);
-	WSTR(linker);
-	WSTR(sysroot);
-	WSTR(resource_dir);
-	WSTR(response_files);
-	WSTR(response_style);
-	WSTR(allow_absolute_tools);
-	WLIST(artifact_names);
-	WLIST(compile_options);
-	WLIST(include_dirs);
-	WLIST(lib_dirs);
-	WLIST(link_options);
-	WLIST(path_tools);
-	WLIST(tool_overrides);
-#undef WSTR
-#undef WLIST
-	return 0;
-}
-
-static int
-read_build_context(FILE *f, struct qstar_build_context *p)
-{
-#define RSTR(field) do { if (read_str(f, &p->field) < 0) return -1; } while (0)
-#define RLIST(field) do { if (read_list(f, &p->field) < 0) return -1; } while (0)
-	RSTR(name);
-	RSTR(target);
-	RSTR(platform);
-	RSTR(toolchain);
-	RSTR(stdlib_policy);
-	RSTR(cc);
-	RSTR(cxx);
-	RSTR(ar);
-	RSTR(linker);
-	RSTR(sysroot);
-	RSTR(resource_dir);
-	RSTR(response_files);
-	RSTR(response_style);
-	RSTR(allow_absolute_tools);
-	RLIST(artifact_names);
-	RLIST(compile_options);
-	RLIST(include_dirs);
-	RLIST(lib_dirs);
-	RLIST(link_options);
-	RLIST(path_tools);
-	RLIST(tool_overrides);
-#undef RSTR
-#undef RLIST
-	return 0;
-}
-
-static int
 write_toolset(FILE *f, const struct qstar_toolset *toolset)
 {
 	size_t i;
@@ -432,8 +370,6 @@ write_target(FILE *f, const struct qstar_target *t)
 	    write_i32(f, t->cxx_modules_enabled) < 0)
 		return -1;
 	WSTR(toolset);
-	WSTR(toolchain);
-	WSTR(stdlib_policy);
 #undef WSTR
 #undef WLIST
 	return 0;
@@ -492,8 +428,6 @@ read_target(FILE *f, struct qstar_target *t)
 	    read_i32(f, &t->cxx_modules_enabled) < 0)
 		return -1;
 	RSTR(toolset);
-	RSTR(toolchain);
-	RSTR(stdlib_policy);
 #undef RSTR
 #undef RLIST
 	return 0;
@@ -618,7 +552,7 @@ write_graph_cache_file(struct qstar_graph *graph, const char *path)
 	    write_str(f, graph->project.generated_dir) < 0 ||
 	    write_str(f, graph->project.compile_commands) < 0 ||
 	    write_i32(f, graph->uses_file_globs) < 0 ||
-	    write_build_context(f, &graph->build_context) < 0 ||
+	    write_str(f, graph->platform) < 0 ||
 	    write_list(f, &graph->evaluated_fragments) < 0 ||
 	    write_u64(f, (unsigned long long)graph->package_len) < 0) {
 		fclose(f);
@@ -720,7 +654,7 @@ read_graph_cache_file(const char *path, struct qstar_graph *out)
 	    read_str(f, &out->project.generated_dir) < 0 ||
 	    read_str(f, &out->project.compile_commands) < 0 ||
 	    read_i32(f, &out->uses_file_globs) < 0 ||
-	    read_build_context(f, &out->build_context) < 0 ||
+	    read_str(f, &out->platform) < 0 ||
 	    read_list(f, &out->evaluated_fragments) < 0 ||
 	    read_u64(f, &n) < 0 || n > 1000000ULL) {
 		fclose(f);
@@ -1362,8 +1296,7 @@ read_actions_file(const char *path, struct qstar_graph *graph, const char *label
 
 static int
 write_manifest(const struct qstar_graph *graph, const char *path, const char *file,
-    const char *cmd, const char *label, const char *cli_build_context, const char *cli_target,
-    const char *cli_platform, const char *cli_toolchain, const char *cli_stdlib,
+    const char *cmd, const char *label, const char *cli_platform,
     unsigned long long input_hash, size_t action_count)
 {
 	FILE *f;
@@ -1393,16 +1326,8 @@ write_manifest(const struct qstar_graph *graph, const char *path, const char *fi
 	json_string(f, label_key(label));
 	fputs(",\n  \"entry_file\":", f);
 	json_string(f, file);
-	fputs(",\n  \"cli_build_context\":", f);
-	json_string(f, cli_build_context);
-	fputs(",\n  \"cli_target\":", f);
-	json_string(f, cli_target);
 	fputs(",\n  \"cli_platform\":", f);
 	json_string(f, cli_platform);
-	fputs(",\n  \"cli_toolchain\":", f);
-	json_string(f, cli_toolchain);
-	fputs(",\n  \"cli_stdlib\":", f);
-	json_string(f, cli_stdlib);
 	fprintf(f, ",\n  \"package_alias_hash\":\"%016llx\"",
 	    package_alias_hash(graph));
 	fprintf(f, ",\n  \"project_option_override_hash\":\"%016llx\"",
@@ -1444,8 +1369,7 @@ same_project_option_override_hash(const char *manifest, const struct qstar_graph
 
 static int
 manifest_matches(const char *manifest, const struct qstar_graph *graph, const char *file,
-    const char *cmd, const char *label, const char *cli_build_context, const char *cli_target,
-    const char *cli_platform, const char *cli_toolchain, const char *cli_stdlib,
+    const char *cmd, const char *label, const char *cli_platform,
     char *reason, size_t reason_len)
 {
 	unsigned long long abi;
@@ -1481,15 +1405,8 @@ manifest_matches(const char *manifest, const struct qstar_graph *graph, const ch
 		set_reason(reason, reason_len, "request-mismatch");
 		return 0;
 	}
-	if (!(json_string_equals(manifest, "cli_build_context",
-	    string_or_empty(cli_build_context)) ||
-	    json_string_equals(manifest, "cli_profile",
-	    string_or_empty(cli_build_context))) ||
-	    !json_string_equals(manifest, "cli_target", string_or_empty(cli_target)) ||
-	    !json_string_equals(manifest, "cli_platform", string_or_empty(cli_platform)) ||
-	    !json_string_equals(manifest, "cli_toolchain", string_or_empty(cli_toolchain)) ||
-	    !json_string_equals(manifest, "cli_stdlib", string_or_empty(cli_stdlib))) {
-		set_reason(reason, reason_len, "build-context-input-mismatch");
+	if (!json_string_equals(manifest, "cli_platform", string_or_empty(cli_platform))) {
+		set_reason(reason, reason_len, "platform-input-mismatch");
 		return 0;
 	}
 	if (!same_package_alias_hash(manifest, graph)) {
@@ -1524,8 +1441,7 @@ rename_atomic(const char *tmp, const char *dst)
 
 int
 qstar_stella_plan_cache_try_load(struct qstar_graph *graph, const char *file,
-    const char *cmd, const char *label, const char *cli_build_context, const char *cli_target,
-    const char *cli_platform, const char *cli_toolchain, const char *cli_stdlib,
+    const char *cmd, const char *label, const char *cli_platform,
     char *reason, size_t reason_len)
 {
 	struct qstar_graph loaded;
@@ -1561,8 +1477,8 @@ qstar_stella_plan_cache_try_load(struct qstar_graph *graph, const char *file,
 		set_reason(reason, reason_len, "manifest-missing");
 		return 0;
 	}
-	ok = manifest_matches(manifest, graph, file, cmd, label, cli_build_context, cli_target,
-	    cli_platform, cli_toolchain, cli_stdlib, reason, reason_len);
+	ok = manifest_matches(manifest, graph, file, cmd, label, cli_platform, reason,
+	    reason_len);
 	free(manifest);
 	if (!ok)
 		return 0;
@@ -1590,8 +1506,7 @@ qstar_stella_plan_cache_try_load(struct qstar_graph *graph, const char *file,
 
 int
 qstar_stella_plan_cache_store(struct qstar_graph *graph, const char *file,
-    const char *cmd, const char *label, const char *cli_build_context, const char *cli_target,
-    const char *cli_platform, const char *cli_toolchain, const char *cli_stdlib,
+    const char *cmd, const char *label, const char *cli_platform,
     char *reason, size_t reason_len)
 {
 	char cache_dir[QSTAR_PATH_MAX], tmp_dir[QSTAR_PATH_MAX];
@@ -1647,8 +1562,8 @@ qstar_stella_plan_cache_store(struct qstar_graph *graph, const char *file,
 		set_reason(reason, reason_len, "inputs-write-failed");
 		return -1;
 	}
-	if (write_manifest(graph, manifest_tmp, file, cmd, label, cli_build_context, cli_target,
-	    cli_platform, cli_toolchain, cli_stdlib, input_hash, action_count) < 0 ||
+	if (write_manifest(graph, manifest_tmp, file, cmd, label, cli_platform,
+	    input_hash, action_count) < 0 ||
 	    rename_atomic(manifest_tmp, manifest_path) < 0) {
 		set_reason(reason, reason_len, "manifest-write-failed");
 		return -1;

@@ -37,13 +37,6 @@ struct doctor_tool_requirements {
 	struct qstar_string_list provider_roles;
 };
 
-/** build context 문자열이 없을 때 explain dump에 쓸 기본값을 반환한다. */
-static const char *
-context_or_default(const char *s, const char *fallback)
-{
-	return s && *s ? s : fallback;
-}
-
 /** 문자열 list를 command-plan dump 형식으로 출력한다. */
 static void
 dump_list(FILE *out, const struct qstar_string_list *list)
@@ -358,36 +351,13 @@ dump_closure_order(FILE *out, const struct qstar_plan *plan)
 	fputs("]\n", out);
 }
 
-/** build context input과 package alias map을 command-plan header에 출력한다. */
+/** platform, project option, package alias map을 command-plan header에 출력한다. */
 static void
 dump_plan_inputs(FILE *out, const struct qstar_graph *graph)
 {
 	size_t i;
 
-	fprintf(out, "build_context name=%s target=%s platform=%s toolchain=%s stdlib=%s\n",
-	    context_or_default(graph->build_context.name, "default"),
-	    context_or_default(graph->build_context.target, "host"),
-	    qstar_graph_platform(graph),
-	    context_or_default(graph->build_context.toolchain, "default"),
-	    context_or_default(graph->build_context.stdlib_policy, "default"));
-	fprintf(out, "build_context_tools cc=%s cxx=%s ar=%s linker=%s sysroot=%s resource_dir=%s\n",
-	    context_or_default(graph->build_context.cc, "<default>"),
-	    context_or_default(graph->build_context.cxx, "<default>"),
-	    context_or_default(graph->build_context.ar, "<default>"),
-	    context_or_default(graph->build_context.linker, "<default>"),
-	    context_or_default(graph->build_context.sysroot, "<none>"),
-	    context_or_default(graph->build_context.resource_dir, "<none>"));
-	fprintf(out, "build_context_response response_files=%s response_style=%s\n",
-	    context_or_default(graph->build_context.response_files, "auto"),
-	    context_or_default(graph->build_context.response_style, "auto"));
-	fputs("build_context_link link_options=", out);
-	dump_list(out, &graph->build_context.link_options);
-	fputc('\n', out);
-	fputs("build_context_compile compile_options=", out);
-	dump_list(out, &graph->build_context.compile_options);
-	fputs(" include_dirs=", out);
-	dump_list(out, &graph->build_context.include_dirs);
-	fputc('\n', out);
+	fprintf(out, "platform %s\n", qstar_graph_platform(graph));
 	for (i = 0; i < graph->project_option_len; i++) {
 		fprintf(out,
 		    "project_option name=%s type=%s value=%s effective=%s overridden=%s choices=",
@@ -399,12 +369,6 @@ dump_plan_inputs(FILE *out, const struct qstar_graph *graph)
 		dump_list(out, &graph->project_options[i].choices);
 		fputc('\n', out);
 	}
-	fprintf(out, "external_tool_policy allow_absolute=%s path_tools=",
-	    context_or_default(graph->build_context.allow_absolute_tools, "false"));
-	dump_list(out, &graph->build_context.path_tools);
-	fputs(" tool_overrides=", out);
-	dump_list(out, &graph->build_context.tool_overrides);
-	fputc('\n', out);
 	fputs("package_aliases ", out);
 	dump_package_aliases(out, graph);
 	fputc('\n', out);
@@ -440,12 +404,10 @@ dump_action_key(FILE *out, const struct qstar_graph *graph, const struct qstar_t
 {
 	fprintf(out,
 	    "  action_key id=%s:%s:%zu kind=%s owner=%s input=%s output=%s "
-	    "language=%s build_context=%s target=%s toolchain=%s stdlib=%s deps=",
+	    "language=%s platform=%s toolset=%s deps=",
 	    target->label, kind, index, kind, target->label, input, output,
-	    language,
-	    context_or_default(graph->build_context.name, "default"),
-	    context_or_default(graph->build_context.target, "host"),
-	    target->toolchain, target->stdlib_policy);
+	    language, qstar_graph_platform(graph),
+	    target->toolset && *target->toolset ? target->toolset : "<none>");
 	dump_list(out, &target->deps);
 	fputs(" packages=", out);
 	dump_package_aliases(out, graph);
@@ -460,10 +422,11 @@ dump_command_skeleton(FILE *out, const struct qstar_graph *graph,
 {
 	fprintf(out,
 	    "  command_skeleton id=%s:%s:%zu phase=%s language=%s tool=%s "
-	    "toolchain=%s target=%s stdlib=%s input=%s output=%s execute=no\n",
-	    target->label, kind, index, kind, language, tool, target->toolchain,
-	    context_or_default(graph->build_context.target, "host"), target->stdlib_policy,
-	    input, output);
+	    "platform=%s toolset=%s input=%s output=%s execute=no\n",
+	    target->label, kind, index, kind, language, tool,
+	    qstar_graph_platform(graph),
+	    target->toolset && *target->toolset ? target->toolset : "<none>", input,
+	    output);
 }
 
 /** command digest용 FNV-1a hash에 문자열을 섞는다. */
@@ -755,20 +718,16 @@ collect_compile_include_dirs(const struct qstar_graph *graph, const struct qstar
 	return 0;
 }
 
-/** target compile option이 build context/config/local merge 뒤 어떻게 보이는지 설명한다. */
+/** target compile option의 explicit config/local merge 결과를 설명한다. */
 static void
 dump_effective_compile_merge(FILE *out, const struct qstar_graph *graph,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain)
 {
 	fprintf(out,
-	    "  effective_compile_merge owner=%s build_context=%s target=%s response_files=%s response_style=%s order=build_context,target build_context_compile_options=",
-	    target->label, context_or_default(graph->build_context.name, "default"),
-	    context_or_default(graph->build_context.target, "host"),
+	    "  effective_compile_merge owner=%s platform=%s response_files=%s response_style=%s order=config,target ",
+	    target->label, qstar_graph_platform(graph),
 	    toolchain->response_files ? "on" : "off", toolchain->response_style);
-	dump_list(out, &graph->build_context.compile_options);
-	fputs(" build_context_include_dirs=", out);
-	dump_list(out, &graph->build_context.include_dirs);
-	fputs(" target_c_compile_options=", out);
+	fputs("target_c_compile_options=", out);
 	dump_list(out, &target->cflags);
 	fputs(" target_cxx_compile_options=", out);
 	dump_list(out, &target->cxxflags);
@@ -938,8 +897,6 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	if (!tool)
 		tool = toolchain->cc;
 	argc = 5 + plan_tool_role_argc(graph, target, toolchain, role) - 1 +
-	    (provider_source ? 0 : graph->build_context.compile_options.len) +
-	    (provider_source ? 0 : graph->build_context.include_dirs.len * 2) +
 	    (provider_source ? 0 :
 	    (is_asm ? target->asm_include_dirs.len * 2 : includes.len * 2)) +
 	    (provider_source || is_asm ? 0 : target->system_include_dirs.len * 2) +
@@ -982,12 +939,6 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 		argv_item(out, &dump, target->cxxflags.items[i]);
 	for (i = 0; !provider_source && is_asm && i < target->asm_compile_options.len; i++)
 		argv_item(out, &dump, target->asm_compile_options.items[i]);
-	for (i = 0; !provider_source && i < graph->build_context.compile_options.len; i++)
-		argv_item(out, &dump, graph->build_context.compile_options.items[i]);
-	for (i = 0; !provider_source && i < graph->build_context.include_dirs.len; i++) {
-		argv_item(out, &dump, "-I");
-		argv_item(out, &dump, graph->build_context.include_dirs.items[i]);
-	}
 	for (i = 0; !provider_source && !is_asm && i < includes.len; i++) {
 		argv_item(out, &dump, "-I");
 		argv_item(out, &dump, includes.items[i]);
@@ -1088,22 +1039,22 @@ toolchain_uses_msvc_out_arg(const struct qstar_resolved_toolchain *toolchain,
 	return strstr(tool, "lld-link") != NULL || strstr(tool, "link.exe") != NULL;
 }
 
-/** target/build context link_options가 argv에 추가할 argument 수를 계산한다. */
+/** target link_options가 argv에 추가할 argument 수를 계산한다. */
 static size_t
 link_policy_arg_count(const struct qstar_graph *graph, const struct qstar_target *target)
 {
-	return graph->build_context.link_options.len + target->link_options.len;
+	(void)graph;
+	return target->link_options.len;
 }
 
-/** target/build context link_options를 deterministic command argv dump에 추가한다. */
+/** target link_options를 deterministic command argv dump에 추가한다. */
 static void
 dump_link_policy_argv(FILE *out, struct qstar_argv_dump *dump,
     const struct qstar_graph *graph, const struct qstar_target *target)
 {
 	size_t i;
 
-	for (i = 0; i < graph->build_context.link_options.len; i++)
-		argv_item(out, dump, graph->build_context.link_options.items[i]);
+	(void)graph;
 	for (i = 0; i < target->link_options.len; i++)
 		argv_item(out, dump, target->link_options.items[i]);
 }
@@ -1240,8 +1191,7 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 	    plan_tool_role_argc(graph, target, toolchain, "link") :
 	    3 + plan_tool_role_argc(graph, target, toolchain, "link");
 	if (strcmp(action, "archive") != 0)
-		argc += target->lib_dirs.len +
-		    graph->build_context.lib_dirs.len + target->libs.len +
+		argc += target->lib_dirs.len + target->libs.len +
 		    (darwin ? target->frameworks.len * 2 : 0) +
 		    link_policy_arg_count(graph, target) +
 		    (toolchain_needs_msvc_link_boundary(toolchain, target) ? 1 : 0);
@@ -1299,17 +1249,6 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 		argv_item(out, &dump, "<target-objects>");
 		if (toolchain_needs_msvc_link_boundary(toolchain, target))
 			argv_item(out, &dump, "/link");
-		for (i = 0; i < graph->build_context.lib_dirs.len; i++) {
-			if (msvc) {
-				snprintf(buf, sizeof(buf), "/LIBPATH:%s",
-				    graph->build_context.lib_dirs.items[i]);
-				argv_item(out, &dump, buf);
-			} else {
-				snprintf(buf, sizeof(buf), "-L%s",
-				    graph->build_context.lib_dirs.items[i]);
-				argv_item(out, &dump, buf);
-			}
-		}
 		for (i = 0; i < target->lib_dirs.len; i++) {
 			if (msvc) {
 				snprintf(buf, sizeof(buf), "/LIBPATH:%s", target->lib_dirs.items[i]);
@@ -1592,25 +1531,20 @@ dump_consumed_genrules(FILE *out, const struct qstar_plan *plan,
 		dump_genrule_artifacts(out, genrule, "  ");
 		fprintf(out,
 		    "  action_key id=%s:generate:0 kind=generate owner=%s consumer=%s "
-		    "input=%s output=%s language=generated build_context=%s target=%s "
-		    "toolchain=%s toolset=%s stdlib=%s deps=[] packages=",
+		    "input=%s output=%s language=generated platform=%s toolset=%s deps=[] packages=",
 		    genrule->label, genrule->label, target->label, inputs, identities,
-		    context_or_default(plan->graph->build_context.name, "default"),
-		    context_or_default(plan->graph->build_context.target, "host"),
-		    target->toolchain,
-		    genrule->toolset && *genrule->toolset ? genrule->toolset : "<none>",
-		    target->stdlib_policy);
+		    qstar_graph_platform(plan->graph),
+		    genrule->toolset && *genrule->toolset ? genrule->toolset : "<none>");
 		dump_package_aliases(out, plan->graph);
 		fputc('\n', out);
 		fprintf(out,
 		    "  command_skeleton id=%s:generate:0 phase=generate language=generated "
-		    "tool=%s toolset=%s resolved_tool=%s tool_mode=%s toolchain=%s target=%s stdlib=%s input=%s output=%s "
+		    "tool=%s toolset=%s resolved_tool=%s tool_mode=%s platform=%s input=%s output=%s "
 		    "consumer=%s execute=no\n",
 		    genrule->label, genrule->tool,
 		    genrule->toolset && *genrule->toolset ? genrule->toolset : "<none>",
 		    resolved_tool, tool_mode,
-		    target->toolchain, context_or_default(plan->graph->build_context.target, "host"),
-		    target->stdlib_policy, inputs, identities, target->label);
+		    qstar_graph_platform(plan->graph), inputs, identities, target->label);
 		dump_genrule_argv(out, plan->graph, target, genrule);
 	}
 }
@@ -1651,24 +1585,22 @@ dump_direct_genrule_plan(FILE *out, const struct qstar_graph *graph,
 	dump_genrule_artifacts(out, genrule, "  ");
 	fprintf(out,
 	    "  action_key id=%s:generate:0 kind=generate owner=%s consumer=<direct> "
-	    "input=%s output=%s language=generated build_context=%s target=%s toolchain=custom toolset=%s stdlib=none deps=[] packages=",
+	    "input=%s output=%s language=generated platform=%s toolset=%s deps=[] packages=",
 	    genrule->label, genrule->label, inputs, identities,
-	    context_or_default(graph->build_context.name, "default"),
-	    context_or_default(graph->build_context.target, "host"),
+	    qstar_graph_platform(graph),
 	    genrule->toolset && *genrule->toolset ? genrule->toolset : "<none>");
 	dump_package_aliases(out, graph);
 	fputc('\n', out);
 	fprintf(out,
 	    "  command_skeleton id=%s:generate:0 phase=generate language=generated "
-	    "tool=%s toolset=%s resolved_tool=%s tool_mode=%s toolchain=custom target=%s stdlib=none input=%s output=%s consumer=<direct> execute=no\n",
+	    "tool=%s toolset=%s resolved_tool=%s tool_mode=%s platform=%s input=%s output=%s consumer=<direct> execute=no\n",
 	    genrule->label, genrule->tool,
 	    genrule->toolset && *genrule->toolset ? genrule->toolset : "<none>",
-	    resolved_tool, tool_mode,
-	    context_or_default(graph->build_context.target, "host"), inputs, identities);
+	    resolved_tool, tool_mode, qstar_graph_platform(graph), inputs, identities);
 	dump_genrule_argv(out, graph, NULL, genrule);
 }
 
-/** target-local toolchain/build context resolver skeleton을 출력한다. */
+/** target-local toolset resolver skeleton을 출력한다. */
 static int
 dump_resolved_toolchain(FILE *out, const struct qstar_plan *plan,
     const struct qstar_target *target, struct qstar_resolved_toolchain *resolved)
@@ -1676,40 +1608,14 @@ dump_resolved_toolchain(FILE *out, const struct qstar_plan *plan,
 	if (qstar_resolve_toolchain(plan->graph, target, resolved) < 0)
 		return -1;
 	fprintf(out,
-	    "  resolved_toolchain owner=%s toolchain=%s build_context=%s target=%s "
-	    "platform=%s link_style=%s stdlib=%s resolver=%s toolset=%s cc=%s cxx=%s asm=%s ar=%s "
-	    "linker=%s sysroot=%s resource_dir=%s response_files=%s response_style=%s\n",
-	    target->label, resolved->name,
-	    context_or_default(plan->graph->build_context.name, "default"),
-	    resolved->target, resolved->platform, resolved->link_style,
-	    resolved->stdlib_policy, resolved->resolver,
+	    "  resolved_tools owner=%s platform=%s link_style=%s resolver=%s toolset=%s cc=%s cxx=%s asm=%s ar=%s "
+	    "linker=%s response_files=%s response_style=%s\n",
+	    target->label, resolved->platform, resolved->link_style, resolved->resolver,
 	    resolved->toolset[0] ? resolved->toolset : "<none>",
 	    resolved->cc, resolved->cxx, resolved->asm_, resolved->ar,
 	    resolved->linker,
-	    resolved->sysroot[0] ? resolved->sysroot : "<none>",
-	    resolved->resource_dir[0] ? resolved->resource_dir : "<none>",
 	    resolved->response_files ? "on" : "off", resolved->response_style);
 	return 0;
-}
-
-/** tool override entry의 NAME=VALUE를 doctor 출력용으로 분리한다. */
-static int
-split_tool_override_for_doctor(const char *entry, char *name, size_t name_len,
-    char *value, size_t value_len)
-{
-	const char *eq;
-	size_t n;
-
-	eq = entry ? strchr(entry, '=') : NULL;
-	if (!eq || eq == entry || eq[1] == '\0')
-		return 0;
-	n = (size_t)(eq - entry);
-	if (n + 1 > name_len || strlen(eq + 1) + 1 > value_len)
-		return 0;
-	memcpy(name, entry, n);
-	name[n] = '\0';
-	snprintf(value, value_len, "%s", eq + 1);
-	return 1;
 }
 
 /** doctor 출력용으로 path에 separator가 있는지 확인한다. */
@@ -1791,38 +1697,9 @@ doctor_path_state(const struct qstar_graph *graph, const char *path, char *full,
 	return 0;
 }
 
-/** doctor path 상태를 stable text로 출력한다. */
-static void
-dump_build_context_path_doctor(FILE *out, const struct qstar_graph *graph, const char *name,
-    const char *path, int want_dir)
-{
-	char full[QSTAR_PATH_MAX];
-	const char *mode, *status, *type;
-	int exists, executable, is_dir;
-
-	if (!path || !*path) {
-		fprintf(out,
-		    "build-context-path name=%s path=<none> mode=unset status=not-set type=none\n",
-		    name);
-		return;
-	}
-	mode = doctor_path_is_absolute(path) ? "absolute" : "package";
-	if (doctor_path_state(graph, path, full, sizeof(full), &exists, &executable,
-	    &is_dir) < 0) {
-		fprintf(out,
-		    "build-context-path name=%s path=%s mode=invalid status=invalid type=unknown\n",
-		    name, path);
-		return;
-	}
-	type = exists ? is_dir ? "directory" : "file" : "missing";
-	status = !exists ? "missing" : want_dir && !is_dir ? "not-directory" : "found";
-	fprintf(out, "build-context-path name=%s path=%s mode=%s status=%s type=%s full=%s\n",
-	    name, path, mode, status, type, full);
-}
-
 /** doctor가 toolchain role 하나의 발견 상태를 출력한다. */
 static void
-dump_toolchain_tool_doctor(FILE *out, const struct qstar_graph *graph,
+dump_toolset_tool_doctor(FILE *out, const struct qstar_graph *graph,
     const char *role, const char *tool, int required)
 {
 	char full[QSTAR_PATH_MAX], found[QSTAR_PATH_MAX];
@@ -1831,7 +1708,7 @@ dump_toolchain_tool_doctor(FILE *out, const struct qstar_graph *graph,
 
 	if (!tool || !*tool) {
 		fprintf(out,
-		    "toolchain-tool role=%s name=<none> required=%s mode=unset status=missing severity=%s path=<none> executable=no\n",
+		    "toolset-tool role=%s name=<none> required=%s mode=unset status=missing severity=%s path=<none> executable=no\n",
 		    role, required ? "true" : "false", required ? "warning" : "info");
 		return;
 	}
@@ -1840,7 +1717,7 @@ dump_toolchain_tool_doctor(FILE *out, const struct qstar_graph *graph,
 		if (doctor_path_state(graph, tool, full, sizeof(full), &exists,
 		    &executable, &is_dir) < 0) {
 			fprintf(out,
-			    "toolchain-tool role=%s name=%s required=%s mode=invalid status=invalid severity=%s path=<none> executable=no\n",
+			    "toolset-tool role=%s name=%s required=%s mode=invalid status=invalid severity=%s path=<none> executable=no\n",
 			    role, tool, required ? "true" : "false",
 			    required ? "warning" : "info");
 			return;
@@ -1848,7 +1725,7 @@ dump_toolchain_tool_doctor(FILE *out, const struct qstar_graph *graph,
 		status = !exists ? "missing" : !executable ? "not-executable" : "found";
 		severity = required && strcmp(status, "found") != 0 ? "warning" : "info";
 		fprintf(out,
-		    "toolchain-tool role=%s name=%s required=%s mode=%s status=%s severity=%s path=%s executable=%s\n",
+		    "toolset-tool role=%s name=%s required=%s mode=%s status=%s severity=%s path=%s executable=%s\n",
 		    role, tool, required ? "true" : "false", mode, status, severity,
 		    full, executable ? "yes" : "no");
 		(void)is_dir;
@@ -1856,12 +1733,12 @@ dump_toolchain_tool_doctor(FILE *out, const struct qstar_graph *graph,
 	}
 	if (qstar_external_tool_find_path_tool(tool, found, sizeof(found))) {
 		fprintf(out,
-		    "toolchain-tool role=%s name=%s required=%s mode=path status=found severity=info path=%s executable=yes\n",
+		    "toolset-tool role=%s name=%s required=%s mode=path status=found severity=info path=%s executable=yes\n",
 		    role, tool, required ? "true" : "false", found);
 		return;
 	}
 	fprintf(out,
-	    "toolchain-tool role=%s name=%s required=%s mode=path status=missing severity=%s path=<none> executable=no\n",
+	    "toolset-tool role=%s name=%s required=%s mode=path status=missing severity=%s path=<none> executable=no\n",
 	    role, tool, required ? "true" : "false", required ? "warning" : "info");
 }
 
@@ -1878,63 +1755,29 @@ dump_path_tool_doctor(FILE *out, const char *tool)
 		    tool);
 }
 
-/** build context/toolset external tool discovery 상태를 doctor output에 출력한다. */
+/** toolset external tool discovery 상태를 doctor output에 출력한다. */
 static void
 dump_external_tool_doctor(FILE *out, const struct qstar_plan *plan)
 {
 	const struct qstar_graph *graph;
-	char found[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], value[QSTAR_PATH_MAX];
-	char full[QSTAR_PATH_MAX];
-	const char *mode, *status;
 	size_t i, j, path_tool_count;
-	int exists, executable, is_dir;
+	int allow_absolute;
 
 	graph = plan->graph;
-	path_tool_count = graph->build_context.path_tools.len;
+	path_tool_count = 0;
+	allow_absolute = 0;
 	(void)plan;
-	for (i = 0; i < graph->toolset_len; i++)
+	for (i = 0; i < graph->toolset_len; i++) {
 		path_tool_count += graph->toolsets[i].path_tools.len;
-	fprintf(out, "external-tool-policy path_tools=%zu tool_overrides=%zu allow_absolute=%s\n",
-	    path_tool_count, graph->build_context.tool_overrides.len,
-	    context_or_default(graph->build_context.allow_absolute_tools, "false"));
-	for (i = 0; i < graph->build_context.path_tools.len; i++)
-		dump_path_tool_doctor(out, graph->build_context.path_tools.items[i]);
+		if (graph->toolsets[i].allow_absolute_tools &&
+		    strcmp(graph->toolsets[i].allow_absolute_tools, "true") == 0)
+			allow_absolute = 1;
+	}
+	fprintf(out, "external-tool-policy path_tools=%zu allow_absolute=%s source=toolsets\n",
+	    path_tool_count, allow_absolute ? "true" : "false");
 	for (i = 0; i < graph->toolset_len; i++)
 		for (j = 0; j < graph->toolsets[i].path_tools.len; j++)
 			dump_path_tool_doctor(out, graph->toolsets[i].path_tools.items[j]);
-	for (i = 0; i < graph->build_context.tool_overrides.len; i++) {
-		if (!split_tool_override_for_doctor(graph->build_context.tool_overrides.items[i],
-		    name, sizeof(name), value, sizeof(value))) {
-			fprintf(out, "external-tool-override entry=%s status=invalid\n",
-			    graph->build_context.tool_overrides.items[i]);
-			continue;
-		}
-		if (strchr(value, '/') || strchr(value, '\\')) {
-			mode = value[0] == '/' ? "absolute" : "package";
-			if (doctor_path_state(graph, value, full, sizeof(full), &exists,
-			    &executable, &is_dir) == 0) {
-				status = !exists ? "missing" :
-				    !executable ? "not-executable" : "found";
-				fprintf(out,
-				    "external-tool-override name=%s value=%s mode=%s status=%s path=%s executable=%s\n",
-				    name, value, mode, status, full,
-				    executable ? "yes" : "no");
-				(void)is_dir;
-			} else {
-				fprintf(out,
-				    "external-tool-override name=%s value=%s mode=invalid status=invalid path=<none> executable=no\n",
-				    name, value);
-			}
-		} else if (qstar_external_tool_find_path_tool(value, found, sizeof(found))) {
-			fprintf(out,
-			    "external-tool-override name=%s value=%s mode=path status=found path=%s\n",
-			    name, value, found);
-		} else {
-			fprintf(out,
-			    "external-tool-override name=%s value=%s mode=path status=missing path=<none>\n",
-			    name, value);
-		}
-	}
 }
 
 /** target closure를 훑어 doctor에서 필요한 toolchain role을 계산한다. */
@@ -2139,8 +1982,6 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	dump_list(out, &target->cxxflags);
 	fputc('\n', out);
 	fprintf(out, "  cxx_standard %s\n", target->cxx_standard);
-	fprintf(out, "  toolchain %s\n", target->toolchain);
-	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
 	if (strcmp(target->kind, "group") == 0) {
 		dump_progress_action_exclusion(out, "  ", target->label, "group");
 		fprintf(out, "  action group input=<deps> output=<none>\n");
@@ -2357,9 +2198,11 @@ dump_dry_run_compiles(FILE *out, const struct qstar_plan *plan,
 		if (!qstar_source_requires_compile(&source)) {
 			fprintf(out,
 			    "dry_run_step id=%s:link-input:%zu owner=%s kind=link-input "
-			    "language=%s tool=%s toolchain=%s input=%s output=%s execute=no\n",
+			    "language=%s tool=%s toolset=%s input=%s output=%s execute=no\n",
 			    target->label, i, target->label, source.language,
-			    source.tool_role, toolchain.name, target->sources.items[i],
+			    source.tool_role,
+			    toolchain.toolset[0] ? toolchain.toolset : "<none>",
+			    target->sources.items[i],
 			    target->sources.items[i]);
 			continue;
 		}
@@ -2373,9 +2216,10 @@ dump_dry_run_compiles(FILE *out, const struct qstar_plan *plan,
 		dump_action_description(out, "  ", id, description);
 		fprintf(out,
 		    "dry_run_step id=%s:compile:%zu owner=%s kind=compile language=%s "
-		    "tool=%s toolchain=%s input=%s output=%s execute=no\n",
+		    "tool=%s toolset=%s input=%s output=%s execute=no\n",
 		    target->label, i, target->label, source.language, source.tool_role,
-		    toolchain.name, target->sources.items[i], output);
+		    toolchain.toolset[0] ? toolchain.toolset : "<none>",
+		    target->sources.items[i], output);
 		dump_compile_argv(out, target, target, plan->graph, &toolchain, &source,
 		    target->sources.items[i], output, i, i, NULL);
 	}
@@ -2426,10 +2270,11 @@ dump_dry_run_consumer_objectlib_compiles(FILE *out, const struct qstar_plan *pla
 			dump_action_description(out, "  ", id, description);
 			fprintf(out,
 			    "dry_run_step id=%s:compile:%zu owner=%s source_owner=%s "
-			    "kind=compile language=%s tool=%s toolchain=%s input=%s "
+			    "kind=compile language=%s tool=%s toolset=%s input=%s "
 			    "output=%s compile_context=consumer execute=no\n",
 			    target->label, action_index, target->label, objectlib->label,
-			    source.language, source.tool_role, toolchain.name,
+			    source.language, source.tool_role,
+			    toolchain.toolset[0] ? toolchain.toolset : "<none>",
 			    objectlib->sources.items[j], output);
 			dump_compile_argv(out, target, objectlib, plan->graph, &toolchain,
 			    &source, objectlib->sources.items[j], output, j,
@@ -2456,9 +2301,10 @@ dump_dry_run_final(FILE *out, const struct qstar_plan *plan, const struct qstar_
 		dump_action_description(out, "  ", id, "Collecting objects");
 		fprintf(out,
 		    "dry_run_step id=%s:compile-objects:0 owner=%s kind=compile-objects "
-		    "tool=object-collector toolchain=%s input=<target-objects> "
+		    "tool=object-collector toolset=%s input=<target-objects> "
 		    "output=<none> execute=no\n",
-		    target->label, target->label, toolchain.name);
+		    target->label, target->label,
+		    toolchain.toolset[0] ? toolchain.toolset : "<none>");
 		return 0;
 	}
 	action = qstar_target_final_action(target);
@@ -2475,9 +2321,10 @@ dump_dry_run_final(FILE *out, const struct qstar_plan *plan, const struct qstar_
 		snprintf(description, sizeof(description), "<too-long>");
 	dump_action_description(out, "  ", id, description);
 	fprintf(out,
-	    "dry_run_step id=%s:%s:0 owner=%s kind=%s tool=%s toolchain=%s "
+	    "dry_run_step id=%s:%s:0 owner=%s kind=%s tool=%s toolset=%s "
 	    "input=%s output=%s execute=no\n",
-	    target->label, action, target->label, action, tool, toolchain.name,
+	    target->label, action, target->label, action, tool,
+	    toolchain.toolset[0] ? toolchain.toolset : "<none>",
 	    qstar_target_has_provider_final_action(target) ? "<provider-sources>" :
 	    "<target-objects>", output);
 	if (qstar_target_has_provider_final_action(target))
@@ -2658,32 +2505,26 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 	fprintf(out, "stage-count %zu\n", graph->stage_len);
 	memset(&toolchain, 0, sizeof(toolchain));
 	memset(&tool_req, 0, sizeof(tool_req));
-		if (plan.len > 0 && qstar_resolve_toolchain(graph, plan.order[0], &toolchain) == 0) {
+	if (plan.len > 0 && qstar_resolve_toolchain(graph, plan.order[0], &toolchain) == 0) {
 			collect_doctor_tool_requirements(&plan, &tool_req);
 			fprintf(out,
-			    "toolchain-sanity name=%s cc=%s cxx=%s ar=%s linker=%s "
-			    "platform=%s link_style=%s sysroot=%s resource_dir=%s response_files=%s response_style=%s "
+			    "toolset-sanity toolset=%s cc=%s cxx=%s ar=%s linker=%s "
+			    "platform=%s link_style=%s response_files=%s response_style=%s "
 			    "status=resolved\n",
-			    toolchain.name, toolchain.cc, toolchain.cxx, toolchain.ar,
+			    toolchain.toolset[0] ? toolchain.toolset : "<none>",
+			    toolchain.cc, toolchain.cxx, toolchain.ar,
 			    toolchain.linker, toolchain.platform, toolchain.link_style,
-		    toolchain.sysroot[0] ? toolchain.sysroot : "<none>",
-		    toolchain.resource_dir[0] ? toolchain.resource_dir : "<none>",
-		    toolchain.response_files ? "on" : "off", toolchain.response_style);
+			    toolchain.response_files ? "on" : "off", toolchain.response_style);
 		fprintf(out,
-		    "response-policy configured_files=%s configured_style=%s effective_files=%s effective_style=%s\n",
-		    context_or_default(graph->build_context.response_files, "auto"),
-		    context_or_default(graph->build_context.response_style, "auto"),
+		    "response-policy source=toolset effective_files=%s effective_style=%s\n",
 		    toolchain.response_files ? "on" : "off", toolchain.response_style);
-		dump_toolchain_tool_doctor(out, graph, "cc", toolchain.cc, tool_req.cc);
-			dump_toolchain_tool_doctor(out, graph, "cxx", toolchain.cxx,
+		dump_toolset_tool_doctor(out, graph, "cc", toolchain.cc, tool_req.cc);
+			dump_toolset_tool_doctor(out, graph, "cxx", toolchain.cxx,
 			    tool_req.cxx);
-			dump_toolchain_tool_doctor(out, graph, "ar", toolchain.ar, tool_req.ar);
-		dump_toolchain_tool_doctor(out, graph, "linker", toolchain.linker,
+			dump_toolset_tool_doctor(out, graph, "ar", toolchain.ar, tool_req.ar);
+		dump_toolset_tool_doctor(out, graph, "linker", toolchain.linker,
 		    tool_req.linker);
 		dump_provider_tool_doctor(out, &plan, &tool_req);
-		dump_build_context_path_doctor(out, graph, "sysroot", graph->build_context.sysroot, 1);
-		dump_build_context_path_doctor(out, graph, "resource_dir",
-		    graph->build_context.resource_dir, 1);
 		dump_depfile_doctor(out, &tool_req, &toolchain);
 	}
 	if (qstar_path_join(graph->package_root ? graph->package_root : ".",
@@ -2695,13 +2536,7 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 			fprintf(out, "writable-build-dir no path=%s\n",
 			    qstar_graph_build_dir(graph));
 	}
-	fprintf(out, "build-context name=%s target=%s toolchain=%s stdlib=%s\n",
-	    graph->build_context.name ? graph->build_context.name : "default",
-	    graph->build_context.target ? graph->build_context.target : "host",
-	    graph->build_context.toolchain ? graph->build_context.toolchain : "host",
-	    graph->build_context.stdlib_policy ? graph->build_context.stdlib_policy : "system");
-	fprintf(out, "build-context-options include_dirs=%zu lib_dirs=%zu\n",
-	    graph->build_context.include_dirs.len, graph->build_context.lib_dirs.len);
+	fprintf(out, "platform %s\n", qstar_graph_platform(graph));
 	dump_external_tool_doctor(out, &plan);
 	fputs("diagnostics ok\n", out);
 	fputs("file-inputs ok\n", out);

@@ -49,9 +49,9 @@ response file policy, depfile behavior가 맞는지 확인하는 데 쓴다.
 대표 출력:
 
 ```txt
-toolset-sanity label=//:host c=cc cxx=c++ archive=ar link=cc ...
-response-policy configured_files=on configured_style=posix effective_files=on effective_style=posix
-toolset-tool role=c name=cc required=true mode=path status=found
+toolset-sanity toolset=//:host cc=cc cxx=c++ ar=ar linker=cc ...
+response-policy source=toolset effective_files=on effective_style=posix
+toolset-tool role=cc name=cc required=true mode=path status=found
 path-tool name=python3 mode=path status=found
 depfile-behavior compiler=clang platform=darwin flags=-MMD,-MF status=supported
 ```

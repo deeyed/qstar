@@ -42,18 +42,13 @@ qstar_platform_lstat(const char *path, struct stat *st)
 }
 
 struct qstar_resolved_toolchain {
-	char name[64];
-	char target[128];
 	char platform[32];
 	char link_style[32];
-	char stdlib_policy[64];
 	char cc[QSTAR_PATH_MAX];
 	char cxx[QSTAR_PATH_MAX];
 	char ar[QSTAR_PATH_MAX];
 	char asm_[QSTAR_PATH_MAX];
 	char linker[QSTAR_PATH_MAX];
-	char sysroot[QSTAR_PATH_MAX];
-	char resource_dir[QSTAR_PATH_MAX];
 	char resolver[64];
 	char toolset[QSTAR_PATH_MAX];
 	int response_files;
@@ -126,7 +121,7 @@ int qstar_label_package_alias(const char *label, char *dst, size_t dstlen);
 /** canonical target label에서 local package path를 추출한다. */
 int qstar_label_package_path(const char *label, char *dst, size_t dstlen);
 
-/** target/build context 입력을 합쳐 host/clang toolchain v1을 결정한다. */
+/** target의 explicit toolset과 builtin fallback tool role을 결정한다. */
 int qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *target,
     struct qstar_resolved_toolchain *resolved);
 
@@ -406,14 +401,12 @@ int qstar_graph_visit_closure(struct qstar_graph *graph, const char *label,
 
 /** Stella lowered plan cache를 읽어 Lua eval 없이 Graph IR를 복원한다. */
 int qstar_stella_plan_cache_try_load(struct qstar_graph *graph, const char *file,
-    const char *cmd, const char *label, const char *cli_build_context, const char *cli_target,
-    const char *cli_platform, const char *cli_toolchain, const char *cli_stdlib,
+    const char *cmd, const char *label, const char *cli_platform,
     char *reason, size_t reason_len);
 
 /** 검증된 Graph IR와 lowered action summary를 Stella plan cache로 저장한다. */
 int qstar_stella_plan_cache_store(struct qstar_graph *graph, const char *file,
-    const char *cmd, const char *label, const char *cli_build_context, const char *cli_target,
-    const char *cli_platform, const char *cli_toolchain, const char *cli_stdlib,
+    const char *cmd, const char *label, const char *cli_platform,
     char *reason, size_t reason_len);
 
 /** 현재 Graph에서 실행 가능한 lowered action plan을 준비한다. */
@@ -443,14 +436,12 @@ int qstar_daemon_parse_mode(const char *s, int *mode);
 
 /** experimental persistent Stella daemon command를 실행한다. */
 int qstar_daemon_command(int argc, char **argv, const char *file,
-    const char *cli_build_dir, const char *cli_build_context, const char *cli_target,
-    const char *cli_platform, const char *cli_toolchain, const char *cli_stdlib, FILE *out);
+    const char *cli_build_dir, const char *cli_platform, FILE *out);
 
 /** build request를 experimental daemon으로 보내고 응답 output을 out에 복사한다. */
 int qstar_daemon_build_client(const char *socket_path, int mode, const char *file,
-    const char *label, const char *cli_build_dir, const char *cli_build_context,
-    const char *cli_target, const char *cli_platform, const char *cli_toolchain,
-    const char *cli_stdlib, const struct qstar_build_options *options, FILE *out, int *build_status,
+    const char *label, const char *cli_build_dir, const char *cli_platform,
+    const struct qstar_build_options *options, FILE *out, int *build_status,
     char *error, size_t error_len);
 
 #endif

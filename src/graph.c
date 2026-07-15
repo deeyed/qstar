@@ -204,8 +204,6 @@ free_target(struct qstar_target *target)
 	free(target->run_expect_contains);
 	free(target->run_expect_file);
 	free(target->toolset);
-	free(target->toolchain);
-	free(target->stdlib_policy);
 }
 
 /** reusable config declaration이 소유한 문자열과 option skeleton을 해제한다. */
@@ -426,33 +424,6 @@ free_package_alias(struct qstar_package_alias *pkg)
 	free(pkg->root);
 }
 
-/** build context input이 소유한 문자열을 해제한다. */
-static void
-free_build_context(struct qstar_build_context *context)
-{
-	free(context->name);
-	free(context->target);
-	free(context->platform);
-	free(context->toolchain);
-	free(context->stdlib_policy);
-	free(context->cc);
-	free(context->cxx);
-	free(context->ar);
-	free(context->linker);
-	free(context->sysroot);
-	free(context->resource_dir);
-	free(context->response_files);
-	free(context->response_style);
-	free(context->allow_absolute_tools);
-	qstar_string_list_free(&context->artifact_names);
-	qstar_string_list_free(&context->compile_options);
-	qstar_string_list_free(&context->include_dirs);
-	qstar_string_list_free(&context->lib_dirs);
-	qstar_string_list_free(&context->link_options);
-	qstar_string_list_free(&context->path_tools);
-	qstar_string_list_free(&context->tool_overrides);
-}
-
 /** cached lowered action entry가 소유한 문자열과 list를 해제한다. */
 static void
 free_cached_action(struct qstar_cached_action *action)
@@ -521,7 +492,7 @@ qstar_graph_free(struct qstar_graph *graph)
 	free(graph->generator);
 	free(graph->requested_generator);
 	free(graph->build_dir_override);
-	free_build_context(&graph->build_context);
+	free(graph->platform);
 	free(graph->targets);
 	free(graph->configs);
 	free(graph->toolsets);
@@ -1083,7 +1054,7 @@ qstar_graph_set_platform_context(struct qstar_graph *graph, const char *platform
 		return qstar_set_error(graph,
 		    "qstar: invalid platform context '%s'; expected host, windows, darwin, linux, or generic",
 		    platform);
-	if (replace_string(&graph->build_context.platform, canonical) < 0)
+	if (replace_string(&graph->platform, canonical) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
 	return 0;
 }
@@ -1092,22 +1063,9 @@ qstar_graph_set_platform_context(struct qstar_graph *graph, const char *platform
 const char *
 qstar_graph_platform(const struct qstar_graph *graph)
 {
-	if (graph && graph->build_context.platform && *graph->build_context.platform)
-		return graph->build_context.platform;
+	if (graph && graph->platform && *graph->platform)
+		return graph->platform;
 	return qstar_host_platform();
-}
-
-/** QStar explain build context 입력을 graph에 기록한다. */
-int
-qstar_graph_set_build_context_input(struct qstar_graph *graph, const char *name,
-    const char *target, const char *toolchain, const char *stdlib_policy)
-{
-	if (replace_string(&graph->build_context.name, name) < 0 ||
-	    replace_string(&graph->build_context.target, target) < 0 ||
-	    replace_string(&graph->build_context.toolchain, toolchain) < 0 ||
-	    replace_string(&graph->build_context.stdlib_policy, stdlib_policy) < 0)
-		return qstar_set_error(graph, "qstar: out of memory");
-	return 0;
 }
 
 /** 문자열 list field를 graph-owned deep copy로 복사한다. */
@@ -1169,8 +1127,6 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	target->fragment_dir = qstar_strdup(fragment_dir ? fragment_dir : "");
 	target->origin_file = qstar_strdup(origin_file ? origin_file : "");
 	target->origin_line = origin_line;
-	target->toolchain = qstar_strdup("host");
-	target->stdlib_policy = qstar_strdup("system");
 	target->artifact_name = qstar_strdup("");
 	target->compile_context = qstar_strdup("own");
 	target->cxx_standard = qstar_strdup("");
@@ -1179,8 +1135,8 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	target->description = qstar_strdup("");
 	target->toolset = qstar_strdup("");
 	if (!target->label || !target->name || !target->kind || !target->fragment_dir ||
-	    !target->origin_file || !target->toolchain || !target->stdlib_policy ||
-	    !target->artifact_name || !target->compile_context || !target->cxx_standard ||
+	    !target->origin_file || !target->artifact_name ||
+	    !target->compile_context || !target->cxx_standard ||
 	    !target->run_expect_contains || !target->run_expect_file ||
 	    !target->description || !target->toolset) {
 		qstar_set_error(graph, "qstar: out of memory");
@@ -1760,12 +1716,6 @@ merge_config_scalars(struct qstar_graph *graph, struct qstar_target *target,
 		return qstar_set_error(graph, "qstar: out of memory");
 	if (config->has_toolset &&
 	    replace_string(&target->toolset, options->toolset) < 0)
-		return qstar_set_error(graph, "qstar: out of memory");
-	if (config->has_toolchain &&
-	    replace_string(&target->toolchain, options->toolchain) < 0)
-		return qstar_set_error(graph, "qstar: out of memory");
-	if (config->has_stdlib_policy &&
-	    replace_string(&target->stdlib_policy, options->stdlib_policy) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
 	if (config->has_asm_preprocess)
 		target->asm_preprocess = options->asm_preprocess;
@@ -3295,12 +3245,6 @@ qstar_graph_find_output_owner(const struct qstar_graph *graph, const char *path)
 	return NULL;
 }
 
-static const char *
-context_or_default(const char *s, const char *fallback)
-{
-	return s && *s ? s : fallback;
-}
-
 static void
 dump_list(FILE *out, const struct qstar_string_list *list)
 {
@@ -3702,8 +3646,6 @@ dump_target(const struct qstar_graph *graph, const struct qstar_target *target, 
 	qstar_dump_target_artifact_map_text(out, graph, target, "  ");
 	fprintf(out, "  toolset %s\n",
 	    target->toolset && *target->toolset ? target->toolset : "<default>");
-	fprintf(out, "  toolchain %s\n", target->toolchain);
-	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
 }
 
 /** reusable config declaration을 Graph IR dump 형식으로 출력한다. */
@@ -3785,11 +3727,6 @@ dump_config(const struct qstar_config *config, FILE *out)
 	    options->artifact_name : "<unset>");
 	fprintf(out, "  toolset %s\n",
 	    config->has_toolset && options->toolset && *options->toolset ? options->toolset :
-	    "<unset>");
-	fprintf(out, "  toolchain %s\n",
-	    config->has_toolchain && options->toolchain ? options->toolchain : "<unset>");
-	fprintf(out, "  stdlib %s\n",
-	    config->has_stdlib_policy && options->stdlib_policy ? options->stdlib_policy :
 	    "<unset>");
 }
 
@@ -3958,30 +3895,7 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 	    qstar_graph_build_dir(graph), qstar_graph_generated_dir(graph),
 	    qstar_graph_compile_commands_policy(graph), qstar_graph_generator(graph),
 	    qstar_graph_requested_generator(graph));
-	fprintf(out, "build_context name=%s target=%s platform=%s toolchain=%s stdlib=%s\n",
-	    context_or_default(graph->build_context.name, "default"),
-	    context_or_default(graph->build_context.target, "host"),
-	    qstar_graph_platform(graph),
-	    context_or_default(graph->build_context.toolchain, "default"),
-	    context_or_default(graph->build_context.stdlib_policy, "default"));
-	fprintf(out, "build_context_tools cc=%s cxx=%s ar=%s linker=%s sysroot=%s resource_dir=%s\n",
-	    graph->build_context.cc ? graph->build_context.cc : "<default>",
-	    graph->build_context.cxx ? graph->build_context.cxx : "<default>",
-	    graph->build_context.ar ? graph->build_context.ar : "<default>",
-	    graph->build_context.linker ? graph->build_context.linker : "<default>",
-	    graph->build_context.sysroot ? graph->build_context.sysroot : "<none>",
-	    graph->build_context.resource_dir ? graph->build_context.resource_dir : "<none>");
-	fprintf(out, "build_context_response response_files=%s response_style=%s\n",
-	    graph->build_context.response_files ? graph->build_context.response_files : "auto",
-	    graph->build_context.response_style ? graph->build_context.response_style : "auto");
-	fputs("build_context_link link_options=", out);
-	dump_list(out, &graph->build_context.link_options);
-	fputc('\n', out);
-	fputs("build_context_compile compile_options=", out);
-	dump_list(out, &graph->build_context.compile_options);
-	fputs(" include_dirs=", out);
-	dump_list(out, &graph->build_context.include_dirs);
-	fputc('\n', out);
+	fprintf(out, "platform %s\n", qstar_graph_platform(graph));
 	for (i = 0; i < graph->project_option_len; i++) {
 		fprintf(out,
 		    "project_option name=%s type=%s value=%s effective=%s overridden=%s description=%s choices=",
@@ -4006,12 +3920,6 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 		dump_list(out, &graph->variants[i].values);
 		fputc('\n', out);
 	}
-	fprintf(out, "external_tool_policy allow_absolute=%s path_tools=",
-	    graph->build_context.allow_absolute_tools ? graph->build_context.allow_absolute_tools : "false");
-	dump_list(out, &graph->build_context.path_tools);
-	fputs(" tool_overrides=", out);
-	dump_list(out, &graph->build_context.tool_overrides);
-	fputc('\n', out);
 	dump_package_aliases(out, graph);
 	for (i = 0; i < graph->language_provider_len; i++)
 		dump_language_provider(&graph->language_providers[i], out);
@@ -4319,8 +4227,6 @@ dump_target_json(FILE *out, const struct qstar_graph *graph,
 	dump_json_list(out, &target->deps);
 	fputs(",\"private_deps\":", out);
 	dump_json_list(out, &target->private_deps);
-	fputs(",\"toolchain\":", out);
-	dump_json_string(out, target->toolchain);
 	fputs(",\"toolset\":", out);
 	dump_json_string(out, target->toolset && *target->toolset ? target->toolset : "");
 	fputs(",\"artifact_name\":", out);
@@ -4399,20 +4305,10 @@ dump_config_json(FILE *out, const struct qstar_config *config)
 	dump_json_list(out, &options->link_options);
 	fputs(",\"link_inputs\":", out);
 	dump_json_list(out, &options->link_inputs);
-	fputs(",\"has_toolchain\":", out);
-	fprintf(out, "%s", config->has_toolchain ? "true" : "false");
 	fputs(",\"has_toolset\":", out);
 	fprintf(out, "%s", config->has_toolset ? "true" : "false");
 	fputs(",\"toolset\":", out);
 	dump_json_string(out, config->has_toolset && options->toolset ? options->toolset : "");
-	fputs(",\"toolchain\":", out);
-	dump_json_string(out, config->has_toolchain && options->toolchain ?
-	    options->toolchain : "");
-	fputs(",\"has_stdlib\":", out);
-	fprintf(out, "%s", config->has_stdlib_policy ? "true" : "false");
-	fputs(",\"stdlib\":", out);
-	dump_json_string(out, config->has_stdlib_policy && options->stdlib_policy ?
-	    options->stdlib_policy : "");
 	fputs(",\"has_artifact_name\":", out);
 	fprintf(out, "%s", config->has_artifact_name ? "true" : "false");
 	fputs(",\"artifact_name\":", out);
@@ -4835,8 +4731,6 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	    target->artifact_name && *target->artifact_name ? target->artifact_name :
 	    "<default>");
 	qstar_dump_target_artifact_map_text(out, graph, target, "  ");
-	fprintf(out, "  toolchain %s\n", target->toolchain);
-	fprintf(out, "  stdlib %s\n", target->stdlib_policy);
 	return 0;
 }
 

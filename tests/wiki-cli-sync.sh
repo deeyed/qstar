@@ -138,6 +138,11 @@ forbid_tree 'qstar\.profile|--profile|--toolchain|--stdlib|QSTAR_PROFILE|QSTAR_T
 	editors/vscode/qstar/snippets editors/vscode/qstar/syntaxes \
 	tools/sync-github-wiki.sh
 
+if rg -n -- '--qstar-internal-(target|toolchain|stdlib)' include src >/dev/null; then
+	echo "legacy profile-era internal CLI option resurfaced" >&2
+	exit 1
+fi
+
 mkdir -p "$tmp/project-command-ok/data"
 printf 'payload\n' > "$tmp/project-command-ok/data/input.txt"
 cat > "$tmp/project-command-ok/qstar.lua" <<'EOF'

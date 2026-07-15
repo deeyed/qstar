@@ -40,9 +40,8 @@ qstar_daemon_parse_mode(const char *s, int *mode)
 /** Windows host에서는 daemon client를 명확한 deferred diagnostic으로 비활성화한다. */
 int
 qstar_daemon_build_client(const char *socket_path, int mode, const char *file,
-    const char *label, const char *cli_build_dir, const char *cli_build_context,
-    const char *cli_target, const char *cli_platform, const char *cli_toolchain,
-    const char *cli_stdlib, const struct qstar_build_options *options, FILE *out,
+    const char *label, const char *cli_build_dir, const char *cli_platform,
+    const struct qstar_build_options *options, FILE *out,
     int *build_status, char *error, size_t error_len)
 {
 	(void)socket_path;
@@ -50,11 +49,7 @@ qstar_daemon_build_client(const char *socket_path, int mode, const char *file,
 	(void)file;
 	(void)label;
 	(void)cli_build_dir;
-	(void)cli_build_context;
-	(void)cli_target;
 	(void)cli_platform;
-	(void)cli_toolchain;
-	(void)cli_stdlib;
 	(void)options;
 	(void)out;
 	if (build_status)
@@ -66,19 +61,13 @@ qstar_daemon_build_client(const char *socket_path, int mode, const char *file,
 /** Windows host에서는 daemon lifecycle command를 named pipe 구현 전까지 거부한다. */
 int
 qstar_daemon_command(int argc, char **argv, const char *file,
-    const char *cli_build_dir, const char *cli_build_context, const char *cli_target,
-    const char *cli_platform, const char *cli_toolchain, const char *cli_stdlib,
-    FILE *out)
+    const char *cli_build_dir, const char *cli_platform, FILE *out)
 {
 	int i, status;
 
 	(void)file;
 	(void)cli_build_dir;
-	(void)cli_build_context;
-	(void)cli_target;
 	(void)cli_platform;
-	(void)cli_toolchain;
-	(void)cli_stdlib;
 	status = 0;
 	for (i = 0; i < argc; i++) {
 		if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
@@ -122,9 +111,9 @@ qstar_daemon_command(int argc, char **argv, const char *file,
 #include <sys/inotify.h>
 #endif
 
-#define QSTAR_DAEMON_BUILD_MAGIC "qstar-daemon-build-v1"
+#define QSTAR_DAEMON_BUILD_MAGIC "qstar-daemon-build-v2"
 #define QSTAR_DAEMON_HELLO_MAGIC "qstar-daemon-hello-v1"
-#define QSTAR_DAEMON_QUERY_MAGIC "qstar-daemon-query-v1"
+#define QSTAR_DAEMON_QUERY_MAGIC "qstar-daemon-query-v2"
 #define QSTAR_DAEMON_RESPONSE_MAGIC "qstar-daemon-response-v1"
 #define QSTAR_DAEMON_STREAM_MAGIC "qstar-daemon-stream-v1"
 #define QSTAR_DAEMON_MAX_BODY (64U * 1024U * 1024U)
@@ -136,11 +125,7 @@ struct qstar_daemon_request {
 	char file[QSTAR_PATH_MAX];
 	char label[QSTAR_PATH_MAX];
 	char build_dir[QSTAR_PATH_MAX];
-	char build_context[128];
-	char target[128];
 	char platform[128];
-	char toolchain[128];
-	char stdlib_policy[128];
 	struct qstar_build_options options;
 };
 
@@ -185,11 +170,7 @@ struct qstar_daemon_server {
 	char file[QSTAR_PATH_MAX];
 	char label[QSTAR_PATH_MAX];
 	char build_dir[QSTAR_PATH_MAX];
-	char build_context[128];
-	char target[128];
 	char platform[128];
-	char toolchain[128];
-	char stdlib_policy[128];
 	char graph_reason[128];
 	struct qstar_daemon_fp *fps;
 	size_t fp_len;
@@ -983,11 +964,7 @@ send_request_body(int fd, const struct qstar_daemon_request *req)
 	    send_request_line(fd, req->file) < 0 ||
 	    send_request_line(fd, req->label) < 0 ||
 	    send_request_line(fd, req->build_dir) < 0 ||
-	    send_request_line(fd, req->build_context) < 0 ||
-	    send_request_line(fd, req->target) < 0 ||
-	    send_request_line(fd, req->platform) < 0 ||
-	    send_request_line(fd, req->toolchain) < 0 ||
-	    send_request_line(fd, req->stdlib_policy) < 0)
+	    send_request_line(fd, req->platform) < 0)
 		return -1;
 	snprintf(line, sizeof(line), "%d", req->options.jobs);
 	if (write_line(fd, line) < 0)
@@ -1049,11 +1026,7 @@ read_request(int fd, struct qstar_daemon_request *req)
 	    read_line(fd, req->file, sizeof(req->file)) < 0 ||
 	    read_line(fd, req->label, sizeof(req->label)) < 0 ||
 	    read_line(fd, req->build_dir, sizeof(req->build_dir)) < 0 ||
-	    read_line(fd, req->build_context, sizeof(req->build_context)) < 0 ||
-	    read_line(fd, req->target, sizeof(req->target)) < 0 ||
-	    read_line(fd, req->platform, sizeof(req->platform)) < 0 ||
-	    read_line(fd, req->toolchain, sizeof(req->toolchain)) < 0 ||
-	    read_line(fd, req->stdlib_policy, sizeof(req->stdlib_policy)) < 0)
+	    read_line(fd, req->platform, sizeof(req->platform)) < 0)
 		return -1;
 	if (read_line(fd, line, sizeof(line)) < 0 ||
 	    parse_int_line(line, &req->options.jobs) < 0 ||
@@ -1248,9 +1221,8 @@ daemon_hello(const char *socket_path, char *body, size_t body_len, int *status_o
 /** build request를 experimental daemon으로 보내고 응답 output을 out에 복사한다. */
 int
 qstar_daemon_build_client(const char *socket_path, int mode, const char *file,
-    const char *label, const char *cli_build_dir, const char *cli_build_context,
-    const char *cli_target, const char *cli_platform, const char *cli_toolchain,
-    const char *cli_stdlib, const struct qstar_build_options *options, FILE *out,
+    const char *label, const char *cli_build_dir, const char *cli_platform,
+    const struct qstar_build_options *options, FILE *out,
     int *build_status, char *error, size_t error_len)
 {
 	struct qstar_daemon_request req;
@@ -1278,11 +1250,7 @@ qstar_daemon_build_client(const char *socket_path, int mode, const char *file,
 	if (copy_string(req.file, sizeof(req.file), file) < 0 ||
 	    copy_string(req.label, sizeof(req.label), label) < 0 ||
 	    copy_string(req.build_dir, sizeof(req.build_dir), cli_build_dir) < 0 ||
-	    copy_string(req.build_context, sizeof(req.build_context), cli_build_context) < 0 ||
-	    copy_string(req.target, sizeof(req.target), cli_target) < 0 ||
-	    copy_string(req.platform, sizeof(req.platform), cli_platform) < 0 ||
-	    copy_string(req.toolchain, sizeof(req.toolchain), cli_toolchain) < 0 ||
-	    copy_string(req.stdlib_policy, sizeof(req.stdlib_policy), cli_stdlib) < 0) {
+	    copy_string(req.platform, sizeof(req.platform), cli_platform) < 0) {
 		set_error(error, error_len, "daemon request field is too long");
 		close(fd);
 		return -1;
@@ -1305,9 +1273,7 @@ qstar_daemon_build_client(const char *socket_path, int mode, const char *file,
 /** read-only query request를 experimental daemon으로 보내고 JSON 응답을 out에 복사한다. */
 static int
 daemon_query_client(const char *socket_path, const char *method, const char *file,
-    const char *cli_build_dir, const char *cli_build_context, const char *cli_target,
-    const char *cli_platform, const char *cli_toolchain, const char *cli_stdlib,
-    FILE *out)
+    const char *cli_build_dir, const char *cli_platform, FILE *out)
 {
 	struct qstar_daemon_request req;
 	char socket_buf[QSTAR_PATH_MAX], error[256];
@@ -1343,11 +1309,7 @@ daemon_query_client(const char *socket_path, const char *method, const char *fil
 	}
 	if (copy_string(req.file, sizeof(req.file), file) < 0 ||
 	    copy_string(req.build_dir, sizeof(req.build_dir), cli_build_dir) < 0 ||
-	    copy_string(req.build_context, sizeof(req.build_context), cli_build_context) < 0 ||
-	    copy_string(req.target, sizeof(req.target), cli_target) < 0 ||
-	    copy_string(req.platform, sizeof(req.platform), cli_platform) < 0 ||
-	    copy_string(req.toolchain, sizeof(req.toolchain), cli_toolchain) < 0 ||
-	    copy_string(req.stdlib_policy, sizeof(req.stdlib_policy), cli_stdlib) < 0) {
+	    copy_string(req.platform, sizeof(req.platform), cli_platform) < 0) {
 		fprintf(stderr, "qstar: daemon query field is too long\n");
 		close(fd);
 		return 1;
@@ -2049,11 +2011,7 @@ same_identity(const struct qstar_daemon_server *server,
 	    strcmp(server->file, req->file) == 0 &&
 	    strcmp(server->label, req->label) == 0 &&
 	    strcmp(server->build_dir, req->build_dir) == 0 &&
-	    strcmp(server->build_context, req->build_context) == 0 &&
-	    strcmp(server->target, req->target) == 0 &&
-	    strcmp(server->platform, req->platform) == 0 &&
-	    strcmp(server->toolchain, req->toolchain) == 0 &&
-	    strcmp(server->stdlib_policy, req->stdlib_policy) == 0;
+	    strcmp(server->platform, req->platform) == 0;
 }
 
 /** read-only query가 build label 차이만으로 daemon memory graph를 밀어내지 않도록 비교한다. */
@@ -2064,11 +2022,7 @@ same_graph_identity(const struct qstar_daemon_server *server,
 	return strcmp(server->cwd, req->cwd) == 0 &&
 	    strcmp(server->file, req->file) == 0 &&
 	    strcmp(server->build_dir, req->build_dir) == 0 &&
-	    strcmp(server->build_context, req->build_context) == 0 &&
-	    strcmp(server->target, req->target) == 0 &&
-	    strcmp(server->platform, req->platform) == 0 &&
-	    strcmp(server->toolchain, req->toolchain) == 0 &&
-	    strcmp(server->stdlib_policy, req->stdlib_policy) == 0;
+	    strcmp(server->platform, req->platform) == 0;
 }
 
 /** daemon memory graph가 고정한 workspace identity와 request가 충돌하는지 검사한다. */
@@ -2123,11 +2077,8 @@ load_graph(struct qstar_daemon_server *server, const struct qstar_daemon_request
 	qstar_graph_init(&server->graph);
 	server->graph_init = 1;
 	server->graph_loaded = 0;
-	rc = qstar_graph_set_build_context_input(&server->graph,
-	    req->build_context[0] ? req->build_context : NULL, NULL, NULL, NULL);
-	if (rc == 0)
-		rc = qstar_graph_set_platform_context(&server->graph,
-		    req->platform[0] ? req->platform : NULL);
+	rc = qstar_graph_set_platform_context(&server->graph,
+	    req->platform[0] ? req->platform : NULL);
 	if (rc == 0)
 		rc = qstar_graph_set_cli_overrides(&server->graph, "stella",
 		    req->build_dir[0] ? req->build_dir : NULL);
@@ -2136,11 +2087,7 @@ load_graph(struct qstar_daemon_server *server, const struct qstar_daemon_request
 	if (rc == 0) {
 		plan_loaded = qstar_stella_plan_cache_try_load(&server->graph, req->file,
 		    "build", req->label[0] ? req->label : NULL,
-		    req->build_context[0] ? req->build_context : NULL,
-		    req->target[0] ? req->target : NULL,
 		    req->platform[0] ? req->platform : NULL,
-		    req->toolchain[0] ? req->toolchain : NULL,
-		    req->stdlib_policy[0] ? req->stdlib_policy : NULL,
 		    cache_reason, sizeof(cache_reason));
 	}
 	if (rc == 0 && !plan_loaded)
@@ -2149,16 +2096,8 @@ load_graph(struct qstar_daemon_server *server, const struct qstar_daemon_request
 		rc = qstar_graph_set_cli_overrides(&server->graph, "stella",
 		    req->build_dir[0] ? req->build_dir : NULL);
 	if (rc == 0 && !plan_loaded)
-		rc = qstar_graph_set_build_context_input(&server->graph,
-		    req->build_context[0] ? req->build_context : NULL,
-		    req->target[0] ? req->target : NULL,
-		    req->toolchain[0] ? req->toolchain : NULL,
-		    req->stdlib_policy[0] ? req->stdlib_policy : NULL);
-	if (rc == 0 && !plan_loaded)
 		rc = qstar_graph_set_platform_context(&server->graph,
 		    req->platform[0] ? req->platform : NULL);
-	if (rc == 0 && !plan_loaded)
-		rc = qstar_graph_validate_build_context(&server->graph);
 	if (rc == 0 && !plan_loaded)
 		rc = qstar_graph_validate_toolsets(&server->graph);
 	if (rc == 0 && !plan_loaded)
@@ -2175,11 +2114,7 @@ load_graph(struct qstar_daemon_server *server, const struct qstar_daemon_request
 		store_reason[0] = '\0';
 		if (qstar_stella_plan_cache_store(&server->graph, req->file, "build",
 		    req->label[0] ? req->label : NULL,
-		    req->build_context[0] ? req->build_context : NULL,
-		    req->target[0] ? req->target : NULL,
 		    req->platform[0] ? req->platform : NULL,
-		    req->toolchain[0] ? req->toolchain : NULL,
-		    req->stdlib_policy[0] ? req->stdlib_policy : NULL,
 		    store_reason, sizeof(store_reason)) < 0) {
 			rc = qstar_set_error(&server->graph,
 			    "qstar: could not write Stella plan cache: %s",
@@ -2201,11 +2136,7 @@ load_graph(struct qstar_daemon_server *server, const struct qstar_daemon_request
 	copy_string(server->file, sizeof(server->file), req->file);
 	copy_string(server->label, sizeof(server->label), req->label);
 	copy_string(server->build_dir, sizeof(server->build_dir), req->build_dir);
-	copy_string(server->build_context, sizeof(server->build_context), req->build_context);
-	copy_string(server->target, sizeof(server->target), req->target);
 	copy_string(server->platform, sizeof(server->platform), req->platform);
-	copy_string(server->toolchain, sizeof(server->toolchain), req->toolchain);
-	copy_string(server->stdlib_policy, sizeof(server->stdlib_policy), req->stdlib_policy);
 	server->graph_loaded = 1;
 	snprintf(server->graph_reason, sizeof(server->graph_reason), "%s",
 	    reload_reason && *reload_reason ? reload_reason :
@@ -3062,9 +2993,7 @@ daemon_usage(FILE *out)
 /** experimental persistent Stella daemon command를 실행한다. */
 int
 qstar_daemon_command(int argc, char **argv, const char *file,
-    const char *cli_build_dir, const char *cli_build_context, const char *cli_target,
-    const char *cli_platform, const char *cli_toolchain, const char *cli_stdlib,
-    FILE *out)
+    const char *cli_build_dir, const char *cli_platform, FILE *out)
 {
 	const char *socket_path, *query_method;
 	char socket_buf[QSTAR_PATH_MAX];
@@ -3130,8 +3059,7 @@ qstar_daemon_command(int argc, char **argv, const char *file,
 		return serve_socket(socket_path, out);
 	if (query_method)
 		return daemon_query_client(socket_path, query_method, file, cli_build_dir,
-		    cli_build_context, cli_target, cli_platform, cli_toolchain, cli_stdlib,
-		    out);
+		    cli_platform, out);
 	return daemon_status(socket_path, out);
 }
 

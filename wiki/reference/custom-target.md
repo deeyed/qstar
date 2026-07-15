@@ -56,7 +56,7 @@ dependency edge가 되며, `qstar.input(N)`으로 command에 전달하면 실제
 `qstar replay`, `qstar last-failure`에도 `description=` metadata로 보존된다.
 `toolset = "//:generators"`를 지정하면 command 첫 argv가 그 toolset의 external tool
 policy로 해석된다. Bare PATH tool은 해당 toolset의 `path_tools`에 있어야 하며, toolset을
-생략하면 기존 build-context/graph path tool 정책을 사용한다. Package-relative command
+생략하면 graph에 선언된 toolset의 path tool 정책을 사용한다. Package-relative command
 path(`tools/gen-value.sh`)는 package-local 실행 파일로 취급되므로 `path_tools`가 필요 없다.
 
 `qstar.transform`은 같은 generated action contract로 낮아진다. 복수 input/output이나 더

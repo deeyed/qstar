@@ -112,8 +112,6 @@ struct qstar_target {
 	int cxx_modules_present;
 	int cxx_modules_enabled;
 	char *toolset;
-	char *toolchain;
-	char *stdlib_policy;
 };
 
 struct qstar_config {
@@ -128,8 +126,6 @@ struct qstar_config {
 	int has_asm_preprocess;
 	int has_cxx_modules;
 	int has_toolset;
-	int has_toolchain;
-	int has_stdlib_policy;
 };
 
 struct qstar_tool_role {
@@ -320,30 +316,6 @@ struct qstar_package_alias {
 	char *root;
 };
 
-struct qstar_build_context {
-	char *name;
-	char *target;
-	char *platform;
-	char *toolchain;
-	char *stdlib_policy;
-	char *cc;
-	char *cxx;
-	char *ar;
-	char *linker;
-	char *sysroot;
-	char *resource_dir;
-	char *response_files;
-	char *response_style;
-	struct qstar_string_list artifact_names;
-	char *allow_absolute_tools;
-	struct qstar_string_list compile_options;
-	struct qstar_string_list include_dirs;
-	struct qstar_string_list lib_dirs;
-	struct qstar_string_list link_options;
-	struct qstar_string_list path_tools;
-	struct qstar_string_list tool_overrides;
-};
-
 struct qstar_cached_action {
 	char *id;
 	char *kind;
@@ -461,7 +433,7 @@ struct qstar_graph {
 	char *generator;
 	char *requested_generator;
 	char *build_dir_override;
-	struct qstar_build_context build_context;
+	char *platform;
 	struct qstar_cached_action *cached_actions;
 	size_t cached_action_len;
 	size_t cached_action_cap;
@@ -642,18 +614,12 @@ struct qstar_command_step *qstar_project_command_add_step(struct qstar_graph *gr
 /** QStar package alias를 추가하고 중복 alias를 stable error로 막는다. */
 int qstar_graph_add_package_alias(struct qstar_graph *graph, const char *alias, const char *root);
 
-/** CLI/internal target/toolchain override를 graph의 임시 build context에 기록한다. */
-int qstar_graph_set_build_context_input(struct qstar_graph *graph, const char *name,
-    const char *target, const char *toolchain, const char *stdlib_policy);
 int qstar_graph_set_platform_context(struct qstar_graph *graph, const char *platform);
 const char *qstar_graph_platform(const struct qstar_graph *graph);
 
 /** QStar package alias map에서 alias를 찾는다. */
 const struct qstar_package_alias *qstar_graph_find_package_alias(const struct qstar_graph *graph,
     const char *alias);
-
-/** CLI/internal target/toolchain override와 build context를 검증한다. */
-int qstar_graph_validate_build_context(struct qstar_graph *graph);
 
 /** QStar toolset 참조가 선언된 toolset label을 가리키는지 검증한다. */
 int qstar_graph_validate_toolsets(struct qstar_graph *graph);

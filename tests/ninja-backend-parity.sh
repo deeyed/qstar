@@ -270,7 +270,7 @@ if [ "$host_windows" -eq 0 ]; then
 	contains "$tmp/shared/build/qstar/ninja/build.ninja" "$shared_name_flag"
 	contains "$tmp/shared/build/qstar/ninja/build.ninja" "$shared_ninja_rpath_flag"
 fi
-"$qstar" --file "$tmp/shared/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+"$qstar" --file "$tmp/shared/qstar.lua" --qstar-internal-platform windows \
 	emit-ninja //:plugin_app > "$tmp/shared-windows.out" 2> "$tmp/shared-windows.err"
 contains "$tmp/shared/build/qstar/ninja/build.ninja" \
 	"build/qstar/out/___plugin/plugin.dll build/qstar/out/___plugin/plugin.lib: qstar_link"

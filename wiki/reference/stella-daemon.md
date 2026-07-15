@@ -213,7 +213,7 @@ qstar --file qstar.lua -B build/qstar daemon --socket build/qstar/stella/daemon/
 `qstar-daemon-read-v1` JSON을 반환한다. `targets.list`는 기존
 `qstar list-targets --format json`과 같은 `qstar-targets-v1` schema를 반환한다.
 이 여섯 method는 Q249 boundary regression에서 모두 직접 호출되어 docs와 구현 drift를 막는다.
-하지만 이 read API 자체는 아직 beta다. `qstar-daemon-query-v1`과 `qstar-daemon-read-v1`은 현재
+하지만 이 read API 자체는 아직 beta다. `qstar-daemon-query-v2`와 `qstar-daemon-read-v1`은 현재
 wire shape를 식별하는 marker일 뿐 v1 stable machine-readable API promise가 아니다.
 
 Deferred read/action API:

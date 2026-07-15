@@ -440,8 +440,8 @@ Generated action fields:
 | `toolset` | Optional `qstar.toolset` label used to resolve and authorize the first argv item. |
 | `description` | Optional `qstar.status("...")` progress/action-log description. |
 
-If `toolset` is omitted, generated actions keep the normal build-context and
-graph path-tool policy. Package-relative command paths such as
+If `toolset` is omitted, generated actions use the path-tool policy declared by
+the graph's toolsets. Package-relative command paths such as
 `tools/generate.sh` remain package-local files and do not need `path_tools`.
 
 ## Run And Stage

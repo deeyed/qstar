@@ -602,13 +602,7 @@ load_lint_graph(const char *root_file, struct qstar_graph *graph)
 	int rc;
 
 	qstar_graph_init(graph);
-	rc = qstar_graph_set_build_context_input(graph, NULL, NULL, NULL, NULL);
-	if (rc == 0)
-		rc = qstar_lua_eval_file(graph, root_file);
-	if (rc == 0)
-		rc = qstar_graph_set_build_context_input(graph, NULL, NULL, NULL, NULL);
-	if (rc == 0)
-		rc = qstar_graph_validate_build_context(graph);
+	rc = qstar_lua_eval_file(graph, root_file);
 	if (rc == 0)
 		rc = qstar_graph_validate_toolsets(graph);
 	if (rc == 0)

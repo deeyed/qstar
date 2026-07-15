@@ -60,48 +60,6 @@ context_bool_enabled(const char *value, int default_value)
 	    strcmp(value, "yes") == 0 || strcmp(value, "on") == 0;
 }
 
-/** tool override entry의 NAME=PATH를 분리한다. */
-static int
-split_tool_override(const char *entry, char *name, size_t name_len, char *value,
-    size_t value_len)
-{
-	const char *eq;
-	size_t n;
-
-	if (!entry)
-		return 0;
-	eq = strchr(entry, '=');
-	if (!eq || eq == entry || eq[1] == '\0')
-		return 0;
-	n = (size_t)(eq - entry);
-	if (n + 1 > name_len || strlen(eq + 1) + 1 > value_len)
-		return 0;
-	memcpy(name, entry, n);
-	name[n] = '\0';
-	snprintf(value, value_len, "%s", eq + 1);
-	return 1;
-}
-
-/** build context tool override에서 command tool에 대응하는 replacement를 찾는다. */
-static int
-find_tool_override(const struct qstar_graph *graph, const char *tool, char *replacement,
-    size_t replacement_len)
-{
-	char name[QSTAR_PATH_MAX], value[QSTAR_PATH_MAX];
-	size_t i;
-
-	for (i = 0; i < graph->build_context.tool_overrides.len; i++) {
-		if (!split_tool_override(graph->build_context.tool_overrides.items[i], name,
-		    sizeof(name), value, sizeof(value)))
-			continue;
-		if (strcmp(name, tool) == 0) {
-			snprintf(replacement, replacement_len, "%s", value);
-			return 1;
-		}
-	}
-	return 0;
-}
-
 /** mode 문자열을 안전하게 복사한다. */
 static int
 set_tool_resolution(char *resolved, size_t resolved_len, char *mode, size_t mode_len,
@@ -154,8 +112,7 @@ next:
 int
 qstar_external_tool_mode_is_package_input(const char *mode)
 {
-	return mode && (strcmp(mode, "package") == 0 ||
-	    strcmp(mode, "override-package") == 0);
+	return mode && strcmp(mode, "package") == 0;
 }
 
 /** target/toolset 문맥에서 custom command PATH tool이 허용되는지 확인한다. */
@@ -222,56 +179,23 @@ toolset_label_allows_absolute_tool(const struct qstar_graph *graph,
 	return toolset && context_bool_enabled(toolset->allow_absolute_tools, 0);
 }
 
-/** build context/toolset external tool policy로 custom_target 첫 argv를 실행 path로 해석한다. */
+/** toolset external tool policy로 custom_target 첫 argv를 실행 path로 해석한다. */
 static int
 resolve_command_tool(const struct qstar_graph *graph, const struct qstar_target *target,
     const char *toolset_label, const char *tool, char *resolved, size_t resolved_len,
     char *mode, size_t mode_len, char *error, size_t error_len)
 {
-	char override[QSTAR_PATH_MAX];
 	int allow_absolute;
 	int has_explicit_toolset;
 
 	has_explicit_toolset = toolset_label && *toolset_label;
-	allow_absolute = context_bool_enabled(graph->build_context.allow_absolute_tools, 0) ||
-	    (has_explicit_toolset ?
+	allow_absolute = has_explicit_toolset ?
 	    toolset_label_allows_absolute_tool(graph, toolset_label) :
-	    toolset_allows_absolute_tool(graph, target));
+	    toolset_allows_absolute_tool(graph, target);
 
 	if (!tool || !*tool) {
 		snprintf(error, error_len, "qstar: generated action tool is empty");
 		return -1;
-	}
-	if (valid_tool_name(tool) && find_tool_override(graph, tool, override,
-	    sizeof(override))) {
-		if (tool_is_absolute_path(override)) {
-			if (!allow_absolute) {
-				snprintf(error, error_len,
-				    "qstar: tool override for '%s' resolves to absolute path '%s' but allow_absolute_tools is not enabled",
-				    tool, override);
-				return -1;
-			}
-			return set_tool_resolution(resolved, resolved_len, mode, mode_len,
-			    override, "override-absolute");
-		}
-		if (tool_has_path_separator(override)) {
-			if (!qstar_path_is_package_relative(override)) {
-				snprintf(error, error_len,
-				    "qstar: tool override for '%s' must be package-relative, absolute, or PATH tool",
-				    tool);
-				return -1;
-			}
-			return set_tool_resolution(resolved, resolved_len, mode, mode_len,
-			    override, "override-package");
-		}
-		if (!valid_tool_name(override)) {
-			snprintf(error, error_len,
-			    "qstar: tool override for '%s' has invalid PATH tool '%s'",
-			    tool, override);
-			return -1;
-		}
-		return set_tool_resolution(resolved, resolved_len, mode, mode_len,
-		    override, "override-path");
 	}
 	if (tool_is_absolute_path(tool)) {
 		if (!allow_absolute) {
@@ -305,8 +229,7 @@ resolve_command_tool(const struct qstar_graph *graph, const struct qstar_target 
 			    tool);
 			return -1;
 		}
-	} else if (!string_list_contains(&graph->build_context.path_tools, tool) &&
-	    !toolset_allows_path_tool(graph, target, tool)) {
+	} else if (!toolset_allows_path_tool(graph, target, tool)) {
 		snprintf(error, error_len,
 		    "qstar: generated action PATH tool '%s' is not allowed by toolset path_tools",
 		    tool);
@@ -315,7 +238,7 @@ resolve_command_tool(const struct qstar_graph *graph, const struct qstar_target 
 	return set_tool_resolution(resolved, resolved_len, mode, mode_len, tool, "path");
 }
 
-/** build context/toolset external tool policy로 custom_target 첫 argv를 실행 path로 해석한다. */
+/** toolset external tool policy로 custom_target 첫 argv를 실행 path로 해석한다. */
 int
 qstar_resolve_command_tool_for_target(const struct qstar_graph *graph,
     const struct qstar_target *target, const char *tool, char *resolved, size_t resolved_len,
@@ -337,7 +260,7 @@ qstar_resolve_command_tool_for_genrule(const struct qstar_graph *graph,
 	    tool, resolved, resolved_len, mode, mode_len, error, error_len);
 }
 
-/** build context external tool policy로 custom_target 첫 argv를 실행 path로 해석한다. */
+/** graph toolset policy로 custom_target 첫 argv를 실행 path로 해석한다. */
 int
 qstar_external_tool_resolve_command_tool(const struct qstar_graph *graph, const char *tool,
     char *resolved, size_t resolved_len, char *mode, size_t mode_len, char *error,

@@ -587,7 +587,7 @@ QSTAR_DEBUG_STATE_DUMPS=1 "$qstar" --file "$tmp/qstar.lua" -B build/metadata-deb
 test -f "$tmp/build/metadata-debug/state/graph.json" || fail "missing opt-in graph snapshot"
 test -f "$tmp/build/metadata-debug/state/last-summary.json" || fail "missing opt-in build summary"
 test -f "$tmp/build/metadata-debug/state/actions.json" || fail "missing opt-in debug action state"
-contains "$tmp/build/metadata-debug/state/graph.json" "\"schema\":\"qstar-graph-snapshot-v1\""
+contains "$tmp/build/metadata-debug/state/graph.json" "\"schema\":\"qstar-graph-snapshot-v2\""
 contains "$tmp/build/metadata-debug/state/graph.json" "\"project\":{\"name\":\"smoke\""
 contains "$tmp/build/metadata-debug/state/graph.json" "\"label\":\"//:app\""
 contains "$tmp/build/metadata-debug/state/last-summary.json" "\"schema\":\"qstar-build-summary-v1\""
@@ -601,7 +601,7 @@ test -f "$tmp/build/qstar/stella/manifest.json" || fail "missing Stella plan cac
 test -f "$tmp/build/qstar/stella/inputs.json" || fail "missing Stella plan cache inputs"
 test -f "$tmp/build/qstar/stella/graph.qsg" || fail "missing Stella graph cache"
 test -f "$tmp/build/qstar/stella/actions.qsa" || fail "missing Stella action plan cache"
-contains "$tmp/build/qstar/stella/manifest.json" "\"schema\":\"qstar-stella-plan-cache-v7\""
+contains "$tmp/build/qstar/stella/manifest.json" "\"schema\":\"qstar-stella-plan-cache-v8\""
 contains "$tmp/build/qstar/stella/actions.qsa" "qstar-stella-actions-cache-v2"
 test -f "$tmp/build/qstar/compile_commands.json" || fail "missing compile_commands.json"
 contains "$tmp/build/qstar/compile_commands.json" "src/main.c"
@@ -1277,7 +1277,7 @@ if "$qstar" --file "$tmp/cli-overrides/qstar.lua" -B /tmp/qstar-build list-targe
 fi
 contains "$tmp/cli-overrides-bad-builddir.err" "CLI build directory override must be package-relative"
 
-step "build-context-era CLI hard cut" "cli-hard-cut"
+step "profile-era CLI hard cut" "cli-hard-cut"
 "$qstar" --help > "$tmp/cli-hard-cut-help.out" 2> "$tmp/cli-hard-cut-help.err"
 not_contains "$tmp/cli-hard-cut-help.out" "--target triple"
 not_contains "$tmp/cli-hard-cut-help.out" "--toolchain"
@@ -1671,7 +1671,9 @@ local function common_c()
   for _ in pairs({one = 1, two = 2}) do
     count = count + 1
   end
-  table.insert(opts, string.upper("-dqstar_target=" .. QSTAR_TARGET))
+  if QSTAR_TARGET ~= nil then
+    error("QSTAR_TARGET must not be registered")
+  end
   table.insert(opts, "-DQSTAR_VERSION=" .. qstar.version)
   table.insert(opts, "-DQSTAR_VERSION_MINOR=" .. QSTAR_VERSION_MINOR)
   table.insert(opts, "-DQSTAR_HOST_OS=" .. qstar.host.os)
@@ -1679,7 +1681,6 @@ local function common_c()
   table.insert(opts, "-DQSTAR_PACKAGE_ROOT=" .. QSTAR_PACKAGE_ROOT)
   table.insert(opts, "-DQSTAR_PROJECT_ROOT=" .. QSTAR_PROJECT_ROOT)
   table.insert(opts, "-DQSTAR_PROJECT_NS_ROOT=" .. qstar.project.root)
-  table.insert(opts, "-DQSTAR_TARGET=" .. QSTAR_TARGET)
   table.insert(opts, "-DQSTAR_PAIR_COUNT=" .. count)
   return {
     public_include_dirs = {"include"},
@@ -1696,7 +1697,6 @@ qstar.staticlib "core" {
 EOF
 "$qstar" --file "$tmp/lua-authoring/qstar.lua" --dump-graph > "$tmp/lua-authoring.out" 2> "$tmp/lua-authoring.err"
 contains "$tmp/lua-authoring.out" "cflags [-Wall, -Wextra"
-contains "$tmp/lua-authoring.out" "-DQSTAR_TARGET=HOST"
 contains "$tmp/lua-authoring.out" "-DQSTAR_VERSION=0.7.19-beta"
 contains "$tmp/lua-authoring.out" "-DQSTAR_VERSION_MINOR=7"
 contains "$tmp/lua-authoring.out" "-DQSTAR_HOST_OS="
@@ -1704,7 +1704,6 @@ contains "$tmp/lua-authoring.out" "-DQSTAR_HOST_ARCH="
 contains "$tmp/lua-authoring.out" "-DQSTAR_PACKAGE_ROOT="
 contains "$tmp/lua-authoring.out" "-DQSTAR_PROJECT_ROOT="
 contains "$tmp/lua-authoring.out" "-DQSTAR_PROJECT_NS_ROOT="
-contains "$tmp/lua-authoring.out" "-DQSTAR_TARGET=host"
 contains "$tmp/lua-authoring.out" "-DQSTAR_PAIR_COUNT=2"
 
 mkdir -p "$tmp/host-branch/src"
@@ -6337,7 +6336,7 @@ fi
 fi
 
 step "windows sharedlib stella lowering plan" "shared-windows"
-"$qstar" --file "$tmp/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+"$qstar" --file "$tmp/qstar.lua" --qstar-internal-platform windows \
 	dry-run //:plugin > "$tmp/shared-windows.out" 2> "$tmp/shared-windows.err"
 contains "$tmp/shared-windows.out" "artifact id=runtime role=sharedlib path=build/qstar/out/___plugin/plugin.dll"
 contains "$tmp/shared-windows.out" "artifact id=import_lib role=import_lib path=build/qstar/out/___plugin/plugin.lib"
@@ -6345,7 +6344,7 @@ contains "$tmp/shared-windows.out" "-Wl,--out-implib,build/qstar/out/___plugin/p
 not_contains "$tmp/shared-windows.out" "plan_diagnostic kind=windows-sharedlib-lowering"
 
 step "windows sharedlib ninja lowering plan" "shared-windows-ninja"
-"$qstar" --file "$tmp/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang \
+"$qstar" --file "$tmp/qstar.lua" --qstar-internal-platform windows \
 	-G ninja emit-ninja //:plugin_app > "$tmp/shared-windows-ninja.out" \
 	2> "$tmp/shared-windows-ninja.err"
 contains "$tmp/build/qstar/ninja/build.ninja" \
@@ -6874,20 +6873,20 @@ test -f "$tmp/project-package/stage/bundle/config.txt" || fail "package flow sta
 test -f "$tmp/project-package/stage/bundle/module.out" || fail "package flow staged module missing"
 test -f "$tmp/project-package/stage/bundle/package.bin" || fail "package flow staged package missing"
 contains "$tmp/project-package/build/qstar/stage/___bundle/manifest.json" "\"dst\":\"stage/bundle/package.bin\""
-"$qstar" --file "$tmp/project-package/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang dry-run //:msvc_payload > "$tmp/project-package-msvc-dry.out" 2> "$tmp/project-package-msvc-dry.err"
+"$qstar" --file "$tmp/project-package/qstar.lua" --qstar-internal-platform windows dry-run //:msvc_payload > "$tmp/project-package-msvc-dry.out" 2> "$tmp/project-package-msvc-dry.err"
 contains "$tmp/project-package-msvc-dry.out" "response_style=msvc"
 contains "$tmp/project-package-msvc-dry.out" "/out:build/qstar/out/___msvc_payload/payload-x64.pe"
 contains "$tmp/project-package-msvc-dry.out" "/subsystem:console"
-"$qstar" --file "$tmp/project-package/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang build //:msvc_payload > "$tmp/project-package-msvc-build.out" 2> "$tmp/project-package-msvc-build.err"
+"$qstar" --file "$tmp/project-package/qstar.lua" --qstar-internal-platform windows build //:msvc_payload > "$tmp/project-package-msvc-build.out" 2> "$tmp/project-package-msvc-build.err"
 contains "$tmp/project-package-msvc-build.out" "status ok"
 test -f "$tmp/project-package/build/qstar/out/___msvc_payload/payload-x64.pe" || fail "package flow msvc artifact missing"
-"$qstar" --file "$tmp/project-package/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang action-log //:msvc_payload:link:0 > "$tmp/project-package-msvc-link-log.out" 2> "$tmp/project-package-msvc-link-log.err"
+"$qstar" --file "$tmp/project-package/qstar.lua" --qstar-internal-platform windows action-log //:msvc_payload:link:0 > "$tmp/project-package-msvc-link-log.out" 2> "$tmp/project-package-msvc-link-log.err"
 contains "$tmp/project-package-msvc-link-log.out" "/entry:payload_main"
-"$qstar" --file "$tmp/project-package/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang dry-run //:msvc_payload_alt > "$tmp/project-package-msvc-alt-dry.out" 2> "$tmp/project-package-msvc-alt-dry.err"
+"$qstar" --file "$tmp/project-package/qstar.lua" --qstar-internal-platform windows dry-run //:msvc_payload_alt > "$tmp/project-package-msvc-alt-dry.out" 2> "$tmp/project-package-msvc-alt-dry.err"
 contains "$tmp/project-package-msvc-alt-dry.out" "/out:build/qstar/out/___msvc_payload_alt/payload-alt.pe"
-"$qstar" --file "$tmp/project-package/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang stage //:runtime --dry-run > "$tmp/project-package-runtime-dry.out" 2> "$tmp/project-package-runtime-dry.err"
+"$qstar" --file "$tmp/project-package/qstar.lua" --qstar-internal-platform windows stage //:runtime --dry-run > "$tmp/project-package-runtime-dry.out" 2> "$tmp/project-package-runtime-dry.err"
 contains "$tmp/project-package-runtime-dry.out" "stage_file src=build/qstar/out/___msvc_payload/payload-x64.pe dst=stage/runtime/bin/payload-x64.pe mode=dry-run"
-"$qstar" --file "$tmp/project-package/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang stage //:runtime > "$tmp/project-package-runtime-stage.out" 2> "$tmp/project-package-runtime-stage.err"
+"$qstar" --file "$tmp/project-package/qstar.lua" --qstar-internal-platform windows stage //:runtime > "$tmp/project-package-runtime-stage.out" 2> "$tmp/project-package-runtime-stage.err"
 contains "$tmp/project-package-runtime-stage.out" "status ok"
 test -f "$tmp/project-package/stage/runtime/bin/payload-x64.pe" || fail "package flow runtime payload missing"
 
@@ -7235,7 +7234,7 @@ contains "docs/daemon-beta-readiness.md" "daemon_beta_boundary status=ok host=Li
 contains "docs/daemon-beta-readiness.md" "stale socket/pid/lock cleanup"
 contains "docs/daemon-beta-readiness.md" "package-root/build-dir mismatch hard reject"
 contains "docs/daemon-beta-readiness.md" "stable machine-readable v1 API"
-contains "docs/daemon-beta-readiness.md" "qstar-daemon-query-v1"
+contains "docs/daemon-beta-readiness.md" "qstar-daemon-query-v2"
 contains "docs/performance-gates.md" "Round Q250 local macOS arm64 repeat-3"
 contains "docs/performance-gates.md" "docs/perf/q250-v0.8-backend-performance-refresh.md"
 contains "docs/performance-gates.md" "large 500 clean"
@@ -7310,7 +7309,7 @@ contains "docs/daemon/stella-daemon.md" "make qstar-daemon-beta-boundary-tests"
 contains "docs/daemon/stella-daemon.md" "daemon_beta_boundary status=skipped reason=socket-bind-not-permitted"
 contains "docs/daemon/stella-daemon.md" "read_api_beta_boundary=ok"
 contains "docs/daemon/stella-daemon.md" "not a post-v1 compatibility guarantee"
-contains "docs/contracts/daemon-read-api.md" "qstar-daemon-query-v1"
+contains "docs/contracts/daemon-read-api.md" "qstar-daemon-query-v2"
 contains "docs/contracts/daemon-read-api.md" "compile_commands.path"
 contains "docs/contracts/daemon-read-api.md" "build.summary"
 contains "docs/contracts/daemon-read-api.md" "build/test/clean 같은 mutation"
@@ -7507,7 +7506,7 @@ contains ".github/workflows/windows-validation.yml" "make qstar-windows-sharedli
 contains ".github/workflows/windows-validation.yml" "qstar-windows-beta-candidate"
 contains ".github/workflows/windows-validation.yml" "run_ninja_parity"
 contains "tests/windows-prep.sh" "stage/windows-layout/bin/named_tool.exe"
-contains "tests/windows-prep.sh" "--qstar-internal-toolchain clang dry-run"
+not_contains "tests/windows-prep.sh" "--qstar-internal-toolchain"
 contains "tests/windows-prep.sh" "___windows_rsp_compile_0.rsp"
 contains "tests/windows-prep.sh" "/DTRAIL=tail"
 contains "tests/windows-prep.sh" "/DWINPATH=C:"
@@ -8917,8 +8916,15 @@ qstar.executable "app" {
   libs = {"m"},
 }
 EOF
-"$qstar" --file "$tmp/toolset-diagnostics/qstar.lua" --qstar-internal-target x86_64-unknown-none-elf --qstar-internal-platform generic --qstar-internal-toolchain clang --qstar-internal-stdlib none dry-run //:app > "$tmp/toolset-dry.out" 2> "$tmp/toolset-dry.err"
-contains "$tmp/toolset-dry.out" "resolved_toolchain owner=//:app toolchain=clang build_context=default target=x86_64-unknown-none-elf platform=generic link_style=posix stdlib=none resolver=toolset-schema-v1 toolset=//:custom cc=clang-custom"
+for legacy_option in --qstar-internal-target --qstar-internal-toolchain --qstar-internal-stdlib; do
+	if "$qstar" --file "$tmp/toolset-diagnostics/qstar.lua" "$legacy_option" legacy \
+	    check > "$tmp/legacy-context.out" 2> "$tmp/legacy-context.err"; then
+		fail "$legacy_option unexpectedly remained accepted"
+	fi
+	contains "$tmp/legacy-context.err" "usage: qstar"
+done
+"$qstar" --file "$tmp/toolset-diagnostics/qstar.lua" --qstar-internal-platform generic dry-run //:app > "$tmp/toolset-dry.out" 2> "$tmp/toolset-dry.err"
+contains "$tmp/toolset-dry.out" "resolved_tools owner=//:app platform=generic link_style=posix resolver=toolset-schema-v1 toolset=//:custom cc=clang-custom"
 contains "$tmp/toolset-dry.out" "--target=thumbv7em-none-eabi"
 not_contains "$tmp/toolset-dry.out" "--target=x86_64-unknown-none-elf"
 contains "$tmp/toolset-dry.out" "--sysroot=explicit-sysroot"
@@ -8928,7 +8934,7 @@ contains "$tmp/toolset-dry.out" "\"toolset include\""
 contains "$tmp/toolset-dry.out" "\"-Ltoolset lib\""
 contains "$tmp/toolset-dry.out" "digest="
 "$qstar" --file "$tmp/toolset-diagnostics/qstar.lua" doctor > "$tmp/toolset-doctor.out" 2> "$tmp/toolset-doctor.err"
-contains "$tmp/toolset-doctor.out" "toolchain-sanity name=host cc=clang-custom cxx=clang++-custom ar=llvm-ar-custom linker=ld-custom"
+contains "$tmp/toolset-doctor.out" "toolset-sanity toolset=//:custom cc=clang-custom cxx=clang++-custom ar=llvm-ar-custom linker=ld-custom"
 
 step "toolchain app corpus"
 mkdir -p "$tmp/toolchain-app/src" "$tmp/toolchain-app/tools" "$tmp/toolchain-app/linker"
@@ -9062,9 +9068,9 @@ fi
 contains "$tmp/toolchain-app-missing-script.err" "link input file 'linker/missing.ld' in '//:missing_script' does not exist"
 
 "$qstar" --file tests/corpus/toolchain-app/qstar.lua doctor > "$tmp/toolchain-corpus-doctor.out" 2> "$tmp/toolchain-corpus-doctor.err"
-contains "$tmp/toolchain-corpus-doctor.out" "response-policy configured_files=auto configured_style=auto effective_files=on effective_style=posix"
-contains "$tmp/toolchain-corpus-doctor.out" "toolchain-tool role=cc name=tools/fake-clang.sh required=true mode=package status=found"
-contains "$tmp/toolchain-corpus-doctor.out" "toolchain-tool role=linker name=tools/fake-link.sh required=true mode=package status=found"
+contains "$tmp/toolchain-corpus-doctor.out" "response-policy source=toolset effective_files=on effective_style=posix"
+contains "$tmp/toolchain-corpus-doctor.out" "toolset-tool role=cc name=tools/fake-clang.sh required=true mode=package status=found"
+contains "$tmp/toolchain-corpus-doctor.out" "toolset-tool role=linker name=tools/fake-link.sh required=true mode=package status=found"
 contains "$tmp/toolchain-corpus-doctor.out" "depfile-behavior compiler=tools/fake-clang.sh"
 "$qstar" --file tests/corpus/toolchain-app/qstar.lua explain //:module_app > "$tmp/toolchain-corpus-explain.out" 2> "$tmp/toolchain-corpus-explain.err"
 contains "$tmp/toolchain-corpus-explain.out" "effective_compile_merge owner=//:module_app"
@@ -9096,8 +9102,8 @@ qstar.executable "app" {
 }
 EOF
 "$qstar" --file "$tmp/context-doctor-missing/qstar.lua" doctor > "$tmp/context-doctor-missing.out" 2> "$tmp/context-doctor-missing.err"
-contains "$tmp/context-doctor-missing.out" "toolchain-tool role=cc name=qstar-missing-cc required=true mode=path status=missing severity=warning"
-contains "$tmp/context-doctor-missing.out" "toolchain-tool role=linker name=qstar-missing-ld required=true mode=path status=missing severity=warning"
+contains "$tmp/context-doctor-missing.out" "toolset-tool role=cc name=qstar-missing-cc required=true mode=path status=missing severity=warning"
+contains "$tmp/context-doctor-missing.out" "toolset-tool role=linker name=qstar-missing-ld required=true mode=path status=missing severity=warning"
 contains "$tmp/context-doctor-missing.out" "external-tool name=qstar-missing-objcopy mode=path status=missing"
 
 step "external tool policy"
@@ -9135,7 +9141,7 @@ qstar.executable "app" {
 }
 EOF
 PATH="$tmp/exttool/bin:$PATH" "$qstar" --file "$tmp/exttool/qstar.lua" doctor > "$tmp/exttool-doctor.out" 2> "$tmp/exttool-doctor.err"
-contains "$tmp/exttool-doctor.out" "external-tool-policy path_tools=1 tool_overrides=0 allow_absolute=false"
+contains "$tmp/exttool-doctor.out" "external-tool-policy path_tools=1 allow_absolute=false source=toolsets"
 contains "$tmp/exttool-doctor.out" "external-tool name=qstar-extgen mode=path status=found"
 PATH="$tmp/exttool/bin:$PATH" "$qstar" --file "$tmp/exttool/qstar.lua" dry-run //:app > "$tmp/exttool-dry.out" 2> "$tmp/exttool-dry.err"
 contains "$tmp/exttool-dry.out" "dry_run_step id=//:generated_ext:generate:0"
@@ -9173,20 +9179,20 @@ if "$qstar" --file "$tmp/exttool-deny/qstar.lua" check //:app > "$tmp/exttool-de
 fi
 contains "$tmp/exttool-deny.err" "generated action PATH tool 'qstar-extgen' is not allowed by toolset path_tools"
 
-mkdir -p "$tmp/tool-override/src" "$tmp/tool-override/tools"
-cat > "$tmp/tool-override/tools/fake-objcopy.sh" <<'EOF'
+mkdir -p "$tmp/package-tool/src" "$tmp/package-tool/tools"
+cat > "$tmp/package-tool/tools/fake-objcopy.sh" <<'EOF'
 #!/bin/sh
 set -eu
 out=$1
 mkdir -p "$(dirname "$out")"
 printf 'int override_value(void) { return 4; }\n' > "$out"
 EOF
-chmod +x "$tmp/tool-override/tools/fake-objcopy.sh"
-cat > "$tmp/tool-override/src/main.c" <<'EOF'
+chmod +x "$tmp/package-tool/tools/fake-objcopy.sh"
+cat > "$tmp/package-tool/src/main.c" <<'EOF'
 int override_value(void);
 int main(void) { return override_value() - 4; }
 EOF
-cat > "$tmp/tool-override/qstar.lua" <<'EOF'
+cat > "$tmp/package-tool/qstar.lua" <<'EOF'
 qstar.custom_target "generated_ext" {
   outputs = {qstar.output("generated/override.c")},
   command = qstar.cli {"tools/fake-objcopy.sh", qstar.output(0)},
@@ -9199,16 +9205,16 @@ qstar.executable "app" {
   },
 }
 EOF
-"$qstar" --file "$tmp/tool-override/qstar.lua" doctor > "$tmp/tool-override-doctor.out" 2> "$tmp/tool-override-doctor.err"
-contains "$tmp/tool-override-doctor.out" "external-tool-policy path_tools=0 tool_overrides=0 allow_absolute=false"
-"$qstar" --file "$tmp/tool-override/qstar.lua" dry-run //:app > "$tmp/tool-override-dry.out" 2> "$tmp/tool-override-dry.err"
-contains "$tmp/tool-override-dry.out" "tool=tools/fake-objcopy.sh toolset=<none> tool_mode=package resolved_tool=tools/fake-objcopy.sh"
-contains "$tmp/tool-override-dry.out" "argv=[tools/fake-objcopy.sh"
-"$qstar" --file "$tmp/tool-override/qstar.lua" build //:app --verbose > "$tmp/tool-override-build.out" 2> "$tmp/tool-override-build.err"
-contains "$tmp/tool-override-build.out" "tool=tools/fake-objcopy.sh toolset=<none> tool_mode=package resolved_tool=tools/fake-objcopy.sh"
-"$qstar" --file "$tmp/tool-override/qstar.lua" action-log //:generated_ext:generate:0 > "$tmp/tool-override-generated-log.out" 2> "$tmp/tool-override-generated-log.err"
-contains "$tmp/tool-override-generated-log.out" "argv[0]=tools/fake-objcopy.sh"
-"$tmp/tool-override/$app_artifact"
+"$qstar" --file "$tmp/package-tool/qstar.lua" doctor > "$tmp/package-tool-doctor.out" 2> "$tmp/package-tool-doctor.err"
+contains "$tmp/package-tool-doctor.out" "external-tool-policy path_tools=0 allow_absolute=false source=toolsets"
+"$qstar" --file "$tmp/package-tool/qstar.lua" dry-run //:app > "$tmp/package-tool-dry.out" 2> "$tmp/package-tool-dry.err"
+contains "$tmp/package-tool-dry.out" "tool=tools/fake-objcopy.sh toolset=<none> tool_mode=package resolved_tool=tools/fake-objcopy.sh"
+contains "$tmp/package-tool-dry.out" "argv=[tools/fake-objcopy.sh"
+"$qstar" --file "$tmp/package-tool/qstar.lua" build //:app --verbose > "$tmp/package-tool-build.out" 2> "$tmp/package-tool-build.err"
+contains "$tmp/package-tool-build.out" "tool=tools/fake-objcopy.sh toolset=<none> tool_mode=package resolved_tool=tools/fake-objcopy.sh"
+"$qstar" --file "$tmp/package-tool/qstar.lua" action-log //:generated_ext:generate:0 > "$tmp/package-tool-generated-log.out" 2> "$tmp/package-tool-generated-log.err"
+contains "$tmp/package-tool-generated-log.out" "argv[0]=tools/fake-objcopy.sh"
+"$tmp/package-tool/$app_artifact"
 
 mkdir -p "$tmp/absolute-tool/src"
 cat > "$tmp/absolute-tool/src/main.c" <<'EOF'
@@ -9370,10 +9376,9 @@ qstar.executable "app" {
   libs = {"user32"},
 }
 EOF
-"$qstar" --file "$tmp/target-platform/qstar.lua" --qstar-internal-target x86_64-pc-windows-msvc dry-run //:app > "$tmp/target-platform-dry.out" 2> "$tmp/target-platform-dry.err"
-contains "$tmp/target-platform-dry.out" "target=x86_64-pc-windows-msvc"
+"$qstar" --file "$tmp/target-platform/qstar.lua" --qstar-internal-platform generic dry-run //:app > "$tmp/target-platform-dry.out" 2> "$tmp/target-platform-dry.err"
+contains "$tmp/target-platform-dry.out" "platform=generic"
 contains "$tmp/target-platform-dry.out" "link_style=posix"
-not_contains "$tmp/target-platform-dry.out" "platform=windows"
 contains "$tmp/target-platform-dry.out" "-Lwin lib"
 contains "$tmp/target-platform-dry.out" "-luser32"
 not_contains "$tmp/target-platform-dry.out" "/LIBPATH:win lib"
@@ -9424,7 +9429,7 @@ qstar.executable "app" {
   libs = {"user32"},
 }
 EOF
-"$qstar" --file "$tmp/windows/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang dry-run //:app > "$tmp/windows-dry.out" 2> "$tmp/windows-dry.err"
+"$qstar" --file "$tmp/windows/qstar.lua" --qstar-internal-platform windows dry-run //:app > "$tmp/windows-dry.out" 2> "$tmp/windows-dry.err"
 contains "$tmp/windows-dry.out" "response_style=msvc"
 contains "$tmp/windows-dry.out" "response_digest="
 contains "$tmp/windows-dry.out" "output=build/qstar/out/___app/app.exe"
@@ -10119,20 +10124,20 @@ qstar.executable "launcher" {
   },
 }
 EOF
-"$qstar" --file "$tmp/pe-name/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang dry-run //:launcher > "$tmp/pe-name-x64-dry.out" 2> "$tmp/pe-name-x64-dry.err"
+"$qstar" --file "$tmp/pe-name/qstar.lua" --qstar-internal-platform windows dry-run //:launcher > "$tmp/pe-name-x64-dry.out" 2> "$tmp/pe-name-x64-dry.err"
 contains "$tmp/pe-name-x64-dry.out" "response_style=msvc"
 contains "$tmp/pe-name-x64-dry.out" "/out:build/qstar/out/___launcher/app-x64.pe"
 contains "$tmp/pe-name-x64-dry.out" "/subsystem:console"
 contains "$tmp/pe-name-x64-dry.out" "/entry:app_main"
 contains "$tmp/pe-name-x64-dry.out" "/nodefaultlib"
-"$qstar" --file "$tmp/pe-name/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang build //:launcher > "$tmp/pe-name-x64-build.out" 2> "$tmp/pe-name-x64-build.err"
+"$qstar" --file "$tmp/pe-name/qstar.lua" --qstar-internal-platform windows build //:launcher > "$tmp/pe-name-x64-build.out" 2> "$tmp/pe-name-x64-build.err"
 contains "$tmp/pe-name-x64-build.out" "status ok"
 test -f "$tmp/pe-name/build/qstar/out/___launcher/app-x64.pe" || fail "missing PE x64 artifact"
-"$qstar" --file "$tmp/pe-name/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang action-log //:launcher:link:0 > "$tmp/pe-name-x64-link-log.out" 2> "$tmp/pe-name-x64-link-log.err"
+"$qstar" --file "$tmp/pe-name/qstar.lua" --qstar-internal-platform windows action-log //:launcher:link:0 > "$tmp/pe-name-x64-link-log.out" 2> "$tmp/pe-name-x64-link-log.err"
 contains "$tmp/pe-name-x64-link-log.out" "argv[0]=tools/fake-lld-link.sh"
 contains "$tmp/pe-name-x64-link-log.out" "argv[1]=/out:build/qstar/out/___launcher/app-x64.pe"
 contains "$tmp/pe-name-x64-link-log.out" "argv[2]=/subsystem:console"
-QSTAR_DEBUG_STATE_DUMPS=1 "$qstar" --file "$tmp/pe-name/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang build //:launcher --progress off > "$tmp/pe-name-x64-debug-state.out" 2> "$tmp/pe-name-x64-debug-state.err"
+QSTAR_DEBUG_STATE_DUMPS=1 "$qstar" --file "$tmp/pe-name/qstar.lua" --qstar-internal-platform windows build //:launcher --progress off > "$tmp/pe-name-x64-debug-state.out" 2> "$tmp/pe-name-x64-debug-state.err"
 contains "$tmp/pe-name/build/qstar/state/graph.json" "\"artifact_name\":\"app-x64.pe\""
 cat > "$tmp/pe-name/qstar.lua" <<'EOF'
 qstar.toolset "pe" {
@@ -10164,9 +10169,9 @@ qstar.executable "launcher" {
   },
 }
 EOF
-"$qstar" --file "$tmp/pe-name/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang dry-run //:launcher > "$tmp/pe-name-aa64-dry.out" 2> "$tmp/pe-name-aa64-dry.err"
+"$qstar" --file "$tmp/pe-name/qstar.lua" --qstar-internal-platform windows dry-run //:launcher > "$tmp/pe-name-aa64-dry.out" 2> "$tmp/pe-name-aa64-dry.err"
 contains "$tmp/pe-name-aa64-dry.out" "/out:build/qstar/out/___launcher/app-arm64.pe"
-"$qstar" --file "$tmp/pe-name/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang build //:launcher > "$tmp/pe-name-aa64-build.out" 2> "$tmp/pe-name-aa64-build.err"
+"$qstar" --file "$tmp/pe-name/qstar.lua" --qstar-internal-platform windows build //:launcher > "$tmp/pe-name-aa64-build.out" 2> "$tmp/pe-name-aa64-build.err"
 contains "$tmp/pe-name-aa64-build.out" "status ok"
 test -f "$tmp/pe-name/build/qstar/out/___launcher/app-arm64.pe" || fail "missing PE AArch64 artifact"
 cat > "$tmp/pe-name/qstar.lua" <<'EOF'
@@ -10180,7 +10185,7 @@ qstar.executable "launcher" {
   },
 }
 EOF
-"$qstar" --file "$tmp/pe-name/qstar.lua" --qstar-internal-platform windows --qstar-internal-toolchain clang dry-run //:launcher > "$tmp/pe-name-local-dry.out" 2> "$tmp/pe-name-local-dry.err"
+"$qstar" --file "$tmp/pe-name/qstar.lua" --qstar-internal-platform windows dry-run //:launcher > "$tmp/pe-name-local-dry.out" 2> "$tmp/pe-name-local-dry.err"
 contains "$tmp/pe-name-local-dry.out" "output=build/qstar/out/___launcher/app-local.pe"
 "$qstar" --file "$tmp/pe-name/qstar.lua" list-targets --format json > "$tmp/pe-name-targets-json.out" 2> "$tmp/pe-name-targets-json.err"
 contains "$tmp/pe-name-targets-json.out" "\"artifact_name\":\"app-local.pe\""
@@ -10695,7 +10700,7 @@ if ! "$qstar" --file "$tmp/variant-metadata/qstar.lua" -D project-triple=sample-
 	cat "$tmp/variant-dump.err" >&2
 	fail "variant metadata dump failed"
 fi
-contains "$tmp/variant-dump.out" "build_context name=default target=host"
+contains "$tmp/variant-dump.out" "platform "
 contains "$tmp/variant-dump.out" "variant name=mps2_an500 description=Example device metadata tags=[device, smoke]"
 contains "$tmp/variant-dump.out" "arch:string=armv7m"
 contains "$tmp/variant-dump.out" "triple:string=sample-armv7m-none"

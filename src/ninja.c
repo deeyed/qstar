@@ -2141,15 +2141,6 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		if (ninja_argv_push(graph, &argv, target->asm_compile_options.items[i]) < 0)
 			goto fail;
 	}
-	for (i = 0; !provider_source && i < graph->build_context.compile_options.len; i++) {
-		if (ninja_argv_push(graph, &argv, graph->build_context.compile_options.items[i]) < 0)
-			goto fail;
-	}
-	for (i = 0; !provider_source && i < graph->build_context.include_dirs.len; i++) {
-		if (ninja_argv_push(graph, &argv, "-I") < 0 ||
-		    ninja_argv_push(graph, &argv, graph->build_context.include_dirs.items[i]) < 0)
-			goto fail;
-	}
 	for (i = 0; !provider_source && !is_asm && i < includes.len; i++) {
 		if (ninja_argv_push(graph, &argv, "-I") < 0 ||
 		    ninja_argv_push(graph, &argv, includes.items[i]) < 0)
@@ -2416,10 +2407,6 @@ append_link_policy_flags(struct qstar_graph *graph, const struct qstar_target *t
 {
 	size_t i;
 
-	for (i = 0; i < graph->build_context.link_options.len; i++) {
-		if (ninja_argv_push(graph, argv, graph->build_context.link_options.items[i]) < 0)
-			return -1;
-	}
 	for (i = 0; i < target->link_options.len; i++) {
 		if (ninja_argv_push(graph, argv, target->link_options.items[i]) < 0)
 			return -1;
@@ -2437,14 +2424,6 @@ append_system_link_flags(struct qstar_graph *graph, const struct qstar_target *t
 	int msvc;
 
 	msvc = strcmp(toolchain->link_style, "msvc") == 0;
-	for (i = 0; i < graph->build_context.lib_dirs.len; i++) {
-		if (msvc)
-			snprintf(flag, sizeof(flag), "/LIBPATH:%s", graph->build_context.lib_dirs.items[i]);
-		else
-			snprintf(flag, sizeof(flag), "-L%s", graph->build_context.lib_dirs.items[i]);
-		if (ninja_argv_push(graph, argv, flag) < 0)
-			return -1;
-	}
 	for (i = 0; i < target->lib_dirs.len; i++) {
 		if (msvc)
 			snprintf(flag, sizeof(flag), "/LIBPATH:%s", target->lib_dirs.items[i]);

@@ -8,7 +8,7 @@ read-only API 계약이다. 이 API는 build/test/clean 같은 mutation을 열�
 ## 상태
 
 - Status: beta opt-in, read-only, not v1 stable
-- Protocol magic: `qstar-daemon-query-v1`
+- Protocol magic: `qstar-daemon-query-v2`
 - CLI helper: `qstar daemon --socket path --query method`
 - Response: JSON text
 - 기본 권한: read-only
@@ -18,7 +18,7 @@ read-only API 계약이다. 이 API는 build/test/clean 같은 mutation을 열�
 
 ## Compatibility Boundary
 
-This contract is intentionally beta. `qstar-daemon-query-v1` and
+This contract is intentionally beta. `qstar-daemon-query-v2` and
 `qstar-daemon-read-v1` name the current wire shape so clients and tests can detect
 drift, but they are not a v1 stable machine-readable API promise. QStar may still
 change daemon query method names, JSON fields, socket lifecycle details, watcher

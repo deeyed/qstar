@@ -511,8 +511,7 @@ main(int argc, char **argv)
 {
 	struct qstar_graph graph;
 	const char *file, *cmd, *label, *diagnostic_format, *lint_format, *list_format;
-	const char *cli_build_context, *cli_target, *cli_platform, *cli_toolchain, *cli_stdlib;
-	const char *cli_generator, *cli_build_dir, *daemon_socket;
+	const char *cli_platform, *cli_generator, *cli_build_dir, *daemon_socket;
 	struct qstar_build_options build_options;
 	struct qstar_stage_options stage_options;
 	char init_error[512];
@@ -531,11 +530,7 @@ main(int argc, char **argv)
 	diagnostic_format = "text";
 	lint_format = "text";
 	list_format = "text";
-	cli_build_context = NULL;
-	cli_target = NULL;
 	cli_platform = NULL;
-	cli_toolchain = NULL;
-	cli_stdlib = NULL;
 	cli_generator = NULL;
 	cli_build_dir = NULL;
 	daemon_socket = NULL;
@@ -656,23 +651,13 @@ main(int argc, char **argv)
 		} else if (strcmp(argv[arg], "--quiet") == 0) {
 			build_options.quiet = 1;
 			arg++;
-		} else if (strcmp(argv[arg], "--qstar-internal-target") == 0 ||
-		    strcmp(argv[arg], "--qstar-internal-platform") == 0 ||
-		    strcmp(argv[arg], "--qstar-internal-toolchain") == 0 ||
-		    strcmp(argv[arg], "--qstar-internal-stdlib") == 0) {
+		} else if (strcmp(argv[arg], "--qstar-internal-platform") == 0) {
 			if (arg + 1 >= argc) {
 				usage(stderr);
 				qstar_graph_free(&graph);
 				return 2;
 			}
-			if (strcmp(argv[arg], "--qstar-internal-target") == 0)
-				cli_target = argv[arg + 1];
-			else if (strcmp(argv[arg], "--qstar-internal-platform") == 0)
-				cli_platform = argv[arg + 1];
-			else if (strcmp(argv[arg], "--qstar-internal-toolchain") == 0)
-				cli_toolchain = argv[arg + 1];
-			else
-				cli_stdlib = argv[arg + 1];
+			cli_platform = argv[arg + 1];
 			arg += 2;
 		} else {
 			usage(stderr);
@@ -914,8 +899,7 @@ main(int argc, char **argv)
 	}
 	if (strcmp(cmd, "daemon") == 0) {
 		rc = qstar_daemon_command(argc - arg, argv + arg, file, cli_build_dir,
-		    cli_build_context, cli_target, cli_platform, cli_toolchain, cli_stdlib,
-		    stdout);
+		    cli_platform, stdout);
 		qstar_graph_free(&graph);
 		return rc;
 	}
@@ -1130,9 +1114,7 @@ main(int argc, char **argv)
 		qstar_graph_free(&graph);
 		return 2;
 	}
-	rc = qstar_graph_set_build_context_input(&graph, cli_build_context, NULL, NULL, NULL);
-	if (rc == 0)
-		rc = qstar_graph_set_platform_context(&graph, cli_platform);
+	rc = qstar_graph_set_platform_context(&graph, cli_platform);
 	if (rc == 0 && (strcmp(cmd, "build") == 0 || project_command_requested)) {
 		rc = qstar_graph_set_cli_overrides(&graph, cli_generator, cli_build_dir);
 		cli_overrides_applied = rc == 0;
@@ -1149,8 +1131,7 @@ main(int argc, char **argv)
 		} else {
 			daemon_status = 1;
 			client_rc = qstar_daemon_build_client(daemon_socket, daemon_mode,
-			    file, label, cli_build_dir, cli_build_context, cli_target,
-			    cli_platform, cli_toolchain, cli_stdlib, &build_options, stdout,
+			    file, label, cli_build_dir, cli_platform, &build_options, stdout,
 			    &daemon_status, daemon_error, sizeof(daemon_error));
 			if (client_rc == 0) {
 				qstar_graph_free(&graph);
@@ -1170,7 +1151,7 @@ main(int argc, char **argv)
 	    strcmp(qstar_graph_generator(&graph), "stella") == 0) {
 		plan_cache_checked = 1;
 		plan_cache_loaded = qstar_stella_plan_cache_try_load(&graph, file, cmd,
-		    label, cli_build_context, cli_target, cli_platform, cli_toolchain, cli_stdlib,
+		    label, cli_platform,
 		    plan_cache_reason, sizeof(plan_cache_reason));
 	}
 	if (rc == 0 && !plan_cache_loaded)
@@ -1180,12 +1161,7 @@ main(int argc, char **argv)
 	if (rc == 0 && !cli_overrides_applied)
 		rc = qstar_graph_set_cli_overrides(&graph, cli_generator, cli_build_dir);
 	if (rc == 0 && !plan_cache_loaded)
-		rc = qstar_graph_set_build_context_input(&graph, cli_build_context, cli_target,
-		    cli_toolchain, cli_stdlib);
-	if (rc == 0 && !plan_cache_loaded)
 		rc = qstar_graph_set_platform_context(&graph, cli_platform);
-	if (rc == 0 && !plan_cache_loaded)
-		rc = qstar_graph_validate_build_context(&graph);
 	if (rc == 0 && !plan_cache_loaded)
 		rc = qstar_graph_validate_toolsets(&graph);
 	if (rc == 0 && !plan_cache_loaded)
@@ -1212,7 +1188,7 @@ main(int argc, char **argv)
 		int stored;
 
 		stored = qstar_stella_plan_cache_store(&graph, file, cmd, label,
-		    cli_build_context, cli_target, cli_platform, cli_toolchain, cli_stdlib,
+		    cli_platform,
 		    plan_cache_store_reason, sizeof(plan_cache_store_reason));
 		if (stored < 0)
 			rc = qstar_set_error(&graph, "qstar: could not write Stella plan cache: %s",

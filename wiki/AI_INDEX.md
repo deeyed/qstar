@@ -400,7 +400,7 @@ QStar가 하지 않는 일:
   read API freshness, socket permission, identity mismatch, stale socket/pid/lock cleanup을 묶고
   Linux optional lane에 `daemon_beta_boundary status=ok host=Linux` artifact를 남긴다. Q259 기준
   daemon lifecycle/build forwarding/read API/socket protocol/watcher internals/Windows named pipe는
-  v1 stable surface가 아니고, `qstar-daemon-query-v1`과 `qstar-daemon-read-v1`은 current beta
+  v1 stable surface가 아니고, `qstar-daemon-query-v2`와 `qstar-daemon-read-v1`은 current beta
   wire marker이지 stable machine-readable API promise가 아니다. Socket-capable host의 boundary
   artifact는 `read_api_beta_boundary=ok`, `fallback_parity=ok`, `normal_stella_parity=ok`,
   `socket_permission_regression=ok`, `identity_mismatch_regression=ok`,
@@ -563,7 +563,7 @@ Generated file이나 복수 입출력 generator는 `qstar.custom_target`으로 �
 같은 generated action contract로 낮아진다.
 `qstar.custom_target`과 `qstar.transform`은 `toolset = "//:tools"`를 받을 수 있다.
 toolset이 지정된 generated action에서 command 첫 argv가 bare PATH tool이면 해당 toolset의
-`path_tools`에 있어야 한다. Toolset을 생략하면 기존 build-context/graph path-tool policy를
+`path_tools`에 있어야 한다. Toolset을 생략하면 graph에 선언된 toolset path-tool policy를
 따른다.
 
 ```lua

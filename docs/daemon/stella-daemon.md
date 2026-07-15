@@ -365,7 +365,7 @@ Responses are JSON. `targets.list` intentionally reuses the existing `qstar-targ
 contract is documented in `docs/contracts/daemon-read-api.md`.
 Q249 regression keeps all six current methods in the beta boundary smoke so IDE-facing docs do not
 drift away from the implemented server.
-Q259 explicitly keeps this API outside the v1 stable bucket. `qstar-daemon-query-v1` and
+Q259 explicitly keeps this API outside the v1 stable bucket. `qstar-daemon-query-v2` and
 `qstar-daemon-read-v1` are current beta protocol markers, not a post-v1 compatibility guarantee.
 
 Deferred read/action APIs:

@@ -145,7 +145,7 @@ lock file, duplicate start diagnostic도 beta opt-in 기준으로 구현되어 �
 Q249 boundary test는 insecure socket directory와 non-socket path reject를 별도 artifact로 남기며,
 normal Stella와 daemon build 결과가 같은지도 확인한다. Q259는 이 문서 경계를 v1 compatibility
 policy, README, manpage, wiki/AI index와 다시 동기화한다. 특히 read API는 current beta helper일
-뿐 stable machine-readable v1 API가 아니며, `qstar-daemon-query-v1`/`qstar-daemon-read-v1` marker는
+뿐 stable machine-readable v1 API가 아니며, `qstar-daemon-query-v2`/`qstar-daemon-read-v1` marker는
 현재 beta wire marker이지 post-v1 compatibility promise가 아니다.
 
 ## Release Gate

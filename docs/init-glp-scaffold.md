@@ -298,7 +298,7 @@ C/C++/ASM은 builtin이므로 provider 파일을 복사하지 않는다.
 - config를 명시한다.
 - external provider는 `qstar.use_language("<id>")`로 명시 활성화한다.
 - provider helper를 사용해 source unit과 options를 작성한다.
-- hidden toolchain/build-context/cross policy를 생성하지 않는다.
+- hidden cross policy를 생성하지 않는다.
 
 ## Shape: app
 

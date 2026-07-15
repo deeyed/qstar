@@ -1609,8 +1609,6 @@ reject_group_action_fields(lua_State *L, int table, struct qstar_graph *graph,
 		"link_options",
 		"link_inputs",
 		"toolset",
-		"toolchain",
-		"stdlib",
 		"artifact_name",
 		"inputs",
 		"command",
@@ -3568,8 +3566,7 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 			if (read_run_expect_field(L, table_index, target, graph) < 0)
 				return luaL_error(L, "%s", graph->error);
 		}
-	if (!target->toolchain || !target->toolset || !target->stdlib_policy ||
-	    !target->artifact_name || !target->cxx_standard ||
+	if (!target->toolset || !target->artifact_name || !target->cxx_standard ||
 	    !target->run_expect_contains || !target->run_expect_file)
 		return luaL_error(L, "qstar: out of memory");
 	return 0;
@@ -9050,11 +9047,6 @@ set_table_string(lua_State *L, int table, const char *name, const char *value)
 static void
 register_global_constants(lua_State *L, const struct qstar_lua_context *ctx)
 {
-	const struct qstar_graph *graph;
-	const char *target;
-
-	graph = ctx->graph;
-	target = graph->build_context.target && *graph->build_context.target ? graph->build_context.target : "host";
 	set_global_string(L, "QSTAR_VERSION", QSTAR_VERSION);
 	set_global_integer(L, "QSTAR_VERSION_MAJOR", QSTAR_VERSION_MAJOR);
 	set_global_integer(L, "QSTAR_VERSION_MINOR", QSTAR_VERSION_MINOR);
@@ -9063,7 +9055,6 @@ register_global_constants(lua_State *L, const struct qstar_lua_context *ctx)
 	set_global_string(L, "QSTAR_HOST_ARCH", qstar_host_arch());
 	set_global_string(L, "QSTAR_PACKAGE_ROOT", ctx->root_dir);
 	set_global_string(L, "QSTAR_PROJECT_ROOT", ctx->root_dir);
-	set_global_string(L, "QSTAR_TARGET", target);
 }
 
 static void

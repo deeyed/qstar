@@ -64,12 +64,12 @@ rm -f "$corpus/.ninja_log" "$corpus/.ninja_deps"
 trap finish EXIT HUP INT TERM
 
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
-	--qstar-internal-toolchain clang check \
+	check \
 	> "$tmp/check.out" 2> "$tmp/check.err"
 contains "$tmp/check.out" "status ok"
 
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
-	--qstar-internal-toolchain clang explain //:plugin \
+	explain //:plugin \
 	> "$tmp/explain-plugin.out" 2> "$tmp/explain-plugin.err"
 contains "$tmp/explain-plugin.out" \
 	"artifact id=runtime role=sharedlib path=build/qstar/out/___plugin/plugin.dll install_dir=bin primary=true installable=true"
@@ -79,7 +79,7 @@ contains "$tmp/explain-plugin.out" "/IMPLIB:build/qstar/out/___plugin/plugin.lib
 not_contains "$tmp/explain-plugin.out" "plan_diagnostic kind=windows-sharedlib-lowering"
 
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
-	--qstar-internal-toolchain clang dry-run //:plugin_user \
+	dry-run //:plugin_user \
 	> "$tmp/dry-plugin-user.out" 2> "$tmp/dry-plugin-user.err"
 contains "$tmp/dry-plugin-user.out" "output=build/qstar/out/___plugin/plugin.dll"
 contains "$tmp/dry-plugin-user.out" \
@@ -88,7 +88,7 @@ contains "$tmp/dry-plugin-user.out" "/IMPLIB:build/qstar/out/___plugin/plugin.li
 not_contains "$tmp/dry-plugin-user.out" "plan_diagnostic kind=windows-sharedlib-lowering"
 
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
-	--qstar-internal-toolchain clang list-targets --format json \
+	list-targets --format json \
 	> "$tmp/list-targets.json" 2> "$tmp/list-targets.err"
 contains "$tmp/list-targets.json" \
 	"\"id\":\"runtime\",\"role\":\"sharedlib\",\"path\":\"build/qstar/out/___plugin/plugin.dll\",\"install_dir\":\"bin\",\"primary\":true,\"installable\":true"
@@ -96,7 +96,7 @@ contains "$tmp/list-targets.json" \
 	"\"id\":\"import_lib\",\"role\":\"import_lib\",\"path\":\"build/qstar/out/___plugin/plugin.lib\",\"install_dir\":\"lib\",\"primary\":false,\"installable\":true"
 
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
-	--qstar-internal-toolchain clang --progress off build //:plugin_user \
+	--progress off build //:plugin_user \
 	> "$tmp/build-plugin-user.out" 2> "$tmp/build-plugin-user.err"
 contains "$tmp/build-plugin-user.out" "status ok"
 test -x "$corpus/$build_dir/out/___plugin/plugin.dll" ||
@@ -110,7 +110,7 @@ contains "$corpus/$build_dir/out/___plugin/plugin.lib" \
 	"runtime=build/qstar/out/___plugin/plugin.dll"
 
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
-	--qstar-internal-toolchain clang action-log //:plugin:link-shared:0 \
+	action-log //:plugin:link-shared:0 \
 	> "$tmp/action-log-plugin.out" 2> "$tmp/action-log-plugin.err"
 contains "$tmp/action-log-plugin.out" "output_count=2"
 contains "$tmp/action-log-plugin.out" "output[0]=build/qstar/out/___plugin/plugin.dll"
@@ -118,13 +118,13 @@ contains "$tmp/action-log-plugin.out" "output[1]=build/qstar/out/___plugin/plugi
 contains "$tmp/action-log-plugin.out" "/IMPLIB:build/qstar/out/___plugin/plugin.lib"
 
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
-	--qstar-internal-toolchain clang action-log //:plugin_user:link:0 \
+	action-log //:plugin_user:link:0 \
 	> "$tmp/action-log-plugin-user.out" 2> "$tmp/action-log-plugin-user.err"
 contains "$tmp/action-log-plugin-user.out" "build/qstar/out/___plugin/plugin.lib"
 not_contains "$tmp/action-log-plugin-user.out" "build/qstar/out/___plugin/plugin.dll"
 
 "$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
-	--qstar-internal-toolchain clang stage //:plugin_layout \
+	stage //:plugin_layout \
 	> "$tmp/stage-plugin.out" 2> "$tmp/stage-plugin.err"
 contains "$tmp/stage-plugin.out" "status ok"
 test -f "$corpus/$build_dir/stage/windows-plugin/bin/plugin.dll" ||
@@ -139,7 +139,7 @@ not_contains "$stage_manifest" "\\"
 if command -v ninja >/dev/null 2>&1; then
 	rm -rf "$corpus/$build_dir" "$corpus/.ninja_log" "$corpus/.ninja_deps"
 	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
-		--qstar-internal-toolchain clang -G ninja --progress off build //:plugin_user \
+		-G ninja --progress off build //:plugin_user \
 		> "$tmp/ninja-build-plugin-user.out" \
 		2> "$tmp/ninja-build-plugin-user.err"
 	contains "$tmp/ninja-build-plugin-user.out" "backend ninja"
@@ -160,7 +160,7 @@ if command -v ninja >/dev/null 2>&1; then
 		fail "Windows sharedlib corpus root .ninja_deps pollution"
 
 	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
-		--qstar-internal-toolchain clang -G ninja action-log //:plugin:link-shared:0 \
+		-G ninja action-log //:plugin:link-shared:0 \
 		> "$tmp/ninja-action-log-plugin.out" \
 		2> "$tmp/ninja-action-log-plugin.err"
 	contains "$tmp/ninja-action-log-plugin.out" "backend=ninja"
@@ -168,7 +168,7 @@ if command -v ninja >/dev/null 2>&1; then
 	contains "$tmp/ninja-action-log-plugin.out" "/IMPLIB:build/qstar/out/___plugin/plugin.lib"
 
 	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
-		--qstar-internal-toolchain clang -G ninja action-log //:plugin_user:link:0 \
+		-G ninja action-log //:plugin_user:link:0 \
 		> "$tmp/ninja-action-log-plugin-user.out" \
 		2> "$tmp/ninja-action-log-plugin-user.err"
 	contains "$tmp/ninja-action-log-plugin-user.out" "backend=ninja"
@@ -176,7 +176,7 @@ if command -v ninja >/dev/null 2>&1; then
 	not_contains "$tmp/ninja-action-log-plugin-user.out" "build/qstar/out/___plugin/plugin.dll"
 
 	"$qstar" --file "$corpus/qstar.lua" --qstar-internal-platform windows \
-		--qstar-internal-toolchain clang -G ninja stage //:plugin_layout \
+		-G ninja stage //:plugin_layout \
 		> "$tmp/ninja-stage-plugin.out" 2> "$tmp/ninja-stage-plugin.err"
 	contains "$tmp/ninja-stage-plugin.out" "backend ninja"
 	test -f "$corpus/$build_dir/stage/windows-plugin/bin/plugin.dll" ||

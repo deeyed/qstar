@@ -44,7 +44,7 @@ v1 promise: candidate surface defined, v1 release gate still required
 
 - provider-author API와 provider sandbox/lowering schema는 아직 beta다.
 - Stella daemon은 beta opt-in이며 default build behavior가 아니다. Daemon read API와
-  `qstar-daemon-query-v1`/`qstar-daemon-read-v1` marker도 stable machine-readable v1 API가 아니다.
+  `qstar-daemon-query-v2`/`qstar-daemon-read-v1` marker도 stable machine-readable v1 API가 아니다.
 - optional real compiler corpus와 hosted manual validation lane은 release
   evidence이지 stable authoring syntax가 아니다.
 - package registry, dependency resolver, lockfile, network fetch policy는

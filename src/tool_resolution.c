@@ -162,62 +162,22 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 {
 	const struct qstar_toolset *toolset;
 	const struct qstar_string_list *role;
-	const char *name, *stdlib_policy, *triple;
 
 	memset(resolved, 0, sizeof(*resolved));
-	name = target->toolchain && strcmp(target->toolchain, "host") != 0 ?
-	    target->toolchain : graph->build_context.toolchain;
-	if (!name || !*name)
-		name = target->toolchain && *target->toolchain ? target->toolchain : "host";
-	stdlib_policy = target->stdlib_policy && strcmp(target->stdlib_policy, "system") != 0 ?
-	    target->stdlib_policy : graph->build_context.stdlib_policy;
-	if (!stdlib_policy || !*stdlib_policy)
-		stdlib_policy = target->stdlib_policy && *target->stdlib_policy ?
-		    target->stdlib_policy : "system";
-	triple = graph->build_context.target && *graph->build_context.target ?
-	    graph->build_context.target : "host";
-	snprintf(resolved->name, sizeof(resolved->name), "%s", name);
-	snprintf(resolved->target, sizeof(resolved->target), "%s", triple);
 	snprintf(resolved->platform, sizeof(resolved->platform), "%s",
 	    qstar_graph_platform(graph));
-	snprintf(resolved->stdlib_policy, sizeof(resolved->stdlib_policy), "%s",
-	    stdlib_policy);
-	snprintf(resolved->resolver, sizeof(resolved->resolver), "builtin-v1");
-	if (strcmp(name, "host") == 0 || strcmp(name, "default") == 0) {
-		snprintf(resolved->cc, sizeof(resolved->cc), "cc");
-		snprintf(resolved->cxx, sizeof(resolved->cxx), "c++");
-		snprintf(resolved->ar, sizeof(resolved->ar), "ar");
-		snprintf(resolved->linker, sizeof(resolved->linker), "cc");
-	} else if (strcmp(name, "clang") == 0) {
-		snprintf(resolved->cc, sizeof(resolved->cc), "clang");
-		snprintf(resolved->cxx, sizeof(resolved->cxx), "clang++");
-		snprintf(resolved->ar, sizeof(resolved->ar), "ar");
-		snprintf(resolved->linker, sizeof(resolved->linker), "clang");
-	} else {
-		return qstar_set_error(graph, "qstar: unknown toolchain context '%s'", name);
-	}
+	snprintf(resolved->cc, sizeof(resolved->cc), "cc");
+	snprintf(resolved->cxx, sizeof(resolved->cxx), "c++");
+	snprintf(resolved->ar, sizeof(resolved->ar), "ar");
+	snprintf(resolved->linker, sizeof(resolved->linker), "cc");
 	snprintf(resolved->asm_, sizeof(resolved->asm_), "%s", resolved->cc);
-	if (graph->build_context.cc && *graph->build_context.cc)
-		snprintf(resolved->cc, sizeof(resolved->cc), "%s", graph->build_context.cc);
-	if (graph->build_context.cxx && *graph->build_context.cxx)
-		snprintf(resolved->cxx, sizeof(resolved->cxx), "%s", graph->build_context.cxx);
-	if (graph->build_context.ar && *graph->build_context.ar)
-		snprintf(resolved->ar, sizeof(resolved->ar), "%s", graph->build_context.ar);
-	if (graph->build_context.linker && *graph->build_context.linker)
-		snprintf(resolved->linker, sizeof(resolved->linker), "%s",
-		    graph->build_context.linker);
-	snprintf(resolved->asm_, sizeof(resolved->asm_), "%s", resolved->cc);
-	resolved->response_files =
-	    response_files_enabled(graph->build_context.response_files, 1);
-	if (graph->build_context.response_style && *graph->build_context.response_style)
-		snprintf(resolved->response_style, sizeof(resolved->response_style), "%s",
-		    graph->build_context.response_style);
-	else if (qstar_platform_is_windows(resolved->platform))
+	resolved->response_files = 1;
+	if (qstar_platform_is_windows(resolved->platform))
 		snprintf(resolved->response_style, sizeof(resolved->response_style),
 		    "windows");
 	else
 		snprintf(resolved->response_style, sizeof(resolved->response_style), "posix");
-	snprintf(resolved->resolver, sizeof(resolved->resolver), "builtin-toolchain-v1");
+	snprintf(resolved->resolver, sizeof(resolved->resolver), "builtin-tools-v1");
 	toolset = target && target->toolset && *target->toolset ?
 	    qstar_graph_find_toolset(graph, target->toolset) : NULL;
 	if (toolset) {
