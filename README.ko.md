@@ -44,6 +44,8 @@ v1에서 stable로 약속할 surface와 beta/out-of-core로 남길 surface는
 - bundled 또는 project-local language provider namespace를 활성화하는
   `qstar.use_language(...)`
 - Stella native executor와 C/C++/ASM/generated graph용 `-G ninja` backend
+- 기본값이 모두 off인 C++ PCH, target-local unity batch, Clang C++20 module
+  interface/implementation dependency lowering과 Stella/Ninja parity
 - 반복 로컬 빌드와 IDE read API를 위한 Stella daemon beta opt-in workflow
 - `compile_commands.json`, LSP, VSCode extension, replay/action log, manpage,
   AI index 제공

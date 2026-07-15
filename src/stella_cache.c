@@ -8,10 +8,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v9"
-#define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v5"
+#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v10"
+#define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v6"
 #define QSTAR_STELLA_ACTION_MAGIC "qstar-stella-actions-cache-v2"
-#define QSTAR_STELLA_PLAN_ABI 13
+#define QSTAR_STELLA_PLAN_ABI 14
 #define QSTAR_STELLA_HASH_INIT 1469598103934665603ULL
 #define QSTAR_STELLA_HASH_PRIME 1099511628211ULL
 #define QSTAR_STELLA_MAX_STRING (16U * 1024U * 1024U)
@@ -582,12 +582,17 @@ write_target(FILE *f, const struct qstar_target *t)
 	WSTR(tool_path);
 	WSTR(compile_context);
 	WSTR(cxx_standard);
+	WSTR(cxx_precompiled_header);
 	WSTR(run_expect_contains);
 	WSTR(run_expect_file);
 	if (write_i32(f, t->run_timeout_sec) < 0 ||
 	    write_i32(f, t->asm_preprocess) < 0 ||
 	    write_i32(f, t->cxx_modules_present) < 0 ||
-	    write_i32(f, t->cxx_modules_enabled) < 0)
+	    write_i32(f, t->cxx_modules_enabled) < 0 ||
+	    write_i32(f, t->cxx_pch_present) < 0 ||
+	    write_i32(f, t->cxx_unity_present) < 0 ||
+	    write_i32(f, t->cxx_unity_enabled) < 0 ||
+	    write_i32(f, t->cxx_unity_batch_size) < 0)
 		return -1;
 	WSTR(toolset);
 #undef WSTR
@@ -716,12 +721,17 @@ read_target(FILE *f, struct qstar_target *t)
 	RSTR(tool_path);
 	RSTR(compile_context);
 	RSTR(cxx_standard);
+	RSTR(cxx_precompiled_header);
 	RSTR(run_expect_contains);
 	RSTR(run_expect_file);
 	if (read_i32(f, &t->run_timeout_sec) < 0 ||
 	    read_i32(f, &t->asm_preprocess) < 0 ||
 	    read_i32(f, &t->cxx_modules_present) < 0 ||
-	    read_i32(f, &t->cxx_modules_enabled) < 0)
+	    read_i32(f, &t->cxx_modules_enabled) < 0 ||
+	    read_i32(f, &t->cxx_pch_present) < 0 ||
+	    read_i32(f, &t->cxx_unity_present) < 0 ||
+	    read_i32(f, &t->cxx_unity_enabled) < 0 ||
+	    read_i32(f, &t->cxx_unity_batch_size) < 0)
 		return -1;
 	RSTR(toolset);
 #undef RSTR

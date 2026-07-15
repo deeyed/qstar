@@ -304,6 +304,41 @@ can also select a toolset for command tool policy. If a generated action uses a
 bare PATH command tool and sets `toolset`, that tool must be listed in the
 selected toolset's `path_tools`.
 
+## Opt-In C++ Build Strategies
+
+```lua
+qstar.executable "app" {
+  sources = {
+    "src/math.cppm",
+    "src/math_use.cpp",
+    "src/main.cpp",
+  },
+  lang = {
+    cxx = {
+      standard = "c++20",
+      precompiled_header = "include/pch.hpp",
+      unity = { enabled = true, batch_size = 8 },
+      modules = { enabled = true },
+    },
+  },
+}
+```
+
+All three strategies default to off. PCH and unity are available for recognized
+Clang/GCC-family C++ compiler roles. Module lowering requires upstream Clang and
+C++20 or newer. `.cppm`/`.ixx` sources are module interfaces; ordinary built-in
+C++ sources are implementation units. Interface actions emit object plus `.pcm`
+BMI outputs, later interfaces depend on earlier interfaces, and implementations
+depend on every interface BMI. The interface basename is the BMI lookup name, so
+`src/math.cppm` must declare `export module math;`; basenames must be unique and
+interfaces that import another interface must follow it in the `sources` list.
+This release deliberately uses declaration order as a safe dependency superset
+instead of embedding a compiler-specific import scanner. Unity batches only target-local ordinary C++
+implementation sources and never merge C, ASM, module interfaces, GLP sources,
+or source ownership across targets. Strategy action ids and the actual PCH,
+module, and unity commands are recorded in `compile_commands.json` for both
+Stella and Ninja.
+
 ## Generic Artifact Workflow
 
 ```lua

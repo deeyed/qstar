@@ -211,6 +211,7 @@ static int copy_static_inputs(struct qstar_string_list *dst,
 
 enum qstar_sched_node_kind {
 	QSTAR_SCHED_COMPILE,
+	QSTAR_SCHED_CXX_PCH,
 	QSTAR_SCHED_FINAL,
 	QSTAR_SCHED_OBJECTLIB,
 	QSTAR_SCHED_GENERATE,
@@ -393,6 +394,7 @@ progress_stage_name(const struct qstar_sched_node *node)
 {
 	switch (node->kind) {
 	case QSTAR_SCHED_COMPILE:
+	case QSTAR_SCHED_CXX_PCH:
 		return "compiling";
 	case QSTAR_SCHED_FINAL:
 		return final_stage_name(node->target);
@@ -4264,6 +4266,8 @@ target_source_object_input(struct qstar_graph *graph, const struct qstar_target 
     size_t index, char *dst, size_t dstlen)
 {
 	struct qstar_source_info source;
+	size_t batch;
+	int leader;
 
 	if (qstar_target_source_classify(target, index, &source) < 0)
 		return qstar_set_error(graph, "qstar: unsupported source '%s'",
@@ -4272,7 +4276,19 @@ target_source_object_input(struct qstar_graph *graph, const struct qstar_target 
 		return snprintf(dst, dstlen, "%s", target->sources.items[index]) <
 		    (int)dstlen ? 0 : -1;
 	}
+	if (qstar_cxx_unity_source_info(target, index, &batch, &leader))
+		return leader ? qstar_cxx_unity_object_path(graph, target, batch, dst,
+		    dstlen) : 1;
 	return qstar_graph_object_output_path(graph, target, index, dst, dstlen);
+}
+
+static int
+target_source_emits_object(const struct qstar_target *target, size_t index)
+{
+	size_t batch;
+	int leader;
+
+	return !qstar_cxx_unity_source_info(target, index, &batch, &leader) || leader;
 }
 
 /** objectlib가 consumer context에서 compile되는지 확인한다. */
@@ -4290,6 +4306,8 @@ objectlib_source_object_input(struct qstar_graph *graph,
     size_t index, char *dst, size_t dstlen)
 {
 	struct qstar_source_info source;
+	size_t batch;
+	int leader;
 
 	if (qstar_target_source_classify(objectlib, index, &source) < 0)
 		return qstar_set_error(graph, "qstar: unsupported source '%s'",
@@ -4297,6 +4315,10 @@ objectlib_source_object_input(struct qstar_graph *graph,
 	if (qstar_source_is_link_object(&source))
 		return snprintf(dst, dstlen, "%s", objectlib->sources.items[index]) <
 		    (int)dstlen ? 0 : -1;
+	if (!objectlib_uses_consumer_context(objectlib) &&
+	    qstar_cxx_unity_source_info(objectlib, index, &batch, &leader))
+		return leader ? qstar_cxx_unity_object_path(graph, objectlib, batch, dst,
+		    dstlen) : 1;
 	if (objectlib_uses_consumer_context(objectlib))
 		return qstar_graph_consumer_object_output_path(graph, consumer, objectlib,
 		    index, dst, dstlen);
@@ -4349,6 +4371,8 @@ append_objectlib_objects(struct qstar_graph *graph, const struct qstar_target *t
 			    "qstar: unknown objectlib '%s' referenced by '%s'",
 			    target->objects.items[i], target->label);
 		for (j = 0; j < objectlib->sources.len; j++) {
+			if (!target_source_emits_object(objectlib, j))
+				continue;
 			if (objectlib_source_object_input(graph, target, objectlib, j, object,
 			    sizeof(object)) < 0)
 				return qstar_set_error(graph,
@@ -4381,6 +4405,8 @@ append_objectlib_inputs(struct qstar_graph *graph, const struct qstar_target *ta
 			    "qstar: unknown objectlib '%s' referenced by '%s'",
 			    target->objects.items[i], target->label);
 		for (j = 0; j < objectlib->sources.len; j++) {
+			if (!target_source_emits_object(objectlib, j))
+				continue;
 			if (objectlib_source_object_input(graph, target, objectlib, j, object,
 			    sizeof(object)) < 0)
 				return qstar_set_error(graph,
@@ -4401,7 +4427,12 @@ target_compile_input_count(const struct qstar_target *target)
 
 	count = 0;
 	for (i = 0; i < target->sources.len; i++) {
+		size_t batch;
+		int leader;
+
 		if (qstar_target_provider_final_owns_source(target, i))
+			continue;
+		if (qstar_cxx_unity_source_info(target, i, &batch, &leader) && !leader)
 			continue;
 		if (qstar_target_source_classify(target, i, &source) == 0 &&
 		    qstar_source_requires_compile(&source))
@@ -4448,6 +4479,15 @@ generated_output_in_list(const struct qstar_genrule *genrule, const struct qstar
 static int
 target_consumes_genrule(const struct qstar_target *target, const struct qstar_genrule *genrule)
 {
+	size_t i;
+
+	if (target->cxx_precompiled_header && *target->cxx_precompiled_header) {
+		for (i = 0; i < genrule->outputs.len; i++) {
+			if (strcmp(genrule->outputs.items[i],
+			    target->cxx_precompiled_header) == 0)
+				return 1;
+		}
+	}
 	return generated_output_in_list(genrule, &target->sources) ||
 	    generated_output_in_list(genrule, &target->public_headers) ||
 	    generated_output_in_list(genrule, &target->private_headers) ||
@@ -5724,10 +5764,11 @@ validate_compile_source(struct qstar_graph *graph, const struct qstar_target *ta
 		    "sources", target->label,
 		    "qstar: header source '%s' must be listed as lang.*.public_headers/private_headers",
 		    target->sources.items[index]);
-	if (qstar_source_is_cxx_module(source))
+	if (qstar_source_is_cxx_module(source) && !target->cxx_modules_enabled)
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
 		    "sources", target->label,
-		    "qstar: C++ modules are not supported in QStar local executor v1");
+		    "qstar: C++ module interface source '%s' requires lang.cxx.modules.enabled = true",
+		    target->sources.items[index]);
 	if (!qstar_graph_language_provider_is_available(graph, source->provider) ||
 	    !qstar_source_toolset_role(source)[0])
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
@@ -5958,6 +5999,155 @@ push_dependency_usage_inputs(struct qstar_graph *graph,
 	return rc;
 }
 
+/** Target-local C++ precompiled header action을 준비한다. */
+static int
+prepare_cxx_pch_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
+    struct qstar_prepared_action *action)
+{
+	struct qstar_string_list includes, inputs, outputs, dep_inputs;
+	char output[QSTAR_PATH_MAX], std_arg[128];
+	size_t i;
+
+	memset(action, 0, sizeof(*action));
+	memset(&includes, 0, sizeof(includes));
+	memset(&inputs, 0, sizeof(inputs));
+	memset(&outputs, 0, sizeof(outputs));
+	memset(&dep_inputs, 0, sizeof(dep_inputs));
+	action->target = target;
+	action->toolchain = toolchain;
+	action->source_index = (size_t)-1;
+	action->wants_depfile = 1;
+	snprintf(action->kind, sizeof(action->kind), "compile");
+	snprintf(action->id, sizeof(action->id), "%s:cxx-pch:0", target->label);
+	snprintf(action->source_path, sizeof(action->source_path), "%s",
+	    target->cxx_precompiled_header);
+	if (qstar_cxx_pch_output_path(graph, target, toolchain, output,
+	    sizeof(output)) < 0 || snprintf(action->depfile, sizeof(action->depfile),
+	    "%s.d", output) >= (int)sizeof(action->depfile) ||
+	    mkdir_parent_under_root(graph, output) < 0)
+		return qstar_set_error(graph, "qstar: C++ PCH output path is invalid");
+	if (collect_compile_include_dirs(graph, target, &includes) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	if (prepared_action_push_tool_role(graph, action, target, "cxx.compiler",
+	    toolchain->cxx) < 0 || prepared_action_push_argv(graph, action, "-x") < 0 ||
+	    prepared_action_push_argv(graph, action, "c++-header") < 0 ||
+	    prepared_action_push_argv(graph, action, "-c") < 0 ||
+	    prepared_action_push_argv(graph, action, target->cxx_precompiled_header) < 0 ||
+	    prepared_action_push_argv(graph, action, "-o") < 0 ||
+	    prepared_action_push_argv(graph, action, output) < 0 ||
+	    prepared_action_push_argv(graph, action, "-MMD") < 0 ||
+	    prepared_action_push_argv(graph, action, "-MF") < 0 ||
+	    prepared_action_push_argv(graph, action, action->depfile) < 0)
+		goto fail;
+	if (target->cxx_standard && *target->cxx_standard) {
+		snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
+		if (prepared_action_push_argv(graph, action, std_arg) < 0)
+			goto fail;
+	}
+	if (prepared_action_push_dependency_usage(graph, action, target, 0) < 0)
+		goto fail;
+	for (i = 0; i < target->cxxflags.len; i++) {
+		if (prepared_action_push_argv(graph, action, target->cxxflags.items[i]) < 0)
+			goto fail;
+	}
+	for (i = 0; i < includes.len; i++) {
+		if (prepared_action_push_argv(graph, action, "-I") < 0 ||
+		    prepared_action_push_argv(graph, action, includes.items[i]) < 0)
+			goto fail;
+	}
+	for (i = 0; i < target->system_include_dirs.len; i++) {
+		if (prepared_action_push_argv(graph, action, "-isystem") < 0 ||
+		    prepared_action_push_argv(graph, action,
+		    target->system_include_dirs.items[i]) < 0)
+			goto fail;
+	}
+	if (qstar_string_list_push(&inputs, target->cxx_precompiled_header) < 0 ||
+	    qstar_string_list_push(&outputs, output) < 0 ||
+	    push_target_header_inputs(graph, target, &inputs) < 0 ||
+	    push_dependency_usage_inputs(graph, target, 0, &inputs) < 0)
+		goto oom;
+	if (!ctx->lowering_cache_prepare && push_depfile_inputs(graph, ctx,
+	    action->depfile, &dep_inputs) < 0)
+		goto fail_lists;
+	for (i = 0; i < dep_inputs.len; i++) {
+		if (!string_list_contains(&inputs, dep_inputs.items[i]) &&
+		    qstar_string_list_push(&inputs, dep_inputs.items[i]) < 0)
+			goto oom;
+	}
+	if (!ctx->lowering_cache_prepare &&
+	    strcmp(qstar_graph_compile_commands_policy(graph), "off") != 0 &&
+	    compile_db_push(ctx, graph->package_root ? graph->package_root : ".",
+	    target->cxx_precompiled_header, output, action->argv) < 0)
+		goto oom;
+	if (!ctx->lowering_cache_prepare)
+		compute_action_key(ctx, graph, target, toolchain, action->id, action->kind,
+		    action->argv, NULL, &inputs, &dep_inputs, output, action->key,
+		    sizeof(action->key), &action->material);
+	snprintf(action->description, sizeof(action->description), "CXX PCH %s",
+	    target->cxx_precompiled_header);
+	action->inputs = inputs;
+	action->outputs = outputs;
+	action->depfile_inputs = dep_inputs;
+	qstar_string_list_free(&includes);
+	return 0;
+oom:
+	qstar_set_error(graph, "qstar: out of memory");
+fail_lists:
+	qstar_string_list_free(&inputs);
+	qstar_string_list_free(&outputs);
+	qstar_string_list_free(&dep_inputs);
+fail:
+	qstar_string_list_free(&includes);
+	prepared_action_free(action);
+	return -1;
+}
+
+static int
+run_cxx_pch(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain)
+{
+	struct qstar_prepared_action action;
+	int rc;
+
+	if (!target->cxx_precompiled_header || !*target->cxx_precompiled_header)
+		return 0;
+	if (prepare_cxx_pch_action(graph, ctx, target, toolchain, &action) < 0)
+		return -1;
+	rc = run_action(graph, ctx, target, action.id, action.kind, action.key,
+	    &action.outputs, action.argv, toolchain, &action.material,
+	    action.description);
+	if (rc == 0)
+		rc = check_action_depfile(graph, ctx, &action);
+	if (rc == 0)
+		rc = refresh_action_state_after_depfile(graph, ctx, target, toolchain,
+		    &action);
+	prepared_action_free(&action);
+	return rc;
+}
+
+static void
+format_compile_action_id(const struct qstar_target *target,
+    const struct qstar_target *source_owner, size_t source_index,
+    size_t action_index, char *id, size_t idlen)
+{
+	size_t batch;
+	int leader;
+
+	if (source_owner == target && qstar_cxx_unity_source_info(target,
+	    source_index, &batch, &leader) && leader)
+		snprintf(id, idlen, "%s:compile-unity-%zu:0", target->label, batch);
+	else if (qstar_cxx_source_is_module_interface(source_owner, source_index))
+		snprintf(id, idlen, "%s:compile-module-interface-%zu:0", target->label,
+		    action_index);
+	else if (qstar_cxx_source_is_implementation(source_owner, source_index) &&
+	    target->cxx_modules_enabled)
+		snprintf(id, idlen, "%s:compile-module-implementation-%zu:0",
+		    target->label, action_index);
+	else
+		snprintf(id, idlen, "%s:compile:%zu", target->label, action_index);
+}
+
 /** C/C++/ASM source 하나를 주어진 target context 안의 compile action으로 준비한다. */
 static int
 prepare_compile_action_from_source(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
@@ -5968,48 +6158,95 @@ prepare_compile_action_from_source(struct qstar_graph *graph, struct qstar_build
 {
 	struct qstar_source_info source;
 	const struct qstar_provider_source_unit *provider_unit;
-	char object[QSTAR_PATH_MAX], std_arg[128];
+	char object[QSTAR_PATH_MAX], std_arg[128], unity_source[QSTAR_PATH_MAX];
+	char pch_output[QSTAR_PATH_MAX], pch_include[QSTAR_PATH_MAX];
+	char module_dir[QSTAR_PATH_MAX], module_flag[QSTAR_PATH_MAX + 32];
+	char bmi_output[QSTAR_PATH_MAX], bmi_flag[QSTAR_PATH_MAX + 32];
 	const char *role;
 	const char *compiler;
+	const char *compile_input;
 	struct qstar_string_list inputs, dep_inputs, outputs, includes;
-	int wants_depfile, is_asm, is_cxx, provider_source;
-	size_t i;
+	struct qstar_string_list unity_sources, module_inputs;
+	int wants_depfile, is_asm, is_cxx, provider_source, unity_leader;
+	int module_interface;
+	size_t i, unity_batch;
 
 	memset(action, 0, sizeof(*action));
 	action->target = target;
 	action->toolchain = toolchain;
 	snprintf(action->kind, sizeof(action->kind), "compile");
-	snprintf(action->source_path, sizeof(action->source_path), "%s",
-	    source_owner->sources.items[index]);
 	action->source_index = index;
 	qstar_target_source_classify(source_owner, index, &source);
 	if (validate_compile_source(graph, source_owner, toolchain, &source, index) < 0)
 		return -1;
-	if (object_override)
+	compile_input = source_owner->sources.items[index];
+	unity_batch = 0;
+	unity_leader = 0;
+	memset(&inputs, 0, sizeof(inputs));
+	memset(&dep_inputs, 0, sizeof(dep_inputs));
+	memset(&outputs, 0, sizeof(outputs));
+	memset(&includes, 0, sizeof(includes));
+	memset(&unity_sources, 0, sizeof(unity_sources));
+	memset(&module_inputs, 0, sizeof(module_inputs));
+	if (source_owner == target && qstar_cxx_unity_source_info(target, index,
+	    &unity_batch, &unity_leader)) {
+		if (!unity_leader) {
+			qstar_set_error(graph,
+			    "qstar: internal C++ unity lowering selected a non-leader source");
+			goto fail;
+		}
+		if (qstar_cxx_materialize_unity_source(graph, target, unity_batch,
+		    unity_source, sizeof(unity_source)) < 0 ||
+		    qstar_cxx_unity_batch_sources(target, unity_batch, &unity_sources) < 0)
+			goto fail;
+		compile_input = unity_source;
+	}
+	snprintf(action->source_path, sizeof(action->source_path), "%s", compile_input);
+	if (source_owner == target && unity_leader) {
+		if (qstar_cxx_unity_object_path(graph, target, unity_batch, object,
+		    sizeof(object)) < 0) {
+			qstar_set_error(graph, "qstar: C++ unity object path too long");
+			goto fail;
+		}
+	} else if (object_override)
 		snprintf(object, sizeof(object), "%s", object_override);
 	else if (qstar_graph_object_output_path(graph, target, index, object,
-	    sizeof(object)) < 0)
-		return qstar_set_error(graph, "qstar: object output path too long");
-	if (depfile_override)
+	    sizeof(object)) < 0) {
+		qstar_set_error(graph, "qstar: object output path too long");
+		goto fail;
+	}
+	if (source_owner == target && unity_leader) {
+		if (qstar_cxx_unity_depfile_path(graph, target, unity_batch,
+		    action->depfile, sizeof(action->depfile)) < 0) {
+			qstar_set_error(graph, "qstar: C++ unity depfile path too long");
+			goto fail;
+		}
+	} else if (depfile_override)
 		snprintf(action->depfile, sizeof(action->depfile), "%s", depfile_override);
 	else if (qstar_graph_depfile_output_path(graph, target, index, action->depfile,
-	    sizeof(action->depfile)) < 0)
-		return qstar_set_error(graph, "qstar: depfile output path too long");
-	if (mkdir_parent_under_root(graph, object) < 0)
-		return qstar_set_error(graph, "qstar: could not create object output directory");
-	memset(&includes, 0, sizeof(includes));
-	if (collect_compile_include_dirs(graph, target, &includes) < 0)
-		return qstar_set_error(graph, "qstar: out of memory");
+	    sizeof(action->depfile)) < 0) {
+		qstar_set_error(graph, "qstar: depfile output path too long");
+		goto fail;
+	}
+	if (mkdir_parent_under_root(graph, object) < 0) {
+		qstar_set_error(graph, "qstar: could not create object output directory");
+		goto fail;
+	}
+	if (collect_compile_include_dirs(graph, target, &includes) < 0) {
+		qstar_set_error(graph, "qstar: out of memory");
+		goto fail;
+	}
 	is_asm = qstar_source_is_asm(&source);
 	is_cxx = strcmp(source.provider, "cxx") == 0;
+	module_interface = qstar_cxx_source_is_module_interface(source_owner, index);
 	provider_unit = qstar_target_provider_source_unit(source_owner, index);
 	provider_source = provider_unit != NULL;
 	if (provider_source && source_owner != target) {
-		qstar_string_list_free(&includes);
-		return qstar_set_error_origin(graph, source_owner->origin_file,
+		qstar_set_error_origin(graph, source_owner->origin_file,
 		    source_owner->origin_line, "sources", source_owner->label,
 		    "qstar: provider source token '%s' cannot be used from compile_context = \"consumer\" objectlib yet; use raw provider source strings or compile_context = \"own\"",
 		    source_owner->sources.items[index]);
+		goto fail;
 	}
 	wants_depfile = !provider_source &&
 	    (strcmp(source.provider, "c") == 0 || is_cxx ||
@@ -6021,22 +6258,22 @@ prepare_compile_action_from_source(struct qstar_graph *graph, struct qstar_build
 	    (provider_source ? 0 : is_asm ? target->asm_compile_options.len :
 	    is_cxx ? target->cxxflags.len : target->cflags.len) +
 	    18 > QSTAR_EXEC_MAX_ARGV) {
-		qstar_string_list_free(&includes);
-		return qstar_set_error(graph, "qstar: compile argv too long");
+		qstar_set_error(graph, "qstar: compile argv too long");
+		goto fail;
 	}
-	snprintf(action->id, sizeof(action->id), "%s:compile:%zu",
-	    target->label, action_index);
+	format_compile_action_id(target, source_owner, index, action_index,
+	    action->id, sizeof(action->id));
 	if (qstar_action_description_compile(source_owner, &source, object,
 	    action->description, sizeof(action->description)) < 0) {
-		qstar_string_list_free(&includes);
-		return qstar_set_error(graph, "qstar: compile action description too long");
+		qstar_set_error(graph, "qstar: compile action description too long");
+		goto fail;
 	}
 	if (provider_unit) {
 		if (provider_unit->action.argv.len == 0) {
-			qstar_string_list_free(&includes);
-			return qstar_set_error(graph,
+			qstar_set_error(graph,
 			    "qstar: provider source '%s' has no lowered command",
 			    target->sources.items[index]);
+			goto fail;
 		}
 		action->wants_depfile = provider_unit->action.wants_depfile;
 		if (provider_unit->action.depfile && *provider_unit->action.depfile)
@@ -6125,8 +6362,11 @@ oom_provider:
 		    "assembler-with-cpp" : "assembler") < 0)
 			goto fail;
 	}
+	if (module_interface && (prepared_action_push_argv(graph, action, "-x") < 0 ||
+	    prepared_action_push_argv(graph, action, "c++-module") < 0))
+		goto fail;
 	if (prepared_action_push_argv(graph, action, "-c") < 0 ||
-	    prepared_action_push_argv(graph, action, source_owner->sources.items[index]) < 0 ||
+	    prepared_action_push_argv(graph, action, compile_input) < 0 ||
 	    prepared_action_push_argv(graph, action, "-o") < 0 ||
 	    prepared_action_push_argv(graph, action, object) < 0)
 		goto fail;
@@ -6138,6 +6378,42 @@ oom_provider:
 	}
 	if (!provider_source && is_cxx && target->cxx_standard[0] &&
 	    prepared_action_push_argv(graph, action, std_arg) < 0)
+		goto fail;
+	if (!provider_source && is_cxx && target->cxx_precompiled_header &&
+	    *target->cxx_precompiled_header) {
+		if (qstar_cxx_pch_output_path(graph, target, toolchain, pch_output,
+		    sizeof(pch_output)) < 0 || qstar_cxx_pch_include_path(graph, target,
+		    toolchain, pch_include, sizeof(pch_include)) < 0)
+			goto fail;
+		if (strcmp(qstar_cxx_compiler_family(toolchain), "gcc") != 0) {
+			if (prepared_action_push_argv(graph, action, "-include-pch") < 0 ||
+			    prepared_action_push_argv(graph, action, pch_include) < 0)
+				goto fail;
+		} else if (prepared_action_push_argv(graph, action, "-include") < 0 ||
+		    prepared_action_push_argv(graph, action, pch_include) < 0) {
+			goto fail;
+		}
+	}
+	if (!provider_source && is_cxx && target->cxx_modules_enabled) {
+		if (qstar_cxx_module_dir_path(graph, target, module_dir,
+		    sizeof(module_dir)) < 0)
+			goto fail;
+		snprintf(module_flag, sizeof(module_flag), "-fprebuilt-module-path=%s",
+		    module_dir);
+		if (prepared_action_push_argv(graph, action, module_flag) < 0)
+			goto fail;
+		if (module_interface) {
+			if (qstar_cxx_module_output_path(graph, target, index, bmi_output,
+			    sizeof(bmi_output)) < 0 || mkdir_parent_under_root(graph,
+			    bmi_output) < 0)
+				goto fail;
+			snprintf(bmi_flag, sizeof(bmi_flag), "-fmodule-output=%s", bmi_output);
+			if (prepared_action_push_argv(graph, action, bmi_flag) < 0)
+				goto fail;
+		}
+	}
+	if (unity_leader && (prepared_action_push_argv(graph, action, "-iquote") < 0 ||
+	    prepared_action_push_argv(graph, action, ".") < 0))
 		goto fail;
 	if (prepared_action_push_dependency_usage(graph, action, target, 0) < 0)
 		goto fail;
@@ -6174,61 +6450,46 @@ oom_provider:
 	if (!ctx->lowering_cache_prepare &&
 	    strcmp(qstar_graph_compile_commands_policy(graph), "off") != 0 &&
 	    compile_db_push(ctx, graph->package_root ? graph->package_root : ".",
-	    source_owner->sources.items[index], object, action->argv) < 0) {
+	    compile_input, object, action->argv) < 0) {
 		goto oom;
 	}
-	memset(&inputs, 0, sizeof(inputs));
-	memset(&dep_inputs, 0, sizeof(dep_inputs));
-	memset(&outputs, 0, sizeof(outputs));
-	if (qstar_string_list_push(&inputs, source_owner->sources.items[index]) < 0 ||
-	    qstar_string_list_push(&outputs, object) < 0) {
-		qstar_string_list_free(&inputs);
-		qstar_string_list_free(&dep_inputs);
-		qstar_string_list_free(&outputs);
-		qstar_string_list_free(&includes);
-		return qstar_set_error(graph, "qstar: out of memory");
+	if (qstar_string_list_push(&inputs, compile_input) < 0 ||
+	    qstar_string_list_push(&outputs, object) < 0)
+		goto oom_inputs;
+	for (i = 0; i < unity_sources.len; i++) {
+		if (qstar_string_list_push(&inputs, unity_sources.items[i]) < 0)
+			goto oom_inputs;
 	}
-	if (push_target_header_inputs(graph, target, &inputs) < 0) {
-		qstar_string_list_free(&inputs);
-		qstar_string_list_free(&dep_inputs);
-		qstar_string_list_free(&outputs);
-		qstar_string_list_free(&includes);
-		return -1;
+	if (!provider_source && is_cxx && target->cxx_precompiled_header &&
+	    *target->cxx_precompiled_header &&
+	    qstar_string_list_push(&inputs, pch_output) < 0)
+		goto oom_inputs;
+	if (!provider_source && is_cxx && target->cxx_modules_enabled) {
+		if (qstar_cxx_collect_module_inputs(graph, target, index, &module_inputs) < 0)
+			goto oom_inputs;
+		for (i = 0; i < module_inputs.len; i++) {
+			if (qstar_string_list_push(&inputs, module_inputs.items[i]) < 0)
+				goto oom_inputs;
+		}
+		if (module_interface && qstar_string_list_push(&outputs, bmi_output) < 0)
+			goto oom_inputs;
 	}
-	if (push_dependency_usage_inputs(graph, target, 0, &inputs) < 0) {
-		qstar_string_list_free(&inputs);
-		qstar_string_list_free(&dep_inputs);
-		qstar_string_list_free(&outputs);
-		qstar_string_list_free(&includes);
-		return -1;
-	}
+	if (push_target_header_inputs(graph, target, &inputs) < 0)
+		goto fail_inputs;
+	if (push_dependency_usage_inputs(graph, target, 0, &inputs) < 0)
+		goto fail_inputs;
 	if (source_owner != target &&
-	    push_target_header_inputs(graph, source_owner, &inputs) < 0) {
-		qstar_string_list_free(&inputs);
-		qstar_string_list_free(&dep_inputs);
-		qstar_string_list_free(&outputs);
-		qstar_string_list_free(&includes);
-		return -1;
-	}
+	    push_target_header_inputs(graph, source_owner, &inputs) < 0)
+		goto fail_inputs;
 	if (!ctx->lowering_cache_prepare && wants_depfile &&
 	    push_depfile_inputs(graph, ctx, action->depfile,
-	    &dep_inputs) < 0) {
-		qstar_string_list_free(&inputs);
-		qstar_string_list_free(&dep_inputs);
-		qstar_string_list_free(&outputs);
-		qstar_string_list_free(&includes);
-		return -1;
-	}
+	    &dep_inputs) < 0)
+		goto fail_inputs;
 	for (i = 0; i < dep_inputs.len; i++) {
 		if (string_list_contains(&inputs, dep_inputs.items[i]))
 			continue;
-		if (qstar_string_list_push(&inputs, dep_inputs.items[i]) < 0) {
-			qstar_string_list_free(&inputs);
-			qstar_string_list_free(&dep_inputs);
-			qstar_string_list_free(&outputs);
-			qstar_string_list_free(&includes);
-			return qstar_set_error(graph, "qstar: out of memory");
-		}
+		if (qstar_string_list_push(&inputs, dep_inputs.items[i]) < 0)
+			goto oom_inputs;
 	}
 	if (!ctx->lowering_cache_prepare)
 		compute_action_key(ctx, graph, target, toolchain, action->id, "compile",
@@ -6238,12 +6499,30 @@ oom_provider:
 	action->depfile_inputs = dep_inputs;
 	action->outputs = outputs;
 	qstar_string_list_free(&includes);
+	qstar_string_list_free(&unity_sources);
+	qstar_string_list_free(&module_inputs);
 	return 0;
+oom_inputs:
+	qstar_set_error(graph, "qstar: out of memory");
+fail_inputs:
+	qstar_string_list_free(&inputs);
+	qstar_string_list_free(&dep_inputs);
+	qstar_string_list_free(&outputs);
+	qstar_string_list_free(&includes);
+	qstar_string_list_free(&unity_sources);
+	qstar_string_list_free(&module_inputs);
+	prepared_action_free(action);
+	return -1;
 oom:
 	qstar_string_list_free(&includes);
+	qstar_string_list_free(&unity_sources);
+	qstar_string_list_free(&module_inputs);
+	prepared_action_free(action);
 	return qstar_set_error(graph, "qstar: out of memory");
 fail:
 	qstar_string_list_free(&includes);
+	qstar_string_list_free(&unity_sources);
+	qstar_string_list_free(&module_inputs);
 	prepared_action_free(action);
 	return -1;
 }
@@ -6588,7 +6867,12 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		return qstar_set_error(graph, "qstar: out of memory");
 	}
 	for (i = 0, j = 0; i < target->sources.len; i++) {
+		size_t batch;
+		int leader;
+
 		if (qstar_target_provider_final_owns_source(target, i))
+			continue;
+		if (qstar_cxx_unity_source_info(target, i, &batch, &leader) && !leader)
 			continue;
 		qstar_target_source_classify(target, i, &source);
 		if (qstar_source_requires_compile(&source))
@@ -7356,6 +7640,8 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		return -1;
 	}
 	for (i = 0; i < target->sources.len; i++) {
+		if (!target_source_emits_object(target, i))
+			continue;
 		if (target_source_object_input(graph, target, i, object, sizeof(object)) < 0)
 			return qstar_set_error(graph, "qstar: object output path too long");
 		argv[argc++] = qstar_strdup(object);
@@ -7392,6 +7678,8 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	memset(&inputs, 0, sizeof(inputs));
 	memset(&outputs, 0, sizeof(outputs));
 	for (i = 0; i < target->sources.len; i++) {
+		if (!target_source_emits_object(target, i))
+			continue;
 		if (target_source_object_input(graph, target, i, object, sizeof(object)) < 0)
 			return qstar_set_error(graph, "qstar: object output path too long");
 		if (qstar_string_list_push(&inputs, object) < 0) {
@@ -7684,11 +7972,27 @@ lowered_cache_visit(struct qstar_graph *graph, const struct qstar_target *target
 	    strcmp(target->kind, "imported") == 0 || strcmp(target->kind, "tool") == 0)
 		return 0;
 	if (qstar_resolve_toolchain(graph, target, &toolchain) < 0 ||
+	    qstar_cxx_validate_strategies(graph, target, &toolchain) < 0 ||
 	    validate_noncompile_sources(graph, target, &toolchain) < 0)
 		return -1;
+	if (target->cxx_precompiled_header && *target->cxx_precompiled_header) {
+		if (prepare_cxx_pch_action(graph, &ctx->build, target, &toolchain,
+		    &action) < 0)
+			return -1;
+		if (cache_prepared_action(graph, &action, (size_t)-1) < 0) {
+			prepared_action_free(&action);
+			return -1;
+		}
+		prepared_action_free(&action);
+	}
 	for (i = 0; !objectlib_uses_consumer_context(target) &&
 	    i < target->sources.len; i++) {
+		size_t batch;
+		int leader;
+
 		if (qstar_target_provider_final_owns_source(target, i))
+			continue;
+		if (qstar_cxx_unity_source_info(target, i, &batch, &leader) && !leader)
 			continue;
 		qstar_target_source_classify(target, i, &source);
 		if (!qstar_source_requires_compile(&source))
@@ -7805,6 +8109,8 @@ build_target(struct qstar_graph *graph, const struct qstar_target *target, size_
 	}
 	if (qstar_resolve_toolchain(graph, target, &toolchain) < 0)
 		return -1;
+	if (qstar_cxx_validate_strategies(graph, target, &toolchain) < 0)
+		return -1;
 	fprintf(ctx->out,
 	    "resolved_tools owner=%s platform=%s toolset=%s resolver=%s cc=%s cxx=%s asm=%s ar=%s linker=%s\n",
 	    target->label, toolchain.platform,
@@ -7813,6 +8119,8 @@ build_target(struct qstar_graph *graph, const struct qstar_target *target, size_
 	if (validate_noncompile_sources(graph, target, &toolchain) < 0)
 		return -1;
 	if (run_generated_actions(graph, ctx, target) < 0)
+		return -1;
+	if (run_cxx_pch(graph, ctx, target, &toolchain) < 0)
 		return -1;
 	compile_count = target_compile_input_count(target);
 	if (strcmp(target->kind, "objectlib") == 0 &&
@@ -7827,7 +8135,12 @@ build_target(struct qstar_graph *graph, const struct qstar_target *target, size_
 	} else {
 		for (i = 0; !objectlib_uses_consumer_context(target) &&
 		    i < target->sources.len; i++) {
+			size_t batch;
+			int leader;
+
 			if (qstar_target_provider_final_owns_source(target, i))
+				continue;
+			if (qstar_cxx_unity_source_info(target, i, &batch, &leader) && !leader)
 				continue;
 			if (run_compile(graph, ctx, target, &toolchain, i) < 0)
 				return -1;
@@ -7853,6 +8166,8 @@ sched_kind_name(enum qstar_sched_node_kind kind)
 	switch (kind) {
 	case QSTAR_SCHED_COMPILE:
 		return "compile";
+	case QSTAR_SCHED_CXX_PCH:
+		return "cxx-pch";
 	case QSTAR_SCHED_FINAL:
 		return "final";
 	case QSTAR_SCHED_OBJECTLIB:
@@ -8566,6 +8881,8 @@ scheduler_create_target_nodes(struct qstar_scheduler *sched, const struct qstar_
 	toolchain = &sched->toolchains[target_index];
 	if (qstar_resolve_toolchain(graph, target, toolchain) < 0)
 		return -1;
+	if (qstar_cxx_validate_strategies(graph, target, toolchain) < 0)
+		return -1;
 	if (validate_sharedlib_platform(graph, target, toolchain) < 0)
 		return -1;
 	build_tracef(ctx,
@@ -8577,9 +8894,21 @@ scheduler_create_target_nodes(struct qstar_scheduler *sched, const struct qstar_
 	if (validate_noncompile_sources(graph, target, toolchain) < 0)
 		return -1;
 	compile_ordinal = 0;
+	if (target->cxx_precompiled_header && *target->cxx_precompiled_header) {
+		if (scheduler_add_node(sched, QSTAR_SCHED_CXX_PCH, target, NULL,
+		    (size_t)-1, compile_ordinal, &node_index) < 0)
+			return -1;
+		sched->nodes[node_index].toolchain = toolchain;
+		compile_ordinal++;
+	}
 	for (i = 0; !objectlib_uses_consumer_context(target) &&
 	    i < target->sources.len; i++) {
+		size_t batch;
+		int leader;
+
 		if (qstar_target_provider_final_owns_source(target, i))
+			continue;
+		if (qstar_cxx_unity_source_info(target, i, &batch, &leader) && !leader)
 			continue;
 		qstar_target_source_classify(target, i, &source);
 		if (!qstar_source_requires_compile(&source))
@@ -9034,7 +9363,10 @@ scheduler_connect_target_edges(struct qstar_scheduler *sched)
 		}
 		for (j = 0; j < sched->node_len; j++) {
 			node = &sched->nodes[j];
-			if (node->kind != QSTAR_SCHED_COMPILE || node->target != target)
+			if ((node->kind != QSTAR_SCHED_COMPILE &&
+			    node->kind != QSTAR_SCHED_CXX_PCH) || node->target != target)
+				continue;
+			if (node->kind == QSTAR_SCHED_CXX_PCH)
 				continue;
 			if (scheduler_add_edge(sched, j, final_node) < 0 ||
 			    scheduler_connect_compile_genrules(sched,
@@ -9042,6 +9374,58 @@ scheduler_connect_target_edges(struct qstar_scheduler *sched)
 			    scheduler_connect_dependency_usage_inputs(sched, target, j,
 			    0) < 0)
 				return -1;
+		}
+		for (j = 0; j < sched->node_len; j++) {
+			struct qstar_sched_node *dep = &sched->nodes[j];
+			size_t k;
+
+			if (dep->target != target || dep->kind != QSTAR_SCHED_CXX_PCH)
+				continue;
+			if (scheduler_add_target_file_item_edge(sched, target,
+			    "lang.cxx.precompiled_header", target->cxx_precompiled_header,
+			    j) < 0 || scheduler_connect_dependency_usage_inputs(sched,
+			    target, j, 0) < 0)
+				return -1;
+			for (k = 0; k < sched->node_len; k++) {
+				struct qstar_sched_node *user = &sched->nodes[k];
+				struct qstar_source_info source;
+
+				if (user->target != target || user->kind != QSTAR_SCHED_COMPILE ||
+				    qstar_target_source_classify(user->source_owner,
+				    user->source_index, &source) < 0 ||
+				    strcmp(source.provider, "cxx") != 0)
+					continue;
+				if (scheduler_add_edge(sched, j, k) < 0)
+					return -1;
+			}
+		}
+		if (target->cxx_modules_enabled) {
+			for (j = 0; j < sched->node_len; j++) {
+				struct qstar_sched_node *dep = &sched->nodes[j];
+				size_t k;
+
+				if (dep->target != target || dep->kind != QSTAR_SCHED_COMPILE ||
+				    !qstar_cxx_source_is_module_interface(dep->source_owner,
+				    dep->source_index))
+					continue;
+				for (k = 0; k < sched->node_len; k++) {
+					struct qstar_sched_node *user = &sched->nodes[k];
+
+					if (user->target != target || user->kind != QSTAR_SCHED_COMPILE ||
+					    user == dep)
+						continue;
+					if (qstar_cxx_source_is_module_interface(user->source_owner,
+					    user->source_index) && user->source_index < dep->source_index)
+						continue;
+					if (!qstar_cxx_source_is_module_interface(user->source_owner,
+					    user->source_index) &&
+					    !qstar_cxx_source_is_implementation(user->source_owner,
+					    user->source_index))
+						continue;
+					if (scheduler_add_edge(sched, j, k) < 0)
+						return -1;
+				}
+			}
 		}
 	}
 	return 0;
@@ -9191,9 +9575,21 @@ scheduler_prepare_process_node(struct qstar_scheduler *sched, size_t node_index)
 
 	if (node->action.id[0])
 		return 0;
+	if (node->kind == QSTAR_SCHED_CXX_PCH) {
+		snprintf(id, sizeof(id), "%s:cxx-pch:0", node->target->label);
+		rc = prepare_cached_action(sched->graph, sched->ctx, node->target,
+		    node->toolchain, id, "compile", &node->action);
+		if (rc < 0)
+			return -1;
+		if (rc > 0)
+			return 0;
+		return prepare_cxx_pch_action(sched->graph, sched->ctx, node->target,
+		    node->toolchain, &node->action);
+	}
 	if (node->kind == QSTAR_SCHED_COMPILE) {
-		snprintf(id, sizeof(id), "%s:compile:%zu", node->target->label,
-		    node->action_index);
+		format_compile_action_id(node->target,
+		    node->source_owner ? node->source_owner : node->target,
+		    node->source_index, node->action_index, id, sizeof(id));
 		action_kind = "compile";
 		rc = prepare_cached_action(sched->graph, sched->ctx, node->target,
 		    node->toolchain, id, action_kind, &node->action);
@@ -9248,7 +9644,8 @@ scheduler_node_is_process_action(const struct qstar_sched_node *node)
 {
 	if (!node)
 		return 0;
-	if (node->kind == QSTAR_SCHED_COMPILE || node->kind == QSTAR_SCHED_FINAL)
+	if (node->kind == QSTAR_SCHED_COMPILE || node->kind == QSTAR_SCHED_CXX_PCH ||
+	    node->kind == QSTAR_SCHED_FINAL)
 		return 1;
 	if (node->kind == QSTAR_SCHED_GENERATE)
 		return node->genrule && !node->genrule->config_header;
@@ -11737,10 +12134,44 @@ prepare_lazy_action_from_graph(struct qstar_graph *graph, const char *action_id,
 	}
 	if (qstar_resolve_toolchain(graph, target, &toolchain) < 0)
 		return -1;
+	if (qstar_cxx_validate_strategies(graph, target, &toolchain) < 0)
+		return -1;
 	memset(&prep_ctx, 0, sizeof(prep_ctx));
 	prep_ctx.out = stdout;
 	prep_ctx.lowering_cache_prepare = 1;
 	prep_ctx.action_timeout_sec = action_timeout_sec_from_env();
+	if (strcmp(kind, "cxx-pch") == 0 && index == 0)
+		return prepare_cxx_pch_action(graph, &prep_ctx, target, &toolchain,
+		    action);
+	if (strncmp(kind, "compile-unity-", 14) == 0 && index == 0) {
+		char *end;
+		unsigned long batch = strtoul(kind + 14, &end, 10);
+		size_t i, source_batch;
+		int leader;
+
+		if (!end || *end)
+			return qstar_set_error(graph, "qstar: invalid unity action id '%s'",
+			    action_id);
+		for (i = 0; i < target->sources.len; i++) {
+			if (qstar_cxx_unity_source_info(target, i, &source_batch, &leader) &&
+			    leader && source_batch == (size_t)batch)
+				return prepare_compile_action(graph, &prep_ctx, target,
+				    &toolchain, i, action);
+		}
+		return qstar_set_error(graph, "qstar: unity action batch is out of range");
+	}
+	if ((strncmp(kind, "compile-module-interface-", 25) == 0 ||
+	    strncmp(kind, "compile-module-implementation-", 30) == 0) && index == 0) {
+		const char *number = strncmp(kind, "compile-module-interface-", 25) == 0 ?
+		    kind + 25 : kind + 30;
+		char *end;
+		unsigned long source_index = strtoul(number, &end, 10);
+
+		if (!end || *end || source_index >= target->sources.len)
+			return qstar_set_error(graph, "qstar: module action index is out of range");
+		return prepare_compile_action(graph, &prep_ctx, target, &toolchain,
+		    (size_t)source_index, action);
+	}
 	if (strcmp(kind, "compile") == 0) {
 		if (index >= target->sources.len)
 			return qstar_set_error(graph, "qstar: compile action index out of range");

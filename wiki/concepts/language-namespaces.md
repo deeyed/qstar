@@ -55,6 +55,8 @@ qstar.executable "tool" {
     cxx = {
       standard = "c++20",
       include_dirs = {"include"},
+      precompiled_header = "include/pch.hpp",
+      unity = { enabled = false, batch_size = 8 },
       modules = { enabled = false },
     },
 	    asm = {
@@ -73,6 +75,11 @@ qstar.executable "bad" {
   include_dirs = {"include"},
 }
 ```
+
+Built-in C++ namespace의 `precompiled_header`, `unity`, `modules`는 Q281 opt-in strategy다.
+기본값은 모두 off다. Unity는 target 내부 C++ implementation source만 묶고 module interface,
+C, ASM, external GLP source를 합치지 않는다. C++ module interface는 `.cppm`/`.ixx`, 일반
+C++ source는 implementation unit으로 분류된다.
 
 Top-level language option은 reject된다. `include_dirs`는 `lang.c`, `lang.cxx`,
 `lang.asm` 안에서만 의미가 있다.

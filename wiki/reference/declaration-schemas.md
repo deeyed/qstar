@@ -85,6 +85,9 @@ qstar.executable "app" {
 
 - `qstar.variant.values`: 사용자가 자유롭게 이름을 정하는 deterministic metadata.
 - `lang.<provider>`: activated provider manifest의 dynamic option schema.
+- Built-in `lang.cxx` strategy: `precompiled_header` string,
+  `unity = {enabled, batch_size}`, `modules = {enabled}`의 strict schema. 세 strategy는
+  모두 기본 off이며 unknown nested field를 허용하지 않는다.
 - `qstar.import_module()` return table: 일반 Lua helper table이므로 검사하지 않음.
 - `qstar.command_spec`: 일반 module table 안에서 만들 수 있지만 command schema로 검사되고
   nested table까지 immutable snapshot이 된다. Root-only `qstar.command_set`은 non-empty

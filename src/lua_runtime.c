@@ -2123,11 +2123,21 @@ static int
 read_lang_cxx(lua_State *L, int lang, struct qstar_target *target, struct qstar_graph *graph)
 {
 	static const char *const allowed[] = {
-		"public_headers", "private_headers", "modules",
+		"public_headers", "private_headers", "precompiled_header", "unity", "modules",
 		"standard", "include_dirs", "public_include_dirs", "private_include_dirs",
 		"system_include_dirs", "compile_options", "defines", NULL
 	};
-	const char *standard;
+	static const struct qstar_lua_field_schema modules_schema[] = {
+		QSTAR_SCHEMA_FIELD("enabled", QSTAR_LUA_SCHEMA_BOOLEAN, "boolean"),
+		QSTAR_SCHEMA_END
+	};
+	static const struct qstar_lua_field_schema unity_schema[] = {
+		QSTAR_SCHEMA_FIELD("enabled", QSTAR_LUA_SCHEMA_BOOLEAN, "boolean"),
+		QSTAR_SCHEMA_FIELD("batch_size", QSTAR_LUA_SCHEMA_INTEGER, "integer"),
+		QSTAR_SCHEMA_END
+	};
+	const char *standard, *precompiled_header;
+	char resolved_pch[QSTAR_PATH_MAX];
 	int rc;
 
 	lua_getfield(L, lang, "cxx");
@@ -2170,6 +2180,17 @@ read_lang_cxx(lua_State *L, int lang, struct qstar_target *target, struct qstar_
 		if (!target->cxx_standard)
 			rc = qstar_set_error(graph, "qstar: out of memory");
 	}
+	precompiled_header = check_string_field(L, -1, "precompiled_header");
+	if (precompiled_header) {
+		if (!*precompiled_header || resolve_fragment_relative_path(precompiled_header,
+		    target->fragment_dir, resolved_pch, sizeof(resolved_pch)) < 0)
+			rc = qstar_set_error(graph,
+			    "qstar: lang.cxx.precompiled_header must be a non-empty package-relative path");
+		else if (replace_lua_string(&target->cxx_precompiled_header, resolved_pch,
+		    graph) < 0)
+			rc = -1;
+		target->cxx_pch_present = 1;
+	}
 	if (rc == 0)
 		rc = append_lang_include_self(graph, &target->include_dirs,
 		    &target->private_include_dirs);
@@ -2177,22 +2198,39 @@ read_lang_cxx(lua_State *L, int lang, struct qstar_target *target, struct qstar_
 		rc = append_lang_include_self(graph, &target->include_dirs,
 		    &target->public_include_dirs);
 	if (rc == 0) {
-		lua_getfield(L, -1, "modules");
+		lua_getfield(L, -1, "unity");
 		if (!lua_isnil(L, -1)) {
-			if (!lua_istable(L, -1)) {
-				lua_pop(L, 2);
-				return qstar_set_error(graph, "qstar: lang.cxx.modules must be a table");
-			}
-			target->cxx_modules_present = 1;
-			lua_getfield(L, -1, "enabled");
-			if (!lua_isnil(L, -1))
-				target->cxx_modules_enabled = lua_toboolean(L, -1) ? 1 : 0;
-			lua_pop(L, 1);
-			if (target->cxx_modules_enabled) {
+			if (!lua_istable(L, -1) ||
+			    qstar_lua_validate_declaration(L, -1, graph,
+			    "lang.cxx.unity", target->label, unity_schema) < 0) {
 				lua_pop(L, 2);
 				return qstar_set_error(graph,
-				    "qstar: C++ modules are not supported; set lang.cxx.modules.enabled = false");
+				    "qstar: lang.cxx.unity must be a table with enabled and batch_size");
 			}
+			target->cxx_unity_present = 1;
+			target->cxx_unity_enabled = check_bool_field(L, -1, "enabled", 0);
+			target->cxx_unity_batch_size = check_int_field(L, -1, "batch_size", 8);
+			if (target->cxx_unity_batch_size < 2 ||
+			    target->cxx_unity_batch_size > 1024) {
+				lua_pop(L, 2);
+				return qstar_set_error(graph,
+				    "qstar: lang.cxx.unity.batch_size must be between 2 and 1024");
+			}
+		}
+		lua_pop(L, 1);
+	}
+	if (rc == 0) {
+		lua_getfield(L, -1, "modules");
+		if (!lua_isnil(L, -1)) {
+			if (!lua_istable(L, -1) ||
+			    qstar_lua_validate_declaration(L, -1, graph,
+			    "lang.cxx.modules", target->label, modules_schema) < 0) {
+				lua_pop(L, 2);
+				return qstar_set_error(graph,
+				    "qstar: lang.cxx.modules must be a table with enabled");
+			}
+			target->cxx_modules_present = 1;
+			target->cxx_modules_enabled = check_bool_field(L, -1, "enabled", 0);
 		}
 		lua_pop(L, 1);
 	}
@@ -3978,6 +4016,9 @@ add_config(lua_State *L, const char *name, int table_index, const char *fragment
 		return qstar_lua_raise_declaration_error(L, graph, "qstar.config", label);
 	config->has_cxx_standard = nested_lang_field_present(L, table_index, "cxx",
 	    "standard");
+	config->has_cxx_precompiled_header = nested_lang_field_present(L, table_index, "cxx",
+	    "precompiled_header");
+	config->has_cxx_unity = nested_lang_field_present(L, table_index, "cxx", "unity");
 	config->has_asm_preprocess = nested_lang_field_present(L, table_index, "asm",
 	    "preprocess");
 	config->has_cxx_modules = nested_lang_field_present(L, table_index, "cxx",
@@ -4741,6 +4782,7 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 		target->test_manual = check_bool_field(L, table_index, "manual", 0);
 	}
 	if (!target->toolset || !target->artifact_name || !target->cxx_standard ||
+	    !target->cxx_precompiled_header ||
 	    !target->run_expect_contains || !target->run_expect_file ||
 	    !target->test_skip_reason)
 		return luaL_error(L, "qstar: out of memory");

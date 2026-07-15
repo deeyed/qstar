@@ -1076,6 +1076,14 @@ validate_target_file_inputs(struct qstar_graph *graph, const struct qstar_target
 			    "qstar: header file '%s' in '%s' does not exist under package root",
 			    path, target->label);
 	}
+	if (target->cxx_precompiled_header && *target->cxx_precompiled_header &&
+	    !(qstar_graph_path_is_generated(graph, target->cxx_precompiled_header) &&
+	    qstar_graph_find_output_owner(graph, target->cxx_precompiled_header)) &&
+	    !file_exists_under_root(graph, target->cxx_precompiled_header))
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "lang.cxx.precompiled_header", target->label,
+		    "qstar: precompiled header '%s' in '%s' does not exist under package root",
+		    target->cxx_precompiled_header, target->label);
 	for (i = 0; i < target->link_inputs.len; i++) {
 		path = target->link_inputs.items[i];
 		if (qstar_target_file_token_label(path, (char[QSTAR_PATH_MAX]){0},

@@ -38,15 +38,12 @@ qstar.executable "mixed" {
 ```lua
 qstar.executable "bad" {
   sources = {"src/module.cppm"},
-  lang = {
-    cxx = {
-      modules = { enabled = true },
-    },
-  },
 }
 ```
 
-C++ modules는 아직 skeleton만 있고 build executor는 stable diagnostic으로 막는다.
+`.cppm`/`.ixx` interface는 `lang.cxx.modules.enabled = true`와 C++20 이상이 필요하다.
+일반 mixed C/C++ target의 기본 동작은 바뀌지 않으며 PCH, unity, modules는 모두 명시적으로
+켜야 한다.
 
 ## 관련 CLI
 
@@ -58,5 +55,6 @@ qstar --file qstar.lua lint //:mixed
 
 ## 관련 diagnostic
 
-- `C++ modules are not supported`
+- `C++ module interface source requires lang.cxx.modules.enabled = true`
+- `lang.cxx.modules requires Clang in this release`
 - `QSTAR044 C++ source has no cxx_standard`

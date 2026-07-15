@@ -2,6 +2,7 @@ local M = {}
 
 function M.qstar_core()
   return {
+    "src/cxx.c",
     "src/daemon.c",
     "src/executor.c",
     "src/fmt.c",

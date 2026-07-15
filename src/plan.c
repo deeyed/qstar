@@ -943,12 +943,16 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	const struct qstar_provider_source_unit *provider_unit;
 	const struct qstar_language_provider *provider;
 	char id[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], std_arg[128];
+	char pch[QSTAR_PATH_MAX], pch_include[QSTAR_PATH_MAX];
+	char module_dir[QSTAR_PATH_MAX], module_flag[QSTAR_PATH_MAX + 32];
+	char bmi[QSTAR_PATH_MAX], bmi_flag[QSTAR_PATH_MAX + 32];
 	const char *role;
 	const char *tool;
 	struct qstar_string_list includes, usage_options, usage_inputs;
 	struct qstar_argv_dump dump;
 	size_t argc, i;
-	int is_asm, is_cxx, provider_source, wants_depfile;
+	int is_asm, is_cxx, provider_source, wants_depfile, unity_strategy;
+	size_t unity_batch;
 
 	memset(&includes, 0, sizeof(includes));
 	memset(&usage_options, 0, sizeof(usage_options));
@@ -956,16 +960,33 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	collect_compile_include_dirs(graph, target, &includes);
 	qstar_graph_collect_compile_usage(graph, target, &usage_options,
 	    &usage_inputs);
-	snprintf(id, sizeof(id), "%s:compile:%zu", target->label, action_index);
-	if (depfile_override)
-		snprintf(depfile, sizeof(depfile), "%s", depfile_override);
-	else
-		qstar_graph_depfile_output_path(graph, target, source_index, depfile,
-		    sizeof(depfile));
 	is_asm = qstar_source_is_asm(source);
 	is_cxx = strcmp(source->provider, "cxx") == 0;
 	provider_unit = qstar_target_provider_source_unit(source_owner, source_index);
 	provider_source = provider_unit != NULL;
+	unity_strategy = 0;
+	if (source_owner == target)
+		qstar_cxx_unity_source_info(target, source_index, &unity_batch,
+		    &unity_strategy);
+	if (unity_strategy)
+		snprintf(id, sizeof(id), "%s:compile-unity-%zu:0", target->label,
+		    unity_batch);
+	else if (qstar_cxx_source_is_module_interface(source_owner, source_index))
+		snprintf(id, sizeof(id), "%s:compile-module-interface-%zu:0",
+		    target->label, action_index);
+	else if (is_cxx && target->cxx_modules_enabled)
+		snprintf(id, sizeof(id), "%s:compile-module-implementation-%zu:0",
+		    target->label, action_index);
+	else
+		snprintf(id, sizeof(id), "%s:compile:%zu", target->label, action_index);
+	if (unity_strategy)
+		qstar_cxx_unity_depfile_path(graph, target, unity_batch, depfile,
+		    sizeof(depfile));
+	else if (depfile_override)
+		snprintf(depfile, sizeof(depfile), "%s", depfile_override);
+	else
+		qstar_graph_depfile_output_path(graph, target, source_index, depfile,
+		    sizeof(depfile));
 	wants_depfile = !provider_source &&
 	    (strcmp(source->provider, "c") == 0 || is_cxx ||
 	    qstar_source_uses_asm_preprocessor(target, source));
@@ -999,11 +1020,18 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	    (provider_source || is_asm ? 0 : target->system_include_dirs.len * 2) +
 	    (wants_depfile ? 3 : 0) +
 	    (!provider_source && is_asm ? 2 : 0) +
+	    (!provider_source && qstar_cxx_source_is_module_interface(source_owner,
+	    source_index) ? 2 : 0) +
 	    (strcmp(target->kind, "sharedlib") == 0 &&
 	    qstar_platform_supports_sharedlib(toolchain->platform) &&
 	    !qstar_platform_is_windows(toolchain->platform) && !provider_source &&
 	    !is_asm ? 1 : 0) +
 	    (!provider_source && is_cxx && target->cxx_standard[0] ? 1 : 0) +
+	    (!provider_source && is_cxx && target->cxx_precompiled_header &&
+	    *target->cxx_precompiled_header ? 2 : 0) +
+	    (!provider_source && is_cxx && target->cxx_modules_enabled ?
+	    (qstar_cxx_source_is_module_interface(source_owner, source_index) ? 2 : 1) : 0) +
+	    (!provider_source && is_cxx && unity_strategy ? 2 : 0) +
 	    usage_options.len +
 	    (provider_source ? 0 : is_asm ? target->asm_compile_options.len :
 	    is_cxx ? target->cxxflags.len : target->cflags.len);
@@ -1020,6 +1048,11 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 		argv_item(out, &dump, qstar_source_uses_asm_preprocessor(target, source) ?
 		    "assembler-with-cpp" : "assembler");
 	}
+	if (!provider_source && qstar_cxx_source_is_module_interface(source_owner,
+	    source_index)) {
+		argv_item(out, &dump, "-x");
+		argv_item(out, &dump, "c++-module");
+	}
 	argv_item(out, &dump, "-c");
 	argv_item(out, &dump, input);
 	argv_item(out, &dump, "-o");
@@ -1031,6 +1064,31 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	}
 	if (!provider_source && is_cxx && target->cxx_standard[0])
 		argv_item(out, &dump, std_arg);
+	if (!provider_source && is_cxx && target->cxx_precompiled_header &&
+	    *target->cxx_precompiled_header &&
+	    qstar_cxx_pch_output_path(graph, target, toolchain, pch, sizeof(pch)) == 0 &&
+	    qstar_cxx_pch_include_path(graph, target, toolchain, pch_include,
+	    sizeof(pch_include)) == 0) {
+		argv_item(out, &dump, strcmp(qstar_cxx_compiler_family(toolchain), "gcc") == 0 ?
+		    "-include" : "-include-pch");
+		argv_item(out, &dump, pch_include);
+	}
+	if (!provider_source && is_cxx && target->cxx_modules_enabled &&
+	    qstar_cxx_module_dir_path(graph, target, module_dir, sizeof(module_dir)) == 0) {
+		snprintf(module_flag, sizeof(module_flag), "-fprebuilt-module-path=%s",
+		    module_dir);
+		argv_item(out, &dump, module_flag);
+		if (qstar_cxx_source_is_module_interface(source_owner, source_index) &&
+		    qstar_cxx_module_output_path(graph, target, source_index, bmi,
+		    sizeof(bmi)) == 0) {
+			snprintf(bmi_flag, sizeof(bmi_flag), "-fmodule-output=%s", bmi);
+			argv_item(out, &dump, bmi_flag);
+		}
+	}
+	if (!provider_source && is_cxx && unity_strategy) {
+		argv_item(out, &dump, "-iquote");
+		argv_item(out, &dump, ".");
+	}
 	for (i = 0; i < usage_options.len; i++)
 		argv_item(out, &dump, usage_options.items[i]);
 	for (i = 0; !provider_source && !is_asm && !is_cxx && i < target->cflags.len; i++)
@@ -1969,7 +2027,8 @@ collect_doctor_tool_requirements(const struct qstar_plan *plan,
 			if (qstar_target_source_classify(plan->order[i], j,
 			    &source) < 0 || !source.compile_input)
 				continue;
-			if (strcmp(source.language, "cxx") == 0)
+			if (strcmp(source.language, "cxx") == 0 ||
+			    strcmp(source.language, "cxx-module") == 0)
 				req->cxx = 1;
 			else if (strcmp(source.language, "c") == 0 ||
 			    strcmp(source.language, "asm") == 0 ||
@@ -2018,6 +2077,38 @@ dump_depfile_doctor(FILE *out, const struct doctor_tool_requirements *req,
 	fprintf(out,
 	    "depfile-behavior compiler=%s platform=%s flags=-MMD,-MF status=%s behavior=%s\n",
 	    compiler, platform, status, behavior);
+}
+
+static void
+dump_cxx_strategy_doctor(FILE *out, const struct qstar_plan *plan)
+{
+	struct qstar_resolved_toolchain toolchain;
+	const struct qstar_target *target;
+	const char *family, *module_status;
+	size_t i;
+
+	for (i = 0; i < plan->len; i++) {
+		target = plan->order[i];
+		if ((!target->cxx_precompiled_header || !*target->cxx_precompiled_header) &&
+		    !target->cxx_unity_enabled && !target->cxx_modules_enabled)
+			continue;
+		if (qstar_resolve_toolchain(plan->graph, target, &toolchain) < 0)
+			continue;
+		family = qstar_cxx_compiler_family(&toolchain);
+		module_status = strcmp(family, "clang") == 0 ? "supported" :
+		    "unsupported";
+		fprintf(out,
+		    "cxx-strategy-capability target=%s compiler=%s family=%s pch=%s unity=%s modules=%s enabled_pch=%s enabled_unity=%s enabled_modules=%s\n",
+		    target->label, toolchain.cxx, family,
+		    strcmp(family, "clang") == 0 || strcmp(family, "apple-clang") == 0 ||
+		    strcmp(family, "gcc") == 0 ? "supported" : "unsupported",
+		    strcmp(family, "clang") == 0 || strcmp(family, "apple-clang") == 0 ||
+		    strcmp(family, "gcc") == 0 ? "supported" : "unsupported",
+		    module_status,
+		    target->cxx_precompiled_header && *target->cxx_precompiled_header ?
+		    "true" : "false", target->cxx_unity_enabled ? "true" : "false",
+		    target->cxx_modules_enabled ? "true" : "false");
+	}
 }
 
 static void
@@ -2145,6 +2236,15 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	dump_list(out, &target->cxxflags);
 	fputc('\n', out);
 	fprintf(out, "  cxx_standard %s\n", target->cxx_standard);
+	fprintf(out, "  lang.cxx.precompiled_header %s\n",
+	    target->cxx_precompiled_header && *target->cxx_precompiled_header ?
+	    target->cxx_precompiled_header : "<off>");
+	fprintf(out, "  lang.cxx.unity enabled=%s batch_size=%d batches=%zu\n",
+	    target->cxx_unity_enabled ? "true" : "false",
+	    target->cxx_unity_batch_size, qstar_cxx_unity_batch_count(target));
+	fprintf(out, "  lang.cxx.modules enabled=%s interfaces=%s\n",
+	    target->cxx_modules_enabled ? "true" : "false",
+	    qstar_cxx_target_has_module_interfaces(target) ? "present" : "absent");
 	if (strcmp(target->kind, "group") == 0) {
 		dump_progress_action_exclusion(out, "  ", target->label, "group");
 		fprintf(out, "  action group input=<deps> output=<none>\n");
@@ -2361,14 +2461,33 @@ dump_dry_run_compiles(FILE *out, const struct qstar_plan *plan,
 {
 	struct qstar_source_info source;
 	struct qstar_resolved_toolchain toolchain;
-	char output[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
-	size_t i;
+	char output[QSTAR_PATH_MAX], input[QSTAR_PATH_MAX];
+	char id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX], bmi[QSTAR_PATH_MAX];
+	size_t i, batch;
+	int leader;
 
 	if (qstar_resolve_toolchain(plan->graph, target, &toolchain) < 0)
 		return -1;
+	if (qstar_cxx_validate_strategies(plan->graph, target, &toolchain) < 0)
+		return -1;
+	if (target->cxx_precompiled_header && *target->cxx_precompiled_header) {
+		if (qstar_cxx_pch_output_path(plan->graph, target, &toolchain, output,
+		    sizeof(output)) < 0)
+			return qstar_set_error(plan->graph, "qstar: C++ PCH output path too long");
+		snprintf(id, sizeof(id), "%s:cxx-pch:0", target->label);
+		fprintf(out,
+		    "dry_run_step id=%s owner=%s kind=compile strategy=pch language=cxx tool=cxx-compiler toolset=%s input=%s output=%s execute=no\n",
+		    id, target->label,
+		    toolchain.toolset[0] ? toolchain.toolset : "<none>",
+		    target->cxx_precompiled_header, output);
+	}
 	for (i = 0; !objectlib_uses_consumer_context(target) &&
 	    i < target->sources.len; i++) {
 		if (qstar_target_provider_final_owns_source(target, i))
+			continue;
+		batch = 0;
+		leader = 0;
+		if (qstar_cxx_unity_source_info(target, i, &batch, &leader) && !leader)
 			continue;
 		qstar_target_source_classify(target, i, &source);
 		if (!qstar_source_requires_compile(&source)) {
@@ -2382,22 +2501,56 @@ dump_dry_run_compiles(FILE *out, const struct qstar_plan *plan,
 			    target->sources.items[i]);
 			continue;
 		}
-		if (qstar_graph_object_output_path(plan->graph, target, i, output,
-		    sizeof(output)) < 0)
+		snprintf(input, sizeof(input), "%s", target->sources.items[i]);
+		if (leader) {
+			if (qstar_cxx_unity_source_path(plan->graph, target, batch, input,
+			    sizeof(input)) < 0 || qstar_cxx_unity_object_path(plan->graph,
+			    target, batch, output, sizeof(output)) < 0)
+				return qstar_set_error(plan->graph,
+				    "qstar: C++ unity dry-run path too long");
+			snprintf(id, sizeof(id), "%s:compile-unity-%zu:0", target->label,
+			    batch);
+		} else if (qstar_graph_object_output_path(plan->graph, target, i, output,
+		    sizeof(output)) < 0) {
 			return qstar_set_error(plan->graph, "qstar: object output path too long");
-		snprintf(id, sizeof(id), "%s:compile:%zu", target->label, i);
+		} else if (qstar_cxx_source_is_module_interface(target, i)) {
+			snprintf(id, sizeof(id), "%s:compile-module-interface-%zu:0",
+			    target->label, i);
+		} else if (qstar_cxx_source_is_implementation(target, i) &&
+		    target->cxx_modules_enabled) {
+			snprintf(id, sizeof(id), "%s:compile-module-implementation-%zu:0",
+			    target->label, i);
+		} else {
+			snprintf(id, sizeof(id), "%s:compile:%zu", target->label, i);
+		}
 		if (qstar_action_description_compile(target, &source, output,
 		    description, sizeof(description)) < 0)
 			snprintf(description, sizeof(description), "<too-long>");
 		dump_action_description(out, "  ", id, description);
-		fprintf(out,
-		    "dry_run_step id=%s:compile:%zu owner=%s kind=compile language=%s "
-		    "tool=%s toolset=%s input=%s output=%s execute=no\n",
-		    target->label, i, target->label, source.language, source.tool_role,
-		    toolchain.toolset[0] ? toolchain.toolset : "<none>",
-		    target->sources.items[i], output);
+		if (leader || qstar_cxx_source_is_module_interface(target, i) ||
+		    (target->cxx_modules_enabled &&
+		    qstar_cxx_source_is_implementation(target, i))) {
+			fprintf(out,
+			    "dry_run_step id=%s owner=%s kind=compile strategy=%s language=%s "
+			    "tool=%s toolset=%s input=%s output=%s execute=no\n",
+			    id, target->label, leader ? "unity" :
+			    qstar_cxx_source_is_module_interface(target, i) ?
+			    "module-interface" : "module-implementation", source.language,
+			    source.tool_role,
+			    toolchain.toolset[0] ? toolchain.toolset : "<none>", input, output);
+		} else {
+			fprintf(out,
+			    "dry_run_step id=%s owner=%s kind=compile language=%s tool=%s "
+			    "toolset=%s input=%s output=%s execute=no\n",
+			    id, target->label, source.language, source.tool_role,
+			    toolchain.toolset[0] ? toolchain.toolset : "<none>", input, output);
+		}
+		if (qstar_cxx_source_is_module_interface(target, i) &&
+		    qstar_cxx_module_output_path(plan->graph, target, i, bmi,
+		    sizeof(bmi)) == 0)
+			fprintf(out, "  module_output role=bmi path=%s\n", bmi);
 		dump_compile_argv(out, target, target, plan->graph, &toolchain, &source,
-		    target->sources.items[i], output, i, i, NULL);
+		    input, output, i, i, NULL);
 	}
 	return 0;
 }
@@ -2695,27 +2848,28 @@ qstar_graph_doctor(struct qstar_graph *graph, FILE *out)
 	memset(&toolchain, 0, sizeof(toolchain));
 	memset(&tool_req, 0, sizeof(tool_req));
 	if (plan.len > 0 && qstar_resolve_toolchain(graph, plan.order[0], &toolchain) == 0) {
-			collect_doctor_tool_requirements(&plan, &tool_req);
-			fprintf(out,
-			    "toolset-sanity toolset=%s cc=%s cxx=%s ar=%s linker=%s "
-			    "platform=%s link_style=%s response_files=%s response_style=%s "
-			    "status=resolved\n",
-			    toolchain.toolset[0] ? toolchain.toolset : "<none>",
-			    toolchain.cc, toolchain.cxx, toolchain.ar,
-			    toolchain.linker, toolchain.platform, toolchain.link_style,
-			    toolchain.response_files ? "on" : "off", toolchain.response_style);
+		collect_doctor_tool_requirements(&plan, &tool_req);
+		fprintf(out,
+		    "toolset-sanity toolset=%s cc=%s cxx=%s ar=%s linker=%s "
+		    "platform=%s link_style=%s response_files=%s response_style=%s "
+		    "status=resolved\n",
+		    toolchain.toolset[0] ? toolchain.toolset : "<none>",
+		    toolchain.cc, toolchain.cxx, toolchain.ar,
+		    toolchain.linker, toolchain.platform, toolchain.link_style,
+		    toolchain.response_files ? "on" : "off", toolchain.response_style);
 		fprintf(out,
 		    "response-policy source=toolset effective_files=%s effective_style=%s\n",
 		    toolchain.response_files ? "on" : "off", toolchain.response_style);
 		dump_toolset_tool_doctor(out, graph, "cc", toolchain.cc, tool_req.cc);
-			dump_toolset_tool_doctor(out, graph, "cxx", toolchain.cxx,
-			    tool_req.cxx);
-			dump_toolset_tool_doctor(out, graph, "ar", toolchain.ar, tool_req.ar);
+		dump_toolset_tool_doctor(out, graph, "cxx", toolchain.cxx,
+		    tool_req.cxx);
+		dump_toolset_tool_doctor(out, graph, "ar", toolchain.ar, tool_req.ar);
 		dump_toolset_tool_doctor(out, graph, "linker", toolchain.linker,
 		    tool_req.linker);
 		dump_provider_tool_doctor(out, &plan, &tool_req);
 		dump_depfile_doctor(out, &tool_req, &toolchain);
 	}
+	dump_cxx_strategy_doctor(out, &plan);
 	if (qstar_path_join(graph->package_root ? graph->package_root : ".",
 	    qstar_graph_build_dir(graph), state_dir, sizeof(state_dir)) == 0) {
 		if (doctor_mkdir_p(state_dir) == 0 && access(state_dir, W_OK) == 0)

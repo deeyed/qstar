@@ -130,6 +130,11 @@ QStar가 하지 않는 일:
 - `make qstar-glp-v2-backend-parity-tests`는 Q280 v2 Graph IR, response file,
   source/final depfile, env/cache key, multi-output action-log/replay,
   compile_commands, Windows runtime/link-interface, Stella/Ninja parity gate다.
+- `make qstar-cxx-build-strategy-tests`는 Q281 C++ PCH, target-local unity batch,
+  `.cppm`/`.ixx` module interface와 일반 C++ implementation dependency, compiler
+  capability diagnostic, action identity, compile_commands, Stella/Ninja parity
+  gate다. PCH/unity는 Clang/GCC 계열, module BMI lowering은 upstream Clang과
+  C++20 이상에서만 opt-in으로 지원한다. C, ASM, GLP action에는 적용하지 않는다.
 - `.github/workflows/real-glp-compiler-validation.yml`은 이 real GLP compiler corpus를
   hosted Linux/macOS `workflow_dispatch` lane으로 실행한다. 기본
   `require_compilers=true` 정책에서는 Rust/Zig 설치 실패나 compiler missing skip을
@@ -553,7 +558,8 @@ qstar.staticlib "core" {
 언어 namespace:
 
 - `lang.c`: C headers, include dirs, defines, compile options
-- `lang.cxx`: C++ headers, include dirs, standard, modules skeleton, compile options
+- `lang.cxx`: C++ headers, include dirs, standard, compile options와 opt-in
+  `precompiled_header`, `unity`, `modules` strategy. 모든 기본값은 off다.
 - `lang.asm`: assembler include dirs, compile options, preprocess flag
 - `wiki/reference/language-providers.md`: built-in provider registry와 external object
   artifact bridge boundary

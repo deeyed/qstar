@@ -125,6 +125,56 @@ int qstar_label_package_path(const char *label, char *dst, size_t dstlen);
 int qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *target,
     struct qstar_resolved_toolchain *resolved);
 
+/** Resolved C++ compiler의 opt-in strategy capability family를 반환한다. */
+const char *qstar_cxx_compiler_family(const struct qstar_resolved_toolchain *resolved);
+
+/** Target의 opt-in C++ strategy와 compiler capability 조합을 검증한다. */
+int qstar_cxx_validate_strategies(struct qstar_graph *graph,
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *resolved);
+
+/** Source index가 unity batch 대상인지와 batch/leader metadata를 계산한다. */
+int qstar_cxx_unity_source_info(const struct qstar_target *target, size_t source_index,
+    size_t *batch, int *leader);
+
+/** Target의 C++ unity batch 수를 반환한다. */
+size_t qstar_cxx_unity_batch_count(const struct qstar_target *target);
+
+/** Unity batch가 소유한 source path를 list에 복사한다. */
+int qstar_cxx_unity_batch_sources(const struct qstar_target *target, size_t batch,
+    struct qstar_string_list *sources);
+
+/** Unity translation unit을 build tree에 deterministic하게 materialize한다. */
+int qstar_cxx_materialize_unity_source(struct qstar_graph *graph,
+    const struct qstar_target *target, size_t batch, char *path, size_t pathlen);
+
+/** C++ PCH/BMI/unity output path helpers다. */
+int qstar_cxx_pch_output_path(const struct qstar_graph *graph,
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *resolved,
+    char *dst, size_t dstlen);
+int qstar_cxx_pch_include_path(const struct qstar_graph *graph,
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *resolved,
+    char *dst, size_t dstlen);
+int qstar_cxx_module_output_path(const struct qstar_graph *graph,
+    const struct qstar_target *target, size_t source_index, char *dst, size_t dstlen);
+int qstar_cxx_module_dir_path(const struct qstar_graph *graph,
+    const struct qstar_target *target, char *dst, size_t dstlen);
+int qstar_cxx_unity_object_path(const struct qstar_graph *graph,
+    const struct qstar_target *target, size_t batch, char *dst, size_t dstlen);
+int qstar_cxx_unity_source_path(const struct qstar_graph *graph,
+    const struct qstar_target *target, size_t batch, char *dst, size_t dstlen);
+int qstar_cxx_unity_depfile_path(const struct qstar_graph *graph,
+    const struct qstar_target *target, size_t batch, char *dst, size_t dstlen);
+
+/** C++ module interface/implementation strategy classification helpers다. */
+int qstar_cxx_source_is_module_interface(const struct qstar_target *target,
+    size_t source_index);
+int qstar_cxx_source_is_implementation(const struct qstar_target *target,
+    size_t source_index);
+int qstar_cxx_target_has_module_interfaces(const struct qstar_target *target);
+int qstar_cxx_collect_module_inputs(const struct qstar_graph *graph,
+    const struct qstar_target *target, size_t source_index,
+    struct qstar_string_list *inputs);
+
 /** resolved toolchain에서 provider namespace와 role에 맞는 fallback tool을 찾는다. */
 const char *qstar_resolved_toolchain_provider_tool(
     const struct qstar_resolved_toolchain *resolved, const char *provider,

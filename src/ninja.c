@@ -379,11 +379,11 @@ validate_ninja_compile_source(struct qstar_graph *graph,
 		    "sources", source_owner->label,
 		    "qstar: header source '%s' must be listed as lang.*.public_headers/private_headers",
 		    source_owner->sources.items[index]);
-	if (qstar_source_is_cxx_module(source))
+	if (qstar_source_is_cxx_module(source) && !source_owner->cxx_modules_enabled)
 		return qstar_set_error_origin(graph, source_owner->origin_file,
 		    source_owner->origin_line,
 		    "sources", source_owner->label,
-		    "qstar: ninja backend MVP does not support C++ module source '%s'",
+		    "qstar: C++ module interface source '%s' requires lang.cxx.modules.enabled = true",
 		    source_owner->sources.items[index]);
 	if (!qstar_graph_language_provider_is_available(graph, source->provider) ||
 	    !qstar_source_toolset_role(source)[0])
@@ -401,6 +401,8 @@ target_source_object_input(struct qstar_graph *graph, const struct qstar_target 
     size_t index, char *dst, size_t dstlen)
 {
 	struct qstar_source_info source;
+	size_t batch;
+	int leader;
 
 	if (qstar_target_source_classify(target, index, &source) < 0)
 		return qstar_set_error(graph, "qstar: unsupported source '%s'",
@@ -409,7 +411,19 @@ target_source_object_input(struct qstar_graph *graph, const struct qstar_target 
 		return snprintf(dst, dstlen, "%s", target->sources.items[index]) <
 		    (int)dstlen ? 0 : -1;
 	}
+	if (qstar_cxx_unity_source_info(target, index, &batch, &leader))
+		return leader ? qstar_cxx_unity_object_path(graph, target, batch, dst,
+		    dstlen) : 1;
 	return qstar_graph_object_output_path(graph, target, index, dst, dstlen);
+}
+
+static int
+target_source_emits_object(const struct qstar_target *target, size_t index)
+{
+	size_t batch;
+	int leader;
+
+	return !qstar_cxx_unity_source_info(target, index, &batch, &leader) || leader;
 }
 
 /** objectlib가 consumer context에서 compile되는지 확인한다. */
@@ -427,6 +441,8 @@ objectlib_source_object_input(struct qstar_graph *graph,
     size_t index, char *dst, size_t dstlen)
 {
 	struct qstar_source_info source;
+	size_t batch;
+	int leader;
 
 	if (qstar_target_source_classify(objectlib, index, &source) < 0)
 		return qstar_set_error(graph, "qstar: unsupported source '%s'",
@@ -434,6 +450,10 @@ objectlib_source_object_input(struct qstar_graph *graph,
 	if (qstar_source_is_link_object(&source))
 		return snprintf(dst, dstlen, "%s", objectlib->sources.items[index]) <
 		    (int)dstlen ? 0 : -1;
+	if (!objectlib_uses_consumer_context(objectlib) &&
+	    qstar_cxx_unity_source_info(objectlib, index, &batch, &leader))
+		return leader ? qstar_cxx_unity_object_path(graph, objectlib, batch, dst,
+		    dstlen) : 1;
 	if (objectlib_uses_consumer_context(objectlib))
 		return qstar_graph_consumer_object_output_path(graph, consumer, objectlib,
 		    index, dst, dstlen);
@@ -486,6 +506,8 @@ ninja_argv_push_objectlib_objects(struct qstar_graph *graph, struct ninja_argv *
 			    "qstar: unknown objectlib '%s' referenced by '%s'",
 			    target->objects.items[i], target->label);
 		for (j = 0; j < objectlib->sources.len; j++) {
+			if (!target_source_emits_object(objectlib, j))
+				continue;
 			if (objectlib_source_object_input(graph, target, objectlib, j, object,
 			    sizeof(object)) < 0)
 				return qstar_set_error(graph,
@@ -513,6 +535,8 @@ write_objectlib_object_deps(struct qstar_graph *graph, FILE *f,
 			    "qstar: unknown objectlib '%s' referenced by '%s'",
 			    target->objects.items[i], target->label);
 		for (j = 0; j < objectlib->sources.len; j++) {
+			if (!target_source_emits_object(objectlib, j))
+				continue;
 			if (objectlib_source_object_input(graph, target, objectlib, j, object,
 			    sizeof(object)) < 0)
 				return qstar_set_error(graph,
@@ -1181,6 +1205,15 @@ generated_output_in_list(const struct qstar_genrule *genrule, const struct qstar
 static int
 target_consumes_genrule(const struct qstar_target *target, const struct qstar_genrule *genrule)
 {
+	size_t i;
+
+	if (target->cxx_precompiled_header && *target->cxx_precompiled_header) {
+		for (i = 0; i < genrule->outputs.len; i++) {
+			if (strcmp(genrule->outputs.items[i],
+			    target->cxx_precompiled_header) == 0)
+				return 1;
+		}
+	}
 	return generated_output_in_list(genrule, &target->sources) ||
 	    generated_output_in_list(genrule, &target->public_headers) ||
 	    generated_output_in_list(genrule, &target->private_headers) ||
@@ -2078,6 +2111,101 @@ emit_consumed_genrules(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	return 0;
 }
 
+/** Target-local C++ precompiled header를 Ninja edge로 lower한다. */
+static int
+emit_cxx_pch_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
+    const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain)
+{
+	struct ninja_argv argv;
+	struct qstar_string_list includes, action_outputs;
+	char output[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], out_dir[QSTAR_PATH_MAX];
+	char action_id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX], std_arg[128];
+	size_t i;
+
+	if (!target->cxx_precompiled_header || !*target->cxx_precompiled_header)
+		return 0;
+	memset(&argv, 0, sizeof(argv));
+	memset(&includes, 0, sizeof(includes));
+	memset(&action_outputs, 0, sizeof(action_outputs));
+	if (qstar_cxx_pch_output_path(graph, target, toolchain, output,
+	    sizeof(output)) < 0 || snprintf(depfile, sizeof(depfile), "%s.d", output) >=
+	    (int)sizeof(depfile) || path_dirname(output, out_dir, sizeof(out_dir)) < 0 ||
+	    mkdir_parent_under_root(graph, output) < 0 ||
+	    collect_compile_include_dirs(graph, target, &includes) < 0)
+		goto fail;
+	snprintf(action_id, sizeof(action_id), "%s:cxx-pch:0", target->label);
+	snprintf(description, sizeof(description), "CXX PCH %s",
+	    target->cxx_precompiled_header);
+	if (ninja_argv_push_tool_role(graph, &argv, target, toolchain,
+	    "cxx.compiler", toolchain->cxx) < 0 ||
+	    ninja_argv_push(graph, &argv, "-x") < 0 ||
+	    ninja_argv_push(graph, &argv, "c++-header") < 0 ||
+	    ninja_argv_push(graph, &argv, "-c") < 0 ||
+	    ninja_argv_push(graph, &argv, target->cxx_precompiled_header) < 0 ||
+	    ninja_argv_push(graph, &argv, "-o") < 0 ||
+	    ninja_argv_push(graph, &argv, output) < 0 ||
+	    ninja_argv_push(graph, &argv, "-MMD") < 0 ||
+	    ninja_argv_push(graph, &argv, "-MF") < 0 ||
+	    ninja_argv_push(graph, &argv, depfile) < 0)
+		goto fail;
+	if (target->cxx_standard && *target->cxx_standard) {
+		snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
+		if (ninja_argv_push(graph, &argv, std_arg) < 0)
+			goto fail;
+	}
+	if (ninja_argv_push_dependency_usage(graph, &argv, target, 0) < 0)
+		goto fail;
+	for (i = 0; i < target->cxxflags.len; i++) {
+		if (ninja_argv_push(graph, &argv, target->cxxflags.items[i]) < 0)
+			goto fail;
+	}
+	for (i = 0; i < includes.len; i++) {
+		if (ninja_argv_push(graph, &argv, "-I") < 0 ||
+		    ninja_argv_push(graph, &argv, includes.items[i]) < 0)
+			goto fail;
+	}
+	for (i = 0; i < target->system_include_dirs.len; i++) {
+		if (ninja_argv_push(graph, &argv, "-isystem") < 0 ||
+		    ninja_argv_push(graph, &argv, target->system_include_dirs.items[i]) < 0)
+			goto fail;
+	}
+	fprintf(ctx->ninja, "# qstar-action-id: %s\n", action_id);
+	fputs("build ", ctx->ninja);
+	ninja_path(ctx->ninja, output);
+	fputs(": qstar_compile ", ctx->ninja);
+	ninja_path(ctx->ninja, target->cxx_precompiled_header);
+	write_header_inputs(ctx->ninja, target);
+	if (write_dependency_usage_inputs(graph, ctx->ninja, target, 0, NULL) < 0)
+		goto fail;
+	fputc('\n', ctx->ninja);
+	fputs("  command = ", ctx->ninja);
+	if (qstar_string_list_push(&action_outputs, output) < 0)
+		goto fail;
+	if (write_edge_command(graph, ctx, action_id, toolchain, &argv, description,
+	    NULL, &action_outputs) < 0)
+		goto fail;
+	fputs("\n  depfile = ", ctx->ninja);
+	ninja_path(ctx->ninja, depfile);
+	fputs("\n  out_dir = ", ctx->ninja);
+	shell_arg(ctx->ninja, out_dir);
+	fputs("\n  description = ", ctx->ninja);
+	ninja_var_text(ctx->ninja, description);
+	fprintf(ctx->ninja, "\n  qstar_action_id = %s\n\n", action_id);
+	write_compile_command(ctx, graph->package_root ? graph->package_root : ".",
+	    target->cxx_precompiled_header, output, &argv);
+	ctx->edge_count++;
+	qstar_string_list_free(&includes);
+	qstar_string_list_free(&action_outputs);
+	ninja_argv_free(&argv);
+	return 0;
+fail:
+	qstar_string_list_free(&includes);
+	qstar_string_list_free(&action_outputs);
+	ninja_argv_free(&argv);
+	return graph->error[0] ? -1 : qstar_set_error(graph,
+	    "qstar: could not lower C++ PCH Ninja edge");
+}
+
 /** compile action 하나를 Ninja edge와 compile_commands record로 lower한다. */
 static int
 emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
@@ -2087,55 +2215,112 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 {
 	struct qstar_source_info source;
 	const struct qstar_provider_source_unit *provider_unit;
-	struct qstar_string_list includes;
+	struct qstar_string_list includes, unity_sources, module_inputs, action_outputs;
 	struct ninja_argv argv;
 	char object[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], out_dir[QSTAR_PATH_MAX];
 	char action_id[QSTAR_PATH_MAX];
-	char description[QSTAR_PATH_MAX], std_arg[128];
+	char description[QSTAR_PATH_MAX], std_arg[128], unity_source[QSTAR_PATH_MAX];
+	char pch_output[QSTAR_PATH_MAX], pch_include[QSTAR_PATH_MAX];
+	char module_dir[QSTAR_PATH_MAX], module_flag[QSTAR_PATH_MAX + 32];
+	char bmi_output[QSTAR_PATH_MAX], bmi_flag[QSTAR_PATH_MAX + 32];
+	const char *compile_input;
 	const char *compiler;
-	int is_asm, is_cxx, provider_source, wants_depfile;
-	size_t i;
+	int is_asm, is_cxx, provider_source, wants_depfile, unity_leader;
+	int module_interface;
+	size_t i, unity_batch;
 
 	memset(&argv, 0, sizeof(argv));
+	memset(&includes, 0, sizeof(includes));
+	memset(&unity_sources, 0, sizeof(unity_sources));
+	memset(&module_inputs, 0, sizeof(module_inputs));
+	memset(&action_outputs, 0, sizeof(action_outputs));
 	qstar_target_source_classify(source_owner, index, &source);
 	if (!qstar_source_requires_compile(&source))
 		return 0;
 	if (validate_ninja_compile_source(graph, source_owner, &source, index) < 0)
 		return -1;
-	if (object_override)
+	compile_input = source_owner->sources.items[index];
+	unity_batch = 0;
+	unity_leader = 0;
+	if (source_owner == target && qstar_cxx_unity_source_info(target, index,
+	    &unity_batch, &unity_leader)) {
+		if (!unity_leader) {
+			qstar_set_error(graph,
+			    "qstar: internal C++ unity lowering selected a non-leader source");
+			goto fail;
+		}
+		if (qstar_cxx_materialize_unity_source(graph, target, unity_batch,
+		    unity_source, sizeof(unity_source)) < 0 ||
+		    qstar_cxx_unity_batch_sources(target, unity_batch, &unity_sources) < 0)
+			goto fail;
+		compile_input = unity_source;
+	}
+	if (source_owner == target && unity_leader) {
+		if (qstar_cxx_unity_object_path(graph, target, unity_batch, object,
+		    sizeof(object)) < 0) {
+			qstar_set_error(graph, "qstar: ninja unity object path too long");
+			goto fail;
+		}
+	} else if (object_override)
 		snprintf(object, sizeof(object), "%s", object_override);
 	else if (qstar_graph_object_output_path(graph, target, index, object,
-	    sizeof(object)) < 0)
-		return qstar_set_error(graph, "qstar: ninja object output path too long");
-	if (depfile_override)
+	    sizeof(object)) < 0) {
+		qstar_set_error(graph, "qstar: ninja object output path too long");
+		goto fail;
+	}
+	if (source_owner == target && unity_leader) {
+		if (qstar_cxx_unity_depfile_path(graph, target, unity_batch, depfile,
+		    sizeof(depfile)) < 0) {
+			qstar_set_error(graph, "qstar: ninja unity depfile path too long");
+			goto fail;
+		}
+	} else if (depfile_override)
 		snprintf(depfile, sizeof(depfile), "%s", depfile_override);
 	else if (qstar_graph_depfile_output_path(graph, target, index, depfile,
-	    sizeof(depfile)) < 0)
-		return qstar_set_error(graph, "qstar: ninja depfile output path too long");
-	if (path_dirname(object, out_dir, sizeof(out_dir)) < 0)
-		return qstar_set_error(graph, "qstar: ninja object output path too long");
+	    sizeof(depfile)) < 0) {
+		qstar_set_error(graph, "qstar: ninja depfile output path too long");
+		goto fail;
+	}
+	if (path_dirname(object, out_dir, sizeof(out_dir)) < 0) {
+		qstar_set_error(graph, "qstar: ninja object output path too long");
+		goto fail;
+	}
 	if (mkdir_parent_under_root(graph, object) < 0 ||
-	    mkdir_parent_under_root(graph, depfile) < 0)
-		return qstar_set_error(graph, "qstar: could not create ninja object dir");
-	memset(&includes, 0, sizeof(includes));
-	if (collect_compile_include_dirs(graph, target, &includes) < 0)
-		return qstar_set_error(graph, "qstar: out of memory");
+	    mkdir_parent_under_root(graph, depfile) < 0) {
+		qstar_set_error(graph, "qstar: could not create ninja object dir");
+		goto fail;
+	}
+	if (collect_compile_include_dirs(graph, target, &includes) < 0) {
+		qstar_set_error(graph, "qstar: out of memory");
+		goto fail;
+	}
 	is_asm = qstar_source_is_asm(&source);
 	is_cxx = strcmp(source.provider, "cxx") == 0;
+	module_interface = qstar_cxx_source_is_module_interface(source_owner, index);
 	provider_unit = qstar_target_provider_source_unit(source_owner, index);
 	if (provider_unit && source_owner != target) {
-		qstar_string_list_free(&includes);
-		return qstar_set_error_origin(graph, source_owner->origin_file,
+		qstar_set_error_origin(graph, source_owner->origin_file,
 		    source_owner->origin_line, "sources", source_owner->label,
 		    "qstar: provider source token '%s' cannot be used from compile_context = \"consumer\" objectlib yet; use raw provider source strings or compile_context = \"own\"",
 		    source_owner->sources.items[index]);
+		goto fail;
 	}
 	provider_source = provider_unit != NULL;
 	wants_depfile = !provider_source &&
 	    (strcmp(source.provider, "c") == 0 || is_cxx ||
 	    qstar_source_uses_asm_preprocessor(target, &source));
-	snprintf(action_id, sizeof(action_id), "%s:compile:%zu", target->label,
-	    action_index);
+	if (unity_leader)
+		snprintf(action_id, sizeof(action_id), "%s:compile-unity-%zu:0",
+		    target->label, unity_batch);
+	else if (module_interface)
+		snprintf(action_id, sizeof(action_id), "%s:compile-module-interface-%zu:0",
+		    target->label, action_index);
+	else if (is_cxx && target->cxx_modules_enabled)
+		snprintf(action_id, sizeof(action_id),
+		    "%s:compile-module-implementation-%zu:0", target->label, action_index);
+	else
+		snprintf(action_id, sizeof(action_id), "%s:compile:%zu", target->label,
+		    action_index);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s",
 	    target->cxx_standard ? target->cxx_standard : "");
 	if (provider_unit) {
@@ -2193,6 +2378,9 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		    source_owner->sources.items[index], object, &argv);
 		ctx->edge_count++;
 		qstar_string_list_free(&includes);
+		qstar_string_list_free(&unity_sources);
+		qstar_string_list_free(&module_inputs);
+		qstar_string_list_free(&action_outputs);
 		ninja_argv_free(&argv);
 		return 0;
 	}
@@ -2213,8 +2401,11 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	    qstar_source_uses_asm_preprocessor(target, &source) ?
 	    "assembler-with-cpp" : "assembler") < 0))
 		goto fail;
+	if (module_interface && (ninja_argv_push(graph, &argv, "-x") < 0 ||
+	    ninja_argv_push(graph, &argv, "c++-module") < 0))
+		goto fail;
 	if (ninja_argv_push(graph, &argv, "-c") < 0 ||
-	    ninja_argv_push(graph, &argv, source_owner->sources.items[index]) < 0 ||
+	    ninja_argv_push(graph, &argv, compile_input) < 0 ||
 	    ninja_argv_push(graph, &argv, "-o") < 0 ||
 	    ninja_argv_push(graph, &argv, object) < 0)
 		goto fail;
@@ -2225,6 +2416,42 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		goto fail;
 	if (!provider_source && is_cxx && target->cxx_standard && target->cxx_standard[0] &&
 	    ninja_argv_push(graph, &argv, std_arg) < 0)
+		goto fail;
+	if (!provider_source && is_cxx && target->cxx_precompiled_header &&
+	    *target->cxx_precompiled_header) {
+		if (qstar_cxx_pch_output_path(graph, target, toolchain, pch_output,
+		    sizeof(pch_output)) < 0 || qstar_cxx_pch_include_path(graph, target,
+		    toolchain, pch_include, sizeof(pch_include)) < 0)
+			goto fail;
+		if (strcmp(qstar_cxx_compiler_family(toolchain), "gcc") != 0) {
+			if (ninja_argv_push(graph, &argv, "-include-pch") < 0 ||
+			    ninja_argv_push(graph, &argv, pch_include) < 0)
+				goto fail;
+		} else if (ninja_argv_push(graph, &argv, "-include") < 0 ||
+		    ninja_argv_push(graph, &argv, pch_include) < 0) {
+			goto fail;
+		}
+	}
+	if (!provider_source && is_cxx && target->cxx_modules_enabled) {
+		if (qstar_cxx_module_dir_path(graph, target, module_dir,
+		    sizeof(module_dir)) < 0)
+			goto fail;
+		snprintf(module_flag, sizeof(module_flag), "-fprebuilt-module-path=%s",
+		    module_dir);
+		if (ninja_argv_push(graph, &argv, module_flag) < 0)
+			goto fail;
+		if (module_interface) {
+			if (qstar_cxx_module_output_path(graph, target, index, bmi_output,
+			    sizeof(bmi_output)) < 0 || mkdir_parent_under_root(graph,
+			    bmi_output) < 0)
+				goto fail;
+			snprintf(bmi_flag, sizeof(bmi_flag), "-fmodule-output=%s", bmi_output);
+			if (ninja_argv_push(graph, &argv, bmi_flag) < 0)
+				goto fail;
+		}
+	}
+	if (unity_leader && (ninja_argv_push(graph, &argv, "-iquote") < 0 ||
+	    ninja_argv_push(graph, &argv, ".") < 0))
 		goto fail;
 	if (ninja_argv_push_dependency_usage(graph, &argv, target, 0) < 0)
 		goto fail;
@@ -2261,9 +2488,31 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	fprintf(ctx->ninja, "# qstar-action-id: %s\n", action_id);
 	fputs("build ", ctx->ninja);
 	ninja_path(ctx->ninja, object);
+	if (module_interface) {
+		fputc(' ', ctx->ninja);
+		ninja_path(ctx->ninja, bmi_output);
+	}
 	fprintf(ctx->ninja, ": %s ", wants_depfile ? "qstar_compile" :
 	    "qstar_compile_nodep");
-	ninja_path(ctx->ninja, source_owner->sources.items[index]);
+	ninja_path(ctx->ninja, compile_input);
+	for (i = 0; i < unity_sources.len; i++) {
+		fputc(' ', ctx->ninja);
+		ninja_path(ctx->ninja, unity_sources.items[i]);
+	}
+	if (!provider_source && is_cxx && target->cxx_precompiled_header &&
+	    *target->cxx_precompiled_header) {
+		fputc(' ', ctx->ninja);
+		ninja_path(ctx->ninja, pch_output);
+	}
+	if (!provider_source && is_cxx && target->cxx_modules_enabled) {
+		if (qstar_cxx_collect_module_inputs(graph, target, index,
+		    &module_inputs) < 0)
+			goto fail;
+		for (i = 0; i < module_inputs.len; i++) {
+			fputc(' ', ctx->ninja);
+			ninja_path(ctx->ninja, module_inputs.items[i]);
+		}
+	}
 	write_header_inputs(ctx->ninja, target);
 	if (source_owner != target)
 		write_header_inputs(ctx->ninja, source_owner);
@@ -2271,8 +2520,12 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		goto fail;
 	fputc('\n', ctx->ninja);
 	fputs("  command = ", ctx->ninja);
+	if (qstar_string_list_push(&action_outputs, object) < 0 ||
+	    (module_interface && qstar_string_list_push(&action_outputs,
+	    bmi_output) < 0))
+		goto fail;
 	if (write_edge_command(graph, ctx, action_id, toolchain, &argv, description,
-	    NULL, NULL) < 0)
+	    NULL, &action_outputs) < 0)
 		goto fail;
 	fputc('\n', ctx->ninja);
 	if (wants_depfile) {
@@ -2287,13 +2540,19 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	fputc('\n', ctx->ninja);
 	fprintf(ctx->ninja, "  qstar_action_id = %s\n\n", action_id);
 	write_compile_command(ctx, graph->package_root ? graph->package_root : ".",
-	    source_owner->sources.items[index], object, &argv);
+	    compile_input, object, &argv);
 	ctx->edge_count++;
 	qstar_string_list_free(&includes);
+	qstar_string_list_free(&unity_sources);
+	qstar_string_list_free(&module_inputs);
+	qstar_string_list_free(&action_outputs);
 	ninja_argv_free(&argv);
 	return 0;
 fail:
 	qstar_string_list_free(&includes);
+	qstar_string_list_free(&unity_sources);
+	qstar_string_list_free(&module_inputs);
+	qstar_string_list_free(&action_outputs);
 	ninja_argv_free(&argv);
 	return -1;
 }
@@ -2932,6 +3191,8 @@ emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		if (!qstar_source_requires_compile(&source) &&
 		    !qstar_source_is_link_object(&source))
 			continue;
+		if (!target_source_emits_object(target, i))
+			continue;
 		if (target_source_object_input(graph, target, i, object, sizeof(object)) < 0)
 			goto fail;
 		if (ninja_argv_push(graph, &argv, object) < 0)
@@ -2953,6 +3214,8 @@ emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 			goto fail;
 		if (!qstar_source_requires_compile(&source) &&
 		    !qstar_source_is_link_object(&source))
+			continue;
+		if (!target_source_emits_object(target, i))
 			continue;
 		if (target_source_object_input(graph, target, i, object, sizeof(object)) < 0)
 			goto fail;
@@ -3060,6 +3323,8 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		if (!qstar_source_requires_compile(&source) &&
 		    !qstar_source_is_link_object(&source))
 			continue;
+		if (!target_source_emits_object(target, i))
+			continue;
 		if (target_source_object_input(graph, target, i, object, sizeof(object)) < 0)
 			goto fail;
 		if (ninja_argv_push(graph, &argv, object) < 0)
@@ -3098,6 +3363,8 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 			goto fail;
 		if (!qstar_source_requires_compile(&source) &&
 		    !qstar_source_is_link_object(&source))
+			continue;
+		if (!target_source_emits_object(target, i))
 			continue;
 		if (target_source_object_input(graph, target, i, object, sizeof(object)) < 0)
 			goto fail;
@@ -3184,6 +3451,8 @@ emit_objectlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 			return -1;
 		if (!qstar_source_requires_compile(&source) &&
 		    !qstar_source_is_link_object(&source))
+			continue;
+		if (!target_source_emits_object(target, i))
 			continue;
 		if (target_source_object_input(graph, target, i, object, sizeof(object)) < 0)
 			return qstar_set_error(graph, "qstar: objectlib object path too long");
@@ -3718,13 +3987,22 @@ emit_target(struct qstar_graph *graph, const struct qstar_target *target, size_t
 		    target->label, target->kind);
 	if (qstar_resolve_toolchain(graph, target, &toolchain) < 0)
 		return -1;
+	if (qstar_cxx_validate_strategies(graph, target, &toolchain) < 0)
+		return -1;
 	if (emit_consumed_genrules(graph, ctx, target) < 0 ||
 	    emit_target_link_input_producers(graph, ctx, target) < 0 ||
 	    emit_dependency_usage_input_producers(graph, ctx, target) < 0)
 		return -1;
+	if (emit_cxx_pch_edge(graph, ctx, target, &toolchain) < 0)
+		return -1;
 	for (i = 0; !objectlib_uses_consumer_context(target) &&
 	    i < target->sources.len; i++) {
+		size_t batch;
+		int leader;
+
 		if (qstar_target_provider_final_owns_source(target, i))
+			continue;
+		if (qstar_cxx_unity_source_info(target, i, &batch, &leader) && !leader)
 			continue;
 		if (emit_compile_edge(graph, ctx, target, &toolchain, i) < 0)
 			return -1;

@@ -52,6 +52,8 @@ The intended v1 stable/beta/out-of-core surface split is tracked in
 - Stella native executor with compact progress output
 - Stella daemon beta opt-in workflow for repeated local builds and IDE read APIs
 - Ninja backend with `-G ninja` for C/C++/ASM and generated/custom graph actions
+- Opt-in C++ PCH, target-local unity batches, and Clang C++20 module interface/
+  implementation dependency lowering with Stella/Ninja parity
 - `compile_commands.json` generation for editor tooling
 - LSP and VSCode extension support for `qstar.lua`, `.qst`, and `.qsm`
 - Docs, manpages, action logs, replay, and AI-oriented documentation index

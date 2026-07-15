@@ -29,6 +29,11 @@ Current DSL surface:
 - authoring helpers: `qstar.files`, `qstar.join`, `qstar.copy`, `qstar.append`,
   `qstar.merge`, `qstar.extend`
 
+Built-in C++ compilation additionally supports opt-in
+`lang.cxx.precompiled_header`, `lang.cxx.unity`, and `lang.cxx.modules`.
+All three default to off. PCH and unity support Clang/GCC-family drivers;
+module BMI lowering is capability-gated to upstream Clang and C++20 or newer.
+
 Generic Language Provider (GLP) note: the current runtime preloads built-in
 `c`, `cxx`, and `asm` provider namespaces for C/C++/ASM source handling.
 `qstar.use_language("id")` first checks a project-local provider manifest at

@@ -601,7 +601,7 @@ test -f "$tmp/build/qstar/stella/manifest.json" || fail "missing Stella plan cac
 test -f "$tmp/build/qstar/stella/inputs.json" || fail "missing Stella plan cache inputs"
 test -f "$tmp/build/qstar/stella/graph.qsg" || fail "missing Stella graph cache"
 test -f "$tmp/build/qstar/stella/actions.qsa" || fail "missing Stella action plan cache"
-contains "$tmp/build/qstar/stella/manifest.json" "\"schema\":\"qstar-stella-plan-cache-v9\""
+contains "$tmp/build/qstar/stella/manifest.json" "\"schema\":\"qstar-stella-plan-cache-v10\""
 contains "$tmp/build/qstar/stella/actions.qsa" "qstar-stella-actions-cache-v2"
 test -f "$tmp/build/qstar/compile_commands.json" || fail "missing compile_commands.json"
 contains "$tmp/build/qstar/compile_commands.json" "src/main.c"
@@ -5269,15 +5269,15 @@ cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.staticlib "core" {
   lang = {
     cxx = {
-      modules = { enabled = true },
+      modules = { enabled = false, scanner = "legacy" },
     },
   },
 }
 EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/cxx-modules-enabled.out" 2> "$tmp/cxx-modules-enabled.err"; then
-	fail "enabled C++ modules unexpectedly succeeded"
+	fail "unknown C++ modules field unexpectedly succeeded"
 fi
-contains "$tmp/cxx-modules-enabled.err" "C++ modules are not supported; set lang.cxx.modules.enabled = false"
+contains "$tmp/cxx-modules-enabled.err" "unknown field 'scanner'"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.custom_target "g" {
   tool = "tools/gen.sh",
@@ -8710,7 +8710,7 @@ EOF
 if "$qstar" --file "$tmp/cxx-module/qstar.lua" build //:bad_module > "$tmp/cxx-module.out" 2> "$tmp/cxx-module.err"; then
 	fail "C++ module source unexpectedly built"
 fi
-contains "$tmp/cxx-module.err" "C++ modules are not supported"
+contains "$tmp/cxx-module.err" "requires lang.cxx.modules.enabled = true"
 
 step "language namespace surface"
 mkdir -p "$tmp/lang-surface/asm/include" "$tmp/lang-surface/src" "$tmp/lang-surface/include"

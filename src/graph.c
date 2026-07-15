@@ -259,6 +259,7 @@ free_target(struct qstar_target *target)
 	free(target->tool_path);
 	free(target->compile_context);
 	free(target->cxx_standard);
+	free(target->cxx_precompiled_header);
 	free(target->run_expect_contains);
 	free(target->run_expect_file);
 	free(target->toolset);
@@ -1223,6 +1224,8 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	target->tool_path = qstar_strdup("");
 	target->compile_context = qstar_strdup("own");
 	target->cxx_standard = qstar_strdup("");
+	target->cxx_precompiled_header = qstar_strdup("");
+	target->cxx_unity_batch_size = 8;
 	target->run_expect_contains = qstar_strdup("");
 	target->run_expect_file = qstar_strdup("");
 	target->description = qstar_strdup("");
@@ -1232,6 +1235,7 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	    !target->origin_file || !target->artifact_name ||
 	    !target->imported_artifact_kind || !target->tool_path ||
 	    !target->compile_context || !target->cxx_standard ||
+	    !target->cxx_precompiled_header ||
 	    !target->run_expect_contains || !target->run_expect_file ||
 	    !target->description || !target->test_skip_reason || !target->toolset) {
 		qstar_set_error(graph, "qstar: out of memory");
@@ -2132,6 +2136,10 @@ merge_config_scalars(struct qstar_graph *graph, struct qstar_target *target,
 	if (config->has_cxx_standard &&
 	    replace_string(&target->cxx_standard, options->cxx_standard) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
+	if (config->has_cxx_precompiled_header &&
+	    replace_string(&target->cxx_precompiled_header,
+	    options->cxx_precompiled_header) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
 	if (config->has_toolset &&
 	    replace_string(&target->toolset, options->toolset) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
@@ -2140,6 +2148,13 @@ merge_config_scalars(struct qstar_graph *graph, struct qstar_target *target,
 	if (config->has_cxx_modules) {
 		target->cxx_modules_present = options->cxx_modules_present;
 		target->cxx_modules_enabled = options->cxx_modules_enabled;
+	}
+	if (config->has_cxx_precompiled_header)
+		target->cxx_pch_present = options->cxx_pch_present;
+	if (config->has_cxx_unity) {
+		target->cxx_unity_present = options->cxx_unity_present;
+		target->cxx_unity_enabled = options->cxx_unity_enabled;
+		target->cxx_unity_batch_size = options->cxx_unity_batch_size;
 	}
 	return 0;
 }
@@ -4295,6 +4310,12 @@ dump_target(const struct qstar_graph *graph, const struct qstar_target *target, 
 	dump_list(out, &target->cxxflags);
 	fputc('\n', out);
 	fprintf(out, "  cxx_standard %s\n", target->cxx_standard);
+	fprintf(out, "  lang.cxx.precompiled_header %s\n",
+	    target->cxx_precompiled_header && *target->cxx_precompiled_header ?
+	    target->cxx_precompiled_header : "<off>");
+	fprintf(out, "  lang.cxx.unity enabled=%s batch_size=%d batches=%zu\n",
+	    target->cxx_unity_enabled ? "true" : "false",
+	    target->cxx_unity_batch_size, qstar_cxx_unity_batch_count(target));
 	fputs("  lang.asm.include_dirs ", out);
 	dump_list(out, &target->asm_include_dirs);
 	fputc('\n', out);
@@ -4406,6 +4427,13 @@ dump_config(const struct qstar_config *config, FILE *out)
 	fprintf(out, "  cxx_standard %s\n",
 	    config->has_cxx_standard && options->cxx_standard ?
 	    options->cxx_standard : "<unset>");
+	fprintf(out, "  lang.cxx.precompiled_header %s\n",
+	    config->has_cxx_precompiled_header && options->cxx_precompiled_header &&
+	    *options->cxx_precompiled_header ? options->cxx_precompiled_header : "<unset>");
+	fprintf(out, "  lang.cxx.unity %s batch_size=%d\n",
+	    config->has_cxx_unity ?
+	    (options->cxx_unity_enabled ? "enabled" : "disabled") : "<unset>",
+	    options->cxx_unity_batch_size);
 	fputs("  lang.asm.include_dirs ", out);
 	dump_list(out, &options->asm_include_dirs);
 	fputc('\n', out);
@@ -5126,6 +5154,35 @@ dump_target_json(FILE *out, const struct qstar_graph *graph,
 	dump_json_string(out, target->cxx_standard);
 	fputs(",\"lang_cxx_standard\":", out);
 	dump_json_string(out, target->cxx_standard);
+	fputs(",\"cxx_strategies\":{\"precompiled_header\":", out);
+	dump_json_string(out, target->cxx_precompiled_header);
+	fprintf(out, ",\"unity\":{\"enabled\":%s,\"batch_size\":%d,\"batches\":%zu}",
+	    target->cxx_unity_enabled ? "true" : "false",
+	    target->cxx_unity_batch_size, qstar_cxx_unity_batch_count(target));
+	fprintf(out, ",\"modules\":{\"enabled\":%s,\"interfaces\":[",
+	    target->cxx_modules_enabled ? "true" : "false");
+	{
+		size_t cxx_i, emitted = 0;
+		for (cxx_i = 0; cxx_i < target->sources.len; cxx_i++) {
+			if (!qstar_cxx_source_is_module_interface(target, cxx_i))
+				continue;
+			if (emitted++)
+				fputc(',', out);
+			dump_json_string(out, target->sources.items[cxx_i]);
+		}
+	}
+	fputs("],\"implementations\":[", out);
+	{
+		size_t cxx_i, emitted = 0;
+		for (cxx_i = 0; cxx_i < target->sources.len; cxx_i++) {
+			if (!qstar_cxx_source_is_implementation(target, cxx_i))
+				continue;
+			if (emitted++)
+				fputc(',', out);
+			dump_json_string(out, target->sources.items[cxx_i]);
+		}
+	}
+	fputs("]}}", out);
 	fputs(",\"lang_asm_preprocess\":", out);
 	fprintf(out, "%s", target->asm_preprocess ? "true" : "false");
 	fputs(",\"description\":", out);
@@ -5775,6 +5832,12 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	dump_list(out, &target->cxxflags);
 	fputc('\n', out);
 	fprintf(out, "  cxx_standard %s\n", target->cxx_standard);
+	fprintf(out, "  lang.cxx.precompiled_header %s\n",
+	    target->cxx_precompiled_header && *target->cxx_precompiled_header ?
+	    target->cxx_precompiled_header : "<off>");
+	fprintf(out, "  lang.cxx.unity enabled=%s batch_size=%d batches=%zu\n",
+	    target->cxx_unity_enabled ? "true" : "false",
+	    target->cxx_unity_batch_size, qstar_cxx_unity_batch_count(target));
 	fputs("  lang.asm.include_dirs ", out);
 	dump_list(out, &target->asm_include_dirs);
 	fputc('\n', out);

@@ -101,6 +101,10 @@ them as protected unless this document is updated first.
 
 - Built-in `lang.c`, `lang.cxx`, and `lang.asm` namespaces remain available
   without explicit provider activation.
+- Built-in `lang.cxx.precompiled_header`, `lang.cxx.unity`, and
+  `lang.cxx.modules` are opt-in strategy fields. Their defaults remain off, and
+  enabling them never changes C, ASM, or external GLP actions. Compiler-specific
+  support is capability-gated rather than silently approximated.
 - `qstar.use_language("<id>")` activates a bundled or project-local provider and
   returns the provider helper table.
 - Short provider id resolution checks project-local
@@ -128,6 +132,10 @@ them as protected unless this document is updated first.
   action-log/replay, compile database records, and Windows runtime versus
   link-interface artifact selection. Graph/query output exposes env names only;
   values remain redacted.
+- Q281 protects opt-in C++ strategy lowering with
+  `make qstar-cxx-build-strategy-tests`. The gate covers PCH, target-local unity
+  batches, Clang BMI/object module interfaces, implementation dependencies,
+  action identity, compile database records, and Stella/Ninja parity.
 
 This section is the consumer-facing GLP promise. The provider-author API is a
 separate beta surface until the checklist below is completed.

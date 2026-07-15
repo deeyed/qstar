@@ -583,6 +583,28 @@ activated language providers add dynamic namespaces such as
 according to the provider option schema. Top-level include/header/module/compile
 fields are rejected.
 .Pp
+The built-in
+.Ic lang.cxx
+namespace has three opt-in build strategies. Set
+.Ic precompiled_header
+to a package-relative header path, use
+.Ic unity = { enabled = true, batch_size = 8 }
+for target-local C++ implementation batching, and use
+.Ic modules = { enabled = true }
+for C++ module dependency lowering. All strategies default to off. PCH and
+unity support recognized Clang/GCC-family drivers. Module interfaces use
+.Pa .cppm
+or
+.Pa .ixx ,
+emit object plus BMI outputs, and require upstream Clang with C++20 or newer.
+The module interface basename is its BMI lookup name; interface basenames must
+be unique, exported module names must match those basenames, and imported
+interfaces must precede their consumers in source declaration order.
+Unity does not combine C, assembly, external GLP, module-interface, or
+cross-target sources. Stella and Ninja record strategy action identities and
+their actual compiler commands in
+.Pa compile_commands.json .
+.Pp
 Target
 .Ic configs
 are applied in list order. List fields append, target-local list fields append

@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+
+mkdir -p "$(dirname "$1")"
+cat > "$1" <<'EOF'
+#pragma once
+
+#define QSTAR_GENERATED_PCH_VALUE 19
+EOF

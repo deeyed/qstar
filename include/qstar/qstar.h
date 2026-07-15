@@ -152,12 +152,17 @@ struct qstar_target {
 	char *tool_path;
 	char *compile_context;
 	char *cxx_standard;
+	char *cxx_precompiled_header;
 	char *run_expect_contains;
 	char *run_expect_file;
 	int run_timeout_sec;
 	int asm_preprocess;
 	int cxx_modules_present;
 	int cxx_modules_enabled;
+	int cxx_pch_present;
+	int cxx_unity_present;
+	int cxx_unity_enabled;
+	int cxx_unity_batch_size;
 	char *toolset;
 };
 
@@ -170,6 +175,8 @@ struct qstar_config {
 	struct qstar_target options;
 	int has_artifact_name;
 	int has_cxx_standard;
+	int has_cxx_precompiled_header;
+	int has_cxx_unity;
 	int has_asm_preprocess;
 	int has_cxx_modules;
 	int has_toolset;
@@ -842,7 +849,7 @@ int qstar_source_is_asm(const struct qstar_source_info *source);
 int qstar_source_uses_asm_preprocessor(const struct qstar_target *target,
     const struct qstar_source_info *source);
 
-/** source kind가 unsupported C++ module provider source인지 확인한다. */
+/** source kind가 built-in C++ module interface인지 확인한다. */
 int qstar_source_is_cxx_module(const struct qstar_source_info *source);
 
 /** target source list에 특정 compile provider namespace가 있는지 확인한다. */

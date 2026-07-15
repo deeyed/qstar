@@ -1,0 +1,43 @@
+#!/bin/sh
+set -eu
+
+out=
+depfile=
+bmi=
+compile=false
+source=
+previous=
+
+for arg in "$@"; do
+  case "$previous" in
+    out) out=$arg; previous=; continue ;;
+    depfile) depfile=$arg; previous=; continue ;;
+  esac
+  case "$arg" in
+    -c) compile=true ;;
+    -o) previous=out ;;
+    -MF) previous=depfile ;;
+    -fmodule-output=*) bmi=${arg#*=} ;;
+    *.c|*.cc|*.cpp|*.cxx|*.cppm|*.ixx|*.hpp) source=$arg ;;
+  esac
+done
+
+test -n "$out"
+mkdir -p "$(dirname "$out")"
+if [ "$compile" = true ]; then
+  printf 'fake object from %s\n' "$source" > "$out"
+  if [ -n "$bmi" ]; then
+    mkdir -p "$(dirname "$bmi")"
+    printf 'fake bmi from %s\n' "$source" > "$bmi"
+  fi
+  if [ -n "$depfile" ]; then
+    mkdir -p "$(dirname "$depfile")"
+    printf '%s: %s\n' "$out" "$source" > "$depfile"
+  fi
+else
+  cat > "$out" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+  chmod +x "$out"
+fi

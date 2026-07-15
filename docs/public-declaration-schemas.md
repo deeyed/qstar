@@ -86,6 +86,18 @@ qstar.executable "app" {
 `lang.<namespace>` option은 provider manifest의 dynamic schema만 사용한다. QStar core가
 external provider option 이름을 별도 allowlist로 하드코딩하지 않는다.
 
+`lang.cxx`의 opt-in build strategy builtin field:
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `precompiled_header` | non-empty package-relative string | off |
+| `unity` | `{enabled = boolean, batch_size = integer}` | off, batch size 8 |
+| `modules` | `{enabled = boolean}` | off |
+
+`unity.batch_size`는 2부터 1024까지다. Strategy table의 unknown field는 reject된다. 이
+field들은 built-in C++ namespace에만 속하며 `lang.c`, `lang.asm`, external GLP option
+schema에는 암묵적으로 추가되지 않는다.
+
 ## Targets
 
 Artifact target은 `qstar.target`, `qstar.executable`, `qstar.staticlib`,
