@@ -490,3 +490,37 @@ qstar_cxx_collect_module_inputs(const struct qstar_graph *graph,
 	}
 	return 0;
 }
+
+int
+qstar_cxx_collect_module_flags(const struct qstar_graph *graph,
+    const struct qstar_target *target, size_t source_index,
+    struct qstar_string_list *flags)
+{
+	struct qstar_string_list inputs;
+	const char *base, *dot;
+	char name[256], flag[QSTAR_PATH_MAX + 320];
+	size_t i, len;
+
+	memset(flags, 0, sizeof(*flags));
+	if (qstar_cxx_collect_module_inputs(graph, target, source_index, &inputs) < 0)
+		return -1;
+	for (i = 0; i < inputs.len; i++) {
+		base = path_basename(inputs.items[i]);
+		dot = strrchr(base, '.');
+		len = dot ? (size_t)(dot - base) : strlen(base);
+		if (len == 0 || len >= sizeof(name))
+			goto fail;
+		memcpy(name, base, len);
+		name[len] = '\0';
+		if (snprintf(flag, sizeof(flag), "-fmodule-file=%s=%s", name,
+		    inputs.items[i]) >= (int)sizeof(flag) ||
+		    qstar_string_list_push(flags, flag) < 0)
+			goto fail;
+	}
+	qstar_string_list_free(&inputs);
+	return 0;
+fail:
+	qstar_string_list_free(&inputs);
+	qstar_string_list_free(flags);
+	return -1;
+}

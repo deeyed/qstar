@@ -2215,7 +2215,8 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 {
 	struct qstar_source_info source;
 	const struct qstar_provider_source_unit *provider_unit;
-	struct qstar_string_list includes, unity_sources, module_inputs, action_outputs;
+	struct qstar_string_list includes, unity_sources, module_inputs, module_flags;
+	struct qstar_string_list action_outputs;
 	struct ninja_argv argv;
 	char object[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], out_dir[QSTAR_PATH_MAX];
 	char action_id[QSTAR_PATH_MAX];
@@ -2233,6 +2234,7 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	memset(&includes, 0, sizeof(includes));
 	memset(&unity_sources, 0, sizeof(unity_sources));
 	memset(&module_inputs, 0, sizeof(module_inputs));
+	memset(&module_flags, 0, sizeof(module_flags));
 	memset(&action_outputs, 0, sizeof(action_outputs));
 	qstar_target_source_classify(source_owner, index, &source);
 	if (!qstar_source_requires_compile(&source))
@@ -2380,6 +2382,7 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		qstar_string_list_free(&includes);
 		qstar_string_list_free(&unity_sources);
 		qstar_string_list_free(&module_inputs);
+		qstar_string_list_free(&module_flags);
 		qstar_string_list_free(&action_outputs);
 		ninja_argv_free(&argv);
 		return 0;
@@ -2433,6 +2436,9 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		}
 	}
 	if (!provider_source && is_cxx && target->cxx_modules_enabled) {
+		if (qstar_cxx_collect_module_flags(graph, target, index,
+		    &module_flags) < 0)
+			goto fail;
 		if (qstar_cxx_module_dir_path(graph, target, module_dir,
 		    sizeof(module_dir)) < 0)
 			goto fail;
@@ -2447,6 +2453,10 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 				goto fail;
 			snprintf(bmi_flag, sizeof(bmi_flag), "-fmodule-output=%s", bmi_output);
 			if (ninja_argv_push(graph, &argv, bmi_flag) < 0)
+				goto fail;
+		}
+		for (i = 0; i < module_flags.len; i++) {
+			if (ninja_argv_push(graph, &argv, module_flags.items[i]) < 0)
 				goto fail;
 		}
 	}
@@ -2545,6 +2555,7 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	qstar_string_list_free(&includes);
 	qstar_string_list_free(&unity_sources);
 	qstar_string_list_free(&module_inputs);
+	qstar_string_list_free(&module_flags);
 	qstar_string_list_free(&action_outputs);
 	ninja_argv_free(&argv);
 	return 0;
@@ -2552,6 +2563,7 @@ fail:
 	qstar_string_list_free(&includes);
 	qstar_string_list_free(&unity_sources);
 	qstar_string_list_free(&module_inputs);
+	qstar_string_list_free(&module_flags);
 	qstar_string_list_free(&action_outputs);
 	ninja_argv_free(&argv);
 	return -1;

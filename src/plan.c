@@ -948,7 +948,7 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	char bmi[QSTAR_PATH_MAX], bmi_flag[QSTAR_PATH_MAX + 32];
 	const char *role;
 	const char *tool;
-	struct qstar_string_list includes, usage_options, usage_inputs;
+	struct qstar_string_list includes, usage_options, usage_inputs, module_flags;
 	struct qstar_argv_dump dump;
 	size_t argc, i;
 	int is_asm, is_cxx, provider_source, wants_depfile, unity_strategy;
@@ -957,6 +957,7 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	memset(&includes, 0, sizeof(includes));
 	memset(&usage_options, 0, sizeof(usage_options));
 	memset(&usage_inputs, 0, sizeof(usage_inputs));
+	memset(&module_flags, 0, sizeof(module_flags));
 	collect_compile_include_dirs(graph, target, &includes);
 	qstar_graph_collect_compile_usage(graph, target, &usage_options,
 	    &usage_inputs);
@@ -964,6 +965,9 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	is_cxx = strcmp(source->provider, "cxx") == 0;
 	provider_unit = qstar_target_provider_source_unit(source_owner, source_index);
 	provider_source = provider_unit != NULL;
+	if (!provider_source && is_cxx && target->cxx_modules_enabled)
+		qstar_cxx_collect_module_flags(graph, target, source_index,
+		    &module_flags);
 	unity_strategy = 0;
 	if (source_owner == target)
 		qstar_cxx_unity_source_info(target, source_index, &unity_batch,
@@ -1007,6 +1011,7 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 		qstar_string_list_free(&includes);
 		qstar_string_list_free(&usage_options);
 		qstar_string_list_free(&usage_inputs);
+		qstar_string_list_free(&module_flags);
 		return;
 	}
 	role = qstar_source_toolset_role(source);
@@ -1031,6 +1036,7 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	    *target->cxx_precompiled_header ? 2 : 0) +
 	    (!provider_source && is_cxx && target->cxx_modules_enabled ?
 	    (qstar_cxx_source_is_module_interface(source_owner, source_index) ? 2 : 1) : 0) +
+	    module_flags.len +
 	    (!provider_source && is_cxx && unity_strategy ? 2 : 0) +
 	    usage_options.len +
 	    (provider_source ? 0 : is_asm ? target->asm_compile_options.len :
@@ -1084,6 +1090,8 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 			snprintf(bmi_flag, sizeof(bmi_flag), "-fmodule-output=%s", bmi);
 			argv_item(out, &dump, bmi_flag);
 		}
+		for (i = 0; i < module_flags.len; i++)
+			argv_item(out, &dump, module_flags.items[i]);
 	}
 	if (!provider_source && is_cxx && unity_strategy) {
 		argv_item(out, &dump, "-iquote");
@@ -1113,6 +1121,7 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	qstar_string_list_free(&includes);
 	qstar_string_list_free(&usage_options);
 	qstar_string_list_free(&usage_inputs);
+	qstar_string_list_free(&module_flags);
 }
 
 /** consumer-context objectlib compile action을 command plan에 출력한다. */

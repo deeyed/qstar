@@ -600,6 +600,9 @@ emit object plus BMI outputs, and require upstream Clang with C++20 or newer.
 The module interface basename is its BMI lookup name; interface basenames must
 be unique, exported module names must match those basenames, and imported
 interfaces must precede their consumers in source declaration order.
+Each BMI dependency is passed to Clang with an explicit
+.Ic -fmodule-file=<name>=<BMI>
+mapping.
 Unity does not combine C, assembly, external GLP, module-interface, or
 cross-target sources. Stella and Ninja record strategy action identities and
 their actual compiler commands in

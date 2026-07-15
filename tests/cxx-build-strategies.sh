@@ -58,6 +58,7 @@ contains "$tmp/dry.out" 'id=//:strategies:compile-unity-0:0'
 contains "$tmp/dry.out" 'module_output role=bmi'
 contains "$tmp/dry.out" '-include-pch'
 contains "$tmp/dry.out" '-fprebuilt-module-path='
+contains "$tmp/dry.out" '-fmodule-file=math='
 "$qstar" --file "$stella/qstar.lua" doctor > "$tmp/doctor.out" 2> "$tmp/doctor.err"
 contains "$tmp/doctor.out" 'cxx-strategy-capability target=//:strategies'
 contains "$tmp/doctor.out" 'family=clang pch=supported unity=supported modules=supported'
@@ -73,6 +74,7 @@ contains "$stella/build/qstar/compile_commands.json" '"file":"include/pch.hpp"'
 contains "$stella/build/qstar/compile_commands.json" '"file":"src/math.cppm"'
 contains "$stella/build/qstar/compile_commands.json" 'unity_0.cpp'
 contains "$stella/build/qstar/compile_commands.json" '-fmodule-output='
+contains "$stella/build/qstar/compile_commands.json" '-fmodule-file=math='
 "$qstar" --file "$stella/qstar.lua" --progress off build //:strategies > "$tmp/stella-repeat.out" 2> "$tmp/stella-repeat.err"
 contains "$tmp/stella-repeat.out" 'status ok run=0 skip=5 fail=0'
 
@@ -171,6 +173,8 @@ if [ -n "$real_clang" ]; then
     mv "$tmp/real-clang/qstar.lua.new" "$tmp/real-clang/qstar.lua"
     "$qstar" --file "$tmp/real-clang/qstar.lua" --progress off build //:strategies > "$tmp/real-clang.out" 2> "$tmp/real-clang.err"
     "$tmp/real-clang/build/qstar/out/___strategies/strategies" || fail "real Clang strategies executable failed"
+    "$qstar" --file "$tmp/real-clang/qstar.lua" -B build-ninja -G ninja build //:strategies > "$tmp/real-clang-ninja.out" 2> "$tmp/real-clang-ninja.err"
+    "$tmp/real-clang/build-ninja/out/___strategies/strategies" || fail "real Clang Ninja strategies executable failed"
   fi
 fi
 

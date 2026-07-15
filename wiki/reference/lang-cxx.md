@@ -59,7 +59,8 @@ implementation unit으로 구분한다. Clang에서는 interface마다 object와
 interface BMI에 의존한다. 현재 interface 파일 basename이 BMI lookup 이름이므로 basename은
 target 안에서 유일해야 하고 `src/math.cppm`은 `export module math;`를 선언해야 한다. 다른
 interface를 import하는 interface는 의존 대상보다 뒤에 `sources`로 선언한다. 정확한 import
-graph scanner 대신 선언 순서를 이용한 안전한 dependency superset을 사용한다.
+graph scanner 대신 선언 순서를 이용한 안전한 dependency superset을 사용하며, 각 BMI는
+`-fmodule-file=<name>=<BMI>`로 compiler에 명시적으로 전달한다.
 
 PCH와 unity는 Clang/GCC 계열에서 지원한다. C++ module lowering은 upstream Clang과 C++20
 이상을 요구한다. GCC modules-ts, Apple Clang module mode, MSVC와 compiler family를 판별할

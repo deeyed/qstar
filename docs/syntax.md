@@ -333,7 +333,9 @@ depend on every interface BMI. The interface basename is the BMI lookup name, so
 `src/math.cppm` must declare `export module math;`; basenames must be unique and
 interfaces that import another interface must follow it in the `sources` list.
 This release deliberately uses declaration order as a safe dependency superset
-instead of embedding a compiler-specific import scanner. Unity batches only target-local ordinary C++
+instead of embedding a compiler-specific import scanner. Each dependency is
+passed as an explicit `-fmodule-file=<name>=<BMI>` mapping, so lowering does not
+depend on compiler directory discovery. Unity batches only target-local ordinary C++
 implementation sources and never merge C, ASM, module interfaces, GLP sources,
 or source ownership across targets. Strategy action ids and the actual PCH,
 module, and unity commands are recorded in `compile_commands.json` for both

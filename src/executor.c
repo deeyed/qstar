@@ -6166,7 +6166,7 @@ prepare_compile_action_from_source(struct qstar_graph *graph, struct qstar_build
 	const char *compiler;
 	const char *compile_input;
 	struct qstar_string_list inputs, dep_inputs, outputs, includes;
-	struct qstar_string_list unity_sources, module_inputs;
+	struct qstar_string_list unity_sources, module_inputs, module_flags;
 	int wants_depfile, is_asm, is_cxx, provider_source, unity_leader;
 	int module_interface;
 	size_t i, unity_batch;
@@ -6188,6 +6188,7 @@ prepare_compile_action_from_source(struct qstar_graph *graph, struct qstar_build
 	memset(&includes, 0, sizeof(includes));
 	memset(&unity_sources, 0, sizeof(unity_sources));
 	memset(&module_inputs, 0, sizeof(module_inputs));
+	memset(&module_flags, 0, sizeof(module_flags));
 	if (source_owner == target && qstar_cxx_unity_source_info(target, index,
 	    &unity_batch, &unity_leader)) {
 		if (!unity_leader) {
@@ -6395,6 +6396,9 @@ oom_provider:
 		}
 	}
 	if (!provider_source && is_cxx && target->cxx_modules_enabled) {
+		if (qstar_cxx_collect_module_flags(graph, target, index,
+		    &module_flags) < 0)
+			goto fail;
 		if (qstar_cxx_module_dir_path(graph, target, module_dir,
 		    sizeof(module_dir)) < 0)
 			goto fail;
@@ -6409,6 +6413,11 @@ oom_provider:
 				goto fail;
 			snprintf(bmi_flag, sizeof(bmi_flag), "-fmodule-output=%s", bmi_output);
 			if (prepared_action_push_argv(graph, action, bmi_flag) < 0)
+				goto fail;
+		}
+		for (i = 0; i < module_flags.len; i++) {
+			if (prepared_action_push_argv(graph, action,
+			    module_flags.items[i]) < 0)
 				goto fail;
 		}
 	}
@@ -6501,6 +6510,7 @@ oom_provider:
 	qstar_string_list_free(&includes);
 	qstar_string_list_free(&unity_sources);
 	qstar_string_list_free(&module_inputs);
+	qstar_string_list_free(&module_flags);
 	return 0;
 oom_inputs:
 	qstar_set_error(graph, "qstar: out of memory");
@@ -6511,18 +6521,21 @@ fail_inputs:
 	qstar_string_list_free(&includes);
 	qstar_string_list_free(&unity_sources);
 	qstar_string_list_free(&module_inputs);
+	qstar_string_list_free(&module_flags);
 	prepared_action_free(action);
 	return -1;
 oom:
 	qstar_string_list_free(&includes);
 	qstar_string_list_free(&unity_sources);
 	qstar_string_list_free(&module_inputs);
+	qstar_string_list_free(&module_flags);
 	prepared_action_free(action);
 	return qstar_set_error(graph, "qstar: out of memory");
 fail:
 	qstar_string_list_free(&includes);
 	qstar_string_list_free(&unity_sources);
 	qstar_string_list_free(&module_inputs);
+	qstar_string_list_free(&module_flags);
 	prepared_action_free(action);
 	return -1;
 }

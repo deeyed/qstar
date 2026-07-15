@@ -174,6 +174,9 @@ int qstar_cxx_target_has_module_interfaces(const struct qstar_target *target);
 int qstar_cxx_collect_module_inputs(const struct qstar_graph *graph,
     const struct qstar_target *target, size_t source_index,
     struct qstar_string_list *inputs);
+int qstar_cxx_collect_module_flags(const struct qstar_graph *graph,
+    const struct qstar_target *target, size_t source_index,
+    struct qstar_string_list *flags);
 
 /** resolved toolchain에서 provider namespace와 role에 맞는 fallback tool을 찾는다. */
 const char *qstar_resolved_toolchain_provider_tool(
