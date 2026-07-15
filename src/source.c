@@ -100,6 +100,12 @@ find_target(const struct qstar_graph *graph, const char *label)
 	return NULL;
 }
 
+static int validate_target_file_artifact_ref(struct qstar_graph *graph,
+    const char *token, const char *origin_file, int origin_line, const char *field,
+    const char *owner);
+static int target_visible_to_label(const struct qstar_target *dep,
+    const char *consumer_label);
+
 /** link_inputs 항목 하나가 package file이나 artifact producer를 가리키는지 검증한다. */
 static int
 validate_link_input_item(struct qstar_graph *graph, const struct qstar_target *owner,
@@ -131,7 +137,8 @@ validate_link_input_item(struct qstar_graph *graph, const struct qstar_target *o
 			    owner->origin_line, "link_inputs", owner->label,
 			    "qstar: link input target '%s' in '%s' is unknown",
 			    label, owner->label);
-		return 0;
+		return validate_target_file_artifact_ref(graph, path,
+		    owner->origin_file, owner->origin_line, "link_inputs", owner->label);
 	}
 	if (!qstar_path_is_package_relative(path))
 		return qstar_set_error_origin(graph, owner->origin_file, owner->origin_line,
@@ -140,10 +147,6 @@ validate_link_input_item(struct qstar_graph *graph, const struct qstar_target *o
 		    path, owner->label, qstar_path_package_relative_reason(path));
 	return 0;
 }
-
-static int validate_target_file_artifact_ref(struct qstar_graph *graph,
-    const char *token, const char *origin_file, int origin_line, const char *field,
-    const char *owner);
 
 /** run_target inputs 항목 하나가 package file이나 typed artifact/stage token인지 검증한다. */
 static int
@@ -199,6 +202,13 @@ validate_target_file_artifact_ref(struct qstar_graph *graph, const char *token,
 		    "qstar: malformed target_file placeholder '%s'", token);
 	target = find_target(graph, label);
 	if (target) {
+		if (owner && (strcmp(artifact, "@tool") == 0 ||
+		    strcmp(target->kind, "imported") == 0 ||
+		    strcmp(target->kind, "tool") == 0) &&
+		    !target_visible_to_label(target, owner))
+			return qstar_set_error_origin(graph, origin_file, origin_line,
+			    field, owner,
+			    "qstar: target '%s' is not visible to '%s'", label, owner);
 		if (strcmp(target->kind, "group") == 0)
 			return qstar_set_error_origin(graph, origin_file, origin_line,
 			    field, owner,
@@ -209,10 +219,14 @@ validate_target_file_artifact_ref(struct qstar_graph *graph, const char *token,
 			    field, owner,
 			    "qstar: qstar.target_file cannot reference objectlib target '%s' because object libraries have no artifact; consume it with objects = { ... }",
 			    label);
-		if (artifact[0] &&
-		    qstar_graph_target_artifact_path(graph, target, artifact, resolved,
-		    sizeof(resolved)) < 0)
+		if (strcmp(artifact, "@tool") == 0) {
+			if (qstar_graph_target_tool_path(graph, target, resolved,
+			    sizeof(resolved)) < 0)
+				return -1;
+		} else if (qstar_graph_target_artifact_path(graph, target, artifact,
+		    resolved, sizeof(resolved)) < 0) {
 			return -1;
+		}
 		return 0;
 	}
 	if (qstar_graph_find_genrule(graph, label)) {
@@ -358,13 +372,13 @@ visibility_pattern_matches(const char *pattern, const char *consumer_label,
 
 /** dependency target이 consumer에게 보이는지 visibility skeleton 기준으로 확인한다. */
 static int
-target_visible_to(const struct qstar_target *dep, const struct qstar_target *consumer)
+target_visible_to_label(const struct qstar_target *dep, const char *consumer_label)
 {
 	char dep_package[QSTAR_PATH_MAX], consumer_package[QSTAR_PATH_MAX];
 	size_t i;
 
 	if (qstar_label_package_path(dep->label, dep_package, sizeof(dep_package)) < 0 ||
-	    qstar_label_package_path(consumer->label, consumer_package,
+	    qstar_label_package_path(consumer_label, consumer_package,
 	    sizeof(consumer_package)) < 0)
 		return 0;
 	if (strcmp(dep_package, consumer_package) == 0)
@@ -372,11 +386,18 @@ target_visible_to(const struct qstar_target *dep, const struct qstar_target *con
 	if (dep->visibility.len == 0)
 		return 1;
 	for (i = 0; i < dep->visibility.len; i++) {
-		if (visibility_pattern_matches(dep->visibility.items[i], consumer->label,
+		if (visibility_pattern_matches(dep->visibility.items[i], consumer_label,
 		    consumer_package))
 			return 1;
 	}
 	return 0;
+}
+
+/** dependency target이 consumer target에게 보이는지 검사한다. */
+static int
+target_visible_to(const struct qstar_target *dep, const struct qstar_target *consumer)
+{
+	return target_visible_to_label(dep, consumer->label);
 }
 
 /** visibility entry가 v1 skeleton에서 지원하는 형태인지 확인한다. */
@@ -526,6 +547,16 @@ validate_link_lists(struct qstar_graph *graph, const struct qstar_target *target
 	for (i = 0; i < target->run_inputs.len; i++)
 		if (validate_run_input_item(graph, target, target->run_inputs.items[i]) < 0)
 			return -1;
+	for (i = 0; i < target->run_command.len; i++) {
+		int token_rc;
+
+		token_rc = qstar_target_file_token_label(target->run_command.items[i],
+		    (char[QSTAR_PATH_MAX]){0}, QSTAR_PATH_MAX);
+		if (token_rc != 0 && validate_target_file_artifact_ref(graph,
+		    target->run_command.items[i], target->origin_file,
+		    target->origin_line, "command", target->label) < 0)
+			return -1;
+	}
 	if (validate_include_dir_list(graph, target, &target->include_dirs,
 	    "include_dirs") < 0 ||
 	    validate_include_dir_list(graph, target, &target->public_include_dirs,
@@ -636,6 +667,12 @@ validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 	if (!genrule->tool || !*genrule->tool)
 		return qstar_set_error(graph, "qstar: generated action '%s' has empty tool",
 		    genrule->label);
+	if (qstar_target_file_token_label(genrule->tool,
+	    (char[QSTAR_PATH_MAX]){0}, QSTAR_PATH_MAX) != 0 &&
+	    validate_target_file_artifact_ref(graph, genrule->tool,
+	    genrule->origin_file, genrule->origin_line, "command",
+	    genrule->label) < 0)
+		return -1;
 	if (!genrule->config_header &&
 	    qstar_external_tool_resolve_command_tool(graph, genrule->tool, resolved_tool,
 	    sizeof(resolved_tool), tool_mode, sizeof(tool_mode), tool_error,
@@ -648,7 +685,7 @@ validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 	for (i = 0; i < genrule->inputs.len; i++) {
 		path = genrule->inputs.items[i];
 		int rc;
-		char label[QSTAR_PATH_MAX], artifact[64], resolved[QSTAR_PATH_MAX];
+		char label[QSTAR_PATH_MAX], artifact[64];
 
 		rc = qstar_target_file_token_parse(path, label, sizeof(label), artifact,
 		    sizeof(artifact));
@@ -679,9 +716,9 @@ validate_genrule(struct qstar_graph *graph, const struct qstar_genrule *genrule)
 				    "inputs", genrule->label,
 				    "qstar: qstar.target_file cannot reference objectlib target '%s' because object libraries have no artifact; consume it with objects = { ... }",
 				    label);
-			if (target && artifact[0] &&
-			    qstar_graph_target_artifact_path(graph, target, artifact,
-			    resolved, sizeof(resolved)) < 0)
+			if (target && validate_target_file_artifact_ref(graph, path,
+			    genrule->origin_file, genrule->origin_line, "inputs",
+			    genrule->label) < 0)
 				return -1;
 			if (!target && artifact[0] && qstar_graph_find_genrule(graph, label))
 				return qstar_set_error_origin(graph,
@@ -999,8 +1036,12 @@ file_exists_under_root(const struct qstar_graph *graph, const char *path)
 static int
 validate_target_file_inputs(struct qstar_graph *graph, const struct qstar_target *target)
 {
+	struct qstar_target_artifact_map artifacts;
+	const struct qstar_string_list *usage_inputs[2];
 	const char *path;
-	size_t i;
+	size_t i, j;
+
+	memset(&artifacts, 0, sizeof(artifacts));
 
 	for (i = 0; i < target->sources.len; i++) {
 		path = target->sources.items[i];
@@ -1063,6 +1104,48 @@ validate_target_file_inputs(struct qstar_graph *graph, const struct qstar_target
 			return qstar_set_error_origin(graph, target->origin_file,
 			    target->origin_line, "inputs", target->label,
 			    "qstar: run input file '%s' in '%s' does not exist under package root",
+			    path, target->label);
+	}
+	usage_inputs[0] = &target->compile_usage_inputs;
+	usage_inputs[1] = &target->link_usage_inputs;
+	for (j = 0; j < 2; j++) {
+		for (i = 0; i < usage_inputs[j]->len; i++) {
+			path = usage_inputs[j]->items[i];
+			if (qstar_target_file_token_label(path,
+			    (char[QSTAR_PATH_MAX]){0}, QSTAR_PATH_MAX) != 0) {
+				if (validate_target_file_artifact_ref(graph, path,
+				    target->origin_file, target->origin_line,
+				    j ? "link_usage.inputs" : "compile_usage.inputs",
+				    target->label) < 0)
+					return -1;
+				continue;
+			}
+			if (!file_exists_under_root(graph, path))
+				return qstar_set_error_origin(graph, target->origin_file,
+				    target->origin_line, j ? "link_usage.inputs" :
+				    "compile_usage.inputs", target->label,
+				    "qstar: usage input file '%s' in '%s' does not exist under package root",
+				    path, target->label);
+		}
+	}
+	if ((strcmp(target->kind, "imported") == 0 ||
+	    strcmp(target->kind, "tool") == 0) &&
+	    qstar_graph_target_artifact_map(graph, target, &artifacts) < 0)
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "artifacts", target->label,
+		    "qstar: typed dependency artifact map is invalid");
+	if (strcmp(target->kind, "imported") == 0 && artifacts.len == 0)
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "artifacts", target->label,
+		    "qstar: imported target '%s' has no artifacts for platform '%s' and no default fallback",
+		    target->label, qstar_graph_platform(graph));
+	for (i = 0; i < artifacts.len; i++) {
+		path = artifacts.items[i].path;
+		if (!file_exists_under_root(graph, path))
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, strcmp(target->kind, "tool") == 0 ?
+			    "path" : "artifacts", target->label,
+			    "qstar: typed dependency artifact '%s' in '%s' does not exist under package root",
 			    path, target->label);
 	}
 	return 0;

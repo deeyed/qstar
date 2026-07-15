@@ -63,6 +63,11 @@ them as protected unless this document is updated first.
 
 - Artifact targets: `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`,
   and `qstar.test`.
+- Typed dependency targets: artifact-free `qstar.interface`, platform-selected
+  package-local `qstar.imported`, and executable path `qstar.tool`.
+- Explicit consumer requirements through `compile_usage = {options, inputs}`
+  and `link_usage = {options, inputs}`. Options are verbatim argv items and
+  inputs are rebuild dependencies; imported metadata never infers flags.
 - Object collection targets: `qstar.objectlib` with `compile_context = "own"` or
   `compile_context = "consumer"` and artifact target consumption through
   `objects = {...}`. Consumer-context objectlibs compile source-owned leaf inputs
@@ -135,6 +140,8 @@ separate beta surface until the checklist below is completed.
 - `qstar.status` one-line action descriptions.
 - `qstar.input` and `qstar.output`.
 - `qstar.target_file`, including named artifact selectors.
+- `qstar.tool_file` executable dependency references for tool, imported tool,
+  executable, and test targets.
 - `qstar.files`, `qstar.join`, `qstar.copy`, `qstar.append`, `qstar.merge`, and
   `qstar.extend`.
 

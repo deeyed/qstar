@@ -313,6 +313,10 @@ int qstar_target_file_token_label(const char *arg, char *label, size_t labellen)
 int qstar_target_file_token_parse(const char *arg, char *label, size_t labellen,
     char *artifact, size_t artifactlen);
 
+/** @tool selector를 포함한 target_file token을 executable tool path로 해석한다. */
+int qstar_graph_target_tool_path(struct qstar_graph *graph,
+    const struct qstar_target *target, char *dst, size_t dstlen);
+
 /** qstar.stage_dir placeholder token에서 canonical stage label을 추출한다. */
 int qstar_stage_dir_token_label(const char *arg, char *label, size_t labellen);
 

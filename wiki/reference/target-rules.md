@@ -18,6 +18,15 @@ qstar.executable "app" { sources = {"src/main.c"} }
 qstar.config "common_c" { lang = { c = { compile_options = {"-Wall"} } } }
 qstar.staticlib "core" { sources = {"src/core.c"} }
 qstar.objectlib "core_objects" { sources = {"src/core_extra.c"} }
+qstar.interface "api_contract" { compile_usage = { options = {"-DAPI=1"} } }
+qstar.imported "vendor" {
+  artifacts = {
+    default = {
+      {id = "archive", role = "link", path = "vendor/libvendor.a", primary = true},
+    },
+  },
+}
+qstar.tool "generator" { path = "tools/generator" }
 qstar.sharedlib "plugin" { sources = {"src/plugin.c"} }
 qstar.test "unit" { sources = {"tests/unit.c"} }
 qstar.custom_target "generated" { outputs = {qstar.output("generated/value.c")} }
@@ -79,6 +88,14 @@ qstar.staticlib "module_portable" {
   sources = {"src/start.c"},
 }
 ```
+
+`qstar.interface`, `qstar.imported`, `qstar.tool`은 typed dependency target이다.
+Interface는 artifact 없이 compile/link usage를 전파한다. Imported는 current platform의
+package-local artifact map을 고르고 link consumer에는 `role = "link"` artifact path를
+전달한다. Tool은 executable path를 `qstar.tool_file(label)`로 generated command에
+연결한다. QStar-built executable/test도 `qstar.tool_file` target이 될 수 있다.
+Imported target은 artifact suffix나 `artifact_kind`에서 compiler/linker flag를 추론하지
+않는다. 전체 계약은 [Typed Dependencies](typed-dependencies.md)에 있다.
 
 ## 실패 예제
 

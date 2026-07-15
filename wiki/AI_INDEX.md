@@ -430,6 +430,10 @@ Target/rule:
 - `qstar.staticlib`
 - `qstar.sharedlib`
 - `qstar.test`
+- `qstar.objectlib`
+- `qstar.interface`
+- `qstar.imported`
+- `qstar.tool`
 - `qstar.config`
 - `qstar.custom_target`
 - `qstar.run_target`
@@ -446,6 +450,7 @@ Command/path helper:
 - `qstar.input`
 - `qstar.output`
 - `qstar.target_file`
+- `qstar.tool_file`
 - `qstar.stage_dir`
 - `qstar.stage_file`
 - `qstar.step.build`
@@ -487,6 +492,12 @@ Toolset/build policy:
 - `path_tools`, `allow_absolute_tools`
 - compile/link option은 `qstar.config`와 target-local `lang.*`, `link_options`,
   `link_inputs`로 조합한다.
+- Dependency target의 consumer requirement는 `compile_usage = {options, inputs}`와
+  `link_usage = {options, inputs}`로 분리한다. `qstar.interface`는 artifact가 없고,
+  `qstar.imported`는 current platform artifact map을 선택하며 어떤 flag도 추론하지 않는다.
+  `qstar.tool_file(label)`은 package tool/imported tool/QStar-built executable producer를
+  generated command argv[0]과 dependency edge로 연결한다. 정본은
+  `reference/typed-dependencies.md`다.
 - macOS frameworks are authored only as `link = { frameworks = {...} }` inside a
   macOS-specific branch.
 - `qstar doctor`는 resolved tool role, 누락된 PATH/package tool, response policy,
@@ -721,8 +732,9 @@ Reference:
 7. `reference/custom-target.md`
 8. `reference/object-artifacts.md`
 9. `reference/run-target.md`
-10. `reference/performance-gates.md`
-11. `reference/diagnostics.md`
+10. `reference/typed-dependencies.md`
+11. `reference/performance-gates.md`
+12. `reference/diagnostics.md`
 
 Package/artifact flow:
 

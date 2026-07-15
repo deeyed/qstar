@@ -10,6 +10,12 @@ Supported artifact rules:
 - `qstar.sharedlib`
 - `qstar.test`
 
+Typed dependency rules:
+
+- `qstar.interface`: no artifact; public/private usage requirement propagation
+- `qstar.imported`: platform-selected package-local prebuilt artifact map
+- `qstar.tool`: package-local executable path consumed through `qstar.tool_file`
+
 Utility rules:
 
 - `qstar.custom_target`
@@ -22,6 +28,9 @@ Link policy:
 
 - `link_options` are appended to the link argv exactly as authored.
 - `link_inputs` are tracked as rebuild inputs without being appended to argv.
+- `compile_usage.options` and `link_usage.options` are explicit transitive argv
+  items; their `inputs` are tracked without being appended to argv.
+- Imported artifact metadata does not infer compiler or linker flags.
 - macOS frameworks are written under `link.frameworks` in a platform context branch.
 - Shared library consumers receive build-tree runtime search paths on macOS and
   Linux platform contexts.

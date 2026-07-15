@@ -101,6 +101,22 @@ Artifact target은 `qstar.target`, `qstar.executable`, `qstar.staticlib`,
 | `link_inputs` | list<string 또는 `qstar.target_file(...)`> |
 | `lang` | table |
 | `toolset`, `artifact_name` | string |
+| `compile_usage`, `link_usage` | `{options = list<string>, inputs = list<string 또는 qstar.target_file(...)>}` |
+
+Typed dependency target은 별도 strict schema를 사용한다.
+
+| Declaration | Builtin field |
+| --- | --- |
+| `qstar.interface` | `deps`, `public_deps`, `private_deps`, `visibility`, `compile_usage`, `link_usage` |
+| `qstar.imported` | `artifact_kind`, `artifacts`, `deps`, `public_deps`, `private_deps`, `visibility`, `compile_usage`, `link_usage` |
+| `qstar.tool` | `path`, `visibility` |
+
+`compile_usage`와 `link_usage` 안에는 `options`, `inputs`만 허용한다.
+`qstar.imported.artifacts`의 platform key는 `default`, `darwin`, `linux`, `windows`,
+`generic`만 builtin이다. 각 artifact item의 builtin field는 `id`, `role`, `path`,
+`primary`다. `artifact_kind` value, artifact `id`, `link`/`tool` 이외의 `role` value는
+사용자 metadata이며 QStar가 compiler/linker flag를 추론하는 keyword가 아니다.
+`role = "link"`, `role = "tool"`, `primary = true`만 artifact 소비 경로에 의미가 있다.
 
 `qstar.objectlib` builtin field:
 

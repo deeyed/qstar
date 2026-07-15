@@ -195,8 +195,37 @@ qstar_graph_target_artifact_map(const struct qstar_graph *graph,
 	memset(map, 0, sizeof(*map));
 	if (!target || !target->kind || strcmp(target->kind, "group") == 0 ||
 	    strcmp(target->kind, "run_target") == 0 ||
-	    strcmp(target->kind, "objectlib") == 0)
+	    strcmp(target->kind, "objectlib") == 0 ||
+	    strcmp(target->kind, "interface") == 0)
 		return 0;
+	if (strcmp(target->kind, "tool") == 0)
+		return push_artifact(map, "executable", "tool", target->tool_path, "",
+		    1, 0);
+	if (strcmp(target->kind, "imported") == 0) {
+		const char *platform;
+		size_t i;
+		int exact;
+
+		platform = qstar_graph_platform(graph);
+		exact = 0;
+		for (i = 0; i < target->imported_artifact_len; i++) {
+			if (strcmp(target->imported_artifacts[i].platform, platform) == 0) {
+				exact = 1;
+				break;
+			}
+		}
+		for (i = 0; i < target->imported_artifact_len; i++) {
+			const struct qstar_imported_artifact *artifact;
+
+			artifact = &target->imported_artifacts[i];
+			if (strcmp(artifact->platform, exact ? platform : "default") != 0)
+				continue;
+			if (push_artifact(map, artifact->id, artifact->role,
+			    artifact->path, "", artifact->primary, 0) < 0)
+				return -1;
+		}
+		return 0;
+	}
 	if (target_primary_artifact_filename(graph, target, filename, sizeof(filename)) < 0 ||
 	    artifact_path_with_filename(graph, target, filename, path, sizeof(path)) < 0)
 		return -1;
@@ -312,11 +341,49 @@ int
 qstar_graph_target_link_artifact_path(struct qstar_graph *graph,
     const struct qstar_target *target, const char *platform, char *dst, size_t dstlen)
 {
+	struct qstar_target_artifact_map map;
 	const char *selector;
+	size_t i;
+
+	if (target && target->kind && strcmp(target->kind, "imported") == 0) {
+		if (qstar_graph_target_artifact_map(graph, target, &map) < 0)
+			return qstar_set_error(graph, "qstar: imported artifact path too long");
+		for (i = 0; i < map.len; i++) {
+			if (strcmp(map.items[i].role, "link") == 0)
+				return snprintf(dst, dstlen, "%s", map.items[i].path) <
+				    (int)dstlen ? 0 : qstar_set_error(graph,
+				    "qstar: imported link artifact path too long");
+		}
+	}
 
 	selector = strcmp(target->kind, "sharedlib") == 0 &&
 	    qstar_platform_is_windows(platform) ? "import_lib" : NULL;
 	return qstar_graph_target_artifact_path(graph, target, selector, dst, dstlen);
+}
+
+int
+qstar_graph_target_tool_path(struct qstar_graph *graph,
+    const struct qstar_target *target, char *dst, size_t dstlen)
+{
+	struct qstar_target_artifact_map map;
+	size_t i;
+
+	if (!target)
+		return qstar_set_error(graph, "qstar: tool_file target is missing");
+	if (qstar_graph_target_artifact_map(graph, target, &map) < 0)
+		return qstar_set_error(graph, "qstar: tool artifact path too long");
+	for (i = 0; i < map.len; i++) {
+		if (strcmp(map.items[i].role, "tool") == 0 ||
+		    ((strcmp(target->kind, "exe") == 0 ||
+		    strcmp(target->kind, "test") == 0) && map.items[i].primary))
+			return snprintf(dst, dstlen, "%s", map.items[i].path) <
+			    (int)dstlen ? 0 : qstar_set_error(graph,
+			    "qstar: tool artifact path too long");
+	}
+	return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
+	    "tool_file", target->label,
+	    "qstar: qstar.tool_file target '%s' has no executable tool artifact",
+	    target->label);
 }
 
 /** build context/target artifact_name policy를 적용한 primary artifact output path를 만든다. */

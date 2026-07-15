@@ -27,19 +27,23 @@ candidate이며,
 - `qstar.transform`
 - `qstar.run_target`
 - `qstar.group`
+- `qstar.interface`, `qstar.imported`, `qstar.tool` metadata/phony dependency edges
+- transitive `compile_usage`/`link_usage` argv and input propagation
+- `qstar.tool_file` producer/executable resolution
 - `qstar.sharedlib` on macOS and Linux platform contexts
 
 `compile_commands.json`는 `qstar.project.compile_commands` policy를 따른다.
 `build.ninja`는 `build_dir/ninja/build.ninja`에 생성된다.
 
-## Stage와 Install
+## Stage와 Project Export
 
-`stage`와 `install`의 copy, diff, manifest 작성은 QStar가 계속 수행한다. 다만
+`stage`의 copy, diff, manifest 작성은 QStar가 계속 수행한다. 다만
 effective generator가 `ninja`이면 참조된 artifact는 먼저 Ninja backend로 build한다.
 `qstar.command` 안의 `qstar.step.build`, `qstar.step.stage`, `qstar.step.run`,
 `qstar.step.export_stage`도 같은 generator contract를 따른다.
 
-이 구조 덕분에 packaging 정책은 QStar에 남기고, artifact 생산은 Ninja에 맡길 수 있다.
+프로젝트가 `install`, `package`, `deploy` 같은 command 이름과 export layout을 직접
+정하고, artifact 생산은 Ninja에 맡길 수 있다.
 
 ## Action Log와 Replay
 

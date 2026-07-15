@@ -62,6 +62,14 @@ struct qstar_provider_final_action {
 	struct qstar_provider_action_template action;
 };
 
+struct qstar_imported_artifact {
+	char *platform;
+	char *id;
+	char *role;
+	char *path;
+	int primary;
+};
+
 struct qstar_target {
 	char *label;
 	char *name;
@@ -92,6 +100,13 @@ struct qstar_target {
 	struct qstar_string_list frameworks;
 	struct qstar_string_list link_options;
 	struct qstar_string_list link_inputs;
+	struct qstar_string_list compile_usage_options;
+	struct qstar_string_list compile_usage_inputs;
+	struct qstar_string_list link_usage_options;
+	struct qstar_string_list link_usage_inputs;
+	struct qstar_imported_artifact *imported_artifacts;
+	size_t imported_artifact_len;
+	size_t imported_artifact_cap;
 	struct qstar_string_list cflags;
 	struct qstar_string_list cxxflags;
 	struct qstar_string_list asm_include_dirs;
@@ -103,6 +118,8 @@ struct qstar_target {
 	struct qstar_string_list run_command;
 	char *description;
 	char *artifact_name;
+	char *imported_artifact_kind;
+	char *tool_path;
 	char *compile_context;
 	char *cxx_standard;
 	char *run_expect_contains;
@@ -342,7 +359,7 @@ struct qstar_target_artifact {
 };
 
 struct qstar_target_artifact_map {
-	struct qstar_target_artifact items[4];
+	struct qstar_target_artifact items[16];
 	size_t len;
 };
 
@@ -564,6 +581,21 @@ const struct qstar_provider_option_value *qstar_target_provider_option(
 
 /** QStar target에 선언된 configs list를 target option field로 병합한다. */
 int qstar_graph_apply_target_configs(struct qstar_graph *graph, struct qstar_target *target);
+
+/** Imported target에 platform-scoped artifact metadata를 추가한다. */
+int qstar_target_add_imported_artifact(struct qstar_graph *graph,
+    struct qstar_target *target, const char *platform, const char *id,
+    const char *role, const char *path, int primary);
+
+/** Consumer가 받는 public/private compile usage closure를 수집한다. */
+int qstar_graph_collect_compile_usage(const struct qstar_graph *graph,
+    const struct qstar_target *target, struct qstar_string_list *options,
+    struct qstar_string_list *inputs);
+
+/** Consumer가 받는 public/private link usage closure를 수집한다. */
+int qstar_graph_collect_link_usage(const struct qstar_graph *graph,
+    const struct qstar_target *target, struct qstar_string_list *options,
+    struct qstar_string_list *inputs);
 
 /** QStar graph에 generated action skeleton을 추가하고 중복 label을 막는다. */
 struct qstar_genrule *qstar_graph_add_genrule(struct qstar_graph *graph, const char *label,

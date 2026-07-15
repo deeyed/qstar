@@ -183,6 +183,17 @@ free_target(struct qstar_target *target)
 	qstar_string_list_free(&target->frameworks);
 	qstar_string_list_free(&target->link_options);
 	qstar_string_list_free(&target->link_inputs);
+	qstar_string_list_free(&target->compile_usage_options);
+	qstar_string_list_free(&target->compile_usage_inputs);
+	qstar_string_list_free(&target->link_usage_options);
+	qstar_string_list_free(&target->link_usage_inputs);
+	for (i = 0; i < target->imported_artifact_len; i++) {
+		free(target->imported_artifacts[i].platform);
+		free(target->imported_artifacts[i].id);
+		free(target->imported_artifacts[i].role);
+		free(target->imported_artifacts[i].path);
+	}
+	free(target->imported_artifacts);
 	qstar_string_list_free(&target->cflags);
 	qstar_string_list_free(&target->cxxflags);
 	qstar_string_list_free(&target->asm_include_dirs);
@@ -199,6 +210,8 @@ free_target(struct qstar_target *target)
 	qstar_string_list_free(&target->run_command);
 	free(target->description);
 	free(target->artifact_name);
+	free(target->imported_artifact_kind);
+	free(target->tool_path);
 	free(target->compile_context);
 	free(target->cxx_standard);
 	free(target->run_expect_contains);
@@ -1128,6 +1141,8 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	target->origin_file = qstar_strdup(origin_file ? origin_file : "");
 	target->origin_line = origin_line;
 	target->artifact_name = qstar_strdup("");
+	target->imported_artifact_kind = qstar_strdup("");
+	target->tool_path = qstar_strdup("");
 	target->compile_context = qstar_strdup("own");
 	target->cxx_standard = qstar_strdup("");
 	target->run_expect_contains = qstar_strdup("");
@@ -1136,6 +1151,7 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	target->toolset = qstar_strdup("");
 	if (!target->label || !target->name || !target->kind || !target->fragment_dir ||
 	    !target->origin_file || !target->artifact_name ||
+	    !target->imported_artifact_kind || !target->tool_path ||
 	    !target->compile_context || !target->cxx_standard ||
 	    !target->run_expect_contains || !target->run_expect_file ||
 	    !target->description || !target->toolset) {
@@ -1143,6 +1159,151 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 		return NULL;
 	}
 	return target;
+}
+
+int
+qstar_target_add_imported_artifact(struct qstar_graph *graph,
+    struct qstar_target *target, const char *platform, const char *id,
+    const char *role, const char *path, int primary)
+{
+	struct qstar_imported_artifact *items, *artifact;
+	size_t cap;
+
+	if (!target || !platform || !id || !role || !path)
+		return qstar_set_error(graph, "qstar: invalid imported artifact metadata");
+	if (target->imported_artifact_len == target->imported_artifact_cap) {
+		cap = target->imported_artifact_cap ? target->imported_artifact_cap * 2 : 8;
+		items = realloc(target->imported_artifacts,
+		    cap * sizeof(target->imported_artifacts[0]));
+		if (!items)
+			return qstar_set_error(graph, "qstar: out of memory");
+		target->imported_artifacts = items;
+		target->imported_artifact_cap = cap;
+	}
+	artifact = &target->imported_artifacts[target->imported_artifact_len++];
+	memset(artifact, 0, sizeof(*artifact));
+	artifact->platform = qstar_strdup(platform);
+	artifact->id = qstar_strdup(id);
+	artifact->role = qstar_strdup(role);
+	artifact->path = qstar_strdup(path);
+	artifact->primary = primary ? 1 : 0;
+	if (!artifact->platform || !artifact->id || !artifact->role || !artifact->path)
+		return qstar_set_error(graph, "qstar: out of memory");
+	return 0;
+}
+
+static const struct qstar_target *
+usage_find_target(const struct qstar_graph *graph, const char *label)
+{
+	size_t i;
+
+	for (i = 0; graph && i < graph->len; i++) {
+		if (strcmp(graph->targets[i].label, label) == 0)
+			return &graph->targets[i];
+	}
+	return NULL;
+}
+
+static int
+usage_list_contains(const struct qstar_string_list *list, const char *value)
+{
+	size_t i;
+
+	for (i = 0; i < list->len; i++) {
+		if (strcmp(list->items[i], value) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+static int
+usage_push_unique(struct qstar_string_list *list, const char *value)
+{
+	return usage_list_contains(list, value) ? 0 : qstar_string_list_push(list, value);
+}
+
+static int
+collect_usage_rec(const struct qstar_graph *graph, const struct qstar_target *dep,
+    int link, struct qstar_string_list *options, struct qstar_string_list *inputs,
+    struct qstar_string_list *seen)
+{
+	const struct qstar_string_list *dep_options, *dep_inputs;
+	const struct qstar_target *next;
+	size_t i;
+
+	if (!dep || usage_list_contains(seen, dep->label))
+		return 0;
+	if (qstar_string_list_push(seen, dep->label) < 0)
+		return -1;
+	dep_options = link ? &dep->link_usage_options : &dep->compile_usage_options;
+	dep_inputs = link ? &dep->link_usage_inputs : &dep->compile_usage_inputs;
+	for (i = 0; i < dep_options->len; i++) {
+		if (usage_push_unique(options, dep_options->items[i]) < 0)
+			return -1;
+	}
+	for (i = 0; i < dep_inputs->len; i++) {
+		if (usage_push_unique(inputs, dep_inputs->items[i]) < 0)
+			return -1;
+	}
+	for (i = 0; i < dep->deps.len; i++) {
+		if (dep->deps.items[i][0] == '@')
+			continue;
+		next = usage_find_target(graph, dep->deps.items[i]);
+		if (next && collect_usage_rec(graph, next, link, options, inputs,
+		    seen) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+static int
+collect_target_usage(const struct qstar_graph *graph,
+    const struct qstar_target *target, int link, struct qstar_string_list *options,
+    struct qstar_string_list *inputs)
+{
+	const struct qstar_target *dep;
+	struct qstar_string_list seen;
+	const struct qstar_string_list *lists[2];
+	size_t i, j;
+
+	memset(options, 0, sizeof(*options));
+	memset(inputs, 0, sizeof(*inputs));
+	memset(&seen, 0, sizeof(seen));
+	lists[0] = &target->deps;
+	lists[1] = &target->private_deps;
+	for (i = 0; i < 2; i++) {
+		for (j = 0; j < lists[i]->len; j++) {
+			if (lists[i]->items[j][0] == '@')
+				continue;
+			dep = usage_find_target(graph, lists[i]->items[j]);
+			if (dep && collect_usage_rec(graph, dep, link, options, inputs,
+			    &seen) < 0)
+				goto fail;
+		}
+	}
+	qstar_string_list_free(&seen);
+	return 0;
+fail:
+	qstar_string_list_free(options);
+	qstar_string_list_free(inputs);
+	qstar_string_list_free(&seen);
+	return -1;
+}
+
+int
+qstar_graph_collect_compile_usage(const struct qstar_graph *graph,
+    const struct qstar_target *target, struct qstar_string_list *options,
+    struct qstar_string_list *inputs)
+{
+	return collect_target_usage(graph, target, 0, options, inputs);
+}
+
+int
+qstar_graph_collect_link_usage(const struct qstar_graph *graph,
+    const struct qstar_target *target, struct qstar_string_list *options,
+    struct qstar_string_list *inputs)
+{
+	return collect_target_usage(graph, target, 1, options, inputs);
 }
 
 /** QStar graph에 reusable config declaration을 추가하고 label 충돌을 막는다. */
@@ -3509,6 +3670,152 @@ dump_target_artifact_map_json(FILE *out, const struct qstar_graph *graph,
 }
 
 static void
+dump_target_usage_text(FILE *out, const struct qstar_graph *graph,
+    const struct qstar_target *target, const char *indent)
+{
+	struct qstar_string_list compile_options, compile_inputs;
+	struct qstar_string_list link_options, link_inputs;
+	const char *prefix = indent ? indent : "";
+
+	fprintf(out, "%scompile_usage.options ", prefix);
+	dump_list(out, &target->compile_usage_options);
+	fputc('\n', out);
+	fprintf(out, "%scompile_usage.inputs ", prefix);
+	dump_list(out, &target->compile_usage_inputs);
+	fputc('\n', out);
+	fprintf(out, "%slink_usage.options ", prefix);
+	dump_list(out, &target->link_usage_options);
+	fputc('\n', out);
+	fprintf(out, "%slink_usage.inputs ", prefix);
+	dump_list(out, &target->link_usage_inputs);
+	fputc('\n', out);
+	memset(&compile_options, 0, sizeof(compile_options));
+	memset(&compile_inputs, 0, sizeof(compile_inputs));
+	memset(&link_options, 0, sizeof(link_options));
+	memset(&link_inputs, 0, sizeof(link_inputs));
+	if (qstar_graph_collect_compile_usage(graph, target, &compile_options,
+	    &compile_inputs) == 0 &&
+	    qstar_graph_collect_link_usage(graph, target, &link_options,
+	    &link_inputs) == 0) {
+		fprintf(out, "%seffective_compile_usage.options ", prefix);
+		dump_list(out, &compile_options);
+		fputc('\n', out);
+		fprintf(out, "%seffective_compile_usage.inputs ", prefix);
+		dump_list(out, &compile_inputs);
+		fputc('\n', out);
+		fprintf(out, "%seffective_link_usage.options ", prefix);
+		dump_list(out, &link_options);
+		fputc('\n', out);
+		fprintf(out, "%seffective_link_usage.inputs ", prefix);
+		dump_list(out, &link_inputs);
+		fputc('\n', out);
+	}
+	qstar_string_list_free(&compile_options);
+	qstar_string_list_free(&compile_inputs);
+	qstar_string_list_free(&link_options);
+	qstar_string_list_free(&link_inputs);
+}
+
+static void
+dump_imported_artifacts_text(FILE *out, const struct qstar_target *target,
+    const char *indent)
+{
+	const char *prefix = indent ? indent : "";
+	size_t i;
+
+	if (target->imported_artifact_kind && *target->imported_artifact_kind)
+		fprintf(out, "%sartifact_kind %s\n", prefix,
+		    target->imported_artifact_kind);
+	if (target->tool_path && *target->tool_path)
+		fprintf(out, "%stool_path %s\n", prefix, target->tool_path);
+	for (i = 0; i < target->imported_artifact_len; i++) {
+		fprintf(out,
+		    "%simported_artifact platform=%s id=%s role=%s path=%s primary=%s\n",
+		    prefix, target->imported_artifacts[i].platform,
+		    target->imported_artifacts[i].id,
+		    target->imported_artifacts[i].role,
+		    target->imported_artifacts[i].path,
+		    target->imported_artifacts[i].primary ? "true" : "false");
+	}
+}
+
+static void
+dump_target_usage_json(FILE *out, const struct qstar_graph *graph,
+    const struct qstar_target *target)
+{
+	struct qstar_string_list compile_options, compile_inputs;
+	struct qstar_string_list link_options, link_inputs;
+
+	fputs(",\"compile_usage\":{\"options\":", out);
+	dump_json_list(out, &target->compile_usage_options);
+	fputs(",\"inputs\":", out);
+	dump_json_list(out, &target->compile_usage_inputs);
+	fputs("},\"link_usage\":{\"options\":", out);
+	dump_json_list(out, &target->link_usage_options);
+	fputs(",\"inputs\":", out);
+	dump_json_list(out, &target->link_usage_inputs);
+	fputs("}", out);
+	memset(&compile_options, 0, sizeof(compile_options));
+	memset(&compile_inputs, 0, sizeof(compile_inputs));
+	memset(&link_options, 0, sizeof(link_options));
+	memset(&link_inputs, 0, sizeof(link_inputs));
+	if (qstar_graph_collect_compile_usage(graph, target, &compile_options,
+	    &compile_inputs) < 0 ||
+	    qstar_graph_collect_link_usage(graph, target, &link_options,
+	    &link_inputs) < 0) {
+		qstar_string_list_free(&compile_options);
+		qstar_string_list_free(&compile_inputs);
+		qstar_string_list_free(&link_options);
+		qstar_string_list_free(&link_inputs);
+		memset(&compile_options, 0, sizeof(compile_options));
+		memset(&compile_inputs, 0, sizeof(compile_inputs));
+		memset(&link_options, 0, sizeof(link_options));
+		memset(&link_inputs, 0, sizeof(link_inputs));
+	}
+	fputs(",\"effective_compile_usage\":{\"options\":", out);
+	dump_json_list(out, &compile_options);
+	fputs(",\"inputs\":", out);
+	dump_json_list(out, &compile_inputs);
+	fputs("},\"effective_link_usage\":{\"options\":", out);
+	dump_json_list(out, &link_options);
+	fputs(",\"inputs\":", out);
+	dump_json_list(out, &link_inputs);
+	fputs("}", out);
+	qstar_string_list_free(&compile_options);
+	qstar_string_list_free(&compile_inputs);
+	qstar_string_list_free(&link_options);
+	qstar_string_list_free(&link_inputs);
+}
+
+static void
+dump_imported_artifacts_json(FILE *out, const struct qstar_target *target)
+{
+	size_t i;
+
+	fputs(",\"artifact_kind\":", out);
+	dump_json_string(out, target->imported_artifact_kind ?
+	    target->imported_artifact_kind : "");
+	fputs(",\"tool_path\":", out);
+	dump_json_string(out, target->tool_path ? target->tool_path : "");
+	fputs(",\"imported_artifacts\":[", out);
+	for (i = 0; i < target->imported_artifact_len; i++) {
+		if (i)
+			fputc(',', out);
+		fputs("{\"platform\":", out);
+		dump_json_string(out, target->imported_artifacts[i].platform);
+		fputs(",\"id\":", out);
+		dump_json_string(out, target->imported_artifacts[i].id);
+		fputs(",\"role\":", out);
+		dump_json_string(out, target->imported_artifacts[i].role);
+		fputs(",\"path\":", out);
+		dump_json_string(out, target->imported_artifacts[i].path);
+		fprintf(out, ",\"primary\":%s}",
+		    target->imported_artifacts[i].primary ? "true" : "false");
+	}
+	fputc(']', out);
+}
+
+static void
 dump_package_aliases(FILE *out, const struct qstar_graph *graph)
 {
 	size_t i;
@@ -3593,6 +3900,7 @@ dump_target(const struct qstar_graph *graph, const struct qstar_target *target, 
 	fputs("  private_deps ", out);
 	dump_list(out, &target->private_deps);
 	fputc('\n', out);
+	dump_target_usage_text(out, graph, target, "  ");
 	fputs("  visibility ", out);
 	dump_list(out, &target->visibility);
 	fputc('\n', out);
@@ -3644,6 +3952,7 @@ dump_target(const struct qstar_graph *graph, const struct qstar_target *target, 
 	    target->artifact_name && *target->artifact_name ? target->artifact_name :
 	    "<default>");
 	qstar_dump_target_artifact_map_text(out, graph, target, "  ");
+	dump_imported_artifacts_text(out, target, "  ");
 	fprintf(out, "  toolset %s\n",
 	    target->toolset && *target->toolset ? target->toolset : "<default>");
 }
@@ -4227,6 +4536,7 @@ dump_target_json(FILE *out, const struct qstar_graph *graph,
 	dump_json_list(out, &target->deps);
 	fputs(",\"private_deps\":", out);
 	dump_json_list(out, &target->private_deps);
+	dump_target_usage_json(out, graph, target);
 	fputs(",\"toolset\":", out);
 	dump_json_string(out, target->toolset && *target->toolset ? target->toolset : "");
 	fputs(",\"artifact_name\":", out);
@@ -4234,6 +4544,7 @@ dump_target_json(FILE *out, const struct qstar_graph *graph,
 	    target->artifact_name : "");
 	fputs(",\"artifacts\":", out);
 	dump_target_artifact_map_json(out, graph, target);
+	dump_imported_artifacts_json(out, target);
 	fputs(",\"cxx_standard\":", out);
 	dump_json_string(out, target->cxx_standard);
 	fputs(",\"lang_cxx_standard\":", out);
@@ -4697,6 +5008,7 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	fputs("  private_deps ", out);
 	dump_list(out, &target->private_deps);
 	fputc('\n', out);
+	dump_target_usage_text(out, graph, target, "  ");
 	fputs("  visibility ", out);
 	dump_list(out, &target->visibility);
 	fputc('\n', out);
@@ -4731,6 +5043,7 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	    target->artifact_name && *target->artifact_name ? target->artifact_name :
 	    "<default>");
 	qstar_dump_target_artifact_map_text(out, graph, target, "  ");
+	dump_imported_artifacts_text(out, target, "  ");
 	return 0;
 }
 

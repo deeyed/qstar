@@ -216,7 +216,8 @@ enum qstar_sched_node_kind {
 	QSTAR_SCHED_GENERATE,
 	QSTAR_SCHED_STAGE,
 	QSTAR_SCHED_RUN,
-	QSTAR_SCHED_GROUP
+	QSTAR_SCHED_GROUP,
+	QSTAR_SCHED_METADATA
 };
 
 enum qstar_sched_node_state {
@@ -405,6 +406,8 @@ progress_stage_name(const struct qstar_sched_node *node)
 		return "running";
 	case QSTAR_SCHED_GROUP:
 		return "grouping";
+	case QSTAR_SCHED_METADATA:
+		return "metadata";
 	}
 	return "working";
 }
@@ -428,7 +431,7 @@ progress_node_counts(const struct qstar_sched_node *node)
 {
 	if (!node)
 		return 0;
-	if (node->kind == QSTAR_SCHED_GROUP)
+	if (node->kind == QSTAR_SCHED_GROUP || node->kind == QSTAR_SCHED_METADATA)
 		return 0;
 	if (node->kind == QSTAR_SCHED_OBJECTLIB)
 		return 0;
@@ -892,6 +895,8 @@ static int run_one_generated_action(struct qstar_graph *graph, struct qstar_buil
     const struct qstar_target *target, const struct qstar_genrule *genrule);
 static int build_target(struct qstar_graph *graph, const struct qstar_target *target,
     size_t order, void *user);
+static int push_link_action_input(struct qstar_graph *graph,
+    struct qstar_string_list *inputs, const char *item);
 
 /** host CPU 수 후보를 QStar가 허용하는 기본 jobs 범위로 제한한다. */
 static int
@@ -4643,6 +4648,8 @@ resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
 		    target->origin_line, "target_file", target->label,
 		    "qstar: qstar.target_file cannot reference objectlib target '%s' because object libraries have no artifact; consume it with objects = { ... }",
 		    label);
+	if (strcmp(artifact, "@tool") == 0)
+		return qstar_graph_target_tool_path(graph, target, dst, dstlen);
 	return qstar_graph_target_artifact_path(graph, target, artifact, dst, dstlen);
 }
 
@@ -4730,6 +4737,19 @@ push_target_file_argv_inputs(struct qstar_graph *graph, const struct qstar_genru
 	char label[QSTAR_PATH_MAX], resolved[QSTAR_PATH_MAX];
 	size_t i;
 	int rc;
+
+	rc = qstar_target_file_token_label(genrule->tool, label, sizeof(label));
+	if (rc < 0)
+		return qstar_set_error_origin(graph, genrule->origin_file,
+		    genrule->origin_line, "command", genrule->label,
+		    "qstar: malformed tool_file placeholder");
+	if (rc == 1) {
+		if (resolve_target_file_token(graph, genrule->tool, resolved,
+		    sizeof(resolved)) < 0)
+			return -1;
+		if (qstar_string_list_push(inputs, resolved) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+	}
 
 	for (i = 0; i < genrule->args.len; i++) {
 		rc = qstar_target_file_token_label(genrule->args.items[i], label, sizeof(label));
@@ -4866,6 +4886,11 @@ build_generated_artifact_dependencies(struct qstar_graph *graph, struct qstar_bu
 	int rc;
 
 	memset(&visited, 0, sizeof(visited));
+	if (build_generated_artifact_dependency(graph, ctx, genrule,
+	    genrule->tool, &visited) < 0) {
+		qstar_string_list_free(&visited);
+		return -1;
+	}
 	for (i = 0; i < genrule->inputs.len; i++) {
 		if (build_generated_artifact_dependency(graph, ctx, genrule,
 		    genrule->inputs.items[i], &visited) < 0) {
@@ -5294,7 +5319,7 @@ prepare_run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		}
 	}
 	for (i = 0; i < target->run_command.len; i++) {
-		char label[QSTAR_PATH_MAX];
+		char label[QSTAR_PATH_MAX], resolved[QSTAR_PATH_MAX];
 		int rc;
 
 		rc = qstar_target_file_token_label(target->run_command.items[i], label,
@@ -5308,26 +5333,16 @@ prepare_run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		}
 		if (rc != 1)
 			continue;
-		dep = find_target(graph, label);
-		if (dep && strcmp(dep->kind, "group") != 0 &&
-		    qstar_graph_artifact_output_path(graph, dep, artifact,
-		    sizeof(artifact)) == 0) {
-			if (qstar_string_list_push(&inputs, artifact) < 0) {
-				qstar_string_list_free(&inputs);
-				prepared_action_free(action);
-				return qstar_set_error(graph, "qstar: out of memory");
-			}
-			continue;
+		if (resolve_target_file_token(graph, target->run_command.items[i],
+		    resolved, sizeof(resolved)) < 0) {
+			qstar_string_list_free(&inputs);
+			prepared_action_free(action);
+			return -1;
 		}
-		genrule = qstar_graph_find_genrule(graph, label);
-		if (!genrule)
-			continue;
-		for (j = 0; j < genrule->outputs.len; j++) {
-			if (qstar_string_list_push(&inputs, genrule->outputs.items[j]) < 0) {
-				qstar_string_list_free(&inputs);
-				prepared_action_free(action);
-				return qstar_set_error(graph, "qstar: out of memory");
-			}
+		if (qstar_string_list_push(&inputs, resolved) < 0) {
+			qstar_string_list_free(&inputs);
+			prepared_action_free(action);
+			return qstar_set_error(graph, "qstar: out of memory");
 		}
 	}
 	for (i = 0; i < target->run_inputs.len; i++) {
@@ -5874,6 +5889,52 @@ prepared_action_push_provider_template(struct qstar_graph *graph,
 	return 0;
 }
 
+static int
+prepared_action_push_dependency_usage(struct qstar_graph *graph,
+    struct qstar_prepared_action *action, const struct qstar_target *target, int link)
+{
+	struct qstar_string_list options, inputs;
+	size_t i;
+	int rc;
+
+	rc = link ? qstar_graph_collect_link_usage(graph, target, &options, &inputs) :
+	    qstar_graph_collect_compile_usage(graph, target, &options, &inputs);
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	for (i = 0; i < options.len; i++) {
+		if (prepared_action_push_argv(graph, action, options.items[i]) < 0) {
+			rc = -1;
+			break;
+		}
+	}
+	qstar_string_list_free(&options);
+	qstar_string_list_free(&inputs);
+	return rc;
+}
+
+static int
+push_dependency_usage_inputs(struct qstar_graph *graph,
+    const struct qstar_target *target, int link, struct qstar_string_list *action_inputs)
+{
+	struct qstar_string_list options, inputs;
+	size_t i;
+	int rc;
+
+	rc = link ? qstar_graph_collect_link_usage(graph, target, &options, &inputs) :
+	    qstar_graph_collect_compile_usage(graph, target, &options, &inputs);
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	for (i = 0; i < inputs.len; i++) {
+		if (push_link_action_input(graph, action_inputs, inputs.items[i]) < 0) {
+			rc = -1;
+			break;
+		}
+	}
+	qstar_string_list_free(&options);
+	qstar_string_list_free(&inputs);
+	return rc;
+}
+
 /** C/C++/ASM source 하나를 주어진 target context 안의 compile action으로 준비한다. */
 static int
 prepare_compile_action_from_source(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
@@ -5959,7 +6020,8 @@ prepare_compile_action_from_source(struct qstar_graph *graph, struct qstar_build
 			snprintf(action->depfile, sizeof(action->depfile), "%s",
 			    provider_unit->action.depfile);
 		if (prepared_action_push_provider_template(graph, action, target,
-		    &provider_unit->action.argv) < 0)
+		    &provider_unit->action.argv) < 0 ||
+		    prepared_action_push_dependency_usage(graph, action, target, 0) < 0)
 			goto fail;
 		memset(&inputs, 0, sizeof(inputs));
 		memset(&dep_inputs, 0, sizeof(dep_inputs));
@@ -5968,6 +6030,13 @@ prepare_compile_action_from_source(struct qstar_graph *graph, struct qstar_build
 		    copy_string_list(&action->env, &provider_unit->action.env) < 0 ||
 		    copy_string_list(&outputs, &provider_unit->action.outputs) < 0)
 			goto oom_provider;
+		if (push_dependency_usage_inputs(graph, target, 0, &inputs) < 0) {
+			qstar_string_list_free(&inputs);
+			qstar_string_list_free(&dep_inputs);
+			qstar_string_list_free(&outputs);
+			qstar_string_list_free(&includes);
+			return -1;
+		}
 		for (i = 0; i < outputs.len; i++) {
 			if (mkdir_parent_under_root(graph, outputs.items[i]) < 0) {
 				qstar_string_list_free(&inputs);
@@ -6047,6 +6116,8 @@ oom_provider:
 	if (!provider_source && is_cxx && target->cxx_standard[0] &&
 	    prepared_action_push_argv(graph, action, std_arg) < 0)
 		goto fail;
+	if (prepared_action_push_dependency_usage(graph, action, target, 0) < 0)
+		goto fail;
 	for (i = 0; !provider_source && !is_asm && !is_cxx && i < target->cflags.len; i++) {
 		if (prepared_action_push_argv(graph, action, target->cflags.items[i]) < 0)
 			goto fail;
@@ -6095,6 +6166,13 @@ oom_provider:
 		return qstar_set_error(graph, "qstar: out of memory");
 	}
 	if (push_target_header_inputs(graph, target, &inputs) < 0) {
+		qstar_string_list_free(&inputs);
+		qstar_string_list_free(&dep_inputs);
+		qstar_string_list_free(&outputs);
+		qstar_string_list_free(&includes);
+		return -1;
+	}
+	if (push_dependency_usage_inputs(graph, target, 0, &inputs) < 0) {
 		qstar_string_list_free(&inputs);
 		qstar_string_list_free(&dep_inputs);
 		qstar_string_list_free(&outputs);
@@ -6626,6 +6704,28 @@ append_owned_argv(struct qstar_graph *graph, char **argv, size_t *argc, const ch
 	return argv[*argc - 1] ? 0 : qstar_set_error(graph, "qstar: out of memory");
 }
 
+static int
+append_dependency_link_usage_options(struct qstar_graph *graph,
+    const struct qstar_target *target, char **argv, size_t *argc)
+{
+	struct qstar_string_list options, inputs;
+	size_t i;
+	int rc;
+
+	if (qstar_graph_collect_link_usage(graph, target, &options, &inputs) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	rc = 0;
+	for (i = 0; i < options.len; i++) {
+		if (append_owned_argv(graph, argv, argc, options.items[i]) < 0) {
+			rc = -1;
+			break;
+		}
+	}
+	qstar_string_list_free(&options);
+	qstar_string_list_free(&inputs);
+	return rc;
+}
+
 /** artifact list에 이미 추가한 target label인지 검사한다. */
 static int
 seen_label(const struct qstar_string_list *seen, const char *label)
@@ -6654,13 +6754,16 @@ append_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *de
 	if (qstar_string_list_push(seen, dep->label) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
 	if (strcmp(dep->kind, "group") == 0 ||
-	    strcmp(dep->kind, "objectlib") == 0)
+	    strcmp(dep->kind, "objectlib") == 0 || strcmp(dep->kind, "tool") == 0)
 		return 0;
-	if (qstar_graph_target_link_artifact_path(graph, dep, toolchain->platform, artifact,
-	    sizeof(artifact)) < 0)
-		return qstar_set_error(graph, "qstar: dependency artifact path too long");
-	if (append_owned_argv(graph, argv, argc, artifact) < 0)
-		return -1;
+	if (strcmp(dep->kind, "interface") != 0) {
+		if (qstar_graph_target_link_artifact_path(graph, dep,
+		    toolchain->platform, artifact, sizeof(artifact)) < 0)
+			return qstar_set_error(graph,
+			    "qstar: dependency artifact path too long");
+		if (append_owned_argv(graph, argv, argc, artifact) < 0)
+			return -1;
+	}
 	for (i = 0; i < dep->deps.len; i++) {
 		if (dep->deps.items[i][0] == '@')
 			continue;
@@ -6669,6 +6772,8 @@ append_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *de
 		    seen) < 0)
 			return -1;
 	}
+	if (strcmp(dep->kind, "interface") == 0)
+		return 0;
 	for (i = 0; i < dep->private_deps.len; i++) {
 		if (dep->private_deps.items[i][0] == '@')
 			continue;
@@ -7093,12 +7198,21 @@ prepare_provider_final_action(struct qstar_graph *graph, struct qstar_build_ctx 
 	    action->description, sizeof(action->description)) < 0)
 		return qstar_set_error(graph, "qstar: final action description too long");
 	if (prepared_action_push_provider_template(graph, action, target,
-	    &tmpl->argv) < 0)
+	    &tmpl->argv) < 0 ||
+	    (strcmp(target->kind, "staticlib") != 0 &&
+	    prepared_action_push_dependency_usage(graph, action, target, 1) < 0))
 		goto fail;
 	if (copy_string_list(&inputs, &tmpl->inputs) < 0 ||
 	    copy_string_list(&action->env, &tmpl->env) < 0 ||
 	    copy_string_list(&outputs, &tmpl->outputs) < 0)
 		goto oom;
+	if (strcmp(target->kind, "staticlib") != 0 &&
+	    push_dependency_usage_inputs(graph, target, 1, &inputs) < 0) {
+		qstar_string_list_free(&inputs);
+		qstar_string_list_free(&dep_inputs);
+		qstar_string_list_free(&outputs);
+		goto fail;
+	}
 	for (i = 0; i < outputs.len; i++) {
 		if (mkdir_parent_under_root(graph, outputs.items[i]) < 0) {
 			qstar_string_list_free(&inputs);
@@ -7203,6 +7317,11 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		return -1;
 	}
 	if (strcmp(target->kind, "staticlib") != 0 &&
+	    append_dependency_link_usage_options(graph, target, argv, &argc) < 0) {
+		free_dep_artifacts(argv, owned_first, argc);
+		return -1;
+	}
+	if (strcmp(target->kind, "staticlib") != 0 &&
 	    append_link_policy_flags(graph, target, argv, &argc) < 0) {
 		free_dep_artifacts(argv, owned_first, argc);
 		return -1;
@@ -7264,6 +7383,12 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	if (push_link_action_inputs(graph, target, &inputs) < 0) {
 		qstar_string_list_free(&inputs);
+		return -1;
+	}
+	if (strcmp(target->kind, "staticlib") != 0 &&
+	    push_dependency_usage_inputs(graph, target, 1, &inputs) < 0) {
+		qstar_string_list_free(&inputs);
+		free_dep_artifacts(argv, owned_first, argc);
 		return -1;
 	}
 	if (qstar_graph_target_artifact_outputs(graph, target, &outputs) < 0) {
@@ -7520,7 +7645,9 @@ lowered_cache_visit(struct qstar_graph *graph, const struct qstar_target *target
 	size_t i, j, action_index;
 
 	(void)order;
-	if (strcmp(target->kind, "group") == 0 || strcmp(target->kind, "run_target") == 0)
+	if (strcmp(target->kind, "group") == 0 || strcmp(target->kind, "run_target") == 0 ||
+	    strcmp(target->kind, "interface") == 0 ||
+	    strcmp(target->kind, "imported") == 0 || strcmp(target->kind, "tool") == 0)
 		return 0;
 	if (qstar_resolve_toolchain(graph, target, &toolchain) < 0 ||
 	    validate_noncompile_sources(graph, target, &toolchain) < 0)
@@ -7633,6 +7760,14 @@ build_target(struct qstar_graph *graph, const struct qstar_target *target, size_
 		    target->label, target->deps.len, target->private_deps.len);
 		return 0;
 	}
+	if (strcmp(target->kind, "interface") == 0 ||
+	    strcmp(target->kind, "imported") == 0 || strcmp(target->kind, "tool") == 0) {
+		fprintf(ctx->out,
+		    "typed_dependency_target label=%s kind=%s deps=%zu private_deps=%zu action=none\n",
+		    target->label, target->kind, target->deps.len,
+		    target->private_deps.len);
+		return 0;
+	}
 	if (qstar_resolve_toolchain(graph, target, &toolchain) < 0)
 		return -1;
 	fprintf(ctx->out,
@@ -7694,6 +7829,8 @@ sched_kind_name(enum qstar_sched_node_kind kind)
 		return "run";
 	case QSTAR_SCHED_GROUP:
 		return "group";
+	case QSTAR_SCHED_METADATA:
+		return "metadata";
 	}
 	return "unknown";
 }
@@ -7881,9 +8018,10 @@ scheduler_discover_genrule_deps(struct qstar_scheduler *sched,
 	size_t i;
 	int rc, target_index, gen_index, before_targets;
 
-	for (i = 0; i < genrule->inputs.len + genrule->args.len; i++) {
-		const char *item = i < genrule->inputs.len ? genrule->inputs.items[i] :
-		    genrule->args.items[i - genrule->inputs.len];
+	for (i = 0; i < 1 + genrule->inputs.len + genrule->args.len; i++) {
+		const char *item = i == 0 ? genrule->tool :
+		    i <= genrule->inputs.len ? genrule->inputs.items[i - 1] :
+		    genrule->args.items[i - 1 - genrule->inputs.len];
 
 		rc = qstar_target_file_token_label(item, label, sizeof(label));
 		if (rc < 0)
@@ -8063,6 +8201,35 @@ scheduler_discover_target_file_item(struct qstar_scheduler *sched,
 	return 0;
 }
 
+static int
+scheduler_discover_dependency_usage(struct qstar_scheduler *sched,
+    const struct qstar_target *target, int *changed)
+{
+	struct qstar_string_list options, inputs;
+	size_t i;
+	int link, rc;
+
+	for (link = 0; link <= 1; link++) {
+		rc = link ? qstar_graph_collect_link_usage(sched->graph, target,
+		    &options, &inputs) : qstar_graph_collect_compile_usage(sched->graph,
+		    target, &options, &inputs);
+		if (rc < 0)
+			return qstar_set_error(sched->graph, "qstar: out of memory");
+		for (i = 0; i < inputs.len; i++) {
+			if (scheduler_discover_target_file_item(sched, target,
+			    link ? "link_usage.inputs" : "compile_usage.inputs",
+			    inputs.items[i], changed) < 0) {
+				qstar_string_list_free(&options);
+				qstar_string_list_free(&inputs);
+				return -1;
+			}
+		}
+		qstar_string_list_free(&options);
+		qstar_string_list_free(&inputs);
+	}
+	return 0;
+}
+
 /** run_target inputs의 producer를 discovery set에 반영한다. */
 static int
 scheduler_discover_run_inputs(struct qstar_scheduler *sched,
@@ -8178,6 +8345,8 @@ scheduler_discover(struct qstar_scheduler *sched, const char *label)
 			    scheduler_discover_target_dep_genrules(sched,
 			    sched->targets[i], &changed) < 0 ||
 			    scheduler_discover_target_link_inputs(sched, sched->targets[i],
+			    &changed) < 0 ||
+			    scheduler_discover_dependency_usage(sched, sched->targets[i],
 			    &changed) < 0 ||
 			    scheduler_discover_run_inputs(sched, sched->targets[i],
 			    &changed) < 0 ||
@@ -8345,6 +8514,14 @@ scheduler_create_target_nodes(struct qstar_scheduler *sched, const struct qstar_
 	}
 	if (strcmp(target->kind, "run_target") == 0) {
 		if (scheduler_add_node(sched, QSTAR_SCHED_RUN, target, NULL, 0, 0,
+		    &node_index) < 0)
+			return -1;
+		sched->target_final_node[target_index] = (int)node_index;
+		return 0;
+	}
+	if (strcmp(target->kind, "interface") == 0 ||
+	    strcmp(target->kind, "imported") == 0 || strcmp(target->kind, "tool") == 0) {
+		if (scheduler_add_node(sched, QSTAR_SCHED_METADATA, target, NULL, 0, 0,
 		    &node_index) < 0)
 			return -1;
 		sched->target_final_node[target_index] = (int)node_index;
@@ -8583,6 +8760,9 @@ scheduler_connect_genrule_edges(struct qstar_scheduler *sched)
 			continue;
 		genrule = &sched->graph->genrules[i];
 		node_index = (size_t)sched->genrule_node[i];
+		if (scheduler_add_genrule_item_edge(sched, genrule, genrule->tool,
+		    node_index) < 0)
+			return -1;
 		for (j = 0; j < genrule->inputs.len; j++) {
 			if (scheduler_add_genrule_item_edge(sched, genrule,
 			    genrule->inputs.items[j], node_index) < 0)
@@ -8750,6 +8930,31 @@ scheduler_connect_run_input_edges(struct qstar_scheduler *sched,
 	return 0;
 }
 
+static int
+scheduler_connect_dependency_usage_inputs(struct qstar_scheduler *sched,
+    const struct qstar_target *target, size_t user_node, int link)
+{
+	struct qstar_string_list options, inputs;
+	size_t i;
+	int rc;
+
+	rc = link ? qstar_graph_collect_link_usage(sched->graph, target, &options,
+	    &inputs) : qstar_graph_collect_compile_usage(sched->graph, target,
+	    &options, &inputs);
+	if (rc < 0)
+		return qstar_set_error(sched->graph, "qstar: out of memory");
+	for (i = 0; i < inputs.len; i++) {
+		if (scheduler_add_target_link_input_edge(sched, target,
+		    inputs.items[i], user_node) < 0) {
+			rc = -1;
+			break;
+		}
+	}
+	qstar_string_list_free(&options);
+	qstar_string_list_free(&inputs);
+	return rc;
+}
+
 /** target 내부 compile/final/run/group edge를 scheduler graph에 연결한다. */
 static int
 scheduler_connect_target_edges(struct qstar_scheduler *sched)
@@ -8775,9 +8980,15 @@ scheduler_connect_target_edges(struct qstar_scheduler *sched)
 		if (scheduler_connect_run_input_edges(sched, target, final_node) < 0)
 			return -1;
 		if (strcmp(target->kind, "group") == 0 ||
-		    strcmp(target->kind, "run_target") == 0)
+		    strcmp(target->kind, "run_target") == 0 ||
+		    strcmp(target->kind, "interface") == 0 ||
+		    strcmp(target->kind, "imported") == 0 ||
+		    strcmp(target->kind, "tool") == 0)
 			continue;
 		if (scheduler_connect_consumed_genrules(sched, target, final_node) < 0)
+			return -1;
+		if (scheduler_connect_dependency_usage_inputs(sched, target, final_node,
+		    1) < 0)
 			return -1;
 		for (j = 0; j < target->link_inputs.len; j++) {
 			if (scheduler_add_target_link_input_edge(sched, target,
@@ -8790,7 +9001,9 @@ scheduler_connect_target_edges(struct qstar_scheduler *sched)
 				continue;
 			if (scheduler_add_edge(sched, j, final_node) < 0 ||
 			    scheduler_connect_compile_genrules(sched,
-			    node->source_owner ? node->source_owner : target, j) < 0)
+			    node->source_owner ? node->source_owner : target, j) < 0 ||
+			    scheduler_connect_dependency_usage_inputs(sched, target, j,
+			    0) < 0)
 				return -1;
 		}
 	}
@@ -8897,6 +9110,13 @@ scheduler_run_sync_node(struct qstar_scheduler *sched, size_t node_index)
 		    "group_target label=%s deps=%zu private_deps=%zu action=none artifact=<none>\n",
 		    node->target->label, node->target->deps.len,
 		    node->target->private_deps.len);
+		return 0;
+	}
+	if (node->kind == QSTAR_SCHED_METADATA) {
+		fprintf(sched->ctx->out,
+		    "typed_dependency_target label=%s kind=%s deps=%zu private_deps=%zu action=none\n",
+		    node->target->label, node->target->kind,
+		    node->target->deps.len, node->target->private_deps.len);
 		return 0;
 	}
 	if (node->kind == QSTAR_SCHED_OBJECTLIB) {

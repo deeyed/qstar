@@ -17,6 +17,9 @@ The Ninja backend lowers:
 - `qstar.transform`
 - `qstar.run_target` wrapper actions
 - `qstar.group` phony aliases
+- `qstar.interface`, `qstar.imported`, and `qstar.tool` dependency-only aliases
+- transitive `compile_usage` and `link_usage` options/inputs
+- `qstar.tool_file` executable producer edges for generated actions
 - `qstar.sharedlib` for macOS, Linux, and Windows platform contexts
 - `compile_commands.json` according to project policy
 
@@ -27,7 +30,7 @@ platform contexts use `$ORIGIN` relative rpaths. This allows the freshly built a
 to run from `build/qstar/out/...` without requiring a prefix install first.
 Windows shared-library dependencies link against the producer's import `.lib`;
 the runtime `.dll` remains the primary artifact for `qstar.target_file(label)`,
-stage, and install.
+stage, and project-defined export layouts.
 
 Ninja action ids are written into `build.ninja` as `qstar_action_id` variables
 and as `# qstar-action-id:` comments. QStar also writes backend action logs so
@@ -36,10 +39,11 @@ compile, archive, link, generate, and run actions.
 
 ## QStar-Owned Work
 
-`stage` and `install` remain QStar-owned copy/manifest operations. When the
+`stage` remains a QStar-owned copy/manifest operation. When the
 effective generator is `ninja`, QStar first builds referenced target artifacts
-through Ninja and then performs copy, diff, manifest, and install layout work
-itself. This keeps package/stage semantics in one implementation while still
+through Ninja and then performs copy, diff, and manifest work itself. Projects
+define install/package/deploy names through `qstar.command` and export layouts
+through `qstar.step.export_stage`. This keeps stage semantics in one implementation while still
 letting Ninja produce the artifacts.
 
 Root project commands also use the effective generator for build-producing

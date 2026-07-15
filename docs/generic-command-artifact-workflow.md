@@ -111,6 +111,29 @@ qstar.transform "package_blob" {
 }
 ```
 
+Package-local executable을 PATH 이름이나 wrapper string으로 숨기지 않고 typed dependency로
+연결하려면 `qstar.tool`과 `qstar.tool_file`을 쓴다.
+
+```lua
+qstar.tool "artifact_converter" {
+  path = "tools/artifact-converter",
+}
+
+qstar.transform "converted" {
+  input = qstar.target_file("//:app"),
+  output = qstar.output("generated/converted.bin"),
+  command = qstar.cli {
+    qstar.tool_file("//:artifact_converter"),
+    qstar.input(0),
+    qstar.output(0),
+  },
+}
+```
+
+`qstar.tool_file`은 QStar-built executable/test도 받을 수 있으며 Stella/Ninja 양쪽에서
+tool producer를 generated action보다 먼저 빌드한다. Typed dependency와 imported
+artifact의 전체 계약은 `docs/typed-dependency-targets.md`에 있다.
+
 핵심은 이 output을 모든 workflow surface가 같은 방식으로 소비하는 것이다.
 
 Required behavior:

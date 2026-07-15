@@ -17,6 +17,8 @@ v1 promise: candidate surface defined, v1 release gate still required
 
 - `qstar.project`, `qstar.toolset`, `qstar.config`
 - `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`, `qstar.test`
+- `qstar.interface`, `qstar.imported`, `qstar.tool` typed dependency target과
+  explicit `compile_usage`/`link_usage`, `qstar.tool_file` executable dependency
 - `qstar.objectlib`의 `compile_context = "own" | "consumer"` object collection과
   artifact target의 `objects = {...}` 소비. Consumer-context objectlib는 source-owned
   leaf input을 각 consuming target의 effective configs/lang/toolset으로 per-consumer
@@ -36,7 +38,7 @@ v1 promise: candidate surface defined, v1 release gate still required
   `make qstar-standard-provider-compatibility-tests`로 fake-tool Stella/Ninja
   compatibility coverage를 가진다.
 - generated artifact helpers: `qstar.input`, `qstar.output`,
-  `qstar.target_file`, `qstar.stage_dir`, `qstar.stage_file`
+  `qstar.target_file`, `qstar.tool_file`, `qstar.stage_dir`, `qstar.stage_file`
 - authoring helpers: `qstar.files`, `qstar.join`, `qstar.copy`,
   `qstar.append`, `qstar.merge`, `qstar.extend`
 

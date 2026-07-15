@@ -197,6 +197,45 @@ action/output and are rejected in
 context; use raw provider source strings or
 .Li own
 context instead.
+.It Ic qstar.interface
+Artifact-free typed dependency target. Fields are
+.Ic deps ,
+.Ic public_deps ,
+.Ic private_deps ,
+.Ic visibility ,
+.Ic compile_usage ,
+and
+.Ic link_usage .
+Usage tables accept only
+.Ic options
+and
+.Ic inputs .
+Options are appended verbatim to consumer compile or link argv vectors, while
+inputs are rebuild dependencies and do not become argv items. Public dependency
+usage propagates transitively; private dependency usage does not propagate past
+its owner.
+.It Ic qstar.imported
+Package-local prebuilt artifact target. The
+.Ic artifacts
+field maps
+.Li default , darwin , linux , windows , generic
+to artifact lists containing
+.Ic id , role , path , primary .
+The current platform entry wins and
+.Li default
+is the fallback. Exactly one artifact is primary. The
+.Li link
+role selects the implementation artifact used by link consumers. The optional
+.Ic artifact_kind
+value is descriptive metadata only; QStar never infers compiler or linker flags
+from it, an artifact id, or a filename suffix.
+.It Ic qstar.tool
+Declare a package-local executable tool path with optional visibility.
+.Ic qstar.tool_file(label)
+references this path. The same helper accepts an imported artifact with
+.Li role = "tool"
+or a QStar executable/test target. Built executable tools create a producer edge
+before the consuming generated action in both Stella and Ninja.
 .It Ic qstar.test
 Test executable target.
 .Pp
@@ -210,6 +249,15 @@ items are appended to the link argv exactly as authored.
 tracks package-relative files or
 .Ic qstar.target_file(...)
 artifacts as link action rebuild inputs without adding argv items.
+Artifact targets may also declare
+.Ic compile_usage
+and
+.Ic link_usage
+for explicit consumer requirements. Existing
+.Ic deps , public_deps , private_deps , libs , lib_dirs , link_options
+and
+.Ic link_inputs
+remain supported.
 macOS frameworks are not a generic top-level target field; write them inside a
 Darwin-specific branch as
 .Ic link.frameworks .
@@ -406,6 +454,19 @@ library import
 .Pa .lib
 artifact while the default form still resolves to the primary runtime
 .Pa .dll .
+.It Ic qstar.tool_file
+Reference the executable artifact of a typed tool dependency. Accepted targets
+are
+.Ic qstar.tool ,
+an imported artifact with
+.Li role = "tool" ,
+.Ic qstar.executable ,
+or
+.Ic qstar.test .
+When used as the first item of
+.Ic qstar.cli
+for a generated action, the referenced executable target is built first and its
+resolved path becomes argv[0].
 .It Ic qstar.stage_dir
 Reference the layout root produced by a
 .Ic qstar.stage

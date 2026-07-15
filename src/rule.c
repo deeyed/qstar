@@ -51,6 +51,9 @@ static const struct qstar_target_rule_info target_rules[] = {
 	{ "objectlib", "native", "compile-objects", "objects", "", "", 0, 0, 0 },
 	{ "run_target", "generic", "run", "generic", "", "", 0, 0, 0 },
 	{ "group", "generic", "group", "none", "", "", 0, 0, 0 },
+	{ "interface", "generic", "interface", "none", "", "", 0, 0, 0 },
+	{ "imported", "generic", "imported", "prebuilt", "", "", 0, 0, 0 },
+	{ "tool", "generic", "tool", "tools", "", "", 1, 0, 0 },
 	{ "target", "generic", "materialize", "generic", "", "", 0, 0, 0 },
 };
 

@@ -233,6 +233,12 @@ Use `qstar.custom_target` when a generated action needs multiple inputs or outpu
 `qstar.transform` is single-input/single-output sugar over the same generated
 artifact contract.
 
+Typed dependencies use `qstar.interface` for artifact-free usage requirements,
+`qstar.imported` for platform-selected package-local prebuilt artifacts, and
+`qstar.tool_file` for executable tool producer edges. Compile/link options and
+inputs stay explicit; imported metadata never infers flags. See
+`wiki/reference/typed-dependencies.md`.
+
 ## Common Commands
 
 ```sh

@@ -14,6 +14,8 @@ Current DSL surface:
 - `qstar.config`
 - artifact targets: `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`,
   `qstar.test`
+- typed dependency targets: `qstar.interface`, `qstar.imported`, `qstar.tool`,
+  explicit `compile_usage`/`link_usage`, and `qstar.tool_file`
 - generated actions: `qstar.custom_target`, `qstar.transform`,
   `qstar.configure_file`
 - utility rules: `qstar.run_target`, `qstar.group`, `qstar.stage`
@@ -55,6 +57,9 @@ Important documents:
 - `public-declaration-schemas.md`: Korean canonical reference for strict public
   declaration fields, Lua types, list shape, source/label diagnostics, and the
   dynamic provider/free metadata boundaries.
+- `typed-dependency-targets.md`: Korean canonical contract for interface-only
+  dependencies, platform-selected imported artifacts, explicit compile/link
+  usage propagation, executable tool dependencies, and Stella/Ninja parity.
 - `model.md`: package, target, source/header/output model.
 - `graph-ir.md`: internal Graph IR notes.
 - `pipeline.md`: current evaluation/build pipeline notes.

@@ -66,6 +66,41 @@
     ],
     "description": "Create a QStar static library target."
   },
+  "Interface dependency": {
+    "prefix": "qinterface",
+    "body": [
+      "qstar.interface \"${1:api_contract}\" {",
+      "  compile_usage = {",
+      "    options = {\"${2:-DAPI_LEVEL=1}\"},",
+      "    inputs = {\"${3:contracts/api.txt}\"},",
+      "  },",
+      "}"
+    ],
+    "description": "Declare an artifact-free typed dependency with explicit usage requirements."
+  },
+  "Imported artifact dependency": {
+    "prefix": "qimported",
+    "body": [
+      "qstar.imported \"${1:vendor}\" {",
+      "  artifact_kind = \"${2:prebuilt}\",",
+      "  artifacts = {",
+      "    default = {",
+      "      { id = \"${3:archive}\", role = \"link\", path = \"${4:vendor/libvendor.a}\", primary = true },",
+      "    },",
+      "  },",
+      "}"
+    ],
+    "description": "Declare platform-selected package-local prebuilt artifacts without flag inference."
+  },
+  "Executable tool dependency": {
+    "prefix": "qtool",
+    "body": [
+      "qstar.tool \"${1:generator}\" {",
+      "  path = \"${2:tools/generator}\",",
+      "}"
+    ],
+    "description": "Declare a package-local executable path consumed with qstar.tool_file."
+  },
   "Test target": {
     "prefix": "qtest",
     "body": [

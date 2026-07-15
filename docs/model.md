@@ -8,9 +8,11 @@ Core entities:
 - tool role bundles from `qstar.toolset`
 - reusable option bundles from `qstar.config`
 - artifact targets such as executables, libraries, and tests
+- typed dependency targets for artifact-free interfaces, package-local prebuilt
+  artifacts, and executable tool paths
 - generated actions and configured files
-- run targets, groups, stages, and install actions
-- package-relative source, header, generated, stage, and install paths
+- run targets, groups, stages, and project-defined commands
+- package-relative source, header, generated, stage, and explicit export paths
 
 Language semantics are intentionally narrow. QStar directly classifies C, C++,
 and ASM sources through preloaded provider namespaces. Other languages enter
@@ -24,3 +26,6 @@ object artifact bridge still uses `qstar.custom_target` plus
 
 Toolsets do not infer execution environment policy. If a compiler needs special
 argv items, the project writes them in `qstar.config` or target-local fields.
+Imported targets follow the same boundary: `artifact_kind`, artifact ids, and
+filename suffixes never infer flags. Consumer compile/link requirements are
+explicit `compile_usage`/`link_usage` options and rebuild inputs.

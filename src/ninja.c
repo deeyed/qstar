@@ -1442,6 +1442,8 @@ resolve_target_file_token(struct qstar_graph *graph, const char *arg, char *dst,
 			    target->origin_line, "target_file", target->label,
 			    "qstar: qstar.target_file cannot reference objectlib target '%s' because object libraries have no artifact; consume it with objects = { ... }",
 			    label);
+		if (strcmp(artifact, "@tool") == 0)
+			return qstar_graph_target_tool_path(graph, target, dst, dstlen);
 		return qstar_graph_target_artifact_path(graph, target, artifact, dst, dstlen);
 	}
 	genrule = qstar_graph_find_genrule(graph, label);
@@ -1756,6 +1758,88 @@ emit_target_link_input_producers(struct qstar_graph *graph, struct ninja_ctx *ct
 	return 0;
 }
 
+static int
+emit_dependency_usage_input_producers(struct qstar_graph *graph,
+    struct ninja_ctx *ctx, const struct qstar_target *target)
+{
+	struct qstar_string_list options, inputs;
+	size_t i;
+	int link, rc;
+
+	for (link = 0; link <= 1; link++) {
+		rc = link ? qstar_graph_collect_link_usage(graph, target, &options,
+		    &inputs) : qstar_graph_collect_compile_usage(graph, target,
+		    &options, &inputs);
+		if (rc < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+		for (i = 0; i < inputs.len; i++) {
+			if (emit_target_link_input_producer(graph, ctx, target,
+			    inputs.items[i]) < 0) {
+				qstar_string_list_free(&options);
+				qstar_string_list_free(&inputs);
+				return -1;
+			}
+		}
+		qstar_string_list_free(&options);
+		qstar_string_list_free(&inputs);
+	}
+	return 0;
+}
+
+static int
+ninja_argv_push_dependency_usage(struct qstar_graph *graph,
+    struct ninja_argv *argv, const struct qstar_target *target, int link)
+{
+	struct qstar_string_list options, inputs;
+	size_t i;
+	int rc;
+
+	rc = link ? qstar_graph_collect_link_usage(graph, target, &options, &inputs) :
+	    qstar_graph_collect_compile_usage(graph, target, &options, &inputs);
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	for (i = 0; i < options.len; i++) {
+		if (ninja_argv_push(graph, argv, options.items[i]) < 0) {
+			rc = -1;
+			break;
+		}
+	}
+	qstar_string_list_free(&options);
+	qstar_string_list_free(&inputs);
+	return rc;
+}
+
+static int
+write_dependency_usage_inputs(struct qstar_graph *graph, FILE *f,
+    const struct qstar_target *target, int link, int *implicit_started)
+{
+	struct qstar_string_list options, inputs;
+	char resolved[QSTAR_PATH_MAX];
+	size_t i;
+	int rc;
+
+	rc = link ? qstar_graph_collect_link_usage(graph, target, &options, &inputs) :
+	    qstar_graph_collect_compile_usage(graph, target, &options, &inputs);
+	if (rc < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	if (inputs.len && (!implicit_started || !*implicit_started))
+		fputs(" |", f);
+	if (inputs.len && implicit_started)
+		*implicit_started = 1;
+	for (i = 0; i < inputs.len; i++) {
+		if (resolve_target_file_token(graph, inputs.items[i], resolved,
+		    sizeof(resolved)) < 0) {
+			rc = -1;
+			break;
+		}
+		fputc(' ', f);
+		ninja_path(f, resolved);
+	}
+	qstar_string_list_free(&options);
+	qstar_string_list_free(&inputs);
+	return rc;
+}
+
 /** target deps/private_deps에 직접 적힌 generated action producer를 먼저 emit한다. */
 static int
 emit_target_dep_genrule_producers(struct qstar_graph *graph, struct ninja_ctx *ctx,
@@ -1818,11 +1902,19 @@ write_genrule_dep_item(struct qstar_graph *graph, FILE *f, const char *item)
 static int
 write_genrule_deps(struct qstar_graph *graph, FILE *f, const struct qstar_genrule *genrule)
 {
+	char tool_label[QSTAR_PATH_MAX];
 	size_t i;
+	int tool_rc;
 
-	if (genrule->inputs.len == 0 && genrule->args.len == 0)
+	tool_rc = qstar_target_file_token_label(genrule->tool, tool_label,
+	    sizeof(tool_label));
+	if (tool_rc < 0)
+		return qstar_set_error(graph, "qstar: malformed tool_file placeholder");
+	if (genrule->inputs.len == 0 && genrule->args.len == 0 && tool_rc == 0)
 		return 0;
 	fputs(" |", f);
+	if (tool_rc == 1 && write_genrule_dep_item(graph, f, genrule->tool) < 0)
+		return -1;
 	for (i = 0; i < genrule->inputs.len; i++) {
 		if (write_genrule_dep_item(graph, f, genrule->inputs.items[i]) < 0)
 			return -1;
@@ -1864,6 +1956,8 @@ emit_genrule_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		    "qstar: circular generated action dependency at '%s'",
 		    genrule->label);
 	ctx->genrule_state[index] = 1;
+	if (emit_genrule_item_producer(graph, ctx, genrule, genrule->tool) < 0)
+		return -1;
 	for (i = 0; i < genrule->inputs.len; i++) {
 		if (emit_genrule_item_producer(graph, ctx, genrule,
 		    genrule->inputs.items[i]) < 0)
@@ -2052,7 +2146,8 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		    *provider_unit->action.depfile ? provider_unit->action.depfile :
 		    depfile;
 		if (ninja_argv_push_provider_template(graph, &argv, target,
-		    toolchain, &provider_unit->action.argv) < 0)
+		    toolchain, &provider_unit->action.argv) < 0 ||
+		    ninja_argv_push_dependency_usage(graph, &argv, target, 0) < 0)
 			goto fail;
 		if (qstar_action_description_compile(source_owner, &source, object,
 		    description, sizeof(description)) < 0)
@@ -2074,6 +2169,8 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 			fputc(' ', ctx->ninja);
 			ninja_path(ctx->ninja, provider_unit->action.inputs.items[i]);
 		}
+		if (write_dependency_usage_inputs(graph, ctx->ninja, target, 0, NULL) < 0)
+			goto fail;
 		fputc('\n', ctx->ninja);
 		fputs("  command = ", ctx->ninja);
 		if (write_edge_command(graph, ctx, action_id, toolchain, &argv,
@@ -2129,6 +2226,8 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	if (!provider_source && is_cxx && target->cxx_standard && target->cxx_standard[0] &&
 	    ninja_argv_push(graph, &argv, std_arg) < 0)
 		goto fail;
+	if (ninja_argv_push_dependency_usage(graph, &argv, target, 0) < 0)
+		goto fail;
 	for (i = 0; !provider_source && !is_asm && !is_cxx && i < target->cflags.len; i++) {
 		if (ninja_argv_push(graph, &argv, target->cflags.items[i]) < 0)
 			goto fail;
@@ -2168,6 +2267,8 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	write_header_inputs(ctx->ninja, target);
 	if (source_owner != target)
 		write_header_inputs(ctx->ninja, source_owner);
+	if (write_dependency_usage_inputs(graph, ctx->ninja, target, 0, NULL) < 0)
+		goto fail;
 	fputc('\n', ctx->ninja);
 	fputs("  command = ", ctx->ninja);
 	if (write_edge_command(graph, ctx, action_id, toolchain, &argv, description,
@@ -2480,13 +2581,16 @@ collect_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *d
 	if (qstar_string_list_push(seen, dep->label) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
 	if (strcmp(dep->kind, "group") == 0 ||
-	    strcmp(dep->kind, "objectlib") == 0)
+	    strcmp(dep->kind, "objectlib") == 0 || strcmp(dep->kind, "tool") == 0)
 		return 0;
-	if (qstar_graph_target_link_artifact_path(graph, dep, toolchain->platform, artifact,
-	    sizeof(artifact)) < 0)
-		return qstar_set_error(graph, "qstar: dependency artifact path too long");
-	if (qstar_string_list_push(out, artifact) < 0)
-		return qstar_set_error(graph, "qstar: out of memory");
+	if (strcmp(dep->kind, "interface") != 0) {
+		if (qstar_graph_target_link_artifact_path(graph, dep,
+		    toolchain->platform, artifact, sizeof(artifact)) < 0)
+			return qstar_set_error(graph,
+			    "qstar: dependency artifact path too long");
+		if (qstar_string_list_push(out, artifact) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+	}
 	for (i = 0; i < dep->deps.len; i++) {
 		if (dep->deps.items[i][0] == '@')
 			continue;
@@ -2495,6 +2599,8 @@ collect_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *d
 		    seen) < 0)
 			return -1;
 	}
+	if (strcmp(dep->kind, "interface") == 0)
+		return 0;
 	for (i = 0; i < dep->private_deps.len; i++) {
 		if (dep->private_deps.items[i][0] == '@')
 			continue;
@@ -2665,6 +2771,7 @@ emit_provider_final_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	char action_id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	const char *final_action, *rule, *depfile;
 	size_t i;
+	int implicit_started = 0;
 
 	if (!qstar_target_has_provider_final_action(target))
 		return 0;
@@ -2680,7 +2787,9 @@ emit_provider_final_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	    sizeof(description)) < 0)
 		return qstar_set_error(graph, "qstar: provider final description too long");
 	if (ninja_argv_push_provider_template(graph, &argv, target, toolchain,
-	    &tmpl->argv) < 0)
+	    &tmpl->argv) < 0 ||
+	    (strcmp(target->kind, "staticlib") != 0 &&
+	    ninja_argv_push_dependency_usage(graph, &argv, target, 1) < 0))
 		goto fail;
 	for (i = 0; i < tmpl->outputs.len; i++) {
 		if (mkdir_parent_under_root(graph, tmpl->outputs.items[i]) < 0)
@@ -2706,8 +2815,14 @@ emit_provider_final_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		fputc(' ', ctx->ninja);
 		ninja_path(ctx->ninja, tmpl->inputs.items[i]);
 	}
+	if (strcmp(target->kind, "staticlib") != 0 &&
+	    write_dependency_usage_inputs(graph, ctx->ninja, target, 1,
+	    &implicit_started) < 0)
+		goto fail;
 	if (target->link_inputs.len) {
-		fputs(" |", ctx->ninja);
+		if (!implicit_started)
+			fputs(" |", ctx->ninja);
+		implicit_started = 1;
 		for (i = 0; i < target->link_inputs.len; i++) {
 			if (write_genrule_dep_item(graph, ctx->ninja,
 			    target->link_inputs.items[i]) < 0)
@@ -2891,6 +3006,7 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	char out_dir[QSTAR_PATH_MAX], action_id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	const char *final_action;
 	size_t i;
+	int implicit_started = 0;
 
 	memset(&argv, 0, sizeof(argv));
 	memset(&dep_artifacts, 0, sizeof(dep_artifacts));
@@ -2925,6 +3041,8 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		goto fail;
 	}
 	if (append_sharedlib_link_flags(graph, target, toolchain, artifact, &argv) < 0)
+		goto fail;
+	if (ninja_argv_push_dependency_usage(graph, &argv, target, 1) < 0)
 		goto fail;
 	if (append_link_policy_flags(graph, target, &argv) < 0)
 		goto fail;
@@ -2988,12 +3106,16 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	}
 	if (target->link_inputs.len) {
 		fputs(" |", ctx->ninja);
+		implicit_started = 1;
 		for (i = 0; i < target->link_inputs.len; i++) {
 			if (write_genrule_dep_item(graph, ctx->ninja,
 			    target->link_inputs.items[i]) < 0)
 				goto fail;
 		}
 	}
+	if (write_dependency_usage_inputs(graph, ctx->ninja, target, 1,
+	    &implicit_started) < 0)
+		goto fail;
 	if (target->deps.len || target->private_deps.len) {
 		fputs(" ||", ctx->ninja);
 		if (write_dep_aliases(graph, ctx->ninja, target, &target->deps) < 0 ||
@@ -3087,6 +3209,35 @@ emit_group_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	fputs("build ", ctx->ninja);
 	ninja_path(ctx->ninja, alias);
 	fputs(": phony", ctx->ninja);
+	if (write_dep_aliases(graph, ctx->ninja, target, &target->deps) < 0 ||
+	    write_dep_aliases(graph, ctx->ninja, target, &target->private_deps) < 0)
+		return -1;
+	fprintf(ctx->ninja, "\n  qstar_action_id = %s\n\n", action_id);
+	ctx->edge_count++;
+	return 0;
+}
+
+static int
+emit_typed_dependency_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
+    const struct qstar_target *target)
+{
+	struct qstar_target_artifact_map artifacts;
+	char alias[QSTAR_PATH_MAX], action_id[QSTAR_PATH_MAX];
+	size_t i;
+
+	if (ninja_alias_path(graph, target->label, alias, sizeof(alias)) < 0 ||
+	    qstar_graph_target_artifact_map(graph, target, &artifacts) < 0)
+		return qstar_set_error(graph, "qstar: typed dependency alias path too long");
+	snprintf(action_id, sizeof(action_id), "%s:%s:0", target->label,
+	    target->kind);
+	fprintf(ctx->ninja, "# qstar-action-id: %s\n", action_id);
+	fputs("build ", ctx->ninja);
+	ninja_path(ctx->ninja, alias);
+	fputs(": phony", ctx->ninja);
+	for (i = 0; i < artifacts.len; i++) {
+		fputc(' ', ctx->ninja);
+		ninja_path(ctx->ninja, artifacts.items[i].path);
+	}
 	if (write_dep_aliases(graph, ctx->ninja, target, &target->deps) < 0 ||
 	    write_dep_aliases(graph, ctx->ninja, target, &target->private_deps) < 0)
 		return -1;
@@ -3544,6 +3695,10 @@ emit_target(struct qstar_graph *graph, const struct qstar_target *target, size_t
 		return -1;
 	if (strcmp(target->kind, "group") == 0)
 		return emit_group_edge(graph, ctx, target);
+	if (strcmp(target->kind, "interface") == 0 ||
+	    strcmp(target->kind, "imported") == 0 ||
+	    strcmp(target->kind, "tool") == 0)
+		return emit_typed_dependency_edge(graph, ctx, target);
 	if (strcmp(target->kind, "run_target") == 0)
 		return emit_run_edge(graph, ctx, target);
 	if (strcmp(target->kind, "staticlib") != 0 &&
@@ -3558,7 +3713,8 @@ emit_target(struct qstar_graph *graph, const struct qstar_target *target, size_t
 	if (qstar_resolve_toolchain(graph, target, &toolchain) < 0)
 		return -1;
 	if (emit_consumed_genrules(graph, ctx, target) < 0 ||
-	    emit_target_link_input_producers(graph, ctx, target) < 0)
+	    emit_target_link_input_producers(graph, ctx, target) < 0 ||
+	    emit_dependency_usage_input_producers(graph, ctx, target) < 0)
 		return -1;
 	for (i = 0; !objectlib_uses_consumer_context(target) &&
 	    !qstar_target_has_provider_final_action(target) &&

@@ -63,6 +63,7 @@ static int lower_provider_source_unit(lua_State *L, int source_token,
     struct qstar_provider_action_template *action);
 static int lower_provider_final_action(lua_State *L, struct qstar_target *target,
     struct qstar_graph *graph);
+static int valid_artifact_selector(const char *value);
 static int qstar_lua_abs_index(lua_State *L, int idx);
 static int readonly_table_assignment_forbidden(lua_State *L);
 static int string_in_set(const char *s, const char *const *items);
@@ -3534,7 +3535,181 @@ target_declaration_api(const char *default_kind)
 		return "qstar.group";
 	if (strcmp(default_kind, "run_target") == 0)
 		return "qstar.run_target";
+	if (strcmp(default_kind, "interface") == 0)
+		return "qstar.interface";
+	if (strcmp(default_kind, "imported") == 0)
+		return "qstar.imported";
+	if (strcmp(default_kind, "tool") == 0)
+		return "qstar.tool";
 	return "qstar.target";
+}
+
+static int
+read_usage_field(lua_State *L, int table, const char *field,
+    struct qstar_target *target, struct qstar_graph *graph, const char *api)
+{
+	static const struct qstar_lua_field_schema schema[] = {
+		QSTAR_SCHEMA_LIST("options", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_LIST("inputs", QSTAR_LUA_SCHEMA_STRING |
+		    QSTAR_LUA_SCHEMA_TABLE, "string or qstar.target_file(...)"),
+		QSTAR_SCHEMA_END
+	};
+	struct qstar_string_list *options, *inputs;
+	char owner[192];
+	int value;
+
+	if (table < 0)
+		table = lua_gettop(L) + table + 1;
+	options = strcmp(field, "compile_usage") == 0 ?
+	    &target->compile_usage_options : &target->link_usage_options;
+	inputs = strcmp(field, "compile_usage") == 0 ?
+	    &target->compile_usage_inputs : &target->link_usage_inputs;
+	lua_getfield(L, table, field);
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph, "qstar: field '%s' must be a table", field);
+	}
+	snprintf(owner, sizeof(owner), "%s %s", api, field);
+	value = lua_gettop(L);
+	if (qstar_lua_validate_declaration(L, value, graph, owner, target->label,
+	    schema) < 0 ||
+	    read_list_field(L, value, "options", options, graph, 0,
+	    target->fragment_dir) < 0 ||
+	    read_target_file_list_field(L, value, "inputs", inputs, graph,
+	    target->fragment_dir) < 0) {
+		lua_pop(L, 1);
+		return -1;
+	}
+	lua_pop(L, 1);
+	return 0;
+}
+
+static int
+imported_platform_valid(const char *platform)
+{
+	return platform && (strcmp(platform, "default") == 0 ||
+	    strcmp(platform, "darwin") == 0 || strcmp(platform, "linux") == 0 ||
+	    strcmp(platform, "windows") == 0 || strcmp(platform, "generic") == 0);
+}
+
+static int
+read_imported_artifacts_field(lua_State *L, int table, struct qstar_target *target,
+    struct qstar_graph *graph)
+{
+	static const struct qstar_lua_field_schema item_schema[] = {
+		QSTAR_SCHEMA_FIELD("id", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_FIELD("role", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_FIELD("path", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_FIELD("primary", QSTAR_LUA_SCHEMA_BOOLEAN, "boolean"),
+		QSTAR_SCHEMA_END
+	};
+	const char *platform, *id, *role, *raw_path;
+	char path[QSTAR_PATH_MAX], owner[192];
+	size_t i, j, n, primary_count, link_count, tool_count;
+	int artifacts;
+
+	lua_getfield(L, table, "artifacts");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph,
+		    "qstar: imported target '%s' requires artifacts", target->label);
+	}
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph,
+		    "qstar: imported artifacts must be a platform-to-list table");
+	}
+	artifacts = lua_gettop(L);
+	lua_pushnil(L);
+	while (lua_next(L, artifacts) != 0) {
+		platform = lua_type(L, -2) == LUA_TSTRING ? lua_tostring(L, -2) : NULL;
+		if (!imported_platform_valid(platform) || !lua_istable(L, -1) ||
+		    !qstar_lua_array_table(L, -1)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: imported artifacts keys must be default, darwin, linux, windows, or generic and values must be lists");
+		}
+		n = lua_rawlen(L, -1);
+		if (n == 0 || n > 16) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: imported artifacts.%s must contain 1 to 16 artifacts",
+			    platform);
+		}
+		primary_count = 0;
+		link_count = 0;
+		tool_count = 0;
+		for (i = 1; i <= n; i++) {
+			lua_rawgeti(L, -1, (lua_Integer)i);
+			if (!lua_istable(L, -1)) {
+				lua_pop(L, 3);
+				return qstar_set_error(graph,
+				    "qstar: imported artifact item must be a table");
+			}
+			snprintf(owner, sizeof(owner), "%s.%s[%zu]", target->label,
+			    platform, i);
+			if (qstar_lua_validate_declaration(L, -1, graph,
+			    "qstar.imported artifact", owner, item_schema) < 0) {
+				lua_pop(L, 3);
+				return -1;
+			}
+			lua_getfield(L, -1, "id");
+			id = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : NULL;
+			lua_getfield(L, -2, "role");
+			role = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : NULL;
+			lua_getfield(L, -3, "path");
+			raw_path = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : NULL;
+			lua_getfield(L, -4, "primary");
+			primary_count += lua_toboolean(L, -1) ? 1 : 0;
+			if (!id || !*id || !valid_artifact_selector(id) || !role || !*role ||
+			    !valid_artifact_selector(role) || !raw_path || !*raw_path ||
+			    resolve_fragment_relative_path(raw_path, target->fragment_dir,
+			    path, sizeof(path)) < 0) {
+				lua_pop(L, 5);
+				lua_pop(L, 2);
+				return qstar_set_error(graph,
+				    "qstar: imported artifact id/role must be identifiers and path must be package-relative");
+			}
+			link_count += strcmp(role, "link") == 0 ? 1 : 0;
+			tool_count += strcmp(role, "tool") == 0 ? 1 : 0;
+			for (j = 0; j < target->imported_artifact_len; j++) {
+				if (strcmp(target->imported_artifacts[j].platform, platform) == 0 &&
+				    strcmp(target->imported_artifacts[j].id, id) == 0) {
+					lua_pop(L, 5);
+					lua_pop(L, 2);
+					return qstar_set_error(graph,
+					    "qstar: duplicate imported artifact id '%s' for platform '%s'",
+					    id, platform);
+				}
+			}
+			if (qstar_target_add_imported_artifact(graph, target, platform,
+			    id, role, path, lua_toboolean(L, -1)) < 0) {
+				lua_pop(L, 5);
+				lua_pop(L, 2);
+				return -1;
+			}
+			lua_pop(L, 5);
+		}
+		if (primary_count != 1) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: imported artifacts.%s requires exactly one primary artifact",
+			    platform);
+		}
+		if (link_count > 1 || tool_count > 1) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: imported artifacts.%s may contain at most one role='link' and one role='tool' artifact",
+			    platform);
+		}
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	return 0;
 }
 
 static int
@@ -3560,6 +3735,8 @@ validate_target_fields(lua_State *L, int table, struct qstar_graph *graph,
 		QSTAR_SCHEMA_FIELD("lang", QSTAR_LUA_SCHEMA_TABLE, "table"),
 		QSTAR_SCHEMA_FIELD("toolset", QSTAR_LUA_SCHEMA_STRING, "string"),
 		QSTAR_SCHEMA_FIELD("artifact_name", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_FIELD("compile_usage", QSTAR_LUA_SCHEMA_TABLE, "table"),
+		QSTAR_SCHEMA_FIELD("link_usage", QSTAR_LUA_SCHEMA_TABLE, "table"),
 		QSTAR_SCHEMA_END
 	};
 	static const struct qstar_lua_field_schema objectlib_schema[] = {
@@ -3601,6 +3778,31 @@ validate_target_fields(lua_State *L, int table, struct qstar_graph *graph,
 		QSTAR_SCHEMA_FIELD("expect", QSTAR_LUA_SCHEMA_TABLE, "table"),
 		QSTAR_SCHEMA_END
 	};
+	static const struct qstar_lua_field_schema interface_schema[] = {
+		QSTAR_SCHEMA_LIST("deps", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_LIST("public_deps", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_LIST("private_deps", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_LIST("visibility", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_FIELD("compile_usage", QSTAR_LUA_SCHEMA_TABLE, "table"),
+		QSTAR_SCHEMA_FIELD("link_usage", QSTAR_LUA_SCHEMA_TABLE, "table"),
+		QSTAR_SCHEMA_END
+	};
+	static const struct qstar_lua_field_schema imported_schema[] = {
+		QSTAR_SCHEMA_FIELD("artifact_kind", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_FIELD("artifacts", QSTAR_LUA_SCHEMA_TABLE, "table"),
+		QSTAR_SCHEMA_LIST("deps", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_LIST("public_deps", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_LIST("private_deps", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_LIST("visibility", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_FIELD("compile_usage", QSTAR_LUA_SCHEMA_TABLE, "table"),
+		QSTAR_SCHEMA_FIELD("link_usage", QSTAR_LUA_SCHEMA_TABLE, "table"),
+		QSTAR_SCHEMA_END
+	};
+	static const struct qstar_lua_field_schema tool_schema[] = {
+		QSTAR_SCHEMA_FIELD("path", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_LIST("visibility", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_END
+	};
 	const struct qstar_lua_field_schema *schema;
 
 	schema = artifact_schema;
@@ -3610,6 +3812,12 @@ validate_target_fields(lua_State *L, int table, struct qstar_graph *graph,
 		schema = group_schema;
 	else if (strcmp(kind, "run_target") == 0)
 		schema = run_schema;
+	else if (strcmp(kind, "interface") == 0)
+		schema = interface_schema;
+	else if (strcmp(kind, "imported") == 0)
+		schema = imported_schema;
+	else if (strcmp(kind, "tool") == 0)
+		schema = tool_schema;
 	return qstar_lua_validate_declaration(L, table, graph, api, label, schema);
 }
 
@@ -3716,7 +3924,11 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	if (reject_graph_declaration_in_module(L, "target declaration") != 0)
 		return 1;
 	luaL_checktype(L, table_index, LUA_TTABLE);
-	kind = check_string_field(L, table_index, "kind");
+	if (default_kind && (strcmp(default_kind, "interface") == 0 ||
+	    strcmp(default_kind, "imported") == 0 || strcmp(default_kind, "tool") == 0))
+		kind = default_kind;
+	else
+		kind = check_string_field(L, table_index, "kind");
 	if (default_kind && strcmp(default_kind, "group") == 0 && kind && *kind &&
 	    strcmp(kind, "group") != 0)
 		return luaL_error(L, "qstar: qstar.group target '%s' cannot override kind",
@@ -3761,7 +3973,9 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	    read_link_options(L, table_index, target, graph, "target") < 0 ||
 	    read_list_field(L, table_index, "link_options", &target->link_options, graph, 0, target->fragment_dir) < 0 ||
 	    read_target_file_list_field(L, table_index, "link_inputs",
-	    &target->link_inputs, graph, target->fragment_dir) < 0)
+	    &target->link_inputs, graph, target->fragment_dir) < 0 ||
+	    read_usage_field(L, table_index, "compile_usage", target, graph, api) < 0 ||
+	    read_usage_field(L, table_index, "link_usage", target, graph, api) < 0)
 		return qstar_lua_raise_declaration_error(L, graph, api, label);
 	artifact_name = check_string_field(L, table_index, "artifact_name");
 	{
@@ -3782,6 +3996,28 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 			    artifact_name);
 		free(target->artifact_name);
 		target->artifact_name = qstar_strdup(artifact_name);
+	}
+	if (strcmp(target->kind, "imported") == 0) {
+		const char *artifact_kind;
+
+		artifact_kind = check_string_field(L, table_index, "artifact_kind");
+		if (replace_lua_string(&target->imported_artifact_kind,
+		    artifact_kind && *artifact_kind ? artifact_kind : "generic", graph) < 0 ||
+		    read_imported_artifacts_field(L, table_index, target, graph) < 0)
+			return qstar_lua_raise_declaration_error(L, graph, api, label);
+	}
+	if (strcmp(target->kind, "tool") == 0) {
+		const char *raw_path;
+		char resolved_path[QSTAR_PATH_MAX];
+
+		raw_path = check_string_field(L, table_index, "path");
+		if (!raw_path || !*raw_path || resolve_fragment_relative_path(raw_path,
+		    target->fragment_dir, resolved_path, sizeof(resolved_path)) < 0)
+			return luaL_error(L,
+			    "qstar: %s:%d: %s declaration '%s': field 'path' must be a non-empty package-relative string",
+			    origin_file, origin_line, api, label);
+		if (replace_lua_string(&target->tool_path, resolved_path, graph) < 0)
+			return qstar_lua_raise_declaration_error(L, graph, api, label);
 	}
 	if (lower_provider_final_action(L, target, graph) < 0)
 		return qstar_lua_raise_declaration_error(L, graph, api, label);
@@ -6472,6 +6708,27 @@ qstar_lua_target_file(lua_State *L)
 		lua_pushstring(L, artifact);
 		lua_setfield(L, -2, "artifact");
 	}
+	return 1;
+}
+
+static int
+qstar_lua_tool_file(lua_State *L)
+{
+	struct qstar_lua_context *ctx;
+	const char *raw;
+	char label[QSTAR_PATH_MAX];
+
+	ctx = get_context(L);
+	raw = luaL_checkstring(L, 1);
+	if (qstar_label_canonicalize(raw, ctx->current_dir, label, sizeof(label)) < 0)
+		return luaL_error(L, "qstar: invalid tool_file label '%s'", raw);
+	lua_newtable(L);
+	lua_pushstring(L, "target_file");
+	lua_setfield(L, -2, "__qstar_kind");
+	lua_pushstring(L, label);
+	lua_setfield(L, -2, "label");
+	lua_pushstring(L, "@tool");
+	lua_setfield(L, -2, "artifact");
 	return 1;
 }
 
@@ -9565,6 +9822,15 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_pushstring(L, "objectlib");
 	lua_pushcclosure(L, qstar_lua_target, 1);
 	lua_setfield(L, -2, "objectlib");
+	lua_pushstring(L, "interface");
+	lua_pushcclosure(L, qstar_lua_target, 1);
+	lua_setfield(L, -2, "interface");
+	lua_pushstring(L, "imported");
+	lua_pushcclosure(L, qstar_lua_target, 1);
+	lua_setfield(L, -2, "imported");
+	lua_pushstring(L, "tool");
+	lua_pushcclosure(L, qstar_lua_target, 1);
+	lua_setfield(L, -2, "tool");
 	lua_pushstring(L, "test");
 	lua_pushcclosure(L, qstar_lua_target, 1);
 	lua_setfield(L, -2, "test");
@@ -9586,6 +9852,8 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "source");
 	lua_pushcfunction(L, qstar_lua_target_file);
 	lua_setfield(L, -2, "target_file");
+	lua_pushcfunction(L, qstar_lua_tool_file);
+	lua_setfield(L, -2, "tool_file");
 	lua_pushcfunction(L, qstar_lua_stage_dir);
 	lua_setfield(L, -2, "stage_dir");
 	lua_pushcfunction(L, qstar_lua_stage_file);

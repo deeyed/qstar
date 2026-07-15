@@ -1,0 +1,9 @@
+qstar.custom_target "blocked" {
+  inputs = {"contracts/tool.in"},
+  outputs = {qstar.output("generated/negative/blocked.txt")},
+  command = qstar.cli {
+    qstar.tool_file("//negative:private_tool"),
+    qstar.input(0),
+    qstar.output(0),
+  },
+}

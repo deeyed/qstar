@@ -55,6 +55,9 @@ qstar.staticlib "core" {
 - `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`, `qstar.test`: artifact targets.
 - `qstar.objectlib`: artifact target의 `objects = {...}`로 소비되는 generic object
   collection target.
+- `qstar.interface`: artifact 없이 explicit compile/link usage를 전파하는 dependency target.
+- `qstar.imported`: package-local prebuilt artifact를 platform artifact map으로 표현하는 target.
+- `qstar.tool`: package-local executable tool path를 typed dependency로 표현하는 target.
 - `qstar.custom_target`, `qstar.transform`, `qstar.configure_file`: generated outputs.
 - `qstar.run_target`: external smoke/run action.
 - `qstar.group`: deps-only aggregate with no command, output, install surface, or artifact.
@@ -95,6 +98,14 @@ source token은 concrete action/output을 담기 때문에 consumer-context 재-
 아니며, raw provider source string이나 `compile_context = "own"`을 사용한다.
 Stella/Ninja/explain/dry-run/action-log/replay/compile_commands/list-targets/query는
 objectlib와 GLP object action을 같은 action id와 artifact contract로 노출한다.
+
+Typed dependency surface는 [Typed Dependencies](typed-dependencies.md)에 둔다.
+`compile_usage`와 `link_usage`의 `options`는 consumer argv에 그대로 들어가고 `inputs`는
+argv와 분리된 rebuild/producer input이다. Public `deps` closure만 transitive하게
+전파되며 `private_deps`는 dependency를 넘어 새지 않는다. `qstar.imported`는
+platform-specific primary/secondary artifact를 고르지만 filename, `artifact_kind`, id에서
+compiler/linker flag를 추론하지 않는다. `qstar.tool_file(label)`은 package tool,
+imported `role = "tool"`, executable/test path를 generated action executable로 연결한다.
 
 Provider-only author APIs:
 

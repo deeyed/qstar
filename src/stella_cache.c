@@ -8,10 +8,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v8"
-#define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v3"
+#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v9"
+#define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v4"
 #define QSTAR_STELLA_ACTION_MAGIC "qstar-stella-actions-cache-v2"
-#define QSTAR_STELLA_PLAN_ABI 11
+#define QSTAR_STELLA_PLAN_ABI 12
 #define QSTAR_STELLA_HASH_INIT 1469598103934665603ULL
 #define QSTAR_STELLA_HASH_PRIME 1099511628211ULL
 #define QSTAR_STELLA_MAX_STRING (16U * 1024U * 1024U)
@@ -321,6 +321,7 @@ read_toolset(FILE *f, struct qstar_toolset *toolset)
 static int
 write_target(FILE *f, const struct qstar_target *t)
 {
+	size_t i;
 #define WSTR(field) do { if (write_str(f, t->field) < 0) return -1; } while (0)
 #define WLIST(field) do { if (write_list(f, &t->field) < 0) return -1; } while (0)
 	WSTR(label);
@@ -352,6 +353,20 @@ write_target(FILE *f, const struct qstar_target *t)
 	WLIST(frameworks);
 	WLIST(link_options);
 	WLIST(link_inputs);
+	WLIST(compile_usage_options);
+	WLIST(compile_usage_inputs);
+	WLIST(link_usage_options);
+	WLIST(link_usage_inputs);
+	if (write_u64(f, (unsigned long long)t->imported_artifact_len) < 0)
+		return -1;
+	for (i = 0; i < t->imported_artifact_len; i++) {
+		if (write_str(f, t->imported_artifacts[i].platform) < 0 ||
+		    write_str(f, t->imported_artifacts[i].id) < 0 ||
+		    write_str(f, t->imported_artifacts[i].role) < 0 ||
+		    write_str(f, t->imported_artifacts[i].path) < 0 ||
+		    write_i32(f, t->imported_artifacts[i].primary) < 0)
+			return -1;
+	}
 	WLIST(cflags);
 	WLIST(cxxflags);
 	WLIST(asm_include_dirs);
@@ -360,6 +375,8 @@ write_target(FILE *f, const struct qstar_target *t)
 	WLIST(run_command);
 	WSTR(description);
 	WSTR(artifact_name);
+	WSTR(imported_artifact_kind);
+	WSTR(tool_path);
 	WSTR(compile_context);
 	WSTR(cxx_standard);
 	WSTR(run_expect_contains);
@@ -378,6 +395,8 @@ write_target(FILE *f, const struct qstar_target *t)
 static int
 read_target(FILE *f, struct qstar_target *t)
 {
+	unsigned long long len64;
+	size_t i;
 #define RSTR(field) do { if (read_str(f, &t->field) < 0) return -1; } while (0)
 #define RLIST(field) do { if (read_list(f, &t->field) < 0) return -1; } while (0)
 	RSTR(label);
@@ -410,6 +429,25 @@ read_target(FILE *f, struct qstar_target *t)
 	RLIST(frameworks);
 	RLIST(link_options);
 	RLIST(link_inputs);
+	RLIST(compile_usage_options);
+	RLIST(compile_usage_inputs);
+	RLIST(link_usage_options);
+	RLIST(link_usage_inputs);
+	if (read_u64(f, &len64) < 0 || len64 > 1000000ULL)
+		return -1;
+	t->imported_artifacts = calloc((size_t)len64 ? (size_t)len64 : 1,
+	    sizeof(t->imported_artifacts[0]));
+	if (!t->imported_artifacts)
+		return -1;
+	t->imported_artifact_len = t->imported_artifact_cap = (size_t)len64;
+	for (i = 0; i < (size_t)len64; i++) {
+		if (read_str(f, &t->imported_artifacts[i].platform) < 0 ||
+		    read_str(f, &t->imported_artifacts[i].id) < 0 ||
+		    read_str(f, &t->imported_artifacts[i].role) < 0 ||
+		    read_str(f, &t->imported_artifacts[i].path) < 0 ||
+		    read_i32(f, &t->imported_artifacts[i].primary) < 0)
+			return -1;
+	}
 	RLIST(cflags);
 	RLIST(cxxflags);
 	RLIST(asm_include_dirs);
@@ -418,6 +456,8 @@ read_target(FILE *f, struct qstar_target *t)
 	RLIST(run_command);
 	RSTR(description);
 	RSTR(artifact_name);
+	RSTR(imported_artifact_kind);
+	RSTR(tool_path);
 	RSTR(compile_context);
 	RSTR(cxx_standard);
 	RSTR(run_expect_contains);

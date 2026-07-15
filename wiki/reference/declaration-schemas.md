@@ -20,6 +20,9 @@ qstar: src/core/core.qst:12: qstar.objectlib declaration '//src/core:objects': f
 | `qstar.config` | `lang`, link table, library/link lists, `toolset`, `artifact_name` |
 | Artifact target | configs/sources/dependency/object/link/lang/toolset/artifact fields |
 | `qstar.objectlib` | configs/sources/dependencies/visibility/lang/toolset와 `compile_context` |
+| `qstar.interface` | dependencies, visibility, compile_usage, link_usage |
+| `qstar.imported` | artifact_kind, platform artifacts, dependencies, visibility, compile_usage, link_usage |
+| `qstar.tool` | path, visibility |
 | `qstar.group` | dependencies와 visibility |
 | `qstar.run_target` | dependencies, toolset, inputs, command, description, timeout, expect |
 | `qstar.custom_target` | inputs, outputs, command, description, toolset |
@@ -42,6 +45,8 @@ Artifact target, objectlib, group, run target은 같은 target table allowlist�
 - Group은 dependency와 visibility만 받는다.
 - Run target은 command/input/expect field를 받지만 compile/link field를 받지 않는다.
 - Artifact target은 compile/link/artifact field를 받지만 run command field를 받지 않는다.
+- Typed dependency target은 각자 interface/imported/tool 전용 schema를 사용한다.
+  `compile_usage`/`link_usage` nested table에는 `options`, `inputs`만 허용한다.
 
 따라서 의미 없이 저장되지만 lowering에서 쓰이지 않는 field가 남지 않는다.
 
@@ -71,6 +76,9 @@ qstar.executable "app" {
 - `qstar.variant.values`: 사용자가 자유롭게 이름을 정하는 deterministic metadata.
 - `lang.<provider>`: activated provider manifest의 dynamic option schema.
 - `qstar.import_module()` return table: 일반 Lua helper table이므로 검사하지 않음.
+- `qstar.imported.artifact_kind` value와 artifact id, `link`/`tool` 이외 role:
+  strict field 안에 저장되는 사용자 정의 metadata. Filename이나 metadata에서 flag를
+  추론하지 않음.
 
 `arch`, `triple`, `cpu`, `board`, `mode`는 `variant.values` 안에서 사용자 metadata일 뿐
 QStar builtin keyword가 아니다.

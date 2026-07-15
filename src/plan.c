@@ -744,6 +744,53 @@ dump_effective_compile_merge(FILE *out, const struct qstar_graph *graph,
 	fputc('\n', out);
 }
 
+static void
+dump_dependency_usage(FILE *out, const struct qstar_graph *graph,
+    const struct qstar_target *target, const char *indent)
+{
+	struct qstar_string_list compile_options, compile_inputs;
+	struct qstar_string_list link_options, link_inputs;
+	const char *prefix = indent ? indent : "";
+
+	memset(&compile_options, 0, sizeof(compile_options));
+	memset(&compile_inputs, 0, sizeof(compile_inputs));
+	memset(&link_options, 0, sizeof(link_options));
+	memset(&link_inputs, 0, sizeof(link_inputs));
+	fprintf(out, "%scompile_usage.options ", prefix);
+	dump_list(out, &target->compile_usage_options);
+	fputc('\n', out);
+	fprintf(out, "%scompile_usage.inputs ", prefix);
+	dump_list(out, &target->compile_usage_inputs);
+	fputc('\n', out);
+	fprintf(out, "%slink_usage.options ", prefix);
+	dump_list(out, &target->link_usage_options);
+	fputc('\n', out);
+	fprintf(out, "%slink_usage.inputs ", prefix);
+	dump_list(out, &target->link_usage_inputs);
+	fputc('\n', out);
+	if (qstar_graph_collect_compile_usage(graph, target, &compile_options,
+	    &compile_inputs) == 0 &&
+	    qstar_graph_collect_link_usage(graph, target, &link_options,
+	    &link_inputs) == 0) {
+		fprintf(out, "%seffective_compile_usage.options ", prefix);
+		dump_list(out, &compile_options);
+		fputc('\n', out);
+		fprintf(out, "%seffective_compile_usage.inputs ", prefix);
+		dump_list(out, &compile_inputs);
+		fputc('\n', out);
+		fprintf(out, "%seffective_link_usage.options ", prefix);
+		dump_list(out, &link_options);
+		fputc('\n', out);
+		fprintf(out, "%seffective_link_usage.inputs ", prefix);
+		dump_list(out, &link_inputs);
+		fputc('\n', out);
+	}
+	qstar_string_list_free(&compile_options);
+	qstar_string_list_free(&compile_inputs);
+	qstar_string_list_free(&link_options);
+	qstar_string_list_free(&link_inputs);
+}
+
 /** artifact path에서 basename component를 반환한다. */
 static const char *
 artifact_basename(const char *path)
@@ -861,13 +908,17 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	char id[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], std_arg[128];
 	const char *role;
 	const char *tool;
-	struct qstar_string_list includes;
+	struct qstar_string_list includes, usage_options, usage_inputs;
 	struct qstar_argv_dump dump;
 	size_t argc, i;
 	int is_asm, is_cxx, provider_source, wants_depfile;
 
 	memset(&includes, 0, sizeof(includes));
+	memset(&usage_options, 0, sizeof(usage_options));
+	memset(&usage_inputs, 0, sizeof(usage_inputs));
 	collect_compile_include_dirs(graph, target, &includes);
+	qstar_graph_collect_compile_usage(graph, target, &usage_options,
+	    &usage_inputs);
 	snprintf(id, sizeof(id), "%s:compile:%zu", target->label, action_index);
 	if (depfile_override)
 		snprintf(depfile, sizeof(depfile), "%s", depfile_override);
@@ -883,12 +934,16 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	    qstar_source_uses_asm_preprocessor(target, source));
 	if (provider_unit) {
 		argc = plan_provider_template_argc(graph, target, toolchain,
-		    &provider_unit->action.argv);
+		    &provider_unit->action.argv) + usage_options.len;
 		begin_argv(out, &dump, id, argc, toolchain);
 		plan_argv_provider_template(out, &dump, graph, target, toolchain,
 		    &provider_unit->action.argv);
+		for (i = 0; i < usage_options.len; i++)
+			argv_item(out, &dump, usage_options.items[i]);
 		end_argv(out, &dump);
 		qstar_string_list_free(&includes);
+		qstar_string_list_free(&usage_options);
+		qstar_string_list_free(&usage_inputs);
 		return;
 	}
 	role = qstar_source_toolset_role(source);
@@ -907,6 +962,7 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	    !qstar_platform_is_windows(toolchain->platform) && !provider_source &&
 	    !is_asm ? 1 : 0) +
 	    (!provider_source && is_cxx && target->cxx_standard[0] ? 1 : 0) +
+	    usage_options.len +
 	    (provider_source ? 0 : is_asm ? target->asm_compile_options.len :
 	    is_cxx ? target->cxxflags.len : target->cflags.len);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
@@ -933,6 +989,8 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	}
 	if (!provider_source && is_cxx && target->cxx_standard[0])
 		argv_item(out, &dump, std_arg);
+	for (i = 0; i < usage_options.len; i++)
+		argv_item(out, &dump, usage_options.items[i]);
 	for (i = 0; !provider_source && !is_asm && !is_cxx && i < target->cflags.len; i++)
 		argv_item(out, &dump, target->cflags.items[i]);
 	for (i = 0; !provider_source && is_cxx && i < target->cxxflags.len; i++)
@@ -953,6 +1011,8 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	}
 	end_argv(out, &dump);
 	qstar_string_list_free(&includes);
+	qstar_string_list_free(&usage_options);
+	qstar_string_list_free(&usage_inputs);
 }
 
 /** consumer-context objectlib compile action을 command plan에 출력한다. */
@@ -1047,6 +1107,39 @@ link_policy_arg_count(const struct qstar_graph *graph, const struct qstar_target
 	return target->link_options.len;
 }
 
+static size_t
+dependency_link_usage_arg_count(const struct qstar_graph *graph,
+    const struct qstar_target *target)
+{
+	struct qstar_string_list options, inputs;
+	size_t count = 0;
+
+	memset(&options, 0, sizeof(options));
+	memset(&inputs, 0, sizeof(inputs));
+	if (qstar_graph_collect_link_usage(graph, target, &options, &inputs) == 0)
+		count = options.len;
+	qstar_string_list_free(&options);
+	qstar_string_list_free(&inputs);
+	return count;
+}
+
+static void
+dump_dependency_link_usage_argv(FILE *out, struct qstar_argv_dump *dump,
+    const struct qstar_graph *graph, const struct qstar_target *target)
+{
+	struct qstar_string_list options, inputs;
+	size_t i;
+
+	memset(&options, 0, sizeof(options));
+	memset(&inputs, 0, sizeof(inputs));
+	if (qstar_graph_collect_link_usage(graph, target, &options, &inputs) == 0) {
+		for (i = 0; i < options.len; i++)
+			argv_item(out, dump, options.items[i]);
+	}
+	qstar_string_list_free(&options);
+	qstar_string_list_free(&inputs);
+}
+
 /** target link_options를 deterministic command argv dump에 추가한다. */
 static void
 dump_link_policy_argv(FILE *out, struct qstar_argv_dump *dump,
@@ -1078,6 +1171,10 @@ plan_resolve_target_file_arg(const struct qstar_graph *graph, const char *arg,
 		snprintf(buf, buflen, "<group-has-no-artifact>");
 		return buf;
 	}
+	if (target && strcmp(artifact, "@tool") == 0 &&
+	    qstar_graph_target_tool_path((struct qstar_graph *)graph, target, buf,
+	    buflen) == 0)
+		return buf;
 	if (target && qstar_graph_target_artifact_path((struct qstar_graph *)graph,
 	    target, artifact, buf, buflen) == 0)
 		return buf;
@@ -1193,6 +1290,7 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 	if (strcmp(action, "archive") != 0)
 		argc += target->lib_dirs.len + target->libs.len +
 		    (darwin ? target->frameworks.len * 2 : 0) +
+		    dependency_link_usage_arg_count(graph, target) +
 		    link_policy_arg_count(graph, target) +
 		    (toolchain_needs_msvc_link_boundary(toolchain, target) ? 1 : 0);
 	if (msvc_out)
@@ -1245,6 +1343,7 @@ dump_final_argv(FILE *out, const struct qstar_target *target,
 				argv_item(out, &dump, soname);
 			}
 		}
+		dump_dependency_link_usage_argv(out, &dump, graph, target);
 		dump_link_policy_argv(out, &dump, graph, target);
 		argv_item(out, &dump, "<target-objects>");
 		if (toolchain_needs_msvc_link_boundary(toolchain, target))
@@ -1288,10 +1387,14 @@ dump_provider_final_argv(FILE *out, const struct qstar_target *target,
 
 	snprintf(id, sizeof(id), "%s:%s:0", target->label, action);
 	argc = plan_provider_template_argc(graph, target, toolchain,
-	    &target->provider_final.action.argv);
+	    &target->provider_final.action.argv) +
+	    (strcmp(target->kind, "staticlib") == 0 ? 0 :
+	    dependency_link_usage_arg_count(graph, target));
 	begin_argv(out, &dump, id, argc, toolchain);
 	plan_argv_provider_template(out, &dump, graph, target, toolchain,
 	    &target->provider_final.action.argv);
+	if (strcmp(target->kind, "staticlib") != 0)
+		dump_dependency_link_usage_argv(out, &dump, graph, target);
 	end_argv(out, &dump);
 }
 
@@ -1361,6 +1464,8 @@ genrule_referenced_by_target(const struct qstar_genrule *genrule,
 	return genrule_consumed_by_target(genrule, target) ||
 	    genrule_output_in_list(genrule, &target->link_inputs) ||
 	    genrule_referenced_in_list(genrule, &target->link_inputs) ||
+	    genrule_referenced_in_list(genrule, &target->compile_usage_inputs) ||
+	    genrule_referenced_in_list(genrule, &target->link_usage_inputs) ||
 	    genrule_referenced_in_list(genrule, &target->run_inputs) ||
 	    genrule_referenced_in_list(genrule, &target->run_command) ||
 	    genrule_referenced_in_list(genrule, &target->deps) ||
@@ -1928,6 +2033,7 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	fputs("  private_deps ", out);
 	dump_list(out, &target->private_deps);
 	fputc('\n', out);
+	dump_dependency_usage(out, plan->graph, target, "  ");
 	fputs("  visibility ", out);
 	dump_list(out, &target->visibility);
 	fputc('\n', out);
@@ -2011,6 +2117,15 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 		dump_command_skeleton(out, plan->graph, target, "run", "<run-command>",
 		    "build/qstar/out/<run-stamp>", "generic", "cli", 0);
 		dump_run_argv(out, plan->graph, target);
+		return 0;
+	}
+	if (strcmp(target->kind, "interface") == 0 ||
+	    strcmp(target->kind, "imported") == 0 ||
+	    strcmp(target->kind, "tool") == 0) {
+		qstar_dump_target_artifact_map_text(out, plan->graph, target, "  ");
+		fprintf(out,
+		    "  action metadata kind=%s input=<declared-artifacts,deps> output=<none>\n",
+		    target->kind);
 		return 0;
 	}
 	if (dump_resolved_toolchain(out, plan, target, &toolchain) < 0)
@@ -2380,6 +2495,7 @@ qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out)
 		fprintf(out, "  compile_context %s\n",
 		    plan.order[i]->compile_context && *plan.order[i]->compile_context ?
 		    plan.order[i]->compile_context : "own");
+		dump_dependency_usage(out, graph, plan.order[i], "  ");
 		{
 		struct qstar_resolved_toolchain toolchain;
 		if (strcmp(plan.order[i]->kind, "run_target") == 0) {
@@ -2404,6 +2520,17 @@ qstar_graph_dry_run(struct qstar_graph *graph, const char *label, FILE *out)
 			fprintf(out,
 			    "  dry_run_step id=%s:group:0 owner=%s kind=group tool=none input=<deps> output=<none> execute=no\n",
 			    plan.order[i]->label, plan.order[i]->label);
+			dump_dry_run_genrules(out, &plan, plan.order[i]);
+			continue;
+		}
+		if (strcmp(plan.order[i]->kind, "interface") == 0 ||
+		    strcmp(plan.order[i]->kind, "imported") == 0 ||
+		    strcmp(plan.order[i]->kind, "tool") == 0) {
+			qstar_dump_target_artifact_map_text(out, graph, plan.order[i], "  ");
+			fprintf(out,
+			    "  dry_run_step id=%s:%s:0 owner=%s kind=metadata tool=none input=<declared-artifacts,deps> output=<none> execute=no\n",
+			    plan.order[i]->label, plan.order[i]->kind,
+			    plan.order[i]->label);
 			dump_dry_run_genrules(out, &plan, plan.order[i]);
 			continue;
 		}

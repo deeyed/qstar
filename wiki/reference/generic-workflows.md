@@ -48,6 +48,11 @@ tool을 실행한다면 `toolset`을 지정하고 그 toolset의 `path_tools`에
 이 규칙은 code generation, object conversion, package-local artifact transform, external
 validation 등 모든 generic workflow에 같은 방식으로 적용된다.
 
+Package-local tool이나 QStar-built executable을 command tool로 쓸 때는
+`qstar.tool_file(label)`을 argv[0]에 둔다. 이 helper는 executable path와 producer edge를
+동시에 표현하며 Stella/Ninja가 tool을 먼저 준비한다. 자세한 계약은
+[Typed Dependencies](typed-dependencies.md)에 있다.
+
 ## 전체 예제
 
 ```lua

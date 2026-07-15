@@ -138,8 +138,9 @@ qstar docs --show reference/qstar-lua.md
 8. [Generic Workflows](reference/generic-workflows.md)
 9. [Configurable Build Surface](reference/configurable-build-surface.md)
 10. [Public Declaration Schemas](reference/declaration-schemas.md)
-11. [v1 Readiness](v1-readiness.md)
-12. [Release Matrix Evidence](https://github.com/deeyed/qstar/blob/main/docs/release-matrix-evidence.md)
+11. [Typed Dependencies](reference/typed-dependencies.md)
+12. [v1 Readiness](v1-readiness.md)
+13. [Release Matrix Evidence](https://github.com/deeyed/qstar/blob/main/docs/release-matrix-evidence.md)
 
 ## Reference
 
@@ -154,6 +155,7 @@ qstar docs --show reference/qstar-lua.md
 - [Generic Workflows](reference/generic-workflows.md)
 - [Configurable Build Surface](reference/configurable-build-surface.md)
 - [Public Declaration Schemas](reference/declaration-schemas.md)
+- [Typed Dependencies](reference/typed-dependencies.md)
 - [Object Artifacts](reference/object-artifacts.md)
 - [Custom Target](reference/custom-target.md)
 - [Run Target](reference/run-target.md)

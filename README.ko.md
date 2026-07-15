@@ -202,6 +202,11 @@ qstar.transform "image" {
 input/output artifact 변환은 같은 generated action contract 위의 `qstar.transform` sugar를
 쓴다.
 
+Typed dependency는 artifact 없는 usage requirement에 `qstar.interface`, platform별
+package-local prebuilt artifact에 `qstar.imported`, executable tool producer edge에
+`qstar.tool_file`을 쓴다. Compile/link option과 input은 모두 명시하며 imported metadata로
+flag를 추론하지 않는다. 정본은 `wiki/reference/typed-dependencies.md`다.
+
 ## 주요 명령
 
 ```sh

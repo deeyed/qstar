@@ -185,6 +185,10 @@ resolve_command_tool(const struct qstar_graph *graph, const struct qstar_target 
     const char *toolset_label, const char *tool, char *resolved, size_t resolved_len,
     char *mode, size_t mode_len, char *error, size_t error_len)
 {
+	const struct qstar_target *tool_target = NULL;
+	char label[QSTAR_PATH_MAX], artifact[64];
+	size_t i;
+	int token_rc;
 	int allow_absolute;
 	int has_explicit_toolset;
 
@@ -196,6 +200,37 @@ resolve_command_tool(const struct qstar_graph *graph, const struct qstar_target 
 	if (!tool || !*tool) {
 		snprintf(error, error_len, "qstar: generated action tool is empty");
 		return -1;
+	}
+	token_rc = qstar_target_file_token_parse(tool, label, sizeof(label), artifact,
+	    sizeof(artifact));
+	if (token_rc < 0) {
+		snprintf(error, error_len,
+		    "qstar: generated action tool token is malformed");
+		return -1;
+	}
+	if (token_rc == 1) {
+		if (strcmp(artifact, "@tool") != 0) {
+			snprintf(error, error_len,
+			    "qstar: generated action executable target must use qstar.tool_file(...)");
+			return -1;
+		}
+		for (i = 0; i < graph->len; i++) {
+			if (strcmp(graph->targets[i].label, label) == 0) {
+				tool_target = &graph->targets[i];
+				break;
+			}
+		}
+		if (!tool_target) {
+			snprintf(error, error_len,
+			    "qstar: unknown executable tool target '%s'", label);
+			return -1;
+		}
+		if (qstar_graph_target_tool_path((struct qstar_graph *)graph,
+		    tool_target, resolved, resolved_len) < 0) {
+			snprintf(error, error_len, "%s", graph->error);
+			return -1;
+		}
+		return snprintf(mode, mode_len, "%s", "target") < (int)mode_len ? 0 : -1;
 	}
 	if (tool_is_absolute_path(tool)) {
 		if (!allow_absolute) {

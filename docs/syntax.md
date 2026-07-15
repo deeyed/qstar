@@ -352,6 +352,40 @@ last. Target-local scalar fields override config scalars.
 
 ## Targets
 
+Typed dependency target은 artifact graph와 usage requirement를 명시적으로 표현한다.
+
+```lua
+qstar.interface "api" {
+  compile_usage = {
+    options = {"-DAPI_LEVEL=3"},
+    inputs = {"contracts/api.txt"},
+  },
+}
+
+qstar.imported "codec" {
+  artifact_kind = "prebuilt_codec",
+  artifacts = {
+    default = {
+      {id = "archive", role = "link", path = "vendor/libcodec.a", primary = true},
+    },
+    windows = {
+      {id = "runtime", role = "runtime", path = "vendor/codec.dll", primary = true},
+      {id = "import_lib", role = "link", path = "vendor/codec.lib", primary = false},
+    },
+  },
+  deps = {"//:api"},
+}
+
+qstar.tool "generator" { path = "tools/generator" }
+```
+
+`compile_usage`/`link_usage`는 `options`와 `inputs`만 받는다. Options는 consumer
+argv에 그대로 추가되고 inputs는 argv에 들어가지 않는 rebuild/producer input이다.
+`qstar.tool_file(label)`은 package-local tool, imported `role = "tool"`, QStar-built
+executable/test를 generated command argv[0]으로 사용하며 producer edge를 만든다.
+Imported suffix, `artifact_kind`, id에서 flag를 추론하지 않는다. 상세 계약은
+`docs/typed-dependency-targets.md`와 `wiki/reference/typed-dependencies.md`에 있다.
+
 ```lua
 qstar.staticlib "core" {
   configs = {"//:common_c"},
