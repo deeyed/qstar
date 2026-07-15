@@ -335,8 +335,11 @@ interfaces that import another interface must follow it in the `sources` list.
 This release deliberately uses declaration order as a safe dependency superset
 instead of embedding a compiler-specific import scanner. Each dependency is
 passed as an explicit `-fmodule-file=<name>=<BMI>` mapping, so lowering does not
-depend on compiler directory discovery. Unity batches only target-local ordinary C++
-implementation sources and never merge C, ASM, module interfaces, GLP sources,
+depend on compiler directory discovery. A configured PCH is deliberately omitted
+from module-interface actions, while ordinary implementation and unity actions
+continue to consume it; this keeps compiler-version-sensitive PCH state out of the
+BMI. Unity batches only target-local ordinary C++ implementation sources and never
+merge C, ASM, module interfaces, GLP sources,
 or source ownership across targets. Strategy action ids and the actual PCH,
 module, and unity commands are recorded in `compile_commands.json` for both
 Stella and Ninja.

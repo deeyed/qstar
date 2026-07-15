@@ -6380,8 +6380,8 @@ oom_provider:
 	if (!provider_source && is_cxx && target->cxx_standard[0] &&
 	    prepared_action_push_argv(graph, action, std_arg) < 0)
 		goto fail;
-	if (!provider_source && is_cxx && target->cxx_precompiled_header &&
-	    *target->cxx_precompiled_header) {
+	if (!provider_source && is_cxx && !module_interface &&
+	    target->cxx_precompiled_header && *target->cxx_precompiled_header) {
 		if (qstar_cxx_pch_output_path(graph, target, toolchain, pch_output,
 		    sizeof(pch_output)) < 0 || qstar_cxx_pch_include_path(graph, target,
 		    toolchain, pch_include, sizeof(pch_include)) < 0)
@@ -6469,8 +6469,8 @@ oom_provider:
 		if (qstar_string_list_push(&inputs, unity_sources.items[i]) < 0)
 			goto oom_inputs;
 	}
-	if (!provider_source && is_cxx && target->cxx_precompiled_header &&
-	    *target->cxx_precompiled_header &&
+	if (!provider_source && is_cxx && !module_interface &&
+	    target->cxx_precompiled_header && *target->cxx_precompiled_header &&
 	    qstar_string_list_push(&inputs, pch_output) < 0)
 		goto oom_inputs;
 	if (!provider_source && is_cxx && target->cxx_modules_enabled) {

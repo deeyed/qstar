@@ -61,6 +61,9 @@ target 안에서 유일해야 하고 `src/math.cppm`은 `export module math;`를
 interface를 import하는 interface는 의존 대상보다 뒤에 `sources`로 선언한다. 정확한 import
 graph scanner 대신 선언 순서를 이용한 안전한 dependency superset을 사용하며, 각 BMI는
 `-fmodule-file=<name>=<BMI>`로 compiler에 명시적으로 전달한다.
+PCH를 함께 켠 경우에도 module interface action에는 PCH를 주입하지 않는다. 일반
+implementation과 unity action은 계속 PCH를 사용한다. 이 경계는 compiler 버전에 따라 PCH
+상태가 BMI 내용에 섞이는 문제를 피하기 위한 정식 계약이다.
 
 PCH와 unity는 Clang/GCC 계열에서 지원한다. C++ module lowering은 upstream Clang과 C++20
 이상을 요구한다. GCC modules-ts, Apple Clang module mode, MSVC와 compiler family를 판별할

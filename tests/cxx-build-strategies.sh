@@ -19,6 +19,12 @@ contains() {
   grep -F -q -- "$2" "$1" || fail "missing '$2' in $1"
 }
 
+lacks() {
+  if grep -F -q -- "$2" "$1"; then
+    fail "unexpected '$2' in $1"
+  fi
+}
+
 cleanup() {
   rc=$?
   trap - EXIT HUP INT TERM
@@ -87,6 +93,7 @@ last_step=stella-observability
 "$qstar" --file "$stella/qstar.lua" action-log //:strategies:compile-module-interface-0:0 > "$tmp/action-log.out" 2> "$tmp/action-log.err"
 contains "$tmp/action-log.out" 'output_count=2'
 contains "$tmp/action-log.out" 'math.pcm'
+lacks "$tmp/action-log.out" '-include-pch'
 "$qstar" --file "$stella/qstar.lua" replay //:strategies:compile-unity-0:0 > "$tmp/replay.out" 2> "$tmp/replay.err"
 contains "$tmp/replay.out" 'unity_0.cpp'
 

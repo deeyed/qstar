@@ -2420,8 +2420,8 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	if (!provider_source && is_cxx && target->cxx_standard && target->cxx_standard[0] &&
 	    ninja_argv_push(graph, &argv, std_arg) < 0)
 		goto fail;
-	if (!provider_source && is_cxx && target->cxx_precompiled_header &&
-	    *target->cxx_precompiled_header) {
+	if (!provider_source && is_cxx && !module_interface &&
+	    target->cxx_precompiled_header && *target->cxx_precompiled_header) {
 		if (qstar_cxx_pch_output_path(graph, target, toolchain, pch_output,
 		    sizeof(pch_output)) < 0 || qstar_cxx_pch_include_path(graph, target,
 		    toolchain, pch_include, sizeof(pch_include)) < 0)
@@ -2509,8 +2509,8 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		fputc(' ', ctx->ninja);
 		ninja_path(ctx->ninja, unity_sources.items[i]);
 	}
-	if (!provider_source && is_cxx && target->cxx_precompiled_header &&
-	    *target->cxx_precompiled_header) {
+	if (!provider_source && is_cxx && !module_interface &&
+	    target->cxx_precompiled_header && *target->cxx_precompiled_header) {
 		fputc(' ', ctx->ninja);
 		ninja_path(ctx->ninja, pch_output);
 	}

@@ -1032,8 +1032,9 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	    !qstar_platform_is_windows(toolchain->platform) && !provider_source &&
 	    !is_asm ? 1 : 0) +
 	    (!provider_source && is_cxx && target->cxx_standard[0] ? 1 : 0) +
-	    (!provider_source && is_cxx && target->cxx_precompiled_header &&
-	    *target->cxx_precompiled_header ? 2 : 0) +
+	    (!provider_source && is_cxx &&
+	    !qstar_cxx_source_is_module_interface(source_owner, source_index) &&
+	    target->cxx_precompiled_header && *target->cxx_precompiled_header ? 2 : 0) +
 	    (!provider_source && is_cxx && target->cxx_modules_enabled ?
 	    (qstar_cxx_source_is_module_interface(source_owner, source_index) ? 2 : 1) : 0) +
 	    module_flags.len +
@@ -1070,8 +1071,9 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	}
 	if (!provider_source && is_cxx && target->cxx_standard[0])
 		argv_item(out, &dump, std_arg);
-	if (!provider_source && is_cxx && target->cxx_precompiled_header &&
-	    *target->cxx_precompiled_header &&
+	if (!provider_source && is_cxx &&
+	    !qstar_cxx_source_is_module_interface(source_owner, source_index) &&
+	    target->cxx_precompiled_header && *target->cxx_precompiled_header &&
 	    qstar_cxx_pch_output_path(graph, target, toolchain, pch, sizeof(pch)) == 0 &&
 	    qstar_cxx_pch_include_path(graph, target, toolchain, pch_include,
 	    sizeof(pch_include)) == 0) {
