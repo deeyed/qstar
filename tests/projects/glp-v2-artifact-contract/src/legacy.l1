@@ -1,0 +1,4 @@
+int qstar_glp_v1_legacy(void)
+{
+	return 19;
+}

@@ -1,0 +1,4 @@
+int qstar_glp_v2_consumer(void)
+{
+	return 0;
+}

@@ -7,7 +7,9 @@ QStar는 Lua 기반 프로젝트 DSL, Stella 네이티브 executor, 선택형 Ni
 대형 프로젝트용 reusable config, 도구가 읽기 쉬운 diagnostic을 제공하는 것이다.
 Language provider는 `qstar.use_language(...)`로 활성화할 수 있다. QStar는 표준 Zig,
 Rust, CUDA provider를 함께 설치하며, project-local provider package도 사용할 수 있다. 외부 source
-unit은 Stella/Ninja 공통 backend action contract로 lowering된다.
+unit은 Stella/Ninja 공통 backend action contract로 lowering된다. Provider-author loader는
+`qstar.lang/1` 호환을 유지하고, `qstar.lang/2`에서 mixed-provider input ownership과 named
+file/tree artifact를 지원한다. 두 author API는 계속 beta다.
 
 현재 공개 버전은 베타다. 현재 release-prep line은 `v0.7.19-beta`이며 macOS arm64와
 Linux x86_64 runtime tarball을 대상으로 한다. Linux asset은 Ubuntu release workflow 또는

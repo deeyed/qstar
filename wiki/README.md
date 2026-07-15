@@ -7,14 +7,17 @@ provider final action, object artifact bridge가 맡는다.
 Generic Language Provider(GLP)는 이 경계를 확장하는 정식 provider surface다. 현재
 runtime은 `qstar.use_language("zig")` 같은 provider 활성화와 `lang.zig` 동적 namespace
 gate를 제공한다. Provider manifest는 `qstar.language_provider { api = "qstar.lang/1",
-... }` schema로 검증되고, `provider.lua` implementation은 제한 sandbox에서 로드된다.
+... }` 또는 `api = "qstar.lang/2"` schema로 version negotiation되고,
+`provider.lua` implementation은 제한 sandbox에서 로드된다.
 `zig`, `rust`, `cuda`는 QStar가 함께 설치하는 표준 provider이며, 같은 ID의
 project-local provider가 있으면 그 manifest가 먼저 사용된다.
 Provider가 선언한 `options` schema는 `lang.<namespace>` table의 key와 value type을 검증한다.
 Provider가 선언한 `units` schema는 source suffix를 graph-level registry에 등록하므로, 활성화된
 provider의 source는 `sources = {"src/main.zig"}` 같은 raw string으로도 built-in 언어와 같은
-경로를 탄다. Provider가 `finals` schema를 선언하면 pure provider target의 executable/staticlib/sharedlib
-최종 산출물도 provider-owned action으로 만들 수 있다. Exported helper인 `zig.object("src/main.zig", {...})`는 source-local option이나
+경로를 탄다. V1 provider의 `finals`는 pure provider target의 executable/staticlib/sharedlib
+최종 산출물을 provider-owned action으로 만든다. V2 provider는 final input ownership과
+file/tree artifact descriptor를 선언해 mixed-provider object와 named runtime/link-interface
+artifact를 같은 public target 문법으로 합성한다. Exported helper인 `zig.object("src/main.zig", {...})`는 source-local option이나
 suffix 충돌 해소가 필요할 때 쓰는 명시 경로다. Backend는 provider lowering function이 반환한
 `command`, `env`, `inputs`, `outputs`, `depfile` action template을 Stella와 Ninja에서
 동일하게 실행한다. Env 값은 process에는 실제로 전달되지만 action-log/replay에는

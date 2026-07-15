@@ -1388,14 +1388,27 @@ dump_provider_final_argv(FILE *out, const struct qstar_target *target,
 	snprintf(id, sizeof(id), "%s:%s:0", target->label, action);
 	argc = plan_provider_template_argc(graph, target, toolchain,
 	    &target->provider_final.action.argv) +
-	    (strcmp(target->kind, "staticlib") == 0 ? 0 :
-	    dependency_link_usage_arg_count(graph, target));
+	    ((!target->provider_final.api ||
+	    strcmp(target->provider_final.api, "qstar.lang/2") != 0) &&
+	    strcmp(target->kind, "staticlib") != 0 ?
+	    dependency_link_usage_arg_count(graph, target) : 0);
+	    /* v2 providers receive only manifest-owned inputs and explicit argv. */
 	begin_argv(out, &dump, id, argc, toolchain);
 	plan_argv_provider_template(out, &dump, graph, target, toolchain,
 	    &target->provider_final.action.argv);
-	if (strcmp(target->kind, "staticlib") != 0)
+	if ((!target->provider_final.api ||
+	    strcmp(target->provider_final.api, "qstar.lang/2") != 0) &&
+	    strcmp(target->kind, "staticlib") != 0)
 		dump_dependency_link_usage_argv(out, &dump, graph, target);
 	end_argv(out, &dump);
+}
+
+static const char *
+provider_final_input_summary(const struct qstar_target *target)
+{
+	return target && target->provider_final.api &&
+	    strcmp(target->provider_final.api, "qstar.lang/2") == 0 ?
+	    "<provider-owned-inputs>" : "<provider-sources>";
 }
 
 /** generated output list가 target의 파일 입력 list에 소비되는지 확인한다. */
@@ -2132,8 +2145,9 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 		return -1;
 	dump_effective_compile_merge(out, plan->graph, target, &toolchain);
 	for (i = 0; !objectlib_uses_consumer_context(target) &&
-	    !qstar_target_has_provider_final_action(target) &&
 	    i < target->sources.len; i++) {
+		if (qstar_target_provider_final_owns_source(target, i))
+			continue;
 		qstar_target_source_classify(target, i, &source);
 		if (!qstar_source_requires_compile(&source)) {
 			fprintf(out,
@@ -2194,11 +2208,13 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	dump_action_description(out, "  ", id, description);
 	fprintf(out, "  action %s output=%s\n", action, output);
 	dump_action_key(out, plan->graph, target, action,
-	    qstar_target_has_provider_final_action(target) ? "<provider-sources>" :
+	    qstar_target_has_provider_final_action(target) ?
+	    provider_final_input_summary(target) :
 	    "<target-objects>", output,
 	    "artifact", 0);
 	dump_command_skeleton(out, plan->graph, target, action,
-	    qstar_target_has_provider_final_action(target) ? "<provider-sources>" :
+	    qstar_target_has_provider_final_action(target) ?
+	    provider_final_input_summary(target) :
 	    "<target-objects>",
 	    output, "artifact", final_tool, 0);
 	if (qstar_target_has_provider_final_action(target))
@@ -2307,8 +2323,9 @@ dump_dry_run_compiles(FILE *out, const struct qstar_plan *plan,
 	if (qstar_resolve_toolchain(plan->graph, target, &toolchain) < 0)
 		return -1;
 	for (i = 0; !objectlib_uses_consumer_context(target) &&
-	    !qstar_target_has_provider_final_action(target) &&
 	    i < target->sources.len; i++) {
+		if (qstar_target_provider_final_owns_source(target, i))
+			continue;
 		qstar_target_source_classify(target, i, &source);
 		if (!qstar_source_requires_compile(&source)) {
 			fprintf(out,
@@ -2440,7 +2457,8 @@ dump_dry_run_final(FILE *out, const struct qstar_plan *plan, const struct qstar_
 	    "input=%s output=%s execute=no\n",
 	    target->label, action, target->label, action, tool,
 	    toolchain.toolset[0] ? toolchain.toolset : "<none>",
-	    qstar_target_has_provider_final_action(target) ? "<provider-sources>" :
+	    qstar_target_has_provider_final_action(target) ?
+	    provider_final_input_summary(target) :
 	    "<target-objects>", output);
 	if (qstar_target_has_provider_final_action(target))
 		dump_provider_final_argv(out, target, plan->graph, &toolchain, action);

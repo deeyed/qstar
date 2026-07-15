@@ -2788,7 +2788,9 @@ emit_provider_final_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		return qstar_set_error(graph, "qstar: provider final description too long");
 	if (ninja_argv_push_provider_template(graph, &argv, target, toolchain,
 	    &tmpl->argv) < 0 ||
-	    (strcmp(target->kind, "staticlib") != 0 &&
+	    ((!target->provider_final.api ||
+	    strcmp(target->provider_final.api, "qstar.lang/2") != 0) &&
+	    strcmp(target->kind, "staticlib") != 0 &&
 	    ninja_argv_push_dependency_usage(graph, &argv, target, 1) < 0))
 		goto fail;
 	for (i = 0; i < tmpl->outputs.len; i++) {
@@ -2815,11 +2817,15 @@ emit_provider_final_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		fputc(' ', ctx->ninja);
 		ninja_path(ctx->ninja, tmpl->inputs.items[i]);
 	}
-	if (strcmp(target->kind, "staticlib") != 0 &&
+	if ((!target->provider_final.api ||
+	    strcmp(target->provider_final.api, "qstar.lang/2") != 0) &&
+	    strcmp(target->kind, "staticlib") != 0 &&
 	    write_dependency_usage_inputs(graph, ctx->ninja, target, 1,
 	    &implicit_started) < 0)
 		goto fail;
-	if (target->link_inputs.len) {
+	if ((!target->provider_final.api ||
+	    strcmp(target->provider_final.api, "qstar.lang/2") != 0) &&
+	    target->link_inputs.len) {
 		if (!implicit_started)
 			fputs(" |", ctx->ninja);
 		implicit_started = 1;
@@ -3717,8 +3723,9 @@ emit_target(struct qstar_graph *graph, const struct qstar_target *target, size_t
 	    emit_dependency_usage_input_producers(graph, ctx, target) < 0)
 		return -1;
 	for (i = 0; !objectlib_uses_consumer_context(target) &&
-	    !qstar_target_has_provider_final_action(target) &&
 	    i < target->sources.len; i++) {
+		if (qstar_target_provider_final_owns_source(target, i))
+			continue;
 		if (emit_compile_edge(graph, ctx, target, &toolchain, i) < 0)
 			return -1;
 	}

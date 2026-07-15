@@ -123,7 +123,9 @@ Declare a provider manifest. This provider-author API is beta and is valid only
 inside provider
 .Pa .qsm
 manifests, must use
-.Li api = "qstar.lang/1" ,
+.Li api = "qstar.lang/1"
+or
+.Li api = "qstar.lang/2" ,
 and names the restricted
 .Pa provider.lua
 implementation through the
@@ -138,10 +140,10 @@ When a primary provider shape is available,
 materializes its files, targets, fragments, default tools, and default
 options. Scaffold file and fragment paths must be package-relative; command,
 script, fetch, network, and absolute-path surfaces are not part of the schema.
-Future provider manifest versions are rejected instead of guessed; a manifest
-that does not use
-.Li qstar.lang/1
-fails with the language-provider API diagnostic.
+The version 1 loader preserves the original single-provider final artifact
+contract. Version 2 finals declare input ownership and named file or tree
+artifact descriptors with primary, secondary, runtime, and link-interface
+roles. Unknown provider manifest versions are rejected instead of guessed.
 .It Ic qstar.config
 Reusable target option bundle referenced by target
 .Ic configs

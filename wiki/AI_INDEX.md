@@ -17,8 +17,10 @@ Generic Language Provider(GLP)는 이 경계를 정식 provider surface로 확�
 `qstar.use_language("zig")`, provider namespace toolset, 동적
 `lang.zig` activation gate, provider-defined option schema, `qstar.source(...)` 기반 source
 unit object lowering, provider-owned final artifact lowering을 제공한다. Provider manifest의
-`finals.executable/staticlib/sharedlib` hook은 순수 provider target에서 C-style final
-link/archive action을 대체한다. Provider implementation의 lowering function은 `command`,
+`qstar.lang/1`의 `finals.executable/staticlib/sharedlib` hook은 순수 provider target에서
+C-style final link/archive action을 대체한다. `qstar.lang/2`는 manifest-declared final input
+ownership과 file/tree multi-output artifact descriptor로 built-in/foreign provider object가
+섞인 target도 합성한다. Provider implementation의 lowering function은 `command`,
 `env`, `inputs`, `outputs`, `depfile` action template을 만들고, Stella와 Ninja는 이 template을
 같은 backend contract로 실행한다. Env 값은 action-log/replay에서 redacted된다. `zig`, `rust`, `cuda` provider는 installed standard provider
 bundle에 포함되고, project-local `qstar/languages/<id>/<id>.qsm`이 있으면 그 manifest가
@@ -70,7 +72,8 @@ QStar가 하지 않는 일:
 - GLP provider는 project-local `qstar/languages/<id>/<id>.qsm` manifest 또는 installed
   standard bundle `share/qstar/languages/<id>/<id>.qsm` manifest와 `provider.lua`
   implementation을 가진다. Manifest는 `qstar.language_provider { api = "qstar.lang/1", ... }`
-  schema로 검증되고, implementation은 제한 provider sandbox에서 로드된다. 사용자는
+  또는 `api = "qstar.lang/2"` schema로 version negotiation되고, implementation은 제한
+  provider sandbox에서 로드된다. 사용자는
   `qstar.use_language("<id>")`가 반환한 exported helper table을 통해 `zig.tools`,
   `rust.options`, `cuda.object` 같은 helper를 사용한다. `lang.<namespace>`와 raw provider source
   classification은 provider activation 이후에만 유효하며, provider-defined `options` schema가
@@ -81,8 +84,11 @@ QStar가 하지 않는 일:
   `qstar.use_language(...)`는 root와 fragment에서 idempotent하게 helper table을 재사용한다.
   Source unit lowering은 `ctx.tool`,
   `ctx.input`, `ctx.output`, `ctx.option`으로 작성한 action template을 Stella/Ninja 양쪽에
-  공유한다. Final artifact lowering은 `ctx.input("sources")`, `ctx.output("artifact")`,
-  `ctx.kind()`를 사용한다.
+  공유한다. V1 final artifact lowering은 `ctx.input("sources")`, `ctx.output("artifact")`,
+  `ctx.kind()`를 사용한다. V2 final은 manifest가 선언한 `sources`, `objects`,
+  `link_interfaces`, `link_inputs`, `link_options`만 읽고 artifact descriptor id를
+  `ctx.output(id)`로 사용한다. V2 artifact role은 `primary`, `secondary`, `runtime`,
+  `link-interface`, type은 `file`/`tree`다. Platform/linker policy는 추론하지 않는다.
 - CLI `-B path`는 `qstar.project.build_dir`보다 우선한다.
 - CLI `-G auto`는 현재 `stella`로 resolve된다.
 - CLI `-G ninja build [label]`은 C/C++/ASM compile, `qstar.configure_file`,
@@ -116,6 +122,11 @@ QStar가 하지 않는 일:
   Stella/Ninja build/action-log/replay parity를 검증한다. Standard provider의 consumer-facing
   id/namespace/helper/option/source behavior는 v1 stable 후보이고, `provider.lua` 내부
   argv/cache/lowering 구현은 provider-author beta다.
+- `make qstar-glp-v2-artifact-contract-tests`는 Q279 provider-author v2 gate다.
+  `qstar.lang/1`과 `/2` 동시 activation, mixed C/provider object composition, imported
+  link-interface, file/tree multi-output, runtime/link-interface selector,
+  missing/undeclared output ownership, malformed descriptor, final-owner collision,
+  Stella/Ninja/action-log/replay parity를 fake tool로 검증한다.
 - `.github/workflows/real-glp-compiler-validation.yml`은 이 real GLP compiler corpus를
   hosted Linux/macOS `workflow_dispatch` lane으로 실행한다. 기본
   `require_compilers=true` 정책에서는 Rust/Zig 설치 실패나 compiler missing skip을
@@ -223,7 +234,7 @@ QStar가 하지 않는 일:
   imports/modules, GLP consumer activation, command/workflow helpers, and authoring
   helpers로 묶는다. Provider-author API, Stella daemon, optional real compiler corpus,
   performance numbers, debug state dump는 beta 또는 report-only surface다. Q257 기준
-  provider-author API는 `qstar.lang/1` versioned beta contract로 남기며, future provider
+  provider-author API는 `qstar.lang/1`/`qstar.lang/2` versioned beta contract로 남기며, future provider
   manifest API는 추측 실행하지 않고 reject한다. v1 blocker는 Windows official GitHub
   Release asset/download smoke repetition, daemon beta boundary, release matrix repetition,
   and package manager out-of-core boundary다. Package resolver/registry/lockfile/fetch

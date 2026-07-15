@@ -36,6 +36,17 @@ struct qstar_provider_action_template {
 	int wants_depfile;
 };
 
+struct qstar_provider_artifact_descriptor {
+	char *id;
+	char *type;
+	char *suffix;
+	char *path;
+	int primary;
+	int secondary;
+	int runtime;
+	int link_interface;
+};
+
 struct qstar_modules {
 	int present;
 	char *root;
@@ -56,9 +67,13 @@ struct qstar_provider_source_unit {
 
 struct qstar_provider_final_action {
 	int present;
+	char *api;
 	char *provider;
 	char *kind;
 	char *lower;
+	struct qstar_string_list input_ownership;
+	struct qstar_provider_artifact_descriptor *artifacts;
+	size_t artifact_len;
 	struct qstar_provider_action_template action;
 };
 
@@ -200,6 +215,10 @@ struct qstar_language_unit_schema {
 struct qstar_language_final_schema {
 	char *kind;
 	char *lower;
+	struct qstar_string_list inputs;
+	struct qstar_provider_artifact_descriptor *artifacts;
+	size_t artifact_len;
+	size_t artifact_cap;
 };
 
 struct qstar_language_provider {
@@ -387,9 +406,13 @@ struct qstar_cached_action {
 struct qstar_target_artifact {
 	char id[64];
 	char role[64];
+	char type[16];
 	char path[QSTAR_PATH_MAX];
 	char install_dir[32];
 	int primary;
+	int secondary;
+	int runtime;
+	int link_interface;
 	int installable;
 };
 
@@ -615,6 +638,15 @@ int qstar_language_provider_add_unit_schema(struct qstar_graph *graph,
 int qstar_language_provider_add_final_schema(struct qstar_graph *graph,
     struct qstar_language_provider *provider, const char *kind, const char *lower);
 
+int qstar_language_final_add_input(struct qstar_graph *graph,
+    struct qstar_language_provider *provider, struct qstar_language_final_schema *final,
+    const char *input);
+
+int qstar_language_final_add_artifact(struct qstar_graph *graph,
+    struct qstar_language_provider *provider, struct qstar_language_final_schema *final,
+    const char *id, const char *type, const char *suffix, int primary,
+    int secondary, int runtime, int link_interface);
+
 /** QStar target source list entry에 provider source unit metadata를 붙인다. */
 int qstar_target_add_provider_source_unit(struct qstar_graph *graph,
     struct qstar_target *target, size_t source_index, const char *path,
@@ -623,8 +655,10 @@ int qstar_target_add_provider_source_unit(struct qstar_graph *graph,
 
 /** QStar target에 provider-owned final artifact action metadata를 붙인다. */
 int qstar_target_set_provider_final_action(struct qstar_graph *graph,
-    struct qstar_target *target, const char *provider, const char *kind,
-    const char *lower, const struct qstar_provider_action_template *action);
+    struct qstar_target *target, const struct qstar_language_provider *provider,
+    const struct qstar_language_final_schema *final,
+    const struct qstar_provider_artifact_descriptor *artifacts, size_t artifact_len,
+    const struct qstar_provider_action_template *action);
 
 int qstar_target_set_provider_option(struct qstar_graph *graph,
     struct qstar_target *target, const char *provider, const char *name,
@@ -782,6 +816,10 @@ int qstar_graph_language_provider_is_available(const struct qstar_graph *graph,
 
 /** target이 provider-owned final artifact action을 갖는지 확인한다. */
 int qstar_target_has_provider_final_action(const struct qstar_target *target);
+
+/** provider final action이 source index의 원본 입력을 직접 소유하는지 확인한다. */
+int qstar_target_provider_final_owns_source(const struct qstar_target *target,
+    size_t source_index);
 
 /** target source index에 붙은 provider source unit metadata를 찾는다. */
 const struct qstar_provider_source_unit *qstar_target_provider_source_unit(

@@ -32,7 +32,8 @@ candidate lane까지 들어왔다.
   asset을 같은 것으로 취급하지 않는다.
 - daemon은 documented beta opt-in이며, default-on이나 stable protocol promise가 아니다.
 - GLP consumer surface와 standard provider consumer contract는 stable 후보로 정리됐고,
-  provider-author API는 `qstar.lang/1` versioned beta contract로 남겨졌다.
+  provider-author API는 `qstar.lang/1` 및 Q279의 `qstar.lang/2` versioned beta
+  contract로 남겨졌다.
 - package manager, registry, lockfile, fetch policy는 계속 QStar core 밖에 둔다는 경계를
   v1 문서와 release note에서 반복 확인해야 한다.
 - 성능 수치는 release input/report-only다. v1은 "항상 Ninja보다 빠름" 같은 마케팅 문구를
@@ -146,8 +147,9 @@ Provider consumer surface:
 - `lang.<namespace>` dynamic option tables after provider activation
 - raw source string classification through activated provider `units.*.suffixes`
 - exported provider helpers such as `zig.object(...)`
-- provider final artifact lowering for pure provider `executable`, `staticlib`, and
-  `sharedlib` targets
+- v1 provider final artifact lowering for pure-provider `executable`, `staticlib`,
+  and `sharedlib` targets
+- v2 mixed-provider final composition and named file/tree artifact selectors
 
 Provider authoring surface is not yet stable by default. It is listed here as a
 v1 blocker because users can write providers today, but v1 must decide which parts
@@ -267,14 +269,16 @@ Consumer-facing v1 candidates:
 - `lang.<namespace>` validated option tables
 - provider helper exports such as `zig.tools`, `zig.options`, `zig.object`
 - raw source classification through activated provider source suffixes
-- provider final artifact selection for pure provider targets
+- provider final artifact selection for v1 pure-provider targets and v2
+  mixed-provider artifact contracts
 - `qstar init --use-language` vendoring from installed standard providers
 - standard `zig`, `rust`, and `cuda` short ids, namespaces, documented options,
   helper exports, and source suffixes
 
 Provider-author beta surface:
 
-- `qstar.language_provider { api = "qstar.lang/1", ... }`
+- `qstar.language_provider { api = "qstar.lang/1", ... }` and
+  `qstar.language_provider { api = "qstar.lang/2", ... }`
 - manifest fields `id`, `version`, `namespace`, `implementation`, `tools`,
   `units`, `finals`, `options`, `exports`, `scaffold`
 - implementation helpers `qstar.provider_tools`, `qstar.language_options`,
@@ -283,14 +287,17 @@ Provider-author beta surface:
 - lowering result fields `command`, `env`, `inputs`, `outputs`, `depfile`
 - `qstar.scaffold/1` provider scaffold metadata
 
-QStar accepts only `api = "qstar.lang/1"` today. Future provider manifest API
-versions are rejected instead of guessed, and must be introduced by a separate
-versioned design.
+QStar accepts exactly `api = "qstar.lang/1"` and `api = "qstar.lang/2"` today.
+Other provider manifest API versions are rejected instead of guessed, and must
+be introduced by a separate versioned design.
+Future provider manifest API additions therefore require an explicit loader,
+schema, compatibility note, and simultaneous-version regression gate.
 
 Provider-author API can become stable in a later release only when:
 
-- `qstar.language_provider { api = "qstar.lang/1", ... }` has a frozen manifest
-  schema or a documented version negotiation story.
+- `qstar.language_provider { api = "qstar.lang/1", ... }` and
+  `api = "qstar.lang/2"` have frozen manifest schemas or a documented migration
+  and version negotiation story.
 - Provider `tools`, `units`, `finals`, `options`, `exports`, and `scaffold`
   diagnostics have stable wording enough for provider authors to debug.
 - Provider implementation sandbox capabilities are documented as allowed and
@@ -370,8 +377,9 @@ These are allowed to remain outside v1 if documented:
 
 - daemon default-on behavior
 - remote daemon access
-- provider-author API stable promotion, because Q257 leaves `qstar.lang/1` in the
-  documented beta bucket while keeping consumer GLP as a stable candidate
+- provider-author API stable promotion, because Q257/Q279 leave `qstar.lang/1`
+  and `qstar.lang/2` in the documented beta bucket while keeping consumer GLP
+  as a stable candidate
 - Windows PDB/debug artifact ownership
 - MSVC bootstrap lane, if GCC/MSYS2 is the official Windows v1 compiler lane
 - package manager, registry, lockfile, fetch

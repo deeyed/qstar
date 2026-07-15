@@ -40,7 +40,7 @@ run/stage/group, root `qstar.command`, immutable `qstar.command_spec`, root-only
 `qstar.command_set`, imports/modules, GLP consumer activation,
 command/workflow helpers, and authoring helpers다. Provider-author API는 아직
 stable 조건을 별도로 통과해야 한다. Q257 기준 provider-author API stable promotion은
-non-blocker로 분리되었고, `qstar.lang/1`은 versioned beta contract이며,
+non-blocker로 분리되었고, `qstar.lang/1`과 `qstar.lang/2`는 versioned beta contract이며,
 consumer-facing GLP는 stable 후보로 남는다.
 
 ## Release 판단

@@ -1,0 +1,58 @@
+return qstar.language_provider {
+  api = "qstar.lang/2",
+  id = "pack",
+  version = "0.2",
+  namespace = "pack",
+  implementation = "provider.lua",
+  tools = {
+    compiler = {
+      role = "pack.compiler",
+      required = true,
+    },
+  },
+  units = {
+    object = {
+      suffixes = {".p2"},
+      emits = "object",
+      lower = "compile_object",
+    },
+  },
+  finals = {
+    executable = {
+      lower = "link_executable",
+      inputs = {
+        "sources",
+        "objects",
+        "link_interfaces",
+        "link_inputs",
+        "link_options",
+      },
+      artifacts = {
+        runtime = {
+          type = "file",
+          roles = {"primary", "runtime"},
+        },
+        metadata = {
+          type = "file",
+          roles = {"secondary"},
+          suffix = ".metadata",
+        },
+        resources = {
+          type = "tree",
+          roles = {"secondary", "runtime"},
+          suffix = ".resources",
+        },
+        link = {
+          type = "file",
+          roles = {"secondary", "link-interface"},
+          suffix = ".link",
+        },
+      },
+    },
+  },
+  exports = {
+    tools = "tools",
+    options = "options",
+    object = "object",
+  },
+}

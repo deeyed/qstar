@@ -13,9 +13,9 @@ schema로 `lang.<namespace>` table을 검증한다. Manifest의 `units` schema�
 등록한다. 따라서 활성화된 provider의 `.zig`, `.rs`, `.cu` 같은 source는 raw string source
 classification에도 참여한다. Backend는 provider implementation의 lowering function이 반환한
 action template을 consuming target 소유 object artifact 또는 provider-owned final artifact로
-낮춘다. Provider manifest가 `finals.executable`, `finals.staticlib`, `finals.sharedlib`를
-선언하면, 모든 compile source가 같은 외부 provider에 속하고 target이 native deps/link input을
-갖지 않는 경우 QStar는 C-style linker/archive action 대신 provider final action을 선택한다.
+낮춘다. `qstar.lang/1` final은 기존 pure-provider 규칙을 유지한다. `qstar.lang/2` final은
+manifest가 input ownership과 file/tree artifact descriptor를 선언하므로 built-in source와
+여러 provider source가 섞인 target도 명시적 object/artifact contract로 합성할 수 있다.
 외부 compiler 호출을 직접 손으로 제어해야 하는 경우에는 object artifact bridge를 계속 쓴다.
 
 ## Stability Boundary
@@ -25,14 +25,15 @@ Q257 기준 GLP는 consumer surface와 provider-author surface를 분리한다.
 | Layer | 현재 상태 | 의미 |
 | --- | --- | --- |
 | Consumer surface | v1 stable 후보 | `qstar.use_language`, `lang.<namespace>`, provider helper export, raw provider source classification, provider final artifact selection, `qstar init --use-language` vendoring은 사용자가 쓰는 표면이다. |
-| Provider-author API | versioned beta | `qstar.language_provider`, `qstar.provider_tools`, `qstar.language_options`, `qstar.source`, `qstar.argv`, provider sandbox, manifest schema, scaffold schema, lowering result schema는 provider 작성자가 의존하는 표면이며 아직 v1 stable이 아니다. |
+| Provider-author API | versioned beta | `qstar.language_provider`, `qstar.provider_tools`, `qstar.language_options`, `qstar.source`, `qstar.argv`, provider sandbox, manifest schema, scaffold schema, lowering result schema는 provider 작성자가 의존하는 표면이며 아직 v1 stable이 아니다. QStar는 `qstar.lang/1`과 `qstar.lang/2`를 별도 schema로 협상한다. |
 
-현재 QStar가 받는 provider manifest version은 `api = "qstar.lang/1"`뿐이다. 미래
-version을 추측해서 실행하지 않으며, 예를 들어 `api = "qstar.lang/999"`는 다음
+현재 QStar가 받는 provider manifest version은 `api = "qstar.lang/1"`과
+`api = "qstar.lang/2"`다. 다른 version을 추측해서 실행하지 않으며, 예를 들어
+`api = "qstar.lang/999"`는 다음
 diagnostic으로 거절된다.
 
 ```txt
-qstar: language provider api must be "qstar.lang/1"
+qstar: unsupported language provider api 'qstar.lang/999'; supported APIs: qstar.lang/1, qstar.lang/2
 ```
 
 표준 `zig`, `rust`, `cuda` provider의 short id, namespace, documented helper,
@@ -116,14 +117,14 @@ Manifest field boundary:
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `api` | yes | 현재는 정확히 `"qstar.lang/1"`만 허용한다. |
+| `api` | yes | 정확히 `"qstar.lang/1"` 또는 `"qstar.lang/2"`. |
 | `id` | yes | Short id. `qstar.use_language("id")`와 provider vendoring에 쓰인다. |
 | `version` | yes | Provider package version string. Resolver 의미론은 없다. |
 | `namespace` | yes | `lang.<namespace>`와 `tools.<namespace>`에 쓰이는 namespace. |
 | `implementation` | yes | package-relative `provider.lua` path. |
 | `tools` | no | Provider tool roles such as `compiler = {role = "zig.compiler", required = true}`. |
 | `units` | no | Source unit suffix, output kind, lowering function, depfile policy. |
-| `finals` | no | Provider-owned `executable`, `staticlib`, `sharedlib` final action hooks. |
+| `finals` | no | Provider-owned `executable`, `staticlib`, `sharedlib` final action hooks. v2는 각 final에 `inputs`, `artifacts`도 요구한다. |
 | `options` | no | `lang.<namespace>` option schema. |
 | `exports` | yes | User-visible helper name -> implementation field map. |
 | `scaffold` | no | Optional `qstar.scaffold/1` init metadata. |
@@ -135,7 +136,7 @@ Provider implementation lowering result boundary:
 | `command` | yes | `qstar.argv()` result. Shell string은 허용하지 않는다. |
 | `env` | no | `"NAME=value"` list. 실행에는 실제 값이 전달되고 action-log/replay에는 redacted된다. |
 | `inputs` | no | Action key와 backend dependency edge에 들어갈 추가 input. |
-| `outputs` | no | Primary object/final artifact 외 추가 output. |
+| `outputs` | no | v1 action output list. v2 final은 모든 descriptor-owned output을 정확히 포함해야 한다. |
 | `depfile` | no | Make-style depfile path. Stella/Ninja가 같은 contract로 소비한다. |
 
 ```lua
@@ -222,6 +223,134 @@ return qstar.language_provider {
   },
 }
 ```
+
+위 manifest는 기존 `qstar.lang/1` 예제다. Bundled Zig/Rust/CUDA와 기존 project-local
+provider는 변경 없이 이 loader를 계속 사용한다.
+
+## qstar.lang/2 Final Artifact
+
+v2는 언어나 toolchain별 built-in을 늘리지 않고 provider가 최종 산출물 계약을 구조화해서
+선언하는 API다. Core가 해석하는 built-in key는 final의 `inputs`, artifact의 `type`, `roles`,
+`suffix`뿐이다. Artifact id와 provider namespace는 작성자가 자유롭게 정하지만 identifier
+검증을 통과해야 한다.
+
+```lua
+finals = {
+  executable = {
+    lower = "link_executable",
+    inputs = {
+      "sources",
+      "objects",
+      "link_interfaces",
+      "link_inputs",
+      "link_options",
+    },
+    artifacts = {
+      runtime = {
+        type = "file",
+        roles = {"primary", "runtime"},
+      },
+      metadata = {
+        type = "file",
+        roles = {"secondary"},
+        suffix = ".metadata",
+      },
+      resources = {
+        type = "tree",
+        roles = {"secondary", "runtime"},
+        suffix = ".resources",
+      },
+      link = {
+        type = "file",
+        roles = {"secondary", "link-interface"},
+        suffix = ".link",
+      },
+    },
+  },
+}
+```
+
+Input class는 fixed contract다.
+
+| 이름 | `ctx.input(...)` 결과 | 책임 |
+| --- | --- | --- |
+| `sources` | source path list | Final owner와 같은 provider namespace의 source를 provider가 직접 소비한다. |
+| `objects` | object path list | Built-in C/C++/ASM, 다른 provider, raw object, objectlib output을 받는다. |
+| `link_interfaces` | artifact path list | `deps`/`private_deps`의 명시적 link-interface artifact를 받는다. |
+| `link_inputs` | path list | Target의 explicit `link_inputs`를 받는다. |
+| `link_options` | argv string list | Target의 explicit `link_options`를 받는다. 자동 flag 번역은 없다. |
+
+Manifest에 선언하지 않은 input class를 `ctx.input`으로 읽을 수 없다. Target이 object나
+dependency를 필요로 하는데 해당 ownership을 빠뜨려도 error다. `libs`, `lib_dirs`,
+`frameworks`에서 provider argv를 자동 추론하지 않는다.
+
+Artifact descriptor 규칙:
+
+- `type`은 `file` 또는 `tree`다.
+- `roles`는 `primary`, `secondary`, `runtime`, `link-interface`만 허용한다.
+- Final 하나에는 primary가 정확히 하나 있어야 한다.
+- 각 artifact는 primary/secondary 중 정확히 하나를 가져야 한다.
+- link-interface는 최대 하나이고 tree에는 붙일 수 없다.
+- Secondary `suffix`는 `.`으로 시작하는 filename suffix다. 생략하면 `.<artifact-id>`다.
+- Descriptor key는 `qstar.target_file(label, {artifact = "key"})` selector다.
+- Provider lowering `outputs`에는 선언된 artifact가 모두 있어야 하며 미선언 output은 금지한다.
+
+```lua
+function P.link_executable(ctx)
+  local argv = qstar.argv()
+  local inputs = {}
+
+  argv:add(ctx.tool("compiler"))
+  argv:add("final")
+  argv:add(ctx.output("runtime"))
+  argv:add(ctx.output("metadata"))
+  argv:add(ctx.output("resources"))
+  argv:add(ctx.output("link"))
+
+  for _, value in ipairs(ctx.input("sources")) do
+    argv:add("source=" .. value)
+    table.insert(inputs, value)
+  end
+  for _, value in ipairs(ctx.input("objects")) do
+    argv:add("object=" .. value)
+    table.insert(inputs, value)
+  end
+  for _, value in ipairs(ctx.input("link_interfaces")) do
+    argv:add("interface=" .. value)
+    table.insert(inputs, value)
+  end
+
+  return {
+    command = argv,
+    inputs = inputs,
+    outputs = {
+      ctx.output("runtime"),
+      ctx.output("metadata"),
+      ctx.output("resources"),
+      ctx.output("link"),
+    },
+  }
+end
+```
+
+한 target에서 final hook을 가진 v2 provider가 하나면 그 provider가 final owner가 된다.
+나머지 built-in/foreign provider source는 `objects`로 합성된다. 서로 다른 v2 provider가 같은
+target kind의 final hook을 함께 제공하면 source 순서로 선택하지 않고 collision error가 난다.
+Primary/secondary/runtime/link-interface metadata는 Graph IR, `query --format json`,
+`qstar.target_file`, dependency selection, Stella/Ninja multi-output edge에 동일하게 반영된다.
+
+`ctx.output("artifact")`는 v1 compatibility alias로 남지만, v2 구현은 descriptor id를
+사용해야 의도가 분명하다. v2 provider도 platform, triple, sysroot, linker/runtime policy를
+추론해서는 안 된다. 필요한 argv는 provider option과 target의 explicit input을 통해 직접
+기술한다.
+
+```sh
+make qstar-glp-v2-artifact-contract-tests
+```
+
+이 gate는 v1/v2 동시 activation, mixed-provider composition, file/tree multi-output,
+runtime/link-interface selector, malformed manifest/action ownership, Stella/Ninja parity를
+검증한다.
 
 ## Provider Init Scaffold Metadata
 
@@ -579,7 +708,7 @@ qstar --file qstar.lua -G ninja build //:app
 
 - `activate a language provider with qstar.use_language(...) before listing this source`
 - `qstar.output(..., {format = "object"})`
-- `qstar: language provider api must be "qstar.lang/1"`
+- `qstar: unsupported language provider api 'qstar.lang/999'; supported APIs: qstar.lang/1, qstar.lang/2`
 - `qstar: unknown language namespace lang.zig`
 - `qstar: unknown field lang.zig.<option>`
 - `qstar: lang.zig.<option> has unsupported enum value '...'`

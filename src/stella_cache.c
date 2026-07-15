@@ -9,9 +9,9 @@
 #include <unistd.h>
 
 #define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v9"
-#define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v4"
+#define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v5"
 #define QSTAR_STELLA_ACTION_MAGIC "qstar-stella-actions-cache-v2"
-#define QSTAR_STELLA_PLAN_ABI 12
+#define QSTAR_STELLA_PLAN_ABI 13
 #define QSTAR_STELLA_HASH_INIT 1469598103934665603ULL
 #define QSTAR_STELLA_HASH_PRIME 1099511628211ULL
 #define QSTAR_STELLA_MAX_STRING (16U * 1024U * 1024U)
@@ -319,6 +319,173 @@ read_toolset(FILE *f, struct qstar_toolset *toolset)
 }
 
 static int
+write_provider_action(FILE *f, const struct qstar_provider_action_template *action)
+{
+	return write_list(f, &action->argv) < 0 ||
+	    write_list(f, &action->env) < 0 ||
+	    write_list(f, &action->inputs) < 0 ||
+	    write_list(f, &action->outputs) < 0 ||
+	    write_str(f, action->depfile) < 0 ||
+	    write_i32(f, action->wants_depfile) < 0 ? -1 : 0;
+}
+
+static int
+read_provider_action(FILE *f, struct qstar_provider_action_template *action)
+{
+	return read_list(f, &action->argv) < 0 ||
+	    read_list(f, &action->env) < 0 ||
+	    read_list(f, &action->inputs) < 0 ||
+	    read_list(f, &action->outputs) < 0 ||
+	    read_str(f, &action->depfile) < 0 ||
+	    read_i32(f, &action->wants_depfile) < 0 ? -1 : 0;
+}
+
+static int
+write_provider_artifact(FILE *f,
+    const struct qstar_provider_artifact_descriptor *artifact)
+{
+	return write_str(f, artifact->id) < 0 ||
+	    write_str(f, artifact->type) < 0 ||
+	    write_str(f, artifact->suffix) < 0 ||
+	    write_str(f, artifact->path) < 0 ||
+	    write_i32(f, artifact->primary) < 0 ||
+	    write_i32(f, artifact->secondary) < 0 ||
+	    write_i32(f, artifact->runtime) < 0 ||
+	    write_i32(f, artifact->link_interface) < 0 ? -1 : 0;
+}
+
+static int
+read_provider_artifact(FILE *f,
+    struct qstar_provider_artifact_descriptor *artifact)
+{
+	return read_str(f, &artifact->id) < 0 ||
+	    read_str(f, &artifact->type) < 0 ||
+	    read_str(f, &artifact->suffix) < 0 ||
+	    read_str(f, &artifact->path) < 0 ||
+	    read_i32(f, &artifact->primary) < 0 ||
+	    read_i32(f, &artifact->secondary) < 0 ||
+	    read_i32(f, &artifact->runtime) < 0 ||
+	    read_i32(f, &artifact->link_interface) < 0 ? -1 : 0;
+}
+
+static int
+write_language_provider(FILE *f, const struct qstar_language_provider *provider)
+{
+	size_t i, j;
+
+	if (write_str(f, provider->api) < 0 || write_str(f, provider->id) < 0 ||
+	    write_str(f, provider->namespace) < 0 || write_str(f, provider->version) < 0 ||
+	    write_str(f, provider->dir) < 0 || write_str(f, provider->manifest) < 0 ||
+	    write_str(f, provider->implementation) < 0 ||
+	    write_u64(f, (unsigned long long)provider->option_len) < 0)
+		return -1;
+	for (i = 0; i < provider->option_len; i++) {
+		const struct qstar_language_option_schema *option = &provider->options[i];
+
+		if (write_str(f, option->name) < 0 || write_str(f, option->type) < 0 ||
+		    write_i32(f, option->has_default) < 0 ||
+		    write_str(f, option->default_value) < 0 ||
+		    write_list(f, &option->default_list) < 0 ||
+		    write_list(f, &option->values) < 0)
+			return -1;
+	}
+	if (write_u64(f, (unsigned long long)provider->unit_len) < 0)
+		return -1;
+	for (i = 0; i < provider->unit_len; i++) {
+		const struct qstar_language_unit_schema *unit = &provider->units[i];
+
+		if (write_str(f, unit->name) < 0 || write_list(f, &unit->suffixes) < 0 ||
+		    write_str(f, unit->emits) < 0 || write_str(f, unit->lower) < 0 ||
+		    write_str(f, unit->deps) < 0)
+			return -1;
+	}
+	if (write_u64(f, (unsigned long long)provider->final_len) < 0)
+		return -1;
+	for (i = 0; i < provider->final_len; i++) {
+		const struct qstar_language_final_schema *final = &provider->finals[i];
+
+		if (write_str(f, final->kind) < 0 || write_str(f, final->lower) < 0 ||
+		    write_list(f, &final->inputs) < 0 ||
+		    write_u64(f, (unsigned long long)final->artifact_len) < 0)
+			return -1;
+		for (j = 0; j < final->artifact_len; j++) {
+			if (write_provider_artifact(f, &final->artifacts[j]) < 0)
+				return -1;
+		}
+	}
+	return 0;
+}
+
+static int
+read_language_provider(FILE *f, struct qstar_language_provider *provider)
+{
+	unsigned long long n, m;
+	size_t i, j;
+
+	if (read_str(f, &provider->api) < 0 || read_str(f, &provider->id) < 0 ||
+	    read_str(f, &provider->namespace) < 0 ||
+	    read_str(f, &provider->version) < 0 || read_str(f, &provider->dir) < 0 ||
+	    read_str(f, &provider->manifest) < 0 ||
+	    read_str(f, &provider->implementation) < 0 ||
+	    read_u64(f, &n) < 0 || n > 1000000ULL)
+		return -1;
+	provider->options = calloc((size_t)n ? (size_t)n : 1,
+	    sizeof(provider->options[0]));
+	if (!provider->options)
+		return -1;
+	provider->option_len = provider->option_cap = (size_t)n;
+	for (i = 0; i < (size_t)n; i++) {
+		struct qstar_language_option_schema *option = &provider->options[i];
+
+		if (read_str(f, &option->name) < 0 || read_str(f, &option->type) < 0 ||
+		    read_i32(f, &option->has_default) < 0 ||
+		    read_str(f, &option->default_value) < 0 ||
+		    read_list(f, &option->default_list) < 0 ||
+		    read_list(f, &option->values) < 0)
+			return -1;
+	}
+	if (read_u64(f, &n) < 0 || n > 1000000ULL)
+		return -1;
+	provider->units = calloc((size_t)n ? (size_t)n : 1,
+	    sizeof(provider->units[0]));
+	if (!provider->units)
+		return -1;
+	provider->unit_len = provider->unit_cap = (size_t)n;
+	for (i = 0; i < (size_t)n; i++) {
+		struct qstar_language_unit_schema *unit = &provider->units[i];
+
+		if (read_str(f, &unit->name) < 0 || read_list(f, &unit->suffixes) < 0 ||
+		    read_str(f, &unit->emits) < 0 || read_str(f, &unit->lower) < 0 ||
+		    read_str(f, &unit->deps) < 0)
+			return -1;
+	}
+	if (read_u64(f, &n) < 0 || n > 1000000ULL)
+		return -1;
+	provider->finals = calloc((size_t)n ? (size_t)n : 1,
+	    sizeof(provider->finals[0]));
+	if (!provider->finals)
+		return -1;
+	provider->final_len = provider->final_cap = (size_t)n;
+	for (i = 0; i < (size_t)n; i++) {
+		struct qstar_language_final_schema *final = &provider->finals[i];
+
+		if (read_str(f, &final->kind) < 0 || read_str(f, &final->lower) < 0 ||
+		    read_list(f, &final->inputs) < 0 || read_u64(f, &m) < 0 || m > 16ULL)
+			return -1;
+		final->artifacts = calloc((size_t)m ? (size_t)m : 1,
+		    sizeof(final->artifacts[0]));
+		if (!final->artifacts)
+			return -1;
+		final->artifact_len = final->artifact_cap = (size_t)m;
+		for (j = 0; j < (size_t)m; j++) {
+			if (read_provider_artifact(f, &final->artifacts[j]) < 0)
+				return -1;
+		}
+	}
+	return 0;
+}
+
+static int
 write_target(FILE *f, const struct qstar_target *t)
 {
 	size_t i;
@@ -338,6 +505,32 @@ write_target(FILE *f, const struct qstar_target *t)
 	WLIST(configs);
 	WLIST(sources);
 	WLIST(objects);
+	if (write_u64(f, (unsigned long long)t->provider_source_len) < 0)
+		return -1;
+	for (i = 0; i < t->provider_source_len; i++) {
+		const struct qstar_provider_source_unit *source = &t->provider_sources[i];
+
+		if (write_u64(f, (unsigned long long)source->source_index) < 0 ||
+		    write_str(f, source->path) < 0 || write_str(f, source->provider) < 0 ||
+		    write_str(f, source->unit) < 0 || write_str(f, source->emits) < 0 ||
+		    write_str(f, source->lower) < 0 || write_str(f, source->toolset_role) < 0 ||
+		    write_provider_action(f, &source->action) < 0)
+			return -1;
+	}
+	if (write_i32(f, t->provider_final.present) < 0 ||
+	    write_str(f, t->provider_final.api) < 0 ||
+	    write_str(f, t->provider_final.provider) < 0 ||
+	    write_str(f, t->provider_final.kind) < 0 ||
+	    write_str(f, t->provider_final.lower) < 0 ||
+	    write_list(f, &t->provider_final.input_ownership) < 0 ||
+	    write_u64(f, (unsigned long long)t->provider_final.artifact_len) < 0)
+		return -1;
+	for (i = 0; i < t->provider_final.artifact_len; i++) {
+		if (write_provider_artifact(f, &t->provider_final.artifacts[i]) < 0)
+			return -1;
+	}
+	if (write_provider_action(f, &t->provider_final.action) < 0)
+		return -1;
 	WLIST(public_headers);
 	WLIST(private_headers);
 	WLIST(include_dirs);
@@ -371,6 +564,16 @@ write_target(FILE *f, const struct qstar_target *t)
 	WLIST(cxxflags);
 	WLIST(asm_include_dirs);
 	WLIST(asm_compile_options);
+	if (write_u64(f, (unsigned long long)t->provider_option_len) < 0)
+		return -1;
+	for (i = 0; i < t->provider_option_len; i++) {
+		const struct qstar_provider_option_value *option = &t->provider_options[i];
+
+		if (write_str(f, option->provider) < 0 || write_str(f, option->name) < 0 ||
+		    write_str(f, option->type) < 0 || write_str(f, option->value) < 0 ||
+		    write_list(f, &option->list) < 0)
+			return -1;
+	}
 	WLIST(run_inputs);
 	WLIST(run_command);
 	WSTR(description);
@@ -395,7 +598,7 @@ write_target(FILE *f, const struct qstar_target *t)
 static int
 read_target(FILE *f, struct qstar_target *t)
 {
-	unsigned long long len64;
+	unsigned long long len64, index64;
 	size_t i;
 #define RSTR(field) do { if (read_str(f, &t->field) < 0) return -1; } while (0)
 #define RLIST(field) do { if (read_list(f, &t->field) < 0) return -1; } while (0)
@@ -414,6 +617,44 @@ read_target(FILE *f, struct qstar_target *t)
 	RLIST(configs);
 	RLIST(sources);
 	RLIST(objects);
+	if (read_u64(f, &len64) < 0 || len64 > 1000000ULL)
+		return -1;
+	t->provider_sources = calloc((size_t)len64 ? (size_t)len64 : 1,
+	    sizeof(t->provider_sources[0]));
+	if (!t->provider_sources)
+		return -1;
+	t->provider_source_len = t->provider_source_cap = (size_t)len64;
+	for (i = 0; i < (size_t)len64; i++) {
+		struct qstar_provider_source_unit *source = &t->provider_sources[i];
+
+		if (read_u64(f, &index64) < 0 || index64 > 1000000ULL ||
+		    read_str(f, &source->path) < 0 || read_str(f, &source->provider) < 0 ||
+		    read_str(f, &source->unit) < 0 || read_str(f, &source->emits) < 0 ||
+		    read_str(f, &source->lower) < 0 ||
+		    read_str(f, &source->toolset_role) < 0 ||
+		    read_provider_action(f, &source->action) < 0)
+			return -1;
+		source->source_index = (size_t)index64;
+	}
+	if (read_i32(f, &t->provider_final.present) < 0 ||
+	    read_str(f, &t->provider_final.api) < 0 ||
+	    read_str(f, &t->provider_final.provider) < 0 ||
+	    read_str(f, &t->provider_final.kind) < 0 ||
+	    read_str(f, &t->provider_final.lower) < 0 ||
+	    read_list(f, &t->provider_final.input_ownership) < 0 ||
+	    read_u64(f, &len64) < 0 || len64 > 16ULL)
+		return -1;
+	t->provider_final.artifacts = calloc((size_t)len64 ? (size_t)len64 : 1,
+	    sizeof(t->provider_final.artifacts[0]));
+	if (!t->provider_final.artifacts)
+		return -1;
+	t->provider_final.artifact_len = (size_t)len64;
+	for (i = 0; i < (size_t)len64; i++) {
+		if (read_provider_artifact(f, &t->provider_final.artifacts[i]) < 0)
+			return -1;
+	}
+	if (read_provider_action(f, &t->provider_final.action) < 0)
+		return -1;
 	RLIST(public_headers);
 	RLIST(private_headers);
 	RLIST(include_dirs);
@@ -452,6 +693,21 @@ read_target(FILE *f, struct qstar_target *t)
 	RLIST(cxxflags);
 	RLIST(asm_include_dirs);
 	RLIST(asm_compile_options);
+	if (read_u64(f, &len64) < 0 || len64 > 1000000ULL)
+		return -1;
+	t->provider_options = calloc((size_t)len64 ? (size_t)len64 : 1,
+	    sizeof(t->provider_options[0]));
+	if (!t->provider_options)
+		return -1;
+	t->provider_option_len = t->provider_option_cap = (size_t)len64;
+	for (i = 0; i < (size_t)len64; i++) {
+		struct qstar_provider_option_value *option = &t->provider_options[i];
+
+		if (read_str(f, &option->provider) < 0 || read_str(f, &option->name) < 0 ||
+		    read_str(f, &option->type) < 0 || read_str(f, &option->value) < 0 ||
+		    read_list(f, &option->list) < 0)
+			return -1;
+	}
 	RLIST(run_inputs);
 	RLIST(run_command);
 	RSTR(description);
@@ -615,6 +871,16 @@ write_graph_cache_file(struct qstar_graph *graph, const char *path)
 			return -1;
 		}
 	}
+	if (write_u64(f, (unsigned long long)graph->language_provider_len) < 0) {
+		fclose(f);
+		return -1;
+	}
+	for (i = 0; i < graph->language_provider_len; i++) {
+		if (write_language_provider(f, &graph->language_providers[i]) < 0) {
+			fclose(f);
+			return -1;
+		}
+	}
 	if (write_u64(f, (unsigned long long)graph->len) < 0) {
 		fclose(f);
 		return -1;
@@ -730,6 +996,26 @@ read_graph_cache_file(const char *path, struct qstar_graph *out)
 	out->toolset_len = out->toolset_cap = (size_t)n;
 	for (i = 0; i < n; i++) {
 		if (read_toolset(f, &out->toolsets[i]) < 0) {
+			fclose(f);
+			qstar_graph_free(out);
+			return -1;
+		}
+	}
+	if (read_u64(f, &n) < 0 || n > 1000000ULL) {
+		fclose(f);
+		qstar_graph_free(out);
+		return -1;
+	}
+	out->language_providers = calloc((size_t)n ? (size_t)n : 1,
+	    sizeof(out->language_providers[0]));
+	if (!out->language_providers) {
+		fclose(f);
+		qstar_graph_free(out);
+		return -1;
+	}
+	out->language_provider_len = out->language_provider_cap = (size_t)n;
+	for (i = 0; i < n; i++) {
+		if (read_language_provider(f, &out->language_providers[i]) < 0) {
 			fclose(f);
 			qstar_graph_free(out);
 			return -1;

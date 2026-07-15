@@ -118,6 +118,11 @@ them as protected unless this document is updated first.
   behavior. `make qstar-standard-provider-compatibility-tests` is the fake-tool
   Stella/Ninja gate that keeps this consumer contract covered without requiring
   real Zig/Rust/CUDA compiler installations.
+- `qstar.lang/2` provider consumer results can expose named file/tree artifact
+  selectors and compose final-owner sources with built-in or foreign provider
+  objects. The provider-author v2 manifest and lowering schema remain beta, but
+  activated-provider users receive the same `lang.<namespace>`,
+  `tools.<namespace>`, `sources`, `qstar.target_file`, Stella/Ninja surface.
 
 This section is the consumer-facing GLP promise. The provider-author API is a
 separate beta surface until the checklist below is completed.
@@ -179,7 +184,7 @@ later round explicitly promotes them.
 
 | Surface | Current boundary |
 | --- | --- |
-| Provider-author API | `qstar.language_provider { api = "qstar.lang/1" }`, manifest fields `id`, `version`, `namespace`, `implementation`, `tools`, `units`, `finals`, `options`, `exports`, `scaffold`, implementation helpers `qstar.provider_tools`, `qstar.language_options`, `qstar.source`, `qstar.argv`, provider sandbox capability, lowering result fields `command`, `env`, `inputs`, `outputs`, `depfile`, scaffold schema, and provider implementation loading remain a versioned beta contract. Unknown/future manifest APIs are rejected instead of guessed. |
+| Provider-author API | `qstar.language_provider { api = "qstar.lang/1" }` and `api = "qstar.lang/2"`, manifest fields `id`, `version`, `namespace`, `implementation`, `tools`, `units`, `finals`, `options`, `exports`, `scaffold`, v2 final `inputs`/`artifacts`, implementation helpers `qstar.provider_tools`, `qstar.language_options`, `qstar.source`, `qstar.argv`, provider sandbox capability, lowering result fields `command`, `env`, `inputs`, `outputs`, `depfile`, scaffold schema, and provider implementation loading remain a versioned beta contract. Unknown/future manifest APIs are rejected instead of guessed. |
 | Standard provider internals | Bundled Zig, Rust, and CUDA provider ids, namespaces, documented helper exports, option schemas, raw source classification, final-action availability, and init vendoring behavior are consumer-facing stable candidates. Their `provider.lua` implementation details, exact compiler argv construction, cache layout, and future language-tool integration choices remain beta. |
 | Provider final-action lowering internals | Consumer behavior is a stable candidate; provider-author lowering hooks and result schema remain beta until versioned or frozen. |
 | Stella daemon | The daemon is beta opt-in, not default behavior. `--use-daemon=auto|always`, `qstar daemon --start/--stop/--serve/--status`, daemon build forwarding, the read API, `qstar-daemon-query-v2`/`qstar-daemon-read-v1`, socket lifecycle, watcher internals, daemon performance numbers, and Windows named pipe support are not v1 stable. `make qstar-daemon-beta-boundary-tests` is the current beta guard for fallback parity, normal Stella parity, read API freshness, socket permission checks, identity mismatch rejection, and stale socket/pid/lock cleanup. |

@@ -18,9 +18,11 @@ Language semantics are intentionally narrow. QStar directly classifies C, C++,
 and ASM sources through preloaded provider namespaces. Other languages enter
 through activated GLP source units or generated object artifacts. A provider
 source unit lowers to an object-producing action template owned by the consuming
-target. A provider can also declare final artifact hooks so pure provider-owned
+target. A v1 provider can also declare final artifact hooks so pure provider-owned
 `executable`, `staticlib`, or `sharedlib` targets are lowered through the
-provider compiler instead of QStar's native C-style linker/archive action. The
+provider compiler instead of QStar's native C-style linker/archive action. A v2
+provider declares final input ownership and named file/tree artifacts so native
+and foreign-provider objects can share one provider-owned final action. The
 object artifact bridge still uses `qstar.custom_target` plus
 `qstar.output(path, {format = "object"})`.
 

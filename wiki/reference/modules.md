@@ -73,7 +73,8 @@ tool role, `lang.<namespace>` option schema, backend lowering에 영향을 준�
 찾고, 없으면 installed standard provider bundle의 `zig` provider를 읽는다. `rust`, `cuda`
 같은 standard provider도 같은 규칙을 따른다. 그 provider가 등록한 namespace만
 `lang.zig` 같은 language option table에서 허용한다.
-Provider manifest는 `qstar.language_provider { api = "qstar.lang/1", ... }`를 반환해야 하고,
+Provider manifest는 `qstar.language_provider { api = "qstar.lang/1", ... }` 또는
+versioned artifact contract인 `api = "qstar.lang/2"`를 반환해야 하고,
 `implementation = "provider.lua"` 파일은 제한된 provider sandbox에서 따로 로드된다.
 
 권장 provider 배치:

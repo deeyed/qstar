@@ -4195,7 +4195,7 @@ EOF
 if "$qstar" --file "$tmp/language-provider-bad-api/qstar.lua" check > "$tmp/language-provider-bad-api.out" 2> "$tmp/language-provider-bad-api.err"; then
   fail "bad language provider api unexpectedly succeeded"
 fi
-contains "$tmp/language-provider-bad-api.err" "language provider api must be \"qstar.lang/1\""
+contains "$tmp/language-provider-bad-api.err" "unsupported language provider api 'qstar.lang/999'; supported APIs: qstar.lang/1, qstar.lang/2"
 
 mkdir -p "$tmp/language-provider-bad-default/qstar/languages/zig"
 cat > "$tmp/language-provider-bad-default/qstar/languages/zig/zig.qsm" <<'EOF'
@@ -7179,10 +7179,10 @@ contains "docs/qstar-compatibility-policy.md" "core install command remains remo
 contains "docs/qstar-compatibility-policy.md" "Language-shaped init templates remain removed"
 contains "docs/qstar-compatibility-policy.md" "releases or 90 days"
 contains "docs/qstar-compatibility-policy.md" "release note"
-contains "docs/language-provider-backend-contract.md" "Status: Q257 provider-author API stability boundary"
+contains "docs/language-provider-backend-contract.md" 'Status: Q279 `qstar.lang/1` compatibility loader + `qstar.lang/2` artifact contract.'
 contains "docs/language-provider-backend-contract.md" "Provider-author API"
 contains "docs/language-provider-backend-contract.md" "versioned beta"
-contains "docs/language-provider-backend-contract.md" "qstar: language provider api must be \"qstar.lang/1\""
+contains "docs/language-provider-backend-contract.md" "unsupported language provider api 'qstar.lang/999'; supported APIs: qstar.lang/1, qstar.lang/2"
 contains "docs/language-provider-backend-contract.md" "Manifest schema boundary"
 contains "docs/language-provider-backend-contract.md" "Provider implementation sandbox boundary"
 contains "docs/language-provider-backend-contract.md" "Lowered action result schema"
@@ -7919,7 +7919,7 @@ contains "man/man5/qstar-lua.5" "versioned beta contract"
 contains "man/man5/qstar-lua.5" "docs/language-provider-backend-contract.md"
 contains "wiki/reference/language-providers.md" "Stability Boundary"
 contains "wiki/reference/language-providers.md" "versioned beta"
-contains "wiki/reference/language-providers.md" "qstar: language provider api must be \"qstar.lang/1\""
+contains "wiki/reference/language-providers.md" "unsupported language provider api 'qstar.lang/999'; supported APIs: qstar.lang/1, qstar.lang/2"
 contains "wiki/reference/language-providers.md" "Manifest field boundary"
 contains "wiki/reference/language-providers.md" "Provider implementation lowering result boundary"
 

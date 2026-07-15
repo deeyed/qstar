@@ -9,7 +9,9 @@ tooling-friendly diagnostics for C, C++, assembly, generated files, and
 external object artifact flows. Language providers can be activated with
 `qstar.use_language(...)`; QStar ships standard Zig, Rust, and CUDA providers
 and also accepts project-local provider packages. Provider source units lower through the same
-Stella/Ninja backend action contract.
+Stella/Ninja backend action contract. The versioned provider-author loader keeps
+`qstar.lang/1` compatibility and supports `qstar.lang/2` explicit mixed-provider
+input ownership plus named file/tree artifacts; both author APIs remain beta.
 
 QStar is currently in beta. The current release-prep line is `v0.7.19-beta`,
 with macOS arm64 and Linux x86_64 runtime tarballs. Linux assets

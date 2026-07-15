@@ -1,0 +1,24 @@
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "legacy",
+  version = "0.1",
+  namespace = "legacy",
+  implementation = "provider.lua",
+  tools = {
+    compiler = {
+      role = "legacy.compiler",
+      required = true,
+    },
+  },
+  units = {
+    object = {
+      suffixes = {".l1"},
+      emits = "object",
+      lower = "compile_object",
+    },
+  },
+  exports = {
+    tools = "tools",
+    object = "object",
+  },
+}

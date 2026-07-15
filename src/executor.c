@@ -4375,11 +4375,10 @@ target_compile_input_count(const struct qstar_target *target)
 	struct qstar_source_info source;
 	size_t i, count;
 
-	if (qstar_target_has_provider_final_action(target))
-		return 0;
 	count = 0;
-	for (i = 0; !qstar_target_has_provider_final_action(target) &&
-	    i < target->sources.len; i++) {
+	for (i = 0; i < target->sources.len; i++) {
+		if (qstar_target_provider_final_owns_source(target, i))
+			continue;
 		if (qstar_target_source_classify(target, i, &source) == 0 &&
 		    qstar_source_requires_compile(&source))
 			count++;
@@ -6565,6 +6564,8 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		return qstar_set_error(graph, "qstar: out of memory");
 	}
 	for (i = 0, j = 0; i < target->sources.len; i++) {
+		if (qstar_target_provider_final_owns_source(target, i))
+			continue;
 		qstar_target_source_classify(target, i, &source);
 		if (qstar_source_requires_compile(&source))
 			indices[j++] = i;
@@ -7199,14 +7200,18 @@ prepare_provider_final_action(struct qstar_graph *graph, struct qstar_build_ctx 
 		return qstar_set_error(graph, "qstar: final action description too long");
 	if (prepared_action_push_provider_template(graph, action, target,
 	    &tmpl->argv) < 0 ||
-	    (strcmp(target->kind, "staticlib") != 0 &&
+	    ((!target->provider_final.api ||
+	    strcmp(target->provider_final.api, "qstar.lang/2") != 0) &&
+	    strcmp(target->kind, "staticlib") != 0 &&
 	    prepared_action_push_dependency_usage(graph, action, target, 1) < 0))
 		goto fail;
 	if (copy_string_list(&inputs, &tmpl->inputs) < 0 ||
 	    copy_string_list(&action->env, &tmpl->env) < 0 ||
 	    copy_string_list(&outputs, &tmpl->outputs) < 0)
 		goto oom;
-	if (strcmp(target->kind, "staticlib") != 0 &&
+	if ((!target->provider_final.api ||
+	    strcmp(target->provider_final.api, "qstar.lang/2") != 0) &&
+	    strcmp(target->kind, "staticlib") != 0 &&
 	    push_dependency_usage_inputs(graph, target, 1, &inputs) < 0) {
 		qstar_string_list_free(&inputs);
 		qstar_string_list_free(&dep_inputs);
@@ -7653,8 +7658,9 @@ lowered_cache_visit(struct qstar_graph *graph, const struct qstar_target *target
 	    validate_noncompile_sources(graph, target, &toolchain) < 0)
 		return -1;
 	for (i = 0; !objectlib_uses_consumer_context(target) &&
-	    !qstar_target_has_provider_final_action(target) &&
 	    i < target->sources.len; i++) {
+		if (qstar_target_provider_final_owns_source(target, i))
+			continue;
 		qstar_target_source_classify(target, i, &source);
 		if (!qstar_source_requires_compile(&source))
 			continue;
@@ -7791,8 +7797,9 @@ build_target(struct qstar_graph *graph, const struct qstar_target *target, size_
 			return -1;
 	} else {
 		for (i = 0; !objectlib_uses_consumer_context(target) &&
-		    !qstar_target_has_provider_final_action(target) &&
 		    i < target->sources.len; i++) {
+			if (qstar_target_provider_final_owns_source(target, i))
+				continue;
 			if (run_compile(graph, ctx, target, &toolchain, i) < 0)
 				return -1;
 		}
@@ -8542,8 +8549,9 @@ scheduler_create_target_nodes(struct qstar_scheduler *sched, const struct qstar_
 		return -1;
 	compile_ordinal = 0;
 	for (i = 0; !objectlib_uses_consumer_context(target) &&
-	    !qstar_target_has_provider_final_action(target) &&
 	    i < target->sources.len; i++) {
+		if (qstar_target_provider_final_owns_source(target, i))
+			continue;
 		qstar_target_source_classify(target, i, &source);
 		if (!qstar_source_requires_compile(&source))
 			continue;
@@ -11450,8 +11458,9 @@ push_target_lazy_logs(struct qstar_graph *graph, const struct qstar_build_ctx *c
 
 	if (!target)
 		return 0;
-	for (i = 0; !qstar_target_has_provider_final_action(target) &&
-	    i < target->sources.len; i++) {
+	for (i = 0; i < target->sources.len; i++) {
+		if (qstar_target_provider_final_owns_source(target, i))
+			continue;
 		qstar_target_source_classify(target, i, &source);
 		if (!qstar_source_requires_compile(&source))
 			continue;

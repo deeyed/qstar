@@ -18,7 +18,8 @@ QStar는 C/C++/ASM을 잘 지원하지만 특정 언어에 종속되지 않는 �
 
 - built-in `c`, `cxx`, `asm` provider namespace를 preloaded registry로 다룬다.
 - external provider는 `qstar.use_language("zig")` 같은 entrypoint로 활성화한다.
-- provider manifest는 `qstar.language_provider { api = "qstar.lang/1", ... }`를
+- provider manifest는 `qstar.language_provider { api = "qstar.lang/1", ... }` 또는
+  `api = "qstar.lang/2"`를
   반환한다.
 - provider는 `tools`, `units`, `options`, `exports`를 선언한다.
 - provider implementation인 `provider.lua`는 제한 sandbox에서 로드된다.

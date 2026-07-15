@@ -131,6 +131,39 @@ copy_provider_action_template(struct qstar_graph *graph,
 	return 0;
 }
 
+static void
+free_provider_artifact_descriptor(struct qstar_provider_artifact_descriptor *artifact)
+{
+	if (!artifact)
+		return;
+	free(artifact->id);
+	free(artifact->type);
+	free(artifact->suffix);
+	free(artifact->path);
+	memset(artifact, 0, sizeof(*artifact));
+}
+
+static int
+copy_provider_artifact_descriptor(struct qstar_graph *graph,
+    struct qstar_provider_artifact_descriptor *dst,
+    const struct qstar_provider_artifact_descriptor *src)
+{
+	memset(dst, 0, sizeof(*dst));
+	dst->id = qstar_strdup(src->id ? src->id : "");
+	dst->type = qstar_strdup(src->type ? src->type : "file");
+	dst->suffix = qstar_strdup(src->suffix ? src->suffix : "");
+	dst->path = qstar_strdup(src->path ? src->path : "");
+	dst->primary = src->primary;
+	dst->secondary = src->secondary;
+	dst->runtime = src->runtime;
+	dst->link_interface = src->link_interface;
+	if (!dst->id || !dst->type || !dst->suffix || !dst->path) {
+		free_provider_artifact_descriptor(dst);
+		return qstar_set_error(graph, "qstar: out of memory");
+	}
+	return 0;
+}
+
 /** QStar graph 저장소를 빈 상태로 초기화한다. */
 void
 qstar_graph_init(struct qstar_graph *graph)
@@ -164,9 +197,14 @@ free_target(struct qstar_target *target)
 		free_provider_action_template(&target->provider_sources[i].action);
 	}
 	free(target->provider_sources);
+	free(target->provider_final.api);
 	free(target->provider_final.provider);
 	free(target->provider_final.kind);
 	free(target->provider_final.lower);
+	qstar_string_list_free(&target->provider_final.input_ownership);
+	for (i = 0; i < target->provider_final.artifact_len; i++)
+		free_provider_artifact_descriptor(&target->provider_final.artifacts[i]);
+	free(target->provider_final.artifacts);
 	free_provider_action_template(&target->provider_final.action);
 	qstar_string_list_free(&target->public_headers);
 	qstar_string_list_free(&target->private_headers);
@@ -288,8 +326,14 @@ free_language_provider(struct qstar_language_provider *provider)
 	}
 	free(provider->units);
 	for (i = 0; i < provider->final_len; i++) {
+		size_t j;
+
 		free(provider->finals[i].kind);
 		free(provider->finals[i].lower);
+		qstar_string_list_free(&provider->finals[i].inputs);
+		for (j = 0; j < provider->finals[i].artifact_len; j++)
+			free_provider_artifact_descriptor(&provider->finals[i].artifacts[j]);
+		free(provider->finals[i].artifacts);
 	}
 	free(provider->finals);
 }
@@ -1699,6 +1743,66 @@ qstar_language_provider_add_final_schema(struct qstar_graph *graph,
 }
 
 int
+qstar_language_final_add_input(struct qstar_graph *graph,
+    struct qstar_language_provider *provider, struct qstar_language_final_schema *final,
+    const char *input)
+{
+	size_t i;
+
+	if (!provider || !final || !input || !*input)
+		return qstar_set_error(graph, "qstar: invalid language provider final input");
+	for (i = 0; i < final->inputs.len; i++) {
+		if (strcmp(final->inputs.items[i], input) == 0)
+			return qstar_set_error(graph,
+			    "qstar: duplicate language provider final input '%s.%s.%s'",
+			    provider->namespace, final->kind, input);
+	}
+	if (qstar_string_list_push(&final->inputs, input) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	return 0;
+}
+
+int
+qstar_language_final_add_artifact(struct qstar_graph *graph,
+    struct qstar_language_provider *provider, struct qstar_language_final_schema *final,
+    const char *id, const char *type, const char *suffix, int primary,
+    int secondary, int runtime, int link_interface)
+{
+	struct qstar_provider_artifact_descriptor *items, *artifact;
+	size_t cap, i;
+
+	if (!provider || !final || !id || !*id || !type || !*type)
+		return qstar_set_error(graph, "qstar: invalid language provider artifact descriptor");
+	for (i = 0; i < final->artifact_len; i++) {
+		if (strcmp(final->artifacts[i].id, id) == 0)
+			return qstar_set_error(graph,
+			    "qstar: duplicate language provider artifact '%s.%s.%s'",
+			    provider->namespace, final->kind, id);
+	}
+	if (final->artifact_len == final->artifact_cap) {
+		cap = final->artifact_cap ? final->artifact_cap * 2 : 4;
+		items = realloc(final->artifacts, cap * sizeof(final->artifacts[0]));
+		if (!items)
+			return qstar_set_error(graph, "qstar: out of memory");
+		final->artifacts = items;
+		final->artifact_cap = cap;
+	}
+	artifact = &final->artifacts[final->artifact_len++];
+	memset(artifact, 0, sizeof(*artifact));
+	artifact->id = qstar_strdup(id);
+	artifact->type = qstar_strdup(type);
+	artifact->suffix = qstar_strdup(suffix ? suffix : "");
+	artifact->path = qstar_strdup("");
+	artifact->primary = primary;
+	artifact->secondary = secondary;
+	artifact->runtime = runtime;
+	artifact->link_interface = link_interface;
+	if (!artifact->id || !artifact->type || !artifact->suffix || !artifact->path)
+		return qstar_set_error(graph, "qstar: out of memory");
+	return 0;
+}
+
+int
 qstar_target_add_provider_source_unit(struct qstar_graph *graph,
     struct qstar_target *target, size_t source_index, const char *path,
     const char *provider, const char *unit, const char *emits, const char *lower,
@@ -1748,22 +1852,43 @@ qstar_target_add_provider_source_unit(struct qstar_graph *graph,
 
 int
 qstar_target_set_provider_final_action(struct qstar_graph *graph,
-    struct qstar_target *target, const char *provider, const char *kind,
-    const char *lower, const struct qstar_provider_action_template *action)
+    struct qstar_target *target, const struct qstar_language_provider *provider,
+    const struct qstar_language_final_schema *final,
+    const struct qstar_provider_artifact_descriptor *artifacts, size_t artifact_len,
+    const struct qstar_provider_action_template *action)
 {
-	if (!target || !provider || !*provider || !kind || !*kind || !lower || !*lower)
+	size_t i;
+
+	if (!target || !provider || !provider->namespace || !*provider->namespace ||
+	    !final || !final->kind || !*final->kind || !final->lower || !*final->lower)
 		return qstar_set_error(graph, "qstar: invalid provider final action");
 	if (target->provider_final.present)
 		return qstar_set_error(graph,
 		    "qstar: duplicate provider final action for '%s'",
 		    target->label ? target->label : "<target>");
 	target->provider_final.present = 1;
-	target->provider_final.provider = qstar_strdup(provider);
-	target->provider_final.kind = qstar_strdup(kind);
-	target->provider_final.lower = qstar_strdup(lower);
-	if (!target->provider_final.provider || !target->provider_final.kind ||
+	target->provider_final.api = qstar_strdup(provider->api ? provider->api : "");
+	target->provider_final.provider = qstar_strdup(provider->namespace);
+	target->provider_final.kind = qstar_strdup(final->kind);
+	target->provider_final.lower = qstar_strdup(final->lower);
+	if (!target->provider_final.api || !target->provider_final.provider || !target->provider_final.kind ||
 	    !target->provider_final.lower)
 		return qstar_set_error(graph, "qstar: out of memory");
+	if (copy_string_list(&target->provider_final.input_ownership,
+	    &final->inputs) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	if (artifact_len) {
+		target->provider_final.artifacts = calloc(artifact_len,
+		    sizeof(target->provider_final.artifacts[0]));
+		if (!target->provider_final.artifacts)
+			return qstar_set_error(graph, "qstar: out of memory");
+		for (i = 0; i < artifact_len; i++) {
+			if (copy_provider_artifact_descriptor(graph,
+			    &target->provider_final.artifacts[i], &artifacts[i]) < 0)
+				return -1;
+			target->provider_final.artifact_len++;
+		}
+	}
 	if (copy_provider_action_template(graph, &target->provider_final.action,
 	    action) < 0)
 		return -1;
@@ -1883,6 +2008,29 @@ int
 qstar_target_has_provider_final_action(const struct qstar_target *target)
 {
 	return target && target->provider_final.present;
+}
+
+int
+qstar_target_provider_final_owns_source(const struct qstar_target *target,
+    size_t source_index)
+{
+	const struct qstar_provider_source_unit *unit;
+	size_t i;
+
+	if (!qstar_target_has_provider_final_action(target))
+		return 0;
+	if (!target->provider_final.api ||
+	    strcmp(target->provider_final.api, "qstar.lang/2") != 0)
+		return 1;
+	unit = qstar_target_provider_source_unit(target, source_index);
+	if (!unit || !unit->provider || !target->provider_final.provider ||
+	    strcmp(unit->provider, target->provider_final.provider) != 0)
+		return 0;
+	for (i = 0; i < target->provider_final.input_ownership.len; i++) {
+		if (strcmp(target->provider_final.input_ownership.items[i], "sources") == 0)
+			return 1;
+	}
+	return 0;
 }
 
 const struct qstar_provider_source_unit *
@@ -3741,12 +3889,16 @@ qstar_dump_target_artifact_map_text(FILE *out, const struct qstar_graph *graph,
 		return;
 	for (i = 0; i < map.len; i++) {
 		fprintf(out,
-		    "%sartifact id=%s role=%s path=%s install_dir=%s primary=%s installable=%s\n",
+		    "%sartifact id=%s role=%s path=%s install_dir=%s primary=%s installable=%s type=%s secondary=%s runtime=%s link_interface=%s\n",
 		    indent ? indent : "", map.items[i].id, map.items[i].role,
 		    map.items[i].path,
 		    map.items[i].install_dir[0] ? map.items[i].install_dir : "<none>",
 		    map.items[i].primary ? "true" : "false",
-		    map.items[i].installable ? "true" : "false");
+		    map.items[i].installable ? "true" : "false",
+		    map.items[i].type,
+		    map.items[i].secondary ? "true" : "false",
+		    map.items[i].runtime ? "true" : "false",
+		    map.items[i].link_interface ? "true" : "false");
 	}
 }
 
@@ -3770,9 +3922,14 @@ dump_target_artifact_map_json(FILE *out, const struct qstar_graph *graph,
 			dump_json_string(out, map.items[i].path);
 			fputs(",\"install_dir\":", out);
 			dump_json_string(out, map.items[i].install_dir);
-			fprintf(out, ",\"primary\":%s,\"installable\":%s}",
+			fprintf(out, ",\"primary\":%s,\"installable\":%s,\"type\":",
 			    map.items[i].primary ? "true" : "false",
 			    map.items[i].installable ? "true" : "false");
+			dump_json_string(out, map.items[i].type);
+			fprintf(out, ",\"secondary\":%s,\"runtime\":%s,\"link_interface\":%s}",
+			    map.items[i].secondary ? "true" : "false",
+			    map.items[i].runtime ? "true" : "false",
+			    map.items[i].link_interface ? "true" : "false");
 		}
 	}
 	fputc(']', out);
@@ -3956,12 +4113,15 @@ dump_target(const struct qstar_graph *graph, const struct qstar_target *target, 
 	    qstar_target_rule_lookup(target->kind)->provider : "generic",
 	    qstar_target_final_action(target), qstar_target_output_group(target));
 	if (qstar_target_has_provider_final_action(target))
-		fprintf(out, "  provider_final provider=%s kind=%s lower=%s\n",
+		fprintf(out, "  provider_final api=%s provider=%s kind=%s lower=%s inputs=",
+		    target->provider_final.api && *target->provider_final.api ?
+		    target->provider_final.api : "<unknown>",
 		    target->provider_final.provider ? target->provider_final.provider :
 		    "<unknown>",
 		    target->provider_final.kind ? target->provider_final.kind : "<unknown>",
 		    target->provider_final.lower ? target->provider_final.lower :
-		    "<unknown>");
+		    "<unknown>"), dump_list(out, &target->provider_final.input_ownership),
+		    fputc('\n', out);
 	fputs("  configs ", out);
 	dump_list(out, &target->configs);
 	fputc('\n', out);
@@ -4337,10 +4497,28 @@ dump_language_provider(const struct qstar_language_provider *provider, FILE *out
 		dump_list(out, &provider->units[i].suffixes);
 		fputc('\n', out);
 	}
-	for (i = 0; i < provider->final_len; i++)
-		fprintf(out, "  final %s lower=%s\n",
+	for (i = 0; i < provider->final_len; i++) {
+		size_t j;
+
+		fprintf(out, "  final %s lower=%s inputs=",
 		    provider->finals[i].kind ? provider->finals[i].kind : "<unknown>",
 		    provider->finals[i].lower ? provider->finals[i].lower : "<unknown>");
+		dump_list(out, &provider->finals[i].inputs);
+		fputc('\n', out);
+		for (j = 0; j < provider->finals[i].artifact_len; j++) {
+			const struct qstar_provider_artifact_descriptor *artifact;
+
+			artifact = &provider->finals[i].artifacts[j];
+			fprintf(out,
+			    "    artifact id=%s type=%s suffix=%s primary=%s secondary=%s runtime=%s link_interface=%s\n",
+			    artifact->id, artifact->type,
+			    artifact->suffix && *artifact->suffix ? artifact->suffix : "<none>",
+			    artifact->primary ? "true" : "false",
+			    artifact->secondary ? "true" : "false",
+			    artifact->runtime ? "true" : "false",
+			    artifact->link_interface ? "true" : "false");
+		}
+	}
 }
 
 /** QStar Graph IR를 deterministic explain text로 출력한다. */
@@ -4791,6 +4969,26 @@ dump_target_json(FILE *out, const struct qstar_graph *graph,
 	    target->artifact_name : "");
 	fputs(",\"artifacts\":", out);
 	dump_target_artifact_map_json(out, graph, target);
+	fputs(",\"provider_final\":", out);
+	if (qstar_target_has_provider_final_action(target)) {
+		fputs("{\"api\":", out);
+		dump_json_string(out, target->provider_final.api);
+		fputs(",\"provider\":", out);
+		dump_json_string(out, target->provider_final.provider);
+		fputs(",\"kind\":", out);
+		dump_json_string(out, target->provider_final.kind);
+		fputs(",\"lower\":", out);
+		dump_json_string(out, target->provider_final.lower);
+		fputs(",\"input_ownership\":", out);
+		dump_json_list(out, &target->provider_final.input_ownership);
+		fputs(",\"inputs\":", out);
+		dump_json_list(out, &target->provider_final.action.inputs);
+		fputs(",\"outputs\":", out);
+		dump_json_list(out, &target->provider_final.action.outputs);
+		fputc('}', out);
+	} else {
+		fputs("null", out);
+	}
 	dump_imported_artifacts_json(out, target);
 	fputs(",\"cxx_standard\":", out);
 	dump_json_string(out, target->cxx_standard);
@@ -4968,6 +5166,39 @@ dump_language_provider_json(FILE *out, const struct qstar_language_provider *pro
 	dump_json_string(out, provider->manifest);
 	fputs(",\"implementation\":", out);
 	dump_json_string(out, provider->implementation);
+	fputs(",\"finals\":[", out);
+	for (size_t i = 0; i < provider->final_len; i++) {
+		const struct qstar_language_final_schema *final = &provider->finals[i];
+		if (i)
+			fputc(',', out);
+		fputs("{\"kind\":", out);
+		dump_json_string(out, final->kind);
+		fputs(",\"lower\":", out);
+		dump_json_string(out, final->lower);
+		fputs(",\"inputs\":", out);
+		dump_json_list(out, &final->inputs);
+		fputs(",\"artifacts\":[", out);
+		for (size_t j = 0; j < final->artifact_len; j++) {
+			const struct qstar_provider_artifact_descriptor *artifact =
+			    &final->artifacts[j];
+			if (j)
+				fputc(',', out);
+			fputs("{\"id\":", out);
+			dump_json_string(out, artifact->id);
+			fputs(",\"type\":", out);
+			dump_json_string(out, artifact->type);
+			fputs(",\"suffix\":", out);
+			dump_json_string(out, artifact->suffix);
+			fprintf(out,
+			    ",\"primary\":%s,\"secondary\":%s,\"runtime\":%s,\"link_interface\":%s}",
+			    artifact->primary ? "true" : "false",
+			    artifact->secondary ? "true" : "false",
+			    artifact->runtime ? "true" : "false",
+			    artifact->link_interface ? "true" : "false");
+		}
+		fputs("]}", out);
+	}
+	fputc(']', out);
 	fputc('}', out);
 }
 
@@ -5336,12 +5567,15 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	    qstar_target_rule_lookup(target->kind)->provider : "generic",
 	    qstar_target_final_action(target), qstar_target_output_group(target));
 	if (qstar_target_has_provider_final_action(target))
-		fprintf(out, "  provider_final provider=%s kind=%s lower=%s\n",
+		fprintf(out, "  provider_final api=%s provider=%s kind=%s lower=%s inputs=",
+		    target->provider_final.api && *target->provider_final.api ?
+		    target->provider_final.api : "<unknown>",
 		    target->provider_final.provider ? target->provider_final.provider :
 		    "<unknown>",
 		    target->provider_final.kind ? target->provider_final.kind : "<unknown>",
 		    target->provider_final.lower ? target->provider_final.lower :
-		    "<unknown>");
+		    "<unknown>"), dump_list(out, &target->provider_final.input_ownership),
+		    fputc('\n', out);
 	fputs("  configs ", out);
 	dump_list(out, &target->configs);
 	fputc('\n', out);

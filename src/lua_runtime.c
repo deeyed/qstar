@@ -44,9 +44,16 @@ struct qstar_provider_lowering_ctx {
 	const struct qstar_target *target;
 	const struct qstar_language_provider *provider;
 	const struct qstar_language_unit_schema *unit;
+	const struct qstar_language_final_schema *final;
 	const char *final_kind;
 	const char *source;
 	const struct qstar_string_list *sources;
+	const struct qstar_string_list *objects;
+	const struct qstar_string_list *link_interfaces;
+	const struct qstar_string_list *link_inputs;
+	const struct qstar_string_list *link_options;
+	const struct qstar_provider_artifact_descriptor *artifacts;
+	size_t artifact_len;
 	const char *object;
 	const char *artifact;
 	const char *depfile;
@@ -2631,6 +2638,8 @@ provider_ctx_input(lua_State *L)
 {
 	struct qstar_provider_lowering_ctx *ctx;
 	const char *name;
+	const struct qstar_string_list *list;
+	size_t i;
 
 	ctx = lua_touserdata(L, lua_upvalueindex(1));
 	name = luaL_checkstring(L, 1);
@@ -2642,10 +2651,31 @@ provider_ctx_input(lua_State *L)
 		return 1;
 	}
 	if (strcmp(name, "sources") == 0) {
-		push_provider_string_list(L, ctx->sources);
-		return 1;
+		list = ctx->sources;
+	} else if (strcmp(name, "objects") == 0) {
+		list = ctx->objects;
+	} else if (strcmp(name, "link_interfaces") == 0) {
+		list = ctx->link_interfaces;
+	} else if (strcmp(name, "link_inputs") == 0) {
+		list = ctx->link_inputs;
+	} else if (strcmp(name, "link_options") == 0) {
+		list = ctx->link_options;
+	} else {
+		return luaL_error(L, "qstar: unknown provider input '%s'", name);
 	}
-	return luaL_error(L, "qstar: unknown provider input '%s'", name);
+	if (ctx->provider && ctx->provider->api &&
+	    strcmp(ctx->provider->api, "qstar.lang/2") == 0) {
+		for (i = 0; ctx->final && i < ctx->final->inputs.len; i++) {
+			if (strcmp(ctx->final->inputs.items[i], name) == 0)
+				break;
+		}
+		if (!ctx->final || i == ctx->final->inputs.len)
+			return luaL_error(L,
+			    "qstar: provider final input '%s' is not declared by manifest ownership",
+			    name);
+	}
+	push_provider_string_list(L, list);
+	return 1;
 }
 
 static int
@@ -2653,6 +2683,7 @@ provider_ctx_output(lua_State *L)
 {
 	struct qstar_provider_lowering_ctx *ctx;
 	const char *name;
+	size_t i;
 
 	ctx = lua_touserdata(L, lua_upvalueindex(1));
 	name = luaL_checkstring(L, 1);
@@ -2662,6 +2693,12 @@ provider_ctx_output(lua_State *L)
 			    "qstar: provider output 'artifact' is not available for source actions");
 		lua_pushstring(L, ctx->artifact);
 		return 1;
+	}
+	for (i = 0; i < ctx->artifact_len; i++) {
+		if (ctx->artifacts[i].id && strcmp(ctx->artifacts[i].id, name) == 0) {
+			lua_pushstring(L, ctx->artifacts[i].path);
+			return 1;
+		}
 	}
 	if (strcmp(name, "object") == 0) {
 		if (!ctx->object)
@@ -3044,6 +3081,19 @@ provider_final_kind_for_target(const char *kind)
 }
 
 static int
+provider_final_has_input(const struct qstar_language_final_schema *final,
+    const char *name)
+{
+	size_t i;
+
+	for (i = 0; final && i < final->inputs.len; i++) {
+		if (strcmp(final->inputs.items[i], name) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+static int
 target_has_native_final_inputs(const struct qstar_target *target)
 {
 	return target->deps.len || target->private_deps.len || target->libs.len ||
@@ -3051,46 +3101,445 @@ target_has_native_final_inputs(const struct qstar_target *target)
 	    target->link_inputs.len || target->objects.len;
 }
 
-static const struct qstar_language_final_schema *
-target_provider_final_schema(struct qstar_graph *graph,
-    const struct qstar_target *target, const struct qstar_language_provider **provider_out,
-    const char **kind_out)
+static int
+validate_v2_final_composition(struct qstar_graph *graph,
+    const struct qstar_target *target, const struct qstar_language_provider *provider,
+    const struct qstar_language_final_schema *final)
 {
 	const struct qstar_provider_source_unit *unit;
-	const struct qstar_language_provider *provider;
-	const struct qstar_language_final_schema *final;
+	struct qstar_source_info source;
+	size_t i;
+	int needs_objects;
+
+	if (target->libs.len || target->lib_dirs.len || target->frameworks.len)
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "libs", target->label,
+		    "qstar: qstar.lang/2 final provider '%s' cannot infer libs, lib_dirs, or frameworks; express that policy in an explicit provider input contract or use the native final action",
+		    provider->namespace);
+	needs_objects = target->objects.len > 0;
+	for (i = 0; i < target->sources.len; i++) {
+		unit = qstar_target_provider_source_unit(target, i);
+		if (unit && strcmp(unit->provider, provider->namespace) == 0 &&
+		    provider_final_has_input(final, "sources"))
+			continue;
+		if (qstar_target_source_classify(target, i, &source) == 0 &&
+		    (qstar_source_requires_compile(&source) ||
+		    qstar_source_is_link_object(&source)))
+			needs_objects = 1;
+	}
+	if (needs_objects && !provider_final_has_input(final, "objects"))
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "sources", target->label,
+		    "qstar: qstar.lang/2 final provider '%s' needs input ownership 'objects' for mixed or object-producing sources",
+		    provider->namespace);
+	if ((target->deps.len || target->private_deps.len) &&
+	    !provider_final_has_input(final, "link_interfaces"))
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "deps", target->label,
+		    "qstar: qstar.lang/2 final provider '%s' needs input ownership 'link_interfaces' for target dependencies",
+		    provider->namespace);
+	if (target->link_inputs.len && !provider_final_has_input(final, "link_inputs"))
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "link_inputs", target->label,
+		    "qstar: qstar.lang/2 final provider '%s' needs input ownership 'link_inputs' for explicit link inputs",
+		    provider->namespace);
+	if (target->link_options.len && !provider_final_has_input(final, "link_options"))
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "link_options", target->label,
+		    "qstar: qstar.lang/2 final provider '%s' needs input ownership 'link_options' for explicit link options",
+		    provider->namespace);
+	return 0;
+}
+
+static int
+target_provider_final_schema(struct qstar_graph *graph,
+    const struct qstar_target *target, const struct qstar_language_provider **provider_out,
+    const struct qstar_language_final_schema **final_out, const char **kind_out)
+{
+	const struct qstar_provider_source_unit *unit;
+	const struct qstar_language_provider *provider, *candidate;
+	const struct qstar_language_final_schema *final, *candidate_final;
 	const char *provider_name, *kind;
 	size_t i;
 
-	if (!target || target->sources.len == 0 || target_has_native_final_inputs(target))
-		return NULL;
+	*provider_out = NULL;
+	*final_out = NULL;
+	if (!target || target->sources.len == 0)
+		return 0;
 	kind = provider_final_kind_for_target(target->kind);
 	if (!kind)
-		return NULL;
+		return 0;
+	candidate = NULL;
+	candidate_final = NULL;
+	for (i = 0; i < target->sources.len; i++) {
+		unit = qstar_target_provider_source_unit(target, i);
+		if (!unit)
+			continue;
+		provider = qstar_graph_find_language_provider(graph, unit->provider);
+		if (!provider || !provider->api ||
+		    strcmp(provider->api, "qstar.lang/2") != 0)
+			continue;
+		final = qstar_language_provider_find_final(provider, kind);
+		if (!final)
+			continue;
+		if (candidate && strcmp(candidate->namespace, provider->namespace) != 0)
+			return qstar_set_error_origin(graph, target->origin_file,
+			    target->origin_line, "sources", target->label,
+			    "qstar: mixed-provider target '%s' has multiple qstar.lang/2 final owners '%s' and '%s' for %s",
+			    target->label, candidate->namespace, provider->namespace, kind);
+		candidate = provider;
+		candidate_final = final;
+	}
+	if (candidate) {
+		if (validate_v2_final_composition(graph, target, candidate,
+		    candidate_final) < 0)
+			return -1;
+		*provider_out = candidate;
+		*final_out = candidate_final;
+		if (kind_out)
+			*kind_out = kind;
+		return 1;
+	}
+	if (target_has_native_final_inputs(target))
+		return 0;
 	provider_name = NULL;
 	for (i = 0; i < target->sources.len; i++) {
 		unit = qstar_target_provider_source_unit(target, i);
 		if (!unit)
-			return NULL;
-		if (!provider_name) {
+			return 0;
+		if (!provider_name)
 			provider_name = unit->provider;
-		} else if (strcmp(provider_name, unit->provider) != 0) {
-			return NULL;
-		}
+		else if (strcmp(provider_name, unit->provider) != 0)
+			return 0;
 	}
 	if (!provider_name || qstar_language_provider_is_preloaded(provider_name))
-		return NULL;
+		return 0;
 	provider = qstar_graph_find_language_provider(graph, provider_name);
-	if (!provider)
-		return NULL;
+	if (!provider || !provider->api || strcmp(provider->api, "qstar.lang/1") != 0)
+		return 0;
 	final = qstar_language_provider_find_final(provider, kind);
 	if (!final)
-		return NULL;
-	if (provider_out)
-		*provider_out = provider;
+		return 0;
+	*provider_out = provider;
+	*final_out = final;
 	if (kind_out)
 		*kind_out = kind;
-	return final;
+	return 1;
+}
+
+static const struct qstar_target *
+provider_find_target(const struct qstar_graph *graph, const char *label)
+{
+	size_t i;
+
+	for (i = 0; graph && i < graph->len; i++) {
+		if (strcmp(graph->targets[i].label, label) == 0)
+			return &graph->targets[i];
+	}
+	return NULL;
+}
+
+static int provider_push_unique(struct qstar_graph *graph,
+    struct qstar_string_list *list, const char *value);
+
+static int
+resolve_provider_input_path(struct qstar_graph *graph, const char *input,
+    char *dst, size_t dstlen)
+{
+	const struct qstar_target *target;
+	const struct qstar_genrule *genrule;
+	char label[QSTAR_PATH_MAX], selector[64];
+	int rc;
+
+	rc = qstar_target_file_token_parse(input, label, sizeof(label), selector,
+	    sizeof(selector));
+	if (rc == 0)
+		return snprintf(dst, dstlen, "%s", input) < (int)dstlen ? 0 :
+		    qstar_set_error(graph, "qstar: provider input path is too long");
+	if (rc < 0)
+		return qstar_set_error(graph,
+		    "qstar: malformed target_file placeholder in provider input");
+	target = provider_find_target(graph, label);
+	if (target)
+		return qstar_graph_target_artifact_path(graph, target, selector,
+		    dst, dstlen);
+	genrule = qstar_graph_find_genrule(graph, label);
+	if (!genrule || genrule->outputs.len == 0 || selector[0])
+		return qstar_set_error(graph,
+		    "qstar: provider input references unknown artifact target '%s'", label);
+	return snprintf(dst, dstlen, "%s", genrule->outputs.items[0]) < (int)dstlen ? 0 :
+	    qstar_set_error(graph, "qstar: provider generated input path is too long");
+}
+
+static int
+collect_provider_link_inputs(struct qstar_graph *graph,
+    const struct qstar_target *target, struct qstar_string_list *inputs)
+{
+	char path[QSTAR_PATH_MAX];
+	size_t i;
+
+	for (i = 0; i < target->link_inputs.len; i++) {
+		if (resolve_provider_input_path(graph, target->link_inputs.items[i], path,
+		    sizeof(path)) < 0 || provider_push_unique(graph, inputs, path) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+static int
+provider_push_unique(struct qstar_graph *graph, struct qstar_string_list *list,
+    const char *value)
+{
+	if (string_list_contains_value(list, value))
+		return 0;
+	if (qstar_string_list_push(list, value) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	return 0;
+}
+
+static int
+collect_provider_final_objects(struct qstar_graph *graph,
+    const struct qstar_target *target, const struct qstar_language_provider *provider,
+    const struct qstar_language_final_schema *final, struct qstar_string_list *sources,
+    struct qstar_string_list *objects)
+{
+	const struct qstar_provider_source_unit *unit;
+	const struct qstar_target *objectlib;
+	struct qstar_source_info source;
+	char path[QSTAR_PATH_MAX];
+	size_t i, j;
+
+	for (i = 0; i < target->sources.len; i++) {
+		unit = qstar_target_provider_source_unit(target, i);
+		if (unit && strcmp(unit->provider, provider->namespace) == 0 &&
+		    provider_final_has_input(final, "sources")) {
+			if (provider_push_unique(graph, sources, target->sources.items[i]) < 0)
+				return -1;
+			continue;
+		}
+		if (qstar_target_source_classify(target, i, &source) < 0)
+			continue;
+		if (qstar_source_requires_compile(&source)) {
+			if (qstar_graph_object_output_path(graph, target, i, path,
+			    sizeof(path)) < 0)
+				return qstar_set_error(graph,
+				    "qstar: provider final object path too long");
+			if (provider_push_unique(graph, objects, path) < 0)
+				return -1;
+		} else if (qstar_source_is_link_object(&source) &&
+		    provider_push_unique(graph, objects, target->sources.items[i]) < 0) {
+			return -1;
+		}
+	}
+	for (i = 0; i < target->objects.len; i++) {
+		objectlib = provider_find_target(graph, target->objects.items[i]);
+		if (!objectlib || strcmp(objectlib->kind, "objectlib") != 0)
+			return qstar_set_error(graph,
+			    "qstar: unknown objectlib '%s' referenced by '%s'",
+			    target->objects.items[i], target->label);
+		for (j = 0; j < objectlib->sources.len; j++) {
+			if (objectlib->compile_context &&
+			    strcmp(objectlib->compile_context, "consumer") == 0) {
+				if (qstar_graph_consumer_object_output_path(graph, target,
+				    objectlib, j, path, sizeof(path)) < 0)
+					return qstar_set_error(graph,
+					    "qstar: provider final consumer object path too long");
+			} else if (qstar_graph_object_output_path(graph, objectlib, j,
+			    path, sizeof(path)) < 0) {
+				return qstar_set_error(graph,
+				    "qstar: provider final objectlib path too long");
+			}
+			if (provider_push_unique(graph, objects, path) < 0)
+				return -1;
+		}
+	}
+	return 0;
+}
+
+static int
+collect_provider_link_interfaces_rec(struct qstar_graph *graph, const char *label,
+    struct qstar_string_list *interfaces, struct qstar_string_list *seen)
+{
+	const struct qstar_target *dep;
+	struct qstar_target_artifact_map map;
+	char path[QSTAR_PATH_MAX];
+	size_t i;
+
+	if (label[0] == '@')
+		return qstar_set_error(graph,
+		    "qstar: qstar.lang/2 final link_interfaces requires local typed dependency artifacts; external label '%s' has no resolved artifact contract",
+		    label);
+	if (string_list_contains_value(seen, label))
+		return 0;
+	if (qstar_string_list_push(seen, label) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	dep = provider_find_target(graph, label);
+	if (!dep)
+		return qstar_set_error(graph, "qstar: unknown dependency target '%s'", label);
+	if (qstar_graph_target_artifact_map(graph, dep, &map) < 0)
+		return qstar_set_error(graph, "qstar: dependency artifact path too long");
+	if (map.len > 0) {
+		if (qstar_graph_target_link_artifact_path(graph, dep,
+		    qstar_graph_platform(graph), path, sizeof(path)) < 0)
+			return -1;
+		return provider_push_unique(graph, interfaces, path);
+	}
+	for (i = 0; i < dep->deps.len; i++) {
+		if (collect_provider_link_interfaces_rec(graph, dep->deps.items[i],
+		    interfaces, seen) < 0)
+			return -1;
+	}
+	for (i = 0; i < dep->private_deps.len; i++) {
+		if (collect_provider_link_interfaces_rec(graph,
+		    dep->private_deps.items[i], interfaces, seen) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+static int
+collect_provider_link_interfaces(struct qstar_graph *graph,
+    const struct qstar_target *target, struct qstar_string_list *interfaces)
+{
+	struct qstar_string_list seen;
+	size_t i;
+	int rc;
+
+	memset(&seen, 0, sizeof(seen));
+	rc = 0;
+	for (i = 0; i < target->deps.len && rc == 0; i++)
+		rc = collect_provider_link_interfaces_rec(graph, target->deps.items[i],
+		    interfaces, &seen);
+	for (i = 0; i < target->private_deps.len && rc == 0; i++)
+		rc = collect_provider_link_interfaces_rec(graph,
+		    target->private_deps.items[i], interfaces, &seen);
+	qstar_string_list_free(&seen);
+	return rc;
+}
+
+static void
+free_resolved_provider_artifacts(struct qstar_provider_artifact_descriptor *artifacts,
+    size_t len)
+{
+	size_t i;
+
+	for (i = 0; i < len; i++) {
+		free(artifacts[i].id);
+		free(artifacts[i].type);
+		free(artifacts[i].suffix);
+		free(artifacts[i].path);
+	}
+	free(artifacts);
+}
+
+static int
+resolve_provider_final_artifacts(struct qstar_graph *graph,
+    const struct qstar_language_final_schema *final,
+    const char *primary_path, struct qstar_provider_artifact_descriptor **out)
+{
+	struct qstar_provider_artifact_descriptor *items;
+	char suffix[96];
+	size_t i;
+
+	*out = NULL;
+	if (final->artifact_len == 0)
+		return 0;
+	items = calloc(final->artifact_len, sizeof(items[0]));
+	if (!items)
+		return qstar_set_error(graph, "qstar: out of memory");
+	for (i = 0; i < final->artifact_len; i++) {
+		items[i].id = qstar_strdup(final->artifacts[i].id);
+		items[i].type = qstar_strdup(final->artifacts[i].type);
+		items[i].suffix = qstar_strdup(final->artifacts[i].suffix);
+		items[i].primary = final->artifacts[i].primary;
+		items[i].secondary = final->artifacts[i].secondary;
+		items[i].runtime = final->artifacts[i].runtime;
+		items[i].link_interface = final->artifacts[i].link_interface;
+		if (items[i].primary) {
+			items[i].path = qstar_strdup(primary_path);
+		} else {
+			if (final->artifacts[i].suffix && *final->artifacts[i].suffix)
+				snprintf(suffix, sizeof(suffix), "%s", final->artifacts[i].suffix);
+			else if (snprintf(suffix, sizeof(suffix), ".%s",
+			    final->artifacts[i].id) >= (int)sizeof(suffix))
+				goto too_long;
+			items[i].path = malloc(strlen(primary_path) + strlen(suffix) + 1);
+			if (items[i].path)
+				sprintf(items[i].path, "%s%s", primary_path, suffix);
+		}
+		if (!items[i].id || !items[i].type || !items[i].suffix || !items[i].path)
+			goto oom;
+		for (size_t j = 0; j < i; j++) {
+			if (strcmp(items[j].path, items[i].path) == 0) {
+				qstar_set_error(graph,
+				    "qstar: qstar.lang/2 artifact descriptors '%s' and '%s' resolve to the same output path '%s'",
+				    items[j].id, items[i].id, items[i].path);
+				free_resolved_provider_artifacts(items, final->artifact_len);
+				return -1;
+			}
+		}
+	}
+	*out = items;
+	return 0;
+too_long:
+	free_resolved_provider_artifacts(items, final->artifact_len);
+	return qstar_set_error(graph, "qstar: provider artifact suffix is too long");
+oom:
+	free_resolved_provider_artifacts(items, final->artifact_len);
+	return qstar_set_error(graph, "qstar: out of memory");
+}
+
+static int
+validate_provider_final_inputs(struct qstar_graph *graph,
+    const struct qstar_provider_action_template *action,
+    const struct qstar_string_list *sources, const struct qstar_string_list *objects,
+    const struct qstar_string_list *link_interfaces,
+    const struct qstar_string_list *link_inputs)
+{
+	const struct qstar_string_list *lists[] = {
+		sources, objects, link_interfaces, link_inputs
+	};
+	const char *names[] = {
+		"sources", "objects", "link_interfaces", "link_inputs"
+	};
+	size_t i, j;
+
+	for (i = 0; i < sizeof(lists) / sizeof(lists[0]); i++) {
+		for (j = 0; lists[i] && j < lists[i]->len; j++) {
+			if (!string_list_contains_value(&action->inputs, lists[i]->items[j]))
+				return qstar_set_error(graph,
+				    "qstar: qstar.lang/2 provider lowering inputs must include ctx.input(\"%s\") item '%s'",
+				    names[i], lists[i]->items[j]);
+		}
+	}
+	return 0;
+}
+
+static int
+validate_provider_final_outputs(struct qstar_graph *graph,
+    const struct qstar_provider_action_template *action,
+    const struct qstar_provider_artifact_descriptor *artifacts, size_t artifact_len,
+    const char *depfile)
+{
+	size_t i, j;
+	int found;
+
+	for (i = 0; i < artifact_len; i++) {
+		if (!provider_outputs_contain_path(action, artifacts[i].path))
+			return qstar_set_error(graph,
+			    "qstar: qstar.lang/2 provider lowering outputs must include ctx.output(\"%s\")",
+			    artifacts[i].id);
+	}
+	for (i = 0; i < action->outputs.len; i++) {
+		found = depfile && *depfile && strcmp(action->outputs.items[i], depfile) == 0;
+		for (j = 0; !found && j < artifact_len; j++)
+			found = strcmp(action->outputs.items[i], artifacts[j].path) == 0;
+		if (!found)
+			return qstar_set_error(graph,
+			    "qstar: qstar.lang/2 provider lowering output '%s' is not owned by its artifact descriptors",
+			    action->outputs.items[i]);
+	}
+	return 0;
 }
 
 static int
@@ -3099,14 +3548,19 @@ lower_provider_final_action(lua_State *L, struct qstar_target *target,
 {
 	struct qstar_provider_lowering_ctx lowering;
 	struct qstar_provider_action_template action;
+	struct qstar_provider_artifact_descriptor *artifacts;
+	struct qstar_string_list sources, objects, link_interfaces, link_inputs;
 	const struct qstar_language_provider *provider;
 	const struct qstar_language_final_schema *final;
-	const char *kind, *message;
+	const char *kind, *message, *required_name;
 	char artifact[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], artifact_dir[QSTAR_PATH_MAX];
-	int rc;
+	size_t i;
+	int rc, selected;
 
-	final = target_provider_final_schema(graph, target, &provider, &kind);
-	if (!final)
+	selected = target_provider_final_schema(graph, target, &provider, &final, &kind);
+	if (selected < 0)
+		return -1;
+	if (selected == 0)
 		return 0;
 	if (qstar_graph_artifact_output_path(graph, target, artifact,
 	    sizeof(artifact)) < 0)
@@ -3117,11 +3571,39 @@ lower_provider_final_action(lua_State *L, struct qstar_target *target,
 	if (qstar_dirname(artifact, artifact_dir, sizeof(artifact_dir)) < 0)
 		return qstar_set_error(graph, "qstar: provider final cache path too long");
 	memset(&lowering, 0, sizeof(lowering));
+	memset(&sources, 0, sizeof(sources));
+	memset(&objects, 0, sizeof(objects));
+	memset(&link_interfaces, 0, sizeof(link_interfaces));
+	memset(&link_inputs, 0, sizeof(link_inputs));
+	artifacts = NULL;
+	rc = 0;
+	if (provider->api && strcmp(provider->api, "qstar.lang/2") == 0) {
+		if (resolve_provider_final_artifacts(graph, final, artifact,
+		    &artifacts) < 0 || collect_provider_final_objects(graph, target,
+		    provider, final, &sources, &objects) < 0 ||
+		    collect_provider_link_interfaces(graph, target, &link_interfaces) < 0 ||
+		    collect_provider_link_inputs(graph, target, &link_inputs) < 0)
+			goto cleanup;
+	} else {
+		for (i = 0; i < target->sources.len; i++) {
+			if (qstar_string_list_push(&sources, target->sources.items[i]) < 0) {
+				qstar_set_error(graph, "qstar: out of memory");
+				goto cleanup;
+			}
+		}
+	}
 	lowering.graph = graph;
 	lowering.target = target;
 	lowering.provider = provider;
+	lowering.final = final;
 	lowering.final_kind = kind;
-	lowering.sources = &target->sources;
+	lowering.sources = &sources;
+	lowering.objects = &objects;
+	lowering.link_interfaces = &link_interfaces;
+	lowering.link_inputs = &link_inputs;
+	lowering.link_options = &target->link_options;
+	lowering.artifacts = artifacts;
+	lowering.artifact_len = final->artifact_len;
 	lowering.artifact = artifact;
 	lowering.depfile = depfile;
 	lowering.source_options_ref = LUA_NOREF;
@@ -3131,44 +3613,69 @@ lower_provider_final_action(lua_State *L, struct qstar_target *target,
 	lua_getfield(L, LUA_REGISTRYINDEX, "qstar.provider.implementations");
 	if (!lua_istable(L, -1)) {
 		lua_pop(L, 1);
-		return qstar_set_error(graph, "qstar: provider implementation registry is empty");
+		qstar_set_error(graph, "qstar: provider implementation registry is empty");
+		goto cleanup;
 	}
 	lua_getfield(L, -1, provider->namespace);
 	lua_remove(L, -2);
 	if (!lua_istable(L, -1)) {
 		lua_pop(L, 1);
-		return qstar_set_error(graph,
+		qstar_set_error(graph,
 		    "qstar: provider implementation for '%s' is not loaded",
 		    provider->namespace);
+		goto cleanup;
 	}
 	lua_getfield(L, -1, final->lower);
 	lua_remove(L, -2);
 	if (!lua_isfunction(L, -1)) {
 		lua_pop(L, 1);
-		return qstar_set_error(graph,
+		qstar_set_error(graph,
 		    "qstar: provider '%s' implementation has no final lowering function '%s'",
 		    provider->namespace, final->lower);
+		goto cleanup;
 	}
 	push_provider_lowering_context(L, &lowering);
 	if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
 		message = lua_tostring(L, -1);
 		lua_pop(L, 1);
-		return qstar_set_error(graph, "qstar: provider final lowering failed: %s",
+		qstar_set_error(graph, "qstar: provider final lowering failed: %s",
 		    message ? message : "<unknown>");
+		goto cleanup;
 	}
 	memset(&action, 0, sizeof(action));
+	required_name = "artifact";
+	if (final->artifact_len > 0) {
+		for (i = 0; i < final->artifact_len; i++) {
+			if (artifacts[i].primary) {
+				required_name = artifacts[i].id;
+				break;
+			}
+		}
+	}
 	rc = read_provider_lowering_result(L, -1, &action, graph, NULL, NULL, artifact,
-	    "artifact", depfile);
+	    required_name, depfile);
 	lua_pop(L, 1);
+	if (rc == 0 && final->artifact_len > 0)
+		rc = validate_provider_final_inputs(graph, &action, &sources, &objects,
+		    &link_interfaces, &link_inputs);
+	if (rc == 0 && final->artifact_len > 0)
+		rc = validate_provider_final_outputs(graph, &action, artifacts,
+		    final->artifact_len, action.depfile);
 	if (rc == 0)
-		rc = qstar_target_set_provider_final_action(graph, target,
-		    provider->namespace, kind, final->lower, &action);
+		rc = qstar_target_set_provider_final_action(graph, target, provider,
+		    final, artifacts, final->artifact_len, &action);
 	qstar_string_list_free(&action.argv);
 	qstar_string_list_free(&action.env);
 	qstar_string_list_free(&action.inputs);
 	qstar_string_list_free(&action.outputs);
 	free(action.depfile);
-	return rc;
+cleanup:
+	qstar_string_list_free(&sources);
+	qstar_string_list_free(&objects);
+	qstar_string_list_free(&link_interfaces);
+	qstar_string_list_free(&link_inputs);
+	free_resolved_provider_artifacts(artifacts, final ? final->artifact_len : 0);
+	return graph->error[0] ? -1 : rc;
 }
 
 static int
@@ -4197,8 +4704,6 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 		if (replace_lua_string(&target->tool_path, resolved_path, graph) < 0)
 			return qstar_lua_raise_declaration_error(L, graph, api, label);
 	}
-	if (lower_provider_final_action(L, target, graph) < 0)
-		return qstar_lua_raise_declaration_error(L, graph, api, label);
 	if (strcmp(target->kind, "run_target") == 0) {
 		struct qstar_string_list empty;
 
@@ -5461,17 +5966,168 @@ qstar_lua_validate_provider_units(lua_State *L, int table, struct qstar_graph *g
 }
 
 static int
-qstar_lua_validate_provider_finals(lua_State *L, int table, struct qstar_graph *graph)
+qstar_lua_validate_provider_v2_artifacts(lua_State *L, int final_table,
+    struct qstar_graph *graph, const char *kind)
 {
-	static const char *const allowed_fields[] = { "lower", NULL };
+	static const char *const fields[] = { "type", "roles", "suffix", NULL };
+	static const char *const roles[] = {
+		"primary", "secondary", "runtime", "link-interface", NULL
+	};
+	const char *id, *key, *type, *role, *suffix;
+	int artifacts, descriptor, primary_count, link_count, has_primary;
+	int has_secondary, has_runtime, has_link;
+	size_t i, n, count;
+
+	final_table = qstar_lua_abs_index(L, final_table);
+	lua_getfield(L, final_table, "artifacts");
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return qstar_set_error(graph,
+		    "qstar: qstar.lang/2 finals.%s.artifacts must be a non-empty descriptor table",
+		    kind);
+	}
+	artifacts = lua_gettop(L);
+	primary_count = 0;
+	link_count = 0;
+	count = 0;
+	lua_pushnil(L);
+	while (lua_next(L, artifacts) != 0) {
+		id = lua_type(L, -2) == LUA_TSTRING ? lua_tostring(L, -2) : NULL;
+		if (!id || !valid_artifact_selector(id) || !lua_istable(L, -1)) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: qstar.lang/2 finals.%s.artifacts contains invalid descriptor '%s'",
+			    kind, id ? id : "<non-string>");
+		}
+		descriptor = lua_gettop(L);
+		lua_pushnil(L);
+		while (lua_next(L, descriptor) != 0) {
+			key = lua_type(L, -2) == LUA_TSTRING ? lua_tostring(L, -2) : NULL;
+			if (!key || !string_in_set(key, fields)) {
+				lua_pop(L, 3);
+				return qstar_set_error(graph,
+				    "qstar: unknown qstar.lang/2 artifact field finals.%s.artifacts.%s.%s",
+				    kind, id, key ? key : "<non-string>");
+			}
+			lua_pop(L, 1);
+		}
+		lua_getfield(L, descriptor, "type");
+		type = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : NULL;
+		if (!type || (strcmp(type, "file") != 0 && strcmp(type, "tree") != 0)) {
+			lua_pop(L, 3);
+			return qstar_set_error(graph,
+			    "qstar: qstar.lang/2 artifact '%s.%s' type must be file or tree",
+			    kind, id);
+		}
+		lua_pop(L, 1);
+		lua_getfield(L, descriptor, "roles");
+		if (validate_exact_string_list_value(L, -1, graph,
+		    "qstar.lang/2 artifact roles") < 0 ||
+		    (n = lua_rawlen(L, -1)) == 0) {
+			lua_pop(L, 3);
+			if (!graph->error[0])
+				return qstar_set_error(graph,
+			    "qstar: qstar.lang/2 artifact '%s.%s' roles must be a non-empty list",
+			    kind, id);
+			return -1;
+		}
+		has_primary = has_secondary = has_runtime = has_link = 0;
+		for (i = 1; i <= n; i++) {
+			lua_rawgeti(L, -1, (lua_Integer)i);
+			role = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : NULL;
+			if (!role || !string_in_set(role, roles)) {
+				lua_pop(L, 4);
+				return qstar_set_error(graph,
+				    "qstar: qstar.lang/2 artifact '%s.%s' has unknown role '%s'",
+				    kind, id, role ? role : "<non-string>");
+			}
+			if ((strcmp(role, "primary") == 0 && has_primary) ||
+			    (strcmp(role, "secondary") == 0 && has_secondary) ||
+			    (strcmp(role, "runtime") == 0 && has_runtime) ||
+			    (strcmp(role, "link-interface") == 0 && has_link)) {
+				lua_pop(L, 4);
+				return qstar_set_error(graph,
+				    "qstar: qstar.lang/2 artifact '%s.%s' repeats role '%s'",
+				    kind, id, role);
+			}
+			has_primary |= strcmp(role, "primary") == 0;
+			has_secondary |= strcmp(role, "secondary") == 0;
+			has_runtime |= strcmp(role, "runtime") == 0;
+			has_link |= strcmp(role, "link-interface") == 0;
+			lua_pop(L, 1);
+		}
+		lua_pop(L, 1);
+		if (has_primary == has_secondary) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: qstar.lang/2 artifact '%s.%s' must have exactly one of primary or secondary",
+			    kind, id);
+		}
+		if (has_link && strcmp(type, "tree") == 0) {
+			lua_pop(L, 2);
+			return qstar_set_error(graph,
+			    "qstar: qstar.lang/2 tree artifact '%s.%s' cannot be a link-interface",
+			    kind, id);
+		}
+		lua_getfield(L, descriptor, "suffix");
+		suffix = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : NULL;
+		if (!lua_isnil(L, -1) && (!suffix || !*suffix || suffix[0] != '.' ||
+		    strchr(suffix, '/') || strchr(suffix, '\\') || strstr(suffix, ".."))) {
+			lua_pop(L, 3);
+			return qstar_set_error(graph,
+			    "qstar: qstar.lang/2 artifact '%s.%s' suffix must be a filename suffix beginning with '.'",
+			    kind, id);
+		}
+		if (has_primary && suffix && *suffix) {
+			lua_pop(L, 3);
+			return qstar_set_error(graph,
+			    "qstar: qstar.lang/2 primary artifact '%s.%s' must not declare suffix",
+			    kind, id);
+		}
+		lua_pop(L, 1);
+		primary_count += has_primary;
+		link_count += has_link;
+		count++;
+		lua_pop(L, 1);
+	}
+	lua_pop(L, 1);
+	if (count == 0 || count > 16)
+		return qstar_set_error(graph,
+		    "qstar: qstar.lang/2 finals.%s.artifacts must contain 1 to 16 descriptors",
+		    kind);
+	if (primary_count != 1)
+		return qstar_set_error(graph,
+		    "qstar: qstar.lang/2 finals.%s.artifacts requires exactly one primary role",
+		    kind);
+	if (link_count > 1)
+		return qstar_set_error(graph,
+		    "qstar: qstar.lang/2 finals.%s.artifacts permits at most one link-interface role",
+		    kind);
+	return 0;
+}
+
+static int
+qstar_lua_validate_provider_finals(lua_State *L, int table, struct qstar_graph *graph,
+    const char *api)
+{
+	static const char *const v1_fields[] = { "lower", NULL };
+	static const char *const v2_fields[] = { "lower", "inputs", "artifacts", NULL };
+	static const char *const v2_inputs[] = {
+		"sources", "objects", "link_interfaces", "link_inputs", "link_options", NULL
+	};
 	static const char *const allowed_kinds[] = {
 		"executable", "staticlib", "sharedlib", NULL
 	};
-	const char *name, *key;
+	const char *name, *key, *input;
+	const char *const *allowed_fields;
+	size_t i, n;
 	char owner[160];
+	int v2;
 
 	if (table < 0)
 		table = lua_gettop(L) + table + 1;
+	v2 = api && strcmp(api, "qstar.lang/2") == 0;
+	allowed_fields = v2 ? v2_fields : v1_fields;
 	lua_getfield(L, table, "finals");
 	if (lua_isnil(L, -1)) {
 		lua_pop(L, 1);
@@ -5507,6 +6163,31 @@ qstar_lua_validate_provider_finals(lua_State *L, int table, struct qstar_graph *
 		    NULL, 0) < 0) {
 			lua_pop(L, 2);
 			return -1;
+		}
+		if (v2) {
+			lua_getfield(L, -1, "inputs");
+			if (validate_exact_string_list_value(L, -1, graph,
+			    "qstar.lang/2 final inputs") < 0) {
+				lua_pop(L, 3);
+				return -1;
+			}
+			n = lua_rawlen(L, -1);
+			for (i = 1; i <= n; i++) {
+				lua_rawgeti(L, -1, (lua_Integer)i);
+				input = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : NULL;
+				if (!input || !string_in_set(input, v2_inputs)) {
+					lua_pop(L, 4);
+					return qstar_set_error(graph,
+					    "qstar: qstar.lang/2 finals.%s.inputs contains unknown input '%s'",
+					    name, input ? input : "<non-string>");
+				}
+				lua_pop(L, 1);
+			}
+			lua_pop(L, 1);
+			if (qstar_lua_validate_provider_v2_artifacts(L, -1, graph, name) < 0) {
+				lua_pop(L, 2);
+				return -1;
+			}
 		}
 		lua_pop(L, 1);
 	}
@@ -6572,9 +7253,10 @@ validate_language_provider_manifest_table(lua_State *L, int table,
 	    qstar_lua_required_string_field(L, table, graph, "language provider",
 	    "implementation", implementation, implementation_len) < 0)
 		return -1;
-	if (strcmp(api, "qstar.lang/1") != 0)
+	if (strcmp(api, "qstar.lang/1") != 0 && strcmp(api, "qstar.lang/2") != 0)
 		return qstar_set_error(graph,
-		    "qstar: language provider api must be \"qstar.lang/1\"");
+		    "qstar: unsupported language provider api '%s'; supported APIs: qstar.lang/1, qstar.lang/2",
+		    api);
 	if (!valid_tool_role_component(id))
 		return qstar_set_error(graph,
 		    "qstar: invalid language provider id '%s'", id);
@@ -6587,7 +7269,7 @@ validate_language_provider_manifest_table(lua_State *L, int table,
 		    "qstar: language provider implementation must be a relative .lua path");
 	if (qstar_lua_validate_provider_tools(L, table, graph, namespace) < 0 ||
 	    qstar_lua_validate_provider_units(L, table, graph) < 0 ||
-	    qstar_lua_validate_provider_finals(L, table, graph) < 0 ||
+	    qstar_lua_validate_provider_finals(L, table, graph, api) < 0 ||
 	    qstar_lua_validate_provider_options(L, table, graph) < 0 ||
 	    qstar_lua_validate_provider_scaffold(L, table, graph, namespace) < 0 ||
 	    qstar_lua_validate_provider_exports(L, table, graph) < 0)
@@ -9884,8 +10566,11 @@ static int
 add_language_provider_final_schemas(lua_State *L, int manifest,
     struct qstar_graph *graph, struct qstar_language_provider *provider)
 {
-	const char *name, *lower;
-	int final_idx;
+	struct qstar_language_final_schema *final;
+	const char *name, *lower, *input, *id, *type, *suffix, *role;
+	int final_idx, descriptor_idx;
+	int primary, secondary, runtime, link_interface;
+	size_t i, n;
 
 	manifest = qstar_lua_abs_index(L, manifest);
 	lua_getfield(L, manifest, "finals");
@@ -9904,6 +10589,68 @@ add_language_provider_final_schemas(lua_State *L, int manifest,
 		    lower) < 0) {
 			lua_pop(L, 3);
 			return -1;
+		}
+		final = &provider->finals[provider->final_len - 1];
+		if (provider->api && strcmp(provider->api, "qstar.lang/2") == 0) {
+			lua_getfield(L, final_idx, "inputs");
+			n = lua_rawlen(L, -1);
+			for (i = 1; i <= n; i++) {
+				lua_rawgeti(L, -1, (lua_Integer)i);
+				input = lua_tostring(L, -1);
+				if (qstar_language_final_add_input(graph, provider, final,
+				    input) < 0) {
+					lua_pop(L, 4);
+					return -1;
+				}
+				lua_pop(L, 1);
+			}
+			lua_pop(L, 1);
+			lua_getfield(L, final_idx, "artifacts");
+			lua_pushnil(L);
+			while (lua_next(L, -2) != 0) {
+				id = lua_tostring(L, -2);
+				descriptor_idx = lua_gettop(L);
+				lua_getfield(L, descriptor_idx, "type");
+				type = lua_tostring(L, -1);
+				lua_pop(L, 1);
+				lua_getfield(L, descriptor_idx, "suffix");
+				suffix = lua_isstring(L, -1) ? lua_tostring(L, -1) : "";
+				lua_pop(L, 1);
+				primary = secondary = runtime = link_interface = 0;
+				lua_getfield(L, descriptor_idx, "roles");
+				n = lua_rawlen(L, -1);
+				for (i = 1; i <= n; i++) {
+					lua_rawgeti(L, -1, (lua_Integer)i);
+					role = lua_tostring(L, -1);
+					primary |= strcmp(role, "primary") == 0;
+					secondary |= strcmp(role, "secondary") == 0;
+					runtime |= strcmp(role, "runtime") == 0;
+					link_interface |= strcmp(role, "link-interface") == 0;
+					lua_pop(L, 1);
+				}
+				lua_pop(L, 1);
+				if (qstar_language_final_add_artifact(graph, provider, final,
+				    id, type, suffix, primary, secondary, runtime,
+				    link_interface) < 0) {
+					lua_pop(L, 4);
+					return -1;
+				}
+				lua_pop(L, 1);
+			}
+			lua_pop(L, 1);
+			for (i = 1; i < final->artifact_len; i++) {
+				struct qstar_provider_artifact_descriptor value;
+				size_t j;
+
+				value = final->artifacts[i];
+				j = i;
+				while (j > 0 && strcmp(final->artifacts[j - 1].id,
+				    value.id) > 0) {
+					final->artifacts[j] = final->artifacts[j - 1];
+					j--;
+				}
+				final->artifacts[j] = value;
+			}
 		}
 		lua_pop(L, 1);
 	}
@@ -10694,8 +11441,20 @@ qstar_lua_eval_file(struct qstar_graph *graph, const char *file)
 	register_global_constants(L, &ctx);
 	register_qstar(L, &ctx);
 	rc = eval_fragment(L, &ctx, file, initial_fragment);
+	if (rc == 0) {
+		size_t i;
+
+		for (i = 0; i < graph->len; i++) {
+			if (lower_provider_final_action(L, &graph->targets[i], graph) < 0) {
+				rc = -1;
+				break;
+			}
+		}
+	}
 	if (rc < 0)
-		qstar_set_error(graph, "%s", lua_tostring(L, -1));
+		qstar_set_error(graph, "%s", lua_gettop(L) > 0 &&
+		    lua_tostring(L, -1) ? lua_tostring(L, -1) :
+		    "qstar: language provider final lowering failed");
 	lua_close(L);
 	qstar_string_list_free(&ctx.import_stack);
 	qstar_string_list_free(&ctx.provider_stack);

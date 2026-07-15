@@ -577,6 +577,19 @@ load_provider_manifest(const struct init_language *language, char *error,
 		lua_close(L);
 		return NULL;
 	}
+	lua_getfield(L, -1, "api");
+	if (!lua_isstring(L, -1) ||
+	    (strcmp(lua_tostring(L, -1), "qstar.lang/1") != 0 &&
+	    strcmp(lua_tostring(L, -1), "qstar.lang/2") != 0)) {
+		if (error && error_len)
+			snprintf(error, error_len,
+			    "qstar: unsupported language provider api '%s'; supported APIs: qstar.lang/1, qstar.lang/2",
+			    lua_isstring(L, -1) ? lua_tostring(L, -1) : "<missing>");
+		lua_pop(L, 1);
+		lua_close(L);
+		return NULL;
+	}
+	lua_pop(L, 1);
 	return L;
 }
 

@@ -37,16 +37,19 @@ provider bundle under `share/qstar/languages/<id>`. QStar currently ships the
 standard `zig`, `rust`, and `cuda` providers. The explicit folder form, such as
 `qstar.use_language("qstar/languages/zig")`, stays project-relative. Provider
 manifests must return
-`qstar.language_provider { api = "qstar.lang/1", ... }`; their `provider.lua`
+`qstar.language_provider { api = "qstar.lang/1", ... }` or the explicit
+`qstar.lang/2` artifact contract; their `provider.lua`
 implementation is loaded in a restricted provider sandbox and only `exports`
 are returned to user code. Provider-defined `options` schemas now validate
 `lang.<namespace>` tables with string, bool, list, enum, and default metadata.
 Provider-defined `units` register source suffixes with the graph-level source
 registry, so activated providers can classify raw source strings such as
 `"src/main.zig"` into consuming-target-owned object artifacts. Provider-defined
-`finals` let pure provider targets lower `executable`, `staticlib`, and
+v1 `finals` let pure provider targets lower `executable`, `staticlib`, and
 `sharedlib` final artifacts through provider-owned compiler actions instead of
-the native C-style linker/archive path. Explicit helpers
+the native C-style linker/archive path. V2 finals declare input ownership and
+named file/tree multi-output artifacts, so built-in and foreign provider objects
+can be composed without language-specific core policy. Explicit helpers
 such as `zig.object("src/main.zig", {...})` remain available for source-local
 options and suffix collision disambiguation. The lowered `command`, `inputs`,
 `env`, `outputs`, and `depfile` action template is shared by Stella and Ninja,
@@ -74,8 +77,8 @@ Important documents:
 - `rule-model.md`: target rule and link model notes.
 - `ninja-backend-parity.md`: Ninja lowering parity contract.
 - `language-provider-backend-contract.md`: GLP backend contract, Q257
-  provider-author versioned beta boundary, standard provider compatibility
-  promise, Q258 compatibility coverage, and Stella/Ninja lowering contract.
+  provider-author versioned beta boundary, Q279 lang/1 compatibility and lang/2 artifact
+  ownership, standard provider compatibility, and Stella/Ninja lowering contract.
 - `zig-provider.md`: standard Zig provider options, final artifact lowering,
   cache behavior, macOS target ergonomics, and real Zig staticlib/executable fixtures.
 - `rust-provider.md`: standard Rust provider options, final artifact lowering,

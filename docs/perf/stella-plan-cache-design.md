@@ -104,6 +104,12 @@ Q120 MVP는 다음 파일을 실제로 쓴다.
 - `graph.qsg`: validated Graph IR의 internal binary snapshot.
 - `actions.qsa`: requested build root의 executable lowered action plan.
 
+Q279 graph cache v5/plan ABI 13부터 target-owned GLP source action metadata,
+provider final input ownership, file/tree artifact descriptor, multi-output action
+template도 snapshot에 포함한다. 따라서 `qstar.lang/1`과 `/2` target은 첫 build 뒤
+plan-cache hit에서도 source classification, named artifact selector, generated consumer
+edge를 잃지 않는다.
+
 Q120은 Lua eval과 validation을 건너뛰는 whole-graph cache MVP였다. Q124부터 scheduler는
 cache hit 시 `actions.qsa`에서 compile/archive/link action의 argv, output, description,
 static input list를 직접 복원한다. 파일 content/env/action key는 실행 직전에 다시 계산하므로
@@ -141,7 +147,7 @@ Partial cache는 error가 아니라 miss다. Stella는 cache가 부서져도 sou
 {
 	  "schema": "qstar-stella-plan-cache-v9",
 	  "qstar_version": "0.7.0-beta",
-	  "plan_abi": 5,
+	  "plan_abi": 13,
   "package_root": "/absolute/package/root",
   "build_dir": "build/qstar",
   "generated_dir": "build/qstar/generated",

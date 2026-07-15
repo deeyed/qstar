@@ -155,8 +155,9 @@ replace_extension(const char *filename, const char *suffix, char *dst, size_t ds
 }
 
 static int
-push_artifact(struct qstar_target_artifact_map *map, const char *id, const char *role,
-    const char *path, const char *install_dir, int primary, int installable)
+push_artifact_roles(struct qstar_target_artifact_map *map, const char *id,
+    const char *role, const char *type, const char *path, const char *install_dir,
+    int primary, int secondary, int runtime, int link_interface, int installable)
 {
 	struct qstar_target_artifact *artifact;
 	int n;
@@ -170,6 +171,10 @@ push_artifact(struct qstar_target_artifact_map *map, const char *id, const char 
 	n = snprintf(artifact->role, sizeof(artifact->role), "%s", role);
 	if (n < 0 || (size_t)n >= sizeof(artifact->role))
 		return -1;
+	n = snprintf(artifact->type, sizeof(artifact->type), "%s",
+	    type && *type ? type : "file");
+	if (n < 0 || (size_t)n >= sizeof(artifact->type))
+		return -1;
 	n = snprintf(artifact->path, sizeof(artifact->path), "%s", path);
 	if (n < 0 || (size_t)n >= sizeof(artifact->path))
 		return -1;
@@ -178,8 +183,26 @@ push_artifact(struct qstar_target_artifact_map *map, const char *id, const char 
 	if (n < 0 || (size_t)n >= sizeof(artifact->install_dir))
 		return -1;
 	artifact->primary = primary;
+	artifact->secondary = secondary;
+	artifact->runtime = runtime;
+	artifact->link_interface = link_interface;
 	artifact->installable = installable;
 	return 0;
+}
+
+static int
+push_artifact(struct qstar_target_artifact_map *map, const char *id, const char *role,
+    const char *path, const char *install_dir, int primary, int installable)
+{
+	int runtime, link_interface;
+
+	runtime = strcmp(role, "sharedlib") == 0 || strcmp(role, "exe") == 0 ||
+	    strcmp(role, "tool") == 0;
+	link_interface = strcmp(role, "link") == 0 ||
+	    strcmp(role, "import_lib") == 0 || strcmp(role, "staticlib") == 0 ||
+	    strcmp(role, "archive") == 0;
+	return push_artifact_roles(map, id, role, "file", path, install_dir,
+	    primary, !primary, runtime, link_interface, installable);
 }
 
 /** target이 생산하는 artifact map을 platform context 기준으로 계산한다. */
@@ -222,6 +245,25 @@ qstar_graph_target_artifact_map(const struct qstar_graph *graph,
 				continue;
 			if (push_artifact(map, artifact->id, artifact->role,
 			    artifact->path, "", artifact->primary, 0) < 0)
+				return -1;
+		}
+		return 0;
+	}
+	if (target->provider_final.present &&
+	    target->provider_final.artifact_len > 0) {
+		size_t i;
+
+		for (i = 0; i < target->provider_final.artifact_len; i++) {
+			const struct qstar_provider_artifact_descriptor *artifact;
+			const char *role;
+
+			artifact = &target->provider_final.artifacts[i];
+			role = artifact->link_interface ? "link-interface" :
+			    artifact->runtime ? "runtime" :
+			    artifact->primary ? "primary" : "secondary";
+			if (push_artifact_roles(map, artifact->id, role, artifact->type,
+			    artifact->path, "", artifact->primary, artifact->secondary,
+			    artifact->runtime, artifact->link_interface, 0) < 0)
 				return -1;
 		}
 		return 0;
@@ -345,6 +387,15 @@ qstar_graph_target_link_artifact_path(struct qstar_graph *graph,
 	const char *selector;
 	size_t i;
 
+	if (target && qstar_graph_target_artifact_map(graph, target, &map) == 0) {
+		for (i = 0; i < map.len; i++) {
+			if (map.items[i].link_interface)
+				return snprintf(dst, dstlen, "%s", map.items[i].path) <
+				    (int)dstlen ? 0 : qstar_set_error(graph,
+				    "qstar: provider link-interface artifact path too long");
+		}
+	}
+
 	if (target && target->kind && strcmp(target->kind, "imported") == 0) {
 		if (qstar_graph_target_artifact_map(graph, target, &map) < 0)
 			return qstar_set_error(graph, "qstar: imported artifact path too long");
@@ -374,6 +425,8 @@ qstar_graph_target_tool_path(struct qstar_graph *graph,
 		return qstar_set_error(graph, "qstar: tool artifact path too long");
 	for (i = 0; i < map.len; i++) {
 		if (strcmp(map.items[i].role, "tool") == 0 ||
+		    (map.items[i].runtime && map.items[i].primary &&
+		    strcmp(map.items[i].type, "file") == 0) ||
 		    ((strcmp(target->kind, "exe") == 0 ||
 		    strcmp(target->kind, "test") == 0) && map.items[i].primary))
 			return snprintf(dst, dstlen, "%s", map.items[i].path) <

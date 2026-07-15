@@ -221,14 +221,46 @@ source-local options or for disambiguating suffix collisions. If a raw string
 matches more than one provider unit, or both a built-in suffix and a provider
 unit, QStar asks the user to use an explicit provider helper.
 
-Provider `finals` schemas declare provider-owned final artifact hooks. If a target's
-compile sources all come from the same external provider and the target has no
-native link deps/inputs, QStar calls the matching final lowering function and uses
-`ctx.input("sources")`, `ctx.output("artifact")`, and `ctx.kind()` instead of
-creating object compile edges plus a native C-style final linker/archive edge.
+Provider `finals` schemas declare provider-owned final artifact hooks. The example
+above is `qstar.lang/1`: when all compile sources come from one v1 provider and
+there are no native link deps/inputs, QStar calls the matching final with
+`ctx.input("sources")`, `ctx.output("artifact")`, and `ctx.kind()`.
+
+`qstar.lang/2` adds explicit final input ownership and artifact descriptors:
+
+```lua
+finals = {
+  executable = {
+    lower = "link_executable",
+    inputs = {"sources", "objects", "link_interfaces", "link_inputs", "link_options"},
+    artifacts = {
+      runtime = {type = "file", roles = {"primary", "runtime"}},
+      metadata = {type = "file", roles = {"secondary"}, suffix = ".metadata"},
+      resources = {type = "tree", roles = {"secondary", "runtime"}, suffix = ".resources"},
+      link = {type = "file", roles = {"secondary", "link-interface"}, suffix = ".link"},
+    },
+  },
+}
+```
+
+V2 final lowering reads only manifest-declared `ctx.input(...)` classes and uses
+descriptor ids with `ctx.output("runtime")`, `ctx.output("metadata")`, and so on.
+`sources` are final-owner source paths; `objects` can combine built-in and foreign
+provider objects; `link_interfaces` are dependency artifacts; `link_inputs` and
+`link_options` preserve explicit target declarations. Every declared output must
+appear in the lowering result and undeclared outputs are rejected. Each final has
+exactly one primary artifact, may have file/tree secondary and runtime artifacts,
+and at most one file `link-interface`. Descriptor ids are named
+`qstar.target_file(..., {artifact = "id"})` selectors.
+
+QStar accepts `qstar.lang/1` and `qstar.lang/2` simultaneously. Other versions
+fail with a supported-version diagnostic. V2 does not infer platform, target
+triple, runtime, linker, or library flags. The full Korean contract is in
+`docs/language-provider-backend-contract.md` and
+`wiki/reference/language-providers.md`.
 
 The GLP backend calls the unit `lower` function from `provider.lua` during graph
-evaluation, and calls final lowering functions for pure provider final artifacts.
+evaluation, and calls final lowering after the complete target graph is available.
 It stores the resulting action template in Graph IR. Stella and Ninja then
 consume the same `command`, `env`, `inputs`, `outputs`, and `depfile` contract.
 Env entries use `NAME=value`; process runners receive the values, while
@@ -431,9 +463,11 @@ secondary artifact can be selected when the target exposes one:
 qstar.target_file("//:plugin", { artifact = "import_lib" })
 ```
 
-Today this is used by the Windows sharedlib artifact contract: the primary
-artifact is the runtime `.dll`, while `artifact = "import_lib"` selects the
-import `.lib` that dependent targets link against on Windows.
+This is used by the Windows sharedlib artifact contract and by `qstar.lang/2`
+provider artifacts. On Windows the primary artifact is the runtime `.dll`, while
+`artifact = "import_lib"` selects the import `.lib`. A v2 provider uses its
+manifest descriptor ids for the same selector surface, including file or tree
+secondary/runtime artifacts.
 
 ## Generated Artifacts
 
