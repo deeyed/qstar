@@ -98,6 +98,15 @@ build/bin/qstar --file qstar.lua -B build/qstar-self build //:qstar
 build/bin/qstar --file qstar.lua -B build/qstar-self-ninja -G ninja build //:qstar
 ```
 
+The GLP v2 backend contract has a dedicated fake-tool parity gate. It keeps the
+bundled version 1 compatibility corpus separate from project-local Zig/Rust/CUDA
+version 2 reference manifests:
+
+```sh
+make qstar-glp-v2-backend-parity-tests
+make qstar-standard-provider-compatibility-tests
+```
+
 When real Rust and Zig compilers are available, maintainers can also run the
 optional GLP real-compiler gates:
 

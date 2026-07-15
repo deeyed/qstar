@@ -83,7 +83,7 @@ run_backend() {
 	contains "$out_prefix-check.out" "status ok"
 	run_qstar "$project" --dump-graph > "$out_prefix-graph.out" 2> "$out_prefix-graph.err"
 	contains "$out_prefix-graph.out" "language_provider namespace=$language id=$language"
-	contains "$out_prefix-graph.out" "provider_final provider=$language kind=staticlib"
+	contains "$out_prefix-graph.out" "provider_final api=qstar.lang/1 provider=$language kind=staticlib"
 	contains "$out_prefix-graph.out" "sources [src/${language}_core."
 
 	case "$backend" in
@@ -193,7 +193,7 @@ run_zig_executable_backend() {
 	contains "$out_prefix-graph.out" "language_provider namespace=zig id=zig"
 	contains "$out_prefix-graph.out" "target //:app"
 	contains "$out_prefix-graph.out" "kind exe"
-	contains "$out_prefix-graph.out" "provider_final provider=zig kind=executable"
+	contains "$out_prefix-graph.out" "provider_final api=qstar.lang/1 provider=zig kind=executable"
 	contains "$out_prefix-graph.out" "sources [src/main.zig]"
 
 	case "$backend" in

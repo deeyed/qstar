@@ -1,0 +1,69 @@
+return qstar.language_provider {
+  api = "qstar.lang/2",
+  id = "zig",
+  version = "2.0-test",
+  namespace = "zig",
+  implementation = "provider.lua",
+  tools = {
+    compiler = {
+      role = "zig.compiler",
+      required = true,
+    },
+  },
+  units = {
+    object = {
+      suffixes = {".zig"},
+      emits = "object",
+      deps = "make",
+      lower = "compile_object",
+    },
+  },
+  finals = {
+    executable = {
+      lower = "link_executable",
+      inputs = {
+        "sources",
+        "objects",
+        "link_interfaces",
+        "link_inputs",
+        "link_options",
+      },
+      artifacts = {
+        runtime = {
+          type = "file",
+          roles = {"primary", "runtime"},
+        },
+        metadata = {
+          type = "file",
+          roles = {"secondary"},
+          suffix = ".metadata",
+        },
+        resources = {
+          type = "tree",
+          roles = {"secondary", "runtime"},
+          suffix = ".resources",
+        },
+        import = {
+          type = "file",
+          roles = {"secondary", "link-interface"},
+          suffix = ".import",
+        },
+      },
+    },
+  },
+  options = {
+    env_value = {
+      type = "string",
+      default = "alpha",
+    },
+    compile_options = {
+      type = "list",
+      default = {},
+    },
+  },
+  exports = {
+    tools = "tools",
+    options = "options",
+    object = "object",
+  },
+}

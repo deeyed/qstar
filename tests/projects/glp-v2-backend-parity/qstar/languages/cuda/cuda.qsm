@@ -1,0 +1,54 @@
+return qstar.language_provider {
+  api = "qstar.lang/2",
+  id = "cuda",
+  version = "2.0-test",
+  namespace = "cuda",
+  implementation = "provider.lua",
+  tools = {
+    compiler = {
+      role = "cuda.compiler",
+      required = true,
+    },
+  },
+  units = {
+    object = {
+      suffixes = {".cu"},
+      emits = "object",
+      deps = "make",
+      lower = "compile_object",
+    },
+  },
+  finals = {
+    sharedlib = {
+      lower = "link_sharedlib",
+      inputs = {"sources"},
+      artifacts = {
+        runtime = {
+          type = "file",
+          roles = {"primary", "runtime"},
+        },
+        import = {
+          type = "file",
+          roles = {"secondary", "link-interface"},
+          suffix = ".import",
+        },
+        metadata = {
+          type = "file",
+          roles = {"secondary"},
+          suffix = ".metadata",
+        },
+      },
+    },
+  },
+  options = {
+    compile_options = {
+      type = "list",
+      default = {},
+    },
+  },
+  exports = {
+    tools = "tools",
+    options = "options",
+    object = "object",
+  },
+}

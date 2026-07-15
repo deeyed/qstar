@@ -123,6 +123,11 @@ them as protected unless this document is updated first.
   objects. The provider-author v2 manifest and lowering schema remain beta, but
   activated-provider users receive the same `lang.<namespace>`,
   `tools.<namespace>`, `sources`, `qstar.target_file`, Stella/Ninja surface.
+- Q280 protects that consumer result with a backend parity gate covering
+  response files, source/final depfiles, env/cache keys, multi-output
+  action-log/replay, compile database records, and Windows runtime versus
+  link-interface artifact selection. Graph/query output exposes env names only;
+  values remain redacted.
 
 This section is the consumer-facing GLP promise. The provider-author API is a
 separate beta surface until the checklist below is completed.

@@ -3717,6 +3717,90 @@ dump_json_list(FILE *out, const struct qstar_string_list *list)
 	fputc(']', out);
 }
 
+/** provider action env는 값 대신 검증된 변수 이름만 출력한다. */
+static void
+dump_provider_env_names(FILE *out, const struct qstar_string_list *env, int json)
+{
+	const char *eq;
+	size_t i;
+
+	fputc('[', out);
+	for (i = 0; env && i < env->len; i++) {
+		if (i)
+			fputs(json ? "," : ", ", out);
+		eq = strchr(env->items[i], '=');
+		if (json)
+			fputc('"', out);
+		if (eq)
+			fwrite(env->items[i], 1, (size_t)(eq - env->items[i]), out);
+		else
+			fputs(env->items[i], out);
+		if (json)
+			fputc('"', out);
+	}
+	fputc(']', out);
+}
+
+/** provider action template의 보안상 안전한 Graph IR 관찰 record를 출력한다. */
+static void
+dump_provider_action_text(FILE *out, const char *prefix, const char *phase,
+    const char *api, const char *provider, const char *unit, size_t source_index,
+    const struct qstar_provider_action_template *action)
+{
+	fprintf(out,
+	    "%sprovider_action phase=%s api=%s provider=%s unit=%s source_index=",
+	    prefix, phase, api && *api ? api : "<none>",
+	    provider && *provider ? provider : "<unknown>",
+	    unit && *unit ? unit : "<none>");
+	if (source_index == (size_t)-1)
+		fputs("<none>", out);
+	else
+		fprintf(out, "%zu", source_index);
+	fputs(" argv_template=", out);
+	dump_list(out, &action->argv);
+	fputs(" inputs=", out);
+	dump_list(out, &action->inputs);
+	fputs(" outputs=", out);
+	dump_list(out, &action->outputs);
+	fputs(" env_names=", out);
+	dump_provider_env_names(out, &action->env, 0);
+	fprintf(out, " depfile=%s wants_depfile=%s\n",
+	    action->depfile && *action->depfile ? action->depfile : "<none>",
+	    action->wants_depfile ? "true" : "false");
+}
+
+static void
+dump_provider_action_json(FILE *out, const char *phase, const char *api,
+    const char *provider, const char *unit, size_t source_index,
+    const struct qstar_provider_action_template *action)
+{
+	fputs("{\"phase\":", out);
+	dump_json_string(out, phase);
+	fputs(",\"api\":", out);
+	dump_json_string(out, api && *api ? api : "");
+	fputs(",\"provider\":", out);
+	dump_json_string(out, provider);
+	fputs(",\"unit\":", out);
+	dump_json_string(out, unit && *unit ? unit : "");
+	fputs(",\"source_index\":", out);
+	if (source_index == (size_t)-1)
+		fputs("null", out);
+	else
+		fprintf(out, "%zu", source_index);
+	fputs(",\"argv_template\":", out);
+	dump_json_list(out, &action->argv);
+	fputs(",\"inputs\":", out);
+	dump_json_list(out, &action->inputs);
+	fputs(",\"outputs\":", out);
+	dump_json_list(out, &action->outputs);
+	fputs(",\"env_names\":", out);
+	dump_provider_env_names(out, &action->env, 1);
+	fputs(",\"depfile\":", out);
+	dump_json_string(out, action->depfile && *action->depfile ? action->depfile : "");
+	fprintf(out, ",\"wants_depfile\":%s}",
+	    action->wants_depfile ? "true" : "false");
+}
+
 static void
 dump_project_command_option_text(FILE *out, const struct qstar_command_option *option)
 {
@@ -4122,6 +4206,11 @@ dump_target(const struct qstar_graph *graph, const struct qstar_target *target, 
 		    target->provider_final.lower ? target->provider_final.lower :
 		    "<unknown>"), dump_list(out, &target->provider_final.input_ownership),
 		    fputc('\n', out);
+	if (qstar_target_has_provider_final_action(target))
+		dump_provider_action_text(out, "  ", "final",
+		    target->provider_final.api, target->provider_final.provider,
+		    target->provider_final.kind, (size_t)-1,
+		    &target->provider_final.action);
 	fputs("  configs ", out);
 	dump_list(out, &target->configs);
 	fputc('\n', out);
@@ -4136,6 +4225,17 @@ dump_target(const struct qstar_graph *graph, const struct qstar_target *target, 
 	fputs("  sources ", out);
 	dump_list(out, &target->sources);
 	fputc('\n', out);
+	for (size_t provider_i = 0; provider_i < target->provider_source_len;
+	    provider_i++) {
+		const struct qstar_provider_source_unit *source =
+		    &target->provider_sources[provider_i];
+		const struct qstar_language_provider *provider =
+		    qstar_graph_find_language_provider(graph, source->provider);
+
+		dump_provider_action_text(out, "  ", "compile",
+		    provider ? provider->api : "", source->provider, source->unit,
+		    source->source_index, &source->action);
+	}
 	fputs("  objects ", out);
 	dump_list(out, &target->objects);
 	fputc('\n', out);
@@ -4985,10 +5085,42 @@ dump_target_json(FILE *out, const struct qstar_graph *graph,
 		dump_json_list(out, &target->provider_final.action.inputs);
 		fputs(",\"outputs\":", out);
 		dump_json_list(out, &target->provider_final.action.outputs);
+		fputs(",\"argv_template\":", out);
+		dump_json_list(out, &target->provider_final.action.argv);
+		fputs(",\"env_names\":", out);
+		dump_provider_env_names(out, &target->provider_final.action.env, 1);
+		fputs(",\"depfile\":", out);
+		dump_json_string(out, target->provider_final.action.depfile &&
+		    *target->provider_final.action.depfile ?
+		    target->provider_final.action.depfile : "");
+		fprintf(out, ",\"wants_depfile\":%s",
+		    target->provider_final.action.wants_depfile ? "true" : "false");
 		fputc('}', out);
 	} else {
 		fputs("null", out);
 	}
+	fputs(",\"provider_actions\":[", out);
+	for (size_t provider_i = 0; provider_i < target->provider_source_len;
+	    provider_i++) {
+		const struct qstar_provider_source_unit *source =
+		    &target->provider_sources[provider_i];
+		const struct qstar_language_provider *provider =
+		    qstar_graph_find_language_provider(graph, source->provider);
+
+		if (provider_i)
+			fputc(',', out);
+		dump_provider_action_json(out, "compile", provider ? provider->api : "",
+		    source->provider, source->unit, source->source_index,
+		    &source->action);
+	}
+	if (qstar_target_has_provider_final_action(target)) {
+		if (target->provider_source_len)
+			fputc(',', out);
+		dump_provider_action_json(out, "final", target->provider_final.api,
+		    target->provider_final.provider, target->provider_final.kind,
+		    (size_t)-1, &target->provider_final.action);
+	}
+	fputc(']', out);
 	dump_imported_artifacts_json(out, target);
 	fputs(",\"cxx_standard\":", out);
 	dump_json_string(out, target->cxx_standard);
@@ -5576,12 +5708,28 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 		    target->provider_final.lower ? target->provider_final.lower :
 		    "<unknown>"), dump_list(out, &target->provider_final.input_ownership),
 		    fputc('\n', out);
+	if (qstar_target_has_provider_final_action(target))
+		dump_provider_action_text(out, "  ", "final",
+		    target->provider_final.api, target->provider_final.provider,
+		    target->provider_final.kind, (size_t)-1,
+		    &target->provider_final.action);
 	fputs("  configs ", out);
 	dump_list(out, &target->configs);
 	fputc('\n', out);
 	fputs("  sources ", out);
 	dump_list(out, &target->sources);
 	fputc('\n', out);
+	for (size_t provider_i = 0; provider_i < target->provider_source_len;
+	    provider_i++) {
+		const struct qstar_provider_source_unit *source =
+		    &target->provider_sources[provider_i];
+		const struct qstar_language_provider *provider =
+		    qstar_graph_find_language_provider(graph, source->provider);
+
+		dump_provider_action_text(out, "  ", "compile",
+		    provider ? provider->api : "", source->provider, source->unit,
+		    source->source_index, &source->action);
+	}
 	fputs("  objects ", out);
 	dump_list(out, &target->objects);
 	fputc('\n', out);

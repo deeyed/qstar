@@ -88,6 +88,15 @@ build/bin/qstar --file qstar.lua -B build/qstar-self build //:qstar
 build/bin/qstar --file qstar.lua -B build/qstar-self-ninja -G ninja build //:qstar
 ```
 
+GLP v2 backend 계약은 전용 fake-tool parity gate로 검증한다. Bundled lang/1
+compatibility corpus와 project-local Zig/Rust/CUDA lang/2 reference manifest를 분리해
+동일한 consumer syntax와 Stella/Ninja 실행 계약을 보호한다.
+
+```sh
+make qstar-glp-v2-backend-parity-tests
+make qstar-standard-provider-compatibility-tests
+```
+
 릴리즈 담당자는 local source tree에서 만든 tarball뿐 아니라 GitHub에 업로드된 release
 asset도 다음 명령으로 검증한다.
 

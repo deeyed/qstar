@@ -144,6 +144,14 @@ The version 1 loader preserves the original single-provider final artifact
 contract. Version 2 finals declare input ownership and named file or tree
 artifact descriptors with primary, secondary, runtime, and link-interface
 roles. Unknown provider manifest versions are rejected instead of guessed.
+The
+.Ic qstar-glp-v2-backend-parity-tests
+gate verifies provider response files, source and final depfiles, action-local
+environment cache keys, file/tree multi-output logging and replay,
+.Pa compile_commands.json ,
+and Windows runtime versus link-interface artifact selection across Stella and
+Ninja. Query output exposes provider environment names but not values; action
+logs and replay redact values.
 .It Ic qstar.config
 Reusable target option bundle referenced by target
 .Ic configs
@@ -693,6 +701,9 @@ and
 provider ids, namespaces, documented helper exports, documented options, source
 classification behavior, and init vendoring behavior are consumer-facing stable
 candidates; their implementation details remain beta.
+Bundled providers remain covered by the version 1 compatibility corpus, while
+project-local Zig, Rust, and CUDA version 2 reference manifests exercise the same
+consumer namespace syntax in the backend parity gate.
 .Sh DECLARATION SCHEMAS
 Every public declaration table has an exact field and Lua type schema.
 Unknown fields, wrong types, and list tables with named, sparse, or non-integer

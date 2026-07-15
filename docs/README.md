@@ -78,7 +78,8 @@ Important documents:
 - `ninja-backend-parity.md`: Ninja lowering parity contract.
 - `language-provider-backend-contract.md`: GLP backend contract, Q257
   provider-author versioned beta boundary, Q279 lang/1 compatibility and lang/2 artifact
-  ownership, standard provider compatibility, and Stella/Ninja lowering contract.
+  ownership, Q280 response-file/depfile/env/cache/multi-output backend parity,
+  standard provider compatibility, and Stella/Ninja lowering contract.
 - `zig-provider.md`: standard Zig provider options, final artifact lowering,
   cache behavior, macOS target ergonomics, and real Zig staticlib/executable fixtures.
 - `rust-provider.md`: standard Rust provider options, final artifact lowering,

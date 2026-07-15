@@ -1,0 +1,49 @@
+return qstar.language_provider {
+  api = "qstar.lang/2",
+  id = "rust",
+  version = "2.0-test",
+  namespace = "rust",
+  implementation = "provider.lua",
+  tools = {
+    compiler = {
+      role = "rust.compiler",
+      required = true,
+    },
+  },
+  units = {
+    object = {
+      suffixes = {".rs"},
+      emits = "object",
+      deps = "make",
+      lower = "compile_object",
+    },
+  },
+  finals = {
+    staticlib = {
+      lower = "archive_staticlib",
+      inputs = {"sources"},
+      artifacts = {
+        archive = {
+          type = "file",
+          roles = {"primary", "link-interface"},
+        },
+        metadata = {
+          type = "file",
+          roles = {"secondary"},
+          suffix = ".metadata",
+        },
+      },
+    },
+  },
+  options = {
+    compile_options = {
+      type = "list",
+      default = {},
+    },
+  },
+  exports = {
+    tools = "tools",
+    options = "options",
+    object = "object",
+  },
+}

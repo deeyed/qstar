@@ -1,6 +1,6 @@
 # QStar Language Provider Backend Contract
 
-Status: Q279 `qstar.lang/1` compatibility loader + `qstar.lang/2` artifact contract.
+Status: Q280 `qstar.lang/2` Stella/Ninja backend and provider parity seal.
 
 QStar runtime은 built-in `c`, `cxx`, `asm` provider namespace를 preloaded registry로
 갖고 있다. Public syntax의 `lang.c`, `lang.cxx`, `lang.asm`은 그대로 유지되지만, 내부
@@ -352,6 +352,56 @@ make qstar-glp-v2-artifact-contract-tests
 이 gate는 v1/v2 동시 activation, mixed C/provider composition, imported link interface,
 file/tree multi-output, selector, Stella/Ninja, action-log/replay, version collision, malformed
 descriptor, missing ownership, missing/unowned output을 fake tool로 검증한다.
+
+## Q280 backend parity seal
+
+Q280은 v2 manifest를 load할 수 있다는 사실과 v2 action이 두 backend에서 같은 의미를
+갖는다는 사실을 분리해서 검증한다. 정식 gate는 다음과 같다.
+
+```sh
+make qstar-glp-v2-backend-parity-tests
+```
+
+이 gate의 project-local reference provider는 `zig`, `rust`, `cuda` namespace를 사용한다.
+따라서 consumer 문법은 bundled provider와 동일한 `lang.zig`, `lang.rust`, `lang.cuda`,
+`tools.zig`, `tools.rust`, `tools.cuda`, raw `.zig`/`.rs`/`.cu` source다. 다만 fixture manifest만
+`qstar.lang/2`이며, bundled standard provider manifest는 기존 `qstar.lang/1` compatibility
+corpus와 optional real compiler corpus를 위해 그대로 유지한다.
+
+| Contract | Stella | Ninja | Observability |
+| --- | --- | --- | --- |
+| Source action | Provider argv/env/input/output/depfile로 실행 | 같은 Graph IR을 Ninja edge로 생성 | `provider_action`, `provider_actions`, `provider_action_contract` |
+| Final action | Mixed-provider object와 explicit link input을 소비 | 같은 input closure와 command를 사용 | `query`, `explain`, `dry-run` |
+| Response file | Toolset threshold와 style로 real `.rsp` 생성 | launcher가 동일 argv tail로 `.rsp` 생성 | build trace, Ninja action log, explain digest |
+| Depfile | Source/final action 모두 discovered input을 action key에 반영 | `depfile`과 `deps = gcc` edge로 전달 | `why-rebuild`의 `depfile-changed` |
+| Environment | Process overlay 및 env digest에 반영 | edge-local env overlay 적용 | 이름만 Graph IR에 노출하고 log/replay 값은 redacted |
+| Multi-output | file/tree 전체 존재 여부와 cache hit 검사 | 한 edge의 ordered outputs | action-log와 replay의 `output_count`, `output[N]` |
+| Compile database | 실제 실행되는 provider object action 기록 | 동일 source/object/command record 기록 | provider final이 직접 소유한 source는 compile DB에서 제외 |
+| Runtime/link interface | Runtime은 `target_file` primary, link-interface는 consumer dependency input | 동일 | Windows `.exe`/`.dll` runtime과 provider-owned import artifact 선택 fixture |
+
+Provider final depfile은 compile action과 동일하게 `wants_depfile` 계약을 사용한다. 실행 후
+depfile을 읽어 discovered input digest를 state에 반영하며, key를 재계산할 때 action의 실제
+kind(`archive`, `link`, `link-shared`)를 보존한다. 따라서 첫 build 직후 두 번째 Stella build가
+불필요하게 다시 실행되지 않고, depfile input 변경은 정확히 `depfile-changed`가 된다.
+
+Graph/query/explain은 provider env의 값은 출력하지 않는다. Graph IR에는 `env_names`만
+나타나며 action-log/replay는 기존처럼 `NAME=<redacted>`를 기록한다. Provider source action의
+`argv_template`, input/output, depfile과 final action의 ownership도 additive query field로
+노출한다.
+
+Windows 연동은 provider가 MSVC, import library 이름 또는 linker option을 추론한다는 뜻이
+아니다. QStar의 generic target output policy가 runtime primary path를 정하고, manifest가
+선언한 `runtime`/`link-interface` 역할에 따라 `qstar.target_file`과 dependency consumer가
+서로 다른 artifact를 선택한다. Suffix와 command argv는 계속 provider 소유다.
+
+실제 compiler 검증은 별도 optional gate다.
+
+```sh
+make qstar-real-glp-compiler-corpus-tests
+```
+
+이 optional corpus는 bundled lang/1 Rust/Zig provider의 real compiler 호환성을 보호한다.
+Q280 fake-tool v2 gate를 real compiler 지원 주장으로 확대 해석해서는 안 된다.
 
 ## Standard provider compatibility promise
 

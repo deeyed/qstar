@@ -7179,7 +7179,7 @@ contains "docs/qstar-compatibility-policy.md" "core install command remains remo
 contains "docs/qstar-compatibility-policy.md" "Language-shaped init templates remain removed"
 contains "docs/qstar-compatibility-policy.md" "releases or 90 days"
 contains "docs/qstar-compatibility-policy.md" "release note"
-contains "docs/language-provider-backend-contract.md" 'Status: Q279 `qstar.lang/1` compatibility loader + `qstar.lang/2` artifact contract.'
+contains "docs/language-provider-backend-contract.md" 'Status: Q280 `qstar.lang/2` Stella/Ninja backend and provider parity seal.'
 contains "docs/language-provider-backend-contract.md" "Provider-author API"
 contains "docs/language-provider-backend-contract.md" "versioned beta"
 contains "docs/language-provider-backend-contract.md" "unsupported language provider api 'qstar.lang/999'; supported APIs: qstar.lang/1, qstar.lang/2"

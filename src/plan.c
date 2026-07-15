@@ -52,6 +52,42 @@ dump_list(FILE *out, const struct qstar_string_list *list)
 	fputc(']', out);
 }
 
+/** provider env assignment은 plan에서 값 없이 변수 이름만 노출한다. */
+static void
+dump_provider_env_names(FILE *out, const struct qstar_string_list *env)
+{
+	const char *eq;
+	size_t i;
+
+	fputc('[', out);
+	for (i = 0; env && i < env->len; i++) {
+		if (i)
+			fputs(", ", out);
+		eq = strchr(env->items[i], '=');
+		if (eq)
+			fwrite(env->items[i], 1, (size_t)(eq - env->items[i]), out);
+		else
+			fputs(env->items[i], out);
+	}
+	fputc(']', out);
+}
+
+static void
+dump_provider_action_contract(FILE *out, const char *id, const char *phase,
+    const char *api, const char *provider,
+    const struct qstar_provider_action_template *action)
+{
+	fprintf(out,
+	    "  provider_action_contract id=%s phase=%s api=%s provider=%s inputs=%zu outputs=%zu env_names=",
+	    id, phase, api && *api ? api : "<unknown>",
+	    provider && *provider ? provider : "<unknown>",
+	    action->inputs.len, action->outputs.len);
+	dump_provider_env_names(out, &action->env);
+	fprintf(out, " depfile=%s wants_depfile=%s\n",
+	    action->depfile && *action->depfile ? action->depfile : "<none>",
+	    action->wants_depfile ? "true" : "false");
+}
+
 /** package alias map을 action key material 형식으로 출력한다. */
 static void
 dump_package_aliases(FILE *out, const struct qstar_graph *graph)
@@ -905,6 +941,7 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
     const char *depfile_override)
 {
 	const struct qstar_provider_source_unit *provider_unit;
+	const struct qstar_language_provider *provider;
 	char id[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], std_arg[128];
 	const char *role;
 	const char *tool;
@@ -933,8 +970,13 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	    (strcmp(source->provider, "c") == 0 || is_cxx ||
 	    qstar_source_uses_asm_preprocessor(target, source));
 	if (provider_unit) {
+		provider = qstar_graph_find_language_provider(graph,
+		    provider_unit->provider);
 		argc = plan_provider_template_argc(graph, target, toolchain,
 		    &provider_unit->action.argv) + usage_options.len;
+		dump_provider_action_contract(out, id, "compile",
+		    provider ? provider->api : "", provider_unit->provider,
+		    &provider_unit->action);
 		begin_argv(out, &dump, id, argc, toolchain);
 		plan_argv_provider_template(out, &dump, graph, target, toolchain,
 		    &provider_unit->action.argv);
@@ -1386,6 +1428,8 @@ dump_provider_final_argv(FILE *out, const struct qstar_target *target,
 	size_t argc;
 
 	snprintf(id, sizeof(id), "%s:%s:0", target->label, action);
+	dump_provider_action_contract(out, id, "final", target->provider_final.api,
+	    target->provider_final.provider, &target->provider_final.action);
 	argc = plan_provider_template_argc(graph, target, toolchain,
 	    &target->provider_final.action.argv) +
 	    ((!target->provider_final.api ||

@@ -1815,6 +1815,30 @@ write_action_outputs(FILE *f, const struct qstar_string_list *outputs)
 	}
 }
 
+/** action-log/replay에서 backend response-file 결정을 재현 가능하게 표시한다. */
+static void
+write_response_file_observation(FILE *f, const struct qstar_graph *graph,
+    const char *id, const struct qstar_resolved_toolchain *toolchain,
+    char *const argv[])
+{
+	char name[QSTAR_PATH_MAX], rel[QSTAR_PATH_MAX], sub[QSTAR_PATH_MAX];
+	const char *style;
+
+	if (!toolchain || !toolchain->response_files ||
+	    !argv_needs_response_file(argv)) {
+		fputs("response_file=<none>\n", f);
+		return;
+	}
+	style = toolchain->response_style[0] ? toolchain->response_style : "posix";
+	action_log_name(id, name, sizeof(name));
+	snprintf(sub, sizeof(sub), "rsp/%s.rsp", name);
+	if (qstar_graph_build_path(graph, sub, rel, sizeof(rel)) < 0)
+		snprintf(rel, sizeof(rel), "%s/rsp/%s.rsp",
+		    qstar_graph_build_dir(graph), name);
+	fprintf(f, "response_file=%s\nresponse_style=%s\nresponse_digest=%016llx\n",
+	    rel, style, response_file_digest(id, argv, style));
+}
+
 static void
 write_env_redacted(FILE *f, const struct qstar_string_list *env)
 {
@@ -5724,9 +5748,9 @@ validate_compile_source(struct qstar_graph *graph, const struct qstar_target *ta
 	return 0;
 }
 
-/** compile action 실행 후 depfile이 필요한 경우 생성 여부를 확인한다. */
+/** action 실행 후 depfile이 필요한 경우 생성 여부를 확인한다. */
 static int
-check_compile_depfile(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+check_action_depfile(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
     const struct qstar_prepared_action *action)
 {
 	char full_depfile[QSTAR_PATH_MAX];
@@ -5742,13 +5766,13 @@ check_compile_depfile(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    action->id, action->depfile);
 		return 0;
 	}
-	return qstar_set_error(graph, "qstar: compiler did not produce depfile '%s'",
-	    action->depfile);
+	return qstar_set_error(graph, "qstar: action '%s' did not produce depfile '%s'",
+	    action->id, action->depfile);
 }
 
-/** compile 성공 후 depfile-discovered input까지 포함한 최종 action key를 state에 반영한다. */
+/** depfile-discovered input까지 포함한 최종 action key를 state에 반영한다. */
 static int
-refresh_compile_state_after_depfile(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+refresh_action_state_after_depfile(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
     struct qstar_prepared_action *action)
 {
@@ -5777,7 +5801,7 @@ refresh_compile_state_after_depfile(struct qstar_graph *graph, struct qstar_buil
 			return qstar_set_error(graph, "qstar: out of memory");
 		}
 	}
-	compute_action_key(ctx, graph, target, toolchain, action->id, "compile",
+	compute_action_key(ctx, graph, target, toolchain, action->id, action->kind,
 	    action->argv, &action->env, &inputs, &dep_inputs,
 	    action->outputs.items[0], action->key, sizeof(action->key),
 	    &action->material);
@@ -5788,7 +5812,7 @@ refresh_compile_state_after_depfile(struct qstar_graph *graph, struct qstar_buil
 	return 0;
 }
 
-/** compile depfile refresh를 scheduler hot path 밖에서 처리하도록 queue에 넣는다. */
+/** depfile refresh를 scheduler hot path 밖에서 처리하도록 queue에 넣는다. */
 static int
 depfile_refresh_queue_push(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
     struct qstar_prepared_action *action)
@@ -5809,7 +5833,7 @@ depfile_refresh_queue_push(struct qstar_graph *graph, struct qstar_build_ctx *ct
 	return 0;
 }
 
-/** queue에 모인 compile depfile refresh를 build graph 실행 이후 일괄 처리한다. */
+/** queue에 모인 depfile refresh를 build graph 실행 이후 일괄 처리한다. */
 static int
 depfile_refresh_queue_flush(struct qstar_graph *graph, struct qstar_build_ctx *ctx)
 {
@@ -5820,7 +5844,7 @@ depfile_refresh_queue_flush(struct qstar_graph *graph, struct qstar_build_ctx *c
 		action = ctx->depfile_refresh[i].action;
 		if (!action)
 			continue;
-		if (refresh_compile_state_after_depfile(graph, ctx, action->target,
+		if (refresh_action_state_after_depfile(graph, ctx, action->target,
 		    action->toolchain, action) < 0)
 			return -1;
 	}
@@ -6255,9 +6279,9 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
 	    &action.outputs, action.argv, toolchain, &action.material,
 	    action.description);
 	if (rc == 0)
-		rc = check_compile_depfile(graph, ctx, &action);
+		rc = check_action_depfile(graph, ctx, &action);
 	if (rc == 0)
-		rc = refresh_compile_state_after_depfile(graph, ctx, target, toolchain,
+		rc = refresh_action_state_after_depfile(graph, ctx, target, toolchain,
 		    &action);
 	prepared_action_free(&action);
 	return rc;
@@ -6297,9 +6321,9 @@ run_consumer_objectlib_compile(struct qstar_graph *graph, struct qstar_build_ctx
 	    &action.outputs, action.argv, toolchain, &action.material,
 	    action.description);
 	if (rc == 0)
-		rc = check_compile_depfile(graph, ctx, &action);
+		rc = check_action_depfile(graph, ctx, &action);
 	if (rc == 0)
-		rc = refresh_compile_state_after_depfile(graph, ctx, consumer,
+		rc = refresh_action_state_after_depfile(graph, ctx, consumer,
 		    toolchain, &action);
 	prepared_action_free(&action);
 	return rc;
@@ -6674,11 +6698,11 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		}
 	}
 	for (i = 0; i < compile_count; i++) {
-		if (check_compile_depfile(graph, ctx, &actions[i]) < 0) {
+		if (check_action_depfile(graph, ctx, &actions[i]) < 0) {
 			rc = -1;
 			break;
 		}
-		if (refresh_compile_state_after_depfile(graph, ctx, target, toolchain,
+		if (refresh_action_state_after_depfile(graph, ctx, target, toolchain,
 		    &actions[i]) < 0) {
 			rc = -1;
 			break;
@@ -7447,6 +7471,11 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 	rc = run_action(graph, ctx, target, action.id, action.kind, action.key,
 	    &action.outputs, action.argv, toolchain, &action.material,
 	    action.description);
+	if (rc == 0)
+		rc = check_action_depfile(graph, ctx, &action);
+	if (rc == 0)
+		rc = refresh_action_state_after_depfile(graph, ctx, target, toolchain,
+		    &action);
 	prepared_action_free(&action);
 	return rc;
 }
@@ -9458,10 +9487,10 @@ scheduler_execute(struct qstar_scheduler *sched)
 			node_index = running[i].node_index;
 			rc = finish_running_action(sched->graph, sched->ctx, &running[i],
 			    status);
-			if (rc == 0 && strcmp(running[i].action->kind, "compile") == 0)
-				rc = check_compile_depfile(sched->graph, sched->ctx,
+			if (rc == 0 && running[i].action->wants_depfile)
+				rc = check_action_depfile(sched->graph, sched->ctx,
 				    running[i].action);
-			if (rc == 0 && strcmp(running[i].action->kind, "compile") == 0)
+			if (rc == 0 && running[i].action->wants_depfile)
 				rc = depfile_refresh_queue_push(sched->graph,
 				    sched->ctx, running[i].action);
 			running[i].action = NULL;
@@ -11757,7 +11786,8 @@ prepare_lazy_action_from_state(struct qstar_graph *graph, const char *action_id,
 static void
 write_replay_from_argv(struct qstar_graph *graph, const char *action_id, const char *rel,
     char *const argv[], const char *description, const struct qstar_string_list *env,
-    FILE *out)
+    const struct qstar_string_list *outputs,
+    const struct qstar_resolved_toolchain *toolchain, FILE *out)
 {
 	size_t i;
 
@@ -11771,6 +11801,8 @@ write_replay_from_argv(struct qstar_graph *graph, const char *action_id, const c
 		fputc('\n', out);
 	}
 	write_env_redacted(out, env);
+	write_action_outputs(out, outputs);
+	write_response_file_observation(out, graph, action_id, toolchain, argv);
 	for (i = 0; argv[i]; i++) {
 		if (i)
 			fputc(' ', out);
@@ -11787,6 +11819,8 @@ qstar_graph_action_log(struct qstar_graph *graph, const char *action_id, FILE *o
 	char rel[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX], line[4096];
 	char exit_text[64];
 	struct qstar_prepared_action action;
+	struct qstar_resolved_toolchain observation_toolchain;
+	const struct qstar_resolved_toolchain *observation_toolchain_ptr;
 	FILE *f;
 	int rc;
 
@@ -11812,8 +11846,19 @@ qstar_graph_action_log(struct qstar_graph *graph, const char *action_id, FILE *o
 			return qstar_set_error(graph, "qstar: action log '%s' does not exist",
 			    rel);
 		}
+		observation_toolchain_ptr = NULL;
+		if (action.target) {
+			if (qstar_resolve_toolchain(graph, action.target,
+			    &observation_toolchain) < 0) {
+				prepared_action_free(&action);
+				return -1;
+			}
+			observation_toolchain_ptr = &observation_toolchain;
+		}
 		write_action_log_stream(out, action.argv, exit_text,
 		    action.description, &action.env, &action.outputs);
+		write_response_file_observation(out, graph, action.id,
+		    observation_toolchain_ptr, action.argv);
 		prepared_action_free(&action);
 	}
 	fputs("status ok\n", out);
@@ -11826,8 +11871,10 @@ qstar_graph_replay_action(struct qstar_graph *graph, const char *action_id, FILE
 {
 	char rel[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX], line[8192], command[8192];
 	char description[8192], exit_text[64];
-	char env_text[8192];
+	char env_text[8192], output_text[8192], response_text[8192];
 	struct qstar_prepared_action action;
+	struct qstar_resolved_toolchain observation_toolchain;
+	const struct qstar_resolved_toolchain *observation_toolchain_ptr;
 	FILE *f;
 	int rc;
 
@@ -11845,14 +11892,26 @@ qstar_graph_replay_action(struct qstar_graph *graph, const char *action_id, FILE
 		if (rc == 0)
 			return qstar_set_error(graph, "qstar: action log '%s' does not exist",
 			    rel);
+		observation_toolchain_ptr = NULL;
+		if (action.target) {
+			if (qstar_resolve_toolchain(graph, action.target,
+			    &observation_toolchain) < 0) {
+				prepared_action_free(&action);
+				return -1;
+			}
+			observation_toolchain_ptr = &observation_toolchain;
+		}
 		write_replay_from_argv(graph, action_id, rel, action.argv,
-		    action.description, &action.env, out);
+		    action.description, &action.env, &action.outputs,
+		    observation_toolchain_ptr, out);
 		prepared_action_free(&action);
 		return 0;
 	}
 	command[0] = '\0';
 	description[0] = '\0';
 	env_text[0] = '\0';
+	output_text[0] = '\0';
+	response_text[0] = '\0';
 	while (fgets(line, sizeof(line), f)) {
 		if (strncmp(line, "description=", 12) == 0) {
 			snprintf(description, sizeof(description), "%s", line + 12);
@@ -11860,6 +11919,15 @@ qstar_graph_replay_action(struct qstar_graph *graph, const char *action_id, FILE
 		    strncmp(line, "env[", 4) == 0) {
 			if (strlen(env_text) + strlen(line) + 1 < sizeof(env_text))
 				strcat(env_text, line);
+		} else if (strncmp(line, "output_count=", 13) == 0 ||
+		    strncmp(line, "output[", 7) == 0) {
+			if (strlen(output_text) + strlen(line) + 1 < sizeof(output_text))
+				strcat(output_text, line);
+		} else if (strncmp(line, "response_file=", 14) == 0 ||
+		    strncmp(line, "response_style=", 15) == 0 ||
+		    strncmp(line, "response_digest=", 16) == 0) {
+			if (strlen(response_text) + strlen(line) + 1 < sizeof(response_text))
+				strcat(response_text, line);
 		} else if (strncmp(line, "argv_shell=", 11) == 0) {
 			snprintf(command, sizeof(command), "%s", line + 11);
 			break;
@@ -11881,6 +11949,10 @@ qstar_graph_replay_action(struct qstar_graph *graph, const char *action_id, FILE
 	}
 	if (env_text[0])
 		fputs(env_text, out);
+	if (output_text[0])
+		fputs(output_text, out);
+	if (response_text[0])
+		fputs(response_text, out);
 	fputs(command, out);
 	if (command[strlen(command) - 1] != '\n')
 		fputc('\n', out);

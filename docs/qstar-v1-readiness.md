@@ -293,6 +293,15 @@ be introduced by a separate versioned design.
 Future provider manifest API additions therefore require an explicit loader,
 schema, compatibility note, and simultaneous-version regression gate.
 
+Q280 closes the execution-parity portion of this blocker. The
+`qstar-glp-v2-backend-parity-tests` gate covers project-local Zig/Rust/CUDA v2
+reference providers, mixed-provider finals, response files, source/final
+depfiles, env/cache keys, file/tree multi-output logs and replay,
+`compile_commands.json`, and Windows runtime/link-interface selection across
+Stella and Ninja. Provider-author API promotion still requires the remaining
+schema/diagnostic/versioning policy decision; backend parity alone does not make
+the author API stable.
+
 Provider-author API can become stable in a later release only when:
 
 - `qstar.language_provider { api = "qstar.lang/1", ... }` and
@@ -305,7 +314,9 @@ Provider-author API can become stable in a later release only when:
 - Provider lowering result schema is frozen for Stella and Ninja parity:
   `command`, `env`, `inputs`, `outputs`, and `depfile`.
 - Standard `zig`, `rust`, and `cuda` providers each have fake-tool CI and optional
-  real-compiler validation paths.
+  real-compiler validation paths. Bundled lang/1 providers use
+  `qstar-standard-provider-compatibility-tests`; test-local lang/2 reference
+  providers use `qstar-glp-v2-backend-parity-tests`.
 - Raw source classification, explicit helper precedence, suffix collision
   diagnostics, and provider final artifact lowering are tested across Stella and
   Ninja.

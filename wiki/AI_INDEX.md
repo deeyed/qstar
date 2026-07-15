@@ -127,6 +127,9 @@ QStar가 하지 않는 일:
   link-interface, file/tree multi-output, runtime/link-interface selector,
   missing/undeclared output ownership, malformed descriptor, final-owner collision,
   Stella/Ninja/action-log/replay parity를 fake tool로 검증한다.
+- `make qstar-glp-v2-backend-parity-tests`는 Q280 v2 Graph IR, response file,
+  source/final depfile, env/cache key, multi-output action-log/replay,
+  compile_commands, Windows runtime/link-interface, Stella/Ninja parity gate다.
 - `.github/workflows/real-glp-compiler-validation.yml`은 이 real GLP compiler corpus를
   hosted Linux/macOS `workflow_dispatch` lane으로 실행한다. 기본
   `require_compilers=true` 정책에서는 Rust/Zig 설치 실패나 compiler missing skip을

@@ -352,6 +352,53 @@ make qstar-glp-v2-artifact-contract-tests
 runtime/link-interface selector, malformed manifest/action ownership, Stella/Ninja parity를
 검증한다.
 
+## GLP v2 Backend Parity
+
+Q280의 정식 실행 gate는 다음과 같다.
+
+```sh
+make qstar-glp-v2-backend-parity-tests
+```
+
+이 fixture는 project-local `zig`, `rust`, `cuda` manifest를 `qstar.lang/2`로 제공한다.
+사용 문법은 bundled provider와 같은 `lang.zig`, `lang.rust`, `lang.cuda`, `tools.zig`,
+`tools.rust`, `tools.cuda`, raw source string이다. Bundled standard provider 자체는 계속
+`qstar.lang/1`이며 기존 compatibility corpus와 optional real compiler corpus가 보호한다.
+
+Q280이 봉인하는 공통 계약:
+
+- Provider source와 final action의 argv, inputs, outputs, env, depfile을 같은 Graph IR로 저장한다.
+- Stella와 Ninja는 같은 mixed-provider object/link-interface closure를 소비한다.
+- Toolset response-file threshold와 style이 provider final action에도 적용된다.
+- Provider source뿐 아니라 provider final depfile도 incremental key와 `why-rebuild`에 참여한다.
+- Action env는 cache key와 process environment에 들어가지만 Graph/query에는 이름만,
+  action-log/replay에는 `NAME=<redacted>`만 나타난다.
+- File/tree multi-output 전체가 Stella cache와 Ninja output edge에 참여하며 action-log와
+  replay가 `output_count`, `output[N]`을 보존한다.
+- `compile_commands.json`에는 실제 object compile action만 기록한다. Final owner가 직접
+  소비한 source를 존재하지 않는 compile action으로 기록하지 않는다.
+- Windows runtime primary와 provider-owned link-interface secondary를 구분한다. Consumer는
+  runtime `.dll`/`.exe`가 아니라 manifest가 link-interface로 표시한 artifact를 받는다.
+
+`query --format json`의 target에는 additive `provider_actions` array가 있다. 각 record는
+`phase`, `api`, `provider`, `unit`, `source_index`, `argv_template`, `inputs`, `outputs`,
+`env_names`, `depfile`, `wants_depfile`을 제공한다. `provider_final`에도 같은 action contract
+field가 포함된다. `explain`/`dry-run`은 `provider_action_contract` line으로 input/output 수,
+env 이름, depfile 사용 여부를 표시한다.
+
+Provider가 Windows platform, toolchain, runtime 또는 linker option을 자동 추론한다는 뜻은
+아니다. Runtime과 link-interface 역할, secondary suffix, command argv는 manifest와
+provider implementation이 명시해야 한다. QStar는 역할에 따른 artifact 선택과 backend edge만
+책임진다.
+
+실제 Rust/Zig compiler 검증은 다음 optional gate가 맡는다.
+
+```sh
+make qstar-real-glp-compiler-corpus-tests
+```
+
+Fake-tool v2 parity 성공은 실제 compiler 설치나 언어 package ecosystem 지원을 의미하지 않는다.
+
 ## Provider Init Scaffold Metadata
 
 `scaffold`는 선택 field다. 있으면 QStar는 `api = "qstar.scaffold/1"`, `tools`,
