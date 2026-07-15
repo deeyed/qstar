@@ -193,6 +193,11 @@
           "command": "qstar.testTarget",
           "when": "view == qstarGraph && viewItem == qstarTest",
           "group": "inline"
+        },
+        {
+          "command": "qstar.testTarget",
+          "when": "view == qstarGraph && viewItem == qstarTestSuite",
+          "group": "inline"
         }
       ]
     }

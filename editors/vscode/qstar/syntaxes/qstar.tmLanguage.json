@@ -84,7 +84,7 @@
       "patterns": [
         {
           "name": "support.function.qstar",
-          "match": "\\bqstar\\.(project|option|variant|toolset|use_language|language_provider|provider_tools|language_options|argv|config|executable|staticlib|sharedlib|objectlib|interface|imported|tool|test|custom_target|transform|run_target|group|configure_file|stage|stage_file|target_family|command|command_spec|command_set|cli|status|input|output|target_file|tool_file|stage_dir|subdir|import_file|import_module|files|modules|join|copy|append|merge|extend)\\b"
+          "match": "\\bqstar\\.(project|option|variant|toolset|use_language|language_provider|provider_tools|language_options|argv|config|executable|staticlib|sharedlib|objectlib|interface|imported|tool|test|test_suite|custom_target|transform|run_target|group|configure_file|stage|stage_file|target_family|command|command_spec|command_set|cli|status|input|output|target_file|tool_file|stage_dir|subdir|import_file|import_module|files|modules|join|copy|append|merge|extend)\\b"
         }
       ]
     },
@@ -92,7 +92,7 @@
       "patterns": [
         {
           "name": "variable.parameter.qstar",
-          "match": "\\b(name|version|api|namespace|implementation|type|values|default|build_dir|generated_dir|compile_commands|toolset|tools|response_files|response_style|path_tools|allow_absolute_tools|configs|sources|deps|public_deps|private_deps|public_headers|private_headers|lang|c|cxx|asm|archive|link|include_dirs|public_include_dirs|private_include_dirs|system_include_dirs|compile_options|defines|standard|preprocess|modules|enabled|visibility|libs|lib_dirs|frameworks|link_options|link_inputs|artifact_name|outputs|inputs|command|description|timeout|expect|contains|file|output|root|files|include|exclude)\\b(?=\\s*=)"
+          "match": "\\b(name|version|api|namespace|implementation|type|values|default|build_dir|generated_dir|compile_commands|toolset|tools|response_files|response_style|path_tools|allow_absolute_tools|configs|sources|deps|public_deps|private_deps|public_headers|private_headers|lang|c|cxx|asm|archive|link|include_dirs|public_include_dirs|private_include_dirs|system_include_dirs|compile_options|defines|standard|preprocess|modules|enabled|visibility|libs|lib_dirs|frameworks|link_options|link_inputs|artifact_name|outputs|inputs|command|description|timeout|expect|contains|file|output|root|files|include|exclude|tests|tags|manual)\\b(?=\\s*=)"
         }
       ]
     },

@@ -246,6 +246,18 @@ struct qstar_target_family {
 	struct qstar_string_list targets;
 };
 
+struct qstar_test_suite {
+	char *label;
+	char *name;
+	char *fragment_dir;
+	char *origin_file;
+	int origin_line;
+	char *description;
+	int manual;
+	struct qstar_string_list tests;
+	struct qstar_string_list tags;
+};
+
 struct qstar_command_option {
 	char *name;
 	char *type;
@@ -430,6 +442,9 @@ struct qstar_graph {
 	struct qstar_target_family *families;
 	size_t family_len;
 	size_t family_cap;
+	struct qstar_test_suite *test_suites;
+	size_t test_suite_len;
+	size_t test_suite_cap;
 	struct qstar_project_command *commands;
 	size_t command_len;
 	size_t command_cap;
@@ -471,6 +486,15 @@ struct qstar_build_options {
 	int quiet;
 	int progress_mode;
 	int color_mode;
+};
+
+struct qstar_test_options {
+	const char *const *suites;
+	size_t suite_len;
+	const char *const *tags;
+	size_t tag_len;
+	const char *const *exclude_tags;
+	size_t exclude_tag_len;
 };
 
 enum {
@@ -608,6 +632,11 @@ struct qstar_stage *qstar_graph_add_stage(struct qstar_graph *graph, const char 
 /** QStar target family lint grouping primitive를 추가한다. */
 struct qstar_target_family *qstar_graph_add_target_family(struct qstar_graph *graph,
     const char *name, const char *fragment_dir, const char *origin_file, int origin_line);
+
+/** Composable test/run target label suite를 Graph IR에 추가한다. */
+struct qstar_test_suite *qstar_graph_add_test_suite(struct qstar_graph *graph,
+    const char *label, const char *name, const char *fragment_dir,
+    const char *origin_file, int origin_line);
 
 /** CLI -D project option override를 graph evaluation 입력으로 추가한다. */
 int qstar_graph_add_project_option_override(struct qstar_graph *graph,
@@ -776,6 +805,27 @@ int qstar_graph_list_project_commands_json(const struct qstar_graph *graph, FILE
 /** QStar root project command declarations를 검증한다. */
 int qstar_graph_validate_project_commands(struct qstar_graph *graph);
 
+/** Test suite member kind, nesting, duplicate, cycle을 검증한다. */
+int qstar_graph_validate_test_suites(struct qstar_graph *graph);
+
+/** Canonical label로 test suite를 찾는다. */
+const struct qstar_test_suite *qstar_graph_find_test_suite(
+    const struct qstar_graph *graph, const char *label);
+
+/** Suite/tag CLI selection을 ordered unique test/run target label list로 낮춘다. */
+int qstar_graph_resolve_test_selection(struct qstar_graph *graph,
+    const struct qstar_test_options *options, struct qstar_string_list *labels);
+
+/** Suite 하나의 nested member closure를 ordered unique target label list로 낮춘다. */
+int qstar_graph_resolve_test_suite_members(const struct qstar_graph *graph,
+    const struct qstar_test_suite *suite, const struct qstar_test_options *options,
+    struct qstar_string_list *labels);
+
+/** Target label이 속한 direct/transitive suite label을 수집한다. */
+int qstar_graph_collect_test_suite_memberships(const struct qstar_graph *graph,
+    const char *target_label, struct qstar_string_list *direct,
+    struct qstar_string_list *transitive);
+
 /** CLI -D override가 선언된 qstar.option에 모두 소비됐는지 검증한다. */
 int qstar_graph_validate_project_option_overrides(struct qstar_graph *graph);
 
@@ -789,6 +839,9 @@ const struct qstar_project_command *qstar_graph_default_project_command(
 
 /** QStar target 하나를 authoring query text로 출력한다. */
 int qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out);
+
+/** QStar target 또는 test suite 하나를 machine-readable query JSON으로 출력한다. */
+int qstar_graph_query_json(const struct qstar_graph *graph, const char *label, FILE *out);
 
 /** QStar target closure와 non-executing command plan을 deterministic text로 출력한다. */
 int qstar_graph_explain_plan(struct qstar_graph *graph, const char *label, FILE *out);
@@ -813,6 +866,10 @@ int qstar_graph_build_ninja(struct qstar_graph *graph, const char *label,
 /** Ninja backend로 test artifact를 build한 뒤 제한된 runner로 실행한다. */
 int qstar_graph_test_ninja(struct qstar_graph *graph, const char *label, FILE *out);
 
+/** Ninja backend로 suite/tag selection의 test/run targets를 실행한다. */
+int qstar_graph_test_ninja_with_options(struct qstar_graph *graph, const char *label,
+    const struct qstar_test_options *options, FILE *out);
+
 /** QStar action cache 기준으로 rebuild 이유를 설명한다. */
 int qstar_graph_why_rebuild(struct qstar_graph *graph, const char *label, FILE *out);
 
@@ -821,6 +878,10 @@ int qstar_graph_clean(struct qstar_graph *graph, const char *label, FILE *out);
 
 /** QStar test target을 build한 뒤 제한된 runner로 실행한다. */
 int qstar_graph_test(struct qstar_graph *graph, const char *label, FILE *out);
+
+/** Stella backend로 suite/tag selection의 test/run targets를 실행한다. */
+int qstar_graph_test_with_options(struct qstar_graph *graph, const char *label,
+    const struct qstar_test_options *options, FILE *out);
 
 /** QStar boot/package staging rule을 package-local root 아래 copy-only로 실행한다. */
 int qstar_graph_stage(struct qstar_graph *graph, const char *label,

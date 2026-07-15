@@ -1,0 +1,5 @@
+qstar.test_suite "bad" {
+  tests = {"//:missing"},
+}
+
+return {}

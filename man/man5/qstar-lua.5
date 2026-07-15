@@ -238,6 +238,24 @@ or a QStar executable/test target. Built executable tools create a producer edge
 before the consuming generated action in both Stella and Ninja.
 .It Ic qstar.test
 Test executable target.
+.It Ic qstar.test_suite
+Composable classification of existing
+.Ic qstar.test ,
+.Ic qstar.run_target ,
+or nested test-suite labels. Fields are required non-empty
+.Ic tests ,
+optional
+.Ic tags ,
+.Ic description ,
+and boolean
+.Ic manual .
+Tags are exact user-defined metadata. Values such as host, emulator, or hardware
+have no built-in platform, runner, compiler, or evidence meaning. Nested suites
+are flattened in declaration order and duplicate leaf labels execute once.
+.Ic manual
+excludes the suite from implicit tag root discovery only; explicit and nested
+selection still includes it. Unknown members, unsupported target kinds,
+duplicates, and cycles are diagnostics.
 .Pp
 Artifact targets and configs split
 .Ic link_options

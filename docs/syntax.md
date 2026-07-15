@@ -708,6 +708,30 @@ Allowed constants:
 
 Host-specific authoring uses ordinary Lua `if` statements over `qstar.host`.
 
+## Composable Test Suites
+
+```lua
+qstar.test_suite "verification" {
+  tests = {"//:unit", "//:runtime_smoke"},
+  tags = {"fast", "simulator"},
+  description = qstar.status("Project verification suite"),
+  manual = false,
+}
+```
+
+`tests` accepts existing `qstar.test`, `qstar.run_target`, or nested suite
+labels. `tags` are exact free-form user metadata with no builtin platform,
+runner, or evidence meaning. `manual` only excludes a suite from implicit tag
+root discovery; explicit or nested selection still includes it.
+
+```sh
+qstar test --suite //:verification
+qstar test --tag fast --exclude-tag slow
+qstar query //:verification --format json
+```
+
+The canonical contract is `docs/composable-test-suites.md`.
+
 ## CLI
 
 ```sh

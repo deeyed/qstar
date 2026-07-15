@@ -57,6 +57,9 @@ Important documents:
 - `public-declaration-schemas.md`: Korean canonical reference for strict public
   declaration fields, Lua types, list shape, source/label diagnostics, and the
   dynamic provider/free metadata boundaries.
+- `composable-test-suites.md`: Korean canonical reference for nested suites,
+  free-form tag selection, manual discovery, Stella/Ninja member closure,
+  list/query membership, and test-evidence boundaries.
 - `typed-dependency-targets.md`: Korean canonical contract for interface-only
   dependencies, platform-selected imported artifacts, explicit compile/link
   usage propagation, executable tool dependencies, and Stella/Ninja parity.

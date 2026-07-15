@@ -60,6 +60,7 @@ qstar.staticlib "core" {
 - `qstar.tool`: package-local executable tool path를 typed dependency로 표현하는 target.
 - `qstar.custom_target`, `qstar.transform`, `qstar.configure_file`: generated outputs.
 - `qstar.run_target`: external smoke/run action.
+- `qstar.test_suite`: existing test/run target/nested suite label을 조합하는 분류 primitive.
 - `qstar.group`: deps-only aggregate with no command, output, install surface, or artifact.
 - `qstar.stage`: copy-only package/stage tree.
 - `qstar.target_family`: shared-source lint grouping.
@@ -91,6 +92,10 @@ field를 저장하지 않는다.
 Activated provider의 `lang.<namespace>` option은 QStar core allowlist가 아니라 해당
 provider의 dynamic option schema로 검사한다. 전체 field와 type 표는
 [Public Declaration Schemas](declaration-schemas.md)에 둔다.
+
+Composable test suite의 nested closure, tag/manual selection, backend parity, evidence 경계는
+[Composable Test Suites](test-suites.md)에 둔다. `tags`는 exact user metadata이며 QStar가
+`host`, `emulator`, `hardware` 같은 값에 builtin 의미를 부여하지 않는다.
 
 `qstar.objectlib`는 built-in C/C++/ASM source, activated GLP raw source string,
 `"own"` context의 explicit provider source token, generated object bridge를 지원한다.

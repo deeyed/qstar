@@ -4651,6 +4651,92 @@ qstar_lua_target_family(lua_State *L)
 	return add_target_family(L, name, 2, ctx->current_dir);
 }
 
+/** qstar.test_suite를 immutable target labels의 composable 분류 primitive로 추가한다. */
+static int
+add_test_suite(lua_State *L, const char *name, int table_index,
+    const char *fragment_dir)
+{
+	static const struct qstar_lua_field_schema schema[] = {
+		QSTAR_SCHEMA_LIST("tests", QSTAR_LUA_SCHEMA_STRING, "target or suite label"),
+		QSTAR_SCHEMA_LIST("tags", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_FIELD("description", QSTAR_LUA_SCHEMA_TABLE,
+		    "qstar.status(\"...\")"),
+		QSTAR_SCHEMA_FIELD("manual", QSTAR_LUA_SCHEMA_BOOLEAN, "boolean"),
+		QSTAR_SCHEMA_END
+	};
+	struct qstar_lua_context *ctx;
+	struct qstar_graph *graph;
+	struct qstar_test_suite *suite;
+	char label[QSTAR_PATH_MAX], rawlabel[QSTAR_PATH_MAX];
+	char origin_file[QSTAR_PATH_MAX];
+	int origin_line;
+
+	if (table_index < 0)
+		table_index = lua_gettop(L) + table_index + 1;
+	ctx = get_context(L);
+	graph = ctx->graph;
+	if (reject_graph_declaration_in_module(L, "qstar.test_suite") != 0)
+		return 1;
+	luaL_checktype(L, table_index, LUA_TTABLE);
+	if (!name || !*name)
+		return luaL_error(L, "qstar: test_suite name is empty");
+	if (name[0] == ':' || name[0] == '/' || name[0] == '@') {
+		if (qstar_label_canonicalize(name, fragment_dir, label,
+		    sizeof(label)) < 0)
+			return luaL_error(L, "qstar: invalid test_suite name '%s'", name);
+	} else {
+		if (snprintf(rawlabel, sizeof(rawlabel), ":%s", name) >=
+		    (int)sizeof(rawlabel) ||
+		    qstar_label_canonicalize(rawlabel, fragment_dir, label,
+		    sizeof(label)) < 0)
+			return luaL_error(L, "qstar: invalid test_suite name '%s'", name);
+	}
+	current_origin(L, origin_file, sizeof(origin_file), &origin_line);
+	suite = qstar_graph_add_test_suite(graph, label, name, fragment_dir,
+	    origin_file, origin_line);
+	if (!suite)
+		return qstar_lua_raise_declaration_error(L, graph,
+		    "qstar.test_suite", label);
+	if (qstar_lua_validate_declaration(L, table_index, graph,
+	    "qstar.test_suite", label, schema) < 0 ||
+	    read_list_field(L, table_index, "tests", &suite->tests, graph, 1,
+	    fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "tags", &suite->tags, graph, 0,
+	    fragment_dir) < 0 ||
+	    read_status_description_field(L, table_index, graph,
+	    &suite->description) < 0)
+		return qstar_lua_raise_declaration_error(L, graph,
+		    "qstar.test_suite", label);
+	suite->manual = check_bool_field(L, table_index, "manual", 0);
+	return 0;
+}
+
+static int
+qstar_lua_test_suite_finish(lua_State *L)
+{
+	return add_test_suite(L, lua_tostring(L, lua_upvalueindex(1)), 1,
+	    lua_tostring(L, lua_upvalueindex(2)));
+}
+
+static int
+qstar_lua_test_suite(lua_State *L)
+{
+	struct qstar_lua_context *ctx;
+	const char *name;
+
+	ctx = get_context(L);
+	if (reject_graph_declaration_in_module(L, "qstar.test_suite") != 0)
+		return 1;
+	name = luaL_checkstring(L, 1);
+	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
+		lua_pushstring(L, name);
+		lua_pushstring(L, ctx->current_dir);
+		lua_pushcclosure(L, qstar_lua_test_suite_finish, 2);
+		return 1;
+	}
+	return add_test_suite(L, name, 2, ctx->current_dir);
+}
+
 /** Lua stack index를 push/pop에 흔들리지 않는 absolute index로 바꾼다. */
 static int
 qstar_lua_abs_index(lua_State *L, int idx)
@@ -10037,6 +10123,8 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "stage");
 	lua_pushcfunction(L, qstar_lua_target_family);
 	lua_setfield(L, -2, "target_family");
+	lua_pushcfunction(L, qstar_lua_test_suite);
+	lua_setfield(L, -2, "test_suite");
 	lua_pushcfunction(L, qstar_lua_output);
 	lua_setfield(L, -2, "output");
 	lua_pushcfunction(L, qstar_lua_input);

@@ -163,9 +163,15 @@ Object library는 final artifact가 없으므로 `objects`, `libs`, `lib_dirs`, 
 | `qstar.configure_file` | `output` string, `defines` list<string>, `description` status table |
 | `qstar.stage` | `root` string, `files` list<`qstar.stage_file(...)`>, `description` status table |
 | `qstar.target_family` | `allow_shared_sources` boolean, `variants` list<string>, `targets` list<string> |
+| `qstar.test_suite` | `tests` list<string>, `tags` list<string>, `description` status table, `manual` boolean |
 
 `qstar.custom_target`과 `qstar.transform`은 같은 generated action contract로 낮아지지만,
 single input/output sugar인 transform에는 plural `inputs`와 `outputs`가 없다.
+
+`qstar.test_suite.tests` item은 기존 `qstar.test`, `qstar.run_target`, 또는 다른 suite
+label이어야 한다. `tags` item value는 strict string이지만 vocabulary는 사용자 자유
+metadata다. QStar는 `host`, `emulator`, `hardware` 같은 값을 platform이나 evidence
+keyword로 해석하지 않는다.
 
 ## Project Commands
 

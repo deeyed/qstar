@@ -523,13 +523,15 @@ class QStarGraphProvider {
         new QStarGraphNode("Targets", vscode.TreeItemCollapsibleState.Collapsed, "section-targets"),
         new QStarGraphNode("Generated Actions", vscode.TreeItemCollapsibleState.Collapsed, "section-generated"),
         new QStarGraphNode("Tests", vscode.TreeItemCollapsibleState.Collapsed, "section-tests"),
+        new QStarGraphNode("Test Suites", vscode.TreeItemCollapsibleState.Collapsed, "section-test-suites"),
         new QStarGraphNode("Installable Artifacts", vscode.TreeItemCollapsibleState.Collapsed, "section-installable")
       ];
       sections[0].description = `last build: ${this.lastStatus}`;
       sections[0].iconPath = new vscode.ThemeIcon(this.lastStatus === "success" ? "check" : this.lastStatus === "failure" ? "error" : "circle-outline");
       sections[1].iconPath = new vscode.ThemeIcon("gear");
       sections[2].iconPath = new vscode.ThemeIcon("beaker");
-      sections[3].iconPath = new vscode.ThemeIcon("package");
+      sections[3].iconPath = new vscode.ThemeIcon("list-tree");
+      sections[4].iconPath = new vscode.ThemeIcon("package");
       return sections;
     }
     if (element.nodeKind === "section-targets") {
@@ -540,6 +542,9 @@ class QStarGraphProvider {
     }
     if (element.nodeKind === "section-tests") {
       return (this.graph.targets || []).filter(target => target.is_test).map(target => this.targetItem(target));
+    }
+    if (element.nodeKind === "section-test-suites") {
+      return (this.graph.test_suites || []).map(suite => this.testSuiteItem(suite));
     }
     if (element.nodeKind === "section-installable") {
       return (this.graph.targets || []).filter(target => target.installable).map(target => this.targetItem(target));
@@ -567,6 +572,20 @@ class QStarGraphProvider {
     item.tooltip = `${action.label}\norigin: ${action.origin_file}:${action.origin_line}\noutputs: ${(action.outputs || []).join(", ")}`;
     item.contextValue = "qstarGenerated";
     item.iconPath = new vscode.ThemeIcon("gear");
+    return item;
+  }
+
+  testSuiteItem(suite) {
+    const item = new QStarGraphNode(suite.label, vscode.TreeItemCollapsibleState.None, "test-suite", suite);
+    item.description = suite.manual ? "test_suite (manual)" : "test_suite";
+    item.tooltip = `${suite.label}\norigin: ${suite.origin_file}:${suite.origin_line}\ntags: ${(suite.tags || []).join(", ")}\nresolved tests: ${(suite.resolved_tests || []).join(", ")}`;
+    item.contextValue = "qstarTestSuite";
+    item.iconPath = new vscode.ThemeIcon("list-tree");
+    item.command = {
+      command: "qstar.testTarget",
+      title: "QStar: Test Suite",
+      arguments: [item]
+    };
     return item;
   }
 }
@@ -679,7 +698,9 @@ function activate(context) {
   context.subscriptions.push(vscode.commands.registerCommand("qstar.testTarget", async node => {
     const label = await targetLabelFromNode(node, "//:unit");
     if (label) {
-      runInTerminal("QStar Test", ["test", shellQuote(label)]);
+      const args = node && node.nodeKind === "test-suite" ?
+        ["test", "--suite", shellQuote(label)] : ["test", shellQuote(label)];
+      runInTerminal("QStar Test", args);
     }
   }));
   context.subscriptions.push(vscode.commands.registerCommand("qstar.openActionLog", async () => {

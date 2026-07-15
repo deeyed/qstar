@@ -59,6 +59,7 @@ cat > "$work/_Sidebar.md" <<'EOF'
 - [Toolsets](reference/toolsets)
 - [Generic Workflows](reference/generic-workflows)
 - [Reusable Project Command Sets](reference/project-command-sets)
+- [Composable Test Suites](reference/test-suites)
 - [Object Artifacts](reference/object-artifacts)
 - [Diagnostics](reference/diagnostics)
 - [Performance Gates](reference/performance-gates)

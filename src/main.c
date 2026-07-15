@@ -5,6 +5,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#define QSTAR_TEST_FILTER_MAX 128
+
 static void
 usage(FILE *out)
 {
@@ -15,7 +17,7 @@ usage(FILE *out)
 	fputs("       qstar version\n", out);
 	fputs("       qstar docs [--path|--ai-index|--show path]\n", out);
 	fputs("       qstar [options] list-targets --format json\n", out);
-	fputs("       qstar [options] query [label]\n", out);
+	fputs("       qstar [options] query <label> [--format text|json]\n", out);
 	fputs("       qstar [options] doctor\n", out);
 	fputs("       qstar [options] check [label]\n", out);
 	fputs("       qstar [options] lint [label|//...] [--format text|json]\n", out);
@@ -24,7 +26,7 @@ usage(FILE *out)
 	fputs("       qstar [options] dry-run [label]\n", out);
 	fputs("       qstar [options] emit-ninja [label]\n", out);
 	fputs("       qstar [options] build [label]\n", out);
-	fputs("       qstar [options] test [label|//...]\n", out);
+	fputs("       qstar [options] test [label|//...] [--suite label] [--tag tag] [--exclude-tag tag]\n", out);
 	fputs("       qstar [options] stage <label> [--root path] [--dry-run]\n", out);
 	fputs("       qstar [options] why-rebuild [label]\n", out);
 	fputs("       qstar [options] clean [label]\n", out);
@@ -141,8 +143,10 @@ command_help(FILE *out, const char *cmd)
 		return;
 	}
 	if (strcmp(cmd, "test") == 0) {
-		fputs("usage: qstar [options] test [label|//...]\n", out);
-		fputs("Build and run qstar.test targets, storing stdout/stderr logs under build/qstar.\n", out);
+		fputs("usage: qstar [options] test [label|//...] [--suite label] [--tag tag] [--exclude-tag tag]\n", out);
+		fputs("Build and run qstar.test targets or composable test_suite members, including run_target labels.\n", out);
+		fputs("--suite, --tag, and --exclude-tag may repeat; suite filters cannot be combined with a positional target label.\n", out);
+		fputs("Tag values are exact user metadata strings with no built-in platform or environment meaning.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "stage") == 0) {
@@ -173,7 +177,12 @@ command_help(FILE *out, const char *cmd)
 	}
 	if (strcmp(cmd, "list-targets") == 0) {
 		fputs("usage: qstar [options] list-targets [--format text|json]\n", out);
-		fputs("List targets, generated actions, stages, and target families.\n", out);
+		fputs("List targets, generated actions, stages, target families, and test suites.\n", out);
+		return;
+	}
+	if (strcmp(cmd, "query") == 0) {
+		fputs("usage: qstar [options] query <target-or-suite-label> [--format text|json]\n", out);
+		fputs("Inspect a target or composable test suite, including suite membership.\n", out);
 		return;
 	}
 	if (strcmp(cmd, "commands") == 0) {
@@ -513,7 +522,11 @@ main(int argc, char **argv)
 	const char *file, *cmd, *label, *diagnostic_format, *lint_format, *list_format;
 	const char *cli_platform, *cli_generator, *cli_build_dir, *daemon_socket;
 	struct qstar_build_options build_options;
+	struct qstar_test_options test_options;
 	struct qstar_stage_options stage_options;
+	const char *test_suites[QSTAR_TEST_FILTER_MAX];
+	const char *test_tags[QSTAR_TEST_FILTER_MAX];
+	const char *test_exclude_tags[QSTAR_TEST_FILTER_MAX];
 	char init_error[512];
 	char plan_cache_reason[128], plan_cache_store_reason[128];
 	int arg, rc, cli_overrides_applied, plan_cache_loaded, plan_cache_checked;
@@ -523,7 +536,11 @@ main(int argc, char **argv)
 
 	qstar_graph_init(&graph);
 	memset(&build_options, 0, sizeof(build_options));
+	memset(&test_options, 0, sizeof(test_options));
 	memset(&stage_options, 0, sizeof(stage_options));
+	test_options.suites = test_suites;
+	test_options.tags = test_tags;
+	test_options.exclude_tags = test_exclude_tags;
 	plan_cache_reason[0] = '\0';
 	plan_cache_store_reason[0] = '\0';
 	file = "qstar.lua";
@@ -909,12 +926,100 @@ main(int argc, char **argv)
 	plan_cache_checked = 0;
 	if (strcmp(cmd, "explain") == 0 || strcmp(cmd, "dry-run") == 0 ||
 	    strcmp(cmd, "emit-ninja") == 0 ||
-	    strcmp(cmd, "check") == 0 || strcmp(cmd, "query") == 0 ||
-	    strcmp(cmd, "test") == 0 ||
+	    strcmp(cmd, "check") == 0 ||
 	    strcmp(cmd, "why-rebuild") == 0 || strcmp(cmd, "log") == 0 ||
 	    strcmp(cmd, "action-log") == 0 || strcmp(cmd, "replay") == 0) {
 		if (arg < argc)
 			label = argv[arg++];
+	} else if (strcmp(cmd, "test") == 0) {
+		while (arg < argc) {
+			if (strcmp(argv[arg], "--suite") == 0) {
+				if (arg + 1 >= argc || test_options.suite_len >=
+				    QSTAR_TEST_FILTER_MAX) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				test_suites[test_options.suite_len++] = argv[arg + 1];
+				arg += 2;
+			} else if (strncmp(argv[arg], "--suite=", 8) == 0) {
+				if (test_options.suite_len >= QSTAR_TEST_FILTER_MAX) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				test_suites[test_options.suite_len++] = argv[arg] + 8;
+				arg++;
+			} else if (strcmp(argv[arg], "--tag") == 0) {
+				if (arg + 1 >= argc || test_options.tag_len >=
+				    QSTAR_TEST_FILTER_MAX) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				test_tags[test_options.tag_len++] = argv[arg + 1];
+				arg += 2;
+			} else if (strncmp(argv[arg], "--tag=", 6) == 0) {
+				if (test_options.tag_len >= QSTAR_TEST_FILTER_MAX) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				test_tags[test_options.tag_len++] = argv[arg] + 6;
+				arg++;
+			} else if (strcmp(argv[arg], "--exclude-tag") == 0) {
+				if (arg + 1 >= argc || test_options.exclude_tag_len >=
+				    QSTAR_TEST_FILTER_MAX) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				test_exclude_tags[test_options.exclude_tag_len++] =
+				    argv[arg + 1];
+				arg += 2;
+			} else if (strncmp(argv[arg], "--exclude-tag=", 14) == 0) {
+				if (test_options.exclude_tag_len >= QSTAR_TEST_FILTER_MAX) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				test_exclude_tags[test_options.exclude_tag_len++] =
+				    argv[arg] + 14;
+				arg++;
+			} else if (strncmp(argv[arg], "--", 2) == 0 || label) {
+				usage(stderr);
+				qstar_graph_free(&graph);
+				return 2;
+			} else {
+				label = argv[arg++];
+			}
+		}
+		if (label && (test_options.suite_len || test_options.tag_len ||
+		    test_options.exclude_tag_len)) {
+			usage(stderr);
+			qstar_graph_free(&graph);
+			return 2;
+		}
+	} else if (strcmp(cmd, "query") == 0) {
+		while (arg < argc) {
+			if (strcmp(argv[arg], "--format") == 0) {
+				if (arg + 1 >= argc ||
+				    (strcmp(argv[arg + 1], "text") != 0 &&
+				    strcmp(argv[arg + 1], "json") != 0)) {
+					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				list_format = argv[arg + 1];
+				arg += 2;
+			} else if (!label && strncmp(argv[arg], "--", 2) != 0) {
+				label = argv[arg++];
+			} else {
+				usage(stderr);
+				qstar_graph_free(&graph);
+				return 2;
+			}
+		}
 	} else if (strcmp(cmd, "lint") == 0) {
 		while (arg < argc) {
 			if (strcmp(argv[arg], "--format") == 0) {
@@ -1174,6 +1279,8 @@ main(int argc, char **argv)
 		rc = qstar_graph_validate_headers(&graph);
 	if (rc == 0 && !plan_cache_loaded)
 		rc = qstar_graph_validate_project_commands(&graph);
+	if (rc == 0 && !plan_cache_loaded)
+		rc = qstar_graph_validate_test_suites(&graph);
 	if (rc == 0 && !plan_cache_loaded &&
 	    (strcmp(cmd, "check") == 0 || strcmp(cmd, "doctor") == 0 ||
 	    strcmp(cmd, "build") == 0 || strcmp(cmd, "test") == 0 ||
@@ -1227,8 +1334,10 @@ main(int argc, char **argv)
 			    qstar_graph_build_with_options(&graph, label, &build_options, stdout);
 		else if (strcmp(cmd, "test") == 0)
 			rc = strcmp(qstar_graph_generator(&graph), "ninja") == 0 ?
-			    qstar_graph_test_ninja(&graph, label, stdout) :
-			    qstar_graph_test(&graph, label, stdout);
+			    qstar_graph_test_ninja_with_options(&graph, label,
+			    &test_options, stdout) :
+			    qstar_graph_test_with_options(&graph, label, &test_options,
+			    stdout);
 		else if (strcmp(cmd, "stage") == 0)
 			rc = qstar_graph_stage(&graph, label, &stage_options, stdout);
 		else if (strcmp(cmd, "why-rebuild") == 0)
@@ -1254,7 +1363,9 @@ main(int argc, char **argv)
 			    qstar_graph_list_project_commands_json(&graph, stdout) :
 			    qstar_graph_list_project_commands(&graph, stdout);
 		else if (strcmp(cmd, "query") == 0)
-			rc = qstar_graph_query(&graph, label, stdout);
+			rc = strcmp(list_format, "json") == 0 ?
+			    qstar_graph_query_json(&graph, label, stdout) :
+			    qstar_graph_query(&graph, label, stdout);
 		else if (project_command_requested)
 			rc = qstar_graph_run_project_command(&graph, cmd,
 			    project_command_argc, project_command_argv,

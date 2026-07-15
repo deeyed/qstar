@@ -10861,15 +10861,85 @@ test_one_target(struct qstar_graph *graph, const struct qstar_target *target, FI
 	return run_test_artifact(graph, target, out);
 }
 
-/** QStar test target을 build한 뒤 제한된 runner로 실행한다. */
+static int
+test_options_active(const struct qstar_test_options *options)
+{
+	return options && (options->suite_len || options->tag_len ||
+	    options->exclude_tag_len);
+}
+
+static void
+print_test_filter(FILE *out, const char *name, const char *const *items, size_t len)
+{
+	size_t i;
+
+	fprintf(out, "%s=[", name);
+	for (i = 0; i < len; i++) {
+		if (i)
+			fputs(", ", out);
+		fputs(items[i], out);
+	}
+	fputc(']', out);
+}
+
+static int
+test_selected_member(struct qstar_graph *graph, const struct qstar_target *target,
+    FILE *out)
+{
+	fprintf(out, "test_member label=%s kind=%s\n", target->label, target->kind);
+	if (strcmp(target->kind, "test") == 0)
+		return test_one_target(graph, target, out);
+	if (strcmp(target->kind, "run_target") == 0)
+		return qstar_graph_build(graph, target->label, out);
+	return qstar_set_error(graph,
+	    "qstar: test suite member '%s' has unsupported kind '%s'",
+	    target->label, target->kind);
+}
+
+/** QStar test 또는 suite/tag selection을 Stella backend로 실행한다. */
 int
-qstar_graph_test(struct qstar_graph *graph, const char *label, FILE *out)
+qstar_graph_test_with_options(struct qstar_graph *graph, const char *label,
+    const struct qstar_test_options *options, FILE *out)
 {
 	const struct qstar_target *target;
+	struct qstar_string_list selected;
 	size_t i, ran;
 
+	memset(&selected, 0, sizeof(selected));
 	fputs("qstar test v1\n", out);
 	fprintf(out, "root %s\n", label && *label ? label : "//...");
+	if (test_options_active(options)) {
+		fputs("selection ", out);
+		print_test_filter(out, "suites", options->suites, options->suite_len);
+		fputc(' ', out);
+		print_test_filter(out, "tags", options->tags, options->tag_len);
+		fputc(' ', out);
+		print_test_filter(out, "exclude_tags", options->exclude_tags,
+		    options->exclude_tag_len);
+		fputc('\n', out);
+		if (qstar_graph_resolve_test_selection(graph, options, &selected) < 0)
+			goto fail;
+		if (selected.len == 0) {
+			qstar_set_error(graph,
+			    "qstar: no test suite members matched the requested filters");
+			goto fail;
+		}
+		fputs("resolved_test_members [", out);
+		for (i = 0; i < selected.len; i++) {
+			if (i)
+				fputs(", ", out);
+			fputs(selected.items[i], out);
+		}
+		fputs("]\n", out);
+		for (i = 0; i < selected.len; i++) {
+			target = find_target(graph, selected.items[i]);
+			if (!target || test_selected_member(graph, target, out) < 0)
+				goto fail;
+		}
+		qstar_string_list_free(&selected);
+		fputs("status ok\n", out);
+		return 0;
+	}
 	if (label && *label && strcmp(label, "//...") != 0) {
 		target = find_target(graph, label);
 		if (!target)
@@ -10891,6 +10961,17 @@ qstar_graph_test(struct qstar_graph *graph, const char *label, FILE *out)
 		return qstar_set_error(graph, "qstar: no test targets found");
 	fputs("status ok\n", out);
 	return 0;
+
+fail:
+	qstar_string_list_free(&selected);
+	return -1;
+}
+
+/** 기존 positional qstar.test selection compatibility wrapper다. */
+int
+qstar_graph_test(struct qstar_graph *graph, const char *label, FILE *out)
+{
+	return qstar_graph_test_with_options(graph, label, NULL, out);
 }
 
 /** 파일을 byte-for-byte 복사한다. */

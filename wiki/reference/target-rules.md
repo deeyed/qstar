@@ -31,6 +31,7 @@ qstar.sharedlib "plugin" { sources = {"src/plugin.c"} }
 qstar.test "unit" { sources = {"tests/unit.c"} }
 qstar.custom_target "generated" { outputs = {qstar.output("generated/value.c")} }
 qstar.run_target "smoke" { command = qstar.cli {"tools/smoke.sh"} }
+qstar.test_suite "verification" { tests = {"//:unit", "//:smoke"}, tags = {"fast"} }
 qstar.group "module_parts" { deps = {"//lib:core", "//plugins:main"} }
 qstar.configure_file "cfg" { output = qstar.output("generated/config.h") }
 qstar.stage "bundle" { root = "stage/bundle", files = {} }
@@ -96,6 +97,11 @@ package-local artifact map을 고르고 link consumer에는 `role = "link"` arti
 연결한다. QStar-built executable/test도 `qstar.tool_file` target이 될 수 있다.
 Imported target은 artifact suffix나 `artifact_kind`에서 compiler/linker flag를 추론하지
 않는다. 전체 계약은 [Typed Dependencies](typed-dependencies.md)에 있다.
+
+`qstar.test_suite`도 artifact target이 아니다. Existing `qstar.test`, `qstar.run_target`,
+다른 suite label을 분류하고 nested ordered-unique closure로 실행한다. Tag는 사용자
+metadata일 뿐 platform이나 evidence keyword가 아니다. 전체 계약은
+[Composable Test Suites](test-suites.md)에 있다.
 
 ## 실패 예제
 

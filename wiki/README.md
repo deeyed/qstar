@@ -41,6 +41,8 @@ Local v1 release-candidate skeleton gate는 `make qstar-v1-release-candidate-tes
 [Public Declaration Schemas](reference/declaration-schemas.md)에 둔다.
 큰 root project command 목록을 graph 권한 분산 없이 QSM으로 나누는 방법은
 [Reusable Project Command Sets](reference/project-command-sets.md)에 둔다.
+Nested test/run target 분류와 tag 선택은
+[Composable Test Suites](reference/test-suites.md)에 둔다.
 
 ## 빠른 시작
 
@@ -141,8 +143,9 @@ qstar docs --show reference/qstar-lua.md
 9. [Configurable Build Surface](reference/configurable-build-surface.md)
 10. [Public Declaration Schemas](reference/declaration-schemas.md)
 11. [Typed Dependencies](reference/typed-dependencies.md)
-12. [v1 Readiness](v1-readiness.md)
-13. [Release Matrix Evidence](https://github.com/deeyed/qstar/blob/main/docs/release-matrix-evidence.md)
+12. [Composable Test Suites](reference/test-suites.md)
+13. [v1 Readiness](v1-readiness.md)
+14. [Release Matrix Evidence](https://github.com/deeyed/qstar/blob/main/docs/release-matrix-evidence.md)
 
 ## Reference
 
@@ -158,6 +161,7 @@ qstar docs --show reference/qstar-lua.md
 - [Configurable Build Surface](reference/configurable-build-surface.md)
 - [Public Declaration Schemas](reference/declaration-schemas.md)
 - [Typed Dependencies](reference/typed-dependencies.md)
+- [Composable Test Suites](reference/test-suites.md)
 - [Object Artifacts](reference/object-artifacts.md)
 - [Custom Target](reference/custom-target.md)
 - [Run Target](reference/run-target.md)

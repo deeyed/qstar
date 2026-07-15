@@ -109,7 +109,7 @@ Use
 to print a specific wiki document such as
 .Pa reference/modules.md .
 .It Ic list-targets
-List graph targets. Use
+List graph targets and composable test suites. Use
 .Fl -format Ar json
 for the stable machine-readable target listing, including effective generator,
 build_dir, generated_dir, compile_commands policy, configs, and installability.
@@ -127,7 +127,9 @@ check, lint, command call, or explicit layout export steps. Global QStar options
 still appear before the project command name; command-specific options appear
 after it.
 .It Ic query
-Print one target, generated action, stage, or config by label.
+Print one target or composable test suite by label. Use
+.Fl -format Ar json
+for the machine-readable query record and suite membership.
 .It Ic doctor
 Inspect toolset resolution, external tools, response file policy, depfile
 behavior, and writable build state.
@@ -324,7 +326,15 @@ or
 is requested. Failed actions and the last-failure replay are still written
 immediately.
 .It Ic test
-Build and run QStar test targets.
+Build and run QStar test targets. Repeated
+.Fl -suite Ar label ,
+.Fl -tag Ar tag ,
+and
+.Fl -exclude-tag Ar tag
+select ordered unique members from composable test suites. Tags are exact
+user-defined metadata with no built-in platform, runner, or evidence meaning.
+A manual suite is excluded from implicit tag discovery but remains available by
+explicit suite selection or nested membership.
 .It Ic stage
 Create a copy-only staged package tree. Projects can export that layout with
 .Ic qstar.step.export_stage

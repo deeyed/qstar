@@ -30,6 +30,7 @@ qstar: src/core/core.qst:12: qstar.objectlib declaration '//src/core:objects': f
 | `qstar.configure_file` | output, defines, description |
 | `qstar.stage` | root, files, description |
 | `qstar.target_family` | allow_shared_sources, variants, targets |
+| `qstar.test_suite` | tests, tags, description, manual |
 | `qstar.command`, `qstar.command_spec` | description, options, env, working_dir, steps, is_default, hidden, aliases |
 | `qstar.option` | type, value, choices, description |
 | `qstar.variant` | values, description, tags |
@@ -49,6 +50,10 @@ Artifact target, objectlib, group, run target은 같은 target table allowlist�
   `compile_usage`/`link_usage` nested table에는 `options`, `inputs`만 허용한다.
 
 따라서 의미 없이 저장되지만 lowering에서 쓰이지 않는 field가 남지 않는다.
+
+`qstar.test_suite.tags`의 field와 list item type은 strict하지만 tag vocabulary는 사용자
+자유 metadata다. QStar는 tag 이름에서 platform, runner, compiler flag, evidence 등급을
+추론하지 않는다.
 
 ## Lists
 

@@ -136,6 +136,8 @@ separate beta surface until the checklist below is completed.
   `qstar.step.call`, and `qstar.step.export_stage`.
 - Project-defined command names, including `install`, `deploy`, `package`, or
   any other non-conflicting project command name.
+- `qstar.test_suite` consumer syntax, nested test/run target membership,
+  free-form tag/manual selection, and repeated `qstar test --suite/--tag/--exclude-tag`.
 
 ### Common Helpers
 
@@ -157,7 +159,8 @@ separate beta surface until the checklist below is completed.
   `last-failure`, `action-log`, and `replay`.
 - Project command dispatch declared by `qstar.command`.
 - JSON output schemas that already advertise stable machine-readable use,
-  especially `list-targets --format json` and `commands --format json`.
+  especially `list-targets --format json`, `query --format json`, and
+  `commands --format json`.
 - Local docs, wiki, and manpage lookup surfaces packaged with the release.
 
 Text progress output is intended to stay useful for humans, but only documented

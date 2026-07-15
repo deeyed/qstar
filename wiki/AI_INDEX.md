@@ -155,6 +155,11 @@ QStar가 하지 않는 일:
   these names. Q269 기준 Stella/Ninja/explain/dry-run/action-log/replay/compile_commands,
   `list-targets --format json`, and `query` expose objectlib and GLP object actions through
   the same action id and artifact contract.
+- Composable test suite 정본은 `docs/composable-test-suites.md`와
+  `wiki/reference/test-suites.md`다. `qstar.test_suite`는 기존 `qstar.test`,
+  `qstar.run_target`, nested suite label을 ordered unique closure로 조합한다.
+  `tags`는 exact user metadata이며 `host`, `emulator`, `hardware` 같은 값에 builtin
+  platform/runner/evidence 의미가 없다. Stella와 Ninja는 같은 resolver 결과를 실행한다.
 - Public beta runtime package는 `make qstar-public-beta-release-tests`로 만든다. 이 gate는
   installed binary version, installed wiki/manpages, macOS codesign, prefix-style
   tarball layout, `SHA256SUMS`, VSCode `.vsix` 미포함 정책을 확인한다. Q247부터
@@ -784,6 +789,8 @@ qstar docs --show reference/progress-output.md
 qstar --file qstar.lua -B out/qstar -G stella build //:target
 qstar --file qstar.lua -G ninja build //:smoke
 qstar --file qstar.lua test //...
+qstar --file qstar.lua test --suite //:verification
+qstar --file qstar.lua test --tag fast --exclude-tag slow
 qstar --file qstar.lua stage //:bundle --dry-run
 qstar --file qstar.lua install --out exports/install
 make qstar-linux-validation-tests

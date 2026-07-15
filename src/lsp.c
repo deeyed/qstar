@@ -48,6 +48,7 @@ static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 	{ "qstar.imported", "Declare package-local prebuilt artifacts selected by platform without inferred compiler or linker flags." },
 	{ "qstar.tool", "Declare a package-local executable tool dependency path." },
 	{ "qstar.test", "Create a test executable target." },
+	{ "qstar.test_suite", "Classify existing qstar.test, run_target, or nested suite labels with exact user-defined tags." },
 	{ "qstar.custom_target", "Create a package-local generated action." },
 	{ "qstar.transform", "Create a single-input single-output generated artifact transform." },
 	{ "qstar.run_target", "Declare a named external run action." },
@@ -126,7 +127,9 @@ static const struct qstar_lsp_hover_entry qstar_lsp_fields[] = {
 	{ "value", "Default value for qstar.option before CLI -D overrides." },
 	{ "choices", "Allowed values for qstar.option type combo or qstar.param.enum." },
 	{ "values", "Free-form qstar.variant metadata table, or allowed string values for a provider enum option." },
-	{ "tags", "Free-form string labels for qstar.variant metadata." },
+	{ "tags", "Free-form string labels for qstar.variant metadata or qstar.test_suite selection; QStar assigns no platform or environment meaning." },
+	{ "tests", "Existing qstar.test, run_target, or nested qstar.test_suite labels classified by a test suite." },
+	{ "manual", "Exclude a test suite from implicit tag discovery while preserving explicit and nested selection." },
 	{ "default", "Default metadata for a provider option schema or command runtime option." },
 	{ "generated_dir", "Project-level package-relative root for qstar.output generated artifacts." },
 	{ "deps", "Public dependency edges used for build, link, and include propagation." },
@@ -626,6 +629,8 @@ load_lint_graph(const char *root_file, struct qstar_graph *graph)
 	if (rc == 0)
 		rc = qstar_graph_validate_headers(graph);
 	if (rc == 0)
+		rc = qstar_graph_validate_test_suites(graph);
+	if (rc == 0)
 		rc = qstar_graph_validate_file_inputs(graph);
 	if (rc < 0 && graph->error[0])
 		(void)qstar_graph_add_lint_from_error(graph);
@@ -977,6 +982,21 @@ label_hover(const char *path, const char *token)
 		qstar_graph_free(&graph);
 		return text.data;
 	}
+	for (i = 0; i < graph.test_suite_len; i++) {
+		const struct qstar_test_suite *suite = &graph.test_suites[i];
+		if (strcmp(suite->label, token) != 0)
+			continue;
+		if (lsp_buf_printf(&text,
+		    "**%s**\n\nkind: `test_suite`\n\norigin: `%s:%d`\n\nmembers: `%zu`\n\nmanual: `%s`",
+		    suite->label, suite->origin_file, suite->origin_line,
+		    suite->tests.len, suite->manual ? "true" : "false") < 0) {
+			lsp_buf_free(&text);
+			qstar_graph_free(&graph);
+			return NULL;
+		}
+		qstar_graph_free(&graph);
+		return text.data;
+	}
 	qstar_graph_free(&graph);
 	return NULL;
 }
@@ -1095,6 +1115,7 @@ handle_definition(struct qstar_lsp_server *server, FILE *out, const char *id,
 	struct qstar_lsp_buf payload;
 	const struct qstar_target *target;
 	const struct qstar_genrule *genrule;
+	const struct qstar_test_suite *suite;
 	char root_file[QSTAR_PATH_MAX];
 	char import_file[QSTAR_PATH_MAX];
 	char *uri, *token;
@@ -1127,7 +1148,7 @@ handle_definition(struct qstar_lsp_server *server, FILE *out, const char *id,
 	if (!doc || !token || token[0] == '\0' ||
 	    find_root_file(doc->path, root_file, sizeof(root_file)) < 0 ||
 	    (load_lint_graph(root_file, &graph) < 0 && graph.len == 0 &&
-	    graph.genrule_len == 0)) {
+	    graph.genrule_len == 0 && graph.test_suite_len == 0)) {
 		if (lsp_buf_append(&payload, "null}") < 0)
 			goto fail;
 		rc = lsp_send(out, payload.data);
@@ -1138,11 +1159,17 @@ handle_definition(struct qstar_lsp_server *server, FILE *out, const char *id,
 	}
 	target = lsp_find_target(&graph, token);
 	genrule = target ? NULL : lsp_find_genrule(&graph, token);
+	suite = target || genrule ? NULL :
+	    qstar_graph_find_test_suite(&graph, token);
 	if (target) {
 		if (append_location(&payload, target->origin_file, target->origin_line) < 0)
 			goto fail_graph;
 	} else if (genrule) {
 		if (append_location(&payload, genrule->origin_file, genrule->origin_line) < 0)
+			goto fail_graph;
+	} else if (suite) {
+		if (append_location(&payload, suite->origin_file,
+		    suite->origin_line) < 0)
 			goto fail_graph;
 	} else if (lsp_buf_append(&payload, "null") < 0) {
 		goto fail_graph;
@@ -1218,6 +1245,20 @@ handle_references(struct qstar_lsp_server *server, FILE *out, const char *id,
 			    &graph.targets[i].private_deps, token, &first) < 0)
 				goto fail_graph;
 		}
+		for (i = 0; i < graph.test_suite_len; i++) {
+			size_t j;
+			for (j = 0; j < graph.test_suites[i].tests.len; j++) {
+				if (strcmp(graph.test_suites[i].tests.items[j], token) != 0)
+					continue;
+				if (!first && lsp_buf_append(&payload, ",") < 0)
+					goto fail_graph;
+				first = 0;
+				if (append_location(&payload,
+				    graph.test_suites[i].origin_file,
+				    graph.test_suites[i].origin_line) < 0)
+					goto fail_graph;
+			}
+		}
 		qstar_graph_free(&graph);
 	}
 	if (lsp_buf_append(&payload, "]}") < 0)
@@ -1287,7 +1328,8 @@ handle_document_symbols(struct qstar_lsp_server *server, FILE *out, const char *
 	first = 1;
 	if (doc && find_root_file(doc->path, root_file, sizeof(root_file)) == 0 &&
 	    !(load_lint_graph(root_file, &graph) < 0 && graph.len == 0 &&
-	    graph.config_len == 0 && graph.genrule_len == 0)) {
+	    graph.config_len == 0 && graph.genrule_len == 0 &&
+	    graph.test_suite_len == 0)) {
 		for (i = 0; i < graph.len; i++) {
 			if (strcmp(graph.targets[i].origin_file, doc->path) != 0)
 				continue;
@@ -1311,6 +1353,15 @@ handle_document_symbols(struct qstar_lsp_server *server, FILE *out, const char *
 			if (append_document_symbol(&payload, graph.genrules[i].label,
 			    13, graph.genrules[i].config_header ? "configure_file" : "custom_target",
 			    graph.genrules[i].origin_line, first) < 0)
+				goto fail_graph;
+			first = 0;
+		}
+		for (i = 0; i < graph.test_suite_len; i++) {
+			if (strcmp(graph.test_suites[i].origin_file, doc->path) != 0)
+				continue;
+			if (append_document_symbol(&payload,
+			    graph.test_suites[i].label, 5, "test_suite",
+			    graph.test_suites[i].origin_line, first) < 0)
 				goto fail_graph;
 			first = 0;
 		}
@@ -1371,7 +1422,8 @@ handle_workspace_symbols(struct qstar_lsp_server *server, FILE *out, const char 
 	first = 1;
 	if (doc && find_root_file(doc->path, root_file, sizeof(root_file)) == 0 &&
 	    !(load_lint_graph(root_file, &graph) < 0 && graph.len == 0 &&
-	    graph.config_len == 0 && graph.genrule_len == 0)) {
+	    graph.config_len == 0 && graph.genrule_len == 0 &&
+	    graph.test_suite_len == 0)) {
 		for (i = 0; i < graph.len; i++) {
 			if (query && *query && !strstr(graph.targets[i].label, query))
 				continue;
@@ -1397,6 +1449,17 @@ handle_workspace_symbols(struct qstar_lsp_server *server, FILE *out, const char 
 			    13, graph.genrules[i].config_header ? "configure_file" : "custom_target",
 			    graph.genrules[i].origin_file, graph.genrules[i].origin_line,
 			    first) < 0)
+				goto fail_graph;
+			first = 0;
+		}
+		for (i = 0; i < graph.test_suite_len; i++) {
+			if (query && *query &&
+			    !strstr(graph.test_suites[i].label, query))
+				continue;
+			if (append_workspace_symbol(&payload,
+			    graph.test_suites[i].label, 5, "test_suite",
+			    graph.test_suites[i].origin_file,
+			    graph.test_suites[i].origin_line, first) < 0)
 				goto fail_graph;
 			first = 0;
 		}

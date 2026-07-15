@@ -331,6 +331,19 @@ free_target_family(struct qstar_target_family *family)
 	qstar_string_list_free(&family->targets);
 }
 
+/** test_suite primitive가 소유한 label, metadata, member list를 해제한다. */
+static void
+free_test_suite(struct qstar_test_suite *suite)
+{
+	free(suite->label);
+	free(suite->name);
+	free(suite->fragment_dir);
+	free(suite->origin_file);
+	free(suite->description);
+	qstar_string_list_free(&suite->tests);
+	qstar_string_list_free(&suite->tags);
+}
+
 /** root project command option schema가 소유한 문자열을 해제한다. */
 static void
 free_command_option(struct qstar_command_option *option)
@@ -487,6 +500,8 @@ qstar_graph_free(struct qstar_graph *graph)
 		free_stage(&graph->stages[i]);
 	for (i = 0; i < graph->family_len; i++)
 		free_target_family(&graph->families[i]);
+	for (i = 0; i < graph->test_suite_len; i++)
+		free_test_suite(&graph->test_suites[i]);
 	for (i = 0; i < graph->command_len; i++)
 		free_project_command(&graph->commands[i]);
 	for (i = 0; i < graph->project_option_len; i++)
@@ -514,6 +529,7 @@ qstar_graph_free(struct qstar_graph *graph)
 	free(graph->genrules);
 	free(graph->stages);
 	free(graph->families);
+	free(graph->test_suites);
 	free(graph->commands);
 	free(graph->project_options);
 	free(graph->project_option_overrides);
@@ -4115,6 +4131,37 @@ dump_target_family(const struct qstar_target_family *family, FILE *out)
 	fputc('\n', out);
 }
 
+/** composable test suite를 Graph IR dump 형식으로 출력한다. */
+static void
+dump_test_suite(const struct qstar_graph *graph,
+    const struct qstar_test_suite *suite, FILE *out)
+{
+	struct qstar_string_list resolved;
+
+	memset(&resolved, 0, sizeof(resolved));
+	fprintf(out, "test_suite %s\n", suite->label);
+	fprintf(out, "  origin file=%s line=%d\n",
+	    suite->origin_file && *suite->origin_file ? suite->origin_file :
+	    "<unknown>", suite->origin_line);
+	fprintf(out, "  description %s\n",
+	    suite->description && *suite->description ? suite->description :
+	    "<none>");
+	fprintf(out, "  manual %s\n", suite->manual ? "true" : "false");
+	fputs("  tags ", out);
+	dump_list(out, &suite->tags);
+	fputc('\n', out);
+	fputs("  tests ", out);
+	dump_list(out, &suite->tests);
+	fputc('\n', out);
+	if (qstar_graph_resolve_test_suite_members(graph, suite, NULL,
+	    &resolved) == 0) {
+		fputs("  resolved_tests ", out);
+		dump_list(out, &resolved);
+		fputc('\n', out);
+	}
+	qstar_string_list_free(&resolved);
+}
+
 /** toolset declaration을 Graph IR dump 형식으로 출력한다. */
 static void
 dump_toolset(const struct qstar_toolset *toolset, FILE *out)
@@ -4242,6 +4289,8 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 		dump_stage(&graph->stages[i], out);
 	for (i = 0; i < graph->family_len; i++)
 		dump_target_family(&graph->families[i], out);
+	for (i = 0; i < graph->test_suite_len; i++)
+		dump_test_suite(graph, &graph->test_suites[i], out);
 	for (i = 0; i < graph->command_len; i++) {
 		fprintf(out, "command %s\n", graph->commands[i].name);
 		fprintf(out, "  origin file=%s line=%d\n",
@@ -4257,7 +4306,8 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 		dump_list(out, &graph->commands[i].aliases);
 		fputc('\n', out);
 	}
-	found = label == NULL || *label == '\0';
+	found = label == NULL || *label == '\0' ||
+	    qstar_graph_find_test_suite(graph, label) != NULL;
 	for (i = 0; i < n; i++) {
 		if (label && *label && strcmp(copy[i].label, label) != 0)
 			continue;
@@ -4394,6 +4444,24 @@ sort_family_ptrs(const struct qstar_target_family **families, size_t n)
 	}
 }
 
+/** test_suite pointer list를 canonical label 순서로 정렬한다. */
+static void
+sort_test_suite_ptrs(const struct qstar_test_suite **suites, size_t n)
+{
+	size_t i, j;
+	const struct qstar_test_suite *v;
+
+	for (i = 1; i < n; i++) {
+		v = suites[i];
+		j = i;
+		while (j > 0 && strcmp(suites[j - 1]->label, v->label) > 0) {
+			suites[j] = suites[j - 1];
+			j--;
+		}
+		suites[j] = v;
+	}
+}
+
 /** target label에 대응하는 target을 찾는다. */
 static const struct qstar_target *
 find_target(const struct qstar_graph *graph, const char *label)
@@ -4417,6 +4485,7 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 	const struct qstar_language_provider **providers;
 	const struct qstar_stage **stages;
 	const struct qstar_target_family **families;
+	const struct qstar_test_suite **suites;
 	size_t i;
 
 	targets = malloc((graph->len ? graph->len : 1) * sizeof(targets[0]));
@@ -4427,13 +4496,17 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 	    sizeof(providers[0]));
 	stages = malloc((graph->stage_len ? graph->stage_len : 1) * sizeof(stages[0]));
 	families = malloc((graph->family_len ? graph->family_len : 1) * sizeof(families[0]));
-	if (!targets || !configs || !toolsets || !providers || !stages || !families) {
+	suites = malloc((graph->test_suite_len ? graph->test_suite_len : 1) *
+	    sizeof(suites[0]));
+	if (!targets || !configs || !toolsets || !providers || !stages || !families ||
+	    !suites) {
 		free(targets);
 		free(configs);
 		free(toolsets);
 		free(providers);
 		free(stages);
 		free(families);
+		free(suites);
 		return -1;
 	}
 	for (i = 0; i < graph->len; i++)
@@ -4448,12 +4521,15 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 		stages[i] = &graph->stages[i];
 	for (i = 0; i < graph->family_len; i++)
 		families[i] = &graph->families[i];
+	for (i = 0; i < graph->test_suite_len; i++)
+		suites[i] = &graph->test_suites[i];
 	sort_target_ptrs(targets, graph->len);
 	sort_config_ptrs(configs, graph->config_len);
 	sort_toolset_ptrs(toolsets, graph->toolset_len);
 	sort_language_provider_ptrs(providers, graph->language_provider_len);
 	sort_stage_ptrs(stages, graph->stage_len);
 	sort_family_ptrs(families, graph->family_len);
+	sort_test_suite_ptrs(suites, graph->test_suite_len);
 	fputs("qstar targets v1\n", out);
 	fprintf(out, "target-count %zu\n", graph->len);
 	for (i = 0; i < graph->len; i++) {
@@ -4495,12 +4571,24 @@ qstar_graph_list_targets(const struct qstar_graph *graph, FILE *out)
 		    families[i]->origin_file && *families[i]->origin_file ?
 			    families[i]->origin_file : "<unknown>",
 			    families[i]->origin_line);
+	fprintf(out, "test-suite-count %zu\n", graph->test_suite_len);
+	for (i = 0; i < graph->test_suite_len; i++) {
+		fprintf(out, "test_suite %s manual=%s tags=", suites[i]->label,
+		    suites[i]->manual ? "true" : "false");
+		dump_list(out, &suites[i]->tags);
+		fputs(" tests=", out);
+		dump_list(out, &suites[i]->tests);
+		fprintf(out, " origin=%s:%d\n",
+		    suites[i]->origin_file && *suites[i]->origin_file ?
+		    suites[i]->origin_file : "<unknown>", suites[i]->origin_line);
+	}
 	free(targets);
 	free(configs);
 	free(toolsets);
 	free(providers);
 	free(stages);
 	free(families);
+	free(suites);
 	return 0;
 }
 
@@ -4509,6 +4597,12 @@ static void
 dump_target_json(FILE *out, const struct qstar_graph *graph,
     const struct qstar_target *target)
 {
+	struct qstar_string_list direct_suites, suites;
+
+	memset(&direct_suites, 0, sizeof(direct_suites));
+	memset(&suites, 0, sizeof(suites));
+	(void)qstar_graph_collect_test_suite_memberships(graph, target->label,
+	    &direct_suites, &suites);
 	fputs("{\"label\":", out);
 	dump_json_string(out, target->label);
 	fputs(",\"name\":", out);
@@ -4536,6 +4630,10 @@ dump_target_json(FILE *out, const struct qstar_graph *graph,
 	dump_json_list(out, &target->deps);
 	fputs(",\"private_deps\":", out);
 	dump_json_list(out, &target->private_deps);
+	fputs(",\"direct_test_suites\":", out);
+	dump_json_list(out, &direct_suites);
+	fputs(",\"test_suites\":", out);
+	dump_json_list(out, &suites);
 	dump_target_usage_json(out, graph, target);
 	fputs(",\"toolset\":", out);
 	dump_json_string(out, target->toolset && *target->toolset ? target->toolset : "");
@@ -4566,6 +4664,8 @@ dump_target_json(FILE *out, const struct qstar_graph *graph,
 	fprintf(out, ",\"is_test\":%s", strcmp(target->kind, "test") == 0 ? "true" : "false");
 	fprintf(out, ",\"installable\":%s", qstar_target_is_installable(target) ? "true" : "false");
 	fputc('}', out);
+	qstar_string_list_free(&direct_suites);
+	qstar_string_list_free(&suites);
 }
 
 /** reusable config 하나를 machine-readable JSON record로 출력한다. */
@@ -4810,6 +4910,39 @@ dump_target_family_json(FILE *out, const struct qstar_target_family *family)
 	fputc('}', out);
 }
 
+/** test_suite 하나를 direct/nested resolved membership JSON으로 출력한다. */
+static void
+dump_test_suite_json(FILE *out, const struct qstar_graph *graph,
+    const struct qstar_test_suite *suite)
+{
+	struct qstar_string_list resolved;
+
+	memset(&resolved, 0, sizeof(resolved));
+	(void)qstar_graph_resolve_test_suite_members(graph, suite, NULL, &resolved);
+	fputs("{\"label\":", out);
+	dump_json_string(out, suite->label);
+	fputs(",\"name\":", out);
+	dump_json_string(out, suite->name);
+	fputs(",\"origin_file\":", out);
+	dump_json_string(out, suite->origin_file && *suite->origin_file ?
+	    suite->origin_file : "<unknown>");
+	fprintf(out, ",\"origin_line\":%d", suite->origin_line);
+	fputs(",\"fragment_dir\":", out);
+	dump_json_string(out, suite->fragment_dir);
+	fputs(",\"description\":", out);
+	dump_json_string(out, suite->description && *suite->description ?
+	    suite->description : "");
+	fprintf(out, ",\"manual\":%s", suite->manual ? "true" : "false");
+	fputs(",\"tags\":", out);
+	dump_json_list(out, &suite->tags);
+	fputs(",\"tests\":", out);
+	dump_json_list(out, &suite->tests);
+	fputs(",\"resolved_tests\":", out);
+	dump_json_list(out, &resolved);
+	fputc('}', out);
+	qstar_string_list_free(&resolved);
+}
+
 /** QStar target/generated action 목록을 machine-readable JSON으로 출력한다. */
 int
 qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
@@ -4821,6 +4954,7 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	const struct qstar_genrule **genrules;
 	const struct qstar_stage **stages;
 	const struct qstar_target_family **families;
+	const struct qstar_test_suite **suites;
 	size_t i;
 
 	targets = malloc((graph->len ? graph->len : 1) * sizeof(targets[0]));
@@ -4832,8 +4966,10 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	genrules = malloc((graph->genrule_len ? graph->genrule_len : 1) * sizeof(genrules[0]));
 	stages = malloc((graph->stage_len ? graph->stage_len : 1) * sizeof(stages[0]));
 	families = malloc((graph->family_len ? graph->family_len : 1) * sizeof(families[0]));
+	suites = malloc((graph->test_suite_len ? graph->test_suite_len : 1) *
+	    sizeof(suites[0]));
 	if (!targets || !configs || !toolsets || !providers || !genrules || !stages ||
-	    !families) {
+	    !families || !suites) {
 		free(targets);
 		free(configs);
 		free(toolsets);
@@ -4841,6 +4977,7 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 		free(genrules);
 		free(stages);
 		free(families);
+		free(suites);
 		return -1;
 	}
 	for (i = 0; i < graph->len; i++)
@@ -4857,6 +4994,8 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 		stages[i] = &graph->stages[i];
 	for (i = 0; i < graph->family_len; i++)
 		families[i] = &graph->families[i];
+	for (i = 0; i < graph->test_suite_len; i++)
+		suites[i] = &graph->test_suites[i];
 	sort_target_ptrs(targets, graph->len);
 	sort_config_ptrs(configs, graph->config_len);
 	sort_toolset_ptrs(toolsets, graph->toolset_len);
@@ -4864,6 +5003,7 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	sort_genrule_ptrs(genrules, graph->genrule_len);
 	sort_stage_ptrs(stages, graph->stage_len);
 	sort_family_ptrs(families, graph->family_len);
+	sort_test_suite_ptrs(suites, graph->test_suite_len);
 	fputs("{\"schema\":\"qstar-targets-v1\",\"package_root\":", out);
 	dump_json_string(out, graph->package_root ? graph->package_root : ".");
 	fputs(",\"project\":{\"name\":", out);
@@ -4889,10 +5029,11 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	fprintf(out,
 	    ",\"target_count\":%zu,\"config_count\":%zu,\"toolset_count\":%zu,"
 	    "\"language_provider_count\":%zu,"
-	    "\"generated_action_count\":%zu,\"stage_count\":%zu,\"target_family_count\":%zu",
+	    "\"generated_action_count\":%zu,\"stage_count\":%zu,\"target_family_count\":%zu,"
+	    "\"test_suite_count\":%zu",
 	    graph->len, graph->config_len, graph->toolset_len,
 	    graph->language_provider_len, graph->genrule_len, graph->stage_len,
-	    graph->family_len);
+	    graph->family_len, graph->test_suite_len);
 	fputs(",\"targets\":[", out);
 	for (i = 0; i < graph->len; i++) {
 		if (i)
@@ -4935,6 +5076,12 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 			fputc(',', out);
 		dump_target_family_json(out, families[i]);
 	}
+	fputs("],\"test_suites\":[", out);
+	for (i = 0; i < graph->test_suite_len; i++) {
+		if (i)
+			fputc(',', out);
+		dump_test_suite_json(out, graph, suites[i]);
+	}
 	fputs("]}\n", out);
 	free(targets);
 	free(configs);
@@ -4943,6 +5090,7 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	free(genrules);
 	free(stages);
 	free(families);
+	free(suites);
 	return 0;
 }
 
@@ -4951,12 +5099,42 @@ int
 qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 {
 	const struct qstar_target *target;
+	const struct qstar_test_suite *suite;
+	struct qstar_string_list direct_suites, suites, resolved;
 
 	if (!label || !*label)
 		return -1;
 	target = find_target(graph, label);
-	if (!target)
-		return -1;
+	if (!target) {
+		suite = qstar_graph_find_test_suite(graph, label);
+		if (!suite)
+			return -1;
+		memset(&resolved, 0, sizeof(resolved));
+		if (qstar_graph_resolve_test_suite_members(graph, suite, NULL,
+		    &resolved) < 0)
+			return -1;
+		fputs("qstar query v1\n", out);
+		fprintf(out, "test_suite %s\n", suite->label);
+		fprintf(out, "  origin file=%s line=%d\n",
+		    suite->origin_file && *suite->origin_file ?
+		    suite->origin_file : "<unknown>", suite->origin_line);
+		fprintf(out, "  fragment_dir %s\n", suite->fragment_dir);
+		fprintf(out, "  description %s\n",
+		    suite->description && *suite->description ?
+		    suite->description : "<none>");
+		fprintf(out, "  manual %s\n", suite->manual ? "true" : "false");
+		fputs("  tags ", out);
+		dump_list(out, &suite->tags);
+		fputc('\n', out);
+		fputs("  tests ", out);
+		dump_list(out, &suite->tests);
+		fputc('\n', out);
+		fputs("  resolved_tests ", out);
+		dump_list(out, &resolved);
+		fputc('\n', out);
+		qstar_string_list_free(&resolved);
+		return 0;
+	}
 	fputs("qstar query v1\n", out);
 	fprintf(out, "target %s\n", target->label);
 	fprintf(out, "  origin file=%s line=%d\n",
@@ -5008,6 +5186,19 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	fputs("  private_deps ", out);
 	dump_list(out, &target->private_deps);
 	fputc('\n', out);
+	memset(&direct_suites, 0, sizeof(direct_suites));
+	memset(&suites, 0, sizeof(suites));
+	if (qstar_graph_collect_test_suite_memberships(graph, target->label,
+	    &direct_suites, &suites) == 0) {
+		fputs("  direct_test_suites ", out);
+		dump_list(out, &direct_suites);
+		fputc('\n', out);
+		fputs("  test_suites ", out);
+		dump_list(out, &suites);
+		fputc('\n', out);
+	}
+	qstar_string_list_free(&direct_suites);
+	qstar_string_list_free(&suites);
 	dump_target_usage_text(out, graph, target, "  ");
 	fputs("  visibility ", out);
 	dump_list(out, &target->visibility);
@@ -5045,6 +5236,33 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	qstar_dump_target_artifact_map_text(out, graph, target, "  ");
 	dump_imported_artifacts_text(out, target, "  ");
 	return 0;
+}
+
+/** target 또는 test_suite 하나를 machine-readable query JSON으로 출력한다. */
+int
+qstar_graph_query_json(const struct qstar_graph *graph, const char *label,
+    FILE *out)
+{
+	const struct qstar_target *target;
+	const struct qstar_test_suite *suite;
+
+	if (!label || !*label)
+		return -1;
+	target = find_target(graph, label);
+	if (target) {
+		fputs("{\"schema\":\"qstar-query-v1\",\"kind\":\"target\",\"target\":", out);
+		dump_target_json(out, graph, target);
+		fputs("}\n", out);
+		return 0;
+	}
+	suite = qstar_graph_find_test_suite(graph, label);
+	if (suite) {
+		fputs("{\"schema\":\"qstar-query-v1\",\"kind\":\"test_suite\",\"test_suite\":", out);
+		dump_test_suite_json(out, graph, suite);
+		fputs("}\n", out);
+		return 0;
+	}
+	return -1;
 }
 
 /** 경로에서 package root로 쓸 dirname을 계산한다. */

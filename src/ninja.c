@@ -4104,16 +4104,94 @@ test_one_target_ninja(struct qstar_graph *graph, const struct qstar_target *targ
 	return run_ninja_test_artifact(graph, target, out);
 }
 
-/** Ninja backend로 test target을 build한 뒤 제한된 runner로 실행한다. */
+static int
+ninja_test_options_active(const struct qstar_test_options *options)
+{
+	return options && (options->suite_len || options->tag_len ||
+	    options->exclude_tag_len);
+}
+
+static void
+print_ninja_test_filter(FILE *out, const char *name,
+    const char *const *items, size_t len)
+{
+	size_t i;
+
+	fprintf(out, "%s=[", name);
+	for (i = 0; i < len; i++) {
+		if (i)
+			fputs(", ", out);
+		fputs(items[i], out);
+	}
+	fputc(']', out);
+}
+
+static int
+ninja_test_selected_member(struct qstar_graph *graph,
+    const struct qstar_target *target, FILE *out)
+{
+	struct qstar_build_options options;
+
+	fprintf(out, "test_member label=%s kind=%s backend=ninja\n",
+	    target->label, target->kind);
+	if (strcmp(target->kind, "test") == 0)
+		return test_one_target_ninja(graph, target, out);
+	if (strcmp(target->kind, "run_target") == 0) {
+		memset(&options, 0, sizeof(options));
+		return qstar_graph_build_ninja(graph, target->label, &options, out);
+	}
+	return qstar_set_error(graph,
+	    "qstar: test suite member '%s' has unsupported kind '%s'",
+	    target->label, target->kind);
+}
+
+/** Ninja backend로 test 또는 suite/tag selection을 실행한다. */
 int
-qstar_graph_test_ninja(struct qstar_graph *graph, const char *label, FILE *out)
+qstar_graph_test_ninja_with_options(struct qstar_graph *graph, const char *label,
+    const struct qstar_test_options *options, FILE *out)
 {
 	const struct qstar_target *target;
+	struct qstar_string_list selected;
 	size_t i, ran;
 
+	memset(&selected, 0, sizeof(selected));
 	fputs("qstar test v1\n", out);
 	fprintf(out, "root %s\n", label && *label ? label : "//...");
 	fprintf(out, "backend ninja\n");
+	if (ninja_test_options_active(options)) {
+		fputs("selection ", out);
+		print_ninja_test_filter(out, "suites", options->suites,
+		    options->suite_len);
+		fputc(' ', out);
+		print_ninja_test_filter(out, "tags", options->tags,
+		    options->tag_len);
+		fputc(' ', out);
+		print_ninja_test_filter(out, "exclude_tags", options->exclude_tags,
+		    options->exclude_tag_len);
+		fputc('\n', out);
+		if (qstar_graph_resolve_test_selection(graph, options, &selected) < 0)
+			goto fail;
+		if (selected.len == 0) {
+			qstar_set_error(graph,
+			    "qstar: no test suite members matched the requested filters");
+			goto fail;
+		}
+		fputs("resolved_test_members [", out);
+		for (i = 0; i < selected.len; i++) {
+			if (i)
+				fputs(", ", out);
+			fputs(selected.items[i], out);
+		}
+		fputs("]\n", out);
+		for (i = 0; i < selected.len; i++) {
+			target = find_target(graph, selected.items[i]);
+			if (!target || ninja_test_selected_member(graph, target, out) < 0)
+				goto fail;
+		}
+		qstar_string_list_free(&selected);
+		fputs("status ok\n", out);
+		return 0;
+	}
 	if (label && *label && strcmp(label, "//...") != 0) {
 		target = find_target(graph, label);
 		if (!target)
@@ -4135,4 +4213,15 @@ qstar_graph_test_ninja(struct qstar_graph *graph, const char *label, FILE *out)
 		return qstar_set_error(graph, "qstar: no test targets found");
 	fputs("status ok\n", out);
 	return 0;
+
+fail:
+	qstar_string_list_free(&selected);
+	return -1;
+}
+
+/** 기존 positional qstar.test selection compatibility wrapper다. */
+int
+qstar_graph_test_ninja(struct qstar_graph *graph, const char *label, FILE *out)
+{
+	return qstar_graph_test_ninja_with_options(graph, label, NULL, out);
 }

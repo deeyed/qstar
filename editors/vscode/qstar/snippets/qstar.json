@@ -111,6 +111,21 @@
     ],
     "description": "Create a QStar test target."
   },
+  "Composable test suite": {
+    "prefix": "qtestsuite",
+    "body": [
+      "qstar.test_suite \"${1:verification}\" {",
+      "  tests = {",
+      "    \"${2://:unit}\",",
+      "    \"${3://:smoke}\",",
+      "  },",
+      "  tags = {\"${4:fast}\"},",
+      "  description = qstar.status(\"${5:Verification suite}\"),",
+      "  manual = ${6:false},",
+      "}"
+    ],
+    "description": "Classify existing test, run target, or nested suite labels with user-defined tags."
+  },
   "Generated action": {
     "prefix": "qcustom",
     "body": [
