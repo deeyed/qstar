@@ -119,7 +119,6 @@ qstar.project {
 
 qstar.executable "app" {
   sources = {"src/main.c"},
-  description = qstar.status("Linking daemon beta boundary app"),
 }
 EOF
 	cat > "$root/src/main.c" <<'EOF'

@@ -37,6 +37,8 @@ removal policy는 [Compatibility Policy](compatibility-policy.md)에 둔다. mac
 release evidence ledger의 정본은
 [docs/release-matrix-evidence.md](https://github.com/deeyed/qstar/blob/main/docs/release-matrix-evidence.md)다.
 Local v1 release-candidate skeleton gate는 `make qstar-v1-release-candidate-tests`다.
+모든 public declaration table의 strict field/type 계약과 예외 경계는
+[Public Declaration Schemas](reference/declaration-schemas.md)에 둔다.
 
 ## 빠른 시작
 
@@ -135,8 +137,9 @@ qstar docs --show reference/qstar-lua.md
 7. [Language Providers](reference/language-providers.md)
 8. [Generic Workflows](reference/generic-workflows.md)
 9. [Configurable Build Surface](reference/configurable-build-surface.md)
-10. [v1 Readiness](v1-readiness.md)
-11. [Release Matrix Evidence](https://github.com/deeyed/qstar/blob/main/docs/release-matrix-evidence.md)
+10. [Public Declaration Schemas](reference/declaration-schemas.md)
+11. [v1 Readiness](v1-readiness.md)
+12. [Release Matrix Evidence](https://github.com/deeyed/qstar/blob/main/docs/release-matrix-evidence.md)
 
 ## Reference
 
@@ -150,6 +153,7 @@ qstar docs --show reference/qstar-lua.md
 - [Language Providers](reference/language-providers.md)
 - [Generic Workflows](reference/generic-workflows.md)
 - [Configurable Build Surface](reference/configurable-build-surface.md)
+- [Public Declaration Schemas](reference/declaration-schemas.md)
 - [Object Artifacts](reference/object-artifacts.md)
 - [Custom Target](reference/custom-target.md)
 - [Run Target](reference/run-target.md)

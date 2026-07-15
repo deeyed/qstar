@@ -8,6 +8,23 @@ The current configurable build surface reference lives in
 `qstar.variant`, `qstar.objectlib`, CLI `-D` option overrides, nested
 `qstar.subdir`, and explicit fragment-relative `./` path resolution.
 
+## Strict Declaration Tables
+
+Every public declaration table has an exact field and Lua type schema. Unknown
+fields, wrong types, and sparse or named-key lists fail graph evaluation; the
+diagnostic includes the Lua source location, API name, and declaration label.
+QStar does not silently ignore misspelled fields.
+
+```text
+qstar: src/core/core.qst:12: qstar.objectlib declaration '//src/core:objects': unknown field 'soruces'
+```
+
+`qstar.variant.values` remains user-defined metadata, ordinary tables returned
+by `qstar.import_module()` are not declarations, and `lang.<provider>` options
+use the activated provider's dynamic option schema. The complete field/type
+contract is in `docs/public-declaration-schemas.md` and its wiki mirror at
+`wiki/reference/declaration-schemas.md`.
+
 ## Entrypoints
 
 ```lua

@@ -568,6 +568,25 @@ and
 provider ids, namespaces, documented helper exports, documented options, source
 classification behavior, and init vendoring behavior are consumer-facing stable
 candidates; their implementation details remain beta.
+.Sh DECLARATION SCHEMAS
+Every public declaration table has an exact field and Lua type schema.
+Unknown fields, wrong types, and list tables with named, sparse, or non-integer
+keys are rejected during graph evaluation. Diagnostics include the Lua source
+file and line, public API name, and declaration label. Artifact targets,
+object libraries, groups, and run targets use separate schemas so fields that
+have no lowering meaning cannot be silently retained.
+.Pp
+Keys under
+.Ic qstar.variant.values
+remain user-defined metadata. Ordinary Lua tables returned by
+.Ic qstar.import_module
+are not declaration tables. Activated provider options under
+.Ic lang.<namespace>
+are validated by that provider's dynamic option schema rather than a core
+allowlist. The complete contract is documented in
+.Pa share/doc/qstar/docs/public-declaration-schemas.md
+and
+.Pa share/doc/qstar/wiki/reference/declaration-schemas.md .
 .Sh CONSTANTS
 .Nm
 provides constants such as

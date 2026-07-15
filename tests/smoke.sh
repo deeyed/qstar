@@ -2550,7 +2550,7 @@ EOF
 if "$qstar" --file "$tmp/config-scalar/qstar.lua" check > "$tmp/config-toolchain.out" 2> "$tmp/config-toolchain.err"; then
 	fail "config toolchain field unexpectedly succeeded"
 fi
-contains "$tmp/config-toolchain.err" "unknown config field 'toolchain'"
+contains "$tmp/config-toolchain.err" "qstar.config declaration '//:bad': unknown field 'toolchain'"
 cat > "$tmp/config-scalar/qstar.lua" <<'EOF'
 qstar.staticlib "bad" {
   stdlib = "system",
@@ -2559,7 +2559,7 @@ EOF
 if "$qstar" --file "$tmp/config-scalar/qstar.lua" check > "$tmp/target-stdlib.out" 2> "$tmp/target-stdlib.err"; then
 	fail "target stdlib field unexpectedly succeeded"
 fi
-contains "$tmp/target-stdlib.err" "unknown target field 'stdlib'"
+contains "$tmp/target-stdlib.err" "qstar.staticlib declaration '//:bad': unknown field 'stdlib'"
 
 step "toolset provider namespace corpus" "toolset-check"
 mkdir -p "$tmp/toolset/src" "$tmp/toolset/qstar/languages/zig"
@@ -4559,7 +4559,7 @@ EOF
 if "$qstar" --file "$tmp/config-unknown/qstar.lua" check > "$tmp/config-unknown.out" 2> "$tmp/config-unknown.err"; then
 	fail "unknown config field unexpectedly succeeded"
 fi
-contains "$tmp/config-unknown.err" "unknown config field 'sources'"
+contains "$tmp/config-unknown.err" "qstar.config declaration '//:bad': unknown field 'sources'"
 cat > "$tmp/config-unknown/qstar.lua" <<'EOF'
 qstar.config "bad" {
   frameworks = {"Foundation"},
@@ -4568,7 +4568,7 @@ EOF
 if "$qstar" --file "$tmp/config-unknown/qstar.lua" check > "$tmp/config-frameworks.out" 2> "$tmp/config-frameworks.err"; then
 	fail "top-level config frameworks unexpectedly succeeded"
 fi
-contains "$tmp/config-frameworks.err" "unknown config field 'frameworks'"
+contains "$tmp/config-frameworks.err" "qstar.config declaration '//:bad': unknown field 'frameworks'"
 cat > "$tmp/config-unknown/qstar.lua" <<'EOF'
 qstar.config "bad" {
   link = {
@@ -5191,7 +5191,7 @@ EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-marker.out" 2> "$tmp/old-marker.err"; then
 	fail "removed run_target marker unexpectedly succeeded"
 fi
-contains "$tmp/old-marker.err" "unknown target field 'marker'"
+contains "$tmp/old-marker.err" "qstar.run_target declaration '//:smoke': unknown field 'marker'"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.run_target "smoke" {
   command = qstar.cli {"true"},
@@ -5201,7 +5201,7 @@ EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-marker-log.out" 2> "$tmp/old-marker-log.err"; then
 	fail "removed run_target marker_log unexpectedly succeeded"
 fi
-contains "$tmp/old-marker-log.err" "unknown target field 'marker_log'"
+contains "$tmp/old-marker-log.err" "qstar.run_target declaration '//:smoke': unknown field 'marker_log'"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.executable "app" {
   include_dirs = {"include"},
@@ -5210,7 +5210,7 @@ EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-include.out" 2> "$tmp/old-include.err"; then
 	fail "top-level include_dirs unexpectedly succeeded"
 fi
-contains "$tmp/old-include.err" "unknown target field 'include_dirs'"
+contains "$tmp/old-include.err" "qstar.executable declaration '//:app': unknown field 'include_dirs'"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.executable "app" {
   cxx_standard = "c++20",
@@ -5219,7 +5219,7 @@ EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-cxx-standard.out" 2> "$tmp/old-cxx-standard.err"; then
 	fail "top-level cxx_standard unexpectedly succeeded"
 fi
-contains "$tmp/old-cxx-standard.err" "unknown target field 'cxx_standard'"
+contains "$tmp/old-cxx-standard.err" "qstar.executable declaration '//:app': unknown field 'cxx_standard'"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.staticlib "core" {
   public_headers = {"include/core.h"},
@@ -5228,7 +5228,7 @@ EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-public-headers.out" 2> "$tmp/old-public-headers.err"; then
 	fail "top-level public_headers unexpectedly succeeded"
 fi
-contains "$tmp/old-public-headers.err" "unknown target field 'public_headers'"
+contains "$tmp/old-public-headers.err" "qstar.staticlib declaration '//:core': unknown field 'public_headers'"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.staticlib "core" {
   private_headers = {"src/core_private.h"},
@@ -5237,7 +5237,7 @@ EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-private-headers.out" 2> "$tmp/old-private-headers.err"; then
 	fail "top-level private_headers unexpectedly succeeded"
 fi
-contains "$tmp/old-private-headers.err" "unknown target field 'private_headers'"
+contains "$tmp/old-private-headers.err" "qstar.staticlib declaration '//:core': unknown field 'private_headers'"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.modules { root = "src" }
 EOF
@@ -5253,7 +5253,7 @@ EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-modules.out" 2> "$tmp/old-modules.err"; then
 	fail "top-level modules unexpectedly succeeded"
 fi
-contains "$tmp/old-modules.err" "unknown target field 'modules'"
+contains "$tmp/old-modules.err" "qstar.staticlib declaration '//:core': unknown field 'modules'"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.executable "app" {
   frameworks = {"Foundation"},
@@ -5262,7 +5262,7 @@ EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/old-frameworks.out" 2> "$tmp/old-frameworks.err"; then
 	fail "top-level frameworks unexpectedly succeeded"
 fi
-contains "$tmp/old-frameworks.err" "unknown target field 'frameworks'"
+contains "$tmp/old-frameworks.err" "qstar.executable declaration '//:app': unknown field 'frameworks'"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.staticlib "core" {
   lang = {
@@ -5296,7 +5296,7 @@ EOF
 if "$qstar" --file "$tmp/old-api/qstar.lua" check > "$tmp/custom-target-unknown.out" 2> "$tmp/custom-target-unknown.err"; then
 	fail "unknown custom_target field unexpectedly succeeded"
 fi
-contains "$tmp/custom-target-unknown.err" "unknown custom_target field 'unexpected'"
+contains "$tmp/custom-target-unknown.err" "qstar.custom_target declaration '//:g': unknown field 'unexpected'"
 cat > "$tmp/old-api/qstar.lua" <<'EOF'
 qstar.executable "app" {
   sources = {"src/main.c"},
@@ -9605,7 +9605,7 @@ EOF
 if "$qstar" --file "$tmp/transform-bad/qstar.lua" check > "$tmp/transform-bad-field.out" 2> "$tmp/transform-bad-field.err"; then
 	fail "unknown transform field unexpectedly succeeded"
 fi
-contains "$tmp/transform-bad-field.err" "unknown transform field 'outputs'"
+contains "$tmp/transform-bad-field.err" "qstar.transform declaration '//:bad': unknown field 'outputs'"
 cat > "$tmp/transform-bad/qstar.lua" <<'EOF'
 qstar.toolset "other" {
   tools = {
@@ -9861,7 +9861,7 @@ EOF
 if "$qstar" --file "$tmp/run-input-diagnostics/qstar.lua" check > "$tmp/non-run-input.out" 2> "$tmp/non-run-input.err"; then
 	fail "non-run target inputs unexpectedly succeeded"
 fi
-contains "$tmp/non-run-input.err" "field 'inputs' is only valid on run_target"
+contains "$tmp/non-run-input.err" "qstar.executable declaration '//:bad': unknown field 'inputs'"
 cat > "$tmp/run-input-diagnostics/qstar.lua" <<'EOF'
 qstar.stage "layout" {
   files = {
@@ -10725,7 +10725,7 @@ EOF
 if "$qstar" --file "$tmp/variant-bad/qstar.lua" check > "$tmp/variant-bad-field.out" 2> "$tmp/variant-bad-field.err"; then
 	fail "variant top-level metadata key unexpectedly succeeded"
 fi
-contains "$tmp/variant-bad-field.err" "unknown qstar.variant field 'arch'; put user metadata under values"
+contains "$tmp/variant-bad-field.err" "qstar.variant declaration 'bad': unknown field 'arch'"
 cat > "$tmp/variant-bad/qstar.lua" <<'EOF'
 local DEVICE <const> = qstar.variant "device" {
   values = {

@@ -73,6 +73,20 @@ project마다 의미가 달라질 수 있는 vocabulary는 QStar builtin field�
 QStar는 이 값을 보고 compiler/linker argv를 자동 주입하지 않으며, project가 Lua `if`와
 `qstar.config.lang.*.compile_options` 또는 `link_options`로 explicit argv를 작성한다.
 
+## Strict declaration schemas
+
+모든 public declaration table은 API별 고정 field/type schema를 사용한다. Unknown field,
+잘못된 Lua type, 1부터 연속되지 않는 list는 graph evaluation error이며, diagnostic에는
+Lua source file/line, API 이름, declaration label이 함께 나온다. Artifact target,
+objectlib, group, run target은 서로 다른 schema를 사용하므로 lowering에서 의미가 없는
+field를 저장하지 않는다.
+
+예외 경계도 명시적이다. `qstar.variant.values` key는 사용자 자유 metadata이고,
+`qstar.import_module()`이 반환한 일반 Lua table은 declaration schema로 검사하지 않는다.
+Activated provider의 `lang.<namespace>` option은 QStar core allowlist가 아니라 해당
+provider의 dynamic option schema로 검사한다. 전체 field와 type 표는
+[Public Declaration Schemas](declaration-schemas.md)에 둔다.
+
 `qstar.objectlib`는 built-in C/C++/ASM source, activated GLP raw source string,
 `"own"` context의 explicit provider source token, generated object bridge를 지원한다.
 `compile_context = "consumer"`는 source ownership을 objectlib에 두되 consuming artifact

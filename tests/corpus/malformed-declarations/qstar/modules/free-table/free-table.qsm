@@ -1,0 +1,6 @@
+return {
+  typo = "ordinary Lua metadata",
+  nested = {
+    arbitrary = true,
+  },
+}

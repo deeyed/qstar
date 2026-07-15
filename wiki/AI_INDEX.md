@@ -34,6 +34,11 @@ QStar가 하지 않는 일:
 
 ## 2. 반드시 지킬 authoring surface
 
+- Public declaration table은 strict schema다. Unknown field, 잘못된 Lua type,
+  named/sparse list는 source location, API 이름, declaration label을 포함한 error로
+  거부된다. `qstar.variant.values`는 자유 metadata이고, 일반 module return table은
+  declaration이 아니며, provider option은 provider dynamic schema를 따른다. 정본은
+  `wiki/reference/declaration-schemas.md`다.
 - root entry는 `qstar.lua` 하나다.
 - project metadata는 `qstar.project { name, version, root = "." }`로 둔다.
 - subdir fragment는 `<folder>/<folder>.qst`다.

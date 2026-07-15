@@ -52,6 +52,9 @@ available for hand-written foreign compiler flows.
 Important documents:
 
 - `syntax.md`: short current syntax cheat sheet.
+- `public-declaration-schemas.md`: Korean canonical reference for strict public
+  declaration fields, Lua types, list shape, source/label diagnostics, and the
+  dynamic provider/free metadata boundaries.
 - `model.md`: package, target, source/header/output model.
 - `graph-ir.md`: internal Graph IR notes.
 - `pipeline.md`: current evaluation/build pipeline notes.
