@@ -51,8 +51,11 @@ return M
 
 `.qsm` 안에서는 graph declaration을 할 수 없다. 즉 `qstar.project`, `qstar.toolset`,
 `qstar.config`, target rule, `qstar.custom_target`, `qstar.stage`, `qstar.target_family`, `qstar.subdir`,
-`qstar.import_file`은 금지된다. Helper 함수, 상수, table literal, `qstar.import_module`
-을 통한 다른 helper module import는 사용할 수 있다.
+`qstar.command`, `qstar.command_set`, `qstar.import_file`은 금지된다. Helper 함수, 상수,
+table literal, `qstar.import_module`을 통한 다른 helper module import는 사용할 수 있다.
+`qstar.command_spec`은 graph를 변경하지 않는 deeply immutable data helper이므로 허용된다.
+Command spec list를 반환한 module도 import만으로 command를 등록하지 않으며, root
+`qstar.lua`가 `qstar.command_set(...)`을 호출해야 materialize된다.
 
 `.qsm` module은 policy나 target을 직접 만들지 않고 값을 만든다. Path는 `qstar.join`,
 list는 `qstar.append`, option table은 `qstar.copy`, `qstar.merge`, `qstar.extend`로 조립한다.
@@ -164,6 +167,8 @@ qstar/
     common.qst
     warnings.qst
   modules/
+    commands/
+      commands.qsm
     paths/
       paths.qsm
 lib/
@@ -174,5 +179,6 @@ lib/
 Root `qstar.lua`는 project/toolset/import/subdir orchestration을 담당한다.
 `qstar/policies/*.qst`는 graph policy를 선언한다.
 `qstar/modules/<name>/<name>.qsm`은 target을 만들지 않는 helper module을 제공한다.
+Command module은 `qstar.command_spec` list만 반환하고 root가 이를 materialize한다.
 폴더 이름과 module entry 파일 이름을 일치시키면 LSP navigation, formatter, AI authoring이
 같은 규칙을 공유할 수 있다.

@@ -29,7 +29,8 @@ v1 promise: candidate surface defined, v1 release gate still required
   사용한다.
 - `qstar.custom_target`, `qstar.transform`, `qstar.configure_file`
 - `qstar.run_target`, `qstar.group`, `qstar.stage`, `qstar.target_family`
-- `qstar.command`, `qstar.step.*`, `qstar.param.*`, bool argv helper
+- `qstar.command`, immutable `qstar.command_spec`, root-only
+  `qstar.command_set`, `qstar.step.*`, `qstar.param.*`, bool argv helper
 - `qstar.import_file`, cached `qstar.import_module`, `qstar.subdir`
 - consumer-facing GLP: `qstar.use_language`, `lang.<namespace>`, provider
   helper, raw provider source classification

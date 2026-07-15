@@ -79,6 +79,9 @@ Important documents:
   generated artifact consumption, `qstar.transform`, typed command options,
   bool argument helpers, module import cache/reuse, and explicit layout export
   without domain-specific syntax.
+- `reusable-project-command-sets.md`: Korean canonical reference for deeply
+  immutable `qstar.command_spec` values returned by QSM helpers and root-only
+  `qstar.command_set` materialization into the stable project command model.
 - `configurable-build-surface.md`: Korean current-surface reference for
   `qstar.option`, `qstar.variant`, `qstar.objectlib`, CLI `-D` project option
   overrides, custom triple branching, fragment-relative `./` paths, and nested

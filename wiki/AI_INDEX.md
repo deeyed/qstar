@@ -46,6 +46,8 @@ QStar가 하지 않는 일:
 - `qstar.import_module("folder/path")`는 `folder/path/path.qsm` helper module table을 읽는다.
 - `qstar.import_module`에는 `.qsm` 파일이 아니라 폴더만 넘긴다.
 - `.qsm` 안에서는 target/toolset/project 같은 graph declaration이 금지된다.
+- `.qsm`은 pure `qstar.command_spec` list를 반환할 수 있지만 project command 등록은
+  root `qstar.command_set(...)`이 명시적으로 수행한다.
 - 반복 option은 `qstar.config`와 target `configs = {...}`로 공유한다.
 - 반복 path/list/table 조립은 `qstar.join`, `qstar.copy`, `qstar.append`, `qstar.merge`,
   `qstar.extend`를 쓴다.
@@ -442,6 +444,8 @@ Target/rule:
 - `qstar.stage`
 - `qstar.target_family`
 - `qstar.command`
+- `qstar.command_spec`
+- `qstar.command_set`
 
 Command/path helper:
 
@@ -646,6 +650,12 @@ helper의 condition은 bool option만 참조할 수 있다. `qstar.step.run`은 
 계약과 같은 방식으로 남긴다. `qstar.step.export_stage(label, {to = ...})`는 stage layout을
 package-relative destination으로 복사한다. `.qst`, `.qsm`, provider 파일에서는 `qstar.command`를
 선언할 수 없다.
+
+큰 command 목록은 `.qsm`에서 deeply immutable `qstar.command_spec` list로 만들고 root
+`qstar.lua`에서 `qstar.command_set`으로 materialize한다. Import 자체는 graph side effect가
+없다. Materialized command는 direct command와 같은 name/alias/default/call-cycle 검증,
+CLI dispatch, `qstar-commands-v1` JSON을 사용한다. Plain table은 spec으로 자동 승격하지
+않는다. 정본은 `wiki/reference/project-command-sets.md`다.
 
 Deps-only aggregate는 `qstar.group`으로 표현한다. Group은 command, output, artifact,
 install 대상이 아니며 `qstar.target_file("//:group")`도 금지된다.

@@ -657,6 +657,38 @@ The command name and aliases cannot collide with built-in QStar CLI commands
 such as `build`, `test`, `stage`, `commands`, `init`, `docs`, `daemon`, or
 diagnostic commands.
 
+### Reusable command specifications
+
+Large roots may move pure command data into a cached QSM without giving that
+module graph-declaration authority:
+
+```lua
+-- qstar/modules/commands/commands.qsm
+return {
+  qstar.command_spec "verify" {
+    aliases = {"v"},
+    steps = {qstar.step.check("//...")},
+  },
+}
+```
+
+```lua
+-- root qstar.lua
+local commands = qstar.import_module("qstar/modules/commands")
+qstar.command_set(commands)
+```
+
+`qstar.command_spec` accepts exactly the same fields, option schemas, and steps
+as `qstar.command`, but only returns a deeply read-only deterministic value. It
+does not mutate the graph and is therefore allowed in an ordinary `.qsm`.
+`qstar.command_set` accepts one non-empty contiguous list of immutable specs and
+is root-only. Plain tables are rejected. Materialized commands use the existing
+name/alias/default/call-cycle validation and appear identically in
+`qstar commands --format json` under `qstar-commands-v1`.
+
+See [Reusable Project Command Sets](reusable-project-command-sets.md) for the
+complete module layout, immutability, collision, and authority contract.
+
 ## Host Constants
 
 Allowed constants:

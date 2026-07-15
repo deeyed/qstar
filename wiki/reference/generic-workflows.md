@@ -157,6 +157,13 @@ Canonical fixture는 같은 원칙을 `install`, `install-local`, `package-local
 `export-local` 네 command로 봉인한다. 모두 root `qstar.command`이며 최종 copy/export는
 `qstar.step.export_stage`가 담당한다.
 
+Command 수가 많아지면 workflow declaration 권한을 QSM으로 옮기지 않고 immutable data만
+분리한다. Module은 `qstar.command_spec` list를 반환하고 root가
+`qstar.command_set(qstar.import_module("qstar/modules/commands"))`으로 materialize한다.
+Materialized command의 option, env, working directory, step 및 CLI semantics는 direct
+`qstar.command`와 같다. 자세한 계약은 [Reusable Project Command Sets](project-command-sets.md)에
+둔다.
+
 ## 실패 예제
 
 ```lua

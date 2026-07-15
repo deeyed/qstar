@@ -1,0 +1,67 @@
+local specs = {}
+
+local shared_options = {
+  mode = qstar.param.enum {
+    description = "Execution mode",
+    choices = {"debug", "release"},
+    default = "debug",
+  },
+  verbose = qstar.param.bool {
+    description = "Emit a verbose marker",
+    default = false,
+  },
+  out = qstar.param.path {
+    description = "Result path",
+    default = "generated/command-set.txt",
+  },
+}
+
+local shared_env = {
+  "QSTAR_COMMAND_SET=module",
+}
+
+specs[#specs + 1] = qstar.command_spec "verify-set" {
+  description = qstar.status("Verify a reusable command specification"),
+  aliases = {"verify-spec"},
+  options = shared_options,
+  env = shared_env,
+  working_dir = "tools",
+  steps = {
+    qstar.step.run {
+      inputs = {"fixtures/input.txt"},
+      env = {"QSTAR_COMMAND_STEP=run"},
+      timeout = 10,
+      expect = {
+        contains = "COMMAND-SET-OK",
+      },
+      command = qstar.cli {
+        "./write-command.sh",
+        qstar.input(0),
+        qstar.param("out"),
+        qstar.param("mode"),
+        qstar.arg_if(qstar.param("verbose"), "--verbose"),
+      },
+    },
+  },
+}
+
+specs[#specs + 1] = qstar.command_spec "pipeline" {
+  description = qstar.status("Call a reusable command through its alias"),
+  is_default = true,
+  steps = {
+    qstar.step.call("b01"),
+  },
+}
+
+for index = 1, 60 do
+  local name = string.format("batch-%02d", index)
+  specs[#specs + 1] = qstar.command_spec(name, {
+    description = qstar.status("Reusable batch command " .. index),
+    aliases = {string.format("b%02d", index)},
+    steps = {
+      qstar.step.check("//..."),
+    },
+  })
+end
+
+return specs

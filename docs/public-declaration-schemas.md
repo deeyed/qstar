@@ -169,7 +169,7 @@ single input/output sugar인 transform에는 plural `inputs`와 `outputs`가 없
 
 ## Project Commands
 
-`qstar.command` builtin field:
+`qstar.command`과 pure `qstar.command_spec`의 builtin field:
 
 | Field | Type |
 | --- | --- |
@@ -201,6 +201,12 @@ Command step option은 step kind마다 분리된다.
 Helper가 만든 step table을 나중에 수정해 unknown field를 추가해도 `qstar.command.steps`
 lowering에서 다시 검사한다.
 
+`qstar.command_spec`은 이 schema를 깊게 immutable한 deterministic table로 snapshot하며
+graph declaration을 만들지 않는다. Root-only `qstar.command_set`은 non-empty contiguous
+list 하나만 받고, 모든 item이 QStar가 만든 `qstar.command_spec`인지 검사한 뒤 기존
+`qstar.command` Graph IR로 materialize한다. Plain table은 command specification으로
+암묵 변환하지 않는다.
+
 ## Project Option And Variant
 
 `qstar.option` builtin field:
@@ -229,6 +235,11 @@ string, boolean, integer, nested named table, list로 제한되지만 field 이�
 `qstar.import_module()`이 반환한 helper table은 public declaration이 아니다. QStar는 그
 table의 임의 key를 declaration schema로 검사하지 않는다. 그 table이 나중에 public
 declaration field로 들어갈 때만 해당 field contract가 적용된다.
+
+예외적으로 helper가 `qstar.command_spec`을 만들면 그 specification은 생성 시점과 root
+`qstar.command_set` materialization 시점에 command schema로 검사된다. Module export와
+specification nested table은 read-only지만 module에 포함된 다른 일반 helper data가 public
+declaration으로 자동 승격되는 것은 아니다.
 
 Provider option도 같은 원칙을 따른다. `lang.<namespace>`는 activated provider가 선언한
 dynamic option schema로 검사하며, provider에 없는 option은 unknown provider option error다.

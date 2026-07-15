@@ -73,6 +73,9 @@ qstar: import_module 'modules/missing' not found; expected module entry 'modules
 qstar: circular import chain: qstar.lua -> modules/a/a.qsm -> modules/b/b.qsm -> modules/a/a.qsm
 qstar: module exports is read-only: common_c
 qstar: qstar.config is forbidden inside .qsm module; modules must return a helper table
+qstar: qstar.command_set is only allowed in root qstar.lua
+qstar: qstar.command_set item 1 must be an immutable qstar.command_spec value
+qstar: qstar.command_spec is read-only: default
 qstar: qstar.target_file cannot reference group target '//:aggregate' because group targets have no artifact
 qstar: generated output 'generated/file.c' in '//:gen' must be under generated_dir 'build/qstar/generated'
 qstar: unknown target field 'include_dirs'
@@ -82,7 +85,9 @@ qstar: source 'src/main.c' matches both a built-in source suffix and provider so
 ```
 
 `.qsm`은 helper table 전용이다. Target, toolset, config, stage, import_file 같은 graph
-declaration은 `.qst` 또는 `qstar.lua`에서 선언한다. `qstar.group`은 artifact가 없으므로
+declaration은 `.qst` 또는 `qstar.lua`에서 선언한다. Pure `qstar.command_spec`은 QSM에서
+만들 수 있지만 root `qstar.command_set`만 이를 command graph로 materialize한다.
+`qstar.group`은 artifact가 없으므로
 `qstar.target_file("//:group")`의 대상이 될 수 없다.
 
 `.m`, `.mm`, `.rs`, `.zig`, `.swift` 같은 suffix는 QStar compile provider로 등록되어

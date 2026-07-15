@@ -66,6 +66,8 @@ static int lower_provider_final_action(lua_State *L, struct qstar_target *target
 static int valid_artifact_selector(const char *value);
 static int qstar_lua_abs_index(lua_State *L, int idx);
 static int readonly_table_assignment_forbidden(lua_State *L);
+static int qstar_lua_command_spec(lua_State *L);
+static int qstar_lua_command_set(lua_State *L);
 static int string_in_set(const char *s, const char *const *items);
 static int valid_tool_role_name(const char *s);
 
@@ -6979,17 +6981,22 @@ qstar_lua_status(lua_State *L)
 }
 
 static int
-reject_project_command_location(lua_State *L)
+reject_project_command_location(lua_State *L, const char *api)
 {
 	struct qstar_lua_context *ctx;
 
 	ctx = get_context(L);
-	if (ctx && ctx->module_depth > 0)
+	if (ctx && ctx->module_depth > 0) {
+		if (strcmp(api, "qstar.command") == 0)
+			return luaL_error(L,
+			    "qstar: qstar.command is forbidden inside .qsm module; project commands must be declared only in root qstar.lua");
 		return luaL_error(L,
-		    "qstar: qstar.command is forbidden inside .qsm module; project commands must be declared only in root qstar.lua");
+		    "qstar: %s is forbidden inside .qsm module; project commands must be materialized only in root qstar.lua",
+		    api);
+	}
 	if (ctx && ctx->current_dir[0] != '\0')
 		return luaL_error(L,
-		    "qstar: qstar.command is only allowed in root qstar.lua");
+		    "qstar: %s is only allowed in root qstar.lua", api);
 	return 0;
 }
 
@@ -7515,21 +7522,22 @@ read_command_steps_field(lua_State *L, int table,
 	return 0;
 }
 
+static const struct qstar_lua_field_schema qstar_command_schema[] = {
+	QSTAR_SCHEMA_FIELD("description", QSTAR_LUA_SCHEMA_TABLE,
+	    "qstar.status(\"...\")"),
+	QSTAR_SCHEMA_FIELD("options", QSTAR_LUA_SCHEMA_TABLE, "table"),
+	QSTAR_SCHEMA_LIST("env", QSTAR_LUA_SCHEMA_STRING, "string"),
+	QSTAR_SCHEMA_FIELD("working_dir", QSTAR_LUA_SCHEMA_STRING, "string"),
+	QSTAR_SCHEMA_LIST("steps", QSTAR_LUA_SCHEMA_TABLE, "qstar.step.* value"),
+	QSTAR_SCHEMA_FIELD("is_default", QSTAR_LUA_SCHEMA_BOOLEAN, "boolean"),
+	QSTAR_SCHEMA_FIELD("hidden", QSTAR_LUA_SCHEMA_BOOLEAN, "boolean"),
+	QSTAR_SCHEMA_LIST("aliases", QSTAR_LUA_SCHEMA_STRING, "string"),
+	QSTAR_SCHEMA_END
+};
+
 static int
 add_project_command(lua_State *L, const char *name, int table_index)
 {
-	static const struct qstar_lua_field_schema schema[] = {
-		QSTAR_SCHEMA_FIELD("description", QSTAR_LUA_SCHEMA_TABLE,
-		    "qstar.status(\"...\")"),
-		QSTAR_SCHEMA_FIELD("options", QSTAR_LUA_SCHEMA_TABLE, "table"),
-		QSTAR_SCHEMA_LIST("env", QSTAR_LUA_SCHEMA_STRING, "string"),
-		QSTAR_SCHEMA_FIELD("working_dir", QSTAR_LUA_SCHEMA_STRING, "string"),
-		QSTAR_SCHEMA_LIST("steps", QSTAR_LUA_SCHEMA_TABLE, "qstar.step.* value"),
-		QSTAR_SCHEMA_FIELD("is_default", QSTAR_LUA_SCHEMA_BOOLEAN, "boolean"),
-		QSTAR_SCHEMA_FIELD("hidden", QSTAR_LUA_SCHEMA_BOOLEAN, "boolean"),
-		QSTAR_SCHEMA_LIST("aliases", QSTAR_LUA_SCHEMA_STRING, "string"),
-		QSTAR_SCHEMA_END
-	};
 	struct qstar_lua_context *ctx;
 	struct qstar_graph *graph;
 	struct qstar_project_command *command;
@@ -7540,7 +7548,7 @@ add_project_command(lua_State *L, const char *name, int table_index)
 		table_index = lua_gettop(L) + table_index + 1;
 	ctx = get_context(L);
 	graph = ctx->graph;
-	if (reject_project_command_location(L) != 0)
+	if (reject_project_command_location(L, "qstar.command") != 0)
 		return 1;
 	luaL_checktype(L, table_index, LUA_TTABLE);
 	current_origin(L, origin_file, sizeof(origin_file), &origin_line);
@@ -7548,7 +7556,7 @@ add_project_command(lua_State *L, const char *name, int table_index)
 	if (!command)
 		return qstar_lua_raise_declaration_error(L, graph, "qstar.command", name);
 	if (qstar_lua_validate_declaration(L, table_index, graph, "qstar.command",
-	    name, schema) < 0 ||
+	    name, qstar_command_schema) < 0 ||
 	    read_status_description_field(L, table_index, graph,
 	    &command->description) < 0 ||
 	    read_list_field(L, table_index, "env", &command->env, graph, 0,
@@ -7579,7 +7587,7 @@ qstar_lua_command(lua_State *L)
 {
 	const char *name;
 
-	if (reject_project_command_location(L) != 0)
+	if (reject_project_command_location(L, "qstar.command") != 0)
 		return 1;
 	name = luaL_checkstring(L, 1);
 	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
@@ -8316,6 +8324,8 @@ push_readonly_proxy(lua_State *L, const char *name)
 	lua_newtable(L);
 	lua_pushvalue(L, data);
 	lua_setfield(L, -2, "__index");
+	lua_pushvalue(L, data);
+	lua_setfield(L, -2, "__qstar_readonly_data");
 	lua_pushstring(L, name);
 	lua_pushcclosure(L, readonly_variant_assignment_forbidden, 1);
 	lua_setfield(L, -2, "__newindex");
@@ -8331,7 +8341,8 @@ push_readonly_proxy(lua_State *L, const char *name)
 	lua_remove(L, data);
 }
 
-static int push_readonly_table_copy(lua_State *L, int idx, const char *name);
+static int push_readonly_table_copy_depth(lua_State *L, int idx,
+    const char *name, unsigned int depth);
 
 static int
 push_readonly_scalar_copy(lua_State *L, int idx)
@@ -8352,10 +8363,13 @@ push_readonly_scalar_copy(lua_State *L, int idx)
 }
 
 static int
-push_readonly_table_copy(lua_State *L, int idx, const char *name)
+push_readonly_table_copy_depth(lua_State *L, int idx, const char *name,
+    unsigned int depth)
 {
 	int src, data;
 
+	if (depth >= 64)
+		return -1;
 	src = qstar_lua_abs_index(L, idx);
 	lua_newtable(L);
 	data = lua_gettop(L);
@@ -8363,7 +8377,8 @@ push_readonly_table_copy(lua_State *L, int idx, const char *name)
 	while (lua_next(L, src) != 0) {
 		lua_pushvalue(L, -2);
 		if (lua_istable(L, -2)) {
-			if (push_readonly_table_copy(L, -2, name) < 0) {
+			if (push_readonly_table_copy_depth(L, -2, name,
+			    depth + 1) < 0) {
 				lua_pop(L, 3);
 				return -1;
 			}
@@ -8375,6 +8390,182 @@ push_readonly_table_copy(lua_State *L, int idx, const char *name)
 		lua_pop(L, 1);
 	}
 	push_readonly_proxy(L, name);
+	return 0;
+}
+
+static int
+push_readonly_table_copy(lua_State *L, int idx, const char *name)
+{
+	return push_readonly_table_copy_depth(L, idx, name, 0);
+}
+
+/** QStar가 만든 read-only proxy의 backing table을 stack에 올린다. */
+static int
+push_readonly_backing_table(lua_State *L, int idx)
+{
+	idx = qstar_lua_abs_index(L, idx);
+	if (!lua_istable(L, idx) || !lua_getmetatable(L, idx))
+		return 0;
+	lua_getfield(L, -1, "__qstar_readonly_data");
+	lua_remove(L, -2);
+	if (!lua_istable(L, -1)) {
+		lua_pop(L, 1);
+		return 0;
+	}
+	return 1;
+}
+
+/** Immutable command specification을 기존 command reader용 plain table로 복사한다. */
+static int
+push_plain_command_table_copy(lua_State *L, int idx, unsigned int depth)
+{
+	int src, dst, has_backing;
+
+	if (depth >= 64)
+		return -1;
+	idx = qstar_lua_abs_index(L, idx);
+	has_backing = push_readonly_backing_table(L, idx);
+	src = has_backing ? lua_gettop(L) : idx;
+	lua_newtable(L);
+	dst = lua_gettop(L);
+	lua_pushnil(L);
+	while (lua_next(L, src) != 0) {
+		if (!(lua_isstring(L, -2) || lua_isinteger(L, -2)))
+			return -1;
+		lua_pushvalue(L, -2);
+		if (lua_istable(L, -2)) {
+			if (push_plain_command_table_copy(L, -2, depth + 1) < 0)
+				return -1;
+		} else if (push_readonly_scalar_copy(L, -2) < 0) {
+			return -1;
+		}
+		lua_settable(L, dst);
+		lua_pop(L, 1);
+	}
+	if (has_backing)
+		lua_remove(L, src);
+	return 0;
+}
+
+static int
+make_command_spec(lua_State *L, const char *name, int table_index)
+{
+	struct qstar_lua_context *ctx;
+	struct qstar_graph *graph;
+	int proxy;
+
+	if (table_index < 0)
+		table_index = lua_gettop(L) + table_index + 1;
+	ctx = get_context(L);
+	graph = ctx->graph;
+	luaL_checktype(L, table_index, LUA_TTABLE);
+	if (qstar_lua_validate_declaration(L, table_index, graph,
+	    "qstar.command_spec", name, qstar_command_schema) < 0)
+		return qstar_lua_raise_declaration_error(L, graph,
+		    "qstar.command_spec", name);
+	if (push_readonly_table_copy(L, table_index, "qstar.command_spec") < 0)
+		return luaL_error(L,
+		    "qstar: qstar.command_spec '%s' must contain only deterministic scalar and table values with nesting below 64 levels",
+		    name);
+	proxy = lua_gettop(L);
+	if (!push_readonly_backing_table(L, proxy))
+		return luaL_error(L, "qstar: internal command specification error");
+	lua_pushstring(L, "command_spec");
+	lua_setfield(L, -2, "__qstar_kind");
+	lua_pushstring(L, name);
+	lua_setfield(L, -2, "name");
+	lua_pop(L, 1);
+	return 1;
+}
+
+static int
+qstar_lua_command_spec_finish(lua_State *L)
+{
+	return make_command_spec(L, lua_tostring(L, lua_upvalueindex(1)), 1);
+}
+
+static int
+qstar_lua_command_spec(lua_State *L)
+{
+	const char *name;
+
+	name = luaL_checkstring(L, 1);
+	if (lua_gettop(L) < 2 || lua_isnil(L, 2)) {
+		lua_pushstring(L, name);
+		lua_pushcclosure(L, qstar_lua_command_spec_finish, 1);
+		return 1;
+	}
+	return make_command_spec(L, name, 2);
+}
+
+static int
+qstar_lua_command_set(lua_State *L)
+{
+	const char *kind, *name;
+	lua_Integer key;
+	size_t i, n, count;
+	int list, spec, plain;
+
+	if (reject_project_command_location(L, "qstar.command_set") != 0)
+		return 1;
+	if (lua_gettop(L) != 1 || !lua_istable(L, 1))
+		return luaL_error(L,
+		    "qstar: qstar.command_set expects exactly one list of qstar.command_spec values");
+	if (!push_readonly_backing_table(L, 1))
+		lua_pushvalue(L, 1);
+	list = lua_gettop(L);
+	n = lua_rawlen(L, list);
+	if (n == 0)
+		return luaL_error(L,
+		    "qstar: qstar.command_set requires at least one qstar.command_spec value");
+	count = 0;
+	lua_pushnil(L);
+	while (lua_next(L, list) != 0) {
+		if (!lua_isinteger(L, -2))
+			return luaL_error(L,
+			    "qstar: qstar.command_set expects a contiguous list starting at index 1");
+		key = lua_tointeger(L, -2);
+		if (key < 1 || (size_t)key > n)
+			return luaL_error(L,
+			    "qstar: qstar.command_set expects a contiguous list starting at index 1");
+		count++;
+		lua_pop(L, 1);
+	}
+	if (count != n)
+		return luaL_error(L,
+		    "qstar: qstar.command_set expects a contiguous list starting at index 1");
+	for (i = 1; i <= n; i++) {
+		lua_rawgeti(L, list, (lua_Integer)i);
+		spec = lua_gettop(L);
+		if (!lua_istable(L, spec) ||
+		    !push_readonly_backing_table(L, spec))
+			return luaL_error(L,
+			    "qstar: qstar.command_set item %d must be an immutable qstar.command_spec value",
+			    (int)i);
+		lua_getfield(L, -1, "__qstar_kind");
+		kind = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+		lua_pop(L, 1);
+		lua_getfield(L, -1, "name");
+		name = lua_isstring(L, -1) ? lua_tostring(L, -1) : NULL;
+		lua_pop(L, 2);
+		if (!kind || strcmp(kind, "command_spec") != 0 || !name || !*name)
+			return luaL_error(L,
+			    "qstar: qstar.command_set item %d must be an immutable qstar.command_spec value",
+			    (int)i);
+		if (push_plain_command_table_copy(L, spec, 0) < 0)
+			return luaL_error(L,
+			    "qstar: qstar.command_set item %d could not be materialized",
+			    (int)i);
+		plain = lua_gettop(L);
+		lua_pushnil(L);
+		lua_setfield(L, plain, "__qstar_kind");
+		lua_pushnil(L);
+		lua_setfield(L, plain, "name");
+		if (add_project_command(L, name, plain) != 0)
+			return 1;
+		lua_pop(L, 2);
+	}
+	lua_pop(L, 1);
 	return 0;
 }
 
@@ -8844,6 +9035,8 @@ push_readonly_module_export(lua_State *L, int table)
 	lua_newtable(L);
 	lua_pushvalue(L, table);
 	lua_setfield(L, -2, "__index");
+	lua_pushvalue(L, table);
+	lua_setfield(L, -2, "__qstar_readonly_data");
 	lua_pushstring(L, "module exports");
 	lua_pushcclosure(L, readonly_table_assignment_forbidden, 1);
 	lua_setfield(L, -2, "__newindex");
@@ -9864,6 +10057,10 @@ register_qstar(lua_State *L, struct qstar_lua_context *ctx)
 	lua_setfield(L, -2, "status");
 	lua_pushcfunction(L, qstar_lua_command);
 	lua_setfield(L, -2, "command");
+	lua_pushcfunction(L, qstar_lua_command_spec);
+	lua_setfield(L, -2, "command_spec");
+	lua_pushcfunction(L, qstar_lua_command_set);
+	lua_setfield(L, -2, "command_set");
 	lua_newtable(L);
 	lua_pushstring(L, "build");
 	lua_pushcclosure(L, qstar_lua_step_label, 1);

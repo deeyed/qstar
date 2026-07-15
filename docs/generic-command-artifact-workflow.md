@@ -217,6 +217,30 @@ qstar make-package
 Project command는 public CLI surface이므로 root에서만 선언한다. Leaf fragment가 임의로
 top-level command를 추가하면 project CLI가 fragment evaluation order에 묶인다.
 
+### Reusable specification
+
+큰 root는 graph 권한을 module로 넘기지 않고 command data만 분리할 수 있다.
+
+```lua
+-- qstar/modules/commands/commands.qsm
+return {
+  qstar.command_spec "package-local" {
+    steps = {qstar.step.build("//:package_blob")},
+  },
+}
+```
+
+```lua
+-- root qstar.lua
+qstar.command_set(qstar.import_module("qstar/modules/commands"))
+```
+
+`qstar.command_spec`은 `qstar.command`와 같은 field를 immutable data로 snapshot하지만
+graph를 변경하지 않는다. `qstar.command_set`만 root에서 실제 command를 만든다. 따라서
+QSM import 자체에는 side effect가 없고, command name/alias/call cycle/JSON 규칙은 direct
+command와 동일하다. 전체 계약은
+[Reusable Project Command Sets](reusable-project-command-sets.md)에 있다.
+
 ### Fields
 
 | Field | Type | Required | Meaning |
@@ -487,6 +511,8 @@ Rules:
 - `qstar.import_file` remains graph-fragment evaluation and is not cached like a helper module.
 - `.qsm` modules still cannot declare `qstar.project`, `qstar.toolset`, `qstar.config`,
   targets, stages, commands, `qstar.import_file`, or `qstar.subdir`.
+- `.qsm` may create pure `qstar.command_spec` values, but only root `qstar.lua` may
+  materialize them with `qstar.command_set`.
 - Cached exports are read-only.
 
 If user code mutates a module export, QStar produces a diagnostic that says module exports are

@@ -30,7 +30,7 @@ qstar: src/core/core.qst:12: qstar.objectlib declaration '//src/core:objects': f
 | `qstar.configure_file` | output, defines, description |
 | `qstar.stage` | root, files, description |
 | `qstar.target_family` | allow_shared_sources, variants, targets |
-| `qstar.command` | description, options, env, working_dir, steps, is_default, hidden, aliases |
+| `qstar.command`, `qstar.command_spec` | description, options, env, working_dir, steps, is_default, hidden, aliases |
 | `qstar.option` | type, value, choices, description |
 | `qstar.variant` | values, description, tags |
 
@@ -76,6 +76,9 @@ qstar.executable "app" {
 - `qstar.variant.values`: 사용자가 자유롭게 이름을 정하는 deterministic metadata.
 - `lang.<provider>`: activated provider manifest의 dynamic option schema.
 - `qstar.import_module()` return table: 일반 Lua helper table이므로 검사하지 않음.
+- `qstar.command_spec`: 일반 module table 안에서 만들 수 있지만 command schema로 검사되고
+  nested table까지 immutable snapshot이 된다. Root-only `qstar.command_set`은 non-empty
+  contiguous spec list만 materialize하며 plain table은 받지 않는다.
 - `qstar.imported.artifact_kind` value와 artifact id, `link`/`tool` 이외 role:
   strict field 안에 저장되는 사용자 정의 metadata. Filename이나 metadata에서 flag를
   추론하지 않음.

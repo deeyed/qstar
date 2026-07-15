@@ -58,6 +58,7 @@ cat > "$work/_Sidebar.md" <<'EOF'
 - [Target Rules](reference/target-rules)
 - [Toolsets](reference/toolsets)
 - [Generic Workflows](reference/generic-workflows)
+- [Reusable Project Command Sets](reference/project-command-sets)
 - [Object Artifacts](reference/object-artifacts)
 - [Diagnostics](reference/diagnostics)
 - [Performance Gates](reference/performance-gates)

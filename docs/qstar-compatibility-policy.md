@@ -121,6 +121,9 @@ separate beta surface until the checklist below is completed.
 ### Project Commands And Workflow Helpers
 
 - Root-only `qstar.command`.
+- Pure, deeply immutable `qstar.command_spec` values and root-only
+  `qstar.command_set` materialization. Materialized commands share the stable
+  direct-command CLI and `qstar-commands-v1` JSON contract.
 - Command metadata fields: `description`, `options`, `env`, `working_dir`,
   `steps`, `is_default`, `hidden`, and `aliases`.
 - Typed command options: `qstar.param.string`, `qstar.param.path`,

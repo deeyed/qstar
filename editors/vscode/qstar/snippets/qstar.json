@@ -213,6 +213,27 @@
     ],
     "description": "Create a root project command for generic build, check, and layout export workflows."
   },
+  "Reusable command specification": {
+    "prefix": "qcommandspec",
+    "body": [
+      "qstar.command_spec \"${1:verify}\" {",
+      "  description = qstar.status(\"${2:Verify project}\"),",
+      "  aliases = {\"${3:v}\"},",
+      "  steps = {",
+      "    qstar.step.check(\"${4://...}\"),",
+      "  },",
+      "}"
+    ],
+    "description": "Create a pure deeply immutable command specification suitable for a QSM export list."
+  },
+  "Materialize command set": {
+    "prefix": "qcommandset",
+    "body": [
+      "local commands = qstar.import_module(\"${1:qstar/modules/commands}\")",
+      "qstar.command_set(commands)"
+    ],
+    "description": "Materialize reusable command specifications from root qstar.lua."
+  },
   "Status description": {
     "prefix": "qstatus",
     "body": [

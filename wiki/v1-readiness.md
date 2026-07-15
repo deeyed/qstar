@@ -36,7 +36,8 @@ v1 decision: not ready
 ## Stable Surface 후보
 
 Stable 후보는 project/toolset/config, artifact targets, generated actions,
-run/stage/group, root `qstar.command`, imports/modules, GLP consumer activation,
+run/stage/group, root `qstar.command`, immutable `qstar.command_spec`, root-only
+`qstar.command_set`, imports/modules, GLP consumer activation,
 command/workflow helpers, and authoring helpers다. Provider-author API는 아직
 stable 조건을 별도로 통과해야 한다. Q257 기준 provider-author API stable promotion은
 non-blocker로 분리되었고, `qstar.lang/1`은 versioned beta contract이며,

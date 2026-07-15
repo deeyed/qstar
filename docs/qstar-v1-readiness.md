@@ -89,6 +89,8 @@ evidence를 대체하지 않는다.
 - `qstar.stage`
 - `qstar.target_family`
 - `qstar.command`
+- `qstar.command_spec`
+- `qstar.command_set`
 - `qstar.subdir`
 - `qstar.import_file`
 - `qstar.import_module`

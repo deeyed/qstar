@@ -64,6 +64,8 @@ qstar.staticlib "core" {
 - `qstar.stage`: copy-only package/stage tree.
 - `qstar.target_family`: shared-source lint grouping.
 - `qstar.command`: root `qstar.lua` 전용 project command.
+- `qstar.command_spec`: graph를 변경하지 않는 deeply immutable command specification.
+- `qstar.command_set`: immutable specification list를 materialize하는 root-only API.
 - `qstar.subdir`, `qstar.import_file`, `qstar.import_module`: explicit graph/module loading.
 - `qstar.use_language`: activate a bundled or project-local language provider and return its helper table.
 
@@ -278,6 +280,34 @@ stdout/stderr와 선택적 package-relative file에서 문자열을 찾는다.
 Command name과 alias는 `build`, `test`, `stage`, `commands`, `init`, `docs`, `daemon`,
 `check`, `lint`, `query`, `explain`, `action-log`, `replay` 같은 built-in CLI 이름과 충돌할
 수 없다.
+
+### Reusable command set
+
+`.qsm` helper는 `qstar.command`를 선언할 수 없지만 pure specification은 만들 수 있다.
+
+```lua
+-- qstar/modules/commands/commands.qsm
+return {
+  qstar.command_spec "verify" {
+    aliases = {"v"},
+    steps = {qstar.step.check("//...")},
+  },
+}
+```
+
+Root가 명시적으로 materialize한다.
+
+```lua
+local commands = qstar.import_module("qstar/modules/commands")
+qstar.command_set(commands)
+```
+
+`qstar.command_spec` field는 `qstar.command`와 같고, 반환값과 모든 nested table은
+read-only다. `qstar.command_set`은 root-only이며 non-empty contiguous spec list만 받는다.
+Plain table은 거절된다. Materialized command는 direct command와 같은 collision, default,
+call cycle, CLI dispatch 및 `qstar-commands-v1` JSON 계약을 쓴다. 자세한 규칙은
+[Reusable Project Command Sets](project-command-sets.md)에 있다.
+
 Artifact transform, stage layout input, run target, project command, explicit layout
 export를 함께 쓰는 정본 흐름은 [Generic Workflows](generic-workflows.md)에 둔다.
 

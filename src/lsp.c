@@ -57,6 +57,8 @@ static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
 	{ "qstar.stage_file", "Map a source artifact or file into a staging destination path." },
 	{ "qstar.target_family", "Group related target variants for lint policy such as shared source suppression." },
 	{ "qstar.command", "Declare a root-only project command made of generic QStar steps." },
+	{ "qstar.command_spec", "Create a pure deeply immutable project command specification, including inside an ordinary QSM." },
+	{ "qstar.command_set", "Materialize a non-empty list of command specifications from root qstar.lua." },
 	{ "qstar.step.build", "Project command step that builds a target, generated action, stage, run target, or group." },
 	{ "qstar.step.test", "Project command step that runs a qstar.test target selection." },
 	{ "qstar.step.stage", "Project command step that materializes a qstar.stage layout." },

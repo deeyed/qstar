@@ -274,6 +274,7 @@ candidate artifact, published GitHub Release asset을 구분한다.
 - [Getting Started](wiki/getting-started.md)
 - [QStar Lua Reference](wiki/reference/qstar-lua.md)
 - [Modules and Imports](wiki/reference/modules.md)
+- [Reusable Project Command Sets](wiki/reference/project-command-sets.md)
 - [Reusable Configs](wiki/reference/configs.md)
 - [CMake migration notes](wiki/migration/from-cmake.md)
 

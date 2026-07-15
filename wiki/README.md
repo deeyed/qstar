@@ -39,6 +39,8 @@ release evidence ledger의 정본은
 Local v1 release-candidate skeleton gate는 `make qstar-v1-release-candidate-tests`다.
 모든 public declaration table의 strict field/type 계약과 예외 경계는
 [Public Declaration Schemas](reference/declaration-schemas.md)에 둔다.
+큰 root project command 목록을 graph 권한 분산 없이 QSM으로 나누는 방법은
+[Reusable Project Command Sets](reference/project-command-sets.md)에 둔다.
 
 ## 빠른 시작
 

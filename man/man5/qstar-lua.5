@@ -342,6 +342,22 @@ is not a built-in CLI command in the QStar DSL surface; projects may define it
 as a normal
 .Ic qstar.command
 when they want a user-facing layout export workflow.
+.It Ic qstar.command_spec
+Create a pure, deeply read-only project command specification with the same
+fields, typed options, and steps as
+.Ic qstar.command .
+This helper does not mutate the graph and may be used by an ordinary
+.Pa .qsm
+module. The value contains deterministic scalar and table data only.
+.It Ic qstar.command_set
+Materialize one non-empty contiguous list of
+.Ic qstar.command_spec
+values as ordinary project commands. This API is allowed only in root
+.Pa qstar.lua ;
+plain tables are rejected. Materialized commands share direct-command name,
+alias, default, call-cycle, dispatch, and
+.Ic qstar commands --format json
+semantics.
 .It Ic qstar.step.build
 Project command step that builds a target, generated action, stage, run target,
 or group label.
