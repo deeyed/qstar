@@ -90,6 +90,13 @@ QStar가 하지 않는 일:
   `ctx.output(id)`로 사용한다. V2 artifact role은 `primary`, `secondary`, `runtime`,
   `link-interface`, type은 `file`/`tree`다. Platform/linker policy는 추론하지 않는다.
 - CLI `-B path`는 `qstar.project.build_dir`보다 우선한다.
+- Local action cache는 기본 off다. `qstar.project.action_cache = "local"` 또는 build의
+  `--action-cache local`로만 활성화한다. 현재 regular-file compile/generated action만 CAS
+  후보이며, target/config/generated declaration의 `cacheable = false`가 항상 우선한다.
+  Tool executable content와 allowlisted env가 key에 들어가고, env 값은 redacted된다.
+  외부 emulator/HIL, `/dev`, `/Volumes`, serial/device action은 non-cacheable이다. Undeclared path
+  audit은 report-only이며 sandbox나 hermeticity 증명이 아니다. 정본은
+  `wiki/reference/local-action-cache.md`와 `docs/local-action-cache.md`다.
 - CLI `-G auto`는 현재 `stella`로 resolve된다.
 - CLI `-G ninja build [label]`은 C/C++/ASM compile, `qstar.configure_file`,
   `qstar.custom_target`, staticlib, sharedlib, executable/test link, `qstar.run_target`,

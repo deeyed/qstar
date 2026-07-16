@@ -1,0 +1,37 @@
+#!/bin/sh
+set -eu
+
+count_file=tools/compiler.count
+count=0
+out=
+depfile=
+source=
+previous=
+
+if test -f "$count_file"; then
+  count=$(cat "$count_file")
+fi
+printf '%s\n' "$((count + 1))" > "$count_file"
+
+for arg in "$@"; do
+  case "$previous" in
+    out) out=$arg; previous=; continue ;;
+    depfile) depfile=$arg; previous=; continue ;;
+  esac
+  case "$arg" in
+    -o) previous=out ;;
+    -MF) previous=depfile ;;
+    *.c) source=$arg ;;
+  esac
+done
+
+test -n "$out"
+mkdir -p "$(dirname "$out")"
+printf 'fake object from %s\n' "$source" > "$out"
+if test -n "$depfile"; then
+  mkdir -p "$(dirname "$depfile")"
+  case "$source" in
+    src/input.c) printf '%s: %s src/value.h\n' "$out" "$source" > "$depfile" ;;
+    *) printf '%s: %s\n' "$out" "$source" > "$depfile" ;;
+  esac
+fi

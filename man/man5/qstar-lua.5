@@ -27,14 +27,22 @@ classifying the provider-author API as a versioned beta contract.
 The main entrypoints are:
 .Bl -tag -width "qstar.custom_target"
 .It Ic qstar.project
-Project metadata, including name, version, root, build_dir, generated_dir, and
-compile_commands.
+Project metadata, including name, version, root, build_dir, generated_dir,
+compile_commands, and action_cache.
 The command-line
 .Fl B
 option overrides build_dir for the current invocation.
 The generated_dir field controls the package-relative root for generated
 outputs and defaults to
 .Pa generated .
+The
+.Ic action_cache
+field is
+.Li off
+by default and accepts
+.Li local
+to opt in to the report-only hermeticity audit and content-addressed cache for
+eligible compile/generated file actions.
 .It Ic qstar.option
 Declare a typed project build option that can be overridden before graph
 evaluation with global CLI
@@ -207,6 +215,12 @@ action/output and are rejected in
 context; use raw provider source strings or
 .Li own
 context instead.
+Object libraries and artifact-producing targets accept the boolean
+.Ic cacheable
+candidate policy. It defaults to true; false always disables local CAS lookup
+and storage for their compile actions. The same field is available in
+.Ic qstar.config
+and propagates to consuming targets.
 .It Ic qstar.interface
 Artifact-free typed dependency target. Fields are
 .Ic deps ,
@@ -325,6 +339,7 @@ argv vector. Fields are
 .Ic outputs ,
 .Ic command ,
 .Ic description ,
+.Ic cacheable ,
 and optional
 .Ic toolset .
 When
@@ -339,10 +354,14 @@ and accepts the same
 .Ic toolset
 and
 .Ic description
-policy fields.
+policy fields, including
+.Ic cacheable .
 .It Ic qstar.configure_file
 Deterministic configured file or config header generator using
 .Ic qstar.output .
+It also accepts the boolean
+.Ic cacheable
+candidate policy.
 .It Ic qstar.run_target
 External command with first-class inputs, timeout, and optional expect checks.
 The

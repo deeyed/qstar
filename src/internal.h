@@ -55,6 +55,37 @@ struct qstar_resolved_toolchain {
 	char response_style[32];
 };
 
+struct qstar_action_cache_spec {
+	const char *id;
+	const char *kind;
+	char *const *argv;
+	const struct qstar_string_list *env;
+	const struct qstar_string_list *inputs;
+	const struct qstar_string_list *outputs;
+	const char *depfile;
+	int declared_cacheable;
+};
+
+struct qstar_action_cache_decision {
+	int cacheable;
+	char base_key[32];
+	char key[32];
+	char tool_fingerprint[32];
+	char env_fingerprint[32];
+	char reason[96];
+	char audit[160];
+};
+
+struct qstar_action_cache_stats {
+	size_t audited;
+	size_t eligible;
+	size_t non_cacheable;
+	size_t hits;
+	size_t misses;
+	size_t stores;
+	size_t corruptions;
+};
+
 typedef intptr_t qstar_process_id;
 
 struct qstar_platform_pollfd {
@@ -71,6 +102,36 @@ typedef size_t qstar_platform_poll_count;
 
 /** 문자열을 QStar 소유 메모리로 복사한다. */
 char *qstar_strdup(const char *s);
+
+/** Project/CLI 설정을 합성한 local action cache mode를 반환한다. */
+int qstar_action_cache_mode(const struct qstar_graph *graph,
+    const struct qstar_build_options *options);
+
+/** Action의 report-only hermeticity와 local CAS eligibility/key를 계산한다. */
+int qstar_action_cache_evaluate(struct qstar_graph *graph,
+    const struct qstar_action_cache_spec *spec,
+    struct qstar_action_cache_decision *decision);
+
+/** Local CAS entry를 검증하고 output path로 materialize한다. */
+int qstar_action_cache_restore(struct qstar_graph *graph,
+    const struct qstar_action_cache_spec *spec,
+    struct qstar_action_cache_decision *decision,
+    struct qstar_action_cache_stats *stats, char *reason, size_t reason_len);
+
+/** 성공한 action output을 local content-addressed store에 기록한다. */
+int qstar_action_cache_store(struct qstar_graph *graph,
+    const struct qstar_action_cache_spec *spec,
+    const struct qstar_action_cache_decision *decision,
+    struct qstar_action_cache_stats *stats, char *reason, size_t reason_len);
+
+/** Cacheability audit/statistics를 deterministic text로 출력한다. */
+void qstar_action_cache_print_audit(FILE *out,
+    const struct qstar_action_cache_spec *spec,
+    const struct qstar_action_cache_decision *decision);
+void qstar_action_cache_print_stats(FILE *out, const char *backend, int mode,
+    const struct qstar_action_cache_stats *stats);
+int qstar_parse_depfile_inputs(struct qstar_graph *graph, const char *depfile,
+    struct qstar_string_list *inputs, struct qstar_string_list *parsed);
 
 /** 문자열 list에 새 항목을 복사해 추가한다. */
 int qstar_string_list_push(struct qstar_string_list *list, const char *s);

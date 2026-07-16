@@ -1632,6 +1632,7 @@ validate_transform_fields(lua_State *L, int table, struct qstar_graph *graph,
 		QSTAR_SCHEMA_FIELD("description", QSTAR_LUA_SCHEMA_TABLE,
 		    "qstar.status(\"...\")"),
 		QSTAR_SCHEMA_FIELD("toolset", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_FIELD("cacheable", QSTAR_LUA_SCHEMA_BOOLEAN, "boolean"),
 		QSTAR_SCHEMA_END
 	};
 
@@ -1653,6 +1654,7 @@ validate_custom_target_fields(lua_State *L, int table, struct qstar_graph *graph
 		QSTAR_SCHEMA_FIELD("description", QSTAR_LUA_SCHEMA_TABLE,
 		    "qstar.status(\"...\")"),
 		QSTAR_SCHEMA_FIELD("toolset", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_FIELD("cacheable", QSTAR_LUA_SCHEMA_BOOLEAN, "boolean"),
 		QSTAR_SCHEMA_END
 	};
 
@@ -3958,6 +3960,7 @@ validate_config_fields(lua_State *L, int table, struct qstar_graph *graph,
 		    QSTAR_LUA_SCHEMA_TABLE, "string or qstar.target_file(...)"),
 		QSTAR_SCHEMA_FIELD("toolset", QSTAR_LUA_SCHEMA_STRING, "string"),
 		QSTAR_SCHEMA_FIELD("artifact_name", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_FIELD("cacheable", QSTAR_LUA_SCHEMA_BOOLEAN, "boolean"),
 		QSTAR_SCHEMA_END
 	};
 
@@ -4023,6 +4026,13 @@ add_config(lua_State *L, const char *name, int table_index, const char *fragment
 	    "preprocess");
 	config->has_cxx_modules = nested_lang_field_present(L, table_index, "cxx",
 	    "modules");
+	lua_getfield(L, table_index, "cacheable");
+	if (!lua_isnil(L, -1)) {
+		config->has_cacheable = 1;
+		config->options.cacheable_present = 1;
+		config->options.cacheable = lua_toboolean(L, -1) ? 1 : 0;
+	}
+	lua_pop(L, 1);
 	artifact_name = check_string_field(L, table_index, "artifact_name");
 	if (read_label_scalar_field(L, table_index, "toolset", &config->options.toolset,
 	    graph, config->fragment_dir, &has_toolset) < 0)
@@ -4291,6 +4301,7 @@ validate_target_fields(lua_State *L, int table, struct qstar_graph *graph,
 		    QSTAR_LUA_SCHEMA_TABLE, "string or qstar.target_file(...)"),
 		QSTAR_SCHEMA_FIELD("lang", QSTAR_LUA_SCHEMA_TABLE, "table"),
 		QSTAR_SCHEMA_FIELD("toolset", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_FIELD("cacheable", QSTAR_LUA_SCHEMA_BOOLEAN, "boolean"),
 		QSTAR_SCHEMA_FIELD("artifact_name", QSTAR_LUA_SCHEMA_STRING, "string"),
 		QSTAR_SCHEMA_FIELD("compile_usage", QSTAR_LUA_SCHEMA_TABLE, "table"),
 		QSTAR_SCHEMA_FIELD("link_usage", QSTAR_LUA_SCHEMA_TABLE, "table"),
@@ -4314,6 +4325,7 @@ validate_target_fields(lua_State *L, int table, struct qstar_graph *graph,
 		    QSTAR_LUA_SCHEMA_TABLE, "string or qstar.target_file(...)"),
 		QSTAR_SCHEMA_FIELD("lang", QSTAR_LUA_SCHEMA_TABLE, "table"),
 		QSTAR_SCHEMA_FIELD("toolset", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_FIELD("cacheable", QSTAR_LUA_SCHEMA_BOOLEAN, "boolean"),
 		QSTAR_SCHEMA_FIELD("artifact_name", QSTAR_LUA_SCHEMA_STRING, "string"),
 		QSTAR_SCHEMA_FIELD("compile_usage", QSTAR_LUA_SCHEMA_TABLE, "table"),
 		QSTAR_SCHEMA_FIELD("link_usage", QSTAR_LUA_SCHEMA_TABLE, "table"),
@@ -4340,6 +4352,7 @@ validate_target_fields(lua_State *L, int table, struct qstar_graph *graph,
 		QSTAR_SCHEMA_LIST("visibility", QSTAR_LUA_SCHEMA_STRING, "string"),
 		QSTAR_SCHEMA_FIELD("lang", QSTAR_LUA_SCHEMA_TABLE, "table"),
 		QSTAR_SCHEMA_FIELD("toolset", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_FIELD("cacheable", QSTAR_LUA_SCHEMA_BOOLEAN, "boolean"),
 		QSTAR_SCHEMA_END
 	};
 	static const struct qstar_lua_field_schema group_schema[] = {
@@ -4715,6 +4728,12 @@ add_target(lua_State *L, const char *name, int table_index, const char *default_
 	if (read_label_scalar_field(L, table_index, "toolset", &target->toolset, graph,
 	    target->fragment_dir, NULL) < 0)
 		return qstar_lua_raise_declaration_error(L, graph, api, label);
+	lua_getfield(L, table_index, "cacheable");
+	if (!lua_isnil(L, -1)) {
+		target->cacheable_present = 1;
+		target->cacheable = lua_toboolean(L, -1) ? 1 : 0;
+	}
+	lua_pop(L, 1);
 	if (artifact_name) {
 		if (!valid_target_artifact_name(artifact_name))
 			return luaL_error(L,
@@ -4867,6 +4886,12 @@ add_genrule(lua_State *L, const char *name, int table_index, const char *fragmen
 	    "custom_target", "custom_target command") < 0)
 		return qstar_lua_raise_declaration_error(L, graph,
 		    "qstar.custom_target", label);
+	lua_getfield(L, table_index, "cacheable");
+	if (!lua_isnil(L, -1)) {
+		genrule->cacheable_present = 1;
+		genrule->cacheable = lua_toboolean(L, -1) ? 1 : 0;
+	}
+	lua_pop(L, 1);
 	return 0;
 }
 
@@ -4918,6 +4943,12 @@ add_transform(lua_State *L, const char *name, int table_index,
 	    "transform", "transform command") < 0)
 		return qstar_lua_raise_declaration_error(L, graph, "qstar.transform",
 		    label);
+	lua_getfield(L, table_index, "cacheable");
+	if (!lua_isnil(L, -1)) {
+		genrule->cacheable_present = 1;
+		genrule->cacheable = lua_toboolean(L, -1) ? 1 : 0;
+	}
+	lua_pop(L, 1);
 	return 0;
 }
 
@@ -4930,6 +4961,7 @@ validate_configure_file_fields(lua_State *L, int table, struct qstar_graph *grap
 		QSTAR_SCHEMA_LIST("defines", QSTAR_LUA_SCHEMA_STRING, "string"),
 		QSTAR_SCHEMA_FIELD("description", QSTAR_LUA_SCHEMA_TABLE,
 		    "qstar.status(\"...\")"),
+		QSTAR_SCHEMA_FIELD("cacheable", QSTAR_LUA_SCHEMA_BOOLEAN, "boolean"),
 		QSTAR_SCHEMA_END
 	};
 
@@ -4998,6 +5030,12 @@ add_config_header(lua_State *L, const char *name, int table_index, const char *f
 	    genrule->fragment_dir) < 0)
 		return qstar_lua_raise_declaration_error(L, graph,
 		    "qstar.configure_file", label);
+	lua_getfield(L, table_index, "cacheable");
+	if (!lua_isnil(L, -1)) {
+		genrule->cacheable_present = 1;
+		genrule->cacheable = lua_toboolean(L, -1) ? 1 : 0;
+	}
+	lua_pop(L, 1);
 	return 0;
 }
 
@@ -9105,10 +9143,13 @@ qstar_lua_project(lua_State *L)
 		QSTAR_SCHEMA_FIELD("build_dir", QSTAR_LUA_SCHEMA_STRING, "string"),
 		QSTAR_SCHEMA_FIELD("generated_dir", QSTAR_LUA_SCHEMA_STRING, "string"),
 		QSTAR_SCHEMA_FIELD("compile_commands", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_FIELD("action_cache", QSTAR_LUA_SCHEMA_STRING,
+		    "\"off\" or \"local\""),
 		QSTAR_SCHEMA_END
 	};
 	struct qstar_lua_context *ctx;
 	const char *name, *version, *root, *build_dir, *generated_dir, *compile_commands;
+	const char *action_cache;
 	int idx;
 
 	ctx = get_context(L);
@@ -9128,8 +9169,9 @@ qstar_lua_project(lua_State *L)
 	build_dir = check_string_field(L, idx, "build_dir");
 	generated_dir = check_string_field(L, idx, "generated_dir");
 	compile_commands = check_string_field(L, idx, "compile_commands");
+	action_cache = check_string_field(L, idx, "action_cache");
 	if (qstar_graph_set_project(ctx->graph, name, version, root, build_dir,
-	    generated_dir, compile_commands) < 0)
+	    generated_dir, compile_commands, action_cache) < 0)
 		return qstar_lua_raise_declaration_error(L, ctx->graph,
 		    "qstar.project", name);
 	return 0;

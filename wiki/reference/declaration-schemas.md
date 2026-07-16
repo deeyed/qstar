@@ -15,19 +15,19 @@ qstar: src/core/core.qst:12: qstar.objectlib declaration '//src/core:objects': f
 
 | Declaration | Builtin field |
 | --- | --- |
-| `qstar.project` | `name`, `version`, `root`, `build_dir`, `generated_dir`, `compile_commands` string |
+| `qstar.project` | `name`, `version`, `root`, `build_dir`, `generated_dir`, `compile_commands`, `action_cache` string |
 | `qstar.toolset` | `tools` table, response policy string/bool, `path_tools` list, absolute-tool policy string/bool |
-| `qstar.config` | `lang`, link table, library/link lists, `toolset`, `artifact_name` |
-| Artifact target | configs/sources/dependency/object/link/lang/toolset/artifact fields; `qstar.test` adds resources/retry/setup/cleanup/timeout/manual/skip |
-| `qstar.objectlib` | configs/sources/dependencies/visibility/lang/toolset와 `compile_context` |
+| `qstar.config` | `lang`, link table, library/link lists, `toolset`, `artifact_name`, `cacheable` boolean |
+| Artifact target | configs/sources/dependency/object/link/lang/toolset/artifact fields와 `cacheable`; `qstar.test` adds resources/retry/setup/cleanup/timeout/manual/skip |
+| `qstar.objectlib` | configs/sources/dependencies/visibility/lang/toolset, `compile_context`, `cacheable` |
 | `qstar.interface` | dependencies, visibility, compile_usage, link_usage |
 | `qstar.imported` | artifact_kind, platform artifacts, dependencies, visibility, compile_usage, link_usage |
 | `qstar.tool` | path, visibility |
 | `qstar.group` | dependencies와 visibility |
 | `qstar.run_target` | dependencies, toolset, inputs, command, description, timeout, expect |
-| `qstar.custom_target` | inputs, outputs, command, description, toolset |
-| `qstar.transform` | singular input/output, command, description, toolset |
-| `qstar.configure_file` | output, defines, description |
+| `qstar.custom_target` | inputs, outputs, command, description, toolset, cacheable |
+| `qstar.transform` | singular input/output, command, description, toolset, cacheable |
+| `qstar.configure_file` | output, defines, description, cacheable |
 | `qstar.stage` | root, files, description |
 | `qstar.target_family` | allow_shared_sources, variants, targets |
 | `qstar.test_suite` | tests, tags, description, manual |

@@ -163,6 +163,8 @@ struct qstar_target {
 	int cxx_unity_present;
 	int cxx_unity_enabled;
 	int cxx_unity_batch_size;
+	int cacheable_present;
+	int cacheable;
 	char *toolset;
 };
 
@@ -179,6 +181,7 @@ struct qstar_config {
 	int has_cxx_unity;
 	int has_asm_preprocess;
 	int has_cxx_modules;
+	int has_cacheable;
 	int has_toolset;
 };
 
@@ -257,6 +260,8 @@ struct qstar_genrule {
 	char *toolset;
 	char *description;
 	int config_header;
+	int cacheable_present;
+	int cacheable;
 	struct qstar_string_list inputs;
 	struct qstar_string_list outputs;
 	struct qstar_string_list output_groups;
@@ -361,6 +366,7 @@ struct qstar_project {
 	char *build_dir;
 	char *generated_dir;
 	char *compile_commands;
+	char *action_cache;
 };
 
 struct qstar_project_option_override {
@@ -536,12 +542,19 @@ struct qstar_graph {
 
 struct qstar_build_options {
 	int explain_cache;
+	int action_cache_mode;
 	int jobs;
 	int schedule_trace;
 	int verbose;
 	int quiet;
 	int progress_mode;
 	int color_mode;
+};
+
+enum {
+	QSTAR_ACTION_CACHE_INHERIT = 0,
+	QSTAR_ACTION_CACHE_OFF = 1,
+	QSTAR_ACTION_CACHE_LOCAL = 2
 };
 
 struct qstar_test_options {
@@ -587,7 +600,8 @@ int qstar_graph_set_package_root(struct qstar_graph *graph, const char *root);
 /** qstar.project metadata를 graph에 기록한다. */
 int qstar_graph_set_project(struct qstar_graph *graph, const char *name,
     const char *version, const char *root, const char *build_dir,
-    const char *generated_dir, const char *compile_commands);
+    const char *generated_dir, const char *compile_commands,
+    const char *action_cache);
 
 /** CLI generator/build directory override를 graph effective option으로 기록한다. */
 int qstar_graph_set_cli_overrides(struct qstar_graph *graph, const char *generator,

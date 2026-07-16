@@ -55,6 +55,7 @@ qstar.executable "app" {
 | `build_dir` | string |
 | `generated_dir` | string |
 | `compile_commands` | string |
+| `action_cache` | string: `"off"` 또는 `"local"` |
 
 ## Toolset And Config
 
@@ -81,6 +82,7 @@ qstar.executable "app" {
 | `link` | table |
 | `link_inputs` | list<string 또는 `qstar.target_file(...)`> |
 | `toolset`, `artifact_name` | string |
+| `cacheable` | boolean |
 
 `lang.c`, `lang.cxx`, `lang.asm`은 builtin schema를 사용한다. Activated external provider의
 `lang.<namespace>` option은 provider manifest의 dynamic schema만 사용한다. QStar core가
@@ -114,6 +116,7 @@ Artifact target은 `qstar.target`, `qstar.executable`, `qstar.staticlib`,
 | `lang` | table |
 | `toolset`, `artifact_name` | string |
 | `compile_usage`, `link_usage` | `{options = list<string>, inputs = list<string 또는 qstar.target_file(...)>}` |
+| `cacheable` | boolean |
 
 Typed dependency target은 별도 strict schema를 사용한다.
 
@@ -140,6 +143,7 @@ Typed dependency target은 별도 strict schema를 사용한다.
 | `compile_context` | string (`"own"` 또는 `"consumer"`) |
 | `lang` | table |
 | `toolset` | string |
+| `cacheable` | boolean |
 
 Object library는 final artifact가 없으므로 `objects`, `libs`, `lib_dirs`, `link`,
 `link_options`, `link_inputs`, `artifact_name`을 받지 않는다.
@@ -184,9 +188,9 @@ builtin schema다.
 
 | Declaration | Builtin field와 type |
 | --- | --- |
-| `qstar.custom_target` | `inputs` list, `outputs` list, `command` CLI table, `description` status table, `toolset` string |
-| `qstar.transform` | `input` string/token, `output` string/token, `command` CLI table, `description` status table, `toolset` string |
-| `qstar.configure_file` | `output` string, `defines` list<string>, `description` status table |
+| `qstar.custom_target` | `inputs` list, `outputs` list, `command` CLI table, `description` status table, `toolset` string, `cacheable` boolean |
+| `qstar.transform` | `input` string/token, `output` string/token, `command` CLI table, `description` status table, `toolset` string, `cacheable` boolean |
+| `qstar.configure_file` | `output` string, `defines` list<string>, `description` status table, `cacheable` boolean |
 | `qstar.stage` | `root` string, `files` list<`qstar.stage_file(...)`>, `description` status table |
 | `qstar.target_family` | `allow_shared_sources` boolean, `variants` list<string>, `targets` list<string> |
 | `qstar.test_suite` | `tests` list<string>, `tags` list<string>, `description` status table, `manual` boolean |
@@ -194,6 +198,11 @@ builtin schema다.
 
 `qstar.custom_target`과 `qstar.transform`은 같은 generated action contract로 낮아지지만,
 single input/output sugar인 transform에는 plural `inputs`와 `outputs`가 없다.
+
+`cacheable` 기본값은 `true`지만 local CAS 활성화를 뜻하지 않는다. Project 또는 CLI에서
+local action cache를 opt-in한 뒤에도 compile/generated regular-file action만 실제 후보가
+된다. `cacheable = false`는 config를 통해서도 target에 전파되며 항상 cache lookup/store를
+막는다. 정본 policy는 `docs/local-action-cache.md`에 있다.
 
 `qstar.test_suite.tests` item은 기존 `qstar.test`, `qstar.run_target`, 또는 다른 suite
 label이어야 한다. `tags` item value는 strict string이지만 vocabulary는 사용자 자유

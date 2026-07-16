@@ -73,6 +73,7 @@ struct qstar_build_ctx {
 	int color_mode;
 	int progress_enabled;
 	int color_enabled;
+	int action_cache_mode;
 	int lowering_cache_prepare;
 	int action_timeout_sec;
 	int cancelled;
@@ -132,6 +133,7 @@ struct qstar_build_ctx {
 	char logdir_full[QSTAR_PATH_MAX];
 	int logdir_ready;
 	size_t run_count, skip_count, fail_count;
+	struct qstar_action_cache_stats action_cache_stats;
 	size_t scheduled_count;
 	size_t progress_total;
 	size_t progress_completed;
@@ -189,6 +191,8 @@ struct qstar_prepared_action {
 	struct qstar_string_list outputs;
 	struct qstar_string_list inputs;
 	struct qstar_string_list depfile_inputs;
+	struct qstar_action_cache_decision cache_decision;
+	int cache_decision_ready;
 };
 
 struct qstar_running_action {
@@ -1189,6 +1193,126 @@ prepared_action_copy_argv(struct qstar_graph *graph, struct qstar_prepared_actio
 			return -1;
 	}
 	return 0;
+}
+
+static int
+prepared_action_cache_inputs(struct qstar_graph *graph,
+    const struct qstar_prepared_action *action, struct qstar_string_list *inputs)
+{
+	if (copy_string_list(inputs, &action->inputs) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
+	return 0;
+}
+
+static int
+prepared_action_cache_declared(const struct qstar_prepared_action *action)
+{
+	if (action->genrule)
+		return action->genrule->cacheable;
+	if (action->target)
+		return action->target->cacheable;
+	return 0;
+}
+
+static int
+prepared_action_cache_spec(struct qstar_graph *graph,
+    struct qstar_prepared_action *action, struct qstar_action_cache_spec *spec,
+    struct qstar_string_list *inputs, int reevaluate)
+{
+	memset(spec, 0, sizeof(*spec));
+	memset(inputs, 0, sizeof(*inputs));
+	if (prepared_action_cache_inputs(graph, action, inputs) < 0)
+		return -1;
+	spec->id = action->id;
+	spec->kind = action->kind;
+	spec->argv = action->argv;
+	spec->env = &action->env;
+	spec->inputs = inputs;
+	spec->outputs = &action->outputs;
+	spec->depfile = action->wants_depfile ? action->depfile : NULL;
+	spec->declared_cacheable = prepared_action_cache_declared(action);
+	if (reevaluate || !action->cache_decision_ready) {
+		if (qstar_action_cache_evaluate(graph, spec,
+		    &action->cache_decision) < 0) {
+			qstar_string_list_free(inputs);
+			return -1;
+		}
+		action->cache_decision_ready = 1;
+	}
+	return 0;
+}
+
+static int
+prepared_action_cache_audit(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    struct qstar_prepared_action *action)
+{
+	struct qstar_action_cache_spec spec;
+	struct qstar_string_list inputs;
+
+	if (action->cache_decision_ready)
+		return 0;
+	if (prepared_action_cache_spec(graph, action, &spec, &inputs, 0) < 0)
+		return -1;
+	ctx->action_cache_stats.audited++;
+	if (action->cache_decision.cacheable)
+		ctx->action_cache_stats.eligible++;
+	else
+		ctx->action_cache_stats.non_cacheable++;
+	if (ctx->explain_cache || ctx->verbose)
+		qstar_action_cache_print_audit(ctx->out, &spec,
+		    &action->cache_decision);
+	qstar_string_list_free(&inputs);
+	return 0;
+}
+
+static int
+prepared_action_cache_restore(struct qstar_graph *graph,
+    struct qstar_build_ctx *ctx, struct qstar_prepared_action *action)
+{
+	struct qstar_action_cache_spec spec;
+	struct qstar_string_list inputs;
+	char reason[96];
+	int rc;
+
+	if (ctx->action_cache_mode != QSTAR_ACTION_CACHE_LOCAL)
+		return 0;
+	if (prepared_action_cache_audit(graph, ctx, action) < 0 ||
+	    prepared_action_cache_spec(graph, action, &spec, &inputs, 0) < 0)
+		return -1;
+	rc = qstar_action_cache_restore(graph, &spec, &action->cache_decision,
+	    &ctx->action_cache_stats, reason, sizeof(reason));
+	if (ctx->explain_cache || ctx->verbose)
+		fprintf(ctx->out, "local_cache_lookup id=%s key=%s status=%s reason=%s\n",
+		    action->id, action->cache_decision.key[0] ?
+		    action->cache_decision.key : "<none>", rc == 1 ? "hit" : "miss",
+		    reason);
+	qstar_string_list_free(&inputs);
+	return rc;
+}
+
+static int
+prepared_action_cache_store(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
+    struct qstar_prepared_action *action, int reevaluate)
+{
+	struct qstar_action_cache_spec spec;
+	struct qstar_string_list inputs;
+	char reason[96];
+	int rc;
+
+	if (ctx->action_cache_mode != QSTAR_ACTION_CACHE_LOCAL)
+		return 0;
+	if (prepared_action_cache_audit(graph, ctx, action) < 0 ||
+	    prepared_action_cache_spec(graph, action, &spec, &inputs, reevaluate) < 0)
+		return -1;
+	rc = qstar_action_cache_store(graph, &spec, &action->cache_decision,
+	    &ctx->action_cache_stats, reason, sizeof(reason));
+	if (ctx->explain_cache || ctx->verbose)
+		fprintf(ctx->out, "local_cache_store id=%s key=%s status=%s reason=%s\n",
+		    action->id, action->cache_decision.key[0] ?
+		    action->cache_decision.key : "<none>", rc == 1 ? "stored" : "skip",
+		    reason);
+	qstar_string_list_free(&inputs);
+	return rc < 0 ? -1 : 0;
 }
 
 /** PATH 또는 명시 path에서 실행 파일을 찾을 수 있는지 검사한다. */
@@ -5649,8 +5773,8 @@ push_depfile_token_with_record(struct qstar_graph *graph,
 }
 
 /** compiler depfile을 직접 읽어 discovered header input을 파싱한다. */
-static int
-parse_depfile_inputs(struct qstar_graph *graph, const char *depfile,
+int
+qstar_parse_depfile_inputs(struct qstar_graph *graph, const char *depfile,
     struct qstar_string_list *inputs, struct qstar_string_list *parsed)
 {
 	char full[QSTAR_PATH_MAX], token[QSTAR_PATH_MAX];
@@ -5738,7 +5862,7 @@ push_depfile_inputs(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		return 0;
 	}
 	memset(&parsed, 0, sizeof(parsed));
-	if (parse_depfile_inputs(graph, depfile, inputs, &parsed) < 0) {
+	if (qstar_parse_depfile_inputs(graph, depfile, inputs, &parsed) < 0) {
 		qstar_string_list_free(&parsed);
 		return -1;
 	}
@@ -5886,7 +6010,8 @@ depfile_refresh_queue_flush(struct qstar_graph *graph, struct qstar_build_ctx *c
 		if (!action)
 			continue;
 		if (refresh_action_state_after_depfile(graph, ctx, action->target,
-		    action->toolchain, action) < 0)
+		    action->toolchain, action) < 0 ||
+		    prepared_action_cache_store(graph, ctx, action, 1) < 0)
 			return -1;
 	}
 	ctx->depfile_refresh_len = 0;
@@ -6805,6 +6930,9 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	if (state_push(ctx, 1, action->id, action->key, action->outputs.items[0],
 	    "run", action->kind, &action->material) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
+	if (!action->wants_depfile &&
+	    prepared_action_cache_store(graph, ctx, action, 1) < 0)
+		return -1;
 	build_tracef(ctx, "build_action id=%s status=done exit=0\n", action->id);
 	build_tracef(ctx, "schedule_action id=%s slot=%zu state=finished\n", action->id,
 	    running->slot);
@@ -9480,7 +9608,7 @@ prepared_action_cache_hit(struct qstar_graph *graph, struct qstar_build_ctx *ctx
 /** compile cache hit action을 process slot 배정 전에 skip 처리한다. */
 static int
 skip_prepared_action_prequeue(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
-    struct qstar_prepared_action *action)
+    struct qstar_prepared_action *action, const char *reason)
 {
 	char logdir[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], action_log[QSTAR_PATH_MAX];
 	char child_stdout_path[QSTAR_PATH_MAX], child_stderr_path[QSTAR_PATH_MAX];
@@ -9501,11 +9629,11 @@ skip_prepared_action_prequeue(struct qstar_graph *graph, struct qstar_build_ctx 
 		    sizeof(child_stderr_path)) < 0)
 			return qstar_set_error(graph, "qstar: action log path too long");
 		build_tracef(ctx,
-		    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
-		    action->id, child_stdout_path, child_stderr_path);
+		    "build_action id=%s status=skip reason=%s stdout=%s stderr=%s\n",
+		    action->id, reason, child_stdout_path, child_stderr_path);
 		build_tracef(ctx,
-		    "scheduler_event event=pre_skip id=%s target=%s state=cache-hit retry=no\n",
-		    action->id, prepared_action_owner_label(action));
+		    "scheduler_event event=pre_skip id=%s target=%s state=%s retry=no\n",
+		    action->id, prepared_action_owner_label(action), reason);
 			action_log_queue_skip_ref(ctx, action_log, action->argv,
 			    action->description, &action->env, &action->outputs);
 	}
@@ -9744,6 +9872,12 @@ scheduler_execute(struct qstar_scheduler *sched)
 				rc = -1;
 				goto fail;
 			}
+			if (sched->ctx->action_cache_mode == QSTAR_ACTION_CACHE_LOCAL &&
+			    prepared_action_cache_audit(sched->graph, sched->ctx,
+			    &sched->nodes[node_index].action) < 0) {
+				rc = -1;
+				goto fail;
+			}
 			if (progress_node_counts(&sched->nodes[node_index]))
 				progress_status(sched->ctx,
 				    progress_stage_name(&sched->nodes[node_index]),
@@ -9751,10 +9885,27 @@ scheduler_execute(struct qstar_scheduler *sched)
 			if (prepared_action_cache_hit(sched->graph, sched->ctx,
 			    &sched->nodes[node_index].action)) {
 				rc = skip_prepared_action_prequeue(sched->graph,
-				    sched->ctx, &sched->nodes[node_index].action);
+				    sched->ctx, &sched->nodes[node_index].action,
+				    "cache-hit");
 				if (rc < 0)
 					goto fail;
 				if (scheduler_complete_node(sched, node_index) < 0) {
+					rc = -1;
+					goto fail;
+				}
+				completed++;
+				progressed = 1;
+				continue;
+			}
+			rc = prepared_action_cache_restore(sched->graph, sched->ctx,
+			    &sched->nodes[node_index].action);
+			if (rc < 0)
+				goto fail;
+			if (rc == 1) {
+				rc = skip_prepared_action_prequeue(sched->graph,
+				    sched->ctx, &sched->nodes[node_index].action,
+				    "local-cas-hit");
+				if (rc < 0 || scheduler_complete_node(sched, node_index) < 0) {
 					rc = -1;
 					goto fail;
 				}
@@ -10004,6 +10155,7 @@ graph_build_with_options_and_state_cache(struct qstar_graph *graph, const char *
 	ctx.out = out;
 	ctx.root_label = label && *label ? label : "<all>";
 	ctx.explain_cache = options ? options->explain_cache : 0;
+	ctx.action_cache_mode = qstar_action_cache_mode(graph, options);
 	ctx.jobs = options && options->jobs > 0 ? options->jobs : default_job_count();
 	ctx.schedule_trace = options ? options->schedule_trace : 0;
 	ctx.verbose = options ? options->verbose : 0;
@@ -10025,6 +10177,8 @@ graph_build_with_options_and_state_cache(struct qstar_graph *graph, const char *
 	build_tracef(&ctx, "qstar build v2\n");
 	build_tracef(&ctx, "root %s\n", ctx.root_label);
 	build_tracef(&ctx, "package-root %s\n", graph->package_root ? graph->package_root : ".");
+	build_tracef(&ctx, "local_action_cache mode=%s audit=report-only sandbox=off\n",
+	    ctx.action_cache_mode == QSTAR_ACTION_CACHE_LOCAL ? "local" : "off");
 	build_tracef(&ctx,
 	    "executor-policy version=v4 parallel=%s jobs=%d active=%s failure=stop-on-first-failure action_timeout_sec=%d cancel=kill-process-and-stop-queue\n",
 	    ctx.jobs > 1 ? "optional" : "no", ctx.jobs,
@@ -10050,6 +10204,9 @@ graph_build_with_options_and_state_cache(struct qstar_graph *graph, const char *
 	    rc == 0)
 		rc = -1;
 	progress_finish(&ctx, rc == 0);
+	if (ctx.action_cache_mode == QSTAR_ACTION_CACHE_LOCAL)
+		qstar_action_cache_print_stats(out, "stella", ctx.action_cache_mode,
+		    &ctx.action_cache_stats);
 	if (rc == 0) {
 		fprintf(out, "%sstatus ok%s run=%zu skip=%zu fail=%zu\n",
 		    build_color(&ctx, "success"), build_color_reset(&ctx),

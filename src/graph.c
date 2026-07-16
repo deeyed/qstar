@@ -464,6 +464,7 @@ free_project(struct qstar_project *project)
 	free(project->build_dir);
 	free(project->generated_dir);
 	free(project->compile_commands);
+	free(project->action_cache);
 	memset(project, 0, sizeof(*project));
 }
 
@@ -784,11 +785,13 @@ qstar_graph_set_cli_overrides(struct qstar_graph *graph, const char *generator,
 int
 qstar_graph_set_project(struct qstar_graph *graph, const char *name,
     const char *version, const char *root, const char *build_dir,
-    const char *generated_dir, const char *compile_commands)
+    const char *generated_dir, const char *compile_commands,
+    const char *action_cache)
 {
 	char *name_copy, *version_copy, *root_copy, *build_copy, *generated_copy;
-	char *compile_copy;
+	char *compile_copy, *action_cache_copy;
 	const char *effective_build_dir, *effective_generated_dir, *effective_compile;
+	const char *effective_action_cache;
 	size_t generated_len;
 
 	if (graph->project.present)
@@ -816,20 +819,27 @@ qstar_graph_set_project(struct qstar_graph *graph, const char *name,
 	    strcmp(effective_compile, "off") != 0)
 		return qstar_set_error(graph,
 		    "qstar: qstar.project compile_commands must be \"root\", \"build\", or \"off\"");
+	effective_action_cache = action_cache && *action_cache ? action_cache : "off";
+	if (strcmp(effective_action_cache, "off") != 0 &&
+	    strcmp(effective_action_cache, "local") != 0)
+		return qstar_set_error(graph,
+		    "qstar: qstar.project action_cache must be \"off\" or \"local\"");
 	name_copy = qstar_strdup(name ? name : "");
 	version_copy = qstar_strdup(version ? version : "");
 	root_copy = qstar_strdup(root && *root ? root : ".");
 	build_copy = qstar_strdup(effective_build_dir);
 	generated_copy = qstar_strdup(effective_generated_dir);
 	compile_copy = qstar_strdup(effective_compile);
+	action_cache_copy = qstar_strdup(effective_action_cache);
 	if (!name_copy || !version_copy || !root_copy || !build_copy ||
-	    !generated_copy || !compile_copy) {
+	    !generated_copy || !compile_copy || !action_cache_copy) {
 		free(name_copy);
 		free(version_copy);
 		free(root_copy);
 		free(build_copy);
 		free(generated_copy);
 		free(compile_copy);
+		free(action_cache_copy);
 		return qstar_set_error(graph, "qstar: out of memory");
 	}
 	graph->project.present = 1;
@@ -839,6 +849,7 @@ qstar_graph_set_project(struct qstar_graph *graph, const char *name,
 	graph->project.build_dir = build_copy;
 	graph->project.generated_dir = generated_copy;
 	graph->project.compile_commands = compile_copy;
+	graph->project.action_cache = action_cache_copy;
 	return 0;
 }
 
@@ -1226,6 +1237,7 @@ qstar_graph_add_target(struct qstar_graph *graph, const char *label, const char 
 	target->cxx_standard = qstar_strdup("");
 	target->cxx_precompiled_header = qstar_strdup("");
 	target->cxx_unity_batch_size = 8;
+	target->cacheable = 1;
 	target->run_expect_contains = qstar_strdup("");
 	target->run_expect_file = qstar_strdup("");
 	target->description = qstar_strdup("");
@@ -2156,6 +2168,10 @@ merge_config_scalars(struct qstar_graph *graph, struct qstar_target *target,
 		target->cxx_unity_enabled = options->cxx_unity_enabled;
 		target->cxx_unity_batch_size = options->cxx_unity_batch_size;
 	}
+	if (config->has_cacheable) {
+		target->cacheable_present = 1;
+		target->cacheable = options->cacheable;
+	}
 	return 0;
 }
 
@@ -2274,6 +2290,7 @@ qstar_graph_add_genrule(struct qstar_graph *graph, const char *label, const char
 	genrule->tool = qstar_strdup("generator");
 	genrule->toolset = qstar_strdup("");
 	genrule->description = qstar_strdup("");
+	genrule->cacheable = 1;
 	if (!genrule->label || !genrule->name || !genrule->fragment_dir ||
 	    !genrule->origin_file || !genrule->tool || !genrule->toolset ||
 	    !genrule->description) {
@@ -4371,6 +4388,7 @@ dump_target(const struct qstar_graph *graph, const struct qstar_target *target, 
 	dump_imported_artifacts_text(out, target, "  ");
 	fprintf(out, "  toolset %s\n",
 	    target->toolset && *target->toolset ? target->toolset : "<default>");
+	fprintf(out, "  cacheable %s\n", target->cacheable ? "true" : "false");
 }
 
 /** reusable config declaration을 Graph IR dump 형식으로 출력한다. */
@@ -4460,6 +4478,8 @@ dump_config(const struct qstar_config *config, FILE *out)
 	fprintf(out, "  toolset %s\n",
 	    config->has_toolset && options->toolset && *options->toolset ? options->toolset :
 	    "<unset>");
+	fprintf(out, "  cacheable %s\n",
+	    config->has_cacheable ? (options->cacheable ? "true" : "false") : "<unset>");
 }
 
 /** generated action skeleton을 Graph IR dump 형식으로 출력한다. */
@@ -4476,6 +4496,7 @@ dump_genrule(const struct qstar_genrule *genrule, FILE *out)
 	fprintf(out, "  tool %s\n", genrule->tool);
 	fprintf(out, "  toolset %s\n",
 	    genrule->toolset && *genrule->toolset ? genrule->toolset : "<unset>");
+	fprintf(out, "  cacheable %s\n", genrule->cacheable ? "true" : "false");
 	fprintf(out, "  description %s\n",
 	    genrule->description && *genrule->description ? genrule->description : "<default>");
 	fprintf(out, "  config_header %s\n", genrule->config_header ? "yes" : "no");
@@ -4668,14 +4689,16 @@ qstar_graph_dump(const struct qstar_graph *graph, const char *label, FILE *out)
 	}
 	fputs("qstar graph v1\n", out);
 	fprintf(out,
-	    "project name=%s version=%s root=%s build_dir=%s generated_dir=%s compile_commands=%s generator=%s requested_generator=%s\n",
+	    "project name=%s version=%s root=%s build_dir=%s generated_dir=%s compile_commands=%s generator=%s requested_generator=%s action_cache=%s\n",
 	    graph->project.name && *graph->project.name ? graph->project.name : "<unnamed>",
 	    graph->project.version && *graph->project.version ?
 	    graph->project.version : "<unspecified>",
 	    graph->project.root && *graph->project.root ? graph->project.root : ".",
 	    qstar_graph_build_dir(graph), qstar_graph_generated_dir(graph),
 	    qstar_graph_compile_commands_policy(graph), qstar_graph_generator(graph),
-	    qstar_graph_requested_generator(graph));
+	    qstar_graph_requested_generator(graph),
+	    graph->project.action_cache && *graph->project.action_cache ?
+	    graph->project.action_cache : "off");
 	fprintf(out, "platform %s\n", qstar_graph_platform(graph));
 	for (i = 0; i < graph->project_option_len; i++) {
 		fprintf(out,
@@ -5092,6 +5115,7 @@ dump_target_json(FILE *out, const struct qstar_graph *graph,
 	dump_target_usage_json(out, graph, target);
 	fputs(",\"toolset\":", out);
 	dump_json_string(out, target->toolset && *target->toolset ? target->toolset : "");
+	fprintf(out, ",\"cacheable\":%s", target->cacheable ? "true" : "false");
 	fputs(",\"artifact_name\":", out);
 	dump_json_string(out, target->artifact_name && *target->artifact_name ?
 	    target->artifact_name : "");
@@ -5276,6 +5300,9 @@ dump_config_json(FILE *out, const struct qstar_config *config)
 	fprintf(out, "%s", config->has_toolset ? "true" : "false");
 	fputs(",\"toolset\":", out);
 	dump_json_string(out, config->has_toolset && options->toolset ? options->toolset : "");
+	fprintf(out, ",\"has_cacheable\":%s,\"cacheable\":%s",
+	    config->has_cacheable ? "true" : "false",
+	    options->cacheable ? "true" : "false");
 	fputs(",\"has_artifact_name\":", out);
 	fprintf(out, "%s", config->has_artifact_name ? "true" : "false");
 	fputs(",\"artifact_name\":", out);
@@ -5413,6 +5440,7 @@ dump_genrule_json(FILE *out, const struct qstar_genrule *genrule)
 	fputs(",\"toolset\":", out);
 	dump_json_string(out, genrule->toolset && *genrule->toolset ?
 	    genrule->toolset : "");
+	fprintf(out, ",\"cacheable\":%s", genrule->cacheable ? "true" : "false");
 	fputs(",\"description\":", out);
 	dump_json_string(out, genrule->description && *genrule->description ?
 	    genrule->description : "");
@@ -5614,6 +5642,9 @@ qstar_graph_list_targets_json(const struct qstar_graph *graph, FILE *out)
 	dump_json_string(out, qstar_graph_generator(graph));
 	fputs(",\"requested_generator\":", out);
 	dump_json_string(out, qstar_graph_requested_generator(graph));
+	fputs(",\"action_cache\":", out);
+	dump_json_string(out, graph->project.action_cache && *graph->project.action_cache ?
+	    graph->project.action_cache : "off");
 	fputc('}', out);
 	fprintf(out,
 	    ",\"target_count\":%zu,\"config_count\":%zu,\"toolset_count\":%zu,"
@@ -5751,6 +5782,7 @@ qstar_graph_query(const struct qstar_graph *graph, const char *label, FILE *out)
 	fprintf(out, "  package %s\n", package[0] ? package : "<root>");
 	}
 	fprintf(out, "  kind %s\n", target->kind);
+	fprintf(out, "  cacheable %s\n", target->cacheable ? "true" : "false");
 	fprintf(out, "  rule provider=%s final_action=%s output_group=%s\n",
 	    qstar_target_rule_lookup(target->kind) ?
 	    qstar_target_rule_lookup(target->kind)->provider : "generic",

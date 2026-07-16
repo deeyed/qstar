@@ -111,7 +111,7 @@ qstar_daemon_command(int argc, char **argv, const char *file,
 #include <sys/inotify.h>
 #endif
 
-#define QSTAR_DAEMON_BUILD_MAGIC "qstar-daemon-build-v2"
+#define QSTAR_DAEMON_BUILD_MAGIC "qstar-daemon-build-v3"
 #define QSTAR_DAEMON_HELLO_MAGIC "qstar-daemon-hello-v1"
 #define QSTAR_DAEMON_QUERY_MAGIC "qstar-daemon-query-v2"
 #define QSTAR_DAEMON_RESPONSE_MAGIC "qstar-daemon-response-v1"
@@ -981,6 +981,9 @@ send_request_body(int fd, const struct qstar_daemon_request *req)
 	snprintf(line, sizeof(line), "%d", req->options.progress_mode);
 	if (write_line(fd, line) < 0)
 		return -1;
+	snprintf(line, sizeof(line), "%d", req->options.action_cache_mode);
+	if (write_line(fd, line) < 0)
+		return -1;
 	snprintf(line, sizeof(line), "%d", req->options.color_mode);
 	return write_line(fd, line);
 }
@@ -1038,6 +1041,8 @@ read_request(int fd, struct qstar_daemon_request *req)
 	    parse_int_line(line, &req->options.quiet) < 0 ||
 	    read_line(fd, line, sizeof(line)) < 0 ||
 	    parse_int_line(line, &req->options.progress_mode) < 0 ||
+	    read_line(fd, line, sizeof(line)) < 0 ||
+	    parse_int_line(line, &req->options.action_cache_mode) < 0 ||
 	    read_line(fd, line, sizeof(line)) < 0 ||
 	    parse_int_line(line, &req->options.color_mode) < 0)
 		return -1;

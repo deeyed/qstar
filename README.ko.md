@@ -138,6 +138,22 @@ qstar -B build/stella -G stella build //:app
 qstar -B build/ninja -G ninja build //:app
 ```
 
+## Local Action Cache
+
+Local content-addressed action cache의 기본값은 off다. 프로젝트는
+`qstar.project { action_cache = "local" }`, 한 번의 build는 `--action-cache local`로
+명시적으로 켠다. 현재 재사용 대상은 조건을 만족하는 compile/generated regular-file
+action으로 제한된다. `cacheable = false`는 action을 제외하고, 장치/외부 emulator/HIL 성격의 action은
+자동으로 non-cacheable이다. Undeclared path audit은 report-only이며 sandbox나 remote
+execution을 뜻하지 않는다.
+
+```sh
+qstar build //:app --action-cache local --explain-cache
+make qstar-local-action-cache-tests
+```
+
+자세한 계약은 [docs/local-action-cache.md](docs/local-action-cache.md)에 있다.
+
 ## Stella Daemon
 
 QStar에는 문서화된 beta opt-in daemon workflow가 있다. 기본 `qstar build`는 여전히 일반

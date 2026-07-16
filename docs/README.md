@@ -123,6 +123,9 @@ Important documents:
   that validates `qstar init --use-language=rust|zig` app/lib/tool/workspace
   scaffolds with Stella and Ninja.
 - `performance-gates.md`: Stella/Ninja performance gate contract.
+- `local-action-cache.md`: Korean canonical contract for the opt-in local CAS,
+  report-only hermeticity audit, cacheability policy, tool/env fingerprints,
+  corruption handling, observability, and Stella/Ninja parity.
 - `qstar-generic-dsl-backend-seal.md`: Q193 backend/performance seal after the
   generic DSL hard cut.
 - `perf/q250-v0.8-backend-performance-refresh.md`: v0.8 release-prep

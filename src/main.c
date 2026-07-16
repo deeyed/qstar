@@ -53,6 +53,7 @@ usage(FILE *out)
 	fputs("       --progress auto|plain|off  # default: CMake-style action progress\n", out);
 	fputs("       --verbose  # keep progress and add argv/cache/action details\n", out);
 	fputs("       --schedule-trace  # add scheduler internals such as schedule_action\n", out);
+	fputs("       --action-cache off|local  # opt-in local content-addressed action cache\n", out);
 	fputs("       --use-daemon auto|never|always  # beta opt-in Stella daemon client\n", out);
 	fputs("       --daemon-socket path  # local Unix socket path; Windows named pipe deferred\n", out);
 	fputs("       --quiet\n", out);
@@ -96,13 +97,14 @@ command_help(FILE *out, const char *cmd)
 		return;
 	}
 	if (strcmp(cmd, "build") == 0) {
-		fputs("usage: qstar [options] build [label] [--jobs N] [--schedule-trace] [--explain-cache] [--verbose|--quiet] [--progress auto|plain|off] [--use-daemon auto|never|always]\n", out);
+		fputs("usage: qstar [options] build [label] [--jobs N] [--schedule-trace] [--explain-cache] [--action-cache off|local] [--verbose|--quiet] [--progress auto|plain|off] [--use-daemon auto|never|always]\n", out);
 		fputs("Build a target, generated action, run target, or group target in the validated graph.\n", out);
 		fputs("--jobs defaults to the host CPU count when omitted.\n", out);
 		fputs("Default progress uses CMake-style action lines such as '[ 75%] Linking CXX executable app'.\n", out);
 		fputs("--progress auto is terminal-aware; --progress plain is deterministic; --progress off hides progress lines.\n", out);
 		fputs("--verbose keeps progress and adds argv/cache/action details.\n", out);
 		fputs("--schedule-trace adds scheduler internals; default output hides Stage/Status/schedule_action/build_action details.\n", out);
+		fputs("--action-cache local enables the report-only hermeticity audit and local CAS for eligible compile/generated actions.\n", out);
 		fputs("--color controls warning:/error: ANSI color in text output; JSON diagnostics stay uncolored.\n", out);
 		fputs("--use-daemon is beta opt-in; auto falls back before daemon build streaming starts, always fails on daemon errors.\n", out);
 		fputs("--daemon-socket selects a local Unix socket path; Windows named pipe support is deferred.\n", out);
@@ -373,6 +375,18 @@ parse_progress_mode(const char *s, int *mode)
 		*mode = QSTAR_PROGRESS_PLAIN;
 	else if (strcmp(s, "off") == 0)
 		*mode = QSTAR_PROGRESS_OFF;
+	else
+		return -1;
+	return 0;
+}
+
+static int
+parse_action_cache_mode(const char *s, int *mode)
+{
+	if (strcmp(s, "off") == 0)
+		*mode = QSTAR_ACTION_CACHE_OFF;
+	else if (strcmp(s, "local") == 0)
+		*mode = QSTAR_ACTION_CACHE_LOCAL;
 	else
 		return -1;
 	return 0;
@@ -661,6 +675,20 @@ main(int argc, char **argv)
 			    parse_progress_mode(argv[arg + 1],
 			    &build_options.progress_mode) < 0) {
 				usage(stderr);
+				qstar_graph_free(&graph);
+				return 2;
+			}
+			arg += 2;
+		} else if (strcmp(argv[arg], "--action-cache") == 0) {
+			if (arg + 1 >= argc) {
+				fputs("qstar: --action-cache requires off or local\n", stderr);
+				qstar_graph_free(&graph);
+				return 2;
+			}
+			if (parse_action_cache_mode(argv[arg + 1],
+			    &build_options.action_cache_mode) < 0) {
+				fprintf(stderr, "qstar: invalid action cache mode '%s'; expected off or local\n",
+				    argv[arg + 1]);
 				qstar_graph_free(&graph);
 				return 2;
 			}
@@ -1202,6 +1230,21 @@ main(int argc, char **argv)
 				if (sscanf(argv[arg + 1], "%d", &build_options.jobs) != 1 ||
 				    build_options.jobs < 1 || build_options.jobs > 256) {
 					usage(stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				arg += 2;
+			} else if (strcmp(argv[arg], "--action-cache") == 0) {
+				if (arg + 1 >= argc) {
+					fputs("qstar: --action-cache requires off or local\n", stderr);
+					qstar_graph_free(&graph);
+					return 2;
+				}
+				if (parse_action_cache_mode(argv[arg + 1],
+				    &build_options.action_cache_mode) < 0) {
+					fprintf(stderr,
+					    "qstar: invalid action cache mode '%s'; expected off or local\n",
+					    argv[arg + 1]);
 					qstar_graph_free(&graph);
 					return 2;
 				}

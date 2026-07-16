@@ -165,6 +165,22 @@ qstar -B build/stella -G stella build //:app
 qstar -B build/ninja -G ninja build //:app
 ```
 
+## Local Action Cache
+
+The local content-addressed action cache is off by default. Projects can opt in
+with `qstar.project { action_cache = "local" }`, or one build can use
+`--action-cache local`. Current reuse is intentionally limited to eligible
+compile and generated regular-file actions. `cacheable = false` excludes an
+action, and device/external-emulator/HIL-style actions are non-cacheable. The undeclared-path
+audit is report-only and does not imply a sandbox or remote execution.
+
+```sh
+qstar build //:app --action-cache local --explain-cache
+make qstar-local-action-cache-tests
+```
+
+See [docs/local-action-cache.md](docs/local-action-cache.md).
+
 ## Stella Daemon
 
 QStar also has a documented beta opt-in daemon workflow. The default

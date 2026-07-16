@@ -46,7 +46,8 @@ qstar.staticlib "core" {
 
 ## Graph entrypoints
 
-- `qstar.project`: project metadata, `build_dir`, `generated_dir`, compile database policy.
+- `qstar.project`: project metadata, `build_dir`, `generated_dir`, compile database policy,
+  opt-in `action_cache` policy.
 - `qstar.option`: CLI `-D name=value`로 override되는 typed project build option.
 - `qstar.variant`: name, `values`, `description`, `tags`만 builtin인 read-only
   user metadata table.
@@ -440,6 +441,7 @@ qstar.project {
   build_dir = "build/qstar",
   generated_dir = "build/qstar/generated",
   compile_commands = "build",
+  action_cache = "local",
 }
 
 qstar.configure_file "cfg" {
@@ -453,6 +455,11 @@ qstar.configure_file "cfg" {
 `generated_dir` 아래에 있어야 한다. Target `sources`, `public_headers`,
 `private_headers`에서 그 directory 아래 path를 참조하면 반드시 해당 path를 만드는
 generated action owner가 있어야 한다.
+
+`action_cache` 기본값은 `"off"`다. `"local"`은 compile/generated regular-file action의
+local CAS와 report-only hermeticity audit를 opt-in한다. Artifact/test/objectlib/config 및
+generated declaration의 `cacheable = false`는 해당 action을 명시적으로 제외한다. 자세한
+계약은 [Local Action Cache](local-action-cache.md)에 있다.
 
 ## Build status descriptions
 

@@ -34,6 +34,7 @@ qstar.project {
   root = ".",
   build_dir = "build/qstar",
   generated_dir = "build/qstar/generated",
+  action_cache = "local", -- optional; default "off"
 }
 ```
 
@@ -410,6 +411,7 @@ shell strings or domain-specific target kinds.
 ```lua
 qstar.config "common_c" {
   toolset = "//:host",
+  cacheable = true,
   lang = {
     c = {
       public_include_dirs = {"include"},
@@ -468,6 +470,7 @@ qstar.objectlib "core_objects" {
   configs = {"//:common_c"},
   sources = {"src/core_extra.c"},
   compile_context = "own",
+  cacheable = true,
 }
 
 qstar.executable "app" {
@@ -526,6 +529,7 @@ qstar.custom_target "package_blob" {
   outputs = {qstar.output("build/qstar/generated/app.bin", {group = "packages"})},
   command = qstar.cli {"package-object", qstar.input(0), qstar.output(0)},
   description = qstar.status("Packaging app.bin"),
+  cacheable = true,
 }
 ```
 
@@ -539,8 +543,17 @@ qstar.transform "package_blob" {
   output = qstar.output("build/qstar/generated/app.bin", {group = "packages"}),
   command = qstar.cli {"package-object", qstar.input(0), qstar.output(0)},
   description = qstar.status("Packaging app.bin"),
+  cacheable = true,
 }
 ```
+
+`cacheable` is a strict boolean candidate policy for artifact/test/objectlib,
+config, and generated declarations. It defaults to `true`, but the local CAS is
+off unless `qstar.project.action_cache = "local"` or build option
+`--action-cache local` is selected. The current CAS stores only regular-file
+compile/generated outputs. External runtime/device actions and unsupported
+action kinds remain non-cacheable. The audit is report-only; see
+`docs/local-action-cache.md`.
 
 Generated object outputs use the same surface:
 
@@ -564,6 +577,7 @@ Generated action fields:
 | `command` | Required `qstar.cli { ... }` argv vector. |
 | `toolset` | Optional `qstar.toolset` label used to resolve and authorize the first argv item. |
 | `description` | Optional `qstar.status("...")` progress/action-log description. |
+| `cacheable` | Optional boolean local-CAS candidate policy; default `true`. |
 
 If `toolset` is omitted, generated actions use the path-tool policy declared by
 the graph's toolsets. Package-relative command paths such as

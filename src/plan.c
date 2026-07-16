@@ -394,6 +394,9 @@ dump_plan_inputs(FILE *out, const struct qstar_graph *graph)
 	size_t i;
 
 	fprintf(out, "platform %s\n", qstar_graph_platform(graph));
+	fprintf(out, "local_action_cache mode=%s audit=report-only sandbox=off\n",
+	    graph->project.action_cache && *graph->project.action_cache ?
+	    graph->project.action_cache : "off");
 	for (i = 0; i < graph->project_option_len; i++) {
 		fprintf(out,
 		    "project_option name=%s type=%s value=%s effective=%s overridden=%s choices=",
@@ -1803,10 +1806,11 @@ dump_direct_genrule_plan(FILE *out, const struct qstar_graph *graph,
 		snprintf(tool_mode, sizeof(tool_mode), "invalid");
 	}
 	fprintf(out,
-	    "%s_generated_action %s tool=%s toolset=%s tool_mode=%s resolved_tool=%s inputs=%s outputs=%s output_identities=%s\n",
+	    "%s_generated_action %s tool=%s toolset=%s tool_mode=%s resolved_tool=%s inputs=%s outputs=%s output_identities=%s cacheable=%s\n",
 	    mode, genrule->label, genrule->tool,
 	    genrule->toolset && *genrule->toolset ? genrule->toolset : "<none>",
-	    tool_mode, resolved_tool, inputs, outputs, identities);
+	    tool_mode, resolved_tool, inputs, outputs, identities,
+	    genrule->cacheable ? "true" : "false");
 	snprintf(id, sizeof(id), "%s:generate:0", genrule->label);
 	if (qstar_action_description_generate(genrule, description,
 	    sizeof(description)) < 0)
@@ -2179,6 +2183,7 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	fprintf(out, "target %s\n", target->label);
 	fprintf(out, "  order %zu\n", order);
 	fprintf(out, "  kind %s\n", target->kind);
+	fprintf(out, "  cacheable %s\n", target->cacheable ? "true" : "false");
 	fprintf(out, "  rule provider=%s final_action=%s output_group=%s\n",
 	    qstar_target_rule_lookup(target->kind) ?
 	    qstar_target_rule_lookup(target->kind)->provider : "generic",

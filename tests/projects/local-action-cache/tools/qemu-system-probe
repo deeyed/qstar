@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+test "$1" = "--count"
+count_file=$2
+output=$3
+count=0
+
+if test -f "$count_file"; then
+  count=$(cat "$count_file")
+fi
+printf '%s\n' "$((count + 1))" > "$count_file"
+mkdir -p "$(dirname "$output")"
+printf 'external runtime probe\n' > "$output"

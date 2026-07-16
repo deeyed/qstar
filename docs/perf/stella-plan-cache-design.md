@@ -110,6 +110,11 @@ template도 snapshot에 포함한다. 따라서 `qstar.lang/1`과 `/2` target은
 plan-cache hit에서도 source classification, named artifact selector, generated consumer
 edge를 잃지 않는다.
 
+Q283 graph cache v7/plan ABI 15부터 project `action_cache` policy와 target/config/generated
+action의 declared `cacheable` state도 snapshot에 포함한다. Local CAS의 content entry 자체는
+plan cache와 분리되어 effective build directory의 `cas/v1` 아래에 저장된다. Plan cache hit가
+action graph를 복원한 뒤에도 실행 직전 tool/input/env fingerprint로 CAS key를 다시 계산한다.
+
 Q120은 Lua eval과 validation을 건너뛰는 whole-graph cache MVP였다. Q124부터 scheduler는
 cache hit 시 `actions.qsa`에서 compile/archive/link action의 argv, output, description,
 static input list를 직접 복원한다. 파일 content/env/action key는 실행 직전에 다시 계산하므로
@@ -145,9 +150,9 @@ Partial cache는 error가 아니라 miss다. Stella는 cache가 부서져도 sou
 
 ```json
 {
-	  "schema": "qstar-stella-plan-cache-v10",
+	  "schema": "qstar-stella-plan-cache-v11",
 	  "qstar_version": "0.7.0-beta",
-	  "plan_abi": 14,
+	  "plan_abi": 15,
   "package_root": "/absolute/package/root",
   "build_dir": "build/qstar",
   "generated_dir": "build/qstar/generated",

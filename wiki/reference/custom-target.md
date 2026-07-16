@@ -21,6 +21,7 @@ qstar.custom_target "generated" {
   outputs = {qstar.output("generated/value.c")},
   command = qstar.cli {"gen-value", qstar.input(0), qstar.output(0)},
   description = qstar.status("Generating generated/value.c"),
+  cacheable = true,
 }
 ```
 
@@ -61,6 +62,13 @@ path(`tools/gen-value.sh`)는 package-local 실행 파일로 취급되므로 `pa
 
 `qstar.transform`은 같은 generated action contract로 낮아진다. 복수 input/output이나 더
 복잡한 generator는 `qstar.custom_target`을 사용한다.
+
+`cacheable`은 strict boolean이며 기본값은 `true`다. 이는 action을 무조건 저장한다는 뜻이
+아니라 local CAS 후보 선언이다. `qstar.project.action_cache = "local"` 또는 build option
+`--action-cache local`이 있어야 CAS가 활성화되고, regular-file generated output과 resolve된
+tool 같은 추가 조건도 만족해야 한다. 외부 장치/runtime action은 `cacheable = false`로
+명시한다. 자세한 판정과 report-only audit은 [Local Action Cache](local-action-cache.md)를
+참조한다.
 
 ```lua
 qstar.transform "package_blob" {

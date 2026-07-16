@@ -174,6 +174,7 @@ qstar docs --show reference/qstar-lua.md
 - [Run Target](reference/run-target.md)
 - [Toolsets](reference/toolsets.md)
 - [Performance Gates](reference/performance-gates.md)
+- [Local Action Cache](reference/local-action-cache.md)
 - [Stella Daemon](reference/stella-daemon.md)
 - [Progress Output](reference/progress-output.md)
 - [Diagnostics](reference/diagnostics.md)

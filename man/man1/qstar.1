@@ -193,10 +193,17 @@ for the supported MVP graph.
 Build accepts
 .Fl -jobs Ar N ,
 .Fl -schedule-trace ,
+.Fl -action-cache Ar off|local ,
 .Fl -verbose ,
 .Fl -quiet ,
 and
 .Fl -progress Ar auto|plain|off .
+The local action cache is off by default. Local mode enables a report-only
+undeclared-path audit and a content-addressed cache for eligible compile and
+generated regular-file actions. Tool executable content and allowlisted
+environment values participate in the key; environment values remain
+redacted in logs. This option does not enable a sandbox, remote cache, or
+remote execution.
 Beta opt-in daemon clients also accept
 .Fl -use-daemon Ar auto|never|always
 and

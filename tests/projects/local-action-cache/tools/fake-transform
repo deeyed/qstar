@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+test "$1" = "--count"
+count_file=$2
+input=$3
+output=$4
+count=0
+
+if test -f "$count_file"; then
+  count=$(cat "$count_file")
+fi
+printf '%s\n' "$((count + 1))" > "$count_file"
+mkdir -p "$(dirname "$output")"
+cp "$input" "$output"

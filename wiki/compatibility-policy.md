@@ -16,6 +16,8 @@ v1 promise: candidate surface defined, v1 release gate still required
 ## Stable 후보
 
 - `qstar.project`, `qstar.toolset`, `qstar.config`
+- opt-in `qstar.project.action_cache`, build `--action-cache`, target/config/generated
+  `cacheable` candidate policy. CAS on-disk format, hash, audit/stat text는 beta/report-only다.
 - `qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`, `qstar.test`
 - `qstar.test_resource`와 user-defined resource capacity, per-test
   resources/retry/setup/cleanup/timeout/manual/skip, JSON/JUnit result protocol
@@ -52,6 +54,8 @@ v1 promise: candidate surface defined, v1 release gate still required
   `qstar-daemon-query-v2`/`qstar-daemon-read-v1` marker도 stable machine-readable v1 API가 아니다.
 - optional real compiler corpus와 hosted manual validation lane은 release
   evidence이지 stable authoring syntax가 아니다.
+- Local action cache는 opt-in이며 strict sandbox, remote cache, remote execution promise가
+  아니다. 현재 compile/generated regular-file action만 후보로 삼는다.
 - package registry, dependency resolver, lockfile, network fetch policy는
   QStar core 밖에 둔다.
 

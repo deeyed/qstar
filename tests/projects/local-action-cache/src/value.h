@@ -1,0 +1,1 @@
+#define QSTAR_LOCAL_CACHE_VALUE 42

@@ -35,7 +35,7 @@ them as protected unless this document is updated first.
 - Helper module suffix and loading: `.qsm` and cached `qstar.import_module`
   exports.
 - Project metadata: `qstar.project` with `name`, `version`, `root`,
-  `build_dir`, `generated_dir`, and `compile_commands`.
+  `build_dir`, `generated_dir`, `compile_commands`, and opt-in `action_cache`.
 - Read-only host and project constants: `QSTAR_VERSION`, `QSTAR_HOST_OS`,
   `QSTAR_HOST_ARCH`, `QSTAR_PACKAGE_ROOT`, `QSTAR_PROJECT_ROOT`,
   `qstar.version`, `qstar.host.os`, `qstar.host.arch`, and
@@ -57,7 +57,7 @@ them as protected unless this document is updated first.
   append, and target-local scalar fields override config scalar fields.
 - Config and target fields for explicit command-line policy: `lang`, `libs`,
   `lib_dirs`, `link`, `link_options`, `link_inputs`, `toolset`, and
-  `artifact_name`.
+  `artifact_name`, plus the boolean `cacheable` candidate policy.
 
 ### Targets And Artifact Rules
 
@@ -84,7 +84,7 @@ them as protected unless this document is updated first.
   there.
 - Utility rules: `qstar.group`, `qstar.stage`, and `qstar.target_family`.
 - Generated action rules: `qstar.configure_file`, `qstar.custom_target`, and
-  `qstar.transform`.
+  `qstar.transform`, including their boolean `cacheable` candidate policy.
 - Run actions: `qstar.run_target` with `inputs`, `command`, `timeout`, and
   `expect`.
 - Target dependency fields: `deps`, `public_deps`, `private_deps`, `configs`,
@@ -201,6 +201,7 @@ later round explicitly promotes them.
 | Standard provider internals | Bundled Zig, Rust, and CUDA provider ids, namespaces, documented helper exports, option schemas, raw source classification, final-action availability, and init vendoring behavior are consumer-facing stable candidates. Their `provider.lua` implementation details, exact compiler argv construction, cache layout, and future language-tool integration choices remain beta. |
 | Provider final-action lowering internals | Consumer behavior is a stable candidate; provider-author lowering hooks and result schema remain beta until versioned or frozen. |
 | Stella daemon | The daemon is beta opt-in, not default behavior. `--use-daemon=auto|always`, `qstar daemon --start/--stop/--serve/--status`, daemon build forwarding, the read API, `qstar-daemon-query-v2`/`qstar-daemon-read-v1`, socket lifecycle, watcher internals, daemon performance numbers, and Windows named pipe support are not v1 stable. `make qstar-daemon-beta-boundary-tests` is the current beta guard for fallback parity, normal Stella parity, read API freshness, socket permission checks, identity mismatch rejection, and stale socket/pid/lock cleanup. |
+| Local action cache internals | `action_cache = "local"`, `--action-cache local`, and `cacheable` are protected opt-in authoring candidates. CAS directory/manifest/blob layout, content hash algorithm, heuristic audit text, statistics line format, and exact eligibility expansion remain beta/report-only. This surface does not promise a sandbox, remote cache, or remote execution. |
 | Optional real compiler corpus | Real Rust/Zig compiler validation is useful evidence, but it is optional and skipped when compilers are unavailable. |
 | Hosted manual validation lanes | GitHub Actions workflow names and artifact layouts are release evidence contracts, not general user authoring syntax. |
 | Performance numbers | Performance snapshots are report-only release inputs. They are not speed guarantees. |

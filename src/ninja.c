@@ -24,6 +24,18 @@ struct ninja_argv {
 	size_t len;
 };
 
+struct ninja_cache_candidate {
+	char *id;
+	char *kind;
+	char *depfile;
+	struct ninja_argv argv;
+	struct qstar_string_list env;
+	struct qstar_string_list inputs;
+	struct qstar_string_list outputs;
+	int declared_cacheable;
+	struct qstar_action_cache_decision decision;
+};
+
 struct ninja_ctx {
 	FILE *ninja;
 	FILE *compdb;
@@ -40,6 +52,12 @@ struct ninja_ctx {
 	int *stage_state;
 	int compdb_first;
 	int edge_count;
+	int action_cache_mode;
+	int action_cache_verbose;
+	struct ninja_cache_candidate *cache_candidates;
+	size_t cache_candidate_len;
+	size_t cache_candidate_cap;
+	struct qstar_action_cache_stats action_cache_stats;
 };
 
 static int emit_target(struct qstar_graph *graph, const struct qstar_target *target,
@@ -288,6 +306,149 @@ ninja_argv_clone(struct qstar_graph *graph, struct ninja_argv *dst,
 			ninja_argv_free(dst);
 			return -1;
 		}
+	}
+	return 0;
+}
+
+static int
+ninja_cache_copy_list(struct qstar_graph *graph, struct qstar_string_list *dst,
+    const struct qstar_string_list *src)
+{
+	size_t i;
+
+	for (i = 0; src && i < src->len; i++) {
+		if (qstar_string_list_push(dst, src->items[i]) < 0)
+			return qstar_set_error(graph, "qstar: out of memory");
+	}
+	return 0;
+}
+
+static void
+ninja_cache_candidate_free(struct ninja_cache_candidate *candidate)
+{
+	free(candidate->id);
+	free(candidate->kind);
+	free(candidate->depfile);
+	ninja_argv_free(&candidate->argv);
+	qstar_string_list_free(&candidate->env);
+	qstar_string_list_free(&candidate->inputs);
+	qstar_string_list_free(&candidate->outputs);
+	memset(candidate, 0, sizeof(*candidate));
+}
+
+static void
+ninja_cache_candidates_free(struct ninja_ctx *ctx)
+{
+	size_t i;
+
+	for (i = 0; i < ctx->cache_candidate_len; i++)
+		ninja_cache_candidate_free(&ctx->cache_candidates[i]);
+	free(ctx->cache_candidates);
+	ctx->cache_candidates = NULL;
+	ctx->cache_candidate_len = 0;
+	ctx->cache_candidate_cap = 0;
+}
+
+static int
+ninja_cache_add_candidate(struct qstar_graph *graph, struct ninja_ctx *ctx,
+    const char *id, const char *kind, const struct ninja_argv *argv,
+    const struct qstar_string_list *env, const struct qstar_string_list *inputs,
+    const struct qstar_string_list *outputs, const char *depfile,
+    int declared_cacheable)
+{
+	struct ninja_cache_candidate *items, *candidate;
+	struct qstar_action_cache_spec spec;
+	char reason[96];
+	size_t ncap;
+	int rc;
+
+	if (ctx->action_cache_mode != QSTAR_ACTION_CACHE_LOCAL)
+		return 0;
+	if (ctx->cache_candidate_len == ctx->cache_candidate_cap) {
+		ncap = ctx->cache_candidate_cap ? ctx->cache_candidate_cap * 2 : 32;
+		items = realloc(ctx->cache_candidates, ncap * sizeof(items[0]));
+		if (!items)
+			return qstar_set_error(graph, "qstar: out of memory");
+		memset(items + ctx->cache_candidate_cap, 0,
+		    (ncap - ctx->cache_candidate_cap) * sizeof(items[0]));
+		ctx->cache_candidates = items;
+		ctx->cache_candidate_cap = ncap;
+	}
+	candidate = &ctx->cache_candidates[ctx->cache_candidate_len++];
+	candidate->id = qstar_strdup(id);
+	candidate->kind = qstar_strdup(kind);
+	candidate->depfile = qstar_strdup(depfile ? depfile : "");
+	candidate->declared_cacheable = declared_cacheable;
+	if (!candidate->id || !candidate->kind || !candidate->depfile ||
+	    ninja_argv_clone(graph, &candidate->argv, argv) < 0 ||
+	    ninja_cache_copy_list(graph, &candidate->env, env) < 0 ||
+	    ninja_cache_copy_list(graph, &candidate->inputs, inputs) < 0 ||
+	    ninja_cache_copy_list(graph, &candidate->outputs, outputs) < 0)
+		return -1;
+	memset(&spec, 0, sizeof(spec));
+	spec.id = candidate->id;
+	spec.kind = candidate->kind;
+	spec.argv = candidate->argv.items;
+	spec.env = &candidate->env;
+	spec.inputs = &candidate->inputs;
+	spec.outputs = &candidate->outputs;
+	spec.depfile = candidate->depfile;
+	spec.declared_cacheable = candidate->declared_cacheable;
+	if (qstar_action_cache_evaluate(graph, &spec, &candidate->decision) < 0)
+		return -1;
+	ctx->action_cache_stats.audited++;
+	if (candidate->decision.cacheable)
+		ctx->action_cache_stats.eligible++;
+	else
+		ctx->action_cache_stats.non_cacheable++;
+	if (ctx->action_cache_verbose)
+		qstar_action_cache_print_audit(ctx->out, &spec, &candidate->decision);
+	rc = qstar_action_cache_restore(graph, &spec, &candidate->decision,
+	    &ctx->action_cache_stats, reason, sizeof(reason));
+	if (rc < 0)
+		return -1;
+	if (ctx->action_cache_verbose)
+		fprintf(ctx->out,
+		    "local_cache_lookup id=%s key=%s status=%s reason=%s\n",
+		    id, candidate->decision.key[0] ? candidate->decision.key : "<none>",
+		    rc == 1 ? "hit" : "miss", reason);
+	return rc;
+}
+
+static int
+ninja_cache_store_candidates(struct qstar_graph *graph, struct ninja_ctx *ctx)
+{
+	struct ninja_cache_candidate *candidate;
+	struct qstar_action_cache_spec spec;
+	char reason[96];
+	size_t i;
+	int rc;
+
+	if (ctx->action_cache_mode != QSTAR_ACTION_CACHE_LOCAL)
+		return 0;
+	for (i = 0; i < ctx->cache_candidate_len; i++) {
+		candidate = &ctx->cache_candidates[i];
+		memset(&spec, 0, sizeof(spec));
+		spec.id = candidate->id;
+		spec.kind = candidate->kind;
+		spec.argv = candidate->argv.items;
+		spec.env = &candidate->env;
+		spec.inputs = &candidate->inputs;
+		spec.outputs = &candidate->outputs;
+		spec.depfile = candidate->depfile;
+		spec.declared_cacheable = candidate->declared_cacheable;
+		if (qstar_action_cache_evaluate(graph, &spec, &candidate->decision) < 0)
+			return -1;
+		rc = qstar_action_cache_store(graph, &spec, &candidate->decision,
+		    &ctx->action_cache_stats, reason, sizeof(reason));
+		if (rc < 0)
+			return -1;
+		if (ctx->action_cache_verbose)
+			fprintf(ctx->out,
+			    "local_cache_store id=%s key=%s status=%s reason=%s\n",
+			    candidate->id, candidate->decision.key[0] ?
+			    candidate->decision.key : "<none>",
+			    rc == 1 ? "stored" : "skip", reason);
 	}
 	return 0;
 }
@@ -925,11 +1086,13 @@ static int
 write_edge_command(struct qstar_graph *graph, struct ninja_ctx *ctx, const char *id,
     const struct qstar_resolved_toolchain *toolchain, const struct ninja_argv *argv,
     const char *description, const struct qstar_string_list *env,
-    const struct qstar_string_list *outputs)
+    const struct qstar_string_list *outputs, const char *cache_kind,
+    const struct qstar_string_list *cache_inputs, const char *cache_depfile,
+    int declared_cacheable)
 {
 	struct ninja_argv run;
 	char rsp_rel[QSTAR_PATH_MAX];
-	int windows;
+	int windows, cache_hit;
 
 	memset(&run, 0, sizeof(run));
 	if (prepare_ninja_response_file(graph, id, toolchain, argv, &run, rsp_rel,
@@ -937,11 +1100,24 @@ write_edge_command(struct qstar_graph *graph, struct ninja_ctx *ctx, const char 
 		return -1;
 	windows = qstar_platform_is_windows(qstar_graph_platform(graph)) ||
 	    (toolchain && qstar_platform_is_windows(toolchain->platform));
-	shell_env_prefix(ctx->ninja, env, windows);
-	shell_argv_ninja_command(ctx->ninja, &run, windows);
+	cache_hit = ninja_cache_add_candidate(graph, ctx, id,
+	    cache_kind ? cache_kind : "unsupported", argv, env, cache_inputs, outputs,
+	    cache_depfile, declared_cacheable);
+	if (cache_hit < 0) {
+		ninja_argv_free(&run);
+		return -1;
+	}
+	if (cache_hit == 1)
+		fputs(windows ? "cmd /c exit 0" : ":", ctx->ninja);
+	else {
+		shell_env_prefix(ctx->ninja, env, windows);
+		shell_argv_ninja_command(ctx->ninja, &run, windows);
+	}
 	ninja_argv_free(&run);
-	return write_ninja_action_log(graph, id, argv, rsp_rel, description, env,
-	    outputs);
+	if (write_ninja_action_log(graph, id, argv, rsp_rel, description, env,
+	    outputs) < 0)
+		return -1;
+	return 0;
 }
 
 /** shell command string을 JSON value로 출력한다. */
@@ -2069,7 +2245,8 @@ emit_genrule_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		fputs(" && ", ctx->ninja);
 	}
 	if (write_edge_command(graph, ctx, action_id, NULL, &argv, description, NULL,
-	    &genrule->outputs) < 0)
+	    &genrule->outputs, "generate", &genrule->inputs,
+	    NULL, genrule->cacheable) < 0)
 		goto fail;
 	fputs("\n  description = ", ctx->ninja);
 	ninja_var_text(ctx->ninja, description);
@@ -2117,7 +2294,7 @@ emit_cxx_pch_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain)
 {
 	struct ninja_argv argv;
-	struct qstar_string_list includes, action_outputs;
+	struct qstar_string_list includes, action_inputs, action_outputs;
 	char output[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], out_dir[QSTAR_PATH_MAX];
 	char action_id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX], std_arg[128];
 	size_t i;
@@ -2126,6 +2303,7 @@ emit_cxx_pch_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		return 0;
 	memset(&argv, 0, sizeof(argv));
 	memset(&includes, 0, sizeof(includes));
+	memset(&action_inputs, 0, sizeof(action_inputs));
 	memset(&action_outputs, 0, sizeof(action_outputs));
 	if (qstar_cxx_pch_output_path(graph, target, toolchain, output,
 	    sizeof(output)) < 0 || snprintf(depfile, sizeof(depfile), "%s.d", output) >=
@@ -2179,10 +2357,13 @@ emit_cxx_pch_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		goto fail;
 	fputc('\n', ctx->ninja);
 	fputs("  command = ", ctx->ninja);
-	if (qstar_string_list_push(&action_outputs, output) < 0)
+	if (qstar_string_list_push(&action_inputs,
+	    target->cxx_precompiled_header) < 0 ||
+	    qstar_string_list_push(&action_outputs, output) < 0)
 		goto fail;
 	if (write_edge_command(graph, ctx, action_id, toolchain, &argv, description,
-	    NULL, &action_outputs) < 0)
+	    NULL, &action_outputs, "compile", &action_inputs,
+	    depfile, target->cacheable) < 0)
 		goto fail;
 	fputs("\n  depfile = ", ctx->ninja);
 	ninja_path(ctx->ninja, depfile);
@@ -2195,11 +2376,13 @@ emit_cxx_pch_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	    target->cxx_precompiled_header, output, &argv);
 	ctx->edge_count++;
 	qstar_string_list_free(&includes);
+	qstar_string_list_free(&action_inputs);
 	qstar_string_list_free(&action_outputs);
 	ninja_argv_free(&argv);
 	return 0;
 fail:
 	qstar_string_list_free(&includes);
+	qstar_string_list_free(&action_inputs);
 	qstar_string_list_free(&action_outputs);
 	ninja_argv_free(&argv);
 	return graph->error[0] ? -1 : qstar_set_error(graph,
@@ -2216,7 +2399,7 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	struct qstar_source_info source;
 	const struct qstar_provider_source_unit *provider_unit;
 	struct qstar_string_list includes, unity_sources, module_inputs, module_flags;
-	struct qstar_string_list action_outputs;
+	struct qstar_string_list action_inputs, action_outputs;
 	struct ninja_argv argv;
 	char object[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], out_dir[QSTAR_PATH_MAX];
 	char action_id[QSTAR_PATH_MAX];
@@ -2235,6 +2418,7 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	memset(&unity_sources, 0, sizeof(unity_sources));
 	memset(&module_inputs, 0, sizeof(module_inputs));
 	memset(&module_flags, 0, sizeof(module_flags));
+	memset(&action_inputs, 0, sizeof(action_inputs));
 	memset(&action_outputs, 0, sizeof(action_outputs));
 	qstar_target_source_classify(source_owner, index, &source);
 	if (!qstar_source_requires_compile(&source))
@@ -2362,7 +2546,9 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		fputs("  command = ", ctx->ninja);
 		if (write_edge_command(graph, ctx, action_id, toolchain, &argv,
 		    description, &provider_unit->action.env,
-		    &provider_unit->action.outputs) < 0)
+		    &provider_unit->action.outputs, "compile",
+		    &provider_unit->action.inputs,
+		    wants_depfile ? provider_depfile : NULL, target->cacheable) < 0)
 			goto fail;
 		fputc('\n', ctx->ninja);
 		if (wants_depfile) {
@@ -2383,6 +2569,7 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		qstar_string_list_free(&unity_sources);
 		qstar_string_list_free(&module_inputs);
 		qstar_string_list_free(&module_flags);
+		qstar_string_list_free(&action_inputs);
 		qstar_string_list_free(&action_outputs);
 		ninja_argv_free(&argv);
 		return 0;
@@ -2534,8 +2721,33 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	    (module_interface && qstar_string_list_push(&action_outputs,
 	    bmi_output) < 0))
 		goto fail;
+	if (qstar_string_list_push(&action_inputs, compile_input) < 0)
+		goto fail;
+	for (i = 0; i < unity_sources.len; i++) {
+		if (qstar_string_list_push(&action_inputs, unity_sources.items[i]) < 0)
+			goto fail;
+	}
+	if (!provider_source && is_cxx && !module_interface &&
+	    target->cxx_precompiled_header && *target->cxx_precompiled_header &&
+	    qstar_string_list_push(&action_inputs, pch_output) < 0)
+		goto fail;
+	for (i = 0; i < module_inputs.len; i++) {
+		if (qstar_string_list_push(&action_inputs, module_inputs.items[i]) < 0)
+			goto fail;
+	}
+	for (i = 0; i < target->public_headers.len; i++) {
+		if (qstar_string_list_push(&action_inputs,
+		    target->public_headers.items[i]) < 0)
+			goto fail;
+	}
+	for (i = 0; i < target->private_headers.len; i++) {
+		if (qstar_string_list_push(&action_inputs,
+		    target->private_headers.items[i]) < 0)
+			goto fail;
+	}
 	if (write_edge_command(graph, ctx, action_id, toolchain, &argv, description,
-	    NULL, &action_outputs) < 0)
+	    NULL, &action_outputs, "compile", &action_inputs,
+	    wants_depfile ? depfile : NULL, target->cacheable) < 0)
 		goto fail;
 	fputc('\n', ctx->ninja);
 	if (wants_depfile) {
@@ -2556,6 +2768,7 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	qstar_string_list_free(&unity_sources);
 	qstar_string_list_free(&module_inputs);
 	qstar_string_list_free(&module_flags);
+	qstar_string_list_free(&action_inputs);
 	qstar_string_list_free(&action_outputs);
 	ninja_argv_free(&argv);
 	return 0;
@@ -2564,6 +2777,7 @@ fail:
 	qstar_string_list_free(&unity_sources);
 	qstar_string_list_free(&module_inputs);
 	qstar_string_list_free(&module_flags);
+	qstar_string_list_free(&action_inputs);
 	qstar_string_list_free(&action_outputs);
 	ninja_argv_free(&argv);
 	return -1;
@@ -3109,7 +3323,8 @@ emit_provider_final_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	fputc('\n', ctx->ninja);
 	fputs("  command = ", ctx->ninja);
 	if (write_edge_command(graph, ctx, action_id, toolchain, &argv,
-	    description, &tmpl->env, &tmpl->outputs) < 0)
+	    description, &tmpl->env, &tmpl->outputs, final_action,
+	    &tmpl->inputs, tmpl->wants_depfile ? depfile : NULL, 0) < 0)
 		goto fail;
 	fputc('\n', ctx->ninja);
 	if (tmpl->wants_depfile) {
@@ -3253,7 +3468,7 @@ emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	fputc('\n', ctx->ninja);
 	fputs("  command = ", ctx->ninja);
 	if (write_edge_command(graph, ctx, action_id, toolchain, &argv, description,
-	    NULL, NULL) < 0)
+	    NULL, NULL, "archive", NULL, NULL, 0) < 0)
 		goto fail;
 	fputc('\n', ctx->ninja);
 	fputs("  out_dir = ", ctx->ninja);
@@ -3410,7 +3625,7 @@ emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	fputc('\n', ctx->ninja);
 	fputs("  command = ", ctx->ninja);
 	if (write_edge_command(graph, ctx, action_id, toolchain, &argv, description,
-	    NULL, &outputs) < 0)
+	    NULL, &outputs, "link", NULL, NULL, 0) < 0)
 		goto fail;
 	fputc('\n', ctx->ninja);
 	fputs("  out_dir = ", ctx->ninja);
@@ -4097,6 +4312,7 @@ init_ninja_ctx(struct qstar_graph *graph, const char *label, struct ninja_ctx *c
 static void
 ninja_ctx_free(struct ninja_ctx *ctx)
 {
+	ninja_cache_candidates_free(ctx);
 	free(ctx->target_emitted);
 	free(ctx->genrule_state);
 	free(ctx->stage_state);
@@ -4105,49 +4321,47 @@ ninja_ctx_free(struct ninja_ctx *ctx)
 	ctx->stage_state = NULL;
 }
 
-/** graph closure를 build.ninja와 compile_commands.json으로 출력한다. */
-int
-qstar_graph_emit_ninja(struct qstar_graph *graph, const char *label, FILE *out)
+/** 이미 초기화된 context로 graph closure를 build.ninja에 출력한다. */
+static int
+emit_ninja_graph(struct qstar_graph *graph, const char *label,
+    struct ninja_ctx *ctx, FILE *out)
 {
-	struct ninja_ctx ctx;
 	const struct qstar_genrule *root_genrule;
 	const struct qstar_stage *root_stage;
 
-	if (init_ninja_ctx(graph, label, &ctx, out) < 0)
-		return -1;
-	if (mkdir_parent_under_root(graph, ctx.ninja_rel) < 0) {
+	if (mkdir_parent_under_root(graph, ctx->ninja_rel) < 0) {
 		qstar_set_error(graph, "qstar: could not create ninja output dir");
 		goto fail;
 	}
-	ctx.ninja = fopen(ctx.ninja_full, "w");
-	if (!ctx.ninja)
+	ctx->ninja = fopen(ctx->ninja_full, "w");
+	if (!ctx->ninja)
 		goto fail_open;
-	if (open_compile_commands(graph, &ctx) < 0) {
-		fclose(ctx.ninja);
-		ctx.ninja = NULL;
+	if (open_compile_commands(graph, ctx) < 0) {
+		fclose(ctx->ninja);
+		ctx->ninja = NULL;
 		return -1;
 	}
-	write_ninja_header(ctx.ninja, ctx.ninja_dir_rel,
+	write_ninja_header(ctx->ninja, ctx->ninja_dir_rel,
 	    qstar_platform_is_windows(qstar_graph_platform(graph)));
 	root_genrule = label && *label ? qstar_graph_find_genrule(graph, label) : NULL;
 	root_stage = label && *label ? qstar_graph_find_stage(graph, label) : NULL;
 	if (root_genrule) {
-		if (emit_genrule_edge(graph, &ctx, NULL, root_genrule) < 0)
+		if (emit_genrule_edge(graph, ctx, NULL, root_genrule) < 0)
 			goto fail;
 	} else if (root_stage) {
-		if (emit_stage_edge(graph, &ctx, root_stage) < 0)
+		if (emit_stage_edge(graph, ctx, root_stage) < 0)
 			goto fail;
-	} else if (qstar_graph_visit_closure(graph, label, emit_target, &ctx) < 0) {
+	} else if (qstar_graph_visit_closure(graph, label, emit_target, ctx) < 0) {
 		goto fail;
 	}
 	if (label) {
-		fputs("default ", ctx.ninja);
-		ninja_path(ctx.ninja, ctx.default_alias);
-		fputc('\n', ctx.ninja);
+		fputs("default ", ctx->ninja);
+		ninja_path(ctx->ninja, ctx->default_alias);
+		fputc('\n', ctx->ninja);
 	} else if (graph->len > 0) {
 		size_t i;
 
-		fputs("default", ctx.ninja);
+		fputs("default", ctx->ninja);
 		for (i = 0; i < graph->len; i++) {
 			char alias[QSTAR_PATH_MAX];
 
@@ -4156,38 +4370,52 @@ qstar_graph_emit_ninja(struct qstar_graph *graph, const char *label, FILE *out)
 				qstar_set_error(graph, "qstar: ninja default alias path too long");
 				goto fail;
 			}
-			fputc(' ', ctx.ninja);
-			ninja_path(ctx.ninja, alias);
+			fputc(' ', ctx->ninja);
+			ninja_path(ctx->ninja, alias);
 		}
-		fputc('\n', ctx.ninja);
+		fputc('\n', ctx->ninja);
 	}
-	if (fclose(ctx.ninja) != 0) {
-		ctx.ninja = NULL;
+	if (fclose(ctx->ninja) != 0) {
+		ctx->ninja = NULL;
 		goto fail;
 	}
-	ctx.ninja = NULL;
-	if (close_compile_commands(graph, &ctx) < 0)
+	ctx->ninja = NULL;
+	if (close_compile_commands(graph, ctx) < 0)
 		goto fail;
-	fprintf(out, "ninja_file %s\n", ctx.ninja_rel);
-	if (ctx.compdb_rel[0])
-		fprintf(out, "compile_commands %s\n", ctx.compdb_rel);
+	fprintf(out, "ninja_file %s\n", ctx->ninja_rel);
+	if (ctx->compdb_rel[0])
+		fprintf(out, "compile_commands %s\n", ctx->compdb_rel);
 	else
 		fprintf(out, "compile_commands <off>\n");
 	if (label)
-		fprintf(out, "ninja_default %s\n", ctx.default_alias);
-	fprintf(out, "ninja_edges %d\n", ctx.edge_count);
+		fprintf(out, "ninja_default %s\n", ctx->default_alias);
+	fprintf(out, "ninja_edges %d\n", ctx->edge_count);
 	fprintf(out, "status ok\n");
-	ninja_ctx_free(&ctx);
 	return 0;
 fail_open:
-	qstar_set_error(graph, "qstar: could not write %s", ctx.ninja_rel);
+	qstar_set_error(graph, "qstar: could not write %s", ctx->ninja_rel);
 fail:
-	if (ctx.ninja)
-		fclose(ctx.ninja);
-	if (ctx.compdb)
-		fclose(ctx.compdb);
-	ninja_ctx_free(&ctx);
+	if (ctx->ninja)
+		fclose(ctx->ninja);
+	if (ctx->compdb)
+		fclose(ctx->compdb);
+	ctx->ninja = NULL;
+	ctx->compdb = NULL;
 	return -1;
+}
+
+/** graph closure를 build.ninja와 compile_commands.json으로 출력한다. */
+int
+qstar_graph_emit_ninja(struct qstar_graph *graph, const char *label, FILE *out)
+{
+	struct ninja_ctx ctx;
+	int rc;
+
+	if (init_ninja_ctx(graph, label, &ctx, out) < 0)
+		return -1;
+	rc = emit_ninja_graph(graph, label, &ctx, out);
+	ninja_ctx_free(&ctx);
+	return rc;
 }
 
 /** Ninja 실패를 last-failure replay 파일로 남긴다. */
@@ -4253,6 +4481,10 @@ run_ninja(struct qstar_graph *graph, const char *ninja_rel, const char *alias,
 	clear_ninja_failure_replay(graph);
 	argc = 0;
 	argv[argc++] = "ninja";
+	if (qstar_action_cache_mode(graph, options) == QSTAR_ACTION_CACHE_LOCAL) {
+		argv[argc++] = "-d";
+		argv[argc++] = "keepdepfile";
+	}
 	argv[argc++] = "-f";
 	argv[argc++] = (char *)ninja_rel;
 	if (options && options->jobs > 0) {
@@ -4291,7 +4523,10 @@ qstar_graph_build_ninja(struct qstar_graph *graph, const char *label,
 
 	if (init_ninja_ctx(graph, label, &ctx, out) < 0)
 		return -1;
-	if (qstar_graph_emit_ninja(graph, label, out) < 0) {
+	ctx.action_cache_mode = qstar_action_cache_mode(graph, options);
+	ctx.action_cache_verbose = options &&
+	    (options->explain_cache || options->verbose);
+	if (emit_ninja_graph(graph, label, &ctx, out) < 0) {
 		ninja_ctx_free(&ctx);
 		return -1;
 	}
@@ -4303,6 +4538,13 @@ qstar_graph_build_ninja(struct qstar_graph *graph, const char *label,
 		ninja_ctx_free(&ctx);
 		return -1;
 	}
+	if (ninja_cache_store_candidates(graph, &ctx) < 0) {
+		ninja_ctx_free(&ctx);
+		return -1;
+	}
+	if (ctx.action_cache_mode == QSTAR_ACTION_CACHE_LOCAL)
+		qstar_action_cache_print_stats(out, "ninja", ctx.action_cache_mode,
+		    &ctx.action_cache_stats);
 	fprintf(out, "backend ninja\n");
 	fprintf(out, "status ok\n");
 	ninja_ctx_free(&ctx);

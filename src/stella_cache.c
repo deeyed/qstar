@@ -8,10 +8,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v10"
-#define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v6"
+#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v11"
+#define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v7"
 #define QSTAR_STELLA_ACTION_MAGIC "qstar-stella-actions-cache-v2"
-#define QSTAR_STELLA_PLAN_ABI 14
+#define QSTAR_STELLA_PLAN_ABI 15
 #define QSTAR_STELLA_HASH_INIT 1469598103934665603ULL
 #define QSTAR_STELLA_HASH_PRIME 1099511628211ULL
 #define QSTAR_STELLA_MAX_STRING (16U * 1024U * 1024U)
@@ -592,7 +592,9 @@ write_target(FILE *f, const struct qstar_target *t)
 	    write_i32(f, t->cxx_pch_present) < 0 ||
 	    write_i32(f, t->cxx_unity_present) < 0 ||
 	    write_i32(f, t->cxx_unity_enabled) < 0 ||
-	    write_i32(f, t->cxx_unity_batch_size) < 0)
+	    write_i32(f, t->cxx_unity_batch_size) < 0 ||
+	    write_i32(f, t->cacheable_present) < 0 ||
+	    write_i32(f, t->cacheable) < 0)
 		return -1;
 	WSTR(toolset);
 #undef WSTR
@@ -731,7 +733,9 @@ read_target(FILE *f, struct qstar_target *t)
 	    read_i32(f, &t->cxx_pch_present) < 0 ||
 	    read_i32(f, &t->cxx_unity_present) < 0 ||
 	    read_i32(f, &t->cxx_unity_enabled) < 0 ||
-	    read_i32(f, &t->cxx_unity_batch_size) < 0)
+	    read_i32(f, &t->cxx_unity_batch_size) < 0 ||
+	    read_i32(f, &t->cacheable_present) < 0 ||
+	    read_i32(f, &t->cacheable) < 0)
 		return -1;
 	RSTR(toolset);
 #undef RSTR
@@ -751,6 +755,8 @@ write_genrule(FILE *f, const struct qstar_genrule *g)
 	    write_str(f, g->toolset) < 0 ||
 	    write_str(f, g->description) < 0 ||
 	    write_i32(f, g->config_header) < 0 ||
+	    write_i32(f, g->cacheable_present) < 0 ||
+	    write_i32(f, g->cacheable) < 0 ||
 	    write_list(f, &g->inputs) < 0 ||
 	    write_list(f, &g->outputs) < 0 ||
 	    write_list(f, &g->output_groups) < 0 ||
@@ -773,6 +779,8 @@ read_genrule(FILE *f, struct qstar_genrule *g)
 	    read_str(f, &g->toolset) < 0 ||
 	    read_str(f, &g->description) < 0 ||
 	    read_i32(f, &g->config_header) < 0 ||
+	    read_i32(f, &g->cacheable_present) < 0 ||
+	    read_i32(f, &g->cacheable) < 0 ||
 	    read_list(f, &g->inputs) < 0 ||
 	    read_list(f, &g->outputs) < 0 ||
 	    read_list(f, &g->output_groups) < 0 ||
@@ -857,6 +865,7 @@ write_graph_cache_file(struct qstar_graph *graph, const char *path)
 	    write_str(f, graph->project.build_dir) < 0 ||
 	    write_str(f, graph->project.generated_dir) < 0 ||
 	    write_str(f, graph->project.compile_commands) < 0 ||
+	    write_str(f, graph->project.action_cache) < 0 ||
 	    write_i32(f, graph->uses_file_globs) < 0 ||
 	    write_str(f, graph->platform) < 0 ||
 	    write_list(f, &graph->evaluated_fragments) < 0 ||
@@ -969,6 +978,7 @@ read_graph_cache_file(const char *path, struct qstar_graph *out)
 	    read_str(f, &out->project.build_dir) < 0 ||
 	    read_str(f, &out->project.generated_dir) < 0 ||
 	    read_str(f, &out->project.compile_commands) < 0 ||
+	    read_str(f, &out->project.action_cache) < 0 ||
 	    read_i32(f, &out->uses_file_globs) < 0 ||
 	    read_str(f, &out->platform) < 0 ||
 	    read_list(f, &out->evaluated_fragments) < 0 ||

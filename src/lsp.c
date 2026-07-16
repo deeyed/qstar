@@ -30,7 +30,7 @@ struct qstar_lsp_hover_entry {
 };
 
 static const struct qstar_lsp_hover_entry qstar_lsp_symbols[] = {
-	{ "qstar.project", "Declare package-root project metadata, build_dir, generated_dir, and compile database policy." },
+	{ "qstar.project", "Declare package-root project metadata, output roots, compile database policy, and opt-in local action cache policy." },
 	{ "qstar.option", "Declare a typed project build option that can be overridden with global CLI -D name=value." },
 	{ "qstar.variant", "Declare a read-only user metadata variant; builtin fields are name, values, description, and tags only." },
 	{ "qstar.toolset", "Declare a tool role bundle with core archive/link roles and provider namespace tool tables." },
@@ -115,6 +115,8 @@ static const struct qstar_lsp_hover_entry qstar_lsp_fields[] = {
 	{ "inputs", "run_target or qstar.step.run first-class input list; accepts package files, qstar.target_file, or qstar.stage_dir." },
 	{ "configs", "Reusable qstar.config labels merged before target-local fields." },
 	{ "toolset", "Canonical qstar.toolset label selected by a target, config, custom_target, or transform." },
+	{ "action_cache", "Project local action cache policy: off by default, or local for the opt-in content-addressed compile/generated cache." },
+	{ "cacheable", "Boolean candidate policy for target/config/generated actions; false always disables local CAS lookup and storage." },
 	{ "tools", "Tool role map inside qstar.toolset; archive/link are core roles and compiler tools live under provider namespaces." },
 	{ "api", "Provider manifest API version, currently qstar.lang/1." },
 	{ "namespace", "Provider namespace activated as lang.<namespace>." },
