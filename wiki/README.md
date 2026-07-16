@@ -40,6 +40,8 @@ removal policy는 [Compatibility Policy](compatibility-policy.md)에 둔다. mac
 release evidence ledger의 정본은
 [docs/release-matrix-evidence.md](https://github.com/deeyed/qstar/blob/main/docs/release-matrix-evidence.md)다.
 Local v1 release-candidate skeleton gate는 `make qstar-v1-release-candidate-tests`다.
+외부 checkout을 원본 수정 없이 검증하는 opt-in gate는
+[Downstream Compatibility Gate](downstream-compatibility.md)에 둔다.
 모든 public declaration table의 strict field/type 계약과 예외 경계는
 [Public Declaration Schemas](reference/declaration-schemas.md)에 둔다.
 큰 root project command 목록을 graph 권한 분산 없이 QSM으로 나누는 방법은
@@ -152,6 +154,7 @@ qstar docs --show reference/qstar-lua.md
 13. [Test Resources And Results](reference/test-resources.md)
 14. [v1 Readiness](v1-readiness.md)
 15. [Release Matrix Evidence](https://github.com/deeyed/qstar/blob/main/docs/release-matrix-evidence.md)
+16. [Downstream Compatibility Gate](downstream-compatibility.md)
 
 ## Reference
 
@@ -179,6 +182,7 @@ qstar docs --show reference/qstar-lua.md
 - [Progress Output](reference/progress-output.md)
 - [Diagnostics](reference/diagnostics.md)
 - [Release Matrix Evidence](https://github.com/deeyed/qstar/blob/main/docs/release-matrix-evidence.md)
+- [Downstream Compatibility Gate](downstream-compatibility.md)
 
 ## Tutorials
 

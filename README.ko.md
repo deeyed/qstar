@@ -31,6 +31,9 @@ v1 gap checklist는 [docs/qstar-v1-readiness.md](docs/qstar-v1-readiness.md)에 
 smoke는 tag가 있을 때만 별도 manual gate로 실행한다.
 v1에서 stable로 약속할 surface와 beta/out-of-core로 남길 surface는
 [docs/qstar-compatibility-policy.md](docs/qstar-compatibility-policy.md)에 둔다.
+외부 checkout 호환성을 `/tmp` 복사본에서 검증하는 opt-in gate는
+[docs/downstream-safe-upgrade.md](docs/downstream-safe-upgrade.md)에 둔다. 전달받은 원본
+source root에는 build output을 쓰지 않는다.
 
 ## 특징
 
@@ -300,6 +303,7 @@ candidate artifact, published GitHub Release asset을 구분한다.
 - [v1 readiness gap report](docs/qstar-v1-readiness.md)
 - [Three-OS release evidence ledger](docs/release-matrix-evidence.md)
 - [Compatibility policy](docs/qstar-compatibility-policy.md)
+- [Downstream safe-upgrade gate](docs/downstream-safe-upgrade.md)
 - [Getting Started](wiki/getting-started.md)
 - [QStar Lua Reference](wiki/reference/qstar-lua.md)
 - [Modules and Imports](wiki/reference/modules.md)

@@ -1,0 +1,197 @@
+{
+  "schema": "qstar-downstream-compat-v1",
+  "project": "parus",
+  "source_commit": "567d53212a916a509018f8c80c55aeaf168e49d9",
+  "minimums": {
+    "target_count": 681,
+    "generated_action_count": 95,
+    "stage_count": 12,
+    "command_count": 87
+  },
+  "minimum_target_kinds": {
+    "exe": 71,
+    "group": 138,
+    "objectlib": 54,
+    "run_target": 410,
+    "staticlib": 8
+  },
+  "targets": [
+    {
+      "label": "//:parus_kernel",
+      "kind": "group"
+    },
+    {
+      "label": "//lib/libk:parus_libk",
+      "kind": "staticlib",
+      "artifacts": [
+        "build/work/qstar/out/__lib_libk_parus_libk/libparus_libk.a"
+      ]
+    },
+    {
+      "label": "//sys/arch/arm64:arch_objects",
+      "kind": "objectlib",
+      "compile_context": "consumer"
+    },
+    {
+      "label": "//sys/kern/ipc:ipc_objects",
+      "kind": "objectlib",
+      "compile_context": "consumer"
+    },
+    {
+      "label": "//targets/arm64/qemu/virt/direct-dtb:image",
+      "kind": "group"
+    },
+    {
+      "label": "//targets/arm64/qemu/virt/direct-dtb:image_elf",
+      "kind": "exe",
+      "artifacts": [
+        "build/work/qstar/out/__targets_arm64_qemu_virt_direct_dtb_image_elf/parus-qemu-virt-aarch64-entry.elf"
+      ]
+    },
+    {
+      "label": "//tests/package:parus_rpi5_direct_dtb_package_check",
+      "kind": "run_target"
+    },
+    {
+      "label": "//tests/qemu:parus_qemu_virt_aarch64_runtime_heartbeat_smoke",
+      "kind": "run_target"
+    }
+  ],
+  "generated_actions": [
+    {
+      "label": "//targets/arm64/qemu/virt/direct-dtb:image_raw",
+      "toolset": "//targets/arm64:llvm",
+      "outputs": [
+        "build/target/debug/arm64/qemu-virt-aarch64/parus-qemu-virt-aarch64-entry.img"
+      ]
+    }
+  ],
+  "stages": [
+    {
+      "label": "//targets/arm64/qemu/virt/direct-dtb:capability_channel_service_boot_bundle",
+      "root": "build/target/debug/arm64/qemu-virt-aarch64/capability-channel-service/package",
+      "destinations": [
+        "kernel.img",
+        "boot-service.manifest"
+      ]
+    }
+  ],
+  "commands": [
+    "config",
+    "config-generate",
+    "rpi5-copy-direct-dtb",
+    "rpi5-copy-post-vm-user-service",
+    "rpi5-copy-mmu-identity",
+    "rpi5-copy-el2-drop-identity",
+    "rpi5-copy-direct-high-mmu",
+    "rpi5-copy-permanent-high",
+    "qemu-runtime-strict",
+    "qemu-vm-foundation-v3-1-strict",
+    "qemu-executor-aware-vm-strict",
+    "qemu-single-core-explicit-vm-strict",
+    "qemu-vm-security-strict",
+    "qemu-beta-map-permission-lint",
+    "qemu-kernel-user-permission-seal-lint",
+    "qemu-memory-object-fault-lookup-lint",
+    "qemu-object-map-lifetime-lint",
+    "qemu-user-region-fault-lookup-lint",
+    "qemu-user-region-tree-v3-fault-lookup-lint",
+    "qemu-user-as-runtime-layout-v5-lint",
+    "qemu-aspace-switch-boundary-lint",
+    "qemu-aspace-switch-rollback-lint",
+    "qemu-aspace-switch-rollback-strict-lint",
+    "qemu-aspace-switch-failure-matrix-lint",
+    "qemu-asid-lifecycle-lint",
+    "qemu-aspace-switch-actual-candidate-lint",
+    "qemu-process-vm-runtime-state-lint",
+    "qemu-process-fault-delivery-action-lint",
+    "qemu-el0-process-candidate-lint",
+    "qemu-svc-boundary-non-abi-lint",
+    "qemu-anonymous-demand-fault-lint",
+    "qemu-anonymous-demand-fault-stress-lint",
+    "qemu-runtime-demand-fault-stress-v2-lint",
+    "qemu-runtime-demand-fault-rollback-lint",
+    "qemu-anonymous-demand-fault-resource-lint",
+    "qemu-anonymous-cow-rollback-lint",
+    "qemu-anonymous-cow-v2-lint",
+    "qemu-anonymous-cow-runtime-v4-lint",
+    "qemu-cow-fork-ready-rollback-lint",
+    "qemu-full-vm-core-alpha-strict",
+    "qemu-full-vm-core-beta-strict",
+    "qemu-full-vm-core-v0-strict",
+    "qemu-full-vm-v0-runtime-authority",
+    "vm-v1-performance-security-hardening",
+    "initramfs-elf-user-image-loader",
+    "post-vm-user-service",
+    "capability-channel-bootstrap",
+    "capability-channel-message",
+    "capability-channel-blocking",
+    "capability-channel-call-reply",
+    "capability-channel-delegation",
+    "capability-channel-stress",
+    "capability-channel-evidence",
+    "ipc-benchmark",
+    "concurrency-foundation",
+    "capability-channel-v0",
+    "terra-five-goal-release",
+    "vm-fault-runtime-extraction-lint",
+    "arm64-fault-normalization-lint",
+    "single-process-runtime-vm-strict",
+    "runtime-evidence-compatibility",
+    "full-vm-evidence-compatibility",
+    "hardware-runtime-evidence-compatibility",
+    "full-vm-core-evidence-class-comparator",
+    "hardware-backed-runtime-evidence-class-comparator",
+    "qemu-single-process-runtime-vm-strict",
+    "qemu-single-process-runtime-strict-gate",
+    "runtime-aggregate",
+    "verify-targets",
+    "rpi5-runtime-parity-prehardware",
+    "rpi5-full-vm-core-actual-bringup-prehardware",
+    "full-vm-core-v0-strict",
+    "full-vm-v0-runtime-authority",
+    "rpi5-full-vm-core-actual-bringup-live-evidence",
+    "runtime-vm-forbidden-claim-strict-lint",
+    "hardware-runtime-forbidden-claim-strict-lint",
+    "rpi5-runtime-parity-package-candidate-freeze",
+    "rpi5-runtime-bringup-prehardware",
+    "g1-actual-mutation-foundation-strict",
+    "hardware-backed-runtime-package-freeze",
+    "qemu-timer-interrupt-preflight-lint",
+    "qemu-scheduler-vm-safe-switch-boundary-lint",
+    "qemu-single-process-runtime-scheduling-lint",
+    "rpi5-full-vm-core-beta-regression",
+    "full-vm-core-beta-regression",
+    "rpi5-single-core-vm-evidence-gate",
+    "verify"
+  ],
+  "dry_runs": [
+    {
+      "label": "//targets/arm64/qemu/virt/direct-dtb:image",
+      "contains": [
+        "tool=llvm-objcopy toolset=//targets/arm64:llvm",
+        "argv=[llvm-objcopy, -O, binary",
+        "build/target/debug/arm64/qemu-virt-aarch64/parus-qemu-virt-aarch64-entry.img"
+      ]
+    },
+    {
+      "label": "//tests/qemu:parus_qemu_virt_aarch64_runtime_heartbeat_smoke",
+      "contains": [
+        "kind=run tool=cli",
+        "tools/smoke/qemu_aarch64_smoke.py",
+        "build/results/qemu/qemu-virt-aarch64/runtime-heartbeat-smoke/qstar"
+      ]
+    }
+  ],
+  "builds": [
+    {
+      "label": "//targets/arm64/qemu/virt/direct-dtb:image"
+    }
+  ],
+  "smokes": [
+    {
+      "label": "//tests/qemu:parus_qemu_virt_aarch64_runtime_heartbeat_smoke",
+      "command": "build"
+    }
+  ]
+}

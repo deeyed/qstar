@@ -41,6 +41,7 @@ cat > "$work/_Sidebar.md" <<'EOF'
 - [Installation](installation)
 - [v1 Readiness](v1-readiness)
 - [Compatibility Policy](compatibility-policy)
+- [Downstream Compatibility Gate](downstream-compatibility)
 - [AI Index](AI_INDEX)
 
 ## Concepts

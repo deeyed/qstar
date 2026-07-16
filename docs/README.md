@@ -161,6 +161,8 @@ Important documents:
   GitHub Release assets.
 - `qstar-compatibility-policy.md`: Q256 stable/beta/out-of-core surface split,
   post-v1 deprecation window, removal policy, and legacy hard-cut guard.
+- `downstream-safe-upgrade.md`: Q284 opt-in external checkout snapshot gate,
+  temporary-copy policy, Stella/Ninja dry-run parity, and evidence boundaries.
 - `releases/TEMPLATE.md`: release note template.
 - `releases/v0.7.19-beta.md`: current public beta patch release note.
 - `releases/v0.7.18-beta.md`: previous public beta patch release note.

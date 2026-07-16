@@ -64,3 +64,8 @@ release asset을 mutate/re-consume하지 않으므로 반복 evidence를 대체�
 `make qstar-v1-release-candidate-tests`는 local release-candidate skeleton이다. 실제
 GitHub Release publish/download smoke는 tag와 release가 있을 때만 별도 manual gate로
 남긴다.
+
+이 skeleton은 `make qstar-downstream-safe-upgrade-tests`도 호출한다. 외부 checkout
+경로가 없으면 명확히 skip하고, 경로가 있으면 원본을 수정하지 않은 temp 복사본에서
+stable target/command/artifact subset과 Stella/Ninja 대표 argv를 확인한다. 자세한 범위는
+[Downstream Compatibility Gate](downstream-compatibility.md)에 둔다.

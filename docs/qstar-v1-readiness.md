@@ -52,7 +52,13 @@ make qstar-v1-release-candidate-tests
 이 target은 `make check`, wiki/CLI/man sync, compatibility policy guard, generic DSL
 backend parity, standard GLP provider compatibility, Linux validation, Windows
 contract/beta artifact checks, Windows sharedlib artifact parity, release matrix
-evidence doc guard, `git diff --check`, and `qstar --version`을 묶는다.
+evidence doc guard, opt-in downstream compatible-subset snapshot 검증,
+`git diff --check`, and `qstar --version`을 묶는다.
+
+외부 checkout이 없는 일반 release host에서는 downstream gate가 명확히 skip된다. 경로를
+제공한 integration host에서는 원본을 수정하지 않고 `/tmp` 복사본에서 target/command/
+artifact snapshot과 Stella/Ninja 대표 argv를 비교한다. 정본은
+`docs/downstream-safe-upgrade.md`다.
 
 이 gate는 local/candidate evidence를 모으는 release-candidate skeleton이다. GitHub Release에
 실제로 asset을 publish하고 다시 download-smoke하는 단계는 tag와 release가 있을 때만 별도
@@ -365,6 +371,8 @@ QStar can start a v1 release candidate only when this checklist is true:
 - Windows sharedlib `.dll` plus import `.lib` consumer link remains green.
 - `make check` passes locally.
 - `make qstar-v1-release-candidate-tests` passes locally.
+- configured integration host에서 `make qstar-downstream-safe-upgrade-tests`가
+  compatible-subset snapshot을 통과한다.
 - Linux hosted validation passes on gcc and clang.
 - Windows beta/RC validation passes on the official native workflow.
 - Daemon remains clearly beta opt-in, or a separate stable daemon gate has passed.

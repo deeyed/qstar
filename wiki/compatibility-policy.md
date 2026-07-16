@@ -68,3 +68,12 @@ version 안에서 hard cut은 기본적으로 금지한다.
 이미 제거된 profile-era surface, core install command, language-shaped init
 template는 compatibility shim으로 되살리지 않는다. Project가 `install` 같은 이름을
 원하면 `qstar.command`로 직접 선언한다.
+
+## Downstream 검증
+
+Q284의 `make qstar-downstream-safe-upgrade-tests`는 stable 후보 표면을 실제 외부
+checkout의 compatible subset으로 검증한다. 외부 경로가 없으면 명확히 skip하고,
+경로가 있으면 원본이 아닌 temp 복사본에서 target, generated action, stage, command,
+artifact path, Stella/Ninja 대표 argv를 비교한다. 이 gate는 새 DSL이나 LSP symbol을
+추가하지 않는다. 자세한 범위는 [Downstream Compatibility Gate](downstream-compatibility.md)에
+둔다.

@@ -1,0 +1,97 @@
+{
+  "schema": "qstar-downstream-compat-v1",
+  "project": "ribon",
+  "source_commit": "567d53212a916a509018f8c80c55aeaf168e49d9",
+  "minimums": {
+    "target_count": 34,
+    "generated_action_count": 8,
+    "stage_count": 4,
+    "command_count": 0
+  },
+  "minimum_target_kinds": {
+    "exe": 7,
+    "group": 16,
+    "run_target": 3,
+    "staticlib": 3,
+    "test": 5
+  },
+  "targets": [
+    {
+      "label": "//:ribon_all",
+      "kind": "group"
+    },
+    {
+      "label": "//src/core:ribon_core_x86_64",
+      "kind": "staticlib",
+      "artifacts": [
+        "build/qstar/out/__src_core_ribon_core_x86_64/libribon_core_x86_64.a"
+      ]
+    },
+    {
+      "label": "//src/boot:ribon_rpi_payload_qemu_virt",
+      "kind": "exe",
+      "artifacts": [
+        "build/qstar/out/__src_boot_ribon_rpi_payload_qemu_virt/ribon-rpi-qemu.elf"
+      ]
+    },
+    {
+      "label": "//tests:elf64_loader_tests",
+      "kind": "test",
+      "artifacts": [
+        "build/qstar/out/__tests_elf64_loader_tests/elf64_loader_tests"
+      ]
+    }
+  ],
+  "generated_actions": [
+    {
+      "label": "//src/boot:ribon_rpi_image_qemu_virt",
+      "toolset": "//qstar/policies:rpi_qemu_virt",
+      "outputs": [
+        "build/qstar/generated/rpi-qemu-virt/kernel8.img"
+      ]
+    }
+  ],
+  "stages": [
+    {
+      "label": "//src/boot:ribon_rpi_package_qemu_virt",
+      "root": "build/qstar/stage/rpi-qemu-virt",
+      "destinations": [
+        "kernel8.img",
+        "ribon-rpi5.img",
+        "config.txt",
+        "cmdline.txt",
+        "kernel/kernel.elf"
+      ]
+    }
+  ],
+  "commands": [],
+  "dry_runs": [
+    {
+      "label": "//src/boot:ribon_rpi_image_qemu_virt",
+      "contains": [
+        "tool=llvm-objcopy toolset=//qstar/policies:rpi_qemu_virt",
+        "argv=[llvm-objcopy, -O, binary",
+        "build/qstar/generated/rpi-qemu-virt/kernel8.img"
+      ]
+    },
+    {
+      "label": "//tests:elf64_loader_tests",
+      "contains": [
+        "input=tests/loader/elf64_loader_tests.c",
+        "input=src/loader/elf64.c",
+        "build/qstar/out/__tests_elf64_loader_tests/elf64_loader_tests"
+      ]
+    }
+  ],
+  "builds": [
+    {
+      "label": "//src/core:ribon_core_x86_64"
+    }
+  ],
+  "smokes": [
+    {
+      "label": "//tests:elf64_loader_tests",
+      "command": "test"
+    }
+  ]
+}

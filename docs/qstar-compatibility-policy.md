@@ -304,5 +304,8 @@ Before a QStar v1 release candidate, maintainers must verify:
 - `docs/qstar-v1-readiness.md` treats compatibility as a sealed policy with
   ongoing enforcement, not an undefined blocker;
 - smoke tests guard the stable policy document and removed legacy boundaries;
+- the opt-in downstream safe-upgrade gate preserves established target,
+  generated artifact, stage, command, and representative argv subsets without
+  writing to the supplied source roots;
 - release notes mention whether the compatibility policy changed;
 - `git diff --check`, wiki/CLI sync, smoke tests, and the release gate pass.

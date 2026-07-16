@@ -34,6 +34,9 @@ The local v1 release-candidate skeleton gate is
 publish/download smoke remains a separate manual gate for tagged releases.
 The intended v1 stable/beta/out-of-core surface split is tracked in
 [docs/qstar-compatibility-policy.md](docs/qstar-compatibility-policy.md).
+The opt-in external checkout compatibility gate is documented in
+[docs/downstream-safe-upgrade.md](docs/downstream-safe-upgrade.md); it validates
+temporary copies and never writes build outputs into the supplied source roots.
 
 ## Highlights
 
@@ -336,6 +339,7 @@ separates local smoke, candidate artifacts, and published GitHub Release assets.
 - [v1 readiness gap report](docs/qstar-v1-readiness.md)
 - [Three-OS release evidence ledger](docs/release-matrix-evidence.md)
 - [Compatibility policy](docs/qstar-compatibility-policy.md)
+- [Downstream safe-upgrade gate](docs/downstream-safe-upgrade.md)
 - [Getting Started](wiki/getting-started.md)
 - [QStar Lua Reference](wiki/reference/qstar-lua.md)
 - [Modules and Imports](wiki/reference/modules.md)

@@ -260,6 +260,12 @@ QStar가 하지 않는 일:
   release matrix evidence doc guard, `git diff --check`, and `qstar --version`을 묶는다.
   실제 GitHub Release publish/download smoke는 tag와 release가 있을 때만 별도 manual gate로
   남긴다.
+- Q284 기준 실제 외부 checkout의 stable target, generated action, stage, root command,
+  artifact path, representative argv는 `make qstar-downstream-safe-upgrade-tests`로
+  compatible-subset 검증한다. 경로가 없으면 명확히 skip하고, 경로가 있으면 원본이 아닌
+  `${TMPDIR}` 복사본만 평가한다. 이 gate는 새 DSL/LSP symbol을 추가하지 않으며 특정
+  downstream metadata를 QStar builtin 의미론으로 승격하지 않는다. 정본은
+  `docs/downstream-safe-upgrade.md`, wiki entry는 `downstream-compatibility.md`다.
 - 0.6 beta release 판단과 `0.6.1-beta` public prerelease line은
   `docs/qstar-v0.6-readiness.md`에 둔다. 이 문서는 daemon beta opt-in, self-host,
   Stella/Ninja benchmark, Linux x86_64 beta asset, Windows status, package smoke,

@@ -1,4 +1,4 @@
-.Dd June 23, 2026
+.Dd July 16, 2026
 .Dt QSTAR 1
 .Os
 .Sh NAME
@@ -49,6 +49,12 @@ The local v1 release-candidate skeleton gate is
 .Ic make qstar-v1-release-candidate-tests .
 GitHub Release publish/download smoke remains a separate manual gate for
 tagged releases.
+.Pp
+The optional external checkout compatibility gate is
+.Ic make qstar-downstream-safe-upgrade-tests .
+When checkout roots are supplied through its documented environment variables,
+the gate evaluates temporary copies and compares stable target, command,
+artifact, and dry-run argv subsets without writing outputs to the source roots.
 .Pp
 Platform support is intentionally conservative. macOS arm64 and Linux x86_64
 are the public beta runtime asset hosts for the current line. Windows is a

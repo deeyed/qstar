@@ -1,0 +1,114 @@
+{
+  "schema": "qstar-downstream-compat-v1",
+  "project": "delos",
+  "source_commit": "173ba2f8e2d2fe80d36814c9bdea29fd92536b17",
+  "minimums": {
+    "target_count": 224,
+    "generated_action_count": 13,
+    "stage_count": 0,
+    "command_count": 4
+  },
+  "minimum_target_kinds": {
+    "exe": 12,
+    "group": 33,
+    "objectlib": 39,
+    "run_target": 51,
+    "staticlib": 7,
+    "test": 82
+  },
+  "targets": [
+    {
+      "label": "//src/boot:delos_boot_runtime_objects",
+      "kind": "objectlib",
+      "compile_context": "consumer"
+    },
+    {
+      "label": "//src/core:delos_core_objects",
+      "kind": "objectlib",
+      "compile_context": "consumer"
+    },
+    {
+      "label": "//src/dcg:delos_dcg_objects",
+      "kind": "objectlib",
+      "compile_context": "consumer"
+    },
+    {
+      "label": "//targets/armv7m:delos_diagnostic_image",
+      "kind": "group"
+    },
+    {
+      "label": "//targets/armv7m:delos_diagnostic_image_elf",
+      "kind": "exe",
+      "artifacts": [
+        "build/work/qstar/out/__targets_armv7m_delos_diagnostic_image_elf/delos_diagnostic_image_elf"
+      ]
+    },
+    {
+      "label": "//tests/sim:sim_runtime_test",
+      "kind": "test",
+      "artifacts": [
+        "build/work/qstar/out/__tests_sim_sim_runtime_test/sim_runtime_test"
+      ]
+    },
+    {
+      "label": "//tests/unit:boot_phase_api_test",
+      "kind": "test",
+      "artifacts": [
+        "build/work/qstar/out/__tests_unit_boot_phase_api_test/boot_phase_api_test"
+      ]
+    }
+  ],
+  "generated_actions": [
+    {
+      "label": "//targets/armv7m:delos_diagnostic_image_artifacts",
+      "toolset": "//qstar/policies:host",
+      "outputs": [
+        "build/target/debug/armv7m/diagnostics/prelude/delos.elf",
+        "build/target/debug/armv7m/diagnostics/prelude/delos.bin"
+      ]
+    }
+  ],
+  "commands": [
+    "config",
+    "config-generate",
+    "verify",
+    "verify-renode"
+  ],
+  "dry_runs": [
+    {
+      "label": "//targets/armv7m:delos_image_elf",
+      "contains": [
+        "source_owner=//src/boot:delos_boot_runtime_objects",
+        "source_owner=//src/dcg:delos_dcg_objects",
+        "compile_context=consumer",
+        "--target=arm-none-eabi"
+      ]
+    },
+    {
+      "label": "//targets/armv7m:delos_diagnostic_image_artifacts",
+      "contains": [
+        "tool=sh toolset=//qstar/policies:host",
+        "build/target/debug/armv7m/diagnostics/prelude/delos.elf",
+        "build/target/debug/armv7m/diagnostics/prelude/delos.bin"
+      ]
+    },
+    {
+      "label": "//tests/unit:boot_phase_api_test",
+      "contains": [
+        "input=tests/unit/boot/boot_phase_api_test.c",
+        "build/work/qstar/out/__tests_unit_boot_phase_api_test/boot_phase_api_test"
+      ]
+    }
+  ],
+  "builds": [
+    {
+      "label": "//targets/armv7m:delos_diagnostic_image_artifacts"
+    }
+  ],
+  "smokes": [
+    {
+      "label": "//tests/unit:boot_phase_api_test",
+      "command": "test"
+    }
+  ]
+}
