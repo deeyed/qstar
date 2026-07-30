@@ -223,6 +223,10 @@ fi
     -D direct-sources="$direct_sources" \
     -B build/ninja -G ninja emit-ninja //:cardinality_1000 \
     > "$tmp/ninja-emit.out" 2> "$tmp/ninja-emit.err"
+  "$qstar" -D final-objects="$final_objects" \
+    -D direct-sources="$direct_sources" \
+    -B build/ninja-dollar -G ninja emit-ninja //:response_off \
+    > "$tmp/ninja-dollar-emit.out" 2> "$tmp/ninja-dollar-emit.err"
 )
 
 contains "$tmp/check.out" "status ok"
@@ -353,6 +357,7 @@ done
 
 contains "$project/build/ninja/ninja/build.ninja" \
   "@build/ninja/rsp/___cardinality_1000_link_0.rsp"
+contains "$project/build/ninja-dollar/ninja/build.ninja" '$$QSTAR_WIDE_LITERAL'
 contains "$project/build/stella/rsp/___response_msvc_link_0.rsp" \
   '"option with space"'
 contains "$project/build/stella/rsp/___response_msvc_link_0.rsp" \

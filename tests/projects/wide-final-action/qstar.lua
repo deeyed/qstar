@@ -281,7 +281,10 @@ qstar.executable "response_auto" {
 qstar.executable "response_off" {
   toolset = "//:response_off_tools",
   objects = {"//:cardinality_objects_256"},
-  link_options = expected(256),
+  link_options = qstar.append(
+    expected(256),
+    {"$QSTAR_WIDE_LITERAL"}
+  ),
 }
 
 qstar.executable "response_msvc" {

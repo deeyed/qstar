@@ -669,9 +669,9 @@ json_string(FILE *f, const char *s)
 	fputc('"', f);
 }
 
-/** shell-safe single command argument를 출력한다. */
+/** shell-safe single command argument를 출력하고 필요하면 Ninja '$'를 escape한다. */
 static void
-shell_arg(FILE *f, const char *s)
+shell_arg_mode(FILE *f, const char *s, int ninja)
 {
 	const unsigned char *p;
 	int simple;
@@ -694,10 +694,24 @@ shell_arg(FILE *f, const char *s)
 	for (p = (const unsigned char *)(s ? s : ""); *p; p++) {
 		if (*p == '\'')
 			fputs("'\\''", f);
+		else if (ninja && *p == '$')
+			fputs("$$", f);
 		else
 			fputc(*p, f);
 	}
 	fputc('\'', f);
+}
+
+static void
+shell_arg(FILE *f, const char *s)
+{
+	shell_arg_mode(f, s, 0);
+}
+
+static void
+ninja_shell_arg(FILE *f, const char *s)
+{
+	shell_arg_mode(f, s, 1);
 }
 
 /** JSON string literal 자체를 shell-safe single argument로 출력한다. */
@@ -751,21 +765,21 @@ shell_argv(FILE *f, const struct qstar_argv *argv)
 }
 
 static void
-shell_env_assignment(FILE *f, const char *item)
+ninja_shell_env_assignment(FILE *f, const char *item)
 {
 	const char *eq;
 
 	eq = item ? strchr(item, '=') : NULL;
 	if (!eq || eq == item) {
-		shell_arg(f, item ? item : "");
+		ninja_shell_arg(f, item ? item : "");
 		return;
 	}
 	fwrite(item, 1, (size_t)(eq - item) + 1, f);
-	shell_arg(f, eq + 1);
+	ninja_shell_arg(f, eq + 1);
 }
 
 static void
-cmd_env_assignment(FILE *f, const char *item)
+cmd_env_assignment(FILE *f, const char *item, int ninja)
 {
 	const unsigned char *p;
 
@@ -773,6 +787,8 @@ cmd_env_assignment(FILE *f, const char *item)
 	for (p = (const unsigned char *)(item ? item : ""); *p; p++) {
 		if (*p == '"')
 			fputs("\\\"", f);
+		else if (ninja && *p == '$')
+			fputs("$$", f);
 		else
 			fputc(*p, f);
 	}
@@ -786,10 +802,10 @@ shell_env_prefix(FILE *f, const struct qstar_string_list *env, int windows)
 
 	for (i = 0; env && i < env->len; i++) {
 		if (windows) {
-			cmd_env_assignment(f, env->items[i]);
+			cmd_env_assignment(f, env->items[i], 1);
 			fputs(" && ", f);
 		} else {
-			shell_env_assignment(f, env->items[i]);
+			ninja_shell_env_assignment(f, env->items[i]);
 			fputc(' ', f);
 		}
 	}
@@ -810,11 +826,17 @@ ninja_arg_is_sh_script(const char *s)
 static void
 shell_argv_ninja_command(FILE *f, const struct qstar_argv *argv, int windows)
 {
+	size_t i;
+
 	if (windows && argv && argv->len > 0 && ninja_arg_is_sh_script(argv->items[0])) {
-		shell_arg(f, "sh");
+		ninja_shell_arg(f, "sh");
 		fputc(' ', f);
 	}
-	shell_argv(f, argv);
+	for (i = 0; argv && i < argv->len; i++) {
+		if (i)
+			fputc(' ', f);
+		ninja_shell_arg(f, argv->items[i]);
+	}
 }
 
 /** Ninja variable value에서 special token을 escape해 한 줄로 출력한다. */
