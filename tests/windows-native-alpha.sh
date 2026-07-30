@@ -85,6 +85,13 @@ if command -v "$stub_cc" >/dev/null 2>&1; then
 		fail "Windows platform process stub object was not created"
 	printf 'qstar-windows-native-alpha: platform_process_stub=compiled cc=%s\n' "$stub_cc"
 	"$stub_cc" $stub_cflags \
+		-Iinclude -Ivendor/lua -c src/action_materialize.c \
+		-o "$tmp/action-materialize-win-stub.o"
+	test -s "$tmp/action-materialize-win-stub.o" ||
+		fail "Windows action materializer stub object was not created"
+	printf 'qstar-windows-native-alpha: action_materialize_stub=compiled cc=%s\n' \
+		"$stub_cc"
+	"$stub_cc" $stub_cflags \
 		-Iinclude -Ivendor/lua -c src/ninja.c -o "$tmp/ninja-win-stub.o"
 	test -s "$tmp/ninja-win-stub.o" ||
 		fail "Windows ninja stub object was not created"

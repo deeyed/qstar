@@ -16,6 +16,7 @@ LUA_CFLAGS = -std=c99 -O2 -I$(LUA_DIR)
 
 QSTAR_SRCS = \
 	src/action_cache.c \
+	src/action_materialize.c \
 	src/argv.c \
 	src/daemon.c \
 	src/cxx.c \

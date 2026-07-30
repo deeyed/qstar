@@ -3640,8 +3640,8 @@ contains "$tmp/standard-zig-explain.out" "-femit-bin=build/qstar/out/___core/lib
 contains "$tmp/standard-zig-dry-run.out" "dry_run_step id=//:core:archive:0 owner=//:core kind=archive tool=zig"
 contains "$tmp/standard-zig-dry-run.out" "argv=[tools/fake-zig, build-lib, src/main.zig"
 contains "$tmp/standard-zig-dry-run.out" "-O, ReleaseFast"
-contains "$tmp/standard-zig-dry-run.out" "response=skeleton"
-contains "$tmp/standard-zig-dry-run.out" "response_file=build/qstar/rsp/"
+contains "$tmp/standard-zig-dry-run.out" "response=none"
+contains "$tmp/standard-zig-dry-run.out" "logical_argc=13"
 "$qstar" --file "$tmp/standard-zig/qstar.lua" build //:core > "$tmp/standard-zig-build.out" 2> "$tmp/standard-zig-build.err"
 if ! find "$tmp/standard-zig/build" -name libcore.a -type f | grep -q .; then
   fail "standard Zig provider staticlib was not produced"
@@ -9392,7 +9392,8 @@ qstar.executable "app" {
 }
 EOF
 "$qstar" --file "$tmp/rsppolicy/qstar.lua" dry-run //:app > "$tmp/rsppolicy-dry.out" 2> "$tmp/rsppolicy-dry.err"
-contains "$tmp/rsppolicy-dry.out" "response=unsupported response_capability=off"
+contains "$tmp/rsppolicy-dry.out" "response=none"
+contains "$tmp/rsppolicy-dry.out" "response_capability=off"
 contains "$tmp/rsppolicy-dry.out" "response_files=off response_style=posix"
 
 step "target metadata platform decoupling" "target-platform"

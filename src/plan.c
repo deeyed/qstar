@@ -7,10 +7,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define QSTAR_PLAN_HASH_INIT 1469598103934665603ULL
-#define QSTAR_PLAN_HASH_PRIME 1099511628211ULL
-#define QSTAR_RSP_SKELETON_THRESHOLD 240U
-
 struct qstar_plan {
 	struct qstar_graph *graph;
 	const struct qstar_target **order;
@@ -20,13 +16,12 @@ struct qstar_plan {
 };
 
 struct qstar_argv_dump {
+	struct qstar_graph *graph;
+	const struct qstar_resolved_toolchain *toolchain;
+	struct qstar_argv logical;
 	const char *id;
-	unsigned long long digest;
-	unsigned long long response_digest;
 	size_t seen;
-	size_t text_len;
-	int response_files;
-	char response_style[32];
+	int oom;
 };
 
 struct doctor_tool_requirements {
@@ -468,45 +463,16 @@ dump_command_skeleton(FILE *out, const struct qstar_graph *graph,
 	    output);
 }
 
-/** command digest용 FNV-1a hash에 문자열을 섞는다. */
-static void
-digest_str(unsigned long long *h, const char *s)
-{
-	const unsigned char *p = (const unsigned char *)(s ? s : "");
-
-	while (*p) {
-		*h ^= (unsigned long long)*p++;
-		*h *= QSTAR_PLAN_HASH_PRIME;
-	}
-	*h ^= 0xffU;
-	*h *= QSTAR_PLAN_HASH_PRIME;
-}
-
-/** response file skeleton digest에 argv tail 값을 섞는다. */
-static void
-digest_response_value(struct qstar_argv_dump *dump, const char *value)
-{
-	if (dump->seen == 0)
-		return;
-	digest_str(&dump->response_digest, value);
-	digest_str(&dump->response_digest, "\n");
-}
-
 /** 실제 argv plan의 list header를 출력한다. */
 static void
-begin_argv(FILE *out, struct qstar_argv_dump *dump, const char *id, size_t argc,
+begin_argv(FILE *out, struct qstar_argv_dump *dump, struct qstar_graph *graph,
+    const char *id, size_t argc,
     const struct qstar_resolved_toolchain *toolchain)
 {
 	memset(dump, 0, sizeof(*dump));
+	dump->graph = graph;
+	dump->toolchain = toolchain;
 	dump->id = id;
-	dump->digest = QSTAR_PLAN_HASH_INIT;
-	dump->response_digest = QSTAR_PLAN_HASH_INIT;
-	dump->response_files = toolchain ? toolchain->response_files : 0;
-	snprintf(dump->response_style, sizeof(dump->response_style), "%s",
-	    toolchain ? toolchain->response_style : "none");
-	digest_str(&dump->digest, id);
-	digest_str(&dump->response_digest, id);
-	digest_str(&dump->response_digest, dump->response_style);
 	fprintf(out, "  command_argv id=%s argc=%zu argv=[", id, argc);
 }
 
@@ -545,9 +511,8 @@ argv_item(FILE *out, struct qstar_argv_dump *dump, const char *value)
 	if (dump->seen)
 		fputs(", ", out);
 	write_argv_value(out, value);
-	digest_str(&dump->digest, value);
-	digest_response_value(dump, value);
-	dump->text_len += strlen(value) + 1;
+	if (!dump->oom && qstar_argv_push(&dump->logical, value) < 0)
+		dump->oom = 1;
 	dump->seen++;
 }
 
@@ -573,22 +538,48 @@ dump_progress_action_exclusion(FILE *out, const char *prefix, const char *label,
 
 /** command_argv line을 닫는다. */
 static void
-end_argv(FILE *out, const struct qstar_argv_dump *dump)
+end_argv(FILE *out, struct qstar_argv_dump *dump)
 {
-	char rsp[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX];
+	struct qstar_materialized_command command;
+	char digest[32];
 
-	qstar_mangle_label(dump->id, name, sizeof(name));
-	snprintf(rsp, sizeof(rsp), "build/qstar/rsp/%s.rsp", name);
-	fprintf(out, "] digest=%016llx response=%s",
-	    dump->digest,
-	    dump->text_len > QSTAR_RSP_SKELETON_THRESHOLD ?
-	    (dump->response_files ? "skeleton" : "unsupported") : "none");
-	if (dump->text_len > QSTAR_RSP_SKELETON_THRESHOLD && dump->response_files)
-		fprintf(out, " response_file=%s response_style=%s response_digest=%016llx",
-		    rsp, dump->response_style, dump->response_digest);
-	else if (dump->text_len > QSTAR_RSP_SKELETON_THRESHOLD)
+	memset(&command, 0, sizeof(command));
+	qstar_argv_digest(&dump->logical, digest, sizeof(digest));
+	if (dump->oom) {
+		fprintf(out, "] digest=%s response=invalid materialization=out-of-memory\n",
+		    digest);
+		qstar_argv_free(&dump->logical);
+		return;
+	}
+	if (!dump->toolchain && qstar_action_needs_response_file(&dump->logical)) {
+		fprintf(out,
+		    "] digest=%s response=none logical_argc=%zu logical_bytes=%zu "
+		    "exec_argc=%zu response_capability=off\n",
+		    digest, dump->logical.len, dump->logical.bytes,
+		    dump->logical.len);
+		qstar_argv_free(&dump->logical);
+		return;
+	}
+	if (qstar_action_materialize(dump->graph, dump->id, dump->toolchain,
+	    &dump->logical, NULL, 0, &command) < 0) {
+		fprintf(out, "] digest=%s response=invalid\n", digest);
+		qstar_argv_free(&dump->logical);
+		return;
+	}
+	fprintf(out, "] digest=%s response=%s",
+	    command.logical_argv_digest,
+	    command.uses_response_file ? "skeleton" : "none");
+	if (command.uses_response_file)
+		fprintf(out, " response_file=%s response_style=%s response_digest=%s",
+		    command.response_file, command.response_style,
+		    command.response_digest);
+	else if (!dump->toolchain || !dump->toolchain->response_files)
 		fputs(" response_capability=off", out);
+	fprintf(out, " logical_argc=%zu logical_bytes=%zu exec_argc=%zu",
+	    command.logical_argc, command.logical_bytes, command.exec_argc);
 	fputc('\n', out);
+	qstar_materialized_command_free(&command);
+	qstar_argv_free(&dump->logical);
 }
 
 static int
@@ -830,16 +821,6 @@ dump_dependency_usage(FILE *out, const struct qstar_graph *graph,
 	qstar_string_list_free(&link_inputs);
 }
 
-/** artifact path에서 basename component를 반환한다. */
-static const char *
-artifact_basename(const char *path)
-{
-	const char *slash;
-
-	slash = strrchr(path ? path : "", '/');
-	return slash ? slash + 1 : path;
-}
-
 /** toolset role argv-vector가 있으면 argc 계산에 반영한다. */
 static const struct qstar_string_list *
 plan_resolved_tool_role_argv(const struct qstar_graph *graph,
@@ -1005,7 +986,8 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 		dump_provider_action_contract(out, id, "compile",
 		    provider ? provider->api : "", provider_unit->provider,
 		    &provider_unit->action);
-		begin_argv(out, &dump, id, argc, toolchain);
+		begin_argv(out, &dump, (struct qstar_graph *)graph, id, argc,
+		    toolchain);
 		plan_argv_provider_template(out, &dump, graph, target, toolchain,
 		    &provider_unit->action.argv);
 		for (i = 0; i < usage_options.len; i++)
@@ -1046,7 +1028,7 @@ dump_compile_argv(FILE *out, const struct qstar_target *target,
 	    (provider_source ? 0 : is_asm ? target->asm_compile_options.len :
 	    is_cxx ? target->cxxflags.len : target->cflags.len);
 	snprintf(std_arg, sizeof(std_arg), "-std=%s", target->cxx_standard);
-	begin_argv(out, &dump, id, argc, toolchain);
+	begin_argv(out, &dump, (struct qstar_graph *)graph, id, argc, toolchain);
 	plan_argv_tool_role(out, &dump, graph, target, toolchain, role, tool);
 	if (strcmp(target->kind, "sharedlib") == 0 &&
 	    qstar_platform_supports_sharedlib(toolchain->platform) &&
@@ -1185,87 +1167,6 @@ dump_consumer_objectlib_compile_plan(FILE *out, const struct qstar_plan *plan,
 	return 0;
 }
 
-/** MSVC target에서 clang-cl style driver가 link flag boundary를 필요로 하는지 본다. */
-static int
-toolchain_needs_msvc_link_boundary(const struct qstar_resolved_toolchain *toolchain,
-    const struct qstar_target *target)
-{
-	const char *tool;
-
-	if (strcmp(toolchain->link_style, "msvc") != 0)
-		return 0;
-	tool = qstar_target_has_compile_provider(target, "cxx") ? toolchain->cxx :
-	    toolchain->linker;
-	return strstr(tool, "clang-cl") != NULL || strstr(tool, "cl.exe") != NULL;
-}
-
-/** lld-link/link.exe 계열 linker의 output option spelling을 확인한다. */
-static int
-toolchain_uses_msvc_out_arg(const struct qstar_resolved_toolchain *toolchain,
-    const struct qstar_target *target)
-{
-	const char *tool;
-
-	if (!toolchain || !target)
-		return 0;
-	tool = qstar_target_has_compile_provider(target, "cxx") ? toolchain->cxx :
-	    toolchain->linker;
-	return strstr(tool, "lld-link") != NULL || strstr(tool, "link.exe") != NULL;
-}
-
-/** target link_options가 argv에 추가할 argument 수를 계산한다. */
-static size_t
-link_policy_arg_count(const struct qstar_graph *graph, const struct qstar_target *target)
-{
-	(void)graph;
-	return target->link_options.len;
-}
-
-static size_t
-dependency_link_usage_arg_count(const struct qstar_graph *graph,
-    const struct qstar_target *target)
-{
-	struct qstar_string_list options, inputs;
-	size_t count = 0;
-
-	memset(&options, 0, sizeof(options));
-	memset(&inputs, 0, sizeof(inputs));
-	if (qstar_graph_collect_link_usage(graph, target, &options, &inputs) == 0)
-		count = options.len;
-	qstar_string_list_free(&options);
-	qstar_string_list_free(&inputs);
-	return count;
-}
-
-static void
-dump_dependency_link_usage_argv(FILE *out, struct qstar_argv_dump *dump,
-    const struct qstar_graph *graph, const struct qstar_target *target)
-{
-	struct qstar_string_list options, inputs;
-	size_t i;
-
-	memset(&options, 0, sizeof(options));
-	memset(&inputs, 0, sizeof(inputs));
-	if (qstar_graph_collect_link_usage(graph, target, &options, &inputs) == 0) {
-		for (i = 0; i < options.len; i++)
-			argv_item(out, dump, options.items[i]);
-	}
-	qstar_string_list_free(&options);
-	qstar_string_list_free(&inputs);
-}
-
-/** target link_options를 deterministic command argv dump에 추가한다. */
-static void
-dump_link_policy_argv(FILE *out, struct qstar_argv_dump *dump,
-    const struct qstar_graph *graph, const struct qstar_target *target)
-{
-	size_t i;
-
-	(void)graph;
-	for (i = 0; i < target->link_options.len; i++)
-		argv_item(out, dump, target->link_options.items[i]);
-}
-
 /** generated action의 실제 argv plan을 출력한다. */
 static const char *
 plan_resolve_target_file_arg(const struct qstar_graph *graph, const char *arg,
@@ -1330,12 +1231,20 @@ dump_genrule_argv(FILE *out, const struct qstar_graph *graph,
 {
 	size_t i;
 	struct qstar_argv_dump dump;
+	struct qstar_resolved_toolchain materialize_toolchain;
+	const struct qstar_resolved_toolchain *materialize_toolchain_ptr;
 	char id[QSTAR_PATH_MAX], resolved_tool[QSTAR_PATH_MAX], tool_mode[64];
 	char resolved_arg[QSTAR_PATH_MAX];
 	char tool_error[QSTAR_PATH_MAX];
 
 	snprintf(id, sizeof(id), "%s:generate:0", genrule->label);
-	begin_argv(out, &dump, id, 1 + genrule->args.len, NULL);
+	materialize_toolchain_ptr = NULL;
+	if (genrule->toolset && *genrule->toolset &&
+	    qstar_resolve_toolset_context((struct qstar_graph *)graph,
+	    genrule->toolset, &materialize_toolchain) == 0)
+		materialize_toolchain_ptr = &materialize_toolchain;
+	begin_argv(out, &dump, (struct qstar_graph *)graph, id,
+	    1 + genrule->args.len, materialize_toolchain_ptr);
 	if (genrule->config_header) {
 		snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
 		snprintf(tool_mode, sizeof(tool_mode), "builtin");
@@ -1361,162 +1270,92 @@ dump_run_argv(FILE *out, const struct qstar_graph *graph,
     const struct qstar_target *target)
 {
 	struct qstar_argv_dump dump;
+	struct qstar_resolved_toolchain materialize_toolchain;
+	const struct qstar_resolved_toolchain *materialize_toolchain_ptr;
 	char id[QSTAR_PATH_MAX], resolved[QSTAR_PATH_MAX];
 	size_t i;
 
 	snprintf(id, sizeof(id), "%s:run:0", target->label);
-	begin_argv(out, &dump, id, target->run_command.len, NULL);
+	materialize_toolchain_ptr = NULL;
+	if (target->toolset && *target->toolset &&
+	    qstar_resolve_toolchain((struct qstar_graph *)graph, target,
+	    &materialize_toolchain) == 0)
+		materialize_toolchain_ptr = &materialize_toolchain;
+	begin_argv(out, &dump, (struct qstar_graph *)graph, id,
+	    target->run_command.len, materialize_toolchain_ptr);
 	for (i = 0; i < target->run_command.len; i++)
 		argv_item(out, &dump, plan_resolve_run_arg(graph,
 		    target->run_command.items[i], resolved, sizeof(resolved)));
 	end_argv(out, &dump);
 }
 
-/** target final action의 실제 argv plan을 출력한다. */
-static void
-dump_final_argv(FILE *out, const struct qstar_target *target,
-    const struct qstar_graph *graph, const struct qstar_resolved_toolchain *toolchain,
-    const char *action, const char *output)
+static int
+path_is_object_input(const char *path)
 {
-	char id[QSTAR_PATH_MAX];
-	char buf[QSTAR_PATH_MAX];
-	char import_lib[QSTAR_PATH_MAX], install_name[QSTAR_PATH_MAX];
-	char soname[QSTAR_PATH_MAX];
-	size_t argc, i;
-	struct qstar_argv_dump dump;
-	int darwin;
-	int msvc;
-	int msvc_out;
-	int windows;
+	size_t len;
 
-	snprintf(id, sizeof(id), "%s:%s:0", target->label, action);
-	msvc = strcmp(toolchain->link_style, "msvc") == 0;
-	darwin = qstar_platform_is_darwin(toolchain->platform);
-	windows = qstar_platform_is_windows(toolchain->platform);
-	msvc_out = strcmp(action, "archive") != 0 &&
-	    toolchain_uses_msvc_out_arg(toolchain, target);
-	argc = strcmp(action, "archive") == 0 ?
-	    3 + plan_tool_role_argc(graph, target, toolchain, "archive") :
-	    strcmp(action, "link-shared") == 0 ?
-	    (qstar_platform_is_darwin(toolchain->platform) ? 6 : 5) +
-	    plan_tool_role_argc(graph, target, toolchain, "link") :
-	    3 + plan_tool_role_argc(graph, target, toolchain, "link");
-	if (strcmp(action, "archive") != 0)
-		argc += target->lib_dirs.len + target->libs.len +
-		    (darwin ? target->frameworks.len * 2 : 0) +
-		    dependency_link_usage_arg_count(graph, target) +
-		    link_policy_arg_count(graph, target) +
-		    (toolchain_needs_msvc_link_boundary(toolchain, target) ? 1 : 0);
-	if (msvc_out)
-		argc--;
-	begin_argv(out, &dump, id, argc, toolchain);
-	if (strcmp(action, "archive") == 0) {
-		plan_argv_tool_role(out, &dump, graph, target, toolchain, "archive",
-		    toolchain->ar);
-		argv_item(out, &dump, "rcs");
-		argv_item(out, &dump, output);
-		argv_item(out, &dump, "<target-objects>");
-	} else {
-		plan_argv_tool_role(out, &dump, graph, target, toolchain, "link",
-		    qstar_target_has_compile_provider(target, "cxx") ? toolchain->cxx :
-		    toolchain->linker);
-		if (msvc_out) {
-			snprintf(buf, sizeof(buf), "/out:%s", output);
-			argv_item(out, &dump, buf);
-		} else {
-			argv_item(out, &dump, "-o");
-			argv_item(out, &dump, output);
-		}
-		if (strcmp(action, "link-shared") == 0) {
-			if (windows) {
-				if (qstar_graph_target_artifact_path(
-				    (struct qstar_graph *)graph, target,
-				    "import_lib", import_lib, sizeof(import_lib)) == 0) {
-					if (msvc) {
-						argv_item(out, &dump, "/DLL");
-						snprintf(buf, sizeof(buf), "/IMPLIB:%s",
-						    import_lib);
-						argv_item(out, &dump, buf);
-					} else {
-						argv_item(out, &dump, "-shared");
-						snprintf(buf, sizeof(buf),
-						    "-Wl,--out-implib,%s", import_lib);
-						argv_item(out, &dump, buf);
-					}
-				}
-			} else if (darwin) {
-				snprintf(install_name, sizeof(install_name), "@rpath/%s",
-				    artifact_basename(output));
-				argv_item(out, &dump, "-dynamiclib");
-				argv_item(out, &dump, "-install_name");
-				argv_item(out, &dump, install_name);
-			} else {
-				snprintf(soname, sizeof(soname), "-Wl,-soname,%s",
-				    artifact_basename(output));
-				argv_item(out, &dump, "-shared");
-				argv_item(out, &dump, soname);
-			}
-		}
-		dump_dependency_link_usage_argv(out, &dump, graph, target);
-		dump_link_policy_argv(out, &dump, graph, target);
-		argv_item(out, &dump, "<target-objects>");
-		if (toolchain_needs_msvc_link_boundary(toolchain, target))
-			argv_item(out, &dump, "/link");
-		for (i = 0; i < target->lib_dirs.len; i++) {
-			if (msvc) {
-				snprintf(buf, sizeof(buf), "/LIBPATH:%s", target->lib_dirs.items[i]);
-				argv_item(out, &dump, buf);
-			} else {
-				snprintf(buf, sizeof(buf), "-L%s", target->lib_dirs.items[i]);
-				argv_item(out, &dump, buf);
-			}
-		}
-		for (i = 0; i < target->libs.len; i++) {
-			if (msvc) {
-				snprintf(buf, sizeof(buf), "%s.lib", target->libs.items[i]);
-				argv_item(out, &dump, buf);
-			} else {
-				snprintf(buf, sizeof(buf), "-l%s", target->libs.items[i]);
-				argv_item(out, &dump, buf);
-			}
-		}
-		if (darwin) {
-			for (i = 0; i < target->frameworks.len; i++) {
-				argv_item(out, &dump, "-framework");
-				argv_item(out, &dump, target->frameworks.items[i]);
-			}
-		}
-	}
-	end_argv(out, &dump);
+	len = strlen(path ? path : "");
+	return (len >= 2 && strcmp(path + len - 2, ".o") == 0) ||
+	    (len >= 4 && strcmp(path + len - 4, ".obj") == 0);
 }
 
-static void
-dump_provider_final_argv(FILE *out, const struct qstar_target *target,
-    const struct qstar_graph *graph, const struct qstar_resolved_toolchain *toolchain,
-    const char *action)
+/** shared final lowering과 materializer가 계산한 실제 logical argv를 출력한다. */
+static int
+dump_lowered_final_argv(FILE *out, struct qstar_graph *graph,
+    const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain)
 {
-	struct qstar_argv_dump dump;
-	char id[QSTAR_PATH_MAX];
-	size_t argc;
+	struct qstar_lowered_action action;
+	struct qstar_materialized_command command;
+	size_t i, object_count;
 
-	snprintf(id, sizeof(id), "%s:%s:0", target->label, action);
-	dump_provider_action_contract(out, id, "final", target->provider_final.api,
-	    target->provider_final.provider, &target->provider_final.action);
-	argc = plan_provider_template_argc(graph, target, toolchain,
-	    &target->provider_final.action.argv) +
-	    ((!target->provider_final.api ||
-	    strcmp(target->provider_final.api, "qstar.lang/2") != 0) &&
-	    strcmp(target->kind, "staticlib") != 0 ?
-	    dependency_link_usage_arg_count(graph, target) : 0);
-	    /* v2 providers receive only manifest-owned inputs and explicit argv. */
-	begin_argv(out, &dump, id, argc, toolchain);
-	plan_argv_provider_template(out, &dump, graph, target, toolchain,
-	    &target->provider_final.action.argv);
-	if ((!target->provider_final.api ||
-	    strcmp(target->provider_final.api, "qstar.lang/2") != 0) &&
-	    strcmp(target->kind, "staticlib") != 0)
-		dump_dependency_link_usage_argv(out, &dump, graph, target);
-	end_argv(out, &dump);
+	memset(&action, 0, sizeof(action));
+	memset(&command, 0, sizeof(command));
+	if (qstar_lower_final_action(graph, target, toolchain, &action) < 0)
+		return -1;
+	if (qstar_target_has_provider_final_action(target))
+		dump_provider_action_contract(out, action.id, "final",
+		    target->provider_final.api, target->provider_final.provider,
+		    &target->provider_final.action);
+	if (qstar_action_materialize(graph, action.id, toolchain,
+	    &action.logical_argv, &action.env, 0, &command) < 0) {
+		qstar_lowered_action_free(&action);
+		return -1;
+	}
+	object_count = 0;
+	for (i = 0; i < action.inputs.len; i++) {
+		if (path_is_object_input(action.inputs.items[i]))
+			object_count++;
+	}
+	fprintf(out, "  command_argv id=%s argc=%zu argv=[",
+	    action.id, action.logical_argv.len);
+	for (i = 0; i < action.logical_argv.len; i++) {
+		if (i)
+			fputs(", ", out);
+		write_argv_value(out, action.logical_argv.items[i]);
+	}
+	fprintf(out, "] digest=%s response=%s",
+	    command.logical_argv_digest,
+	    command.uses_response_file ? "skeleton" : "none");
+	if (command.uses_response_file)
+		fprintf(out,
+		    " response_file=%s response_style=%s response_digest=%s",
+		    command.response_file, command.response_style,
+		    command.response_digest);
+	else {
+		if (!toolchain->response_files &&
+		    qstar_action_needs_response_file(&action.logical_argv))
+			fputs(" response_capability=off", out);
+	}
+	fprintf(out,
+	    " logical_argc=%zu logical_bytes=%zu object_count=%zu "
+	    "input_count=%zu exec_argc=%zu",
+	    command.logical_argc, command.logical_bytes, object_count,
+	    action.inputs.len, command.exec_argc);
+	fputc('\n', out);
+	qstar_materialized_command_free(&command);
+	qstar_lowered_action_free(&action);
+	return 0;
 }
 
 static const char *
@@ -2377,11 +2216,7 @@ dump_target_plan(FILE *out, const struct qstar_plan *plan, const struct qstar_ta
 	    provider_final_input_summary(target) :
 	    "<target-objects>",
 	    output, "artifact", final_tool, 0);
-	if (qstar_target_has_provider_final_action(target))
-		dump_provider_final_argv(out, target, plan->graph, &toolchain, action);
-	else
-		dump_final_argv(out, target, plan->graph, &toolchain, action, output);
-	return 0;
+	return dump_lowered_final_argv(out, plan->graph, target, &toolchain);
 }
 
 /** QStar target closure와 non-executing command plan을 deterministic text로 출력한다. */
@@ -2673,11 +2508,7 @@ dump_dry_run_final(FILE *out, const struct qstar_plan *plan, const struct qstar_
 	    qstar_target_has_provider_final_action(target) ?
 	    provider_final_input_summary(target) :
 	    "<target-objects>", output);
-	if (qstar_target_has_provider_final_action(target))
-		dump_provider_final_argv(out, target, plan->graph, &toolchain, action);
-	else
-		dump_final_argv(out, target, plan->graph, &toolchain, action, output);
-	return 0;
+	return dump_lowered_final_argv(out, plan->graph, target, &toolchain);
 }
 
 /** QStar target closure를 실제 실행 없이 dry-run command stream으로 출력한다. */

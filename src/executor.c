@@ -33,7 +33,6 @@
 #define QSTAR_MAX_JOBS 256
 #define QSTAR_ACTION_TIMEOUT_SEC 30
 #define QSTAR_TEST_TIMEOUT_SEC 5
-#define QSTAR_RESPONSE_ARGV_BYTES 512
 #define QSTAR_HASH_INIT 1469598103934665603ULL
 #define QSTAR_HASH_PRIME 1099511628211ULL
 #define QSTAR_STREAM_LINE_MAX 4096
@@ -1788,135 +1787,6 @@ write_log_description(FILE *f, const char *description)
 	fputc('\n', f);
 }
 
-/** Windows/MSVC response file에 들어갈 argv item을 double-quote 규칙으로 쓴다. */
-static void
-write_windows_response_arg(FILE *f, const char *s)
-{
-	const unsigned char *p;
-	size_t backslashes;
-	int quote;
-
-	p = (const unsigned char *)(s ? s : "");
-	quote = *p == '\0';
-	for (; *p; p++) {
-		if (isspace(*p) || *p == '"' || *p == '\\')
-			quote = 1;
-	}
-	if (!quote) {
-		fputs(s, f);
-		return;
-	}
-	fputc('"', f);
-	backslashes = 0;
-	for (p = (const unsigned char *)(s ? s : ""); *p; p++) {
-		if (*p == '\\') {
-			backslashes++;
-			continue;
-		}
-		if (*p == '"') {
-			while (backslashes > 0) {
-				fputs("\\\\", f);
-				backslashes--;
-			}
-			fputs("\\\"", f);
-			continue;
-		}
-		while (backslashes > 0) {
-			fputc('\\', f);
-			backslashes--;
-		}
-		fputc(*p, f);
-	}
-	while (backslashes > 0) {
-		fputs("\\\\", f);
-		backslashes--;
-	}
-	fputc('"', f);
-}
-
-/** response file style에 맞춰 argv item 하나를 쓴다. */
-static void
-write_response_arg(FILE *f, const char *s, const char *style)
-{
-	if (style && (strcmp(style, "windows") == 0 || strcmp(style, "msvc") == 0))
-		write_windows_response_arg(f, s);
-	else
-		write_shell_arg(f, s);
-}
-
-/** argv가 response file로 내릴 만큼 긴지 계산한다. */
-static int
-argv_needs_response_file(char *const argv[])
-{
-	size_t i, bytes;
-
-	bytes = 0;
-	for (i = 0; argv[i]; i++)
-		bytes += strlen(argv[i]) + 1;
-	return bytes >= QSTAR_RESPONSE_ARGV_BYTES || i > 48;
-}
-
-/** response file content digest를 deterministic FNV-1a 값으로 계산한다. */
-static unsigned long long
-response_file_digest(const char *id, char *const argv[], const char *style)
-{
-	unsigned long long h = QSTAR_HASH_INIT;
-	size_t i;
-
-	hash_str(&h, id);
-	hash_str(&h, style);
-	for (i = 1; argv[i]; i++) {
-		hash_str(&h, argv[i]);
-		hash_str(&h, "\n");
-	}
-	return h;
-}
-
-/** compiler/linker response file을 package-local path에 쓴다. */
-static int
-prepare_response_file(struct qstar_graph *graph, const char *id,
-    const struct qstar_resolved_toolchain *toolchain, char *const argv[], char *rsp_arg,
-    size_t rsp_arg_len, FILE *out)
-{
-	char dir[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], sub[QSTAR_PATH_MAX];
-	char rel[QSTAR_PATH_MAX];
-	char full[QSTAR_PATH_MAX];
-	const char *style;
-	unsigned long long digest;
-	FILE *f;
-	size_t i;
-
-	if (!argv_needs_response_file(argv))
-		return 0;
-	if (!toolchain || !toolchain->response_files) {
-		fprintf(out, "response_file id=%s mode=unsupported capability=off\n", id);
-		return 0;
-	}
-	style = toolchain->response_style[0] ? toolchain->response_style : "posix";
-	if (full_path_under_build(graph, "rsp", dir, sizeof(dir)) < 0 ||
-	    mkdir_p(dir) < 0)
-		return qstar_set_error(graph, "qstar: could not create response file dir");
-	action_log_name(id, name, sizeof(name));
-	if (snprintf(sub, sizeof(sub), "rsp/%s.rsp", name) >= (int)sizeof(sub) ||
-	    qstar_graph_build_path(graph, sub, rel, sizeof(rel)) < 0 ||
-	    full_path_under_root(graph, rel, full, sizeof(full)) < 0)
-		return qstar_set_error(graph, "qstar: response file path too long");
-	f = fopen(full, "w");
-	if (!f)
-		return qstar_set_error(graph, "qstar: could not write response file");
-	for (i = 1; argv[i]; i++) {
-		write_response_arg(f, argv[i], style);
-		fputc('\n', f);
-	}
-	fclose(f);
-	if (snprintf(rsp_arg, rsp_arg_len, "@%s", rel) >= (int)rsp_arg_len)
-		return qstar_set_error(graph, "qstar: response file arg too long");
-	digest = response_file_digest(id, argv, style);
-	fprintf(out, "response_file id=%s path=%s mode=real style=%s digest=%016llx\n",
-	    id, rel, style, digest);
-	return 1;
-}
-
 /** action log stream에 output list를 deterministic하게 기록한다. */
 static void
 write_action_outputs(FILE *f, const struct qstar_string_list *outputs)
@@ -1933,26 +1803,32 @@ write_action_outputs(FILE *f, const struct qstar_string_list *outputs)
 
 /** action-log/replay에서 backend response-file 결정을 재현 가능하게 표시한다. */
 static void
-write_response_file_observation(FILE *f, const struct qstar_graph *graph,
+write_response_file_observation(FILE *f, struct qstar_graph *graph,
     const char *id, const struct qstar_resolved_toolchain *toolchain,
-    char *const argv[])
+    char *const argv[], const struct qstar_string_list *env)
 {
-	char name[QSTAR_PATH_MAX], rel[QSTAR_PATH_MAX], sub[QSTAR_PATH_MAX];
-	const char *style;
+	struct qstar_materialized_command command;
 
-	if (!toolchain || !toolchain->response_files ||
-	    !argv_needs_response_file(argv)) {
-		fputs("response_file=<none>\n", f);
+	memset(&command, 0, sizeof(command));
+	if (qstar_action_materialize_raw(graph, id, toolchain, argv, env, 0,
+	    &command) < 0) {
+		fputs("logical_argc=<invalid>\nlogical_argv_digest=<invalid>\n"
+		    "response_file=<invalid>\nexec_argc=<invalid>\n", f);
 		return;
 	}
-	style = toolchain->response_style[0] ? toolchain->response_style : "posix";
-	action_log_name(id, name, sizeof(name));
-	snprintf(sub, sizeof(sub), "rsp/%s.rsp", name);
-	if (qstar_graph_build_path(graph, sub, rel, sizeof(rel)) < 0)
-		snprintf(rel, sizeof(rel), "%s/rsp/%s.rsp",
-		    qstar_graph_build_dir(graph), name);
-	fprintf(f, "response_file=%s\nresponse_style=%s\nresponse_digest=%016llx\n",
-	    rel, style, response_file_digest(id, argv, style));
+	fprintf(f, "logical_argc=%zu\nlogical_argv_digest=%s\nlogical_bytes=%zu\n",
+	    command.logical_argc, command.logical_argv_digest,
+	    command.logical_bytes);
+	if (command.uses_response_file)
+		fprintf(f,
+		    "response_file=%s\nresponse_style=%s\nresponse_digest=%s\n",
+		    command.response_file, command.response_style,
+		    command.response_digest);
+	else
+		fputs("response_file=<none>\nresponse_style=none\n"
+		    "response_digest=<none>\n", f);
+	fprintf(f, "exec_argc=%zu\n", command.exec_argc);
+	qstar_materialized_command_free(&command);
 }
 
 static void
@@ -1979,6 +1855,8 @@ write_action_log_stream(FILE *f, char *const argv[], const char *exit_text,
     const struct qstar_string_list *outputs)
 {
 	size_t i;
+	char digest[32];
+	struct qstar_argv logical;
 
 	fprintf(f, "qstar-action-log v2\nexit=%s\nbackend=stella\n", exit_text);
 	write_log_description(f, description);
@@ -1987,6 +1865,15 @@ write_action_log_stream(FILE *f, char *const argv[], const char *exit_text,
 	for (i = 0; argv[i]; i++)
 		;
 	fprintf(f, "argc=%zu\n", i);
+	memset(&logical, 0, sizeof(logical));
+	logical.items = (char **)argv;
+	logical.len = i;
+	logical.cap = i;
+	for (i = 0; argv[i]; i++)
+		logical.bytes += strlen(argv[i]) + 1;
+	qstar_argv_digest(&logical, digest, sizeof(digest));
+	fprintf(f, "logical_argc=%zu\nlogical_argv_digest=%s\nlogical_bytes=%zu\n",
+	    logical.len, digest, logical.bytes);
 	for (i = 0; argv[i]; i++) {
 		fprintf(f, "argv[%zu]=", i);
 		write_shell_arg(f, argv[i]);
@@ -2134,9 +2021,12 @@ write_failure_replay_detail(const struct qstar_graph *graph, const char *id,
     const char *stderr_rel, const char *expect_contains, const char *expect_file_rel)
 {
 	char path[QSTAR_PATH_MAX];
+	char logical_digest[32];
 	FILE *f;
 	size_t i;
-	unsigned long long digest;
+	struct qstar_argv logical;
+	struct qstar_materialized_command command;
+	int materialized;
 
 	if (full_path_under_build(graph, "logs/last-failure.replay", path,
 	    sizeof(path)) < 0)
@@ -2157,10 +2047,16 @@ write_failure_replay_detail(const struct qstar_graph *graph, const char *id,
 	    expect_contains && *expect_contains ? expect_contains : "<none>");
 	fprintf(f, "expect_file=%s\n",
 	    expect_file_rel && *expect_file_rel ? expect_file_rel : "<none>");
-	digest = QSTAR_HASH_INIT;
+	memset(&logical, 0, sizeof(logical));
+	memset(&command, 0, sizeof(command));
+	logical.items = (char **)argv;
 	for (i = 0; argv[i]; i++)
-		hash_str(&digest, argv[i]);
-	fprintf(f, "argv_digest=%016llx\n", digest);
+		logical.bytes += strlen(argv[i]) + 1;
+	logical.len = i;
+	logical.cap = i;
+	qstar_argv_digest(&logical, logical_digest, sizeof(logical_digest));
+	fprintf(f, "argv_digest=%s\nlogical_argc=%zu\nlogical_bytes=%zu\n",
+	    logical_digest, logical.len, logical.bytes);
 #if QSTAR_PLATFORM_WINDOWS
 	{
 		char command_line[32768];
@@ -2170,22 +2066,18 @@ write_failure_replay_detail(const struct qstar_graph *graph, const char *id,
 			fprintf(f, "windows_command_line=%s\n", command_line);
 	}
 #endif
-	if (toolchain && toolchain->response_files && argv_needs_response_file(argv)) {
-		char name[QSTAR_PATH_MAX], rel[QSTAR_PATH_MAX];
-		const char *style = toolchain->response_style[0] ?
-		    toolchain->response_style : "posix";
-		action_log_name(id, name, sizeof(name));
-		char sub[QSTAR_PATH_MAX];
-
-		snprintf(sub, sizeof(sub), "rsp/%s.rsp", name);
-		if (qstar_graph_build_path(graph, sub, rel, sizeof(rel)) < 0)
-			snprintf(rel, sizeof(rel), "%s/rsp/%s.rsp",
-			    qstar_graph_build_dir(graph), name);
-		fprintf(f, "response_file path=%s style=%s digest=%016llx\n", rel, style,
-		    response_file_digest(id, argv, style));
+	materialized = qstar_action_materialize_raw((struct qstar_graph *)graph,
+	    id, toolchain, argv, env, 0, &command) == 0;
+	if (materialized && command.uses_response_file) {
+		fprintf(f, "response_file path=%s style=%s digest=%s exec_argc=%zu\n",
+		    command.response_file, command.response_style,
+		    command.response_digest, command.exec_argc);
 	} else {
-		fputs("response_file path=<none> style=none digest=<none>\n", f);
+		fprintf(f,
+		    "response_file path=<none> style=none digest=<none> exec_argc=%zu\n",
+		    materialized ? command.exec_argc : logical.len);
 	}
+	qstar_materialized_command_free(&command);
 	for (i = 0; argv[i]; i++) {
 		if (i)
 			fputc(' ', f);
@@ -3991,6 +3883,33 @@ prepared_action_timeout_sec(const struct qstar_build_ctx *ctx,
 	return ctx ? ctx->action_timeout_sec : QSTAR_ACTION_TIMEOUT_SEC;
 }
 
+/** explicit toolset을 가진 generated/run action의 response policy를 resolve한다. */
+static int
+prepared_action_materialization_toolchain(struct qstar_graph *graph,
+    const struct qstar_prepared_action *action,
+    struct qstar_resolved_toolchain *storage,
+    const struct qstar_resolved_toolchain **resolved)
+{
+	*resolved = action ? action->toolchain : NULL;
+	if (!action || *resolved)
+		return 0;
+	if (action->genrule && action->genrule->toolset &&
+	    *action->genrule->toolset) {
+		if (qstar_resolve_toolset_context(graph, action->genrule->toolset,
+		    storage) < 0)
+			return -1;
+		*resolved = storage;
+		return 0;
+	}
+	if (action->target && strcmp(action->kind, "run") == 0 &&
+	    action->target->toolset && *action->target->toolset) {
+		if (qstar_resolve_toolchain(graph, action->target, storage) < 0)
+			return -1;
+		*resolved = storage;
+	}
+	return 0;
+}
+
 /** 실패한 executor action을 debug UX용 stable kind로 분류한다. */
 static const char *
 classify_failure_kind(const char *kind, char *const argv[], const char *base)
@@ -4078,14 +3997,13 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	char stdout_path[QSTAR_PATH_MAX], stderr_path[QSTAR_PATH_MAX];
 	char child_stdout_path[QSTAR_PATH_MAX], child_stderr_path[QSTAR_PATH_MAX];
 	char replay_path[QSTAR_PATH_MAX];
-	char rsp_arg[QSTAR_PATH_MAX];
-	char *exec_argv[3];
 	char *const *child_argv;
+	struct qstar_materialized_command command;
 	struct qstar_child_capture capture;
 	const struct qstar_state_entry *prev;
 	const char *runner;
 	qstar_process_id pid;
-	int status, exit_code, use_rsp;
+	int status, exit_code;
 
 	prev = state_find(ctx, id);
 	ctx->scheduled_count++;
@@ -4149,23 +4067,29 @@ run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		fprintf(ctx->out, "cache_miss id=%s reason=%s key=%s previous=%s\n",
 		    id, cache_reason(graph, prev, key, outputs, material), key,
 		    prev ? prev->key : "<none>");
-	use_rsp = prepare_response_file(graph, id, toolchain, argv, rsp_arg, sizeof(rsp_arg),
-	    ctx->out);
-	if (use_rsp < 0)
+	if (qstar_action_materialize_raw(graph, id, toolchain, argv, NULL, 1,
+	    &command) < 0)
 		return -1;
-	child_argv = argv;
-	if (use_rsp) {
-		exec_argv[0] = argv[0];
-		exec_argv[1] = rsp_arg;
-		exec_argv[2] = NULL;
-		child_argv = exec_argv;
+	if (command.uses_response_file)
+		fprintf(ctx->out,
+		    "response_file id=%s path=%s mode=real style=%s digest=%s\n",
+		    id, command.response_file, command.response_style,
+		    command.response_digest);
+	else if (command.needs_response_file &&
+	    (!toolchain || !toolchain->response_files))
+		fprintf(ctx->out,
+		    "response_file id=%s mode=full capability=off\n", id);
+	child_argv = command.exec_argv.items;
+	if (child_capture_open(graph, &capture, stdout_path, stderr_path) < 0) {
+		qstar_materialized_command_free(&command);
+		return -1;
 	}
-	if (child_capture_open(graph, &capture, stdout_path, stderr_path) < 0)
-		return -1;
 	if (spawn_action_process(graph, &capture, child_argv, NULL, &pid, &runner) < 0) {
+		qstar_materialized_command_free(&command);
 		child_capture_finish(ctx, &capture);
 		return -1;
 	}
+	qstar_materialized_command_free(&command);
 	child_capture_parent_started(&capture);
 	build_tracef(ctx, "schedule_action id=%s slot=0 pid=%ld runner=%s state=started\n",
 	    id, (long)pid, runner);
@@ -5210,13 +5134,20 @@ run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 
 	if (!genrule->config_header) {
 		struct qstar_prepared_action action;
+		struct qstar_resolved_toolchain materialize_toolchain;
+		const struct qstar_resolved_toolchain *materialize_toolchain_ptr;
 		int rc;
 
 		if (prepare_generated_action(graph, ctx, target, genrule, &action) < 0)
 			return -1;
+		if (prepared_action_materialization_toolchain(graph, &action,
+		    &materialize_toolchain, &materialize_toolchain_ptr) < 0) {
+			prepared_action_free(&action);
+			return -1;
+		}
 		rc = run_action(graph, ctx, target, action.id, action.kind, action.key,
-		    &action.outputs, action.argv.items, NULL, &action.material,
-		    action.description);
+		    &action.outputs, action.argv.items, materialize_toolchain_ptr,
+		    &action.material, action.description);
 		prepared_action_free(&action);
 		return rc;
 	}
@@ -5544,6 +5475,8 @@ finish_run_target_success(struct qstar_graph *graph, struct qstar_build_ctx *ctx
 	char expect_source[32], expect_path[QSTAR_PATH_MAX];
 	char action_name[QSTAR_PATH_MAX], stdout_rel[QSTAR_PATH_MAX];
 	char stderr_rel[QSTAR_PATH_MAX];
+	struct qstar_resolved_toolchain materialize_toolchain;
+	const struct qstar_resolved_toolchain *materialize_toolchain_ptr;
 
 	if (!target)
 		return 0;
@@ -5557,7 +5490,11 @@ finish_run_target_success(struct qstar_graph *graph, struct qstar_build_ctx *ctx
 		    build_log_rel(graph, action_name, ".stderr", stderr_rel,
 		    sizeof(stderr_rel)) < 0)
 			return qstar_set_error(graph, "qstar: action log path too long");
-		write_failure_replay_detail(graph, action->id, NULL, action->argv.items,
+		if (prepared_action_materialization_toolchain(graph, action,
+		    &materialize_toolchain, &materialize_toolchain_ptr) < 0)
+			return -1;
+		write_failure_replay_detail(graph, action->id,
+		    materialize_toolchain_ptr, action->argv.items,
 		    action->description, &action->env, "expect-missing", target->label,
 		    stdout_rel, stderr_rel, target->run_expect_contains, target->run_expect_file);
 		if (action_log && *action_log)
@@ -5590,16 +5527,24 @@ run_target_command(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
     const struct qstar_target *target)
 {
 	struct qstar_prepared_action action;
+	struct qstar_resolved_toolchain materialize_toolchain;
+	const struct qstar_resolved_toolchain *materialize_toolchain_ptr;
 	char logdir[QSTAR_PATH_MAX], action_name[QSTAR_PATH_MAX];
 	char action_log[QSTAR_PATH_MAX];
 	int old_timeout, rc;
 
 	if (prepare_run_action(graph, ctx, target, &action) < 0)
 		return -1;
+	if (prepared_action_materialization_toolchain(graph, &action,
+	    &materialize_toolchain, &materialize_toolchain_ptr) < 0) {
+		prepared_action_free(&action);
+		return -1;
+	}
 	old_timeout = ctx->action_timeout_sec;
 	ctx->action_timeout_sec = prepared_action_timeout_sec(ctx, &action);
 	rc = run_action(graph, ctx, target, action.id, action.kind, action.key,
-	    &action.outputs, action.argv.items, NULL, &action.material, action.description);
+	    &action.outputs, action.argv.items, materialize_toolchain_ptr,
+	    &action.material, action.description);
 	ctx->action_timeout_sec = old_timeout;
 	if (ensure_action_log_dir(graph, ctx, logdir, sizeof(logdir)) == 0) {
 		action_log_name(action.id, action_name, sizeof(action_name));
@@ -6731,13 +6676,13 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 {
 	char logdir[QSTAR_PATH_MAX], stdout_path[QSTAR_PATH_MAX], stderr_path[QSTAR_PATH_MAX];
 	char child_stdout_path[QSTAR_PATH_MAX], child_stderr_path[QSTAR_PATH_MAX];
-	char rsp_arg[QSTAR_PATH_MAX];
-	char *exec_argv[3];
 	char *const *child_argv;
+	struct qstar_materialized_command command;
+	struct qstar_resolved_toolchain materialize_toolchain;
+	const struct qstar_resolved_toolchain *materialize_toolchain_ptr;
 	const struct qstar_state_entry *prev;
 	const char *runner;
 	qstar_process_id pid;
-	int use_rsp;
 	const char *owner_label;
 	int timeout_sec;
 
@@ -6788,24 +6733,36 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		fprintf(ctx->out, "cache_miss id=%s reason=%s key=%s previous=%s\n",
 		    action->id, cache_reason(graph, prev, action->key, &action->outputs,
 		    &action->material), action->key, prev ? prev->key : "<none>");
-	use_rsp = prepare_response_file(graph, action->id, action->toolchain, action->argv.items,
-	    rsp_arg, sizeof(rsp_arg), ctx->out);
-	if (use_rsp < 0)
+	if (prepared_action_materialization_toolchain(graph, action,
+	    &materialize_toolchain, &materialize_toolchain_ptr) < 0)
 		return -1;
-	child_argv = action->argv.items;
-	if (use_rsp) {
-		exec_argv[0] = action->argv.items[0];
-		exec_argv[1] = rsp_arg;
-		exec_argv[2] = NULL;
-		child_argv = exec_argv;
+	if (qstar_action_materialize(graph, action->id, materialize_toolchain_ptr,
+	    &action->argv, &action->env, 1, &command) < 0)
+		return -1;
+	if (command.uses_response_file)
+		fprintf(ctx->out,
+		    "response_file id=%s path=%s mode=real style=%s digest=%s\n",
+		    action->id, command.response_file, command.response_style,
+		    command.response_digest);
+	else if (qstar_action_needs_response_file(&action->argv) &&
+	    (!materialize_toolchain_ptr ||
+	    !materialize_toolchain_ptr->response_files))
+		fprintf(ctx->out,
+		    "response_file id=%s mode=full capability=off\n",
+		    action->id);
+	child_argv = command.exec_argv.items;
+	if (child_capture_open(graph, &running->capture, stdout_path,
+	    stderr_path) < 0) {
+		qstar_materialized_command_free(&command);
+		return -1;
 	}
-	if (child_capture_open(graph, &running->capture, stdout_path, stderr_path) < 0)
-		return -1;
 	if (spawn_action_process(graph, &running->capture, child_argv, &action->env,
 	    &pid, &runner) < 0) {
+		qstar_materialized_command_free(&command);
 		child_capture_finish(ctx, &running->capture);
 		return -1;
 	}
+	qstar_materialized_command_free(&command);
 	child_capture_parent_started(&running->capture);
 	running->action = action;
 	running->pid = pid;
@@ -6829,6 +6786,8 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	char stdout_rel[QSTAR_PATH_MAX], stderr_rel[QSTAR_PATH_MAX], replay_rel[QSTAR_PATH_MAX];
 	const char *failure_kind;
 	const char *owner_label;
+	struct qstar_resolved_toolchain materialize_toolchain;
+	const struct qstar_resolved_toolchain *materialize_toolchain_ptr;
 	int exit_code;
 
 	child_capture_finish(ctx, &running->capture);
@@ -6853,7 +6812,11 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		build_tracef(ctx,
 		    "parallel_event target=%s event=fail id=%s slot=%zu exit=%d state=failed retry=next-build cancel=active\n",
 		    owner_label, action->id, running->slot, exit_code);
-		write_failure_replay_detail(graph, action->id, action->toolchain,
+		if (prepared_action_materialization_toolchain(graph, action,
+		    &materialize_toolchain, &materialize_toolchain_ptr) < 0)
+			return -1;
+		write_failure_replay_detail(graph, action->id,
+		    materialize_toolchain_ptr,
 		    action->argv.items, action->description, &action->env, failure_kind, owner_label,
 		    stdout_rel, stderr_rel,
 		    action->target ? action->target->run_expect_contains : NULL,
@@ -7549,18 +7512,28 @@ append_system_link_flags(struct qstar_graph *graph, const struct qstar_target *t
 	return 0;
 }
 
-/** target final archive/link action을 prepared action으로 만든다. */
+void
+qstar_lowered_action_free(struct qstar_lowered_action *action)
+{
+	if (!action)
+		return;
+	qstar_argv_free(&action->logical_argv);
+	qstar_string_list_free(&action->inputs);
+	qstar_string_list_free(&action->outputs);
+	qstar_string_list_free(&action->env);
+	memset(action, 0, sizeof(*action));
+}
+
+/** provider-owned final action을 shared logical contract로 낮춘다. */
 static int
-prepare_provider_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
-    const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
-    struct qstar_prepared_action *action)
+lower_provider_final_action(struct qstar_graph *graph,
+    const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain,
+    struct qstar_lowered_action *action)
 {
 	const struct qstar_provider_action_template *tmpl;
-	struct qstar_string_list inputs, dep_inputs, outputs;
-	struct qstar_action_material material;
+	struct qstar_prepared_action adapter;
 	const char *final_action;
-	char artifact[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX], key[32];
-	size_t i;
 
 	if (!qstar_target_has_provider_final_action(target))
 		return 0;
@@ -7569,87 +7542,190 @@ prepare_provider_final_action(struct qstar_graph *graph, struct qstar_build_ctx 
 		return qstar_set_error(graph,
 		    "qstar: provider final action for '%s' has no lowered command",
 		    target->label);
-	if (qstar_graph_artifact_output_path(graph, target, artifact,
-	    sizeof(artifact)) < 0)
-		return qstar_set_error(graph, "qstar: provider final artifact path too long");
+	memset(&adapter, 0, sizeof(adapter));
+	adapter.toolchain = toolchain;
 	final_action = qstar_target_final_action(target);
-	memset(action, 0, sizeof(*action));
-	memset(&inputs, 0, sizeof(inputs));
-	memset(&dep_inputs, 0, sizeof(dep_inputs));
-	memset(&outputs, 0, sizeof(outputs));
-	memset(&material, 0, sizeof(material));
 	action->target = target;
 	action->toolchain = toolchain;
 	action->wants_depfile = tmpl->wants_depfile;
 	snprintf(action->kind, sizeof(action->kind), "%s", final_action);
-	snprintf(id, sizeof(id), "%s:%s:0", target->label, final_action);
-	snprintf(action->id, sizeof(action->id), "%s", id);
+	snprintf(action->id, sizeof(action->id), "%s:%s:0", target->label,
+	    final_action);
 	if (tmpl->depfile && *tmpl->depfile)
-		snprintf(action->depfile, sizeof(action->depfile), "%s", tmpl->depfile);
-	if (qstar_action_description_final(target, final_action, artifact,
+		snprintf(action->depfile, sizeof(action->depfile), "%s",
+		    tmpl->depfile);
+	if (qstar_action_description_final(target, final_action,
+	    tmpl->outputs.len ? tmpl->outputs.items[0] : "<provider-output>",
 	    action->description, sizeof(action->description)) < 0)
-		return qstar_set_error(graph, "qstar: final action description too long");
-	if (prepared_action_push_provider_template(graph, action, target,
+		return qstar_set_error(graph,
+		    "qstar: provider final action description too long");
+	if (prepared_action_push_provider_template(graph, &adapter, target,
 	    &tmpl->argv) < 0 ||
 	    ((!target->provider_final.api ||
 	    strcmp(target->provider_final.api, "qstar.lang/2") != 0) &&
 	    strcmp(target->kind, "staticlib") != 0 &&
-	    prepared_action_push_dependency_usage(graph, action, target, 1) < 0))
+	    prepared_action_push_dependency_usage(graph, &adapter, target, 1) < 0))
 		goto fail;
-	if (copy_string_list(&inputs, &tmpl->inputs) < 0 ||
+	action->logical_argv = adapter.argv;
+	qstar_argv_init(&adapter.argv);
+	if (copy_string_list(&action->inputs, &tmpl->inputs) < 0 ||
 	    copy_string_list(&action->env, &tmpl->env) < 0 ||
-	    copy_string_list(&outputs, &tmpl->outputs) < 0)
+	    copy_string_list(&action->outputs, &tmpl->outputs) < 0)
 		goto oom;
 	if ((!target->provider_final.api ||
 	    strcmp(target->provider_final.api, "qstar.lang/2") != 0) &&
 	    strcmp(target->kind, "staticlib") != 0 &&
-	    push_dependency_usage_inputs(graph, target, 1, &inputs) < 0) {
-		qstar_string_list_free(&inputs);
-		qstar_string_list_free(&dep_inputs);
-		qstar_string_list_free(&outputs);
+	    push_dependency_usage_inputs(graph, target, 1,
+	    &action->inputs) < 0)
 		goto fail;
-	}
-	for (i = 0; i < outputs.len; i++) {
-		if (mkdir_parent_under_root(graph, outputs.items[i]) < 0) {
-			qstar_string_list_free(&inputs);
-			qstar_string_list_free(&dep_inputs);
-			qstar_string_list_free(&outputs);
-			qstar_set_error(graph,
-			    "qstar: could not create provider final output directory");
-			goto fail;
-		}
-	}
-	if (!ctx->lowering_cache_prepare && action->wants_depfile &&
-	    push_depfile_inputs(graph, ctx, action->depfile, &dep_inputs) < 0) {
-		qstar_string_list_free(&inputs);
-		qstar_string_list_free(&dep_inputs);
-		qstar_string_list_free(&outputs);
-		goto fail;
-	}
-	for (i = 0; i < dep_inputs.len; i++) {
-		if (string_list_contains(&inputs, dep_inputs.items[i]))
-			continue;
-		if (qstar_string_list_push(&inputs, dep_inputs.items[i]) < 0)
-			goto oom;
-	}
-	key[0] = '\0';
-	if (!ctx->lowering_cache_prepare)
-		compute_action_key(ctx, graph, target, toolchain, id, final_action,
-		    action->argv.items, &action->env, &inputs, &dep_inputs, artifact, key,
-		    sizeof(key), &material);
-	snprintf(action->key, sizeof(action->key), "%s", key);
-	action->material = material;
-	action->inputs = inputs;
-	action->depfile_inputs = dep_inputs;
-	action->outputs = outputs;
+	prepared_action_free(&adapter);
 	return 1;
 oom:
-	qstar_string_list_free(&inputs);
-	qstar_string_list_free(&dep_inputs);
-	qstar_string_list_free(&outputs);
 	qstar_set_error(graph, "qstar: out of memory");
 fail:
-	prepared_action_free(action);
+	prepared_action_free(&adapter);
+	qstar_lowered_action_free(action);
+	return -1;
+}
+
+int
+qstar_lower_final_action(struct qstar_graph *graph,
+    const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain,
+    struct qstar_lowered_action *action)
+{
+	char artifact[QSTAR_PATH_MAX], object[QSTAR_PATH_MAX];
+	char out_arg[QSTAR_PATH_MAX];
+	const char *final_action;
+	size_t dep_first, i;
+	int provider_rc;
+
+	if (!graph || !target || !toolchain || !action)
+		return qstar_set_error(graph,
+		    "qstar: final action lowering requires graph, target, and toolchain");
+	memset(action, 0, sizeof(*action));
+	provider_rc = lower_provider_final_action(graph, target, toolchain,
+	    action);
+	if (provider_rc != 0)
+		return provider_rc < 0 ? -1 : 0;
+	if (!qstar_target_rule_lookup(target->kind) ||
+	    !qstar_target_rule_lookup(target->kind)->local_executor_supported)
+		return qstar_set_error_origin(graph, target->origin_file,
+		    target->origin_line, "kind", target->label,
+		    "qstar: local executor does not support target kind '%s'",
+		    target->kind);
+	if (qstar_graph_artifact_output_path(graph, target, artifact,
+	    sizeof(artifact)) < 0)
+		return qstar_set_error(graph,
+		    "qstar: final artifact path is too long");
+	final_action = qstar_target_final_action(target);
+	action->target = target;
+	action->toolchain = toolchain;
+	snprintf(action->kind, sizeof(action->kind), "%s", final_action);
+	snprintf(action->id, sizeof(action->id), "%s:%s:0", target->label,
+	    final_action);
+	if (strcmp(target->kind, "staticlib") == 0) {
+		if (append_raw_tool_role(graph, &action->logical_argv, target,
+		    toolchain, "archive", toolchain->ar) < 0 ||
+		    append_owned_argv(graph, &action->logical_argv, "rcs") < 0 ||
+		    append_owned_argv(graph, &action->logical_argv, artifact) < 0)
+			goto fail;
+	} else {
+		if (validate_sharedlib_platform(graph, target, toolchain) < 0)
+			goto fail;
+		if (append_raw_tool_role(graph, &action->logical_argv, target,
+		    toolchain, "link",
+		    qstar_target_has_compile_provider(target, "cxx") ?
+		    toolchain->cxx : toolchain->linker) < 0)
+			goto fail;
+		if (toolchain_uses_msvc_out_arg(toolchain, target)) {
+			if (snprintf(out_arg, sizeof(out_arg), "/out:%s",
+			    artifact) >= (int)sizeof(out_arg) ||
+			    append_owned_argv(graph, &action->logical_argv,
+			    out_arg) < 0)
+				goto fail;
+		} else if (append_owned_argv(graph, &action->logical_argv,
+		    "-o") < 0 ||
+		    append_owned_argv(graph, &action->logical_argv,
+		    artifact) < 0)
+			goto fail;
+	}
+	if (append_sharedlib_link_flags(graph, target, toolchain, artifact,
+	    &action->logical_argv) < 0)
+		goto fail;
+	if (strcmp(target->kind, "staticlib") != 0 &&
+	    append_dependency_link_usage_options(graph, target,
+	    &action->logical_argv) < 0)
+		goto fail;
+	if (strcmp(target->kind, "staticlib") != 0 &&
+	    append_link_policy_flags(graph, target,
+	    &action->logical_argv) < 0)
+		goto fail;
+	for (i = 0; i < target->sources.len; i++) {
+		if (!target_source_emits_object(target, i))
+			continue;
+		if (target_source_object_input(graph, target, i, object,
+		    sizeof(object)) < 0)
+			goto path_fail;
+		if (qstar_argv_push(&action->logical_argv, object) < 0)
+			goto oom;
+	}
+	if (append_objectlib_objects(graph, target,
+	    &action->logical_argv) < 0)
+		goto fail;
+	dep_first = action->logical_argv.len;
+	if (strcmp(target->kind, "staticlib") != 0 &&
+	    append_dep_artifacts(graph, target, toolchain,
+	    &action->logical_argv) < 0)
+		goto fail;
+	if (append_sharedlib_runtime_rpaths(graph, target, toolchain,
+	    artifact, &action->logical_argv) < 0)
+		goto fail;
+	if (strcmp(target->kind, "staticlib") != 0 &&
+	    toolchain_needs_msvc_link_boundary(toolchain, target) &&
+	    append_owned_argv(graph, &action->logical_argv, "/link") < 0)
+		goto fail;
+	if (strcmp(target->kind, "staticlib") != 0 &&
+	    append_system_link_flags(graph, target, toolchain,
+	    &action->logical_argv) < 0)
+		goto fail;
+	for (i = 0; i < target->sources.len; i++) {
+		if (!target_source_emits_object(target, i))
+			continue;
+		if (target_source_object_input(graph, target, i, object,
+		    sizeof(object)) < 0)
+			goto path_fail;
+		if (qstar_string_list_push(&action->inputs, object) < 0)
+			goto oom;
+	}
+	if (append_objectlib_inputs(graph, target, &action->inputs) < 0)
+		goto fail;
+	for (i = dep_first; i < action->logical_argv.len; i++) {
+		if (qstar_string_list_push(&action->inputs,
+		    action->logical_argv.items[i]) < 0)
+			goto oom;
+	}
+	if (push_link_action_inputs(graph, target, &action->inputs) < 0)
+		goto fail;
+	if (strcmp(target->kind, "staticlib") != 0 &&
+	    push_dependency_usage_inputs(graph, target, 1,
+	    &action->inputs) < 0)
+		goto fail;
+	if (qstar_graph_target_artifact_outputs(graph, target,
+	    &action->outputs) < 0)
+		goto fail;
+	if (qstar_action_description_final(target, final_action, artifact,
+	    action->description, sizeof(action->description)) < 0)
+		return qstar_set_error(graph,
+		    "qstar: final action description too long");
+	return 0;
+path_fail:
+	qstar_set_error(graph, "qstar: object output path too long");
+	goto fail;
+oom:
+	qstar_set_error(graph, "qstar: out of memory");
+fail:
+	qstar_lowered_action_free(action);
 	return -1;
 }
 
@@ -7658,146 +7734,73 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
     struct qstar_prepared_action *action)
 {
-	char artifact[QSTAR_PATH_MAX], object[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX], key[32];
-	char out_arg[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
-	struct qstar_argv argv;
-	struct qstar_string_list inputs, outputs;
+	struct qstar_lowered_action lowered;
+	struct qstar_string_list dep_inputs;
 	struct qstar_action_material material;
-	const char *final_action;
-	size_t dep_first, i;
-	int provider_rc;
+	size_t i;
 
 	memset(action, 0, sizeof(*action));
-	qstar_argv_init(&argv);
-	memset(&inputs, 0, sizeof(inputs));
-	memset(&outputs, 0, sizeof(outputs));
+	memset(&lowered, 0, sizeof(lowered));
+	memset(&dep_inputs, 0, sizeof(dep_inputs));
+	if (qstar_lower_final_action(graph, target, toolchain, &lowered) < 0)
+		return -1;
+	if (lowered.outputs.len == 0) {
+		qstar_set_error(graph,
+		    "qstar: final action '%s' has no declared output", lowered.id);
+		goto fail;
+	}
+	for (i = 0; i < lowered.outputs.len; i++) {
+		if (mkdir_parent_under_root(graph, lowered.outputs.items[i]) < 0) {
+			qstar_set_error(graph,
+			    "qstar: could not create final output directory");
+			goto fail;
+		}
+	}
+	if (!ctx->lowering_cache_prepare && lowered.wants_depfile &&
+	    push_depfile_inputs(graph, ctx, lowered.depfile,
+	    &dep_inputs) < 0)
+		goto fail;
+	for (i = 0; i < dep_inputs.len; i++) {
+		if (string_list_contains(&lowered.inputs,
+		    dep_inputs.items[i]))
+			continue;
+		if (qstar_string_list_push(&lowered.inputs,
+		    dep_inputs.items[i]) < 0) {
+			qstar_set_error(graph, "qstar: out of memory");
+			goto fail;
+		}
+	}
+	memset(&material, 0, sizeof(material));
+	if (!ctx->lowering_cache_prepare)
+		compute_action_key(ctx, graph, target, toolchain, lowered.id,
+		    lowered.kind, lowered.logical_argv.items, &lowered.env,
+		    &lowered.inputs, &dep_inputs, lowered.outputs.items[0],
+		    action->key, sizeof(action->key), &material);
 	action->target = target;
 	action->toolchain = toolchain;
-	provider_rc = prepare_provider_final_action(graph, ctx, target, toolchain, action);
-	if (provider_rc != 0)
-		return provider_rc < 0 ? -1 : 0;
-	if (!qstar_target_rule_lookup(target->kind) ||
-	    !qstar_target_rule_lookup(target->kind)->local_executor_supported)
-		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
-		    "kind", target->label,
-		    "qstar: local executor does not support target kind '%s'",
-		    target->kind);
-	if (qstar_graph_artifact_output_path(graph, target, artifact, sizeof(artifact)) < 0 ||
-	    mkdir_parent_under_root(graph, artifact) < 0)
-		return qstar_set_error(graph, "qstar: could not create artifact output directory");
-	final_action = qstar_target_final_action(target);
-	snprintf(action->kind, sizeof(action->kind), "%s", final_action);
-	if (strcmp(target->kind, "staticlib") == 0) {
-		snprintf(id, sizeof(id), "%s:%s:0", target->label, final_action);
-		if (append_raw_tool_role(graph, &argv, target, toolchain, "archive",
-		    toolchain->ar) < 0 ||
-		    append_owned_argv(graph, &argv, "rcs") < 0 ||
-		    append_owned_argv(graph, &argv, artifact) < 0)
-			goto fail;
-	} else {
-		if (validate_sharedlib_platform(graph, target, toolchain) < 0)
-			goto fail;
-		snprintf(id, sizeof(id), "%s:%s:0", target->label, final_action);
-		if (append_raw_tool_role(graph, &argv, target, toolchain, "link",
-		    qstar_target_has_compile_provider(target, "cxx") ? toolchain->cxx :
-		    toolchain->linker) < 0)
-			goto fail;
-		if (toolchain_uses_msvc_out_arg(toolchain, target)) {
-			snprintf(out_arg, sizeof(out_arg), "/out:%s", artifact);
-			if (append_owned_argv(graph, &argv, out_arg) < 0)
-				goto fail;
-		} else if (append_owned_argv(graph, &argv, "-o") < 0 ||
-		    append_owned_argv(graph, &argv, artifact) < 0)
-			goto fail;
-	}
-	if (append_sharedlib_link_flags(graph, target, toolchain, artifact, &argv) < 0)
-		goto fail;
-	if (strcmp(target->kind, "staticlib") != 0 &&
-	    append_dependency_link_usage_options(graph, target, &argv) < 0)
-		goto fail;
-	if (strcmp(target->kind, "staticlib") != 0 &&
-	    append_link_policy_flags(graph, target, &argv) < 0)
-		goto fail;
-	for (i = 0; i < target->sources.len; i++) {
-		if (!target_source_emits_object(target, i))
-			continue;
-		if (target_source_object_input(graph, target, i, object, sizeof(object)) < 0) {
-			qstar_set_error(graph, "qstar: object output path too long");
-			goto fail;
-		}
-		if (qstar_argv_push(&argv, object) < 0) {
-			qstar_set_error(graph, "qstar: out of memory");
-			goto fail;
-		}
-	}
-	if (append_objectlib_objects(graph, target, &argv) < 0)
-		goto fail;
-	dep_first = argv.len;
-	if (strcmp(target->kind, "staticlib") != 0 &&
-	    append_dep_artifacts(graph, target, toolchain, &argv) < 0)
-		goto fail;
-	if (append_sharedlib_runtime_rpaths(graph, target, toolchain, artifact,
-	    &argv) < 0)
-		goto fail;
-	if (strcmp(target->kind, "staticlib") != 0 &&
-	    toolchain_needs_msvc_link_boundary(toolchain, target) &&
-	    append_owned_argv(graph, &argv, "/link") < 0)
-		goto fail;
-	if (strcmp(target->kind, "staticlib") != 0 &&
-	    append_system_link_flags(graph, target, toolchain, &argv) < 0)
-		goto fail;
-	for (i = 0; i < target->sources.len; i++) {
-		if (!target_source_emits_object(target, i))
-			continue;
-		if (target_source_object_input(graph, target, i, object, sizeof(object)) < 0) {
-			qstar_set_error(graph, "qstar: object output path too long");
-			goto fail;
-		}
-		if (qstar_string_list_push(&inputs, object) < 0) {
-			qstar_set_error(graph, "qstar: out of memory");
-			goto fail;
-		}
-	}
-	if (append_objectlib_inputs(graph, target, &inputs) < 0)
-		goto fail;
-	for (i = dep_first; i < argv.len; i++) {
-		if (qstar_string_list_push(&inputs, argv.items[i]) < 0) {
-			qstar_set_error(graph, "qstar: out of memory");
-			goto fail;
-		}
-	}
-	if (push_link_action_inputs(graph, target, &inputs) < 0)
-		goto fail;
-	if (strcmp(target->kind, "staticlib") != 0 &&
-	    push_dependency_usage_inputs(graph, target, 1, &inputs) < 0)
-		goto fail;
-	if (qstar_graph_target_artifact_outputs(graph, target, &outputs) < 0)
-		goto fail;
-	memset(&material, 0, sizeof(material));
-	key[0] = '\0';
-	if (!ctx->lowering_cache_prepare)
-		compute_action_key(ctx, graph, target, toolchain, id, final_action, argv.items,
-		    NULL, &inputs, NULL, artifact, key, sizeof(key), &material);
-	if (qstar_action_description_final(target, final_action, artifact,
-	    description, sizeof(description)) < 0) {
-		qstar_set_error(graph, "qstar: final action description too long");
-		goto fail;
-	}
-	snprintf(action->id, sizeof(action->id), "%s", id);
-	snprintf(action->key, sizeof(action->key), "%s", key);
-	snprintf(action->description, sizeof(action->description), "%s", description);
+	action->wants_depfile = lowered.wants_depfile;
+	snprintf(action->id, sizeof(action->id), "%s", lowered.id);
+	snprintf(action->kind, sizeof(action->kind), "%s", lowered.kind);
+	snprintf(action->depfile, sizeof(action->depfile), "%s",
+	    lowered.depfile);
+	snprintf(action->description, sizeof(action->description), "%s",
+	    lowered.description);
 	action->material = material;
-	action->argv = argv;
-	qstar_argv_init(&argv);
-	action->inputs = inputs;
-	memset(&inputs, 0, sizeof(inputs));
-	action->outputs = outputs;
-	memset(&outputs, 0, sizeof(outputs));
+	action->argv = lowered.logical_argv;
+	qstar_argv_init(&lowered.logical_argv);
+	action->inputs = lowered.inputs;
+	memset(&lowered.inputs, 0, sizeof(lowered.inputs));
+	action->outputs = lowered.outputs;
+	memset(&lowered.outputs, 0, sizeof(lowered.outputs));
+	action->env = lowered.env;
+	memset(&lowered.env, 0, sizeof(lowered.env));
+	action->depfile_inputs = dep_inputs;
+	memset(&dep_inputs, 0, sizeof(dep_inputs));
+	qstar_lowered_action_free(&lowered);
 	return 0;
 fail:
-	qstar_argv_free(&argv);
-	qstar_string_list_free(&inputs);
-	qstar_string_list_free(&outputs);
+	qstar_string_list_free(&dep_inputs);
+	qstar_lowered_action_free(&lowered);
 	return -1;
 }
 
@@ -12126,6 +12129,7 @@ prepare_lazy_generated_action(struct qstar_graph *graph, const struct qstar_genr
 	size_t i;
 
 	memset(action, 0, sizeof(*action));
+	action->genrule = genrule;
 	snprintf(action->id, sizeof(action->id), "%s:generate:0", genrule->label);
 	snprintf(action->kind, sizeof(action->kind), "generate");
 	if (!genrule->config_header &&
@@ -12159,6 +12163,7 @@ prepare_lazy_run_action(struct qstar_graph *graph, const struct qstar_target *ta
 	size_t i;
 
 	memset(action, 0, sizeof(*action));
+	action->target = target;
 	snprintf(action->id, sizeof(action->id), "%s:run:0", target->label);
 	snprintf(action->kind, sizeof(action->kind), "run");
 	if (qstar_action_description_run(target, action->description,
@@ -12308,7 +12313,8 @@ write_replay_from_argv(struct qstar_graph *graph, const char *action_id, const c
 	}
 	write_env_redacted(out, env);
 	write_action_outputs(out, outputs);
-	write_response_file_observation(out, graph, action_id, toolchain, argv);
+	write_response_file_observation(out, graph, action_id, toolchain, argv,
+	    env);
 	for (i = 0; argv[i]; i++) {
 		if (i)
 			fputc(' ', out);
@@ -12341,6 +12347,29 @@ qstar_graph_action_log(struct qstar_graph *graph, const char *action_id, FILE *o
 		while (fgets(line, sizeof(line), f))
 			fputs(line, out);
 		fclose(f);
+		memset(&action, 0, sizeof(action));
+		if (prepare_lazy_action_from_graph(graph, action_id, &action) == 0) {
+			observation_toolchain_ptr = NULL;
+			if (action.target) {
+				if (qstar_resolve_toolchain(graph, action.target,
+				    &observation_toolchain) < 0) {
+					prepared_action_free(&action);
+					return -1;
+				}
+				observation_toolchain_ptr = &observation_toolchain;
+			} else if (action.genrule && action.genrule->toolset &&
+			    *action.genrule->toolset) {
+				if (qstar_resolve_toolset_context(graph,
+				    action.genrule->toolset, &observation_toolchain) < 0) {
+					prepared_action_free(&action);
+					return -1;
+				}
+				observation_toolchain_ptr = &observation_toolchain;
+			}
+			write_response_file_observation(out, graph, action.id,
+			    observation_toolchain_ptr, action.argv.items, &action.env);
+			prepared_action_free(&action);
+		}
 	} else {
 		memset(&action, 0, sizeof(action));
 		rc = prepare_lazy_action_from_state(graph, action_id, &action, exit_text,
@@ -12360,29 +12389,75 @@ qstar_graph_action_log(struct qstar_graph *graph, const char *action_id, FILE *o
 				return -1;
 			}
 			observation_toolchain_ptr = &observation_toolchain;
+		} else if (action.genrule && action.genrule->toolset &&
+		    *action.genrule->toolset) {
+			if (qstar_resolve_toolset_context(graph,
+			    action.genrule->toolset, &observation_toolchain) < 0) {
+				prepared_action_free(&action);
+				return -1;
+			}
+			observation_toolchain_ptr = &observation_toolchain;
 		}
 		write_action_log_stream(out, action.argv.items, exit_text,
 		    action.description, &action.env, &action.outputs);
 		write_response_file_observation(out, graph, action.id,
-		    observation_toolchain_ptr, action.argv.items);
+		    observation_toolchain_ptr, action.argv.items, &action.env);
 		prepared_action_free(&action);
 	}
 	fputs("status ok\n", out);
 	return 0;
 }
 
+/** 길이 제한 없이 action log의 한 줄을 읽는다. */
+static int
+read_dynamic_line(FILE *file, char **line, size_t *cap)
+{
+	size_t len, next_cap;
+	char *next;
+	int ch;
+
+	if (!file || !line || !cap)
+		return -1;
+	if (!*line || *cap == 0) {
+		*cap = 256;
+		*line = malloc(*cap);
+		if (!*line)
+			return -1;
+	}
+	len = 0;
+	while ((ch = fgetc(file)) != EOF) {
+		if (len + 1 >= *cap) {
+			if (*cap > SIZE_MAX / 2)
+				return -1;
+			next_cap = *cap * 2;
+			next = realloc(*line, next_cap);
+			if (!next)
+				return -1;
+			*line = next;
+			*cap = next_cap;
+		}
+		(*line)[len++] = (char)ch;
+		if (ch == '\n')
+			break;
+	}
+	if (len == 0 && ch == EOF)
+		return 0;
+	(*line)[len] = '\0';
+	return 1;
+}
+
 /** action id에 대응하는 shell replay command를 출력한다. */
 int
 qstar_graph_replay_action(struct qstar_graph *graph, const char *action_id, FILE *out)
 {
-	char rel[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX], line[8192], command[8192];
-	char description[8192], exit_text[64];
-	char env_text[8192], output_text[8192], response_text[8192];
+	char rel[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX], exit_text[64];
+	char *line;
+	size_t line_cap;
 	struct qstar_prepared_action action;
 	struct qstar_resolved_toolchain observation_toolchain;
 	const struct qstar_resolved_toolchain *observation_toolchain_ptr;
 	FILE *f;
-	int rc;
+	int rc, line_rc, found_command;
 
 	if (action_log_path_for_id(graph, action_id, rel, sizeof(rel), full,
 	    sizeof(full)) < 0)
@@ -12406,6 +12481,14 @@ qstar_graph_replay_action(struct qstar_graph *graph, const char *action_id, FILE
 				return -1;
 			}
 			observation_toolchain_ptr = &observation_toolchain;
+		} else if (action.genrule && action.genrule->toolset &&
+		    *action.genrule->toolset) {
+			if (qstar_resolve_toolset_context(graph,
+			    action.genrule->toolset, &observation_toolchain) < 0) {
+				prepared_action_free(&action);
+				return -1;
+			}
+			observation_toolchain_ptr = &observation_toolchain;
 		}
 		write_replay_from_argv(graph, action_id, rel, action.argv.items,
 		    action.description, &action.env, &action.outputs,
@@ -12413,55 +12496,49 @@ qstar_graph_replay_action(struct qstar_graph *graph, const char *action_id, FILE
 		prepared_action_free(&action);
 		return 0;
 	}
-	command[0] = '\0';
-	description[0] = '\0';
-	env_text[0] = '\0';
-	output_text[0] = '\0';
-	response_text[0] = '\0';
-	while (fgets(line, sizeof(line), f)) {
-		if (strncmp(line, "description=", 12) == 0) {
-			snprintf(description, sizeof(description), "%s", line + 12);
-		} else if (strncmp(line, "envc=", 5) == 0 ||
-		    strncmp(line, "env[", 4) == 0) {
-			if (strlen(env_text) + strlen(line) + 1 < sizeof(env_text))
-				strcat(env_text, line);
-		} else if (strncmp(line, "output_count=", 13) == 0 ||
-		    strncmp(line, "output[", 7) == 0) {
-			if (strlen(output_text) + strlen(line) + 1 < sizeof(output_text))
-				strcat(output_text, line);
-		} else if (strncmp(line, "response_file=", 14) == 0 ||
-		    strncmp(line, "response_style=", 15) == 0 ||
-		    strncmp(line, "response_digest=", 16) == 0) {
-			if (strlen(response_text) + strlen(line) + 1 < sizeof(response_text))
-				strcat(response_text, line);
-		} else if (strncmp(line, "argv_shell=", 11) == 0) {
-			snprintf(command, sizeof(command), "%s", line + 11);
-			break;
-		}
-	}
-	fclose(f);
-	if (!command[0])
-		return qstar_set_error(graph, "qstar: action log '%s' has no replay argv",
-		    rel);
+	line = NULL;
+	line_cap = 0;
+	found_command = 0;
 	fputs("qstar replay v1\n", out);
 	fprintf(out, "action %s\n", action_id);
 	fprintf(out, "log %s\n", rel);
 	fprintf(out, "cd %s\n", graph->package_root ? graph->package_root : ".");
-	if (description[0]) {
-		fputs("description=", out);
-		fputs(description, out);
-		if (description[strlen(description) - 1] != '\n')
-			fputc('\n', out);
+	while ((line_rc = read_dynamic_line(f, &line, &line_cap)) > 0) {
+		if (strncmp(line, "description=", 12) == 0) {
+			fputs("description=", out);
+			fputs(line + 12, out);
+			if (!strchr(line + 12, '\n'))
+				fputc('\n', out);
+		} else if (strncmp(line, "envc=", 5) == 0 ||
+		    strncmp(line, "env[", 4) == 0 ||
+		    strncmp(line, "output_count=", 13) == 0 ||
+		    strncmp(line, "output[", 7) == 0 ||
+		    strncmp(line, "logical_argc=", 13) == 0 ||
+		    strncmp(line, "logical_argv_digest=", 20) == 0 ||
+		    strncmp(line, "logical_bytes=", 14) == 0 ||
+		    strncmp(line, "response_file=", 14) == 0 ||
+		    strncmp(line, "response_style=", 15) == 0 ||
+		    strncmp(line, "response_digest=", 16) == 0 ||
+		    strncmp(line, "exec_argc=", 10) == 0) {
+			fputs(line, out);
+			if (!strchr(line, '\n'))
+				fputc('\n', out);
+		} else if (strncmp(line, "argv_shell=", 11) == 0) {
+			fputs(line + 11, out);
+			if (!strchr(line + 11, '\n'))
+				fputc('\n', out);
+			found_command = 1;
+			break;
+		}
 	}
-	if (env_text[0])
-		fputs(env_text, out);
-	if (output_text[0])
-		fputs(output_text, out);
-	if (response_text[0])
-		fputs(response_text, out);
-	fputs(command, out);
-	if (command[strlen(command) - 1] != '\n')
-		fputc('\n', out);
+	fclose(f);
+	free(line);
+	if (line_rc < 0)
+		return qstar_set_error(graph,
+		    "qstar: could not read action log '%s'", rel);
+	if (!found_command)
+		return qstar_set_error(graph, "qstar: action log '%s' has no replay argv",
+		    rel);
 	fputs("status ok\n", out);
 	return 0;
 }

@@ -68,6 +68,36 @@ struct qstar_argv {
 	size_t bytes;
 };
 
+/** logical argv를 실제 process command로 materialize한 결과다. */
+struct qstar_materialized_command {
+	struct qstar_argv exec_argv;
+	char response_file[QSTAR_PATH_MAX];
+	char response_style[32];
+	char logical_argv_digest[32];
+	char response_digest[32];
+	size_t logical_argc;
+	size_t logical_bytes;
+	size_t exec_argc;
+	size_t host_limit;
+	int needs_response_file;
+	int uses_response_file;
+};
+
+/** backend와 plan이 공유하는 final action logical contract다. */
+struct qstar_lowered_action {
+	const struct qstar_target *target;
+	const struct qstar_resolved_toolchain *toolchain;
+	char id[QSTAR_PATH_MAX];
+	char kind[32];
+	char depfile[QSTAR_PATH_MAX];
+	char description[QSTAR_PATH_MAX];
+	struct qstar_argv logical_argv;
+	struct qstar_string_list inputs;
+	struct qstar_string_list outputs;
+	struct qstar_string_list env;
+	int wants_depfile;
+};
+
 struct qstar_action_cache_spec {
 	const char *id;
 	const char *kind;
@@ -136,6 +166,41 @@ char *const *qstar_argv_data(struct qstar_argv *argv);
 
 /** argv가 소유한 모든 atom과 storage를 해제한다. 반복 호출해도 안전하다. */
 void qstar_argv_free(struct qstar_argv *argv);
+
+/** argv vector의 순서와 atom 경계를 반영한 stable digest를 만든다. */
+void qstar_argv_digest(const struct qstar_argv *argv, char *dst, size_t dstlen);
+
+/** logical argv가 공용 response-file threshold를 넘는지 반환한다. */
+int qstar_action_needs_response_file(const struct qstar_argv *logical);
+
+/**
+ * logical argv를 실행 argv로 materialize한다.
+ *
+ * write_response_file이 0이면 response path/digest만 계산하고 filesystem은
+ * 변경하지 않는다.
+ */
+int qstar_action_materialize(struct qstar_graph *graph, const char *action_id,
+    const struct qstar_resolved_toolchain *toolchain,
+    const struct qstar_argv *logical, const struct qstar_string_list *env,
+    int write_response_file, struct qstar_materialized_command *command);
+
+/** NULL-terminated 기존 argv view를 같은 materializer에 연결한다. */
+int qstar_action_materialize_raw(struct qstar_graph *graph,
+    const char *action_id, const struct qstar_resolved_toolchain *toolchain,
+    char *const logical_argv[], const struct qstar_string_list *env,
+    int write_response_file, struct qstar_materialized_command *command);
+
+/** materialized command가 소유한 실행 argv를 해제한다. */
+void qstar_materialized_command_free(struct qstar_materialized_command *command);
+
+/** target final action을 filesystem mutation 없이 logical contract로 낮춘다. */
+int qstar_lower_final_action(struct qstar_graph *graph,
+    const struct qstar_target *target,
+    const struct qstar_resolved_toolchain *toolchain,
+    struct qstar_lowered_action *action);
+
+/** lowered final action의 owned storage를 해제한다. */
+void qstar_lowered_action_free(struct qstar_lowered_action *action);
 
 /** Project/CLI 설정을 합성한 local action cache mode를 반환한다. */
 int qstar_action_cache_mode(const struct qstar_graph *graph,
@@ -219,6 +284,10 @@ int qstar_label_package_path(const char *label, char *dst, size_t dstlen);
 /** target의 explicit toolset과 builtin fallback tool role을 결정한다. */
 int qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *target,
     struct qstar_resolved_toolchain *resolved);
+
+/** target가 없는 action에 explicit toolset의 실행 정책을 resolve한다. */
+int qstar_resolve_toolset_context(struct qstar_graph *graph,
+    const char *toolset_label, struct qstar_resolved_toolchain *resolved);
 
 /** Resolved C++ compiler의 opt-in strategy capability family를 반환한다. */
 const char *qstar_cxx_compiler_family(const struct qstar_resolved_toolchain *resolved);

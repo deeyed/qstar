@@ -372,7 +372,7 @@ corpus와 optional real compiler corpus를 위해 그대로 유지한다.
 | --- | --- | --- | --- |
 | Source action | Provider argv/env/input/output/depfile로 실행 | 같은 Graph IR을 Ninja edge로 생성 | `provider_action`, `provider_actions`, `provider_action_contract` |
 | Final action | Mixed-provider object와 explicit link input을 소비 | 같은 input closure와 command를 사용 | `query`, `explain`, `dry-run` |
-| Response file | Toolset threshold와 style로 real `.rsp` 생성 | launcher가 동일 argv tail로 `.rsp` 생성 | build trace, Ninja action log, explain digest |
+| Response file | 공통 logical argv의 tail로 real `.rsp` 생성 | 같은 materializer가 동일 argv tail로 `.rsp` 생성 | logical argc/digest, response path/style/digest, exec argc |
 | Depfile | Source/final action 모두 discovered input을 action key에 반영 | `depfile`과 `deps = gcc` edge로 전달 | `why-rebuild`의 `depfile-changed` |
 | Environment | Process overlay 및 env digest에 반영 | edge-local env overlay 적용 | 이름만 Graph IR에 노출하고 log/replay 값은 redacted |
 | Multi-output | file/tree 전체 존재 여부와 cache hit 검사 | 한 edge의 ordered outputs | action-log와 replay의 `output_count`, `output[N]` |
@@ -388,6 +388,19 @@ Graph/query/explain은 provider env의 값은 출력하지 않는다. Graph IR�
 나타나며 action-log/replay는 기존처럼 `NAME=<redacted>`를 기록한다. Provider source action의
 `argv_template`, input/output, depfile과 final action의 ownership도 additive query field로
 노출한다.
+
+### Q287 wide final materialization
+
+Provider final도 built-in final과 같은 `qstar_lowered_action` 및 response materializer를
+사용한다. Provider가 반환한 command는 full logical argv이며, mixed-provider object,
+file/tree artifact, dependency link interface, explicit input과 option의 순서를 보존한다.
+Stella와 Ninja는 이 값을 따로 재조립하지 않는다.
+
+Response file을 쓰더라도 action key, local CAS, `why-rebuild`, state identity, action log,
+replay는 `@rsp` path가 아니라 full logical argv를 사용한다. `dry-run`과 `explain`은
+filesystem mutation 없이 같은 `logical_argc`, `logical_argv_digest`, `response_digest`,
+`exec_argc`를 예측한다. `make qstar-glp-v2-backend-parity-tests`는 GLP v2 final에서 plan과
+두 backend action log의 digest가 일치하는지 검증한다.
 
 Windows 연동은 provider가 MSVC, import library 이름 또는 linker option을 추론한다는 뜻이
 아니다. QStar의 generic target output policy가 runtime primary path를 정하고, manifest가

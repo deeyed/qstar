@@ -3,6 +3,7 @@ local M = {}
 function M.qstar_core()
   return {
     "src/action_cache.c",
+    "src/action_materialize.c",
     "src/argv.c",
     "src/cxx.c",
     "src/daemon.c",

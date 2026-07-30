@@ -370,7 +370,8 @@ EOF
 	contains "$tmp/standard-zig-dry-run.out" "dry_run_step id=//:core:archive:0 owner=//:core kind=archive tool=zig"
 	contains "$tmp/standard-zig-dry-run.out" "argv=[tools/fake-zig, build-lib, src/main.zig"
 	contains "$tmp/standard-zig-dry-run.out" "--standard-provider-compatibility"
-	contains "$tmp/standard-zig-dry-run.out" "response=skeleton"
+	contains "$tmp/standard-zig-dry-run.out" "response=none"
+	contains "$tmp/standard-zig-dry-run.out" "logical_argc=14"
 	step "standard Zig build" standard-zig-build
 	"$qstar" --file "$project/qstar.lua" build //:core > "$tmp/standard-zig-build.out" 2> "$tmp/standard-zig-build.err"
 	contains "$tmp/standard-zig-build.out" "status ok"

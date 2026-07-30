@@ -209,3 +209,17 @@ qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target *ta
 	    resolved_link_style(resolved));
 	return 0;
 }
+
+int
+qstar_resolve_toolset_context(struct qstar_graph *graph,
+    const char *toolset_label, struct qstar_resolved_toolchain *resolved)
+{
+	struct qstar_target owner;
+
+	if (!toolset_label || !*toolset_label)
+		return qstar_set_error(graph,
+		    "qstar: explicit toolset context requires a toolset label");
+	memset(&owner, 0, sizeof(owner));
+	owner.toolset = (char *)toolset_label;
+	return qstar_resolve_toolchain(graph, &owner, resolved);
+}

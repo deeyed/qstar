@@ -30,6 +30,29 @@ not_contains() {
   fi
 }
 
+field_from_line() {
+  file=$1
+  line_pattern=$2
+  field=$3
+  awk -v line_pattern="$line_pattern" -v field="$field" '
+    index($0, line_pattern) {
+      for (i = 1; i <= NF; i++) {
+        if (index($i, field "=") == 1) {
+          sub("^" field "=", "", $i)
+          print $i
+          exit
+        }
+      }
+    }
+  ' "$file"
+}
+
+line_value() {
+  file=$1
+  field=$2
+  sed -n "s/^${field}=//p" "$file" | tail -n 1
+}
+
 cleanup() {
   rc=$?
   trap - EXIT HUP INT TERM
@@ -82,6 +105,12 @@ contains "$tmp/explain.out" "provider_action_contract id=//:mixed:link:0 phase=f
 contains "$tmp/explain.out" "env_names=[QSTAR_GLP_V2_ENV, QSTAR_GLP_V2_CACHE]"
 contains "$tmp/explain.out" "wants_depfile=true"
 contains "$tmp/explain.out" "response=skeleton response_file=build/qstar/rsp/___mixed_link_0.rsp"
+contains "$tmp/explain.out" "exec_argc=2"
+"$qstar" --file "$ninja_project/qstar.lua" -B build-ninja -G ninja \
+  explain //:mixed > "$tmp/ninja-explain.out" 2> "$tmp/ninja-explain.err"
+contains "$tmp/ninja-explain.out" \
+  "response=skeleton response_file=build-ninja/rsp/___mixed_link_0.rsp"
+contains "$tmp/ninja-explain.out" "exec_argc=2"
 
 last_step=stella-build
 "$qstar" --file "$project/qstar.lua" --progress off build //:all > "$tmp/stella.out" 2> "$tmp/stella.err"
@@ -111,6 +140,17 @@ contains "$tmp/stella-log.out" "output_count=4"
 contains "$tmp/stella-log.out" "output[2]=build/qstar/out/___mixed/mixed.resources"
 contains "$tmp/stella-log.out" "response_file=build/qstar/rsp/___mixed_link_0.rsp"
 contains "$tmp/stella-log.out" "response_style=posix"
+contains "$tmp/stella-log.out" "exec_argc=2"
+stella_plan_digest=$(field_from_line "$tmp/explain.out" \
+  "command_argv id=//:mixed:link:0" "digest")
+stella_log_digest=$(line_value "$tmp/stella-log.out" "logical_argv_digest")
+test "$stella_plan_digest" = "$stella_log_digest" ||
+  fail "GLP v2 Stella logical argv digest mismatch"
+stella_plan_rsp_digest=$(field_from_line "$tmp/explain.out" \
+  "command_argv id=//:mixed:link:0" "response_digest")
+stella_log_rsp_digest=$(line_value "$tmp/stella-log.out" "response_digest")
+test "$stella_plan_rsp_digest" = "$stella_log_rsp_digest" ||
+  fail "GLP v2 Stella response digest mismatch"
 "$qstar" --file "$project/qstar.lua" replay //:mixed:link:0 > "$tmp/stella-replay.out" 2> "$tmp/stella-replay.err"
 contains "$tmp/stella-replay.out" "env[1]=QSTAR_GLP_V2_CACHE=<redacted>"
 contains "$tmp/stella-replay.out" "output_count=4"
@@ -156,6 +196,17 @@ contains "$tmp/ninja-log.out" "backend=ninja"
 contains "$tmp/ninja-log.out" "response_file=build-ninja/rsp/___mixed_link_0.rsp"
 contains "$tmp/ninja-log.out" "env[0]=QSTAR_GLP_V2_ENV=<redacted>"
 contains "$tmp/ninja-log.out" "output_count=4"
+contains "$tmp/ninja-log.out" "exec_argc=2"
+ninja_plan_digest=$(field_from_line "$tmp/ninja-explain.out" \
+  "command_argv id=//:mixed:link:0" "digest")
+ninja_log_digest=$(line_value "$tmp/ninja-log.out" "logical_argv_digest")
+test "$ninja_plan_digest" = "$ninja_log_digest" ||
+  fail "GLP v2 Ninja logical argv digest mismatch"
+ninja_plan_rsp_digest=$(field_from_line "$tmp/ninja-explain.out" \
+  "command_argv id=//:mixed:link:0" "response_digest")
+ninja_log_rsp_digest=$(line_value "$tmp/ninja-log.out" "response_digest")
+test "$ninja_plan_rsp_digest" = "$ninja_log_rsp_digest" ||
+  fail "GLP v2 Ninja response digest mismatch"
 "$qstar" --file "$ninja_project/qstar.lua" -B build-ninja -G ninja replay //:mixed:link:0 > "$tmp/ninja-replay.out" 2> "$tmp/ninja-replay.err"
 contains "$tmp/ninja-replay.out" "output_count=4"
 contains "$tmp/ninja-replay.out" "output[2]=build-ninja/out/___mixed/mixed.resources"
