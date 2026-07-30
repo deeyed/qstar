@@ -55,6 +55,19 @@ struct qstar_resolved_toolchain {
 	char response_style[32];
 };
 
+/**
+ * 실행 action 하나의 argv atom을 모두 소유하는 동적 storage다.
+ *
+ * items[len]은 storage가 초기화된 동안 항상 NULL이고, bytes는 각 atom의
+ * terminating NUL을 포함한 logical argv byte 수다.
+ */
+struct qstar_argv {
+	char **items;
+	size_t len;
+	size_t cap;
+	size_t bytes;
+};
+
 struct qstar_action_cache_spec {
 	const char *id;
 	const char *kind;
@@ -102,6 +115,27 @@ typedef size_t qstar_platform_poll_count;
 
 /** 문자열을 QStar 소유 메모리로 복사한다. */
 char *qstar_strdup(const char *s);
+
+/** 동적 action argv storage를 초기화한다. */
+int qstar_argv_init(struct qstar_argv *argv);
+
+/** count개의 argv atom을 담을 수 있도록 storage를 증설한다. */
+int qstar_argv_reserve(struct qstar_argv *argv, size_t count);
+
+/** argv atom 하나를 소유 복사해 추가한다. */
+int qstar_argv_push(struct qstar_argv *argv, const char *value);
+
+/** printf-style argv atom 하나를 만들어 추가한다. */
+int qstar_argv_pushf(struct qstar_argv *argv, const char *fmt, ...);
+
+/** argv 전체를 독립된 storage로 소유 복사한다. */
+int qstar_argv_clone(struct qstar_argv *dst, const struct qstar_argv *src);
+
+/** exec 계열 API에 넘길 NULL-terminated argv vector를 반환한다. */
+char *const *qstar_argv_data(struct qstar_argv *argv);
+
+/** argv가 소유한 모든 atom과 storage를 해제한다. 반복 호출해도 안전하다. */
+void qstar_argv_free(struct qstar_argv *argv);
 
 /** Project/CLI 설정을 합성한 local action cache mode를 반환한다. */
 int qstar_action_cache_mode(const struct qstar_graph *graph,

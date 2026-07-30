@@ -30,7 +30,7 @@
 #include <unistd.h>
 #endif
 
-#define QSTAR_EXEC_MAX_ARGV 256
+#define QSTAR_MAX_JOBS 256
 #define QSTAR_ACTION_TIMEOUT_SEC 30
 #define QSTAR_TEST_TIMEOUT_SEC 5
 #define QSTAR_RESPONSE_ARGV_BYTES 512
@@ -184,8 +184,7 @@ struct qstar_prepared_action {
 	size_t source_index;
 	int wants_depfile;
 	struct qstar_action_material material;
-	char *argv[QSTAR_EXEC_MAX_ARGV];
-	size_t argc;
+	struct qstar_argv argv;
 	int timeout_sec;
 	struct qstar_string_list env;
 	struct qstar_string_list outputs;
@@ -869,13 +868,19 @@ static int
 running_actions_wait_ready(struct qstar_build_ctx *ctx,
     struct qstar_running_action *running, size_t jobs, int timeout_ms)
 {
-	struct qstar_platform_pollfd fds[QSTAR_EXEC_MAX_ARGV * 2];
+	struct qstar_platform_pollfd *fds;
 	size_t i;
 	qstar_platform_poll_count nfds = 0;
-	qstar_platform_poll_count cap = (qstar_platform_poll_count)(sizeof(fds) /
-	    sizeof(fds[0]));
+	qstar_platform_poll_count cap;
 	int rc;
 
+	if (jobs > SIZE_MAX / 2 ||
+	    jobs * 2 > SIZE_MAX / sizeof(*fds))
+		return -1;
+	cap = (qstar_platform_poll_count)(jobs * 2);
+	fds = cap ? calloc((size_t)cap, sizeof(*fds)) : NULL;
+	if (cap && !fds)
+		return -1;
 	for (i = 0; i < jobs; i++) {
 		if (running[i].pid <= 0)
 			continue;
@@ -884,16 +889,23 @@ running_actions_wait_ready(struct qstar_build_ctx *ctx,
 			    cap - nfds);
 	}
 	rc = process_event_poll(nfds > 0 ? fds : NULL, nfds, timeout_ms);
-	if (rc < 0)
+	if (rc < 0) {
+		free(fds);
 		return -1;
-	if (rc == 0)
+	}
+	if (rc == 0) {
+		free(fds);
 		return 0;
+	}
 	for (i = 0; i < jobs; i++) {
 		if (running[i].pid <= 0)
 			continue;
-		if (child_capture_drain(ctx, &running[i].capture) < 0)
+		if (child_capture_drain(ctx, &running[i].capture) < 0) {
+			free(fds);
 			return -1;
+		}
 	}
+	free(fds);
 	return 0;
 }
 
@@ -909,8 +921,8 @@ static int
 clamp_default_job_count(long n)
 {
 	if (n > 1) {
-		if (n > 256)
-			return 256;
+		if (n > QSTAR_MAX_JOBS)
+			return QSTAR_MAX_JOBS;
 		return (int)n;
 	}
 	return 1;
@@ -1155,10 +1167,7 @@ stat_mtime_tick(const struct stat *st)
 static void
 prepared_action_free(struct qstar_prepared_action *action)
 {
-	size_t i;
-
-	for (i = 0; i < action->argc; i++)
-		free(action->argv[i]);
+	qstar_argv_free(&action->argv);
 	qstar_string_list_free(&action->env);
 	qstar_string_list_free(&action->outputs);
 	qstar_string_list_free(&action->inputs);
@@ -1171,27 +1180,8 @@ static int
 prepared_action_push_argv(struct qstar_graph *graph, struct qstar_prepared_action *action,
     const char *s)
 {
-	if (action->argc + 1 >= QSTAR_EXEC_MAX_ARGV)
-		return qstar_set_error(graph, "qstar: compile argv too long");
-	action->argv[action->argc] = qstar_strdup(s);
-	if (!action->argv[action->argc])
+	if (qstar_argv_push(&action->argv, s) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
-	action->argc++;
-	action->argv[action->argc] = NULL;
-	return 0;
-}
-
-/** prepared action에 argv vector를 소유 복사한다. */
-static int
-prepared_action_copy_argv(struct qstar_graph *graph, struct qstar_prepared_action *action,
-    char *const argv[])
-{
-	size_t i;
-
-	for (i = 0; argv && argv[i]; i++) {
-		if (prepared_action_push_argv(graph, action, argv[i]) < 0)
-			return -1;
-	}
 	return 0;
 }
 
@@ -1225,7 +1215,7 @@ prepared_action_cache_spec(struct qstar_graph *graph,
 		return -1;
 	spec->id = action->id;
 	spec->kind = action->kind;
-	spec->argv = action->argv;
+	spec->argv = action->argv.items;
 	spec->env = &action->env;
 	spec->inputs = inputs;
 	spec->outputs = &action->outputs;
@@ -4482,7 +4472,7 @@ objectlib_consumer_compile_index(struct qstar_graph *graph,
 /** objectlib가 consumer final action에 제공하는 object 목록을 순회한다. */
 static int
 append_objectlib_objects(struct qstar_graph *graph, const struct qstar_target *target,
-    char **argv, size_t *argc)
+    struct qstar_argv *argv)
 {
 	const struct qstar_target *objectlib;
 	char object[QSTAR_PATH_MAX];
@@ -4501,12 +4491,7 @@ append_objectlib_objects(struct qstar_graph *graph, const struct qstar_target *t
 			    sizeof(object)) < 0)
 				return qstar_set_error(graph,
 				    "qstar: objectlib object path too long");
-			if (*argc + 1 >= QSTAR_EXEC_MAX_ARGV)
-				return qstar_set_error(graph,
-				    "qstar: final command for '%s' has too many object inputs",
-				    target->label);
-			argv[(*argc)++] = qstar_strdup(object);
-			if (!argv[*argc - 1])
+			if (qstar_argv_push(argv, object) < 0)
 				return qstar_set_error(graph, "qstar: out of memory");
 		}
 	}
@@ -5099,31 +5084,16 @@ build_generated_artifact_dependencies(struct qstar_graph *graph, struct qstar_bu
 
 /** command list item 하나를 실행 argv용 소유 문자열로 복사한다. */
 static int
-push_resolved_command_argv(struct qstar_graph *graph, char **argv, size_t *argc,
+push_resolved_command_argv(struct qstar_graph *graph, struct qstar_argv *argv,
     const char *arg)
 {
 	char resolved[QSTAR_PATH_MAX];
 
-	if (*argc + 1 >= QSTAR_EXEC_MAX_ARGV)
-		return qstar_set_error(graph, "qstar: command argv too long");
 	if (qstar_graph_resolve_command_token(graph, arg, resolved, sizeof(resolved)) < 0)
 		return -1;
-	argv[*argc] = qstar_strdup(resolved);
-	if (!argv[*argc])
+	if (qstar_argv_push(argv, resolved) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
-	(*argc)++;
-	argv[*argc] = NULL;
 	return 0;
-}
-
-/** 소유 argv storage를 해제한다. */
-static void
-free_owned_argv(char **argv, size_t argc)
-{
-	size_t i;
-
-	for (i = 0; i < argc; i++)
-		free(argv[i]);
 }
 
 /** 외부 custom_target generated action을 prepared process action으로 만든다. */
@@ -5153,8 +5123,6 @@ prepare_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		return qstar_set_error_origin(graph, genrule->origin_file,
 		    genrule->origin_line, "command", genrule->label, "%s",
 		    tool_error);
-	if (genrule->args.len + 2 > QSTAR_EXEC_MAX_ARGV)
-		return qstar_set_error(graph, "qstar: generated action argv too long");
 	if (!ctx->action_scheduler &&
 	    build_generated_artifact_dependencies(graph, ctx, genrule) < 0)
 		return -1;
@@ -5180,13 +5148,12 @@ prepare_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		prepared_action_free(action);
 		return qstar_set_error(graph, "qstar: generated output identity is too long");
 	}
-	if (push_resolved_command_argv(graph, action->argv, &action->argc,
-	    resolved_tool) < 0) {
+	if (push_resolved_command_argv(graph, &action->argv, resolved_tool) < 0) {
 		prepared_action_free(action);
 		return -1;
 	}
 	for (i = 0; i < genrule->args.len; i++) {
-		if (push_resolved_command_argv(graph, action->argv, &action->argc,
+		if (push_resolved_command_argv(graph, &action->argv,
 		    genrule->args.items[i]) < 0) {
 			prepared_action_free(action);
 			return -1;
@@ -5214,7 +5181,7 @@ prepare_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	snprintf(toolchain.toolset, sizeof(toolchain.toolset), "%s",
 	    genrule->toolset && *genrule->toolset ? genrule->toolset : "");
 	compute_action_key(ctx, graph, target, &toolchain, action->id, "generate",
-	    action->argv, NULL, &action->inputs, NULL, output_identity, action->key,
+	    action->argv.items, NULL, &action->inputs, NULL, output_identity, action->key,
 	    sizeof(action->key), &action->material);
 	build_tracef(ctx,
 	    "generated_sandbox id=%s inputs=package-root outputs=generated-only cwd=package-root network=disabled tool=%s toolset=%s tool_mode=%s resolved_tool=%s output_identity=%s\n",
@@ -5235,11 +5202,11 @@ run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	char id[QSTAR_PATH_MAX], key[32], output_identity[QSTAR_PATH_MAX];
 	char resolved_tool[QSTAR_PATH_MAX], tool_mode[64];
 	char description[QSTAR_PATH_MAX];
-	char *argv[QSTAR_EXEC_MAX_ARGV];
+	struct qstar_argv argv;
 	struct qstar_string_list inputs;
 	struct qstar_resolved_toolchain toolchain;
 	struct qstar_action_material material;
-	size_t argc, argi, inputi;
+	size_t argi, inputi;
 
 	if (!genrule->config_header) {
 		struct qstar_prepared_action action;
@@ -5248,27 +5215,25 @@ run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		if (prepare_generated_action(graph, ctx, target, genrule, &action) < 0)
 			return -1;
 		rc = run_action(graph, ctx, target, action.id, action.kind, action.key,
-		    &action.outputs, action.argv, NULL, &action.material,
+		    &action.outputs, action.argv.items, NULL, &action.material,
 		    action.description);
 		prepared_action_free(&action);
 		return rc;
 	}
 	snprintf(resolved_tool, sizeof(resolved_tool), "%s", genrule->tool);
 	snprintf(tool_mode, sizeof(tool_mode), "builtin");
-	if (genrule->args.len + 2 > QSTAR_EXEC_MAX_ARGV)
-		return qstar_set_error(graph, "qstar: generated action argv too long");
 	if (!ctx->action_scheduler &&
 	    build_generated_artifact_dependencies(graph, ctx, genrule) < 0)
 		return -1;
-	for (argc = 0; argc < genrule->args.len; argc++) {
-		if (generated_arg_escapes_package(genrule->args.items[argc]))
+	for (argi = 0; argi < genrule->args.len; argi++) {
+		if (generated_arg_escapes_package(genrule->args.items[argi]))
 			return qstar_set_error_origin(graph, genrule->origin_file,
 			    genrule->origin_line, "args", genrule->label,
 			    "qstar: generated action arg '%s' escapes package root",
-			    genrule->args.items[argc]);
+			    genrule->args.items[argi]);
 	}
-	for (argc = 0; argc < genrule->outputs.len; argc++) {
-		if (mkdir_parent_under_root(graph, genrule->outputs.items[argc]) < 0)
+	for (argi = 0; argi < genrule->outputs.len; argi++) {
+		if (mkdir_parent_under_root(graph, genrule->outputs.items[argi]) < 0)
 			return qstar_set_error(graph,
 			    "qstar: could not create generated output directory");
 	}
@@ -5276,13 +5241,13 @@ run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	    sizeof(output_identity)) < 0)
 		return qstar_set_error(graph, "qstar: generated output identity is too long");
 	snprintf(id, sizeof(id), "%s:generate:0", genrule->label);
-	argc = 0;
-	if (push_resolved_command_argv(graph, argv, &argc, resolved_tool) < 0)
+	qstar_argv_init(&argv);
+	if (push_resolved_command_argv(graph, &argv, resolved_tool) < 0)
 		return -1;
 	for (argi = 0; argi < genrule->args.len; argi++) {
-		if (push_resolved_command_argv(graph, argv, &argc,
+		if (push_resolved_command_argv(graph, &argv,
 		    genrule->args.items[argi]) < 0) {
-			free_owned_argv(argv, argc);
+			qstar_argv_free(&argv);
 			return -1;
 		}
 	}
@@ -5291,26 +5256,26 @@ run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		if (push_generated_action_input(graph, &inputs,
 		    genrule->inputs.items[inputi]) < 0) {
 			qstar_string_list_free(&inputs);
-			free_owned_argv(argv, argc);
+			qstar_argv_free(&argv);
 			return -1;
 		}
 	}
 	if (push_target_file_argv_inputs(graph, genrule, &inputs) < 0) {
 		qstar_string_list_free(&inputs);
-		free_owned_argv(argv, argc);
+		qstar_argv_free(&argv);
 		return -1;
 	}
 	if (!genrule->config_header &&
 	    qstar_external_tool_mode_is_package_input(tool_mode) &&
 	    qstar_string_list_push(&inputs, resolved_tool) < 0) {
 		qstar_string_list_free(&inputs);
-		free_owned_argv(argv, argc);
+		qstar_argv_free(&argv);
 		return qstar_set_error(graph, "qstar: out of memory");
 	}
 	memset(&toolchain, 0, sizeof(toolchain));
 	snprintf(toolchain.platform, sizeof(toolchain.platform), "%s",
 	    qstar_graph_platform(graph));
-	compute_action_key(ctx, graph, target, &toolchain, id, "generate", argv,
+	compute_action_key(ctx, graph, target, &toolchain, id, "generate", argv.items,
 	    NULL, &inputs, NULL, output_identity, key, sizeof(key), &material);
 	qstar_string_list_free(&inputs);
 	build_tracef(ctx,
@@ -5320,16 +5285,16 @@ run_one_generated_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		snprintf(description, sizeof(description), "<too-long>");
 	if (genrule->config_header) {
 		if (run_config_header_action(graph, ctx, target, genrule, id, key,
-		    argv, &material, description) < 0) {
-			free_owned_argv(argv, argc);
+		    argv.items, &material, description) < 0) {
+			qstar_argv_free(&argv);
 			return -1;
 		}
 	} else if (run_action(graph, ctx, target, id, "generate", key,
-	    &genrule->outputs, argv, NULL, &material, description) < 0) {
-		free_owned_argv(argv, argc);
+	    &genrule->outputs, argv.items, NULL, &material, description) < 0) {
+		qstar_argv_free(&argv);
 		return -1;
 	}
-	free_owned_argv(argv, argc);
+	qstar_argv_free(&argv);
 	return 0;
 }
 
@@ -5448,7 +5413,7 @@ prepare_run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	if (materialize_run_stage_inputs(graph, ctx, target) < 0)
 		return -1;
 	for (i = 0; i < target->run_command.len; i++) {
-		if (push_resolved_command_argv(graph, action->argv, &action->argc,
+		if (push_resolved_command_argv(graph, &action->argv,
 		    target->run_command.items[i]) < 0) {
 			prepared_action_free(action);
 			return -1;
@@ -5556,7 +5521,7 @@ prepare_run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	if (qstar_action_description_run(target, action->description,
 	    sizeof(action->description)) < 0)
 		snprintf(action->description, sizeof(action->description), "<too-long>");
-	compute_action_key(ctx, graph, target, NULL, action->id, "run", action->argv,
+	compute_action_key(ctx, graph, target, NULL, action->id, "run", action->argv.items,
 	    NULL, &inputs, NULL, stamp, action->key, sizeof(action->key),
 	    &action->material);
 	action->inputs = inputs;
@@ -5592,11 +5557,11 @@ finish_run_target_success(struct qstar_graph *graph, struct qstar_build_ctx *ctx
 		    build_log_rel(graph, action_name, ".stderr", stderr_rel,
 		    sizeof(stderr_rel)) < 0)
 			return qstar_set_error(graph, "qstar: action log path too long");
-		write_failure_replay_detail(graph, action->id, NULL, action->argv,
+		write_failure_replay_detail(graph, action->id, NULL, action->argv.items,
 		    action->description, &action->env, "expect-missing", target->label,
 		    stdout_rel, stderr_rel, target->run_expect_contains, target->run_expect_file);
 		if (action_log && *action_log)
-			write_action_log_text(action_log, action->argv, "expect-missing",
+			write_action_log_text(action_log, action->argv.items, "expect-missing",
 			    action->description, &action->env, &action->outputs);
 		ctx->fail_count++;
 		ctx->cancelled = 1;
@@ -5634,7 +5599,7 @@ run_target_command(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	old_timeout = ctx->action_timeout_sec;
 	ctx->action_timeout_sec = prepared_action_timeout_sec(ctx, &action);
 	rc = run_action(graph, ctx, target, action.id, action.kind, action.key,
-	    &action.outputs, action.argv, NULL, &action.material, action.description);
+	    &action.outputs, action.argv.items, NULL, &action.material, action.description);
 	ctx->action_timeout_sec = old_timeout;
 	if (ensure_action_log_dir(graph, ctx, logdir, sizeof(logdir)) == 0) {
 		action_log_name(action.id, action_name, sizeof(action_name));
@@ -5967,7 +5932,7 @@ refresh_action_state_after_depfile(struct qstar_graph *graph, struct qstar_build
 		}
 	}
 	compute_action_key(ctx, graph, target, toolchain, action->id, action->kind,
-	    action->argv, &action->env, &inputs, &dep_inputs,
+	    action->argv.items, &action->env, &inputs, &dep_inputs,
 	    action->outputs.items[0], action->key, sizeof(action->key),
 	    &action->material);
 	qstar_string_list_free(&inputs);
@@ -6203,11 +6168,11 @@ prepare_cxx_pch_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	if (!ctx->lowering_cache_prepare &&
 	    strcmp(qstar_graph_compile_commands_policy(graph), "off") != 0 &&
 	    compile_db_push(ctx, graph->package_root ? graph->package_root : ".",
-	    target->cxx_precompiled_header, output, action->argv) < 0)
+	    target->cxx_precompiled_header, output, action->argv.items) < 0)
 		goto oom;
 	if (!ctx->lowering_cache_prepare)
 		compute_action_key(ctx, graph, target, toolchain, action->id, action->kind,
-		    action->argv, NULL, &inputs, &dep_inputs, output, action->key,
+		    action->argv.items, NULL, &inputs, &dep_inputs, output, action->key,
 		    sizeof(action->key), &action->material);
 	snprintf(action->description, sizeof(action->description), "CXX PCH %s",
 	    target->cxx_precompiled_header);
@@ -6240,7 +6205,7 @@ run_cxx_pch(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	if (prepare_cxx_pch_action(graph, ctx, target, toolchain, &action) < 0)
 		return -1;
 	rc = run_action(graph, ctx, target, action.id, action.kind, action.key,
-	    &action.outputs, action.argv, toolchain, &action.material,
+	    &action.outputs, action.argv.items, toolchain, &action.material,
 	    action.description);
 	if (rc == 0)
 		rc = check_action_depfile(graph, ctx, &action);
@@ -6378,15 +6343,6 @@ prepare_compile_action_from_source(struct qstar_graph *graph, struct qstar_build
 	    (strcmp(source.provider, "c") == 0 || is_cxx ||
 	    qstar_source_uses_asm_preprocessor(target, &source));
 	action->wants_depfile = wants_depfile;
-	if ((provider_source ? 0 :
-	    (is_asm ? target->asm_include_dirs.len * 2 : includes.len * 2)) +
-	    (provider_source || is_asm ? 0 : target->system_include_dirs.len * 2) +
-	    (provider_source ? 0 : is_asm ? target->asm_compile_options.len :
-	    is_cxx ? target->cxxflags.len : target->cflags.len) +
-	    18 > QSTAR_EXEC_MAX_ARGV) {
-		qstar_set_error(graph, "qstar: compile argv too long");
-		goto fail;
-	}
 	format_compile_action_id(target, source_owner, index, action_index,
 	    action->id, sizeof(action->id));
 	if (qstar_action_description_compile(source_owner, &source, object,
@@ -6436,7 +6392,7 @@ prepare_compile_action_from_source(struct qstar_graph *graph, struct qstar_build
 		if (!ctx->lowering_cache_prepare &&
 		    strcmp(qstar_graph_compile_commands_policy(graph), "off") != 0 &&
 		    compile_db_push(ctx, graph->package_root ? graph->package_root : ".",
-		    source_owner->sources.items[index], object, action->argv) < 0)
+		    source_owner->sources.items[index], object, action->argv.items) < 0)
 			goto oom_provider;
 		if (!ctx->lowering_cache_prepare && action->wants_depfile &&
 		    push_depfile_inputs(graph, ctx, action->depfile,
@@ -6455,7 +6411,7 @@ prepare_compile_action_from_source(struct qstar_graph *graph, struct qstar_build
 		}
 		if (!ctx->lowering_cache_prepare)
 			compute_action_key(ctx, graph, target, toolchain, action->id,
-			    "compile", action->argv, &action->env, &inputs,
+			    "compile", action->argv.items, &action->env, &inputs,
 			    &dep_inputs, object, action->key, sizeof(action->key),
 			    &action->material);
 		action->inputs = inputs;
@@ -6584,7 +6540,7 @@ oom_provider:
 	if (!ctx->lowering_cache_prepare &&
 	    strcmp(qstar_graph_compile_commands_policy(graph), "off") != 0 &&
 	    compile_db_push(ctx, graph->package_root ? graph->package_root : ".",
-	    compile_input, object, action->argv) < 0) {
+	    compile_input, object, action->argv.items) < 0) {
 		goto oom;
 	}
 	if (qstar_string_list_push(&inputs, compile_input) < 0 ||
@@ -6627,7 +6583,7 @@ oom_provider:
 	}
 	if (!ctx->lowering_cache_prepare)
 		compute_action_key(ctx, graph, target, toolchain, action->id, "compile",
-		    action->argv, NULL, &inputs, &dep_inputs, object, action->key,
+		    action->argv.items, NULL, &inputs, &dep_inputs, object, action->key,
 		    sizeof(action->key), &action->material);
 	action->inputs = inputs;
 	action->depfile_inputs = dep_inputs;
@@ -6693,7 +6649,7 @@ run_compile(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct
 	if (prepare_compile_action(graph, ctx, target, toolchain, index, &action) < 0)
 		return -1;
 	rc = run_action(graph, ctx, target, action.id, action.kind, action.key,
-	    &action.outputs, action.argv, toolchain, &action.material,
+	    &action.outputs, action.argv.items, toolchain, &action.material,
 	    action.description);
 	if (rc == 0)
 		rc = check_action_depfile(graph, ctx, &action);
@@ -6735,7 +6691,7 @@ run_consumer_objectlib_compile(struct qstar_graph *graph, struct qstar_build_ctx
 	    toolchain, source_index, action_index, object, depfile, &action) < 0)
 		return -1;
 	rc = run_action(graph, ctx, consumer, action.id, action.kind, action.key,
-	    &action.outputs, action.argv, toolchain, &action.material,
+	    &action.outputs, action.argv.items, toolchain, &action.material,
 	    action.description);
 	if (rc == 0)
 		rc = check_action_depfile(graph, ctx, &action);
@@ -6813,7 +6769,7 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		build_tracef(ctx,
 		    "build_action id=%s status=skip reason=cache-hit stdout=%s stderr=%s\n",
 		    action->id, child_stdout_path, child_stderr_path);
-		action_log_queue_skip_ref(ctx, running->action_log, action->argv,
+		action_log_queue_skip_ref(ctx, running->action_log, action->argv.items,
 		    action->description, &action->env, &action->outputs);
 		progress_skip_action(ctx);
 		ctx->skip_count++;
@@ -6832,13 +6788,13 @@ start_prepared_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		fprintf(ctx->out, "cache_miss id=%s reason=%s key=%s previous=%s\n",
 		    action->id, cache_reason(graph, prev, action->key, &action->outputs,
 		    &action->material), action->key, prev ? prev->key : "<none>");
-	use_rsp = prepare_response_file(graph, action->id, action->toolchain, action->argv,
+	use_rsp = prepare_response_file(graph, action->id, action->toolchain, action->argv.items,
 	    rsp_arg, sizeof(rsp_arg), ctx->out);
 	if (use_rsp < 0)
 		return -1;
-	child_argv = action->argv;
+	child_argv = action->argv.items;
 	if (use_rsp) {
-		exec_argv[0] = action->argv[0];
+		exec_argv[0] = action->argv.items[0];
 		exec_argv[1] = rsp_arg;
 		exec_argv[2] = NULL;
 		child_argv = exec_argv;
@@ -6877,11 +6833,11 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 
 	child_capture_finish(ctx, &running->capture);
 	exit_code = qstar_platform_process_exit_code(status);
-	action_log_queue_exit_ref(ctx, running->action_log, action->argv, exit_code,
+	action_log_queue_exit_ref(ctx, running->action_log, action->argv.items, exit_code,
 	    action->description, &action->env, &action->outputs);
 	owner_label = prepared_action_owner_label(action);
 	if (exit_code != 0) {
-		failure_kind = classify_failure_kind(action->kind, action->argv,
+		failure_kind = classify_failure_kind(action->kind, action->argv.items,
 		    "exit-code");
 		if (build_log_rel(graph, running->name, ".stdout", stdout_rel,
 		    sizeof(stdout_rel)) < 0)
@@ -6898,7 +6854,7 @@ finish_running_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		    "parallel_event target=%s event=fail id=%s slot=%zu exit=%d state=failed retry=next-build cancel=active\n",
 		    owner_label, action->id, running->slot, exit_code);
 		write_failure_replay_detail(graph, action->id, action->toolchain,
-		    action->argv, action->description, &action->env, failure_kind, owner_label,
+		    action->argv.items, action->description, &action->env, failure_kind, owner_label,
 		    stdout_rel, stderr_rel,
 		    action->target ? action->target->run_expect_contains : NULL,
 		    action->target ? action->target->run_expect_file : NULL);
@@ -7075,13 +7031,13 @@ run_compile_parallel(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 					running[i].pid = 0;
 					child_capture_finish(ctx, &running[i].capture);
 					action_log_queue_exit_ref(ctx, running[i].action_log,
-					    running[i].action->argv, 124,
+					    running[i].action->argv.items, 124,
 					    running[i].action->description,
 					    &running[i].action->env,
 					    &running[i].action->outputs);
 					write_failure_replay(graph, running[i].action->id,
 					    running[i].action->toolchain,
-					    running[i].action->argv,
+					    running[i].action->argv.items,
 					    running[i].action->description);
 					ctx->fail_count++;
 					ctx->cancelled = 1;
@@ -7146,17 +7102,15 @@ fail:
 
 /** argv tail에 소유 문자열을 추가한다. */
 static int
-append_owned_argv(struct qstar_graph *graph, char **argv, size_t *argc, const char *s)
+append_owned_argv(struct qstar_graph *graph, struct qstar_argv *argv, const char *s)
 {
-	if (*argc + 1 >= QSTAR_EXEC_MAX_ARGV)
-		return qstar_set_error(graph, "qstar: final argv too long");
-	argv[(*argc)++] = qstar_strdup(s);
-	return argv[*argc - 1] ? 0 : qstar_set_error(graph, "qstar: out of memory");
+	return qstar_argv_push(argv, s) == 0 ? 0 :
+	    qstar_set_error(graph, "qstar: out of memory");
 }
 
 static int
 append_dependency_link_usage_options(struct qstar_graph *graph,
-    const struct qstar_target *target, char **argv, size_t *argc)
+    const struct qstar_target *target, struct qstar_argv *argv)
 {
 	struct qstar_string_list options, inputs;
 	size_t i;
@@ -7166,7 +7120,7 @@ append_dependency_link_usage_options(struct qstar_graph *graph,
 		return qstar_set_error(graph, "qstar: out of memory");
 	rc = 0;
 	for (i = 0; i < options.len; i++) {
-		if (append_owned_argv(graph, argv, argc, options.items[i]) < 0) {
+		if (append_owned_argv(graph, argv, options.items[i]) < 0) {
 			rc = -1;
 			break;
 		}
@@ -7192,7 +7146,7 @@ seen_label(const struct qstar_string_list *seen, const char *label)
 /** dependency artifact를 dependent-before-dependency order로 재귀 추가한다. */
 static int
 append_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *dep,
-    const struct qstar_resolved_toolchain *toolchain, char **argv, size_t *argc,
+    const struct qstar_resolved_toolchain *toolchain, struct qstar_argv *argv,
     struct qstar_string_list *seen)
 {
 	const struct qstar_target *next;
@@ -7211,14 +7165,14 @@ append_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *de
 		    toolchain->platform, artifact, sizeof(artifact)) < 0)
 			return qstar_set_error(graph,
 			    "qstar: dependency artifact path too long");
-		if (append_owned_argv(graph, argv, argc, artifact) < 0)
+		if (append_owned_argv(graph, argv, artifact) < 0)
 			return -1;
 	}
 	for (i = 0; i < dep->deps.len; i++) {
 		if (dep->deps.items[i][0] == '@')
 			continue;
 		next = find_target(graph, dep->deps.items[i]);
-		if (next && append_dep_artifact_rec(graph, next, toolchain, argv, argc,
+		if (next && append_dep_artifact_rec(graph, next, toolchain, argv,
 		    seen) < 0)
 			return -1;
 	}
@@ -7228,7 +7182,7 @@ append_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *de
 		if (dep->private_deps.items[i][0] == '@')
 			continue;
 		next = find_target(graph, dep->private_deps.items[i]);
-		if (next && append_dep_artifact_rec(graph, next, toolchain, argv, argc,
+		if (next && append_dep_artifact_rec(graph, next, toolchain, argv,
 		    seen) < 0)
 			return -1;
 	}
@@ -7238,7 +7192,7 @@ append_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *de
 /** target의 transitive dependency artifact를 final argv 뒤에 붙인다. */
 static int
 append_dep_artifacts(struct qstar_graph *graph, const struct qstar_target *target,
-    const struct qstar_resolved_toolchain *toolchain, char **argv, size_t *argc)
+    const struct qstar_resolved_toolchain *toolchain, struct qstar_argv *argv)
 {
 	const struct qstar_target *dep;
 	struct qstar_string_list seen;
@@ -7252,7 +7206,7 @@ append_dep_artifacts(struct qstar_graph *graph, const struct qstar_target *targe
 		dep = find_target(graph, target->deps.items[i]);
 		if (!dep)
 			continue;
-		rc = append_dep_artifact_rec(graph, dep, toolchain, argv, argc, &seen);
+		rc = append_dep_artifact_rec(graph, dep, toolchain, argv, &seen);
 		if (rc < 0) {
 			qstar_string_list_free(&seen);
 			return rc;
@@ -7264,7 +7218,7 @@ append_dep_artifacts(struct qstar_graph *graph, const struct qstar_target *targe
 		dep = find_target(graph, target->private_deps.items[i]);
 		if (!dep)
 			continue;
-		rc = append_dep_artifact_rec(graph, dep, toolchain, argv, argc, &seen);
+		rc = append_dep_artifact_rec(graph, dep, toolchain, argv, &seen);
 		if (rc < 0) {
 			qstar_string_list_free(&seen);
 			return rc;
@@ -7272,14 +7226,6 @@ append_dep_artifacts(struct qstar_graph *graph, const struct qstar_target *targe
 	}
 	qstar_string_list_free(&seen);
 	return 0;
-}
-
-/** append_dep_artifacts에서 복사한 argv tail을 해제한다. */
-static void
-free_dep_artifacts(char **argv, size_t first, size_t argc)
-{
-	while (first < argc)
-		free(argv[first++]);
 }
 
 /** sharedlib dependency의 build-tree runtime rpath를 재귀 수집한다. */
@@ -7342,7 +7288,7 @@ collect_sharedlib_rpath_rec(struct qstar_graph *graph, const struct qstar_target
 static int
 append_sharedlib_runtime_rpaths(struct qstar_graph *graph,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
-    const char *artifact, char **argv, size_t *argc)
+    const char *artifact, struct qstar_argv *argv)
 {
 	const struct qstar_target *dep;
 	struct qstar_string_list rpaths, seen;
@@ -7377,7 +7323,7 @@ append_sharedlib_runtime_rpaths(struct qstar_graph *graph,
 	}
 	if (rc == 0) {
 		for (i = 0; i < rpaths.len; i++) {
-			if (append_owned_argv(graph, argv, argc, rpaths.items[i]) < 0) {
+			if (append_owned_argv(graph, argv, rpaths.items[i]) < 0) {
 				rc = -1;
 				break;
 			}
@@ -7416,8 +7362,8 @@ validate_sharedlib_platform(struct qstar_graph *graph, const struct qstar_target
 /** sharedlib link action에 platform별 dynamic-library flag를 추가한다. */
 static int
 append_sharedlib_link_flags(struct qstar_graph *graph, const struct qstar_target *target,
-    const struct qstar_resolved_toolchain *toolchain, const char *artifact, char **argv,
-    size_t *argc)
+    const struct qstar_resolved_toolchain *toolchain, const char *artifact,
+    struct qstar_argv *argv)
 {
 	char import_lib[QSTAR_PATH_MAX], install_name[QSTAR_PATH_MAX];
 	char soname[QSTAR_PATH_MAX], flag[QSTAR_PATH_MAX];
@@ -7429,9 +7375,9 @@ append_sharedlib_link_flags(struct qstar_graph *graph, const struct qstar_target
 	if (qstar_platform_is_darwin(toolchain->platform)) {
 		snprintf(install_name, sizeof(install_name), "@rpath/%s",
 		    artifact_basename(artifact));
-		return append_owned_argv(graph, argv, argc, "-dynamiclib") < 0 ||
-			    append_owned_argv(graph, argv, argc, "-install_name") < 0 ||
-			    append_owned_argv(graph, argv, argc, install_name) < 0 ? -1 : 0;
+		return append_owned_argv(graph, argv, "-dynamiclib") < 0 ||
+			    append_owned_argv(graph, argv, "-install_name") < 0 ||
+			    append_owned_argv(graph, argv, install_name) < 0 ? -1 : 0;
 	}
 	if (qstar_platform_is_windows(toolchain->platform)) {
 		if (qstar_graph_target_artifact_path(graph, target, "import_lib",
@@ -7442,19 +7388,19 @@ append_sharedlib_link_flags(struct qstar_graph *graph, const struct qstar_target
 			    (int)sizeof(flag))
 				return qstar_set_error(graph,
 				    "qstar: import library path is too long");
-			return append_owned_argv(graph, argv, argc, "/DLL") < 0 ||
-			    append_owned_argv(graph, argv, argc, flag) < 0 ? -1 : 0;
+			return append_owned_argv(graph, argv, "/DLL") < 0 ||
+			    append_owned_argv(graph, argv, flag) < 0 ? -1 : 0;
 		}
 		if (snprintf(flag, sizeof(flag), "-Wl,--out-implib,%s", import_lib) >=
 		    (int)sizeof(flag))
 			return qstar_set_error(graph,
 			    "qstar: import library path is too long");
-		return append_owned_argv(graph, argv, argc, "-shared") < 0 ||
-		    append_owned_argv(graph, argv, argc, flag) < 0 ? -1 : 0;
+		return append_owned_argv(graph, argv, "-shared") < 0 ||
+		    append_owned_argv(graph, argv, flag) < 0 ? -1 : 0;
 	}
 	snprintf(soname, sizeof(soname), "-Wl,-soname,%s", artifact_basename(artifact));
-	return append_owned_argv(graph, argv, argc, "-shared") < 0 ||
-	    append_owned_argv(graph, argv, argc, soname) < 0 ? -1 : 0;
+	return append_owned_argv(graph, argv, "-shared") < 0 ||
+	    append_owned_argv(graph, argv, soname) < 0 ? -1 : 0;
 }
 
 /** shared library source compile에 PIC flag가 필요한지 확인한다. */
@@ -7469,7 +7415,7 @@ target_compile_needs_pic(const struct qstar_target *target,
 
 /** target toolset role argv-vector 또는 fallback tool 하나를 raw argv에 추가한다. */
 static int
-append_raw_tool_role(struct qstar_graph *graph, char **argv, size_t *argc,
+append_raw_tool_role(struct qstar_graph *graph, struct qstar_argv *argv,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
     const char *role, const char *fallback)
 {
@@ -7478,15 +7424,11 @@ append_raw_tool_role(struct qstar_graph *graph, char **argv, size_t *argc,
 
 	role_argv = resolved_tool_role_argv(graph, target, toolchain, role);
 	if (!role_argv) {
-		if (*argc >= QSTAR_EXEC_MAX_ARGV)
-			return qstar_set_error(graph, "qstar: action argv too long");
-		argv[(*argc)++] = (char *)fallback;
-		return 0;
+		return append_owned_argv(graph, argv, fallback);
 	}
 	for (i = 0; i < role_argv->len; i++) {
-		if (*argc >= QSTAR_EXEC_MAX_ARGV)
-			return qstar_set_error(graph, "qstar: action argv too long");
-		argv[(*argc)++] = role_argv->items[i];
+		if (append_owned_argv(graph, argv, role_argv->items[i]) < 0)
+			return -1;
 	}
 	return 0;
 }
@@ -7522,12 +7464,12 @@ toolchain_uses_msvc_out_arg(const struct qstar_resolved_toolchain *toolchain,
 /** target link_options를 argv에 추가한다. */
 static int
 append_link_policy_flags(struct qstar_graph *graph, const struct qstar_target *target,
-    char **argv, size_t *argc)
+    struct qstar_argv *argv)
 {
 	size_t i;
 
 	for (i = 0; i < target->link_options.len; i++) {
-		if (append_owned_argv(graph, argv, argc, target->link_options.items[i]) < 0)
+		if (append_owned_argv(graph, argv, target->link_options.items[i]) < 0)
 			return -1;
 	}
 	return 0;
@@ -7572,7 +7514,7 @@ push_link_action_inputs(struct qstar_graph *graph, const struct qstar_target *ta
 /** system lib/lib_dir/framework link flags를 target context별 spelling으로 추가한다. */
 static int
 append_system_link_flags(struct qstar_graph *graph, const struct qstar_target *target,
-    const struct qstar_resolved_toolchain *toolchain, char **argv, size_t *argc)
+    const struct qstar_resolved_toolchain *toolchain, struct qstar_argv *argv)
 {
 	char flag[QSTAR_PATH_MAX];
 	size_t i;
@@ -7584,7 +7526,7 @@ append_system_link_flags(struct qstar_graph *graph, const struct qstar_target *t
 			snprintf(flag, sizeof(flag), "/LIBPATH:%s", target->lib_dirs.items[i]);
 		else
 			snprintf(flag, sizeof(flag), "-L%s", target->lib_dirs.items[i]);
-		if (append_owned_argv(graph, argv, argc, flag) < 0)
+		if (append_owned_argv(graph, argv, flag) < 0)
 			return -1;
 	}
 	for (i = 0; i < target->libs.len; i++) {
@@ -7592,7 +7534,7 @@ append_system_link_flags(struct qstar_graph *graph, const struct qstar_target *t
 			snprintf(flag, sizeof(flag), "%s.lib", target->libs.items[i]);
 		else
 			snprintf(flag, sizeof(flag), "-l%s", target->libs.items[i]);
-		if (append_owned_argv(graph, argv, argc, flag) < 0)
+		if (append_owned_argv(graph, argv, flag) < 0)
 			return -1;
 	}
 	if (target->frameworks.len && !qstar_platform_is_darwin(toolchain->platform))
@@ -7600,8 +7542,8 @@ append_system_link_flags(struct qstar_graph *graph, const struct qstar_target *t
 		    "link.frameworks", target->label,
 		    "qstar: link.frameworks is supported only for Darwin-like targets");
 	for (i = 0; i < target->frameworks.len; i++) {
-		if (append_owned_argv(graph, argv, argc, "-framework") < 0 ||
-		    append_owned_argv(graph, argv, argc, target->frameworks.items[i]) < 0)
+		if (append_owned_argv(graph, argv, "-framework") < 0 ||
+		    append_owned_argv(graph, argv, target->frameworks.items[i]) < 0)
 			return -1;
 	}
 	return 0;
@@ -7693,7 +7635,7 @@ prepare_provider_final_action(struct qstar_graph *graph, struct qstar_build_ctx 
 	key[0] = '\0';
 	if (!ctx->lowering_cache_prepare)
 		compute_action_key(ctx, graph, target, toolchain, id, final_action,
-		    action->argv, &action->env, &inputs, &dep_inputs, artifact, key,
+		    action->argv.items, &action->env, &inputs, &dep_inputs, artifact, key,
 		    sizeof(key), &material);
 	snprintf(action->key, sizeof(action->key), "%s", key);
 	action->material = material;
@@ -7718,17 +7660,22 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 {
 	char artifact[QSTAR_PATH_MAX], object[QSTAR_PATH_MAX], id[QSTAR_PATH_MAX], key[32];
 	char out_arg[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
-	char *argv[QSTAR_EXEC_MAX_ARGV];
+	struct qstar_argv argv;
 	struct qstar_string_list inputs, outputs;
 	struct qstar_action_material material;
 	const char *final_action;
-	size_t argc, dep_first, owned_first, i;
+	size_t dep_first, i;
+	int provider_rc;
 
 	memset(action, 0, sizeof(*action));
+	qstar_argv_init(&argv);
+	memset(&inputs, 0, sizeof(inputs));
+	memset(&outputs, 0, sizeof(outputs));
 	action->target = target;
 	action->toolchain = toolchain;
-	if (prepare_provider_final_action(graph, ctx, target, toolchain, action) != 0)
-		return graph->error[0] ? -1 : 0;
+	provider_rc = prepare_provider_final_action(graph, ctx, target, toolchain, action);
+	if (provider_rc != 0)
+		return provider_rc < 0 ? -1 : 0;
 	if (!qstar_target_rule_lookup(target->kind) ||
 	    !qstar_target_rule_lookup(target->kind)->local_executor_supported)
 		return qstar_set_error_origin(graph, target->origin_file, target->origin_line,
@@ -7740,151 +7687,118 @@ prepare_final_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		return qstar_set_error(graph, "qstar: could not create artifact output directory");
 	final_action = qstar_target_final_action(target);
 	snprintf(action->kind, sizeof(action->kind), "%s", final_action);
-	argc = 0;
 	if (strcmp(target->kind, "staticlib") == 0) {
 		snprintf(id, sizeof(id), "%s:%s:0", target->label, final_action);
-		if (append_raw_tool_role(graph, argv, &argc, target, toolchain, "archive",
-		    toolchain->ar) < 0)
-			return -1;
-		argv[argc++] = "rcs";
-		argv[argc++] = artifact;
+		if (append_raw_tool_role(graph, &argv, target, toolchain, "archive",
+		    toolchain->ar) < 0 ||
+		    append_owned_argv(graph, &argv, "rcs") < 0 ||
+		    append_owned_argv(graph, &argv, artifact) < 0)
+			goto fail;
 	} else {
 		if (validate_sharedlib_platform(graph, target, toolchain) < 0)
-			return -1;
+			goto fail;
 		snprintf(id, sizeof(id), "%s:%s:0", target->label, final_action);
-		if (append_raw_tool_role(graph, argv, &argc, target, toolchain, "link",
+		if (append_raw_tool_role(graph, &argv, target, toolchain, "link",
 		    qstar_target_has_compile_provider(target, "cxx") ? toolchain->cxx :
 		    toolchain->linker) < 0)
-			return -1;
+			goto fail;
 		if (toolchain_uses_msvc_out_arg(toolchain, target)) {
 			snprintf(out_arg, sizeof(out_arg), "/out:%s", artifact);
-			argv[argc++] = out_arg;
-		} else {
-			argv[argc++] = "-o";
-			argv[argc++] = artifact;
-		}
+			if (append_owned_argv(graph, &argv, out_arg) < 0)
+				goto fail;
+		} else if (append_owned_argv(graph, &argv, "-o") < 0 ||
+		    append_owned_argv(graph, &argv, artifact) < 0)
+			goto fail;
 	}
-	owned_first = argc;
-	if (append_sharedlib_link_flags(graph, target, toolchain, artifact, argv,
-	    &argc) < 0) {
-		free_dep_artifacts(argv, owned_first, argc);
-		return -1;
-	}
+	if (append_sharedlib_link_flags(graph, target, toolchain, artifact, &argv) < 0)
+		goto fail;
 	if (strcmp(target->kind, "staticlib") != 0 &&
-	    append_dependency_link_usage_options(graph, target, argv, &argc) < 0) {
-		free_dep_artifacts(argv, owned_first, argc);
-		return -1;
-	}
+	    append_dependency_link_usage_options(graph, target, &argv) < 0)
+		goto fail;
 	if (strcmp(target->kind, "staticlib") != 0 &&
-	    append_link_policy_flags(graph, target, argv, &argc) < 0) {
-		free_dep_artifacts(argv, owned_first, argc);
-		return -1;
-	}
+	    append_link_policy_flags(graph, target, &argv) < 0)
+		goto fail;
 	for (i = 0; i < target->sources.len; i++) {
 		if (!target_source_emits_object(target, i))
 			continue;
-		if (target_source_object_input(graph, target, i, object, sizeof(object)) < 0)
-			return qstar_set_error(graph, "qstar: object output path too long");
-		argv[argc++] = qstar_strdup(object);
-		if (!argv[argc - 1])
-			return qstar_set_error(graph, "qstar: out of memory");
+		if (target_source_object_input(graph, target, i, object, sizeof(object)) < 0) {
+			qstar_set_error(graph, "qstar: object output path too long");
+			goto fail;
+		}
+		if (qstar_argv_push(&argv, object) < 0) {
+			qstar_set_error(graph, "qstar: out of memory");
+			goto fail;
+		}
 	}
-	if (append_objectlib_objects(graph, target, argv, &argc) < 0) {
-		free_dep_artifacts(argv, owned_first, argc);
-		return -1;
-	}
-	dep_first = argc;
+	if (append_objectlib_objects(graph, target, &argv) < 0)
+		goto fail;
+	dep_first = argv.len;
 	if (strcmp(target->kind, "staticlib") != 0 &&
-	    append_dep_artifacts(graph, target, toolchain, argv, &argc) < 0) {
-		free_dep_artifacts(argv, owned_first, dep_first);
-		return -1;
-	}
-	if (append_sharedlib_runtime_rpaths(graph, target, toolchain, artifact, argv,
-	    &argc) < 0) {
-		free_dep_artifacts(argv, owned_first, argc);
-		return -1;
-	}
+	    append_dep_artifacts(graph, target, toolchain, &argv) < 0)
+		goto fail;
+	if (append_sharedlib_runtime_rpaths(graph, target, toolchain, artifact,
+	    &argv) < 0)
+		goto fail;
 	if (strcmp(target->kind, "staticlib") != 0 &&
 	    toolchain_needs_msvc_link_boundary(toolchain, target) &&
-	    append_owned_argv(graph, argv, &argc, "/link") < 0) {
-		free_dep_artifacts(argv, owned_first, argc);
-		return -1;
-	}
+	    append_owned_argv(graph, &argv, "/link") < 0)
+		goto fail;
 	if (strcmp(target->kind, "staticlib") != 0 &&
-	    append_system_link_flags(graph, target, toolchain, argv, &argc) < 0) {
-		free_dep_artifacts(argv, owned_first, argc);
-		return -1;
-	}
-	argv[argc] = NULL;
-	memset(&inputs, 0, sizeof(inputs));
-	memset(&outputs, 0, sizeof(outputs));
+	    append_system_link_flags(graph, target, toolchain, &argv) < 0)
+		goto fail;
 	for (i = 0; i < target->sources.len; i++) {
 		if (!target_source_emits_object(target, i))
 			continue;
-		if (target_source_object_input(graph, target, i, object, sizeof(object)) < 0)
-			return qstar_set_error(graph, "qstar: object output path too long");
+		if (target_source_object_input(graph, target, i, object, sizeof(object)) < 0) {
+			qstar_set_error(graph, "qstar: object output path too long");
+			goto fail;
+		}
 		if (qstar_string_list_push(&inputs, object) < 0) {
-			qstar_string_list_free(&inputs);
-			return qstar_set_error(graph, "qstar: out of memory");
+			qstar_set_error(graph, "qstar: out of memory");
+			goto fail;
 		}
 	}
-	if (append_objectlib_inputs(graph, target, &inputs) < 0) {
-		qstar_string_list_free(&inputs);
-		free_dep_artifacts(argv, owned_first, argc);
-		return -1;
-	}
-	for (i = dep_first; i < argc; i++) {
-		if (qstar_string_list_push(&inputs, argv[i]) < 0) {
-			qstar_string_list_free(&inputs);
-			return qstar_set_error(graph, "qstar: out of memory");
+	if (append_objectlib_inputs(graph, target, &inputs) < 0)
+		goto fail;
+	for (i = dep_first; i < argv.len; i++) {
+		if (qstar_string_list_push(&inputs, argv.items[i]) < 0) {
+			qstar_set_error(graph, "qstar: out of memory");
+			goto fail;
 		}
 	}
-	if (push_link_action_inputs(graph, target, &inputs) < 0) {
-		qstar_string_list_free(&inputs);
-		return -1;
-	}
+	if (push_link_action_inputs(graph, target, &inputs) < 0)
+		goto fail;
 	if (strcmp(target->kind, "staticlib") != 0 &&
-	    push_dependency_usage_inputs(graph, target, 1, &inputs) < 0) {
-		qstar_string_list_free(&inputs);
-		free_dep_artifacts(argv, owned_first, argc);
-		return -1;
-	}
-	if (qstar_graph_target_artifact_outputs(graph, target, &outputs) < 0) {
-		qstar_string_list_free(&inputs);
-		free_dep_artifacts(argv, owned_first, argc);
-		return -1;
-	}
+	    push_dependency_usage_inputs(graph, target, 1, &inputs) < 0)
+		goto fail;
+	if (qstar_graph_target_artifact_outputs(graph, target, &outputs) < 0)
+		goto fail;
 	memset(&material, 0, sizeof(material));
 	key[0] = '\0';
 	if (!ctx->lowering_cache_prepare)
-		compute_action_key(ctx, graph, target, toolchain, id, final_action, argv,
+		compute_action_key(ctx, graph, target, toolchain, id, final_action, argv.items,
 		    NULL, &inputs, NULL, artifact, key, sizeof(key), &material);
 	if (qstar_action_description_final(target, final_action, artifact,
 	    description, sizeof(description)) < 0) {
-		qstar_string_list_free(&inputs);
-		qstar_string_list_free(&outputs);
-		free_dep_artifacts(argv, owned_first, argc);
-		return qstar_set_error(graph, "qstar: final action description too long");
+		qstar_set_error(graph, "qstar: final action description too long");
+		goto fail;
 	}
 	snprintf(action->id, sizeof(action->id), "%s", id);
 	snprintf(action->key, sizeof(action->key), "%s", key);
 	snprintf(action->description, sizeof(action->description), "%s", description);
 	action->material = material;
+	action->argv = argv;
+	qstar_argv_init(&argv);
 	action->inputs = inputs;
+	memset(&inputs, 0, sizeof(inputs));
 	action->outputs = outputs;
-	if (prepared_action_copy_argv(graph, action, argv) < 0) {
-		action->inputs.items = NULL;
-		action->inputs.len = action->inputs.cap = 0;
-		action->outputs.items = NULL;
-		action->outputs.len = action->outputs.cap = 0;
-		qstar_string_list_free(&inputs);
-		qstar_string_list_free(&outputs);
-		free_dep_artifacts(argv, owned_first, argc);
-		prepared_action_free(action);
-		return -1;
-	}
-	free_dep_artifacts(argv, owned_first, argc);
+	memset(&outputs, 0, sizeof(outputs));
 	return 0;
+fail:
+	qstar_argv_free(&argv);
+	qstar_string_list_free(&inputs);
+	qstar_string_list_free(&outputs);
+	return -1;
 }
 
 /** target final archive/link action을 실행한다. */
@@ -7898,7 +7812,7 @@ run_final(struct qstar_graph *graph, struct qstar_build_ctx *ctx, const struct q
 	if (prepare_final_action(graph, ctx, target, toolchain, &action) < 0)
 		return -1;
 	rc = run_action(graph, ctx, target, action.id, action.kind, action.key,
-	    &action.outputs, action.argv, toolchain, &action.material,
+	    &action.outputs, action.argv.items, toolchain, &action.material,
 	    action.description);
 	if (rc == 0)
 		rc = check_action_depfile(graph, ctx, &action);
@@ -7993,7 +7907,7 @@ cache_prepared_action(struct qstar_graph *graph, const struct qstar_prepared_act
 	cached->source_index = source_index;
 	cached->wants_depfile = action->wants_depfile;
 	if (copy_string_list(&cached->argv, &(struct qstar_string_list){
-	    .items = (char **)action->argv, .len = action->argc, .cap = action->argc}) < 0 ||
+	    .items = (char **)action->argv.items, .len = action->argv.len, .cap = action->argv.len}) < 0 ||
 	    copy_string_list(&cached->env, &action->env) < 0 ||
 	    copy_string_list(&cached->outputs, &action->outputs) < 0 ||
 	    copy_static_inputs(&cached->inputs, &action->inputs,
@@ -8011,6 +7925,7 @@ prepare_cached_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 {
 	const struct qstar_cached_action *cached;
 	const char *output;
+	size_t i;
 
 	cached = find_cached_action(graph, id);
 	if (!cached)
@@ -8042,8 +7957,6 @@ prepare_cached_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		return qstar_set_error(graph, "qstar: out of memory");
 	}
 	if (action->wants_depfile) {
-		size_t i;
-
 		if (push_depfile_inputs(graph, ctx, action->depfile,
 		    &action->depfile_inputs) < 0) {
 			prepared_action_free(action);
@@ -8064,28 +7977,20 @@ prepare_cached_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 		prepared_action_free(action);
 		return qstar_set_error(graph, "qstar: out of memory");
 	}
-	for (action->argc = 0; action->argc < cached->argv.len; action->argc++) {
-		if (action->argc + 1 >= QSTAR_EXEC_MAX_ARGV) {
+	for (i = 0; i < cached->argv.len; i++) {
+		if (prepared_action_push_argv(graph, action, cached->argv.items[i]) < 0) {
 			prepared_action_free(action);
-			build_tracef(ctx, "lowered_action id=%s status=miss reason=argv-too-long\n",
-			    id);
-			return 0;
-		}
-		action->argv[action->argc] = qstar_strdup(cached->argv.items[action->argc]);
-		if (!action->argv[action->argc]) {
-			prepared_action_free(action);
-			return qstar_set_error(graph, "qstar: out of memory");
+			return -1;
 		}
 	}
-	action->argv[action->argc] = NULL;
 	output = action->outputs.items[0];
 	compute_action_key(ctx, graph, target, toolchain, action->id, action->kind,
-	    action->argv, &action->env, &action->inputs, &action->depfile_inputs, output,
+	    action->argv.items, &action->env, &action->inputs, &action->depfile_inputs, output,
 	    action->key, sizeof(action->key), &action->material);
 	if (strcmp(kind, "compile") == 0 &&
 	    strcmp(qstar_graph_compile_commands_policy(graph), "off") != 0 &&
 	    compile_db_push(ctx, graph->package_root ? graph->package_root : ".",
-	    action->source_path, output, action->argv) < 0) {
+	    action->source_path, output, action->argv.items) < 0) {
 		prepared_action_free(action);
 		return qstar_set_error(graph, "qstar: out of memory");
 	}
@@ -9634,7 +9539,7 @@ skip_prepared_action_prequeue(struct qstar_graph *graph, struct qstar_build_ctx 
 		build_tracef(ctx,
 		    "scheduler_event event=pre_skip id=%s target=%s state=%s retry=no\n",
 		    action->id, prepared_action_owner_label(action), reason);
-			action_log_queue_skip_ref(ctx, action_log, action->argv,
+			action_log_queue_skip_ref(ctx, action_log, action->argv.items,
 			    action->description, &action->env, &action->outputs);
 	}
 	progress_skip_action(ctx);
@@ -9973,7 +9878,7 @@ scheduler_execute(struct qstar_scheduler *sched)
 
 					owner_label = prepared_action_owner_label(running[i].action);
 					failure_kind = classify_failure_kind(
-					    running[i].action->kind, running[i].action->argv,
+					    running[i].action->kind, running[i].action->argv.items,
 					    "timeout");
 					if (build_log_rel(sched->graph, running[i].name,
 					    ".stdout", stdout_rel, sizeof(stdout_rel)) < 0)
@@ -9991,14 +9896,14 @@ scheduler_execute(struct qstar_scheduler *sched)
 					    &running[i].capture);
 					action_log_queue_exit_ref(sched->ctx,
 					    running[i].action_log,
-					    running[i].action->argv, 124,
+					    running[i].action->argv.items, 124,
 					    running[i].action->description,
 					    &running[i].action->env,
 					    &running[i].action->outputs);
 					write_failure_replay_detail(sched->graph,
 					    running[i].action->id,
 					    running[i].action->toolchain,
-					    running[i].action->argv,
+					    running[i].action->argv.items,
 					    running[i].action->description,
 					    &running[i].action->env, failure_kind,
 					    owner_label, stdout_rel, stderr_rel,
@@ -12456,10 +12361,10 @@ qstar_graph_action_log(struct qstar_graph *graph, const char *action_id, FILE *o
 			}
 			observation_toolchain_ptr = &observation_toolchain;
 		}
-		write_action_log_stream(out, action.argv, exit_text,
+		write_action_log_stream(out, action.argv.items, exit_text,
 		    action.description, &action.env, &action.outputs);
 		write_response_file_observation(out, graph, action.id,
-		    observation_toolchain_ptr, action.argv);
+		    observation_toolchain_ptr, action.argv.items);
 		prepared_action_free(&action);
 	}
 	fputs("status ok\n", out);
@@ -12502,7 +12407,7 @@ qstar_graph_replay_action(struct qstar_graph *graph, const char *action_id, FILE
 			}
 			observation_toolchain_ptr = &observation_toolchain;
 		}
-		write_replay_from_argv(graph, action_id, rel, action.argv,
+		write_replay_from_argv(graph, action_id, rel, action.argv.items,
 		    action.description, &action.env, &action.outputs,
 		    observation_toolchain_ptr, out);
 		prepared_action_free(&action);

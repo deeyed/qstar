@@ -16,7 +16,6 @@
 #endif
 
 #define QSTAR_TEST_DEFAULT_TIMEOUT_SEC 5
-#define QSTAR_TEST_MAX_ARGV 256
 
 enum qstar_test_phase {
 	QSTAR_TEST_PENDING = 0,
@@ -43,8 +42,7 @@ struct qstar_test_run {
 	char result_action_id[QSTAR_PATH_MAX];
 	char result_stdout_rel[QSTAR_PATH_MAX];
 	char result_stderr_rel[QSTAR_PATH_MAX];
-	char **argv;
-	size_t argc;
+	struct qstar_argv argv;
 };
 
 static int
@@ -256,13 +254,7 @@ test_log_paths(struct qstar_graph *graph, struct qstar_test_run *run,
 static void
 free_argv(struct qstar_test_run *run)
 {
-	size_t i;
-
-	for (i = 0; i < run->argc; i++)
-		free(run->argv[i]);
-	free(run->argv);
-	run->argv = NULL;
-	run->argc = 0;
+	qstar_argv_free(&run->argv);
 }
 
 static int
@@ -275,20 +267,17 @@ make_argv(struct qstar_graph *graph, struct qstar_test_run *run,
 
 	free_argv(run);
 	len = artifact ? 1 : command->len;
-	if (len == 0 || len >= QSTAR_TEST_MAX_ARGV)
-		return qstar_set_error(graph, "qstar: test hook command argv is empty or too long");
-	run->argv = calloc(len + 1, sizeof(run->argv[0]));
-	if (!run->argv)
+	if (len == 0)
+		return qstar_set_error(graph, "qstar: test hook command argv is empty");
+	if (qstar_argv_reserve(&run->argv, len) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
 	for (i = 0; i < len; i++) {
 		item = artifact ? artifact : command->items[i];
 		if (qstar_graph_resolve_command_token(graph, item, resolved,
 		    sizeof(resolved)) < 0)
 			return -1;
-		run->argv[i] = qstar_strdup(resolved);
-		if (!run->argv[i])
+		if (qstar_argv_push(&run->argv, resolved) < 0)
 			return qstar_set_error(graph, "qstar: out of memory");
-		run->argc++;
 	}
 	return 0;
 }
@@ -315,20 +304,20 @@ write_action_log(struct qstar_graph *graph, const struct qstar_test_run *run,
 	fputs("description=", f);
 	write_shell_arg(f, description);
 	fputs("\nenvc=0\noutput_count=0\n", f);
-	fprintf(f, "argc=%zu\n", run->argc);
-	for (i = 0; i < run->argc; i++) {
+	fprintf(f, "argc=%zu\n", run->argv.len);
+	for (i = 0; i < run->argv.len; i++) {
 		fprintf(f, "argv[%zu]=", i);
-		write_shell_arg(f, run->argv[i]);
+		write_shell_arg(f, run->argv.items[i]);
 		fputc('\n', f);
 	}
 	fputs("argv=", f);
-	for (i = 0; i < run->argc; i++)
-		fprintf(f, "%s%s", i ? " " : "", run->argv[i]);
+	for (i = 0; i < run->argv.len; i++)
+		fprintf(f, "%s%s", i ? " " : "", run->argv.items[i]);
 	fputs("\nargv_shell=", f);
-	for (i = 0; i < run->argc; i++) {
+	for (i = 0; i < run->argv.len; i++) {
 		if (i)
 			fputc(' ', f);
-		write_shell_arg(f, run->argv[i]);
+		write_shell_arg(f, run->argv.items[i]);
 	}
 	fputc('\n', f);
 	fclose(f);
@@ -380,7 +369,7 @@ start_phase(struct qstar_graph *graph, struct qstar_test_run *run,
 	    run->stdout_rel, run->stderr_rel);
 	if (qstar_platform_process_start_file_output(graph,
 	    graph->package_root && *graph->package_root ? graph->package_root : ".",
-	    run->argv, run->stdout_rel, run->stderr_rel, &run->pid, &runner) < 0)
+	    run->argv.items, run->stdout_rel, run->stderr_rel, &run->pid, &runner) < 0)
 		return -1;
 	(void)backend;
 	run->start = time(NULL);

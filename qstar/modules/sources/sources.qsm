@@ -1,8 +1,9 @@
 local M = {}
 
 function M.qstar_core()
-return {
+  return {
     "src/action_cache.c",
+    "src/argv.c",
     "src/cxx.c",
     "src/daemon.c",
     "src/executor.c",

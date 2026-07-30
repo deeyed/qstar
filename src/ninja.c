@@ -14,21 +14,15 @@
 #include <sys/stat.h>
 #include <time.h>
 
-#define QSTAR_NINJA_MAX_ARGV 256
 #define QSTAR_NINJA_RESPONSE_ARGV_BYTES 512
 #define QSTAR_NINJA_RUN_TIMEOUT_SEC 30
 #define QSTAR_NINJA_TEST_TIMEOUT_SEC 5
-
-struct ninja_argv {
-	char *items[QSTAR_NINJA_MAX_ARGV];
-	size_t len;
-};
 
 struct ninja_cache_candidate {
 	char *id;
 	char *kind;
 	char *depfile;
-	struct ninja_argv argv;
+	struct qstar_argv argv;
 	struct qstar_string_list env;
 	struct qstar_string_list inputs;
 	struct qstar_string_list outputs;
@@ -68,11 +62,11 @@ static int emit_stage_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
     const struct qstar_stage *stage);
 static int target_compile_needs_pic(const struct qstar_target *target,
     const struct qstar_resolved_toolchain *toolchain, int is_asm);
-static int ninja_argv_push_tool_role(struct qstar_graph *graph, struct ninja_argv *argv,
+static int ninja_argv_push_tool_role(struct qstar_graph *graph, struct qstar_argv *argv,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
     const char *role, const char *fallback);
 static int ninja_argv_push_provider_template(struct qstar_graph *graph,
-    struct ninja_argv *argv, const struct qstar_target *target,
+    struct qstar_argv *argv, const struct qstar_target *target,
     const struct qstar_resolved_toolchain *toolchain,
     const struct qstar_string_list *template);
 static void ninja_path(FILE *f, const char *s);
@@ -254,59 +248,62 @@ build_log_rel(const struct qstar_graph *graph, const char *name, const char *suf
 
 /** 임시 argv storage를 해제한다. */
 static void
-ninja_argv_free(struct ninja_argv *argv)
+ninja_argv_free(struct qstar_argv *argv)
 {
-	size_t i;
-
-	for (i = 0; i < argv->len; i++)
-		free(argv->items[i]);
-	memset(argv, 0, sizeof(*argv));
+	qstar_argv_free(argv);
 }
 
 /** Ninja edge command용 argv item을 소유 문자열로 추가한다. */
 static int
-ninja_argv_push(struct qstar_graph *graph, struct ninja_argv *argv, const char *s)
+ninja_argv_push(struct qstar_graph *graph, struct qstar_argv *argv, const char *s)
 {
-	if (argv->len + 1 >= QSTAR_NINJA_MAX_ARGV)
-		return qstar_set_error(graph, "qstar: ninja command argv too long");
-	argv->items[argv->len] = qstar_strdup(s);
-	if (!argv->items[argv->len])
+	if (qstar_argv_push(argv, s) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
-	argv->len++;
-	argv->items[argv->len] = NULL;
 	return 0;
 }
 
 /** format string으로 argv item을 만들어 추가한다. */
 static int
-ninja_argv_pushf(struct qstar_graph *graph, struct ninja_argv *argv, const char *fmt, ...)
+ninja_argv_pushf(struct qstar_graph *graph, struct qstar_argv *argv, const char *fmt, ...)
 {
-	char buf[QSTAR_PATH_MAX];
 	va_list ap;
-	int n;
+	va_list copy;
+	char *value;
+	int n, written;
+	int rc;
 
 	va_start(ap, fmt);
-	n = vsnprintf(buf, sizeof(buf), fmt, ap);
+	va_copy(copy, ap);
+	n = vsnprintf(NULL, 0, fmt, copy);
+	va_end(copy);
+	if (n < 0) {
+		va_end(ap);
+		return qstar_set_error(graph, "qstar: could not format ninja argv item");
+	}
+	value = malloc((size_t)n + 1);
+	if (!value) {
+		va_end(ap);
+		return qstar_set_error(graph, "qstar: out of memory");
+	}
+	written = vsnprintf(value, (size_t)n + 1, fmt, ap);
 	va_end(ap);
-	if (n < 0 || n >= (int)sizeof(buf))
-		return qstar_set_error(graph, "qstar: ninja command argv item is too long");
-	return ninja_argv_push(graph, argv, buf);
+	if (written != n) {
+		free(value);
+		return qstar_set_error(graph, "qstar: could not format ninja argv item");
+	}
+	rc = ninja_argv_push(graph, argv, value);
+	free(value);
+	return rc;
 }
 
 /** argv 전체를 새 storage로 복사한다. */
 static int
-ninja_argv_clone(struct qstar_graph *graph, struct ninja_argv *dst,
-    const struct ninja_argv *src)
+ninja_argv_clone(struct qstar_graph *graph, struct qstar_argv *dst,
+    const struct qstar_argv *src)
 {
-	size_t i;
-
-	memset(dst, 0, sizeof(*dst));
-	for (i = 0; i < src->len; i++) {
-		if (ninja_argv_push(graph, dst, src->items[i]) < 0) {
-			ninja_argv_free(dst);
-			return -1;
-		}
-	}
+	qstar_argv_init(dst);
+	if (qstar_argv_clone(dst, src) < 0)
+		return qstar_set_error(graph, "qstar: out of memory");
 	return 0;
 }
 
@@ -351,7 +348,7 @@ ninja_cache_candidates_free(struct ninja_ctx *ctx)
 
 static int
 ninja_cache_add_candidate(struct qstar_graph *graph, struct ninja_ctx *ctx,
-    const char *id, const char *kind, const struct ninja_argv *argv,
+    const char *id, const char *kind, const struct qstar_argv *argv,
     const struct qstar_string_list *env, const struct qstar_string_list *inputs,
     const struct qstar_string_list *outputs, const char *depfile,
     int declared_cacheable)
@@ -653,7 +650,7 @@ objectlib_consumer_compile_index(struct qstar_graph *graph,
 
 /** objectlib의 object 입력을 Ninja argv에 추가한다. */
 static int
-ninja_argv_push_objectlib_objects(struct qstar_graph *graph, struct ninja_argv *argv,
+ninja_argv_push_objectlib_objects(struct qstar_graph *graph, struct qstar_argv *argv,
     const struct qstar_target *target)
 {
 	const struct qstar_target *objectlib;
@@ -807,7 +804,7 @@ write_log_description(FILE *f, const char *description)
 
 /** argv 전체를 shell command string으로 출력한다. */
 static void
-shell_argv(FILE *f, const struct ninja_argv *argv)
+shell_argv(FILE *f, const struct qstar_argv *argv)
 {
 	size_t i;
 
@@ -876,7 +873,7 @@ ninja_arg_is_sh_script(const char *s)
 
 /** Windows Ninja cannot CreateProcess package-local shell scripts directly. */
 static void
-shell_argv_ninja_command(FILE *f, const struct ninja_argv *argv, int windows)
+shell_argv_ninja_command(FILE *f, const struct qstar_argv *argv, int windows)
 {
 	if (windows && argv && argv->len > 0 && ninja_arg_is_sh_script(argv->items[0])) {
 		shell_arg(f, "sh");
@@ -957,7 +954,7 @@ write_response_arg(FILE *f, const char *s, const char *style)
 
 /** argv가 response file로 내릴 만큼 긴지 계산한다. */
 static int
-ninja_argv_needs_response_file(const struct ninja_argv *argv)
+ninja_argv_needs_response_file(const struct qstar_argv *argv)
 {
 	size_t i, bytes;
 
@@ -970,8 +967,8 @@ ninja_argv_needs_response_file(const struct ninja_argv *argv)
 /** response file을 만들어 실제 Ninja command argv를 축약한다. */
 static int
 prepare_ninja_response_file(struct qstar_graph *graph, const char *id,
-    const struct qstar_resolved_toolchain *toolchain, const struct ninja_argv *full,
-    struct ninja_argv *run, char *rsp_rel, size_t rsp_rel_len)
+    const struct qstar_resolved_toolchain *toolchain, const struct qstar_argv *full,
+    struct qstar_argv *run, char *rsp_rel, size_t rsp_rel_len)
 {
 	char name[QSTAR_PATH_MAX], sub[QSTAR_PATH_MAX], full_path[QSTAR_PATH_MAX];
 	char rsp_arg[QSTAR_PATH_MAX];
@@ -1045,7 +1042,7 @@ write_ninja_env_redacted(FILE *f, const struct qstar_string_list *env)
 /** Ninja action도 qstar action-log/replay가 읽을 수 있는 v2 log를 남긴다. */
 static int
 write_ninja_action_log(struct qstar_graph *graph, const char *id,
-    const struct ninja_argv *argv, const char *rsp_rel, const char *description,
+    const struct qstar_argv *argv, const char *rsp_rel, const char *description,
     const struct qstar_string_list *env, const struct qstar_string_list *outputs)
 {
 	char logdir[QSTAR_PATH_MAX], name[QSTAR_PATH_MAX], log_path[QSTAR_PATH_MAX];
@@ -1084,13 +1081,13 @@ write_ninja_action_log(struct qstar_graph *graph, const char *id,
 /** edge command를 필요하면 response file로 축약해 Ninja variable로 쓴다. */
 static int
 write_edge_command(struct qstar_graph *graph, struct ninja_ctx *ctx, const char *id,
-    const struct qstar_resolved_toolchain *toolchain, const struct ninja_argv *argv,
+    const struct qstar_resolved_toolchain *toolchain, const struct qstar_argv *argv,
     const char *description, const struct qstar_string_list *env,
     const struct qstar_string_list *outputs, const char *cache_kind,
     const struct qstar_string_list *cache_inputs, const char *cache_depfile,
     int declared_cacheable)
 {
-	struct ninja_argv run;
+	struct qstar_argv run;
 	char rsp_rel[QSTAR_PATH_MAX];
 	int windows, cache_hit;
 
@@ -1122,7 +1119,7 @@ write_edge_command(struct qstar_graph *graph, struct ninja_ctx *ctx, const char 
 
 /** shell command string을 JSON value로 출력한다. */
 static void
-json_shell_argv(FILE *f, const struct ninja_argv *argv)
+json_shell_argv(FILE *f, const struct qstar_argv *argv)
 {
 	size_t i;
 	const unsigned char *p;
@@ -1269,7 +1266,7 @@ open_compile_commands(struct qstar_graph *graph, struct ninja_ctx *ctx)
 /** compile_commands.json record 하나를 추가한다. */
 static void
 write_compile_command(struct ninja_ctx *ctx, const char *directory, const char *source,
-    const char *object, const struct ninja_argv *argv)
+    const char *object, const struct qstar_argv *argv)
 {
 	if (!ctx->compdb)
 		return;
@@ -1482,7 +1479,7 @@ write_config_script(struct qstar_graph *graph, struct ninja_ctx *ctx,
 /** run_target용 Ninja wrapper script를 생성한다. */
 static int
 write_run_script(struct qstar_graph *graph, const struct qstar_target *target,
-    const char *action_id, const struct ninja_argv *argv, const char *stamp,
+    const char *action_id, const struct qstar_argv *argv, const char *stamp,
     const char *description, char *script_rel, size_t script_rel_len)
 {
 	char name[QSTAR_PATH_MAX], sub[QSTAR_PATH_MAX], full[QSTAR_PATH_MAX];
@@ -1997,7 +1994,7 @@ emit_dependency_usage_input_producers(struct qstar_graph *graph,
 
 static int
 ninja_argv_push_dependency_usage(struct qstar_graph *graph,
-    struct ninja_argv *argv, const struct qstar_target *target, int link)
+    struct qstar_argv *argv, const struct qstar_target *target, int link)
 {
 	struct qstar_string_list options, inputs;
 	size_t i;
@@ -2147,7 +2144,7 @@ static int
 emit_genrule_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
     const struct qstar_target *target, const struct qstar_genrule *genrule)
 {
-	struct ninja_argv argv;
+	struct qstar_argv argv;
 	char action_id[QSTAR_PATH_MAX], resolved_tool[QSTAR_PATH_MAX];
 	char tool_mode[64], tool_error[QSTAR_PATH_MAX], alias[QSTAR_PATH_MAX];
 	char script_rel[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
@@ -2293,7 +2290,7 @@ static int
 emit_cxx_pch_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain)
 {
-	struct ninja_argv argv;
+	struct qstar_argv argv;
 	struct qstar_string_list includes, action_inputs, action_outputs;
 	char output[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], out_dir[QSTAR_PATH_MAX];
 	char action_id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX], std_arg[128];
@@ -2400,7 +2397,7 @@ emit_compile_edge_from_source(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	const struct qstar_provider_source_unit *provider_unit;
 	struct qstar_string_list includes, unity_sources, module_inputs, module_flags;
 	struct qstar_string_list action_inputs, action_outputs;
-	struct ninja_argv argv;
+	struct qstar_argv argv;
 	char object[QSTAR_PATH_MAX], depfile[QSTAR_PATH_MAX], out_dir[QSTAR_PATH_MAX];
 	char action_id[QSTAR_PATH_MAX];
 	char description[QSTAR_PATH_MAX], std_arg[128], unity_source[QSTAR_PATH_MAX];
@@ -2835,7 +2832,7 @@ artifact_basename(const char *path)
 
 /** target toolset role argv-vector 또는 fallback tool 하나를 Ninja argv에 추가한다. */
 static int
-ninja_argv_push_tool_role(struct qstar_graph *graph, struct ninja_argv *argv,
+ninja_argv_push_tool_role(struct qstar_graph *graph, struct qstar_argv *argv,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
     const char *role, const char *fallback)
 {
@@ -2863,7 +2860,7 @@ ninja_argv_push_tool_role(struct qstar_graph *graph, struct ninja_argv *argv,
 
 static int
 ninja_argv_push_provider_template(struct qstar_graph *graph,
-    struct ninja_argv *argv, const struct qstar_target *target,
+    struct qstar_argv *argv, const struct qstar_target *target,
     const struct qstar_resolved_toolchain *toolchain,
     const struct qstar_string_list *template)
 {
@@ -2908,7 +2905,7 @@ validate_sharedlib_platform(struct qstar_graph *graph, const struct qstar_target
 static int
 append_sharedlib_link_flags(struct qstar_graph *graph, const struct qstar_target *target,
     const struct qstar_resolved_toolchain *toolchain, const char *artifact,
-    struct ninja_argv *argv)
+    struct qstar_argv *argv)
 {
 	char import_lib[QSTAR_PATH_MAX], install_name[QSTAR_PATH_MAX];
 	char soname[QSTAR_PATH_MAX], flag[QSTAR_PATH_MAX];
@@ -2989,7 +2986,7 @@ toolchain_uses_msvc_out_arg(const struct qstar_resolved_toolchain *toolchain,
 /** target/build context link_options를 argv에 추가한다. */
 static int
 append_link_policy_flags(struct qstar_graph *graph, const struct qstar_target *target,
-    struct ninja_argv *argv)
+    struct qstar_argv *argv)
 {
 	size_t i;
 
@@ -3003,7 +3000,7 @@ append_link_policy_flags(struct qstar_graph *graph, const struct qstar_target *t
 /** system lib/lib_dir/framework link flags를 target context별 spelling으로 추가한다. */
 static int
 append_system_link_flags(struct qstar_graph *graph, const struct qstar_target *target,
-    const struct qstar_resolved_toolchain *toolchain, struct ninja_argv *argv)
+    const struct qstar_resolved_toolchain *toolchain, struct qstar_argv *argv)
 {
 	char flag[QSTAR_PATH_MAX];
 	size_t i;
@@ -3199,7 +3196,7 @@ collect_sharedlib_rpath_rec(struct qstar_graph *graph, const struct qstar_target
 static int
 append_sharedlib_runtime_rpaths(struct qstar_graph *graph,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain,
-    const char *artifact, struct ninja_argv *argv)
+    const char *artifact, struct qstar_argv *argv)
 {
 	const struct qstar_target *dep;
 	struct qstar_string_list rpaths, seen;
@@ -3251,7 +3248,7 @@ emit_provider_final_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain)
 {
 	const struct qstar_provider_action_template *tmpl;
-	struct ninja_argv argv;
+	struct qstar_argv argv;
 	char artifact[QSTAR_PATH_MAX], alias[QSTAR_PATH_MAX], out_dir[QSTAR_PATH_MAX];
 	char action_id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	const char *final_action, *rule, *depfile;
@@ -3392,7 +3389,7 @@ static int
 emit_staticlib_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain)
 {
-	struct ninja_argv argv;
+	struct qstar_argv argv;
 	char artifact[QSTAR_PATH_MAX], alias[QSTAR_PATH_MAX], object[QSTAR_PATH_MAX];
 	char out_dir[QSTAR_PATH_MAX], action_id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	size_t i;
@@ -3496,7 +3493,7 @@ static int
 emit_link_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
     const struct qstar_target *target, const struct qstar_resolved_toolchain *toolchain)
 {
-	struct ninja_argv argv;
+	struct qstar_argv argv;
 	struct qstar_string_list dep_artifacts, outputs;
 	char artifact[QSTAR_PATH_MAX], alias[QSTAR_PATH_MAX], object[QSTAR_PATH_MAX];
 	char out_dir[QSTAR_PATH_MAX], action_id[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
@@ -3817,7 +3814,7 @@ static int
 emit_stage_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
     const struct qstar_stage *stage)
 {
-	struct ninja_argv argv;
+	struct qstar_argv argv;
 	char action_id[QSTAR_PATH_MAX], manifest[QSTAR_PATH_MAX], alias[QSTAR_PATH_MAX];
 	char script_rel[QSTAR_PATH_MAX], description[QSTAR_PATH_MAX];
 	char root_rel[QSTAR_PATH_MAX];
@@ -4092,7 +4089,7 @@ static int
 emit_run_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
     const struct qstar_target *target)
 {
-	struct ninja_argv argv, script_argv;
+	struct qstar_argv argv, script_argv;
 	char alias[QSTAR_PATH_MAX], owner[QSTAR_PATH_MAX], stamp_sub[QSTAR_PATH_MAX];
 	char stamp[QSTAR_PATH_MAX], action_id[QSTAR_PATH_MAX], script_rel[QSTAR_PATH_MAX];
 	char description[QSTAR_PATH_MAX];
