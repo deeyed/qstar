@@ -309,3 +309,21 @@ Before a QStar v1 release candidate, maintainers must verify:
   writing to the supplied source roots;
 - release notes mention whether the compatibility policy changed;
 - `git diff --check`, wiki/CLI sync, smoke tests, and the release gate pass.
+
+## Wide Final Action Compatibility Promise
+
+Q288부터 stable target/object consumer syntax에는 256-object public limit이
+없다. 이 약속은 direct source, own/consumer objectlib, generated/prebuilt
+object, built-in final action과 GLP v1/v2 final action에 동일하게 적용된다.
+
+QStar는 full logical argv와 입력 순서를 action identity로 사용한다.
+Response file path만 cache key로 쓰거나, backend별로 object 순서를 다시
+구성하거나, 내부 한도를 피하기 위해 object를 자동 archive하는 변경은
+호환 변경으로 취급하지 않는다. `response_files = "off"`에서 host command
+byte limit을 넘는 명령은 명확한 진단으로 실패할 수 있다.
+
+`QSTAR_EXEC_MAX_ARGV`, `QSTAR_NINJA_MAX_ARGV`, `has too many object inputs`
+같은 command-capacity 제한이나 진단은 다시 도입하지 않는다. Scheduler job,
+test option count처럼 다른 자원을 제한하는 정책은 목적이 드러나는 별도
+이름과 문서가 있어야 한다. `make qstar-wide-final-action-tests`와
+sanitizer/performance gate가 이 경계를 보호한다.

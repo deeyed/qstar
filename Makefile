@@ -70,7 +70,7 @@ LUA_SRCS = \
 
 QSTAR_OBJS = $(QSTAR_SRCS:%.c=$(QSTAR_BUILD)/%.o)
 LUA_OBJS = $(LUA_SRCS:%.c=$(QSTAR_BUILD)/%.o)
-.PHONY: all check qstar-tests qstar-fmt-tests qstar-lint-tests qstar-lsp-tests qstar-lsp-navigation-tests qstar-editor-query-tests qstar-dynamic-action-argv-tests qstar-malformed-declaration-tests qstar-typed-dependency-target-tests qstar-reusable-command-set-tests qstar-composable-test-suite-tests qstar-test-resources-results-tests qstar-glp-v2-artifact-contract-tests qstar-glp-v2-backend-parity-tests qstar-cxx-build-strategy-tests qstar-local-action-cache-tests qstar-ninja-backend-parity-tests qstar-generic-dsl-backend-parity-tests qstar-standard-provider-compatibility-tests qstar-downstream-safe-upgrade-tests qstar-real-glp-compiler-corpus-tests qstar-real-language-init-scaffold-tests qstar-medium-project-readiness-tests qstar-large-project-performance-tests qstar-perf-summary-tests qstar-performance-release-gate qstar-self-host-tests qstar-linux-validation-tests qstar-linux-daemon-validation-tests qstar-daemon-beta-boundary-tests qstar-windows-prep-tests qstar-windows-native-alpha-tests qstar-windows-execution-corpus-tests qstar-windows-sharedlib-artifact-parity-tests qstar-windows-release-package-tests qstar-windows-release-asset-smoke-tests qstar-public-beta-package qstar-public-beta-linux-package qstar-public-beta-github-upload qstar-public-beta-release-tests qstar-public-beta-download-smoke qstar-v0.8-release-tests qstar-v1-release-candidate-tests vscode-extension-tests qstar-v0-release-tests qstar-v0.1-release-tests qstar-v0.1-hardening-tests qstar-v0.2-authoring-tests qstar-v0.2-rc-tests qstar-v0.3-rc-tests qstar-v0.4-pilot-tests qstar-v0.5-readiness-tests qstar-pilot-readiness-tests qstar-wiki-cli-sync-tests qstar-release-candidate-tests qstar-full-regression-tests qstar-systems-corpus-tests qstar-project-corpus-tests qstar-standalone-integration-tests qstar-executor-v2-tests install clean
+.PHONY: all check qstar-tests qstar-fmt-tests qstar-lint-tests qstar-lsp-tests qstar-lsp-navigation-tests qstar-editor-query-tests qstar-dynamic-action-argv-tests qstar-wide-final-action-tests qstar-wide-final-action-safety-tests qstar-malformed-declaration-tests qstar-typed-dependency-target-tests qstar-reusable-command-set-tests qstar-composable-test-suite-tests qstar-test-resources-results-tests qstar-glp-v2-artifact-contract-tests qstar-glp-v2-backend-parity-tests qstar-cxx-build-strategy-tests qstar-local-action-cache-tests qstar-ninja-backend-parity-tests qstar-generic-dsl-backend-parity-tests qstar-standard-provider-compatibility-tests qstar-downstream-safe-upgrade-tests qstar-real-glp-compiler-corpus-tests qstar-real-language-init-scaffold-tests qstar-medium-project-readiness-tests qstar-large-project-performance-tests qstar-perf-summary-tests qstar-performance-release-gate qstar-self-host-tests qstar-linux-validation-tests qstar-linux-daemon-validation-tests qstar-daemon-beta-boundary-tests qstar-windows-prep-tests qstar-windows-native-alpha-tests qstar-windows-execution-corpus-tests qstar-windows-sharedlib-artifact-parity-tests qstar-windows-release-package-tests qstar-windows-release-asset-smoke-tests qstar-public-beta-package qstar-public-beta-linux-package qstar-public-beta-github-upload qstar-public-beta-release-tests qstar-public-beta-download-smoke qstar-v0.8-release-tests qstar-v1-release-candidate-tests vscode-extension-tests qstar-v0-release-tests qstar-v0.1-release-tests qstar-v0.1-hardening-tests qstar-v0.2-authoring-tests qstar-v0.2-rc-tests qstar-v0.3-rc-tests qstar-v0.4-pilot-tests qstar-v0.5-readiness-tests qstar-pilot-readiness-tests qstar-wiki-cli-sync-tests qstar-release-candidate-tests qstar-full-regression-tests qstar-systems-corpus-tests qstar-project-corpus-tests qstar-standalone-integration-tests qstar-executor-v2-tests install clean
 
 all: $(BIN_DIR)/qstar
 
@@ -92,6 +92,7 @@ check: all
 	case "$$bin" in /*) ;; *) bin="$(CURDIR)/$$bin";; esac; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/smoke.sh; \
 	QSTAR_TEST_QSTAR="$$bin" CC="$(CC)" sh tests/dynamic-action-argv.sh; \
+	QSTAR_TEST_QSTAR="$$bin" CC="$(CC)" sh tests/wide-final-action.sh; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/malformed-declarations.sh; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/typed-dependency-targets.sh; \
 	QSTAR_TEST_QSTAR="$$bin" sh tests/reusable-command-sets.sh; \
@@ -129,6 +130,14 @@ qstar-dynamic-action-argv-tests: all
 	bin="$(BIN_DIR)/qstar"; \
 	case "$$bin" in /*) ;; *) bin="$(CURDIR)/$$bin";; esac; \
 	QSTAR_TEST_QSTAR="$$bin" CC="$(CC)" sh tests/dynamic-action-argv.sh
+
+qstar-wide-final-action-tests: all
+	@bin="$(BIN_DIR)/qstar"; \
+	case "$$bin" in /*) ;; *) bin="$(CURDIR)/$$bin";; esac; \
+	QSTAR_TEST_QSTAR="$$bin" CC="$(CC)" sh tests/wide-final-action.sh
+
+qstar-wide-final-action-safety-tests:
+	CC="$(CC)" sh tests/wide-final-action-safety.sh
 
 qstar-malformed-declaration-tests: all
 	bin="$(BIN_DIR)/qstar"; \
@@ -211,9 +220,10 @@ qstar-medium-project-readiness-tests: all
 	QSTAR_TEST_QSTAR="$$bin" sh tests/medium-project-performance.sh
 
 qstar-large-project-performance-tests: all
-	bin="$(BIN_DIR)/qstar"; \
+	@bin="$(BIN_DIR)/qstar"; \
 	case "$$bin" in /*) ;; *) bin="$(CURDIR)/$$bin";; esac; \
-	QSTAR_TEST_QSTAR="$$bin" sh tests/large-project-performance.sh
+	QSTAR_TEST_QSTAR="$$bin" sh tests/large-project-performance.sh; \
+	QSTAR_TEST_QSTAR="$$bin" sh tests/wide-final-action-performance.sh
 
 qstar-perf-summary-tests: all
 	tmp="$${TMPDIR:-/tmp}/qstar-perf-summary-make.$$$$"; \
@@ -260,6 +270,7 @@ qstar-performance-release-gate: all
 	while [ "$$i" -le "$$repeat" ]; do \
 		printf 'qstar-performance-release-gate: large run %s/%s\n' "$$i" "$$repeat"; \
 		QSTAR_TEST_QSTAR="$$bin" sh tests/large-project-performance.sh >> "$$large_raw"; \
+		QSTAR_TEST_QSTAR="$$bin" sh tests/wide-final-action-performance.sh >> "$$large_raw"; \
 		i=$$((i + 1)); \
 	done; \
 	tools/perf-summary.sh --label "QStar medium release performance" "$$medium_raw" > "$$out_dir/medium-release-summary.txt"; \
@@ -337,13 +348,14 @@ qstar-v0.8-release-tests: check qstar-generic-dsl-backend-parity-tests qstar-sta
 		printf '%s\n' 'qstar-v0.8-release-tests: download-smoke=skipped reason=requires-published-release-asset'; \
 	fi
 
-qstar-v1-release-candidate-tests: check qstar-wiki-cli-sync-tests qstar-generic-dsl-backend-parity-tests qstar-standard-provider-compatibility-tests qstar-downstream-safe-upgrade-tests qstar-linux-validation-tests qstar-windows-prep-tests qstar-windows-native-alpha-tests qstar-windows-execution-corpus-tests qstar-windows-sharedlib-artifact-parity-tests qstar-windows-release-package-tests qstar-windows-release-asset-smoke-tests
+qstar-v1-release-candidate-tests: check qstar-wide-final-action-safety-tests qstar-large-project-performance-tests qstar-wiki-cli-sync-tests qstar-generic-dsl-backend-parity-tests qstar-standard-provider-compatibility-tests qstar-downstream-safe-upgrade-tests qstar-linux-validation-tests qstar-windows-prep-tests qstar-windows-native-alpha-tests qstar-windows-execution-corpus-tests qstar-windows-sharedlib-artifact-parity-tests qstar-windows-release-package-tests qstar-windows-release-asset-smoke-tests
 	git diff --check
 	$(BIN_DIR)/qstar --version
 	grep -F "Status: Q256 stable DSL compatibility policy seal" docs/qstar-compatibility-policy.md
 	grep -F "Three-OS Release Matrix Evidence Ledger" docs/release-matrix-evidence.md
 	grep -F "Published GitHub Release asset" docs/release-matrix-evidence.md
 	grep -F "Q284 downstream compatibility seal" docs/downstream-safe-upgrade.md
+	grep -F "qstar-wide-final-action-tests" docs/performance-gates.md
 	grep -F "qstar-v1-release-candidate-tests" docs/qstar-v1-readiness.md
 	grep -F "qstar-v1-release-candidate-tests" README.md
 	grep -F "qstar-v1-release-candidate-tests" README.ko.md

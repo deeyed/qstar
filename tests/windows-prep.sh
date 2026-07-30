@@ -5,6 +5,7 @@ qstar=${QSTAR_TEST_QSTAR:-build/bin/qstar}
 tmp=${TMPDIR:-/tmp}/qstar-windows-prep.$$
 corpus=tests/corpus/response-files
 artifact_corpus=tests/corpus/windows-artifacts
+wide_corpus=tests/corpus/windows-wide-final
 build_dir=build/qstar
 artifact_dir=${QSTAR_WINDOWS_PREP_ARTIFACT_DIR:-}
 
@@ -68,6 +69,56 @@ rm -rf "$corpus/build" "$corpus/stage" "$artifact_corpus/build" "$artifact_corpu
 rm -f "$corpus/.ninja_log" "$corpus/.ninja_deps"
 rm -f "$artifact_corpus/.ninja_log" "$artifact_corpus/.ninja_deps"
 trap finish EXIT HUP INT TERM
+
+wide_project=$tmp/windows-wide-final
+mkdir -p "$wide_project"
+cp -R "$wide_corpus"/. "$wide_project"/
+mkdir -p "$wide_project/objects" "$wide_project/tools"
+printf '#!/bin/sh\nexit 0\n' > "$wide_project/tools/fake-link.exe"
+chmod +x "$wide_project/tools/fake-link.exe"
+i=0
+while test "$i" -lt 1000; do
+	printf 'windows wide object %s\n' "$i" \
+		> "$wide_project/objects/object-$(printf '%04d' "$i").obj"
+	i=$((i + 1))
+done
+"$qstar" --file "$wide_project/qstar.lua" \
+	-D object-count=1000 --qstar-internal-platform windows \
+	-B build/parity dry-run //:app \
+	> "$tmp/windows-wide-stella-dry.out" \
+	2> "$tmp/windows-wide-stella-dry.err"
+"$qstar" --file "$wide_project/qstar.lua" \
+	-D object-count=1000 --qstar-internal-platform windows \
+	-B build/parity -G ninja dry-run //:app \
+	> "$tmp/windows-wide-ninja-dry.out" \
+	2> "$tmp/windows-wide-ninja-dry.err"
+for output in "$tmp/windows-wide-stella-dry.out" \
+	"$tmp/windows-wide-ninja-dry.out"; do
+	contains "$output" "logical_argc=1002"
+	contains "$output" "object_count=1000"
+	contains "$output" "input_count=1000"
+	contains "$output" "response_style=msvc"
+	contains "$output" "response=skeleton"
+	contains "$output" "exec_argc=2"
+done
+stella_digest=$(sed -n \
+	's/.* response_digest=\([^ ]*\).*/\1/p' \
+	"$tmp/windows-wide-stella-dry.out" | tail -n 1)
+ninja_digest=$(sed -n \
+	's/.* response_digest=\([^ ]*\).*/\1/p' \
+	"$tmp/windows-wide-ninja-dry.out" | tail -n 1)
+test -n "$stella_digest" || fail "Windows wide response digest missing"
+test "$stella_digest" = "$ninja_digest" ||
+	fail "Windows wide Stella/Ninja response digests differ"
+"$qstar" --file "$wide_project/qstar.lua" \
+	-D object-count=1000 --qstar-internal-platform windows \
+	-B build/ninja -G ninja emit-ninja //:app \
+	> "$tmp/windows-wide-ninja-emit.out" \
+	2> "$tmp/windows-wide-ninja-emit.err"
+contains "$wide_project/build/ninja/ninja/build.ninja" \
+	"@build/ninja/rsp/___app_link_0.rsp"
+printf 'qstar-windows-prep: wide_final objects=1000 style=msvc response_digest=%s status=ok\n' \
+	"$stella_digest"
 
 "$qstar" --file "$corpus/qstar.lua" build //:all \
 	--progress off > "$tmp/build.out" 2> "$tmp/build.err"

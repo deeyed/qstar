@@ -200,3 +200,23 @@ built-in provider namespace로 `tools.c.compiler`, `tools.cxx.compiler`,
 - `qstar: unknown toolset provider namespace tools.zig`
 - `qstar: target '...' references unknown toolset`
 - `external tool is not allowed by toolset policy`
+
+## Wide Final Action Policy
+
+`response_files`는 object 개수 제한이 아니다. QStar는 전체 logical argv를
+동적으로 만든 뒤, 긴 command에만 toolset의 `response_files`와
+`response_style`을 적용해 execution argv를 `tool @response.rsp`로
+materialize한다.
+
+| 값 | 긴 logical argv 실행 |
+| --- | --- |
+| `"on"` | response file 사용 |
+| `"auto"` | resolved tool policy가 허용하면 response file 사용 |
+| `"off"` | full argv를 실행하며 host command byte limit의 영향을 받음 |
+
+`qstar.objectlib`이나 final target에는 256-object public limit이 없다.
+QStar는 긴 목록을 staticlib로 자동 변환하거나 object 포함 순서를 바꾸지
+않는다. Action key, CAS, log, replay와 explain은 항상 full logical argv를
+기준으로 한다. 정식 contract는
+`wiki/cookbook/response-files.md`와
+`make qstar-wide-final-action-tests`에 있다.

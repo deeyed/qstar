@@ -792,6 +792,33 @@ statements over
 and
 .Ic qstar.host.arch ;
 QStar does not expose a built-in OS or architecture condition-object grammar.
+.Sh WIDE FINAL ACTIONS
+Final-action logical argument vectors use dynamic storage. Executables, static
+and shared libraries, tests, object libraries, generated or imported objects,
+and GLP version 1 or 2 final actions have no public 256-object limit.
+.Pp
+A response file is an execution materialization, not the action identity.
+Action keys, local CAS keys, dry-run, explain, why-rebuild, action logs, and
+replay preserve the full logical argument vector and object order. The response
+file contains the logical tail after the tool executable in the same order.
+.Pp
+.Ic response_files = \(dqon\(dq
+or
+.Dq auto
+permits long commands to execute through a response file according to the
+resolved tool policy.
+.Ic response_files = \(dqoff\(dq
+uses the full execution vector and is therefore subject to the host command
+byte limit. QStar does not automatically split a final action or wrap objects
+in a static archive.
+.Pp
+.Ic make qstar-wide-final-action-tests
+checks the 48/49 and former 252/253/256 boundaries plus a 1,000-object
+Stella/Ninja and GLP matrix.
+.Ic make qstar-wide-final-action-safety-tests
+runs the wide direct-source fixture with address and undefined-behavior
+sanitizers. The large performance gate adds 1,000 and 4,096 object
+single-action report-only measurements.
 .Sh SEE ALSO
 .Xr qstar 1 ,
 .Pa share/doc/qstar/wiki/reference/qstar-lua.md ,

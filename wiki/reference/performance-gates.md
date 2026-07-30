@@ -370,6 +370,35 @@ large_project_gate status=ok perf_issue_count=0 report_only=1 modes="200 500"
 Daemon socket bind가 불가능한 sandbox에서는 daemon backend만 skipped로 기록하고 나머지 backend는
 계속 측정한다.
 
+## Single-Action Wide Fan-In
+
+`tests/wide-final-action-performance.sh`는 target 수가 아니라 하나의 final
+artifact가 소비하는 object 수를 1,000/4,096으로 늘린다.
+
+```sh
+make qstar-wide-final-action-tests
+make qstar-wide-final-action-safety-tests
+QSTAR_LARGE_FINAL_OBJECTS="1000 4096" \
+  QSTAR_TEST_QSTAR=./build/bin/qstar \
+  sh tests/wide-final-action-performance.sh
+```
+
+측정 phase는 graph evaluation, logical argv lowering, response write,
+Ninja emission, Stella/Ninja clean과 no-op, digest 계산과 peak RSS다.
+목표는 Ninja 대비 우위가 아니라 object 수에 따른 시간·메모리 증가가
+비정상적인 quadratic behavior를 보이지 않는지 report-only로 관찰하는
+것이다.
+
+```txt
+wide_final_gate objects=1000 phase=graph-evaluation elapsed_ms=... peak_kb=...
+wide_final_gate objects=4096 phase=response-write bytes=... atoms=... response_digest=...
+wide_final_gate status=ok counts="1000 4096" perf_issue_count=0 report_only=1
+```
+
+Correctness gate는 과거 256 fixed-array 경계와 GLP v2 mixed-provider final을
+별도로 hard-check한다. Windows prep corpus는 같은 1,000-object graph를
+MSVC response style로 dry-run/Ninja emission한다.
+
 Large gate의 timing threshold는 기본적으로 report-only다. Graph/build failure,
 compile database 누락, generated object bridge 누락, Ninja root `.ninja_log`/`.ninja_deps`
 오염은 hard fail이다. Large 결과는 stable 성능 보장이 아니라 representative local/CI run으로

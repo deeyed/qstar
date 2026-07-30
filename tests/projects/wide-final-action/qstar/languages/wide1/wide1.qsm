@@ -1,0 +1,36 @@
+return qstar.language_provider {
+  api = "qstar.lang/1",
+  id = "wide1",
+  version = "1.0",
+  namespace = "wide1",
+  implementation = "provider.lua",
+  tools = {
+    compiler = {
+      role = "wide1.compiler",
+      required = true,
+    },
+  },
+  units = {
+    object = {
+      suffixes = {".w1"},
+      emits = "object",
+      lower = "compile_object",
+    },
+  },
+  finals = {
+    executable = {
+      lower = "link_executable",
+    },
+  },
+  options = {
+    compile_options = {
+      type = "list",
+      default = {},
+    },
+  },
+  exports = {
+    tools = "tools",
+    options = "options",
+    object = "object",
+  },
+}

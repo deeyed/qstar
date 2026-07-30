@@ -123,3 +123,26 @@ make qstar-windows-prep-tests
 - `response_digest=...`
 - `exec_argc=2`
 - `toolset '//:no_rsp' disables response files and the host command limit is ... bytes`
+
+## Wide Final Action 봉인
+
+Q288 correctness corpus는 0/1/48/49/252/253/256/1,000 object 경계와
+4,096-object readiness/performance case를 유지한다.
+
+```sh
+make qstar-wide-final-action-tests
+make qstar-wide-final-action-safety-tests
+QSTAR_LARGE_FINAL_OBJECTS="1000 4096" \
+  make qstar-large-project-performance-tests
+```
+
+Fake final tool은 response file을 직접 읽어 object 누락, 중복, 순서 변화,
+POSIX/MSVC quoting과 output을 검사한다. Dry-run, explain, why-rebuild,
+action-log, replay, state cache, local CAS, Ninja emitted command와 실제
+response content는 같은 logical action을 설명해야 한다.
+
+Direct source, `compile_context = "own"`, `"consumer"`, 여러 objectlib,
+generated/prebuilt object와 GLP v1/v2 provider final 모두 같은 제한 없는
+동적 argv contract를 쓴다. `response_files = "off"`는 256개에서 실패하는
+정책이 아니며 host command byte limit 아래에서는 full argv로 실행한다.
+QStar는 object를 몰래 archive로 묶거나 staticlib를 자동 분할하지 않는다.

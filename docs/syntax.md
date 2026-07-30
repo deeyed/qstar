@@ -864,3 +864,47 @@ qstar --file qstar.lua explain //:app
 qstar --file qstar.lua -B build/stella -G stella build //:app
 qstar --file qstar.lua -B build/ninja -G ninja build //:app
 ```
+
+## Wide Final Action과 Response File
+
+QStar final action의 logical argv는 동적 배열로 보존된다. 따라서
+`qstar.executable`, `qstar.staticlib`, `qstar.sharedlib`, `qstar.test`,
+`qstar.objectlib`, generated object bridge, imported object, GLP v1/v2 final
+action에 256개라는 public object 개수 제한은 없다. Object 수를 내부 고정 배열에
+맞추기 위해 프로젝트를 static library로 나눌 필요도 없다.
+
+Response file은 logical argv의 대체물이 아니라 process 실행 표현이다.
+
+```text
+logical argv:   tool -o artifact object-0000.o ... object-4095.o
+execution argv: tool @build/qstar/rsp/action.rsp
+```
+
+Action key, local CAS key, `why-rebuild`, `action-log`, `replay`, dry-run과
+explain은 전체 logical argv와 그 순서를 기준으로 한다. Response file에는
+`argv[0]`을 제외한 tail이 같은 순서로 들어간다. 현재 공통 materializer는
+logical argv가 512 byte 이상이거나 argc가 48개를 넘으면 긴 명령으로
+분류한다.
+
+`response_files = "on"`과 `"auto"`는 tool policy에 따라 긴 명령을 response
+file로 실행한다. `"off"`는 logical argv를 그대로 spawn하며, 이때 허용 범위는
+object 개수가 아니라 Windows command-line byte 한도 또는 POSIX
+`ARG_MAX`와 environment budget으로 결정된다. QStar는 자동으로 object를
+archive에 감싸거나 staticlib를 분할하지 않는다. 그런 변환은 link semantics를
+바꾸므로 명시적인 target graph로만 기술해야 한다.
+
+관찰 출력은 최소한 action id, `logical_argc`, `logical_bytes`,
+`object_count`, `input_count`, logical argv digest, response path/style/digest,
+`exec_argc`, output path와 toolset을 같은 action contract로 보고한다.
+정식 회귀 gate는 다음과 같다.
+
+```sh
+make qstar-wide-final-action-tests
+make qstar-wide-final-action-safety-tests
+QSTAR_LARGE_FINAL_OBJECTS="1000 4096" \
+  make qstar-large-project-performance-tests
+```
+
+이 표면은 특정 언어, compiler, artifact domain 또는 platform 전용 DSL을
+추가하지 않는다. 언어별 final action도 GLP가 같은 logical-action contract로
+낮춘다.

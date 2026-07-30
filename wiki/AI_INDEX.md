@@ -414,6 +414,15 @@ QStar가 하지 않는 일:
   `make qstar-linux-daemon-validation-tests`를 실행하고
   `linux-daemon-validation-status.txt`, `linux-daemon-validation-reason.txt`,
   `linux-daemon-validation-*-trace.txt`에 `backend=inotify` watcher trace와 skip/fail reason을 남긴다.
+- Q288 wide final action contract는 full logical argv를 동적으로 보존하고
+  response file을 execution materialization으로만 사용한다. Objectlib과
+  final target에는 256-object public limit이 없고, QStar는 object를 자동
+  archive하지 않는다. `make qstar-wide-final-action-tests`는
+  0/1/48/49/252/253/256/1,000 경계와 Stella/Ninja, GLP v1/v2,
+  POSIX/MSVC, log/replay/CAS parity를 검사한다.
+  `make qstar-wide-final-action-safety-tests`는 1,000 direct source를
+  ASan+UBSan으로 실행하고, `tests/wide-final-action-performance.sh`는
+  1,000/4,096 single-action fan-in의 선형성을 report-only로 기록한다.
 - Persistent Stella daemon은 watcher-backed memory-state streaming beta opt-in 기능이다. 명령 namespace는
   `qstar daemon`이고, `qstar stella-daemon`은 채택하지 않는다. 현재 구현은
   `qstar daemon --socket path --start|--stop|--serve|--status`,

@@ -405,6 +405,51 @@ Large gate가 보는 질문은 medium gate와 다르다.
 Large gate 결과가 안정화되기 전까지는 release note에 숫자를 넣더라도 "representative
 local run"으로만 표기한다. Stable 성능 보장으로 쓰지 않는다.
 
+## Single-Action Wide Fan-In Gate
+
+Q288은 기존 200/500 target scaling과 별개로 하나의 final action이 많은 object를
+소비하는 경우를 측정한다.
+
+```sh
+QSTAR_TEST_QSTAR=./build/bin/qstar \
+  sh tests/wide-final-action-performance.sh
+make qstar-wide-final-action-tests
+make qstar-wide-final-action-safety-tests
+```
+
+기본 cardinality는 1,000과 4,096이다. `QSTAR_LARGE_FINAL_OBJECTS`로 목록을
+바꿀 수 있다.
+
+```sh
+QSTAR_LARGE_FINAL_OBJECTS="1000 4096" \
+  QSTAR_TEST_QSTAR=./build/bin/qstar \
+  sh tests/wide-final-action-performance.sh
+```
+
+Gate는 graph evaluation, logical argv lowering, response-file write,
+Ninja emission, Stella/Ninja clean과 no-op, response digest, peak RSS를
+`wide_final_gate` line protocol로 기록한다. 4,096 case는 1,000 case 대비
+graph/lowering/emission이 명백한 quadratic growth를 보이지 않는지 넉넉한
+report-only 한도로 확인한다. Ninja보다 빠르다는 약속은 하지 않는다.
+
+```txt
+wide_final_gate objects=1000 phase=logical-argv-lowering elapsed_ms=... peak_kb=... response_digest=...
+wide_final_gate objects=4096 phase=response-write bytes=... atoms=... response_digest=...
+wide_final_gate objects=4096 backend=stella phase=noop elapsed_ms=... peak_kb=...
+wide_final_gate status=ok counts="1000 4096" perf_issue_count=0 report_only=1
+```
+
+2026-07-31 macOS local report-only run에서는 1,000→4,096 증가에 대해 graph
+evaluation 49→192 ms, logical lowering 12→76 ms, Ninja emission 48→175 ms,
+관찰 peak RSS 약 3.6→5.7 MiB를 기록했다. 이 값은 host snapshot이며 stable
+성능 보장이 아니다.
+
+Correctness corpus는 0/1/48/49/252/253/256/1,000 경계와 executable,
+staticlib, sharedlib, test, direct source, own/consumer objectlib, generated와
+imported object, GLP v1/v2 final, POSIX/MSVC quoting을 Stella/Ninja에서
+비교한다. Sanitizer gate는 1,000 direct source와 mixed objectlib를
+ASan+UBSan build로 다시 실행한다.
+
 Round Q166 local macOS arm64 repeat-3 대표 측정값:
 
 ```txt

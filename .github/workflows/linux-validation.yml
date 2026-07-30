@@ -63,6 +63,9 @@ jobs:
       - name: Run Linux regression
         run: make check
 
+      - name: Run wide final action sanitizer gate
+        run: make qstar-wide-final-action-safety-tests
+
       - name: Run optional real language init scaffold gate
         run: make qstar-real-language-init-scaffold-tests
 
@@ -440,8 +443,11 @@ jobs:
           perf_summary="dist/perf/linux-gcc-large-summary.txt"
           perf_markdown="dist/perf/linux-gcc-large-summary.md"
           QSTAR_TEST_QSTAR=build/bin/qstar sh tests/large-project-performance.sh | tee "$perf_raw"
+          QSTAR_TEST_QSTAR=build/bin/qstar sh tests/wide-final-action-performance.sh | tee -a "$perf_raw"
           grep -F "large_project_gate mode=200" "$perf_raw"
           grep -F "large_project_gate mode=500" "$perf_raw"
+          grep -F 'wide_final_gate objects=4096 phase=logical-argv-lowering' "$perf_raw"
+          grep -F 'wide_final_gate status=ok counts="1000 4096"' "$perf_raw"
           tools/perf-summary.sh "$perf_raw" | tee "$perf_summary"
           grep -F "hard_threshold_x100=" "$perf_summary"
           tools/perf-summary.sh --format markdown --label "Linux gcc large synthetic performance" "$perf_raw" > "$perf_markdown"

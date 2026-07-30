@@ -1,0 +1,35 @@
+#!/bin/sh
+set -eu
+
+output=
+depfile=
+source=
+next=
+
+for atom in "$@"; do
+  case "$next" in
+    output)
+      output=$atom
+      next=
+      continue
+      ;;
+    depfile)
+      depfile=$atom
+      next=
+      continue
+      ;;
+  esac
+  case "$atom" in
+    -o) next=output ;;
+    -MF) next=depfile ;;
+    *.c) source=$atom ;;
+  esac
+done
+
+test -n "$output"
+mkdir -p "$(dirname "$output")"
+printf 'wide fake object source=%s\n' "$source" > "$output"
+if test -n "$depfile"; then
+  mkdir -p "$(dirname "$depfile")"
+  printf '%s: %s\n' "$output" "$source" > "$depfile"
+fi

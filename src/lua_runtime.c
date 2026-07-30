@@ -3378,7 +3378,16 @@ collect_provider_final_objects(struct qstar_graph *graph,
 			    "qstar: unknown objectlib '%s' referenced by '%s'",
 			    target->objects.items[i], target->label);
 		for (j = 0; j < objectlib->sources.len; j++) {
-			if (objectlib->compile_context &&
+			if (qstar_target_source_classify(objectlib, j, &source) < 0)
+				return qstar_set_error(graph,
+				    "qstar: cannot classify objectlib source '%s' for provider final '%s'",
+				    objectlib->sources.items[j], target->label);
+			if (qstar_source_is_link_object(&source)) {
+				if (snprintf(path, sizeof(path), "%s",
+				    objectlib->sources.items[j]) >= (int)sizeof(path))
+					return qstar_set_error(graph,
+					    "qstar: provider final object input path too long");
+			} else if (objectlib->compile_context &&
 			    strcmp(objectlib->compile_context, "consumer") == 0) {
 				if (qstar_graph_consumer_object_output_path(graph, target,
 				    objectlib, j, path, sizeof(path)) < 0)
