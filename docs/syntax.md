@@ -296,6 +296,7 @@ qstar.toolset "host" {
   response_files = "auto",
   response_style = "posix",
   path_tools = {"python3", "sh"},
+  response_file_tools = {"rsp-aware-generator"},
 }
 ```
 
@@ -304,6 +305,13 @@ link options belong in `qstar.config` or target-local fields. Generated actions
 can also select a toolset for command tool policy. If a generated action uses a
 bare PATH command tool and sets `toolset`, that tool must be listed in the
 selected toolset's `path_tools`.
+
+`response_files`는 compiler, archive, linker, provider final tool role의 긴
+command에 적용된다. `qstar.custom_target`, `qstar.transform`,
+`qstar.run_target` 같은 arbitrary command는 기본적으로 full argv를 직접
+실행한다. 해당 command가 `@file` 문법을 실제로 지원할 때만 첫 argv tool을
+`response_file_tools`에 명시한다. `path_tools`는 실행 허용 목록이고
+`response_file_tools`는 별도의 argument-protocol capability다.
 
 ## Opt-In C++ Build Strategies
 
@@ -582,6 +590,10 @@ Generated action fields:
 If `toolset` is omitted, generated actions use the path-tool policy declared by
 the graph's toolsets. Package-relative command paths such as
 `tools/generate.sh` remain package-local files and do not need `path_tools`.
+Generated and run commands do not inherit automatic `@response` rewriting from
+compiler/linker roles. A tool must be listed in the selected toolset's
+`response_file_tools` before a long arbitrary command can be materialized as
+`tool @file`.
 
 ## Run And Stage
 
@@ -608,6 +620,11 @@ to the Nth run input, so the producer edge, input tracking, and argv path stay i
 sync. A stage input is a consumable layout artifact: QStar builds the files that
 feed the stage, materializes the layout, writes its manifest, and only then runs
 the consuming action on both Stella and Ninja backends:
+
+`deps`에 있는 `qstar.group`과 `qstar.run_target`은 completion dependency다.
+이들은 선행 action closure를 만들지만 artifact나 link input으로 변환되지
+않는다. 실제 file artifact가 필요하면 `inputs`에 `qstar.target_file(...)`
+또는 `qstar.stage_dir(...)`를 명시한다.
 
 ```lua
 qstar.transform "image" {
@@ -892,6 +909,14 @@ object 개수가 아니라 Windows command-line byte 한도 또는 POSIX
 `ARG_MAX`와 environment budget으로 결정된다. QStar는 자동으로 object를
 archive에 감싸거나 staticlib를 분할하지 않는다. 그런 변환은 link semantics를
 바꾸므로 명시적인 target graph로만 기술해야 한다.
+
+Compiler/archive/link/provider final role이 아닌 arbitrary generated/run
+command는 `response_files`가 `"on"`이어도 direct argv가 기본이다. 그 도구가
+QStar의 response-file serialization을 지원하는 경우에만 toolset의
+`response_file_tools = {"tool-name"}`에 정확한 command tool을 opt-in한다.
+Python이나 일반 shell처럼 `@file`을 자체적으로 해석하지 않는 도구를 이
+목록에 넣으면 안 된다. Opt-in하지 않은 full argv가 host command byte limit을
+넘으면 QStar는 action/toolset/argc/byte limit을 포함한 진단으로 실패한다.
 
 관찰 출력은 최소한 action id, `logical_argc`, `logical_bytes`,
 `object_count`, `input_count`, logical argv digest, response path/style/digest,

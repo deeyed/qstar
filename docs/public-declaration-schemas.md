@@ -67,11 +67,17 @@ qstar.executable "app" {
 | `response_files` | string 또는 boolean |
 | `response_style` | string 또는 boolean |
 | `path_tools` | list<string> |
+| `response_file_tools` | list<string> |
 | `allow_absolute_tools` | string 또는 boolean |
 
 `tools.archive`와 `tools.link`는 core role이다. Activated language provider namespace는
 `tools.<namespace> = { ... }` 형태의 dynamic provider role table이다. Provider namespace가
 아닌 임의의 top-level tool role은 허용되지 않는다.
+
+`response_file_tools`는 `custom_target`, `transform`, `run_target`의 첫 argv
+tool 중 QStar response-file protocol을 실제로 지원하는 tool만 나열한다.
+`path_tools`와 독립된 opt-in capability이며, 임의 command는 이 목록에 없으면
+toolset의 `response_files` 설정과 관계없이 direct argv로 실행된다.
 
 `qstar.config` builtin field:
 

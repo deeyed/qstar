@@ -47,6 +47,28 @@ Response file은 logical argv를 대체하지 않는다. 같은 `.rsp` 경로를
 현재 공통 materializer는 logical argv가 512 byte 이상이거나 argc가 48개를 넘으면 긴
 command로 분류한다. Stella, Ninja, GLP v1/v2 final, `dry-run`, `explain`이 같은 판단을 쓴다.
 
+단, arbitrary command에 `@file` support를 추론하지 않는다. Compiler,
+archive, linker, provider final role은 toolset policy를 자동 적용하지만
+`qstar.custom_target`, `qstar.transform`, `qstar.run_target`은 direct argv가
+기본이다. 이 command가 response syntax를 구현한 경우에만 exact first argv
+tool을 `response_file_tools`에 선언한다.
+
+```lua
+qstar.toolset "generators" {
+  tools = {
+    archive = qstar.cli {"ar"},
+    link = qstar.cli {"cc"},
+  },
+  path_tools = {"python3", "rsp-aware-generator"},
+  response_files = "on",
+  response_style = "posix",
+  response_file_tools = {"rsp-aware-generator"},
+}
+```
+
+위 toolset에서 긴 `python3` action은 full argv를 받고,
+`rsp-aware-generator`만 `@response-file`을 받는다.
+
 `dry-run`과 `explain`은 `.rsp` 파일을 만들지 않으면서 실제 object 수와 순서를 낮춰 다음
 metadata를 출력한다.
 
@@ -122,7 +144,7 @@ make qstar-windows-prep-tests
 - `logical_argv_digest=...`
 - `response_digest=...`
 - `exec_argc=2`
-- `toolset '//:no_rsp' disables response files and the host command limit is ... bytes`
+- `response files are unavailable under toolset '//:no_rsp' and the host command limit is ... bytes`
 
 ## Wide Final Action 봉인
 
@@ -132,6 +154,7 @@ Q288 correctness corpus는 0/1/48/49/252/253/256/1,000 object 경계와
 ```sh
 make qstar-wide-final-action-tests
 make qstar-wide-final-action-safety-tests
+make qstar-response-file-capability-tests
 QSTAR_LARGE_FINAL_OBJECTS="1000 4096" \
   make qstar-large-project-performance-tests
 ```

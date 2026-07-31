@@ -111,6 +111,11 @@ qstar.transform "package_blob" {
 }
 ```
 
+Generated action은 compiler/linker role이 아니므로 긴 command여도 direct argv가
+기본이다. `package-object`가 QStar의 response-file syntax를 실제로 지원할 때만
+toolset에 `response_file_tools = {"package-object"}`를 추가한다. 실행 허용을
+뜻하는 `path_tools`만으로 `@file` capability를 추론하지 않는다.
+
 Package-local executable을 PATH 이름이나 wrapper string으로 숨기지 않고 typed dependency로
 연결하려면 `qstar.tool`과 `qstar.tool_file`을 쓴다.
 
@@ -550,6 +555,8 @@ Rules:
 - It has exactly one `input` and one `output`.
 - It accepts the same `toolset` and `description` policy fields as `qstar.custom_target`.
 - If `toolset` is set, a bare PATH command tool must be listed in that toolset's `path_tools`.
+- Arbitrary generated commands use direct argv by default. Add the exact tool to
+  `response_file_tools` only when it implements the selected response-file syntax.
 - It must not know any particular file format.
 - It must not imply compile, link, archive, packaged-output, runner, package, or language semantics.
 - Docs should teach `custom_target` as the underlying primitive and `transform` as single-artifact

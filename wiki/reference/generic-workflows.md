@@ -48,6 +48,11 @@ tool을 실행한다면 `toolset`을 지정하고 그 toolset의 `path_tools`에
 이 규칙은 code generation, object conversion, package-local artifact transform, external
 validation 등 모든 generic workflow에 같은 방식으로 적용된다.
 
+Generated/run command는 긴 argv라도 direct execution이 기본이다. Tool이
+QStar response-file serialization을 실제로 지원할 때만 toolset의
+`response_file_tools`에 command 첫 argv를 명시한다. `path_tools`는 실행
+허용이고 response capability 선언이 아니다.
+
 Package-local tool이나 QStar-built executable을 command tool로 쓸 때는
 `qstar.tool_file(label)`을 argv[0]에 둔다. 이 helper는 executable path와 producer edge를
 동시에 표현하며 Stella/Ninja가 tool을 먼저 준비한다. 자세한 계약은
@@ -209,3 +214,5 @@ concepts so public syntax does not grow domain-specific target kinds.
 - `transform '//:name' requires input`
 - `generated action '//:name' references unknown toolset`
 - `generated action PATH tool '...' is not allowed by toolset path_tools`
+- response-file capability가 없는 arbitrary command의 full argv가 host limit을
+  넘으면 action label, toolset, argc, byte limit을 포함한 diagnostic

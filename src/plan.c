@@ -1240,8 +1240,9 @@ dump_genrule_argv(FILE *out, const struct qstar_graph *graph,
 	snprintf(id, sizeof(id), "%s:generate:0", genrule->label);
 	materialize_toolchain_ptr = NULL;
 	if (genrule->toolset && *genrule->toolset &&
-	    qstar_resolve_toolset_context((struct qstar_graph *)graph,
-	    genrule->toolset, &materialize_toolchain) == 0)
+	    qstar_resolve_command_materialization_context(
+	    (struct qstar_graph *)graph, genrule->toolset, genrule->tool,
+	    &materialize_toolchain) == 0)
 		materialize_toolchain_ptr = &materialize_toolchain;
 	begin_argv(out, &dump, (struct qstar_graph *)graph, id,
 	    1 + genrule->args.len, materialize_toolchain_ptr);
@@ -1278,7 +1279,9 @@ dump_run_argv(FILE *out, const struct qstar_graph *graph,
 	snprintf(id, sizeof(id), "%s:run:0", target->label);
 	materialize_toolchain_ptr = NULL;
 	if (target->toolset && *target->toolset &&
-	    qstar_resolve_toolchain((struct qstar_graph *)graph, target,
+	    qstar_resolve_command_materialization_context(
+	    (struct qstar_graph *)graph, target->toolset,
+	    target->run_command.len > 0 ? target->run_command.items[0] : NULL,
 	    &materialize_toolchain) == 0)
 		materialize_toolchain_ptr = &materialize_toolchain;
 	begin_argv(out, &dump, (struct qstar_graph *)graph, id,

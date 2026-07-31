@@ -289,6 +289,11 @@ int qstar_resolve_toolchain(struct qstar_graph *graph, const struct qstar_target
 int qstar_resolve_toolset_context(struct qstar_graph *graph,
     const char *toolset_label, struct qstar_resolved_toolchain *resolved);
 
+/** 임의 command가 명시한 tool capability를 반영한 response-file context를 만든다. */
+int qstar_resolve_command_materialization_context(struct qstar_graph *graph,
+    const char *toolset_label, const char *tool,
+    struct qstar_resolved_toolchain *resolved);
+
 /** Resolved C++ compiler의 opt-in strategy capability family를 반환한다. */
 const char *qstar_cxx_compiler_family(const struct qstar_resolved_toolchain *resolved);
 

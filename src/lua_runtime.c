@@ -2454,6 +2454,8 @@ validate_toolset_fields(lua_State *L, int table, struct qstar_graph *graph,
 		QSTAR_SCHEMA_FIELD("response_style", QSTAR_LUA_SCHEMA_STRING |
 		    QSTAR_LUA_SCHEMA_BOOLEAN, "string or boolean"),
 		QSTAR_SCHEMA_LIST("path_tools", QSTAR_LUA_SCHEMA_STRING, "string"),
+		QSTAR_SCHEMA_LIST("response_file_tools", QSTAR_LUA_SCHEMA_STRING,
+		    "string"),
 		QSTAR_SCHEMA_FIELD("allow_absolute_tools", QSTAR_LUA_SCHEMA_STRING |
 		    QSTAR_LUA_SCHEMA_BOOLEAN, "string or boolean"),
 		QSTAR_SCHEMA_END
@@ -3425,6 +3427,10 @@ collect_provider_link_interfaces_rec(struct qstar_graph *graph, const char *labe
 	dep = provider_find_target(graph, label);
 	if (!dep)
 		return qstar_set_error(graph, "qstar: unknown dependency target '%s'", label);
+	if (strcmp(dep->kind, "group") == 0 ||
+	    strcmp(dep->kind, "run_target") == 0 ||
+	    strcmp(dep->kind, "objectlib") == 0 || strcmp(dep->kind, "tool") == 0)
+		return 0;
 	if (qstar_graph_target_artifact_map(graph, dep, &map) < 0)
 		return qstar_set_error(graph, "qstar: dependency artifact path too long");
 	if (map.len > 0) {
@@ -3918,7 +3924,9 @@ add_toolset(lua_State *L, const char *name, int table_index, const char *fragmen
 	    read_string_or_bool_field(L, table_index, "allow_absolute_tools",
 	    &toolset->allow_absolute_tools, graph) < 0 ||
 	    read_list_field(L, table_index, "path_tools", &toolset->path_tools, graph,
-	    0, toolset->fragment_dir) < 0)
+	    0, toolset->fragment_dir) < 0 ||
+	    read_list_field(L, table_index, "response_file_tools",
+	    &toolset->response_file_tools, graph, 0, toolset->fragment_dir) < 0)
 		return qstar_lua_raise_declaration_error(L, graph, "qstar.toolset", label);
 	return 0;
 }

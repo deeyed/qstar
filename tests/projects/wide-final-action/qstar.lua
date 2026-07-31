@@ -99,6 +99,10 @@ qstar.toolset "response_on_tools" {
   },
   response_files = "on",
   response_style = "posix",
+  response_file_tools = {
+    "tools/fake-generate-posix",
+    "tools/fake-command-posix",
+  },
 }
 
 qstar.toolset "response_auto_tools" {

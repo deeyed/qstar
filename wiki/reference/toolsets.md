@@ -111,12 +111,19 @@ qstar.toolset "host" {
     archive = qstar.cli {"ar"},
     link = qstar.cli {"cc"},
   },
-  path_tools = {"python3", "sh"},
+  path_tools = {"python3", "sh", "rsp-aware-generator"},
+  response_file_tools = {"rsp-aware-generator"},
 }
 ```
 
 절대 경로 tool은 기본적으로 거부된다. 꼭 필요한 경우에만
 `allow_absolute_tools = true`를 사용한다.
+
+`path_tools`는 PATH에서 실행해도 되는 command를 선언한다.
+`response_file_tools`는 그중 `tool @file` argument protocol을 실제로
+지원하는 arbitrary command만 별도로 opt-in한다. Python, 일반 shell,
+임의 script는 direct argv가 기본이며 단지 `response_files = "on"`이라는
+이유로 `@file`로 다시 쓰이지 않는다.
 
 ## Response Files
 
@@ -131,12 +138,18 @@ qstar.toolset "rsp" {
   },
   response_files = "on",
   response_style = "posix",
+  response_file_tools = {"rsp-aware-generator"},
 }
 ```
 
 `response_files`는 `auto`, `on`, `off`를 받는다. `response_style`은 host/tool family에 맞는
 quoting style을 고르는 문자열이다. QStar는 style을 command semantics로 해석하지 않고 argv
 materialization에만 사용한다.
+
+Compiler/archive/link/provider final role은 resolved tool policy에 따라 자동
+response materialization을 사용할 수 있다. `qstar.custom_target`,
+`qstar.transform`, `qstar.run_target`은 임의 command이므로 exact first argv
+tool이 `response_file_tools`에 있을 때만 같은 materializer를 활성화한다.
 
 ## 관련 CLI
 
@@ -213,6 +226,10 @@ materialize한다.
 | `"on"` | response file 사용 |
 | `"auto"` | resolved tool policy가 허용하면 response file 사용 |
 | `"off"` | full argv를 실행하며 host command byte limit의 영향을 받음 |
+
+이 표의 자동 정책은 compiler/archive/link/provider final role에 적용된다.
+Generated/run command는 `response_file_tools` opt-in이 없으면 `"on"`이나
+`"auto"`에서도 full argv를 실행한다.
 
 `qstar.objectlib`이나 final target에는 256-object public limit이 없다.
 QStar는 긴 목록을 staticlib로 자동 변환하거나 object 포함 순서를 바꾸지

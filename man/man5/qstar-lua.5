@@ -90,6 +90,13 @@ they are not parsed by
 and do not inject argv.
 .It Ic qstar.toolset
 Explicit compiler, archive, link, response-file, and external tool role bundle.
+The
+.Ic path_tools
+list authorizes bare PATH commands. The separate
+.Ic response_file_tools
+list opts an arbitrary generated or run command into the selected
+.Ic tool @response-file
+argument protocol.
 .It Ic qstar.use_language
 Activate a bundled or project-local language provider. The short form
 .Ic qstar.use_language("zig")
@@ -346,6 +353,11 @@ When
 .Ic toolset
 is present, bare PATH command tools must be declared by that toolset's
 .Ic path_tools .
+Generated commands use direct argv by default. The exact first argv tool must
+also appear in
+.Ic response_file_tools
+before QStar may materialize a long command as
+.Ic tool @response-file .
 .It Ic qstar.transform
 Single-input single-output generated artifact transform sugar. It lowers to the
 same generated action contract as
@@ -374,6 +386,9 @@ layout-root tokens. Inside
 .Ic command = qstar.cli { ... } ,
 .Ic qstar.input(N)
 resolves to the Nth run input.
+Run commands use direct argv unless the selected toolset explicitly lists the
+first argv tool in
+.Ic response_file_tools .
 .It Ic qstar.group
 Deps-only aggregate target with no command, artifact, install output, or
 .Ic qstar.target_file
@@ -806,7 +821,10 @@ file contains the logical tail after the tool executable in the same order.
 or
 .Dq auto
 permits long commands to execute through a response file according to the
-resolved tool policy.
+resolved compiler, archive, linker, or provider-final tool policy. Arbitrary
+generated and run commands remain direct argv unless the exact command tool is
+listed in the toolset's
+.Ic response_file_tools .
 .Ic response_files = \(dqoff\(dq
 uses the full execution vector and is therefore subject to the host command
 byte limit. QStar does not automatically split a final action or wrap objects

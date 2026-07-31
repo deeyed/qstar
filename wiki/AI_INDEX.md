@@ -546,6 +546,8 @@ Toolset/build policy:
 - External provider toolset 문법도 provider namespace를 직접 받는 형태다:
   `tools = { archive = qstar.cli {"ar"}, link = qstar.cli {"cc"}, zig = zig.tools { compiler = qstar.cli {"zig"} } }`.
 - `response_files`, `response_style`
+- `response_file_tools`: arbitrary generated/run command의 exact first argv
+  tool이 `@file` protocol을 지원할 때만 쓰는 opt-in capability
 - `path_tools`, `allow_absolute_tools`
 - compile/link option은 `qstar.config`와 target-local `lang.*`, `link_options`,
   `link_inputs`로 조합한다.
@@ -639,6 +641,9 @@ Generated file이나 복수 입출력 generator는 `qstar.custom_target`으로 �
 toolset이 지정된 generated action에서 command 첫 argv가 bare PATH tool이면 해당 toolset의
 `path_tools`에 있어야 한다. Toolset을 생략하면 graph에 선언된 toolset path-tool policy를
 따른다.
+Generated/run command는 compiler/linker role이 아니므로 direct argv가
+기본이다. `response_files = "on"`만으로 Python이나 shell에 `@file`을
+주입하지 않으며, 지원 도구만 `response_file_tools`에 명시한다.
 
 ```lua
 qstar.toolset "artifact_tools" {

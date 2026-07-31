@@ -292,6 +292,7 @@ free_toolset(struct qstar_toolset *toolset)
 	}
 	free(toolset->roles);
 	qstar_string_list_free(&toolset->path_tools);
+	qstar_string_list_free(&toolset->response_file_tools);
 	free(toolset->response_files);
 	free(toolset->response_style);
 	free(toolset->allow_absolute_tools);
@@ -4618,6 +4619,9 @@ dump_toolset(const struct qstar_toolset *toolset, FILE *out)
 	fputs("  path_tools ", out);
 	dump_list(out, &toolset->path_tools);
 	fputc('\n', out);
+	fputs("  response_file_tools ", out);
+	dump_list(out, &toolset->response_file_tools);
+	fputc('\n', out);
 }
 
 /** activated language provider registry entry를 Graph IR dump 형식으로 출력한다. */
@@ -5360,6 +5364,8 @@ dump_toolset_json(FILE *out, const struct qstar_toolset *toolset)
 	    toolset->allow_absolute_tools : "false");
 	fputs(",\"path_tools\":", out);
 	dump_json_list(out, &toolset->path_tools);
+	fputs(",\"response_file_tools\":", out);
+	dump_json_list(out, &toolset->response_file_tools);
 	fputc('}', out);
 }
 

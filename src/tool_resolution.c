@@ -223,3 +223,39 @@ qstar_resolve_toolset_context(struct qstar_graph *graph,
 	owner.toolset = (char *)toolset_label;
 	return qstar_resolve_toolchain(graph, &owner, resolved);
 }
+
+/** list가 exact command tool capability를 선언했는지 확인한다. */
+static int
+tool_list_contains(const struct qstar_string_list *list, const char *tool)
+{
+	size_t i;
+
+	if (!list || !tool || !*tool)
+		return 0;
+	for (i = 0; i < list->len; i++) {
+		if (strcmp(list->items[i], tool) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+/**
+ * custom/run command는 compiler/archive/link role이 아니다.
+ *
+ * 따라서 toolset의 일반 response policy만으로 @file을 주입하지 않고, command
+ * tool이 response_file_tools에 명시된 경우에만 그 policy를 활성화한다.
+ */
+int
+qstar_resolve_command_materialization_context(struct qstar_graph *graph,
+    const char *toolset_label, const char *tool,
+    struct qstar_resolved_toolchain *resolved)
+{
+	const struct qstar_toolset *toolset;
+
+	if (qstar_resolve_toolset_context(graph, toolset_label, resolved) < 0)
+		return -1;
+	toolset = qstar_graph_find_toolset(graph, toolset_label);
+	if (!toolset || !tool_list_contains(&toolset->response_file_tools, tool))
+		resolved->response_files = 0;
+	return 0;
+}

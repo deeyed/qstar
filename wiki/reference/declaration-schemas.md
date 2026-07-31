@@ -16,7 +16,7 @@ qstar: src/core/core.qst:12: qstar.objectlib declaration '//src/core:objects': f
 | Declaration | Builtin field |
 | --- | --- |
 | `qstar.project` | `name`, `version`, `root`, `build_dir`, `generated_dir`, `compile_commands`, `action_cache` string |
-| `qstar.toolset` | `tools` table, response policy string/bool, `path_tools` list, absolute-tool policy string/bool |
+| `qstar.toolset` | `tools` table, response policy string/bool, `path_tools` list, `response_file_tools` list, absolute-tool policy string/bool |
 | `qstar.config` | `lang`, link table, library/link lists, `toolset`, `artifact_name`, `cacheable` boolean |
 | Artifact target | configs/sources/dependency/object/link/lang/toolset/artifact fields와 `cacheable`; `qstar.test` adds resources/retry/setup/cleanup/timeout/manual/skip |
 | `qstar.objectlib` | configs/sources/dependencies/visibility/lang/toolset, `compile_context`, `cacheable` |

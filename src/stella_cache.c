@@ -8,10 +8,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v11"
-#define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v7"
+#define QSTAR_STELLA_CACHE_SCHEMA "qstar-stella-plan-cache-v12"
+#define QSTAR_STELLA_GRAPH_MAGIC "qstar-stella-graph-cache-v8"
 #define QSTAR_STELLA_ACTION_MAGIC "qstar-stella-actions-cache-v2"
-#define QSTAR_STELLA_PLAN_ABI 15
+#define QSTAR_STELLA_PLAN_ABI 16
 #define QSTAR_STELLA_HASH_INIT 1469598103934665603ULL
 #define QSTAR_STELLA_HASH_PRIME 1099511628211ULL
 #define QSTAR_STELLA_MAX_STRING (16U * 1024U * 1024U)
@@ -282,6 +282,7 @@ write_toolset(FILE *f, const struct qstar_toolset *toolset)
 	}
 	return
 	    write_list(f, &toolset->path_tools) < 0 ||
+	    write_list(f, &toolset->response_file_tools) < 0 ||
 	    write_str(f, toolset->response_files) < 0 ||
 	    write_str(f, toolset->response_style) < 0 ||
 	    write_str(f, toolset->allow_absolute_tools) < 0 ? -1 : 0;
@@ -313,6 +314,7 @@ read_toolset(FILE *f, struct qstar_toolset *toolset)
 	qstar_toolset_sort_roles(toolset);
 	return
 	    read_list(f, &toolset->path_tools) < 0 ||
+	    read_list(f, &toolset->response_file_tools) < 0 ||
 	    read_str(f, &toolset->response_files) < 0 ||
 	    read_str(f, &toolset->response_style) < 0 ||
 	    read_str(f, &toolset->allow_absolute_tools) < 0 ? -1 : 0;

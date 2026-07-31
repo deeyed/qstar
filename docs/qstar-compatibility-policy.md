@@ -50,8 +50,11 @@ them as protected unless this document is updated first.
 - Core tool roles `archive` and `link`.
 - Provider namespace tool bundles such as `c`, `cxx`, `asm`, and activated
   external provider namespaces.
-- Toolset response-file policy: `response_files`, `response_style`,
-  `path_tools`, and `allow_absolute_tools`.
+- Toolset response-file and external-tool policy: `response_files`,
+  `response_style`, `path_tools`, `response_file_tools`, and
+  `allow_absolute_tools`. Compiler/archive/link/provider final roles may use
+  automatic response materialization; arbitrary generated/run commands require
+  an explicit `response_file_tools` capability entry.
 - `qstar.config` reusable option bundles.
 - Config merge semantics: referenced configs apply in list order, list fields
   append, and target-local scalar fields override config scalar fields.
@@ -87,6 +90,8 @@ them as protected unless this document is updated first.
   `qstar.transform`, including their boolean `cacheable` candidate policy.
 - Run actions: `qstar.run_target` with `inputs`, `command`, `timeout`, and
   `expect`.
+- Completion-only dependency semantics: `group` and `run_target` dependencies
+  order actions but are not inferred artifact or link inputs.
 - Target dependency fields: `deps`, `public_deps`, `private_deps`, `configs`,
   `sources`, and `visibility`.
 - Target-local language option tables under `lang.<namespace>`.
@@ -321,6 +326,9 @@ Response file path만 cache key로 쓰거나, backend별로 object 순서를 다
 구성하거나, 내부 한도를 피하기 위해 object를 자동 archive하는 변경은
 호환 변경으로 취급하지 않는다. `response_files = "off"`에서 host command
 byte limit을 넘는 명령은 명확한 진단으로 실패할 수 있다.
+같은 원칙은 response-file capability를 선언하지 않은 arbitrary
+generated/run command에도 적용된다. QStar는 `response_files = "on"`만으로
+Python, shell, 또는 기타 임의 tool에 `@file` protocol을 추론하지 않는다.
 
 `QSTAR_EXEC_MAX_ARGV`, `QSTAR_NINJA_MAX_ARGV`, `has too many object inputs`
 같은 command-capacity 제한이나 진단은 다시 도입하지 않는다. Scheduler job,

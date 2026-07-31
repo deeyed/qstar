@@ -60,6 +60,14 @@ policy로 해석된다. Bare PATH tool은 해당 toolset의 `path_tools`에 있�
 생략하면 graph에 선언된 toolset의 path tool 정책을 사용한다. Package-relative command
 path(`tools/gen-value.sh`)는 package-local 실행 파일로 취급되므로 `path_tools`가 필요 없다.
 
+Generated action은 compiler/linker role이 아니므로 긴 argv를 자동으로
+`tool @response-file`로 바꾸지 않는다. 해당 tool이 선택한
+`response_style`을 실제로 지원할 때만 toolset의
+`response_file_tools = {"gen-value"}`에 exact first argv tool을 추가한다.
+Python이나 일반 shell처럼 `@file`을 해석하지 않는 command는 direct argv로
+유지한다. Direct argv가 host command byte limit을 넘으면 QStar는 명시적
+diagnostic으로 실패하며 tool protocol을 추론하지 않는다.
+
 `qstar.transform`은 같은 generated action contract로 낮아진다. 복수 input/output이나 더
 복잡한 generator는 `qstar.custom_target`을 사용한다.
 

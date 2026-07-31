@@ -2034,8 +2034,8 @@ emit_genrule_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 	memset(&argv, 0, sizeof(argv));
 	materialize_toolchain_ptr = NULL;
 	if (genrule->toolset && *genrule->toolset) {
-		if (qstar_resolve_toolset_context(graph, genrule->toolset,
-		    &materialize_toolchain) < 0)
+		if (qstar_resolve_command_materialization_context(graph,
+		    genrule->toolset, genrule->tool, &materialize_toolchain) < 0)
 			return -1;
 		materialize_toolchain_ptr = &materialize_toolchain;
 	}
@@ -2778,6 +2778,7 @@ collect_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *d
 	if (qstar_string_list_push(seen, dep->label) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
 	if (strcmp(dep->kind, "group") == 0 ||
+	    strcmp(dep->kind, "run_target") == 0 ||
 	    strcmp(dep->kind, "objectlib") == 0 || strcmp(dep->kind, "tool") == 0)
 		return 0;
 	if (strcmp(dep->kind, "interface") != 0) {
@@ -3653,7 +3654,8 @@ emit_run_edge(struct qstar_graph *graph, struct ninja_ctx *ctx,
 		goto fail;
 	materialize_toolchain_ptr = NULL;
 	if (target->toolset && *target->toolset) {
-		if (qstar_resolve_toolchain(graph, target,
+		if (qstar_resolve_command_materialization_context(graph,
+		    target->toolset, target->run_command.items[0],
 		    &materialize_toolchain) < 0)
 			goto fail;
 		materialize_toolchain_ptr = &materialize_toolchain;

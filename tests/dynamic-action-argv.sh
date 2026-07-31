@@ -299,6 +299,10 @@ qstar.toolset "wide_tools" {
   },
   response_files = "on",
   response_style = "posix",
+  response_file_tools = {
+    "tools/fake-generate.sh",
+    "tools/fake-run.sh",
+  },
 }
 
 qstar.toolset "no_rsp_tools" {
@@ -582,7 +586,8 @@ if (
 fi
 contains "$tmp/no-rsp-limit.err" \
   "final action '//:no_rsp_limit:link:0'"
-contains "$tmp/no-rsp-limit.err" "toolset '//:no_rsp_tools' disables response files"
+contains "$tmp/no-rsp-limit.err" \
+  "response files are unavailable under toolset '//:no_rsp_tools'"
 contains "$tmp/no-rsp-limit.err" "host command limit is 32767 bytes"
 contains "$tmp/no-rsp-limit.err" "argv items and"
 

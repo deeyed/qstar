@@ -1539,6 +1539,7 @@ hash_toolsets(unsigned long long *h, const struct qstar_graph *graph)
 			hash_string_list(h, &toolset->roles[j].argv);
 		}
 		hash_string_list(h, &toolset->path_tools);
+		hash_string_list(h, &toolset->response_file_tools);
 	}
 }
 
@@ -3895,15 +3896,18 @@ prepared_action_materialization_toolchain(struct qstar_graph *graph,
 		return 0;
 	if (action->genrule && action->genrule->toolset &&
 	    *action->genrule->toolset) {
-		if (qstar_resolve_toolset_context(graph, action->genrule->toolset,
-		    storage) < 0)
+		if (qstar_resolve_command_materialization_context(graph,
+		    action->genrule->toolset, action->genrule->tool, storage) < 0)
 			return -1;
 		*resolved = storage;
 		return 0;
 	}
 	if (action->target && strcmp(action->kind, "run") == 0 &&
 	    action->target->toolset && *action->target->toolset) {
-		if (qstar_resolve_toolchain(graph, action->target, storage) < 0)
+		if (qstar_resolve_command_materialization_context(graph,
+		    action->target->toolset,
+		    action->target->run_command.len > 0 ?
+		    action->target->run_command.items[0] : NULL, storage) < 0)
 			return -1;
 		*resolved = storage;
 	}
@@ -5354,7 +5358,10 @@ prepare_run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	memset(&outputs, 0, sizeof(outputs));
 	for (i = 0; i < target->deps.len; i++) {
 		dep = find_target(graph, target->deps.items[i]);
-		if (dep && strcmp(dep->kind, "group") == 0)
+		if (dep && (strcmp(dep->kind, "group") == 0 ||
+		    strcmp(dep->kind, "run_target") == 0 ||
+		    strcmp(dep->kind, "objectlib") == 0 ||
+		    strcmp(dep->kind, "interface") == 0))
 			continue;
 		if (!dep || qstar_graph_artifact_output_path(graph, dep, artifact,
 		    sizeof(artifact)) < 0)
@@ -5367,7 +5374,10 @@ prepare_run_action(struct qstar_graph *graph, struct qstar_build_ctx *ctx,
 	}
 	for (i = 0; i < target->private_deps.len; i++) {
 		dep = find_target(graph, target->private_deps.items[i]);
-		if (dep && strcmp(dep->kind, "group") == 0)
+		if (dep && (strcmp(dep->kind, "group") == 0 ||
+		    strcmp(dep->kind, "run_target") == 0 ||
+		    strcmp(dep->kind, "objectlib") == 0 ||
+		    strcmp(dep->kind, "interface") == 0))
 			continue;
 		if (dep && qstar_graph_artifact_output_path(graph, dep, artifact,
 		    sizeof(artifact)) == 0) {
@@ -7121,6 +7131,7 @@ append_dep_artifact_rec(struct qstar_graph *graph, const struct qstar_target *de
 	if (qstar_string_list_push(seen, dep->label) < 0)
 		return qstar_set_error(graph, "qstar: out of memory");
 	if (strcmp(dep->kind, "group") == 0 ||
+	    strcmp(dep->kind, "run_target") == 0 ||
 	    strcmp(dep->kind, "objectlib") == 0 || strcmp(dep->kind, "tool") == 0)
 		return 0;
 	if (strcmp(dep->kind, "interface") != 0) {

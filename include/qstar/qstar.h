@@ -200,6 +200,7 @@ struct qstar_toolset {
 	size_t role_len;
 	size_t role_cap;
 	struct qstar_string_list path_tools;
+	struct qstar_string_list response_file_tools;
 	char *response_files;
 	char *response_style;
 	char *allow_absolute_tools;

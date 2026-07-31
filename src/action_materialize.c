@@ -364,7 +364,8 @@ validate_full_command_limit(struct qstar_graph *graph, const char *action_id,
 			*host_limit = limit;
 			return qstar_set_error(graph,
 			    "qstar: final action '%s' requires %zu argv items and "
-			    "%zu bytes, but toolset '%s' disables response files "
+			    "%zu bytes, but response files are unavailable under "
+			    "toolset '%s' "
 			    "and the host command limit is %zu bytes",
 			    action_id, logical->len, logical->bytes, toolset, limit);
 		}
@@ -392,7 +393,7 @@ validate_full_command_limit(struct qstar_graph *graph, const char *action_id,
 		return 0;
 	return qstar_set_error(graph,
 	    "qstar: final action '%s' requires %zu argv items and %zu bytes, "
-	    "but toolset '%s' disables response files and the host command "
+	    "but response files are unavailable under toolset '%s' and the host command "
 	    "limit is %zu bytes",
 	    action_id, logical->len, logical->bytes, toolset, limit);
 }
